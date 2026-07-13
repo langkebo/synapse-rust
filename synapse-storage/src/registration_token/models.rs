@@ -35,7 +35,7 @@ pub struct RegistrationToken {
     pub expires_at: Option<i64>,
     pub created_by: Option<String>,
     pub created_ts: i64,
-    pub updated_ts: i64,
+    pub updated_ts: Option<i64>,
     pub last_used_ts: Option<i64>,
     pub allowed_email_domains: Option<Vec<String>>,
     pub allowed_user_ids: Option<Vec<String>>,
@@ -47,7 +47,7 @@ pub struct RegistrationToken {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RegistrationTokenUsage {
     pub id: i64,
-    pub token_id: i64,
+    pub token_id: Option<i64>,
     pub token: String,
     pub user_id: String,
     pub username: Option<String>,

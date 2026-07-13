@@ -226,7 +226,10 @@ async fn resolve_server_keys(ctx: &FederationContext) -> Result<Value, ApiError>
     let verify_key = match config.signing_key.as_deref().and_then(|k| {
         let res = derive_ed25519_verify_key_base64(k);
         if res.is_none() {
-            ::tracing::error!("Failed to derive verify key from signing_key: {}", k);
+            ::tracing::error!(
+                "Failed to derive verify key from configured signing_key ([REDACTED], {} chars)",
+                k.len()
+            );
         }
         res
     }) {
@@ -297,13 +300,14 @@ async fn fetch_remote_server_keys_response(
         .map_err(|e| ApiError::internal_with_log("Failed to build federation HTTP client", &e))?;
 
     // SSRF protection: reuse the URL preview IP blacklist to block private/loopback addresses.
-    let ip_blacklist = &ctx.config.url_preview.ip_range_blacklist;
+    // When `allow_http_key_fetch` is set (test/dev only), HTTP is used and SSRF checks are skipped.
+    let allow_http = ctx.config.federation.allow_http_key_fetch;
+    let ip_blacklist = if allow_http { &[][..] } else { &ctx.config.url_preview.ip_range_blacklist };
 
-    // HTTPS only — Matrix federation requires TLS. HTTP fallback is removed to prevent
-    // MITM attacks on server key retrieval.
+    let scheme = if allow_http { "http" } else { "https" };
     let urls = [
-        format!("https://{server_name}/_matrix/key/v2/server"),
-        format!("https://{server_name}/_matrix/key/v2/query/{server_name}/{key_id}"),
+        format!("{scheme}://{server_name}/_matrix/key/v2/server"),
+        format!("{scheme}://{server_name}/_matrix/key/v2/query/{server_name}/{key_id}"),
     ];
 
     for url in &urls {
@@ -637,6 +641,14 @@ mod tests {
     use ed25519_dalek::{Signer, SigningKey};
     use rand::RngCore;
     use serde_json::json;
+
+    /// OPT-002 source gate: the raw federation signing key must never be
+    /// interpolated verbatim into a log statement.
+    #[test]
+    fn signing_key_never_logged_verbatim() {
+        let src = include_str!("keys.rs");
+        assert!(!src.contains("from signing_key: {}\", k"), "raw signing key must not be interpolated into logs");
+    }
 
     /// Generate an Ed25519 keypair and return (key_id, public_key_b64, signing_key).
     fn gen_keypair() -> (String, String, SigningKey) {

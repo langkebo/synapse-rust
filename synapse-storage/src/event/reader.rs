@@ -137,6 +137,25 @@ pub trait EventReader: Send + Sync {
 
     async fn has_room_events_since(&self, room_ids: &[String], since: i64) -> Result<bool, sqlx::Error>;
 
+    // ── unread counts / room state copy ────────────────────────────────
+    //
+    // These queries read from the `events` table and were moved here from
+    // `RoomStorage` to enforce the storage-layer boundary (project rules §7.1).
+
+    async fn get_unread_counts(
+        &self,
+        room_id: &str,
+        user_id: &str,
+    ) -> Result<crate::room::RoomUnreadCounts, sqlx::Error>;
+
+    async fn get_unread_counts_batch(
+        &self,
+        room_ids: &[String],
+        user_id: &str,
+    ) -> Result<Vec<crate::room::RoomUnreadCounts>, sqlx::Error>;
+
+    async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error>;
+
     // ── graph / dag ──────────────────────────────────────────────────────
 
     async fn find_missing_event_ids(&self, event_ids: &[String]) -> Result<Vec<String>, sqlx::Error>;
@@ -442,5 +461,43 @@ impl crate::event::reader::EventReader for super::EventStorage {
 
     async fn check_room_has_encryption(&self, room_id: &str) -> Result<bool, sqlx::Error> {
         self.check_room_has_encryption(room_id).await
+    }
+
+    async fn delete_events_before(&self, room_id: &str, timestamp: i64) -> Result<u64, sqlx::Error> {
+        self.delete_events_before(room_id, timestamp).await
+    }
+
+    async fn upsert_power_levels_event(
+        &self,
+        event_id: &str,
+        room_id: &str,
+        user_id: &str,
+        content: serde_json::Value,
+        origin_server_ts: i64,
+        sender: &str,
+    ) -> Result<(), sqlx::Error> {
+        self.upsert_power_levels_event(event_id, room_id, user_id, content, origin_server_ts, sender).await
+    }
+
+    // ── unread counts / room state copy (moved from RoomStorage) ───────
+
+    async fn get_unread_counts(
+        &self,
+        room_id: &str,
+        user_id: &str,
+    ) -> Result<crate::room::RoomUnreadCounts, sqlx::Error> {
+        self.get_unread_counts(room_id, user_id).await
+    }
+
+    async fn get_unread_counts_batch(
+        &self,
+        room_ids: &[String],
+        user_id: &str,
+    ) -> Result<Vec<crate::room::RoomUnreadCounts>, sqlx::Error> {
+        self.get_unread_counts_batch(room_ids, user_id).await
+    }
+
+    async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error> {
+        self.copy_room_state(source_room_id, target_room_id).await
     }
 }

@@ -413,9 +413,11 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
     async fn unban_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
         let mut members = self.members.write().await;
         if let Some(member) = members.get_mut(&(room_id.to_string(), user_id.to_string())) {
-            member.membership = "leave".to_string();
-            member.banned_by = None;
-            member.is_banned = Some(false);
+            if member.membership == "ban" {
+                member.membership = "leave".to_string();
+                member.banned_by = None;
+                member.is_banned = Some(false);
+            }
         }
         Ok(())
     }

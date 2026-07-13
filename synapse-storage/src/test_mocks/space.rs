@@ -251,8 +251,8 @@ impl crate::space::SpaceStoreApi for InMemorySpaceStore {
             id,
             space_id: space_id.to_string(),
             summary: serde_json::json!({}),
-            children_count,
-            member_count,
+            children_count: Some(children_count),
+            member_count: Some(member_count),
             updated_ts: now,
         };
         self.summaries.write().await.insert(space_id.to_string(), summary);

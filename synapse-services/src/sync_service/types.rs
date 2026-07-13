@@ -120,6 +120,7 @@ pub struct SyncServiceDeps {
     pub to_device_storage: ToDeviceStorage,
     pub metrics: Arc<MetricsCollector>,
     pub performance: PerformanceConfig,
+    pub cache: Arc<synapse_cache::CacheManager>,
 }
 
 pub struct SyncServiceRequest<'a> {

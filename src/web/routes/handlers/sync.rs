@@ -1,6 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::context::SyncContext;
-use crate::web::utils::auth::bearer_token;
+use crate::web::routes::AuthenticatedUser;
 use axum::{
     extract::{Json, Query, State},
     http::HeaderMap,
@@ -50,10 +50,11 @@ fn resolve_rate_limit_override(ctx: &SyncContext) -> (bool, bool, u32, u32, u32,
 pub(crate) async fn sync(
     State(ctx): State<SyncContext>,
     headers: HeaderMap,
+    auth_user: AuthenticatedUser,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let token = bearer_token(&headers)?;
-    let (user_id, device_id, _, _, _) = ctx.token_auth.validate_token(&token).await?;
+    let user_id = auth_user.user_id;
+    let device_id = auth_user.device_id;
 
     let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);
     let is_full_state = parse_bool_query_param(&params, "full_state").unwrap_or(false);
@@ -146,16 +147,13 @@ async fn execute_sync(params: SyncParams) -> Result<Json<Value>, ApiError> {
 
 pub(crate) async fn get_events(
     State(ctx): State<SyncContext>,
-    headers: HeaderMap,
+    auth_user: AuthenticatedUser,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
-
     let from = params.get("from").and_then(|v| v.as_str()).unwrap_or("0");
     let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);
 
-    let result = ctx.sync_service.get_events(&user_id, from, timeout).await?;
+    let result = ctx.sync_service.get_events(&auth_user.user_id, from, timeout).await?;
 
     Ok(Json(result))
 }

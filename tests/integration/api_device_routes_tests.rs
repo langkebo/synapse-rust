@@ -206,6 +206,21 @@ async fn test_delete_devices_alias_is_shared() {
     let (token, _) = register_user(&app, "device_routes_delete").await;
     let device_id = get_first_device_id(&app, &token, "/_matrix/client/v3/devices").await;
 
+    // Step 1: request without auth to get UIA session
+    let challenge_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/delete_devices")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "devices": [device_id] }).to_string()))
+        .unwrap();
+    let challenge_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), challenge_request).await.unwrap();
+    assert_eq!(challenge_response.status(), StatusCode::UNAUTHORIZED);
+    let body = axum::body::to_bytes(challenge_response.into_body(), 4096).await.unwrap();
+    let session =
+        serde_json::from_slice::<Value>(&body).unwrap()["session"].as_str().expect("missing UIA session").to_string();
+
+    // Step 2: resend with auth + session
     let delete_request = Request::builder()
         .method("POST")
         .uri("/_matrix/client/r0/delete_devices")
@@ -213,7 +228,12 @@ async fn test_delete_devices_alias_is_shared() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "devices": [device_id]
+                "devices": [device_id],
+                "auth": {
+                    "type": "m.login.password",
+                    "session": session,
+                    "password": "Password123!"
+                }
             })
             .to_string(),
         ))
@@ -248,6 +268,21 @@ async fn test_delete_devices_only_removes_current_users_devices() {
     let device_a = get_first_device_id(&app, &token_a, "/_matrix/client/v3/devices").await;
     let device_b = get_first_device_id(&app, &token_b, "/_matrix/client/v3/devices").await;
 
+    // Step 1: request without auth to get UIA session
+    let challenge_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/delete_devices")
+        .header("Authorization", format!("Bearer {}", token_a))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "device_ids": [device_a, device_b] }).to_string()))
+        .unwrap();
+    let challenge_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), challenge_request).await.unwrap();
+    assert_eq!(challenge_response.status(), StatusCode::UNAUTHORIZED);
+    let body = axum::body::to_bytes(challenge_response.into_body(), 4096).await.unwrap();
+    let session =
+        serde_json::from_slice::<Value>(&body).unwrap()["session"].as_str().expect("missing UIA session").to_string();
+
+    // Step 2: resend with auth + session
     let delete_request = Request::builder()
         .method("POST")
         .uri("/_matrix/client/v3/delete_devices")
@@ -255,7 +290,12 @@ async fn test_delete_devices_only_removes_current_users_devices() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "device_ids": [device_a, device_b]
+                "device_ids": [device_a, device_b],
+                "auth": {
+                    "type": "m.login.password",
+                    "session": session,
+                    "password": "Password123!"
+                }
             })
             .to_string(),
         ))

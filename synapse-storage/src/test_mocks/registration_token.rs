@@ -43,7 +43,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
             expires_at: request.expires_at,
             created_by: request.created_by,
             created_ts: now,
-            updated_ts: now,
+            updated_ts: Some(now),
             last_used_ts: None,
             allowed_email_domains: request.allowed_email_domains,
             allowed_user_ids: request.allowed_user_ids,
@@ -89,7 +89,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
         if let Some(exp) = request.expires_at {
             t.expires_at = Some(exp);
         }
-        t.updated_ts = chrono::Utc::now().timestamp_millis();
+        t.updated_ts = Some(chrono::Utc::now().timestamp_millis());
         let result = t.clone();
         // Also update in tokens map
         self.tokens.write().await.insert(t.token.clone(), t.clone());
@@ -181,7 +181,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
         }
         let usage = crate::registration_token::RegistrationTokenUsage {
             id: self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            token_id,
+            token_id: Some(token_id),
             token: token.to_string(),
             user_id: user_id.to_string(),
             username: username.map(|s| s.to_string()),
@@ -368,7 +368,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
                 expires_at: batch.expires_at,
                 created_by: batch.created_by.clone(),
                 created_ts: now,
-                updated_ts: now,
+                updated_ts: Some(now),
                 last_used_ts: None,
                 allowed_email_domains: None,
                 allowed_user_ids: None,

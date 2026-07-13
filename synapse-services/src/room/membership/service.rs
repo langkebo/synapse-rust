@@ -6,13 +6,18 @@
 use crate::common::error::{ApiError, ApiResult};
 use crate::UserService;
 use serde_json::json;
+use std::str::FromStr;
 use std::sync::Arc;
+use synapse_cache::CacheManager;
+use synapse_common::{is_legal, JoinRule, Membership, TransitionCtx};
 use synapse_federation::client_api::FederationClientApi;
 use synapse_federation::key_rotation::SigningKey;
 use synapse_federation::signing::sign_and_hash_event;
 use synapse_federation::KeyRotationManager;
 use synapse_storage::event::RoomEvent;
 use synapse_storage::{MemberStoreApi, RoomStoreApi, UserStore};
+
+use synapse_e2ee::key_rotation::KeyRotationStorageApi;
 
 use crate::room::summary::RoomSummaryService;
 
@@ -34,6 +39,14 @@ pub struct MembershipService {
     pub(crate) key_rotation_manager: Option<Arc<KeyRotationManager>>,
     pub(crate) event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub(crate) room_summary_service: Arc<RoomSummaryService>,
+    pub(crate) cache: Arc<CacheManager>,
+    /// Optional key-rotation storage. When present, leaving a LOCAL encrypted
+    /// room marks the room's megolm session for rotation (forward secrecy).
+    pub(crate) key_rotation_storage: Option<Arc<dyn KeyRotationStorageApi>>,
+    /// Optional application-service manager. When present, membership events
+    /// (join, leave, invite, ban) are enqueued for matching application
+    /// services after they are persisted.
+    pub(crate) app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
 }
 
 /// Configuration for constructing a [`MembershipService`].
@@ -50,6 +63,9 @@ pub struct MembershipServiceConfig {
     pub key_rotation_manager: Option<Arc<KeyRotationManager>>,
     pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub room_summary_service: Arc<RoomSummaryService>,
+    pub cache: Arc<CacheManager>,
+    pub key_rotation_storage: Option<Arc<dyn KeyRotationStorageApi>>,
+    pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
 }
 
 impl MembershipService {
@@ -67,6 +83,9 @@ impl MembershipService {
             key_rotation_manager: config.key_rotation_manager,
             event_broadcaster: config.event_broadcaster,
             room_summary_service: config.room_summary_service,
+            cache: config.cache,
+            key_rotation_storage: config.key_rotation_storage,
+            app_service_manager: config.app_service_manager,
         }
     }
 
@@ -175,6 +194,123 @@ impl MembershipService {
         }
 
         Ok(())
+    }
+
+    /// Best-effort: enqueue a membership event for any matching application
+    /// services.  Called after the event is persisted so bridges receive
+    /// membership transitions (join, leave, invite, ban).
+    pub(crate) async fn dispatch_appservice_event(&self, event: &RoomEvent) {
+        let Some(app_service_manager) = &self.app_service_manager else {
+            return;
+        };
+
+        if let Err(error) = app_service_manager
+            .enqueue_matching_event(
+                &event.event_id,
+                &event.room_id,
+                &event.event_type,
+                &event.user_id,
+                &event.content,
+                event.state_key.as_deref(),
+            )
+            .await
+        {
+            ::tracing::warn!(
+                error = %error,
+                event_id = %event.event_id,
+                room_id = %event.room_id,
+                event_type = %event.event_type,
+                "Failed to enqueue application service event for membership transition"
+            );
+        }
+    }
+
+    /// Resolve a target user's current membership (as the typed [`Membership`]
+    /// enum) plus whether they are currently banned. `None` means the user has
+    /// no membership record in the room. Used to build the `from` state for a
+    /// membership-transition legality check.
+    pub(crate) async fn resolve_membership_from(
+        &self,
+        room_id: &str,
+        target_id: &str,
+    ) -> ApiResult<(Option<Membership>, bool)> {
+        let existing = self
+            .member_storage
+            .get_room_member(room_id, target_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check membership", &e))?;
+        let from = existing.as_ref().and_then(|m| Membership::from_str(&m.membership).ok());
+        let is_banned = from == Some(Membership::Ban) || existing.as_ref().and_then(|m| m.is_banned).unwrap_or(false);
+        Ok((from, is_banned))
+    }
+
+    /// Resolve the effective join rule for a room as the typed [`JoinRule`]:
+    /// the `m.room.join_rules` state event wins, then the room record's
+    /// `join_rule`, then a `public`/`invite` default from `is_public`. Unknown
+    /// rule strings resolve to [`JoinRule::Invite`] (fail-closed).
+    pub(crate) async fn resolve_join_rule(&self, room_id: &str) -> ApiResult<JoinRule> {
+        let effective = if let Some(event) = self
+            .event_storage
+            .get_state_events_by_type(room_id, "m.room.join_rules")
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to load room join rules", &e))?
+            .into_iter()
+            .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
+        {
+            event.content.get("join_rule").and_then(|value| value.as_str()).map(|value| value.to_string())
+        } else {
+            None
+        };
+
+        let room = self
+            .room_storage
+            .get_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to load room", &e))?;
+
+        let raw = effective
+            .or_else(|| room.as_ref().and_then(|r| (!r.join_rule.is_empty()).then(|| r.join_rule.clone())))
+            .unwrap_or_else(|| {
+                if room.as_ref().is_some_and(|r| r.is_public) {
+                    "public".to_string()
+                } else {
+                    "invite".to_string()
+                }
+            });
+
+        Ok(JoinRule::from_str(&raw).unwrap_or(JoinRule::Invite))
+    }
+
+    /// Authorize an inbound federation `m.room.member` transition against our
+    /// current room state — closes AUDIT-2026-07 S5 gap 2, where inbound member
+    /// events skipped the transition table the client path enforces.
+    ///
+    /// Deliberately narrow to avoid rejecting legitimate backfilled state:
+    /// - `leave` (leave / kick / unban) is accepted idempotently.
+    /// - Power-level authorization is validated via the event's auth-event
+    ///   chain elsewhere, not here, so power is delegated (state-only ctx).
+    /// - For joins, join-rule authorization is deferred to the resident server
+    ///   that signed the join, so a permissive rule is used; only the ban
+    ///   dimension is enforced locally (a banned user cannot re-join).
+    /// - For knocks, the room's real join rule is enforced (the room must
+    ///   actually allow knocking).
+    ///
+    /// Fails closed on illegal transitions (banned re-join, invite of a banned
+    /// user, self-ban, already-joined re-invite, knock into a non-knock room).
+    pub async fn authorize_inbound_member_transition(
+        &self,
+        room_id: &str,
+        sender: &str,
+        target: &str,
+        to: Membership,
+    ) -> ApiResult<()> {
+        if to == Membership::Leave {
+            return Ok(());
+        }
+        let (from, target_is_banned) = self.resolve_membership_from(room_id, target).await?;
+        let join_rule = if to == Membership::Knock { self.resolve_join_rule(room_id).await? } else { JoinRule::Public };
+        let ctx = TransitionCtx::state_only(join_rule, sender == target, target_is_banned, /* restricted */ true);
+        is_legal(from, to, &ctx).map_err(ApiError::from)
     }
 
     /// Sign a locally-produced event and broadcast it to all remote servers
@@ -317,5 +453,94 @@ mod tests {
     #[test]
     fn is_remote_id_false_for_empty_id() {
         assert!(!MembershipService::is_remote_id("", "myserver.com"));
+    }
+
+    // ── authorize_inbound_member_transition (federation S5 gap 2) ──────
+
+    use std::sync::Arc as StdArc;
+    use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_storage::test_mocks::room_summary::InMemoryRoomSummaryStore;
+    use synapse_storage::test_mocks::{FakeUserStore, InMemoryEventStore, InMemoryMemberStore, InMemoryRoomStore};
+    use synapse_storage::{EventStoreApi, MemberStoreApi, RoomStoreApi, UserStore};
+
+    use crate::room::summary::RoomSummaryService;
+    use crate::test_mocks::FakeAuth;
+
+    const ROOM: &str = "!fed:localhost";
+
+    /// Build a [`MembershipService`] over in-memory stores, seeding a public
+    /// room and any given `(user, membership)` members.
+    async fn inbound_service(members: &[(&str, &str)]) -> MembershipService {
+        let member_store = InMemoryMemberStore::new();
+        for (user, membership) in members {
+            member_store.add_member(ROOM, user, membership, None).await.unwrap();
+        }
+
+        let room_store = InMemoryRoomStore::new();
+        room_store.create_room(ROOM, "@creator:localhost", "public", "10", true).await.unwrap();
+
+        let event_storage: StdArc<dyn EventStoreApi> = StdArc::new(InMemoryEventStore::new());
+        let member_storage: StdArc<dyn MemberStoreApi> = StdArc::new(member_store);
+        let room_storage: StdArc<dyn RoomStoreApi> = StdArc::new(room_store);
+        let user_storage: StdArc<dyn UserStore> = StdArc::new(FakeUserStore::new());
+
+        let room_summary_service = StdArc::new(RoomSummaryService::new(
+            StdArc::new(InMemoryRoomSummaryStore::new()),
+            event_storage.clone(),
+            Some(member_storage.clone()),
+        ));
+
+        MembershipService::new(MembershipServiceConfig {
+            member_storage,
+            room_storage,
+            event_storage,
+            user_storage,
+            auth_service: StdArc::new(FakeAuth::new()),
+            server_name: "localhost".to_string(),
+            federation_client: None,
+            key_rotation_manager: None,
+            event_broadcaster: None,
+            room_summary_service,
+            cache: StdArc::new(CacheManager::new(&CacheConfig::default())),
+            key_rotation_storage: None,
+            app_service_manager: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn inbound_clean_join_is_allowed() {
+        let svc = inbound_service(&[]).await;
+        let r = svc.authorize_inbound_member_transition(ROOM, "@bob:remote", "@bob:remote", Membership::Join).await;
+        assert!(r.is_ok(), "clean join should be allowed: {r:?}");
+    }
+
+    #[tokio::test]
+    async fn inbound_banned_user_rejoin_is_rejected() {
+        let svc = inbound_service(&[("@bob:remote", "ban")]).await;
+        let r = svc.authorize_inbound_member_transition(ROOM, "@bob:remote", "@bob:remote", Membership::Join).await;
+        assert!(r.is_err(), "banned user re-join must be rejected");
+    }
+
+    #[tokio::test]
+    async fn inbound_invite_of_banned_user_is_rejected() {
+        let svc = inbound_service(&[("@bob:remote", "ban")]).await;
+        let r = svc.authorize_inbound_member_transition(ROOM, "@admin:remote", "@bob:remote", Membership::Invite).await;
+        assert!(r.is_err(), "inviting a banned user must be rejected");
+    }
+
+    #[tokio::test]
+    async fn inbound_self_ban_is_rejected() {
+        let svc = inbound_service(&[("@bob:remote", "join")]).await;
+        let r = svc.authorize_inbound_member_transition(ROOM, "@bob:remote", "@bob:remote", Membership::Ban).await;
+        assert!(r.is_err(), "self-ban must be rejected");
+    }
+
+    #[tokio::test]
+    async fn inbound_leave_is_always_accepted() {
+        let svc = inbound_service(&[]).await;
+        // Even for a user with no local membership record, leave is idempotent.
+        let r =
+            svc.authorize_inbound_member_transition(ROOM, "@ghost:remote", "@ghost:remote", Membership::Leave).await;
+        assert!(r.is_ok(), "leave should be accepted idempotently: {r:?}");
     }
 }

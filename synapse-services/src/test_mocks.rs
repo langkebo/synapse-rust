@@ -390,7 +390,7 @@ impl RegistrationTokenApi for InMemoryRegistrationTokenService {
             expires_at: request.expires_at,
             created_by: request.created_by,
             created_ts: now,
-            updated_ts: now,
+            updated_ts: Some(now),
             last_used_ts: None,
             allowed_email_domains: request.allowed_email_domains,
             allowed_user_ids: request.allowed_user_ids,

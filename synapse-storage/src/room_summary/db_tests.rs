@@ -100,9 +100,9 @@ async fn test_create_summary_with_all_fields() {
     assert!(!summary.is_direct);
     assert!(summary.is_space);
     assert!(!summary.is_encrypted);
-    assert_eq!(summary.member_count, 0);
-    assert_eq!(summary.joined_member_count, 0);
-    assert_eq!(summary.invited_member_count, 0);
+    assert_eq!(summary.member_count, Some(0));
+    assert_eq!(summary.joined_member_count, Some(0));
+    assert_eq!(summary.invited_member_count, Some(0));
     assert!(summary.created_ts.is_some());
     assert_eq!(summary.updated_ts, summary.created_ts);
 
@@ -531,9 +531,9 @@ async fn test_add_member_creates_record() {
 
     // Verify member counts were refreshed
     let summary = storage.get_summary(&room_id).await.unwrap().unwrap();
-    assert_eq!(summary.member_count, 1);
-    assert_eq!(summary.joined_member_count, 1);
-    assert_eq!(summary.invited_member_count, 0);
+    assert_eq!(summary.member_count, Some(1));
+    assert_eq!(summary.joined_member_count, Some(1));
+    assert_eq!(summary.invited_member_count, Some(0));
 
     cleanup_summary_data(&pool, &suffix).await;
 }
@@ -679,9 +679,9 @@ async fn test_add_members_batch_inserts_multiple() {
 
     // Member counts should be refreshed
     let summary = storage.get_summary(&room_id).await.unwrap().unwrap();
-    assert_eq!(summary.member_count, 3);
-    assert_eq!(summary.joined_member_count, 2);
-    assert_eq!(summary.invited_member_count, 1);
+    assert_eq!(summary.member_count, Some(3));
+    assert_eq!(summary.joined_member_count, Some(2));
+    assert_eq!(summary.invited_member_count, Some(1));
 
     cleanup_summary_data(&pool, &suffix).await;
 }
@@ -814,7 +814,7 @@ async fn test_remove_member_deletes_and_updates_counts() {
 
     // Counts should be zero
     let summary = storage.get_summary(&room_id).await.unwrap().unwrap();
-    assert_eq!(summary.member_count, 0);
+    assert_eq!(summary.member_count, Some(0));
 
     // Idempotent — removing again should not error
     storage.remove_member(&room_id, &user_id).await.unwrap();

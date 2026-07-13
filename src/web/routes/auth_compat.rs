@@ -154,7 +154,7 @@ pub(crate) async fn request_email_verification_with_submit_path(
             error = %e,
             "Failed to generate email verification token"
         );
-        ApiError::internal("Failed to generate verification token. Please try again later.".to_string())
+        e
     })?;
 
     let session_data = serde_json::json!({

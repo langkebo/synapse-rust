@@ -5,6 +5,7 @@
 
 use crate::UserService;
 use std::sync::Arc;
+use synapse_cache::CacheManager;
 use synapse_common::validation::Validator;
 use synapse_storage::{MemberStoreApi, RoomStoreApi, UserStore};
 
@@ -25,6 +26,11 @@ pub struct LifecycleService {
     /// Direct reference to RoomSummaryService, injected during construction
     /// instead of via a back-reference to RoomService.
     pub(crate) room_summary_service: Option<Arc<crate::room::summary::RoomSummaryService>>,
+    pub(crate) cache: Arc<CacheManager>,
+    /// Optional application-service manager. When present, room lifecycle
+    /// events (create, upgrade) are enqueued for matching application
+    /// services after the transaction commits.
+    pub(crate) app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
 }
 
 /// Configuration for constructing a [`LifecycleService`].
@@ -38,6 +44,8 @@ pub struct LifecycleServiceConfig {
     pub validator: Arc<Validator>,
     pub server_name: String,
     pub room_summary_service: Option<Arc<crate::room::summary::RoomSummaryService>>,
+    pub cache: Arc<CacheManager>,
+    pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
 }
 
 impl LifecycleService {
@@ -52,6 +60,8 @@ impl LifecycleService {
             validator: config.validator,
             server_name: config.server_name,
             room_summary_service: config.room_summary_service,
+            cache: config.cache,
+            app_service_manager: config.app_service_manager,
         }
     }
 }

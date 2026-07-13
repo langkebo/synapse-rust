@@ -1075,7 +1075,7 @@ async fn sliding_sync_room_upsert_and_get() {
     assert!(room.is_dm);
 
     let fetched = store.get_room("@alice:ex.com", "DEV1", "!r:ex.com", Some("conn1")).await.unwrap().unwrap();
-    assert_eq!(fetched.bump_stamp, 100);
+    assert_eq!(fetched.bump_stamp, Some(100));
     assert_eq!(fetched.notification_count, 2);
 }
 
@@ -1170,7 +1170,7 @@ async fn sliding_sync_notification_counts_and_bump() {
     let room = store.get_room("@alice:ex.com", "DEV1", "!r:ex.com", Some("conn1")).await.unwrap().unwrap();
     assert_eq!(room.highlight_count, 5);
     assert_eq!(room.notification_count, 10);
-    assert_eq!(room.bump_stamp, 42);
+    assert_eq!(room.bump_stamp, Some(42));
 }
 
 #[tokio::test]

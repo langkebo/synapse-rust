@@ -4,7 +4,6 @@ use crate::web::routes::context::RoomContext;
 use crate::web::routes::{
     is_member_ctx, is_member_or_creator_ctx, validate_membership, validate_room_id, validate_user_id, AuthenticatedUser,
 };
-use crate::web::utils::auth::bearer_token;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, State},
@@ -14,15 +13,12 @@ use serde_json::{json, Value};
 
 pub(crate) async fn join_room(
     State(ctx): State<RoomContext>,
-    headers: HeaderMap,
+    auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
-
-    ctx.room_service.membership().join_room(&room_id, &user_id).await?;
+    ctx.room_service.membership.join_room(&room_id, &auth_user.user_id).await?;
     Ok(Json(json!({
         "room_id": room_id,
         "joined_ts": chrono::Utc::now().timestamp_millis()
@@ -32,12 +28,11 @@ pub(crate) async fn join_room(
 pub(crate) async fn join_room_by_id_or_alias(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
+    auth_user: AuthenticatedUser,
     Path(room_id_or_alias): Path<String>,
     body: Option<Json<serde_json::Value>>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
 
     let room_id = if room_id_or_alias.starts_with('!') {
         validate_room_id(&room_id_or_alias)?;
@@ -92,13 +87,13 @@ pub(crate) async fn join_room_by_id_or_alias(
 
     ::tracing::info!(
         request_id = %request_id,
-        user_id = %user_id,
+        user_id = %auth_user.user_id,
         room_id = %room_id,
         via_servers = ?via_servers,
         "User joining room by id or alias"
     );
 
-    ctx.room_service.membership().join_room_with_via_servers(&room_id, &user_id, &via_servers).await?;
+    ctx.room_service.membership.join_room_with_via_servers(&room_id, &auth_user.user_id, &via_servers).await?;
 
     Ok(Json(json!({
         "room_id": room_id
@@ -134,12 +129,11 @@ pub(crate) async fn leave_room(
 pub(crate) async fn knock_room(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
+    auth_user: AuthenticatedUser,
     Path(room_id_or_alias): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
 
     let room_id = if room_id_or_alias.starts_with('!') {
         validate_room_id(&room_id_or_alias)?;
@@ -165,12 +159,12 @@ pub(crate) async fn knock_room(
 
     ::tracing::info!(
         request_id = %request_id,
-        user_id = %user_id,
+        user_id = %auth_user.user_id,
         room_id = %room_id,
         "User knocking on room"
     );
 
-    ctx.room_service.membership().knock_room(&room_id, &user_id, reason.as_deref()).await?;
+    ctx.room_service.membership.knock_room(&room_id, &auth_user.user_id, reason.as_deref()).await?;
 
     Ok(Json(json!({
         "room_id": room_id
@@ -206,12 +200,11 @@ pub(crate) async fn invite_user(
 pub(crate) async fn invite_user_by_room(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
+    auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
 
     validate_room_id(&room_id)?;
 
@@ -222,17 +215,17 @@ pub(crate) async fn invite_user_by_room(
 
     validate_user_id(invitee)?;
 
-    ctx.room_auth.can_invite_user(&room_id, &user_id).await?;
+    ctx.auth_service.can_invite_user(&room_id, &auth_user.user_id).await?;
 
     ::tracing::info!(
         request_id = %request_id,
-        user_id = %user_id,
+        user_id = %auth_user.user_id,
         invitee = %invitee,
         room_id = %room_id,
         "User inviting another user to room"
     );
 
-    ctx.room_service.membership().invite_user(&room_id, &user_id, invitee).await?;
+    ctx.room_service.membership.invite_user(&room_id, &auth_user.user_id, invitee).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -244,26 +237,25 @@ pub(crate) async fn invite_user_by_room(
 pub(crate) async fn get_room_members(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
+    auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     let request_id = resolve_request_id(&headers);
 
-    let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
-
     let room = ctx.room_service.get_room(&room_id).await?;
 
     let is_member =
-        is_member_or_creator_ctx(&ctx, &user_id, &room_id, room.get("creator").and_then(|v| v.as_str())).await?;
+        is_member_or_creator_ctx(&ctx, &auth_user.user_id, &room_id, room.get("creator").and_then(|v| v.as_str()))
+            .await?;
 
     if !room.get("is_public").and_then(|v| v.as_bool()).unwrap_or(false) && !is_member {
         ::tracing::warn!(
             target: "security_audit",
             request_id = %request_id,
             event = "unauthorized_room_members_access",
-            user_id = %user_id,
+            user_id = %auth_user.user_id,
             room_id = %room_id,
             "User attempted to access members of private room without being a member"
         );
@@ -282,7 +274,7 @@ pub(crate) async fn get_room_members(
         validate_membership(nmf)?;
     }
 
-    let members = ctx.room_service.membership().get_room_members(&room_id, &user_id).await?;
+    let members = ctx.room_service.membership.get_room_members(&room_id, &auth_user.user_id).await?;
 
     let filtered = if membership_filter.is_some() || not_membership_filter.is_some() {
         if let Some(chunk) = members.get("chunk").and_then(|c| c.as_array()) {
@@ -326,14 +318,12 @@ pub(crate) async fn get_room_members(
 
 pub(crate) async fn get_room_members_recent(
     State(ctx): State<RoomContext>,
-    headers: HeaderMap,
+    auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
-    let members = ctx.room_service.membership().get_room_members(&room_id, &user_id).await?;
+    let members = ctx.room_service.membership.get_room_members(&room_id, &auth_user.user_id).await?;
 
     let from = params.get("from").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
     let limit = params.get("limit").and_then(|value| value.parse::<usize>().ok()).unwrap_or(100).min(1000);

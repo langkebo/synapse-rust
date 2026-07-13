@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use sqlx::postgres::PgPoolOptions;
-use sqlx::{PgPool, Postgres};
+use sqlx::PgPool;
 
 use super::*;
 

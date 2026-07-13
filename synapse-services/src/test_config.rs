@@ -124,8 +124,10 @@ pub fn build_test_config() -> Config {
             max_transaction_payload: 50000,
             ca_file: None,
             client_ca_file: None,
-            signing_key: None,
-            key_id: None,
+            // Deterministic ed25519 test signing key (seed = SHA256("synapse-rust-test-signing-key")).
+            // Needed so /_matrix/key/v2/server returns verify_keys even without a key file on disk.
+            signing_key: Some("vaHKerAFvTHAL9lAGI81AoxPGihV/Xj27u6hvUp63as=".to_string()),
+            key_id: Some("ed25519:test".to_string()),
             trusted_key_servers: vec![],
             key_refresh_interval: 86400,
             suppress_key_server_warning: false,
@@ -134,6 +136,7 @@ pub fn build_test_config() -> Config {
             key_rotation_grace_period_ms: 60_0000,
             key_fetch_max_concurrency: 32,
             key_fetch_timeout_ms: 5000,
+            allow_http_key_fetch: true,
             process_inbound_edus: false,
             inbound_edus_max_per_txn: 100,
             inbound_edu_max_concurrency: 8,

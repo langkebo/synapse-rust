@@ -1,28 +1,42 @@
 #![cfg(test)]
 
 mod sticky_event_integration_suite {
-    use sqlx::postgres::PgPoolOptions;
-    use std::sync::Arc;
-    use std::time::Duration;
+    use sqlx::PgPool;
     use synapse_storage::sticky_event::{StickyEvent, StickyEventStorage};
+
+    /// Insert prerequisite rooms and users rows so FK constraints on
+    /// room_sticky_events are satisfied. Uses ON CONFLICT DO NOTHING so
+    /// repeated calls within the same schema are safe.
+    async fn ensure_room_and_user(pool: &PgPool, room_id: &str, user_id: &str) {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query("INSERT INTO rooms (room_id, room_version, creator, created_ts) VALUES ($1, '11', $2, $3) ON CONFLICT (room_id) DO NOTHING")
+            .bind(room_id)
+            .bind(user_id)
+            .bind(now)
+            .execute(pool)
+            .await
+            .expect("Failed to ensure room row");
+        sqlx::query(
+            "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(user_id.trim_start_matches('@'))
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("Failed to ensure user row");
+    }
 
     #[tokio::test]
     async fn test_sticky_event_operations() {
-        let database_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
-
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .connect(&database_url)
-            .await
-            .expect("Failed to connect to test database");
-
-        let storage = StickyEventStorage::new(Arc::new(pool));
+        let pool = crate::require_test_pool().await;
+        let storage = StickyEventStorage::new(pool.clone());
         let room_id = "!testroom:localhost";
         let user_id = "@testuser:localhost";
         let event_id = "$testevent:localhost";
         let event_type = "m.room.message";
+
+        ensure_room_and_user(&pool, room_id, user_id).await;
 
         storage
             .set_is_sticky_event(room_id, user_id, event_id, event_type, true)
@@ -56,19 +70,12 @@ mod sticky_event_integration_suite {
 
     #[tokio::test]
     async fn test_multiple_sticky_events() {
-        let database_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
-
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .connect(&database_url)
-            .await
-            .expect("Failed to connect to test database");
-
-        let storage = StickyEventStorage::new(Arc::new(pool));
+        let pool = crate::require_test_pool().await;
+        let storage = StickyEventStorage::new(pool.clone());
         let room_id = "!testroom:localhost";
         let user_id = "@testuser:localhost";
+
+        ensure_room_and_user(&pool, room_id, user_id).await;
 
         storage
             .set_is_sticky_event(room_id, user_id, "$event1:localhost", "m.room.message", true)
@@ -98,18 +105,12 @@ mod sticky_event_integration_suite {
 
     #[tokio::test]
     async fn test_get_rooms_with_sticky_events() {
-        let database_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
-
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .connect(&database_url)
-            .await
-            .expect("Failed to connect to test database");
-
-        let storage = StickyEventStorage::new(Arc::new(pool));
+        let pool = crate::require_test_pool().await;
+        let storage = StickyEventStorage::new(pool.clone());
         let user_id = "@testuser:localhost";
+
+        ensure_room_and_user(&pool, "!room1:localhost", user_id).await;
+        ensure_room_and_user(&pool, "!room2:localhost", user_id).await;
 
         storage
             .set_is_sticky_event("!room1:localhost", user_id, "$event1:localhost", "m.room.message", true)
@@ -131,20 +132,13 @@ mod sticky_event_integration_suite {
 
     #[tokio::test]
     async fn test_update_sticky_event() {
-        let database_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgresql://synapse:secret@localhost:5432/synapse_test".to_string());
-
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(Duration::from_secs(10))
-            .connect(&database_url)
-            .await
-            .expect("Failed to connect to test database");
-
-        let storage = StickyEventStorage::new(Arc::new(pool));
+        let pool = crate::require_test_pool().await;
+        let storage = StickyEventStorage::new(pool.clone());
         let room_id = "!testroom:localhost";
         let user_id = "@testuser:localhost";
         let event_type = "m.room.message";
+
+        ensure_room_and_user(&pool, room_id, user_id).await;
 
         storage
             .set_is_sticky_event(room_id, user_id, "$event1:localhost", event_type, true)

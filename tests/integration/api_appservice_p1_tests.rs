@@ -569,8 +569,12 @@ async fn test_appservice_namespace_query() {
 
     // 1. Register AppService with user and alias namespaces
     let as_id = format!("test_as_query_{}", rand::random::<u32>());
-    let user_pattern = format!("@query_bot_{}.*:localhost", rand::random::<u32>());
-    let alias_pattern = format!("#query_room_{}.*:localhost", rand::random::<u32>());
+    // Use a single random suffix for the user namespace so the pattern
+    // and the virtual user ID stay consistent.
+    let user_suffix = rand::random::<u32>();
+    let user_pattern = format!("@query_bot_{}.*:localhost", user_suffix);
+    let alias_suffix = rand::random::<u32>();
+    let alias_pattern = format!("#query_room_{}.*:localhost", alias_suffix);
 
     let register_request = Request::builder()
         .method("POST")
@@ -597,7 +601,7 @@ async fn test_appservice_namespace_query() {
     assert_eq!(response.status(), StatusCode::CREATED);
 
     // 2. Register virtual user in namespace
-    let virtual_user_id = format!("@query_bot_{}_user:localhost", rand::random::<u32>());
+    let virtual_user_id = format!("@query_bot_{}_user:localhost", user_suffix);
     let register_user_request = Request::builder()
         .method("POST")
         .uri(format!("/_synapse/admin/v1/appservices/{}/users", as_id))
@@ -631,7 +635,7 @@ async fn test_appservice_namespace_query() {
     assert_eq!(user_query_json["user_id"], virtual_user_id);
 
     // 4. Query room alias namespace
-    let test_alias = format!("#query_room_{}_test:localhost", rand::random::<u32>());
+    let test_alias = format!("#query_room_{}_test:localhost", alias_suffix);
     let query_alias_request = Request::builder()
         .method("GET")
         .uri(format!("/_synapse/admin/v1/appservices/query/alias?alias={}", urlencoding::encode(&test_alias)))

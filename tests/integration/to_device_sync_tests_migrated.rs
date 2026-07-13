@@ -294,6 +294,7 @@ async fn test_to_device_next_batch_token_respects_limit() {
         to_device_storage.clone(),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     let user_id = "@alice:localhost";
@@ -364,6 +365,7 @@ async fn test_to_device_messages_are_deleted_after_ack() {
         to_device_storage.clone(),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     let user_id = "@alice:localhost";
@@ -400,4 +402,57 @@ async fn test_to_device_messages_are_deleted_after_ack() {
     // Verify message is deleted from DB
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM to_device_messages").fetch_one(&*pool).await.unwrap();
     assert_eq!(count, 0);
+}
+
+#[tokio::test]
+async fn test_record_transaction_atomic_dedup() {
+    let pool = crate::require_test_pool().await;
+
+    // Guard: collapse any pre-existing duplicate rows before creating the index
+    sqlx::query(
+        r#"
+        DELETE FROM to_device_transactions a
+        USING to_device_transactions b
+        WHERE a.message_id IS NOT NULL
+          AND a.message_id = b.message_id
+          AND a.sender_user_id = b.sender_user_id
+          AND a.sender_device_id = b.sender_device_id
+          AND a.id > b.id
+        "#,
+    )
+    .execute(&*pool)
+    .await
+    .expect("Failed to deduplicate to_device_transactions");
+
+    // Ensure the unique index needed for atomic ON CONFLICT dedup exists.
+    // The test pool has the production schema (with only the
+    // transaction_id-based unique constraint), so add the message_id-based
+    // unique index here. PostgreSQL treats NULLs as distinct in UNIQUE
+    // indexes, so multiple NULL message_id rows for the same sender/device
+    // will not conflict.
+    sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_to_device_txn_msgid \
+         ON to_device_transactions (sender_user_id, sender_device_id, message_id)",
+    )
+    .execute(&*pool)
+    .await
+    .expect("Failed to create unique index");
+
+    let storage = synapse_rust::e2ee::to_device::ToDeviceStorage::new(&pool);
+
+    // First insert is not a duplicate
+    let first = storage.record_transaction("@user:localhost", "DEVICE1", "mid1").await.unwrap();
+    assert!(first, "first insert of (user, dev, mid1) should be Ok(true)");
+
+    // Second insert with same args IS a duplicate
+    let second = storage.record_transaction("@user:localhost", "DEVICE1", "mid1").await.unwrap();
+    assert!(!second, "second insert of (user, dev, mid1) should be Ok(false)");
+
+    // Different message_id should succeed
+    let third = storage.record_transaction("@user:localhost", "DEVICE1", "mid2").await.unwrap();
+    assert!(third, "different message_id should be Ok(true)");
+
+    // Different sender should succeed
+    let fourth = storage.record_transaction("@user2:localhost", "DEVICE1", "mid1").await.unwrap();
+    assert!(fourth, "different sender should be Ok(true)");
 }

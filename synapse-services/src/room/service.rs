@@ -4,7 +4,7 @@ use crate::*;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use synapse_cache::CacheManager;
 use synapse_common::generate_event_id;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_common::validation::Validator;
@@ -72,6 +72,11 @@ pub struct RoomServiceConfig {
     #[cfg(not(feature = "beacons"))]
     pub beacon_service: Option<()>,
     pub sticky_event_storage: Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>,
+    pub cache: Arc<CacheManager>,
+    /// Optional key-rotation storage injected into the membership sub-service so
+    /// that leaving a LOCAL encrypted room marks the megolm session for
+    /// rotation (forward secrecy). `None` in test setups.
+    pub key_rotation_storage: Option<Arc<dyn synapse_e2ee::key_rotation::KeyRotationStorageApi>>,
 }
 
 pub struct RoomService {
@@ -125,6 +130,9 @@ impl RoomService {
             key_rotation_manager: infra.key_rotation_manager.clone(),
             event_broadcaster: infra.event_broadcaster.clone(),
             room_summary_service: config.room_summary_service.clone(),
+            cache: config.cache.clone(),
+            key_rotation_storage: config.key_rotation_storage.clone(),
+            app_service_manager: config.app_service_manager.clone(),
         };
         let membership = MembershipService::new(membership_cfg);
 
@@ -144,6 +152,7 @@ impl RoomService {
             app_service_manager: infra.app_service_manager.clone(),
             key_rotation_manager: infra.key_rotation_manager.clone(),
             room_summary_service: config.room_summary_service.clone(),
+            cache: config.cache.clone(),
         };
         let messaging = MessagingService::new(messaging_cfg);
 
@@ -169,6 +178,8 @@ impl RoomService {
             validator: config.validator.clone(),
             server_name: config.server_name.clone(),
             room_summary_service: Some(config.room_summary_service.clone()),
+            cache: config.cache.clone(),
+            app_service_manager: config.app_service_manager.clone(),
         };
         let lifecycle = LifecycleService::new(lifecycle_cfg);
 
@@ -194,28 +205,6 @@ impl RoomService {
 
     pub fn room_summary_service(&self) -> &RoomSummaryService {
         &self.room_summary_service
-    }
-
-    pub fn start_cleanup_task(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
-        let active_tasks = self.active_tasks.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
-            loop {
-                interval.tick().await;
-                let mut tasks = active_tasks.write().await;
-                let before = tasks.len();
-                tasks.retain(|_key, handle| !handle.is_finished());
-                let after = tasks.len();
-                if before != after {
-                    ::tracing::debug!(
-                        target: "room_service_cleanup",
-                        cleaned = before - after,
-                        remaining = after,
-                        "Cleaned up completed background tasks"
-                    );
-                }
-            }
-        })
     }
 
     pub async fn cleanup_completed_tasks(&self) -> usize {

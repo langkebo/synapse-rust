@@ -19,6 +19,7 @@ pub mod logging;
 pub mod macros;
 pub mod media_link_signer;
 pub mod media_locator;
+pub mod membership_transition;
 pub mod metrics;
 pub mod nonce_cache;
 pub mod password_hash_pool;
@@ -106,6 +107,7 @@ pub use key_encryption::{decrypt_key, encrypt_key, is_encrypted};
 pub use logging::init_logging;
 pub use media_link_signer::{MediaLinkSigner, DEFAULT_MEDIA_LINK_TTL_SECS};
 pub use media_locator::MediaLocator;
+pub use membership_transition::{is_legal, JoinRule, TransitionCtx, TransitionError};
 pub use metrics::{Counter, Gauge, Histogram, Metric, MetricInventory, MetricsCollector, MetricsError};
 pub use nonce_cache::{FederationNonceCache, DEFAULT_TIMESTAMP_SKEW, NONCE_CACHE_CAPACITY, NONCE_TTL};
 pub use password_hash_pool::{

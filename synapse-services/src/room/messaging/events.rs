@@ -115,6 +115,12 @@ impl MessagingService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create event", &e))?;
 
+        // Invalidate room-state cache when a state event is written.
+        // Best-effort: failure to delete is non-fatal.
+        if state_key.is_some() {
+            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+        }
+
         if should_update_summary && event_type == "m.room.canonical_alias" && state_key.as_deref() == Some("") {
             let canonical_alias = event.content.get("alias").and_then(|value| value.as_str());
             if let Err(error) = self.room_storage.set_canonical_alias(&room_id, canonical_alias).await {
@@ -200,6 +206,12 @@ impl MessagingService {
             .create_event_with_graph(params, prev_events, auth_events, depth, tx)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create event with graph data", &e))?;
+
+        // Invalidate room-state cache when a state event is written.
+        // Best-effort: failure to delete is non-fatal.
+        if state_key.is_some() {
+            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+        }
 
         if should_update_summary && event_type == "m.room.canonical_alias" && state_key.as_deref() == Some("") {
             let canonical_alias = event.content.get("alias").and_then(|value| value.as_str());

@@ -316,7 +316,8 @@ impl MediaService {
         .to_mxc_url();
 
         Ok(serde_json::json!({
-            "content_uri": media_url
+            "content_uri": media_url,
+            "media_id": media_id
         }))
     }
 

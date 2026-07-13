@@ -89,7 +89,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     .expect("Failed to create server_retention_policy table");
 
     sqlx::query(
-        "INSERT INTO server_retention_policy (id, min_lifetime, is_expire_on_clients, created_ts) VALUES (1, 0, false, 0) ON CONFLICT (id) DO NOTHING",
+        "INSERT INTO server_retention_policy (id, min_lifetime, is_expire_on_clients, created_ts, updated_ts) VALUES (1, 0, false, 0, 0) ON CONFLICT (id) DO NOTHING",
     )
     .execute(pool.as_ref())
     .await

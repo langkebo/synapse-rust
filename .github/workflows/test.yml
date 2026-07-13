@@ -49,7 +49,7 @@ jobs:
 
     - name: Install sqlx-cli and cargo-tarpaulin
       run: |
-        cargo install sqlx-cli --locked --no-default-features --features postgres
+        cargo install sqlx-cli --version '^0.8' --locked --no-default-features --features postgres
         cargo install cargo-tarpaulin --locked
 
     - name: Build forward-only sqlx migration source

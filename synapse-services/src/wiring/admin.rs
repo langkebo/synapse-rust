@@ -102,6 +102,7 @@ impl AdminServices {
         credential_auth: &Arc<dyn CredentialAuth>,
         _room_auth: &Arc<dyn RoomAuth>,
         user_storage: &Arc<dyn UserStore>,
+        shutdown_token: &tokio_util::sync::CancellationToken,
     ) -> Self {
         let user_service = Arc::new(UserService::new(user_storage.clone()));
 
@@ -235,7 +236,7 @@ impl AdminServices {
         let should_start_app_service_scheduler =
             should_run_global_maintenance(&config.worker) && !config.server.app_service_config_files.is_empty();
         if should_start_app_service_scheduler {
-            app_service_scheduler.clone().start();
+            let _ = app_service_scheduler.clone().start(shutdown_token.clone());
         } else {
             ::tracing::info!(
                 worker_type = current_instance_worker_type(&config.worker).as_str(),

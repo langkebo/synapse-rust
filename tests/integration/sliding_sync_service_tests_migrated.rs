@@ -526,7 +526,7 @@ async fn test_update_room_state() {
     let storage = SlidingSyncStorage::new(pool.clone());
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
 
-    assert_eq!(room.bump_stamp, 1000);
+    assert_eq!(room.bump_stamp, Some(1000));
     assert_eq!(room.highlight_count, 2);
     assert_eq!(room.notification_count, 5);
     assert!(room.is_dm);
@@ -549,12 +549,12 @@ async fn test_bump_room() {
 
     let storage = SlidingSyncStorage::new(pool.clone());
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
-    assert_eq!(room.bump_stamp, 3000);
+    assert_eq!(room.bump_stamp, Some(3000));
 
     service.bump_room(&user_id, "DEV1", &room_id, None, 2000).await.unwrap();
 
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
-    assert_eq!(room.bump_stamp, 3000);
+    assert_eq!(room.bump_stamp, Some(3000));
 }
 
 #[tokio::test]
@@ -1083,7 +1083,7 @@ async fn test_update_room_state_preserves_higher_bump_stamp() {
 
     let storage = SlidingSyncStorage::new(pool.clone());
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
-    assert_eq!(room.bump_stamp, 5000);
+    assert_eq!(room.bump_stamp, Some(5000));
 }
 
 #[tokio::test]

@@ -38,7 +38,7 @@ impl BackgroundUpdateStoreApi for InMemoryBackgroundUpdateStore {
             progress: serde_json::json!(0),
             total_items: request.total_items.unwrap_or(0),
             processed_items: 0,
-            created_ts: now,
+            created_ts: Some(now),
             started_ts: None,
             completed_ts: None,
             updated_ts: None,
@@ -73,13 +73,13 @@ impl BackgroundUpdateStoreApi for InMemoryBackgroundUpdateStore {
             .and_then(|cursor| {
                 let (ts, name) = cursor.split_once('|')?;
                 let ts = ts.parse::<i64>().ok()?;
-                sorted.iter().position(|u| u.created_ts == ts && u.job_name == name)
+                sorted.iter().position(|u| u.created_ts == Some(ts) && u.job_name == name)
             })
             .map(|p| p + 1)
             .unwrap_or(0);
         let page: Vec<BackgroundUpdate> = sorted.into_iter().skip(from_idx).take(limit as usize).collect();
         let next = if page.len() as i64 == limit {
-            page.last().map(|u| format!("{}|{}", u.created_ts, u.job_name))
+            page.last().map(|u| format!("{}|{}", u.created_ts.unwrap_or(0), u.job_name))
         } else {
             None
         };

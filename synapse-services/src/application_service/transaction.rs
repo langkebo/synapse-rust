@@ -305,7 +305,13 @@ impl ApplicationServiceManager {
                 }
             };
 
-        self.record_delivery_failure(&service.as_id, failure_reason, failure_kind, failed_transaction.sent_ts).await;
+        self.record_delivery_failure(
+            &service.as_id,
+            failure_reason,
+            failure_kind,
+            failed_transaction.sent_ts.unwrap_or(0),
+        )
+        .await;
 
         if Self::should_disable_service(failure_kind, failed_transaction.retry_count) {
             self.disable_service_for_delivery_failure(service, &failed_transaction, failure_reason, failure_kind).await;
@@ -377,7 +383,7 @@ impl ApplicationServiceManager {
     }
 
     pub(super) fn is_transaction_ready_to_retry(transaction: &ApplicationServiceTransaction, now_ts: i64) -> bool {
-        now_ts.saturating_sub(transaction.sent_ts) >= Self::retry_backoff_ms(transaction.retry_count)
+        now_ts.saturating_sub(transaction.sent_ts.unwrap_or(0)) >= Self::retry_backoff_ms(transaction.retry_count)
     }
 
     pub(super) fn retry_backoff_ms(retry_count: i32) -> i64 {
@@ -593,7 +599,7 @@ mod tests {
             transaction_id: None,
             events: json!([]),
             retry_count,
-            sent_ts,
+            sent_ts: Some(sent_ts),
             completed_ts: None,
             last_error: None,
         }

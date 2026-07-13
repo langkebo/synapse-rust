@@ -1,8 +1,7 @@
-use std::env;
 use std::sync::Arc;
 
 use sqlx::postgres::PgPoolOptions;
-use sqlx::{PgPool, Postgres};
+use sqlx::PgPool;
 
 use super::*;
 

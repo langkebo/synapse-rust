@@ -44,6 +44,7 @@ pub struct SyncService {
     pub(crate) lazy_loaded_members_cache: Arc<RwLock<HashMap<LazyLoadedMembersCacheKey, HashSet<String>>>>,
     pub(crate) metrics: Arc<MetricsCollector>,
     pub(crate) performance: synapse_common::config::PerformanceConfig,
+    pub(crate) cache: Arc<synapse_cache::CacheManager>,
 }
 
 /// Maximum number of (user, device, room) entries kept in the in-memory
@@ -72,6 +73,7 @@ impl SyncService {
             lazy_loaded_members_cache: Arc::new(RwLock::new(HashMap::new())),
             metrics: deps.metrics,
             performance: deps.performance,
+            cache: deps.cache,
         }
     }
 
@@ -90,6 +92,7 @@ impl SyncService {
         to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
         metrics: Arc<MetricsCollector>,
         performance: synapse_common::config::PerformanceConfig,
+        cache: Arc<synapse_cache::CacheManager>,
     ) -> Self {
         Self::from_deps(SyncServiceDeps {
             presence_storage,
@@ -105,6 +108,7 @@ impl SyncService {
             to_device_storage,
             metrics,
             performance,
+            cache,
         })
     }
 

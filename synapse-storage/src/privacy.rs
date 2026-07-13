@@ -13,7 +13,7 @@ pub struct UserPrivacySettings {
     pub presence_visibility: String,
     pub room_membership_visibility: String,
     pub created_ts: i64,
-    pub updated_ts: i64,
+    pub updated_ts: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,7 +42,7 @@ impl Default for UserPrivacySettings {
             presence_visibility: "contacts".to_string(),
             room_membership_visibility: "contacts".to_string(),
             created_ts: now,
-            updated_ts: now,
+            updated_ts: Some(now),
         }
     }
 }
@@ -509,8 +509,8 @@ mod db_tests {
         assert_eq!(settings.presence_visibility, "contacts");
         assert_eq!(settings.room_membership_visibility, "contacts");
         assert!(settings.created_ts > 0);
-        assert!(settings.updated_ts > 0);
-        assert_eq!(settings.created_ts, settings.updated_ts);
+        assert!(settings.updated_ts.unwrap_or(0) > 0);
+        assert_eq!(Some(settings.created_ts), settings.updated_ts);
 
         cleanup_privacy_data(&pool, &suffix).await;
     }

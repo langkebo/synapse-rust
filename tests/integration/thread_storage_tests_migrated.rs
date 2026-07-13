@@ -325,7 +325,7 @@ async fn test_thread_root_and_reply_roundtrip() {
         .expect("Failed to load thread root by thread id")
         .expect("Thread root should exist");
 
-    assert_eq!(updated_root.reply_count, 1);
+    assert_eq!(updated_root.reply_count, Some(1));
     assert_eq!(updated_root.last_reply_event_id.as_deref(), Some(reply_event_id.as_str()));
     assert_eq!(updated_root.last_reply_sender.as_deref(), Some(replier.as_str()));
     assert_eq!(updated_root.last_reply_ts, Some(1234));

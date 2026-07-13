@@ -101,6 +101,7 @@ pub(crate) async fn is_joined_room_member_admin(
     is_member_via(&ctx.room_service, user_id, room_id).await
 }
 
+
 pub(crate) async fn ensure_room_member_admin(
     ctx: &AdminContext,
     auth_user: &AuthenticatedUser,

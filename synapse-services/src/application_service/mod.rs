@@ -295,7 +295,7 @@ impl ApplicationServiceManager {
             batch_limit.max(1) as usize,
             flush_interval_secs.max(1).saturating_mul(1_000),
         ));
-        scheduler.start();
+        let _ = scheduler.start(tokio_util::sync::CancellationToken::new());
     }
 
     #[instrument(skip(self))]

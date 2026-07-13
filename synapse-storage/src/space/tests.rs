@@ -150,8 +150,8 @@ fn test_space_summary() {
         id: 1,
         space_id: "!space:localhost".to_string(),
         summary: serde_json::json!({"key": "value"}),
-        children_count: 5,
-        member_count: 10,
+        children_count: Some(5),
+        member_count: Some(10),
         updated_ts: 1234567890,
     };
 

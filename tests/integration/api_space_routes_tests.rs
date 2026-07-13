@@ -323,7 +323,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let members_body = axum::body::to_bytes(members_response.into_body(), 8192).await.unwrap();
     let members_json: Value = serde_json::from_slice(&members_body).unwrap();
-    let members = members_json.as_array().unwrap();
+    let members = members_json["members"].as_array().unwrap_or_else(|| members_json.as_array().unwrap());
     assert_eq!(members.len(), 1);
     assert_eq!(members[0]["membership"], "join");
 
@@ -387,7 +387,8 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let joined_members_body = axum::body::to_bytes(joined_members_response.into_body(), 8192).await.unwrap();
     let joined_members_json: Value = serde_json::from_slice(&joined_members_body).unwrap();
-    let joined_members = joined_members_json.as_array().unwrap();
+    let joined_members =
+        joined_members_json["members"].as_array().unwrap_or_else(|| joined_members_json.as_array().unwrap());
     assert_eq!(joined_members.len(), 2);
     assert!(joined_members.iter().any(|member| member["user_id"] == guest_user_id && member["membership"] == "join"));
 
@@ -412,7 +413,8 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
     let members_after_leave_body = axum::body::to_bytes(members_after_leave_response.into_body(), 8192).await.unwrap();
     let members_after_leave_json: Value = serde_json::from_slice(&members_after_leave_body).unwrap();
-    let members_after_leave = members_after_leave_json.as_array().unwrap();
+    let members_after_leave =
+        members_after_leave_json["members"].as_array().unwrap_or_else(|| members_after_leave_json.as_array().unwrap());
     assert_eq!(members_after_leave.len(), 1);
     assert!(!members_after_leave.iter().any(|member| member["user_id"] == guest_user_id));
 }
@@ -520,7 +522,8 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
 
     let public_spaces_body = axum::body::to_bytes(public_spaces_response.into_body(), 8192).await.unwrap();
     let public_spaces_json: Value = serde_json::from_slice(&public_spaces_body).unwrap();
-    let public_spaces = public_spaces_json.as_array().unwrap();
+    let public_spaces =
+        public_spaces_json["spaces"].as_array().unwrap_or_else(|| public_spaces_json.as_array().unwrap());
     assert!(public_spaces.iter().any(|space| space["room_id"] == room_id && space["is_public"] == true));
 
     let search_request = Request::builder()

@@ -96,6 +96,11 @@ impl RoomSyncServices {
             #[cfg(not(feature = "beacons"))]
             beacon_service: None,
             sticky_event_storage,
+            cache: infra.cache.clone(),
+            key_rotation_storage: Some(
+                Arc::new(synapse_e2ee::key_rotation::KeyRotationStorage::new(infra.pool.clone()))
+                    as Arc<dyn synapse_e2ee::key_rotation::KeyRotationStorageApi>,
+            ),
         }));
 
         let sync_room_account_data_storage: Arc<dyn RoomAccountDataStoreApi> =
@@ -112,13 +117,15 @@ impl RoomSyncServices {
                 room_storage: room_storage.clone(),
                 room_account_data_storage: sync_room_account_data_storage,
                 account_data_storage: sync_account_data_storage,
-                filter_storage: Arc::new(FilterStorage::new(&infra.pool)) as Arc<dyn FilterStoreApi>,
+                filter_storage: Arc::new(FilterStorage::new(&infra.pool))
+                    as Arc<dyn synapse_storage::filter::FilterStoreApi>,
                 device_storage: device_storage.clone(),
                 device_key_storage: sync_device_key_storage.clone(),
                 key_rotation_storage: sync_key_rotation_storage,
                 to_device_storage: to_device_storage.clone(),
                 metrics: infra.metrics.clone(),
                 performance: infra.config.performance.clone(),
+                cache: infra.cache.clone(),
             }));
 
         let typing_service = Arc::new(crate::typing_service::TypingService::new(infra.cache.clone()));

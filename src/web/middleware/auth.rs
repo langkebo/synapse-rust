@@ -131,8 +131,12 @@ pub async fn admin_auth_middleware(
     let path = request.uri().path().to_string();
     let headers = request.headers().clone();
     let request_id = resolve_request_id(&headers);
-    let client_ip =
-        extract_client_ip(&headers, &["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()]);
+    let client_ip = extract_client_ip(
+        &headers,
+        &["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()],
+        None,
+        &[],
+    );
 
     let admin = match authorize_admin_from_services(
         ctx.token_auth.as_ref(),

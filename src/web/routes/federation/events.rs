@@ -11,7 +11,7 @@ pub(super) async fn get_room_auth(
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
     let auth_events = ctx.room_service.messaging().get_state_event_records(&room_id).await?;
 
@@ -48,7 +48,7 @@ pub(super) async fn get_missing_events(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
     let earliest_events: Vec<String> = body
         .get("earliest_events")
@@ -87,7 +87,7 @@ pub(super) async fn get_event_auth(
     Extension(auth): Extension<FederationRequestAuth>,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
     let event = get_room_event_in_room(&ctx, &room_id, &event_id).await?;
     let auth_events =
@@ -121,7 +121,7 @@ pub(super) async fn get_event(
 
     match event {
         Some(e) => {
-            super::validate_federation_origin_in_room(&ctx, &e.room_id, &auth.origin).await?;
+            super::validate_federation_origin_can_observe_room(&ctx, &e.room_id, &auth.origin).await?;
             Ok(Json(build_federation_event_response(&ctx.server_name, &e)))
         }
         None => Err(ApiError::not_found("Event not found".to_string())),
@@ -133,7 +133,7 @@ pub(super) async fn get_room_event(
     Extension(auth): Extension<FederationRequestAuth>,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
     let event = ctx.room_service.messaging().get_event_record(&event_id).await?;
 
@@ -205,7 +205,7 @@ pub(super) async fn room_directory_query(
 
     if let Some(room) = room {
         if !room.is_public {
-            super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
+            super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
         }
 
         return Ok(Json(json!({
@@ -395,7 +395,7 @@ pub(super) async fn query_directory(
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     if !room.is_public {
-        super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
+        super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     }
 
     Ok(Json(json!({
@@ -405,11 +405,19 @@ pub(super) async fn query_directory(
 }
 
 pub(super) async fn query_destination(State(ctx): State<FederationContext>) -> Result<Json<Value>, ApiError> {
+    let mut room_versions = federation_room_versions_capability();
+    if let Some(obj) = room_versions.as_object_mut() {
+        obj.insert("default".to_string(), json!(DEFAULT_ROOM_VERSION));
+    }
     Ok(Json(json!({
         "server_name": ctx.server_name,
         "destination": ctx.server_name,
         "retry_last_ts": 0,
-        "retry_interval_ms": 0
+        "retry_interval_ms": 0,
+        "capabilities": {
+            "m.change_password": crate::web::routes::handlers::versions::change_password_capability_enabled(&ctx.config),
+            "m.room_versions": room_versions
+        }
     })))
 }
 
@@ -423,7 +431,7 @@ pub(super) async fn timestamp_to_event(
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
 
-    super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
     let timestamp = match params.get("ts") {
         Some(v) => {
@@ -479,7 +487,7 @@ pub(super) async fn get_room_hierarchy(
         .ok_or_else(|| ApiError::not_found("Room not found"))?;
 
     if !room.is_public {
-        super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
+        super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     }
 
     let space =

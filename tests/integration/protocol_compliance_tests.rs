@@ -87,7 +87,7 @@ fn test_typing_set_and_clear() {
 
         presence.set_typing(room_id, user_id, true).await.unwrap();
         let count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM typing WHERE room_id = $1 AND user_id = $2 AND typing = TRUE")
+            sqlx::query_as("SELECT COUNT(*) FROM typing WHERE room_id = $1 AND user_id = $2 AND is_typing = TRUE")
                 .bind(room_id)
                 .bind(user_id)
                 .fetch_one(&pool)

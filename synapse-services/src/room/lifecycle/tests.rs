@@ -2,6 +2,7 @@
 mod tests {
     use super::super::service::{LifecycleService, LifecycleServiceConfig};
     use std::sync::Arc;
+    use synapse_cache::{CacheConfig, CacheManager};
     use synapse_common::validation::Validator;
     use synapse_storage::test_mocks::{InMemoryEventStore, InMemoryMemberStore, InMemoryRoomStore};
     use synapse_storage::UserStore;
@@ -20,6 +21,7 @@ mod tests {
     ) -> LifecycleService {
         let event_reader: Arc<dyn synapse_storage::event::EventReader> = Arc::new(event_store.clone());
         let event_writer: Arc<dyn synapse_storage::event::EventWriter> = Arc::new(event_store.clone());
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         LifecycleService::new(LifecycleServiceConfig {
             room_storage: Arc::new(room_store),
             member_storage: Arc::new(member_store),
@@ -30,6 +32,8 @@ mod tests {
             validator: test_validator(),
             server_name: "example.com".to_string(),
             room_summary_service: None,
+            cache,
+            app_service_manager: None,
         })
     }
 
