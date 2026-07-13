@@ -136,7 +136,7 @@ pub async fn admin_auth_middleware(
 
     let admin = match authorize_admin_from_services(
         ctx.token_auth.as_ref(),
-        ctx.user_storage.as_ref(),
+        ctx.user_service.as_ref(),
         &ctx.config.security,
         Some(ctx.admin_audit_service.as_ref()),
         &headers,

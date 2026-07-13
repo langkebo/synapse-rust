@@ -10,6 +10,7 @@ use synapse_rust::common::Validator;
 use synapse_services::application_service::{ApplicationServiceManager, ApplicationServiceScheduler};
 use synapse_services::room_service::{CreateRoomConfig, RoomService};
 use synapse_services::room_summary_service::RoomSummaryService;
+use synapse_services::UserService;
 use synapse_storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
 use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
@@ -322,6 +323,7 @@ fn build_room_service(
         event_writer: Some(event_storage.clone()),
         room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
         user_storage: Arc::new(UserStorage::new(pool, canonical_cache.clone())),
+        user_service: Arc::new(UserService::new(Arc::new(UserStorage::new(pool, canonical_cache.clone())))),
         room_auth: Arc::new(synapse_services::auth::AuthService::new(
             pool,
             canonical_cache,

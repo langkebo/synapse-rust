@@ -1,3 +1,4 @@
+use crate::UserService;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::ApiError;
@@ -13,6 +14,8 @@ pub struct UserRateLimit {
 
 pub struct AdminSecurityService {
     user_storage: Arc<dyn UserStore>,
+    #[allow(dead_code)]
+    user_service: Arc<UserService>,
     rate_limit_storage: Arc<dyn RateLimitStoreApi>,
     cache: Arc<CacheManager>,
 }
@@ -20,10 +23,11 @@ pub struct AdminSecurityService {
 impl AdminSecurityService {
     pub fn new(
         user_storage: Arc<dyn UserStore>,
+        user_service: Arc<UserService>,
         rate_limit_storage: Arc<dyn RateLimitStoreApi>,
         cache: Arc<CacheManager>,
     ) -> Self {
-        Self { user_storage, rate_limit_storage, cache }
+        Self { user_storage, user_service, rate_limit_storage, cache }
     }
 
     #[instrument(skip(self))]
@@ -98,7 +102,9 @@ mod tests {
     }
 
     fn test_service() -> AdminSecurityService {
-        AdminSecurityService::new(fake_user_store(), Arc::new(InMemoryRateLimitStore::new()), fake_cache())
+        let user_store = fake_user_store();
+        let user_service = Arc::new(crate::UserService::new(user_store.clone()));
+        AdminSecurityService::new(user_store, user_service, Arc::new(InMemoryRateLimitStore::new()), fake_cache())
     }
 
     #[tokio::test]

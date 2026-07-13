@@ -6,6 +6,7 @@ use synapse_storage::*;
 
 use crate::auth::RoomAuth;
 use crate::container::SharedInfra;
+use crate::UserService;
 
 #[derive(Clone)]
 pub struct RoomSyncServices {
@@ -44,6 +45,7 @@ impl RoomSyncServices {
         key_rotation_manager: Arc<synapse_federation::KeyRotationManager>,
         federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
         sticky_event_storage: Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>,
+        user_service: Arc<UserService>,
     ) -> Self {
         let server_name_for_storage = infra.config.server.get_server_name().to_string();
         let room_storage: Arc<dyn synapse_storage::room::RoomStoreApi> = Arc::new(RoomStorage::new(&infra.pool));
@@ -76,6 +78,7 @@ impl RoomSyncServices {
             event_writer: Some(event_writer.clone()),
             room_tag_storage: room_tag_storage.clone(),
             user_storage: Arc::new(UserStorage::new(&infra.pool, infra.cache.clone())),
+            user_service: user_service.clone(),
             room_auth: room_auth.clone(),
             room_summary_service: room_summary_service.clone(),
             validator: validator.clone(),

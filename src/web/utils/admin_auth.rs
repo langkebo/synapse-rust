@@ -6,12 +6,11 @@ use axum::http::{HeaderMap, Method};
 use hmac::{Hmac, Mac};
 use serde_json::json;
 use sha1::Sha1;
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use synapse_common::crypto::secure_compare;
+use synapse_services::UserService;
 use synapse_storage::audit::CreateAuditEventRequest;
 use synapse_storage::user::User;
-use synapse_storage::UserStore;
 
 type HmacSha1 = Hmac<Sha1>;
 
@@ -28,7 +27,7 @@ pub(crate) struct AuthorizedAdmin {
 /// implementations.
 pub(crate) async fn authorize_admin_from_services(
     auth_service: &(dyn synapse_services::auth::TokenAuth + Send + Sync),
-    user_storage: &(dyn synapse_storage::UserStore + Send + Sync),
+    user_service: &UserService,
     security: &synapse_common::config::SecurityConfig,
     admin_audit_service: Option<&synapse_services::AdminAuditService>,
     headers: &HeaderMap,
@@ -43,10 +42,9 @@ pub(crate) async fn authorize_admin_from_services(
         return Err(ApiError::forbidden("Admin access required".to_string()));
     }
 
-    let user = user_storage
-        .get_user_by_id(&user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to load admin user", &e))?
+    let user = user_service
+        .get_user(&user_id)
+        .await?
         .ok_or_else(|| ApiError::unauthorized("Admin user not found".to_string()))?;
 
     if !user.is_admin {
@@ -127,10 +125,9 @@ pub(crate) async fn authorize_admin_request(
     let user = state
         .services
         .account
-        .user_storage
-        .get_user_by_id(&user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to load admin user", &e))?
+        .user_service
+        .get_user(&user_id)
+        .await?
         .ok_or_else(|| ApiError::unauthorized("Admin user not found".to_string()))?;
 
     if !user.is_admin {
@@ -209,16 +206,16 @@ fn normalize_admin_path(path: &str) -> String {
 /// Variant that works with individual service references instead of &AppState.
 pub(crate) async fn enforce_admin_login_mfa_svc(
     security: &SecurityConfig,
-    user_storage: &Arc<dyn UserStore>,
+    user_service: &UserService,
     username: &str,
     mfa_code: Option<&str>,
 ) -> Result<(), ApiError> {
-    enforce_admin_login_mfa_impl(security, user_storage, username, mfa_code).await
+    enforce_admin_login_mfa_impl(security, user_service, username, mfa_code).await
 }
 
 async fn enforce_admin_login_mfa_impl(
     security: &SecurityConfig,
-    user_storage: &Arc<dyn UserStore>,
+    user_service: &UserService,
     username: &str,
     mfa_code: Option<&str>,
 ) -> Result<(), ApiError> {
@@ -226,11 +223,7 @@ async fn enforce_admin_login_mfa_impl(
         return Ok(());
     }
 
-    let Some(user) = user_storage
-        .get_user_by_identifier(username)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to load user for admin MFA", &e))?
-    else {
+    let Some(user) = user_service.get_user_by_identifier(username).await? else {
         return Ok(());
     };
 

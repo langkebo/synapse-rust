@@ -5,8 +5,12 @@ use synapse_common::*;
 
 use std::sync::Arc;
 
+use crate::UserService;
+
 pub struct RegistrationService {
+    #[allow(dead_code)]
     user_storage: Arc<dyn synapse_storage::UserStore>,
+    user_service: Arc<UserService>,
     token_auth: Arc<dyn crate::auth::TokenAuth>,
     credential_auth: Arc<dyn crate::auth::CredentialAuth>,
     metrics: Arc<MetricsCollector>,
@@ -17,8 +21,10 @@ pub struct RegistrationService {
 }
 
 impl RegistrationService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         user_storage: Arc<dyn synapse_storage::UserStore>,
+        user_service: Arc<UserService>,
         token_auth: Arc<dyn crate::auth::TokenAuth>,
         credential_auth: Arc<dyn crate::auth::CredentialAuth>,
         metrics: Arc<MetricsCollector>,
@@ -30,7 +36,16 @@ impl RegistrationService {
         // Default to HTTPS for production, can be overridden via environment variable
         let base_url = std::env::var("HOMESERVER_BASE_URL").unwrap_or_else(|_| format!("https://{server_name}"));
 
-        Self { user_storage, token_auth, credential_auth, metrics, base_url, enable_registration, task_queue }
+        Self {
+            user_storage,
+            user_service,
+            token_auth,
+            credential_auth,
+            metrics,
+            base_url,
+            enable_registration,
+            task_queue,
+        }
     }
 
     #[::tracing::instrument(
@@ -192,64 +207,22 @@ impl RegistrationService {
 
     #[::tracing::instrument(skip_all, fields(user_id = %user_id))]
     pub async fn get_profile(&self, user_id: &str) -> ApiResult<serde_json::Value> {
-        let user = self
-            .user_storage
-            .get_user_by_id(user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get user", &e))?;
-
-        match user {
-            Some(u) => Ok(serde_json::json!({
-                "user_id": u.user_id,
-                "displayname": u.displayname,
-                "avatar_url": u.avatar_url
-            })),
-            _ => Err(ApiError::not_found("User not found".to_string())),
-        }
+        self.user_service.get_profile(user_id).await
     }
 
     #[::tracing::instrument(skip_all, fields(batch_size = user_ids.len()))]
     pub async fn get_profiles(&self, user_ids: &[String]) -> ApiResult<Vec<serde_json::Value>> {
-        let profiles = self
-            .user_storage
-            .get_user_profiles_batch(user_ids)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get profiles", &e))?;
-
-        Ok(profiles
-            .into_iter()
-            .map(|u| {
-                serde_json::json!({
-                    "user_id": u.user_id,
-                    "displayname": u.displayname,
-                    "avatar_url": u.avatar_url
-                })
-            })
-            .collect())
+        self.user_service.get_profiles_batch(user_ids).await
     }
 
     #[::tracing::instrument(skip_all, fields(user_id = %user_id, displayname_len = displayname.len()))]
     pub async fn set_displayname(&self, user_id: &str, displayname: &str) -> ApiResult<()> {
-        self.user_storage.update_displayname(user_id, Some(displayname)).await.map_err(|e| {
-            if e.to_string().contains("too long") {
-                ApiError::bad_request("Displayname too long (max 255 characters)".to_string())
-            } else {
-                ApiError::internal_with_log("Failed to update displayname", &e)
-            }
-        })?;
-        Ok(())
+        self.user_service.update_displayname(user_id, Some(displayname)).await
     }
 
     #[::tracing::instrument(skip_all, fields(user_id = %user_id, avatar_url_len = avatar_url.len()))]
     pub async fn set_avatar_url(&self, user_id: &str, avatar_url: &str) -> ApiResult<()> {
-        self.user_storage.update_avatar_url(user_id, Some(avatar_url)).await.map_err(|e| {
-            if e.to_string().contains("too long") {
-                ApiError::bad_request("Avatar URL too long (max 255 characters)".to_string())
-            } else {
-                ApiError::internal_with_log("Failed to update avatar", &e)
-            }
-        })?;
-        Ok(())
+        self.user_service.update_avatar_url(user_id, Some(avatar_url)).await
     }
 
     #[::tracing::instrument(
@@ -266,13 +239,7 @@ impl RegistrationService {
         displayname: Option<&str>,
         avatar_url: Option<&str>,
     ) -> ApiResult<()> {
-        if let Some(name) = displayname {
-            self.set_displayname(user_id, name).await?;
-        }
-        if let Some(url) = avatar_url {
-            self.set_avatar_url(user_id, url).await?;
-        }
-        Ok(())
+        self.user_service.update_profile(user_id, displayname, avatar_url).await
     }
 }
 
@@ -286,6 +253,7 @@ mod tests {
         let services = ServiceContainer::new_test().await;
         let _registration_service = RegistrationService::new(
             services.account.user_storage.clone(),
+            services.core.user_service.clone(),
             services.core.token_auth.clone(),
             services.core.credential_auth.clone(),
             services.core.metrics.clone(),
@@ -321,6 +289,7 @@ mod tests {
         let services = ServiceContainer::new_test().await;
         let registration_service = RegistrationService::new(
             services.account.user_storage.clone(),
+            services.core.user_service.clone(),
             services.core.token_auth.clone(),
             services.core.credential_auth.clone(),
             services.core.metrics.clone(),

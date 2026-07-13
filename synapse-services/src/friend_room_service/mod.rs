@@ -11,6 +11,7 @@ pub use models::{
 
 use serde_json::{json, Map, Value};
 
+use crate::UserService;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -30,6 +31,7 @@ impl FriendRoomService {
         friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
         room_service: Arc<dyn crate::room::RoomServiceApi>,
         user_storage: Arc<dyn UserStore>,
+        user_service: Arc<UserService>,
         presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
         account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
         cache: Arc<CacheManager>,
@@ -41,6 +43,7 @@ impl FriendRoomService {
             friend_storage,
             room_service,
             user_storage,
+            user_service,
             presence_storage,
             account_data_storage,
             cache,
@@ -54,6 +57,7 @@ impl FriendRoomService {
         friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
         room_service: Arc<dyn crate::room::RoomServiceApi>,
         user_storage: Arc<dyn UserStore>,
+        user_service: Arc<UserService>,
         presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
         account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
         cache: Arc<CacheManager>,
@@ -64,6 +68,7 @@ impl FriendRoomService {
             friend_storage,
             room_service,
             user_storage,
+            user_service,
             presence_storage,
             account_data_storage,
             cache,

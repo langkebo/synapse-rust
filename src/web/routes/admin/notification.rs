@@ -137,7 +137,7 @@ pub fn admin_notification_route_manifest() -> Vec<crate::web::routes::route_ledg
 
 #[cfg(feature = "server-notifications")]
 async fn ensure_user_exists(ctx: &AdminContext, user_id: &str) -> Result<(), ApiError> {
-    ctx.server_notification_service.ensure_user_exists(user_id).await
+    ctx.user_service.ensure_user_exists(user_id).await
 }
 
 #[cfg(feature = "server-notifications")]
@@ -329,7 +329,7 @@ pub async fn send_server_notice(
     State(ctx): State<AdminContext>,
     Json(body): Json<ServerNoticeRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let target_user = ctx.server_notification_service.get_user_by_identifier(&body.user_id).await?;
+    let target_user = ctx.user_service.get_user_by_identifier(&body.user_id).await?;
     let Some(target_user) = target_user else {
         return Err(ApiError::not_found("User not found".to_string()));
     };

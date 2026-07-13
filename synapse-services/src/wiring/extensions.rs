@@ -82,6 +82,7 @@ impl ExtensionServices {
             friend_storage.clone(),
             rooms.room_service.clone(),
             user_storage.clone(),
+            user_service.clone(),
             presence_storage.clone(),
             account_data_storage,
             infra.cache.clone(),
@@ -135,7 +136,7 @@ impl ExtensionServices {
         #[cfg(feature = "server-notifications")]
         let server_notification_service = Arc::new(crate::server_notification_service::ServerNotificationService::new(
             server_notification_storage.clone(),
-            user_storage.clone(),
+            user_service.clone(),
         ));
 
         #[cfg(feature = "privacy-ext")]

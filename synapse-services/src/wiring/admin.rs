@@ -103,12 +103,15 @@ impl AdminServices {
         _room_auth: &Arc<dyn RoomAuth>,
         user_storage: &Arc<dyn UserStore>,
     ) -> Self {
+        let user_service = Arc::new(UserService::new(user_storage.clone()));
+
         let admin_registration_service = crate::admin_registration_service::AdminRegistrationService::new(
             token_auth.clone(),
             credential_auth.clone(),
             config.server.name.clone(),
             config.admin_registration.clone(),
             user_storage.clone(),
+            user_service.clone(),
             cache.clone(),
             metrics.clone(),
         );
@@ -248,10 +251,11 @@ impl AdminServices {
 
         let admin_media_storage = Arc::new(AdminMediaStorage::new(pool));
         let admin_media_service =
-            Arc::new(crate::admin_media_service::AdminMediaService::new(admin_media_storage, user_storage.clone()));
+            Arc::new(crate::admin_media_service::AdminMediaService::new(admin_media_storage, user_service.clone()));
         let rate_limit_storage = Arc::new(RateLimitStorage::new(pool));
         let admin_security_service = Arc::new(crate::admin_security_service::AdminSecurityService::new(
             user_storage.clone(),
+            user_service.clone(),
             rate_limit_storage,
             cache.clone(),
         ));
@@ -261,7 +265,6 @@ impl AdminServices {
             refresh_token_storage.clone(),
             registration_token_service.clone(),
         ));
-        let user_service = Arc::new(UserService::new(user_storage.clone()));
 
         let admin_user_service = Arc::new(crate::admin_user_service::AdminUserService::new(
             pool.clone(),

@@ -738,7 +738,7 @@ impl FromRequestParts<AdminContext> for AdminUser {
         async move {
             let admin = authorize_admin_from_services(
                 state.token_auth.as_ref(),
-                state.user_storage.as_ref(),
+                state.user_service.as_ref(),
                 &state.config.security,
                 Some(state.admin_audit_service.as_ref()),
                 &headers,
@@ -771,7 +771,7 @@ impl FromRequestParts<FederationContext> for AdminUser {
         async move {
             let admin = authorize_admin_from_services(
                 state.token_auth.as_ref(),
-                state.user_storage.as_ref(),
+                state.user_service.as_ref(),
                 &state.config.security,
                 state.admin_audit_service.as_deref(),
                 &headers,
@@ -804,7 +804,7 @@ impl FromRequestParts<MediaContext> for AdminUser {
         async move {
             let admin = authorize_admin_from_services(
                 state.token_auth.as_ref(),
-                state.user_storage.as_ref(),
+                state.user_service.as_ref(),
                 &state.config.security,
                 state.admin_audit_service.as_deref(),
                 &headers,

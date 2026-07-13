@@ -1,4 +1,5 @@
 use crate::auth::{CredentialAuth, TokenAuth};
+use crate::UserService;
 use crate::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::Utc;
@@ -20,6 +21,8 @@ pub struct AdminRegistrationService {
     server_name: String,
     config: AdminRegistrationConfig,
     user_storage: Arc<dyn UserStore>,
+    #[allow(dead_code)]
+    user_service: Arc<UserService>,
     cache: Arc<CacheManager>,
     metrics: Arc<MetricsCollector>,
 }
@@ -51,16 +54,18 @@ pub struct AdminRegisterResponse {
 }
 
 impl AdminRegistrationService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         token_auth: Arc<dyn TokenAuth>,
         credential_auth: Arc<dyn CredentialAuth>,
         server_name: String,
         config: AdminRegistrationConfig,
         user_storage: Arc<dyn UserStore>,
+        user_service: Arc<UserService>,
         cache: Arc<CacheManager>,
         metrics: Arc<MetricsCollector>,
     ) -> Self {
-        Self { token_auth, credential_auth, server_name, config, user_storage, cache, metrics }
+        Self { token_auth, credential_auth, server_name, config, user_storage, user_service, cache, metrics }
     }
 
     pub fn start_nonce_cleanup_task(self: Arc<Self>) {

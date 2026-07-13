@@ -281,6 +281,7 @@ impl ServiceContainer {
             Arc::new(federation.key_rotation_manager.clone()),
             federation.federation_client.clone(),
             storage.sticky_event_storage.clone(),
+            storage.user_service.clone(),
         )
         .await;
 
@@ -341,13 +342,13 @@ impl ServiceContainer {
         // Account identity service (cfg-gated — privacy-ext adds privacy_storage dep)
         #[cfg(feature = "privacy-ext")]
         let account_identity_service = Arc::new(crate::account_identity_service::AccountIdentityService::new(
-            storage.user_storage.clone(),
+            storage.user_service.clone(),
             Arc::new(storage.threepid_storage.clone()),
             extensions.privacy_storage.clone(),
         ));
         #[cfg(not(feature = "privacy-ext"))]
         let account_identity_service = Arc::new(crate::account_identity_service::AccountIdentityService::new(
-            storage.user_storage.clone(),
+            storage.user_service.clone(),
             Arc::new(storage.threepid_storage.clone()),
         ));
 

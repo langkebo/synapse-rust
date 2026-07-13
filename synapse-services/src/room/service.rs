@@ -52,6 +52,7 @@ pub struct RoomServiceConfig {
     pub event_writer: Option<Arc<dyn synapse_storage::event::EventWriter>>,
     pub room_tag_storage: Arc<dyn RoomTagStoreApi>,
     pub user_storage: Arc<dyn UserStore>,
+    pub user_service: Arc<UserService>,
     pub room_auth: Arc<dyn RoomAuth>,
     pub room_summary_service: Arc<RoomSummaryService>,
     pub validator: Arc<Validator>,
@@ -117,6 +118,7 @@ impl RoomService {
             event_reader: config.event_reader.clone().expect("event_reader required"),
             event_writer: config.event_writer.clone().expect("event_writer required"),
             user_storage: config.user_storage.clone(),
+            user_service: config.user_service.clone(),
             room_auth: config.room_auth.clone(),
             server_name: config.server_name.clone(),
             federation_client: infra.federation_client.clone(),
@@ -152,6 +154,7 @@ impl RoomService {
             event_writer: config.event_writer.clone().expect("event_writer required"),
             room_tag_storage: config.room_tag_storage.clone(),
             user_storage: config.user_storage.clone(),
+            user_service: config.user_service.clone(),
             server_name: config.server_name.clone(),
         };
         let state = RoomStateService::new(state_cfg);
@@ -162,6 +165,7 @@ impl RoomService {
             event_reader: config.event_reader.clone().expect("event_reader required"),
             event_writer: config.event_writer.clone().expect("event_writer required"),
             user_storage: config.user_storage.clone(),
+            user_service: config.user_service.clone(),
             validator: config.validator.clone(),
             server_name: config.server_name.clone(),
             room_summary_service: Some(config.room_summary_service.clone()),

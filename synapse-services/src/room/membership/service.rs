@@ -4,6 +4,7 @@
 //! Extracted from RoomService as part of the domain split plan (Task 1).
 
 use crate::common::error::{ApiError, ApiResult};
+use crate::UserService;
 use serde_json::json;
 use std::sync::Arc;
 use synapse_federation::client_api::FederationClientApi;
@@ -24,6 +25,8 @@ pub struct MembershipService {
     pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub(crate) event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     pub(crate) user_storage: Arc<dyn UserStore>,
+    #[allow(dead_code)]
+    pub(crate) user_service: Arc<UserService>,
     pub(crate) room_auth: Arc<dyn crate::auth::RoomAuth>,
     pub(crate) server_name: String,
     pub(crate) federation_client: Option<Arc<dyn FederationClientApi>>,
@@ -39,6 +42,7 @@ pub struct MembershipServiceConfig {
     pub event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     pub user_storage: Arc<dyn UserStore>,
+    pub user_service: Arc<UserService>,
     pub room_auth: Arc<dyn crate::auth::RoomAuth>,
     pub server_name: String,
     pub federation_client: Option<Arc<dyn FederationClientApi>>,
@@ -55,6 +59,7 @@ impl MembershipService {
             event_reader: config.event_reader,
             event_writer: config.event_writer,
             user_storage: config.user_storage,
+            user_service: config.user_service,
             room_auth: config.room_auth,
             server_name: config.server_name,
             federation_client: config.federation_client,

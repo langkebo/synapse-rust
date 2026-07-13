@@ -15,6 +15,7 @@ use synapse_rust::e2ee::to_device::ToDeviceStorage;
 use synapse_services::room_service::{CreateRoomConfig, RoomService};
 use synapse_services::room_summary_service::RoomSummaryService;
 use synapse_services::sync_service::SyncService;
+use synapse_services::UserService;
 use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::{CreateEventParams, EventStorage};
 use synapse_storage::membership::RoomMemberStorage;
@@ -341,6 +342,7 @@ fn create_room_service(
         event_reader: Some(event_storage.clone()),
         event_writer: Some(event_storage.clone()),
         room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
+        user_service: Arc::new(UserService::new(user_storage.clone())),
         user_storage,
         room_auth: Arc::new(synapse_services::auth::AuthService::new(
             pool,

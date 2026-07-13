@@ -190,6 +190,8 @@ pub struct FriendRoomService {
     pub(crate) friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
     pub(crate) room_service: Arc<dyn RoomServiceApi>,
     pub(crate) user_storage: Arc<dyn UserStore>,
+    #[allow(dead_code)]
+    pub(crate) user_service: Arc<crate::UserService>,
     pub(crate) presence_storage: std::sync::Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     pub(crate) account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
     pub(crate) cache: Arc<CacheManager>,

@@ -78,8 +78,11 @@ impl CoreServices {
             Some(infra.pool.clone()),
         );
 
+        let user_service = Arc::new(UserService::new(user_storage.clone()));
+
         let registration_service = Arc::new(crate::registration_service::RegistrationService::new(
             user_storage.clone(),
+            user_service.clone(),
             token_auth.clone(),
             credential_auth.clone(),
             infra.metrics.clone(),
@@ -103,8 +106,6 @@ impl CoreServices {
             Arc::new(synapse_storage::push::PushStorage::new(infra.pool.clone()));
         let client_push_service =
             Arc::new(crate::client_push_service::ClientPushService::new(account_data_storage, push_storage));
-
-        let user_service = Arc::new(UserService::new(user_storage.clone()));
 
         Self {
             token_auth: token_auth.clone(),

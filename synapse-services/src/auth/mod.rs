@@ -27,6 +27,8 @@ pub use token_auth::TokenAuth;
 pub use password_policy::{PasswordPolicy, PasswordPolicyService, PasswordValidationResult};
 pub use synapse_common::claims::{Claims, ClaimsBuilder};
 
+use crate::UserService;
+
 const TOKEN_CACHE_TTL_SECS: u64 = 300; // 5 min - must be short to respect revocation
 const USER_ACTIVE_CACHE_TTL_SECS: u64 = 60;
 const ADMIN_CACHE_TTL_SECS: u64 = 60;
@@ -35,6 +37,7 @@ const DEFAULT_POWER_LEVEL: i64 = 50;
 #[derive(Clone)]
 pub struct AuthService {
     pub user_storage: Arc<dyn UserStore>,
+    pub user_service: Arc<UserService>,
     pub device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
     pub token_storage: AccessTokenStorage,
     pub refresh_token_storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi>,
@@ -76,8 +79,10 @@ impl AuthService {
         access_token_lifetime: i64,
     ) -> Self {
         let server_name_for_storage = server_name.to_string();
+        let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
         Self {
-            user_storage: Arc::new(UserStorage::new(pool, cache.clone())),
+            user_service: Arc::new(UserService::new(user_storage.clone())),
+            user_storage,
             device_storage: Arc::new(DeviceStorage::new(pool)),
             token_storage: AccessTokenStorage::new(pool),
             refresh_token_storage: Arc::new(synapse_storage::refresh_token::RefreshTokenStorage::new(pool)),
@@ -150,12 +155,7 @@ impl AuthService {
     }
 
     async fn require_guest_user(&self, user_id: &str) -> ApiResult<User> {
-        let user = self
-            .user_storage
-            .get_user_by_id(user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get user", &e))?
-            .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
+        let user = self.user_service.get_user_or_not_found(user_id).await?;
 
         if !user.is_guest {
             return Err(ApiError::forbidden("User is not a guest".to_string()));
@@ -175,11 +175,7 @@ impl AuthService {
         self.validator.validate_password(password)?;
 
         let guest_user = self.require_guest_user(user_id).await?;
-        let existing = self
-            .user_storage
-            .get_user_by_username(username)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check username", &e))?;
+        let existing = self.user_service.get_user_by_username(username).await?;
 
         if existing.as_ref().is_some_and(|user| user.user_id != user_id) {
             return Err(ApiError::conflict("Username already exists".to_string()));

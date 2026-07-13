@@ -327,7 +327,7 @@ pub(crate) async fn login(
     let initial_display_name = body.get("initial_display_name").and_then(|v| v.as_str());
     let mfa_code = body.get("mfa_code").and_then(|v| v.as_str());
 
-    enforce_admin_login_mfa_svc(&ctx.config.security, &ctx.user_storage, username, mfa_code).await?;
+    enforce_admin_login_mfa_svc(&ctx.config.security, ctx.user_service.as_ref(), username, mfa_code).await?;
 
     let (user, access_token, refresh_token, device_id) =
         ctx.credential_auth.login(username, password, device_id, initial_display_name).await?;
