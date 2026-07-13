@@ -39,7 +39,7 @@ pub struct MediaDomainService {
     media_service: MediaService,
     media_quota_service: Arc<MediaQuotaService>,
     chunked_upload_service: Arc<chunked_upload::ChunkedUploadService>,
-    quarantine_change_storage: Option<Arc<synapse_storage::media::QuarantinedMediaChangeStorage>>,
+    quarantine_change_storage: Option<Arc<dyn synapse_storage::media::QuarantinedMediaChangeStoreApi>>,
     cache_invalidation: Option<Arc<synapse_cache::invalidation::CacheInvalidationManager>>,
 }
 
@@ -63,7 +63,7 @@ impl MediaDomainService {
     /// integration for multi-worker deployments.
     pub fn with_quarantine_stream(
         mut self,
-        storage: Arc<synapse_storage::media::QuarantinedMediaChangeStorage>,
+        storage: Arc<dyn synapse_storage::media::QuarantinedMediaChangeStoreApi>,
         cache_invalidation: Option<Arc<synapse_cache::invalidation::CacheInvalidationManager>>,
     ) -> Self {
         self.quarantine_change_storage = Some(storage);

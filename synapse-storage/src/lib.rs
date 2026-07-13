@@ -172,10 +172,14 @@ pub use self::media_quota::{
     CreateQuotaConfigRequest, MediaQuotaAlert, MediaQuotaConfig, MediaQuotaStorage, MediaQuotaStoreApi, MediaUsageLog,
     QuotaCheckResult, ServerMediaQuota, SetUserQuotaRequest, UpdateUsageRequest, UserMediaQuota,
 };
+
+// Quarantine stream storage
+pub use self::media::quarantine_stream::QuarantinedMediaChangeStoreApi;
 pub use self::membership::{MemberStoreApi, RoomMember, RoomMemberStorage, UserRoomMembership};
 pub use self::moderation::{
     ContentScanResult, ContentType, CreateModerationRuleParams, MatchedRule, ModerationAction, ModerationLog,
-    ModerationLogStorage, ModerationRule, ModerationRuleType, ModerationStorage, ScanContentRequest,
+    ModerationLogStorage, ModerationLogStoreApi, ModerationRule, ModerationRuleType, ModerationStorage,
+    ModerationStoreApi, ScanContentRequest,
 };
 pub use self::monitoring::{
     ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor, DuplicateEntry,

@@ -309,7 +309,8 @@ impl ServiceContainer {
                 admin.media.media_quota_service.clone(),
                 chunked_upload_service.clone(),
             );
-            let quarantine_storage = Arc::new(synapse_storage::media::QuarantinedMediaChangeStorage::new(pool));
+            let quarantine_storage: Arc<dyn synapse_storage::media::QuarantinedMediaChangeStoreApi> =
+                Arc::new(synapse_storage::media::QuarantinedMediaChangeStorage::new(pool));
             let cache_invalidation = cache.invalidation_manager().cloned();
             svc.with_quarantine_stream(quarantine_storage, cache_invalidation)
         });

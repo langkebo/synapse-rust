@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
@@ -125,6 +126,24 @@ pub enum ContentType {
     File,
 }
 
+/// Store API for moderation rules.
+#[async_trait]
+pub trait ModerationStoreApi: Send + Sync {
+    async fn create_rule(&self, params: CreateModerationRuleParams) -> Result<ModerationRule, sqlx::Error>;
+    async fn get_rule(&self, rule_id: &str) -> Result<Option<ModerationRule>, sqlx::Error>;
+    async fn get_all_rules(&self) -> Result<Vec<ModerationRule>, sqlx::Error>;
+    async fn get_rules_by_type(&self, rule_type: &str) -> Result<Vec<ModerationRule>, sqlx::Error>;
+    async fn update_rule(
+        &self,
+        rule_id: &str,
+        pattern: Option<&str>,
+        action: Option<&str>,
+        reason: Option<&str>,
+        priority: Option<i32>,
+    ) -> Result<ModerationRule, sqlx::Error>;
+    async fn delete_rule(&self, rule_id: &str) -> Result<bool, sqlx::Error>;
+}
+
 #[derive(Clone)]
 pub struct ModerationStorage {
     pool: Arc<Pool<Postgres>>,
@@ -245,6 +264,40 @@ impl ModerationStorage {
     }
 }
 
+#[async_trait]
+impl ModerationStoreApi for ModerationStorage {
+    async fn create_rule(&self, params: CreateModerationRuleParams) -> Result<ModerationRule, sqlx::Error> {
+        self.create_rule(params).await
+    }
+
+    async fn get_rule(&self, rule_id: &str) -> Result<Option<ModerationRule>, sqlx::Error> {
+        self.get_rule(rule_id).await
+    }
+
+    async fn get_all_rules(&self) -> Result<Vec<ModerationRule>, sqlx::Error> {
+        self.get_all_rules().await
+    }
+
+    async fn get_rules_by_type(&self, rule_type: &str) -> Result<Vec<ModerationRule>, sqlx::Error> {
+        self.get_rules_by_type(rule_type).await
+    }
+
+    async fn update_rule(
+        &self,
+        rule_id: &str,
+        pattern: Option<&str>,
+        action: Option<&str>,
+        reason: Option<&str>,
+        priority: Option<i32>,
+    ) -> Result<ModerationRule, sqlx::Error> {
+        self.update_rule(rule_id, pattern, action, reason, priority).await
+    }
+
+    async fn delete_rule(&self, rule_id: &str) -> Result<bool, sqlx::Error> {
+        self.delete_rule(rule_id).await
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ModerationLog {
     pub id: i64,
@@ -256,6 +309,26 @@ pub struct ModerationLog {
     pub action_taken: String,
     pub confidence: f32,
     pub created_ts: i64,
+}
+
+/// Store API for moderation action logs.
+#[async_trait]
+#[allow(clippy::too_many_arguments)]
+pub trait ModerationLogStoreApi: Send + Sync {
+    async fn log_action(
+        &self,
+        rule_id: &str,
+        event_id: &str,
+        room_id: &str,
+        sender: &str,
+        content_hash: &str,
+        action_taken: &str,
+        confidence: f32,
+    ) -> Result<(), sqlx::Error>;
+    async fn get_logs_for_event(&self, event_id: &str) -> Result<Vec<ModerationLog>, sqlx::Error>;
+    async fn get_logs_for_room(&self, room_id: &str, limit: i32) -> Result<Vec<ModerationLog>, sqlx::Error>;
+    async fn get_logs_for_sender(&self, sender: &str, limit: i32) -> Result<Vec<ModerationLog>, sqlx::Error>;
+    async fn cleanup_old_logs(&self, older_than_days: i32) -> Result<u64, sqlx::Error>;
 }
 
 #[derive(Clone)]
@@ -352,6 +425,38 @@ impl ModerationLogStorage {
         .await?;
 
         Ok(result.rows_affected())
+    }
+}
+
+#[async_trait]
+impl ModerationLogStoreApi for ModerationLogStorage {
+    async fn log_action(
+        &self,
+        rule_id: &str,
+        event_id: &str,
+        room_id: &str,
+        sender: &str,
+        content_hash: &str,
+        action_taken: &str,
+        confidence: f32,
+    ) -> Result<(), sqlx::Error> {
+        self.log_action(rule_id, event_id, room_id, sender, content_hash, action_taken, confidence).await
+    }
+
+    async fn get_logs_for_event(&self, event_id: &str) -> Result<Vec<ModerationLog>, sqlx::Error> {
+        self.get_logs_for_event(event_id).await
+    }
+
+    async fn get_logs_for_room(&self, room_id: &str, limit: i32) -> Result<Vec<ModerationLog>, sqlx::Error> {
+        self.get_logs_for_room(room_id, limit).await
+    }
+
+    async fn get_logs_for_sender(&self, sender: &str, limit: i32) -> Result<Vec<ModerationLog>, sqlx::Error> {
+        self.get_logs_for_sender(sender, limit).await
+    }
+
+    async fn cleanup_old_logs(&self, older_than_days: i32) -> Result<u64, sqlx::Error> {
+        self.cleanup_old_logs(older_than_days).await
     }
 }
 
