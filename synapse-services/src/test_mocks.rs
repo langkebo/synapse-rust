@@ -23,7 +23,7 @@ use std::sync::RwLock;
 
 use async_trait::async_trait;
 use synapse_common::{ApiError, ApiResult};
-use synapse_storage::event::EventStoreApi;
+use synapse_storage::event::{EventReader, EventStoreApi, EventWriter};
 use synapse_storage::User;
 
 // ── Focused Auth Fakes ───────────────────────────────────────────────
@@ -311,6 +311,8 @@ impl TestSyncContext {
 #[derive(Default)]
 pub struct MockSyncServiceDepsBuilder {
     event_store: Option<Arc<dyn EventStoreApi>>,
+    event_reader: Option<Arc<dyn EventReader>>,
+    event_writer: Option<Arc<dyn EventWriter>>,
 }
 
 impl MockSyncServiceDepsBuilder {
@@ -322,6 +324,18 @@ impl MockSyncServiceDepsBuilder {
     /// for injection into the builder.
     pub fn with_event_store(mut self, store: Arc<dyn EventStoreApi>) -> Self {
         self.event_store = Some(store);
+        self
+    }
+
+    /// Accepts an `Arc<dyn EventReader>` for injection into the builder.
+    pub fn with_event_reader(mut self, reader: Arc<dyn EventReader>) -> Self {
+        self.event_reader = Some(reader);
+        self
+    }
+
+    /// Accepts an `Arc<dyn EventWriter>` for injection into the builder.
+    pub fn with_event_writer(mut self, writer: Arc<dyn EventWriter>) -> Self {
+        self.event_writer = Some(writer);
         self
     }
 

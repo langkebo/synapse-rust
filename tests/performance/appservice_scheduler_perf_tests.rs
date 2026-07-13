@@ -249,6 +249,7 @@ mod tests {
         Arc::new(ApplicationServiceManager::new(
             Arc::new(ApplicationServiceStorage::new(pool)),
             Arc::new(EventStorage::new(pool, "localhost".to_string())),
+            Arc::new(EventStorage::new(pool, "localhost".to_string())),
             "localhost".to_string(),
         ))
     }

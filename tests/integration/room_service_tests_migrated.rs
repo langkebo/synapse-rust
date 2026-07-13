@@ -312,13 +312,19 @@ fn build_room_service(
         Arc::new(EventStorage::new(pool, "localhost".to_string()));
     let canonical_cache = cache;
     let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
-    let room_summary_service =
-        Arc::new(RoomSummaryService::new(room_summary_storage, event_storage.clone(), Some(member_storage.clone())));
+    let room_summary_service = Arc::new(RoomSummaryService::new(
+        room_summary_storage,
+        event_storage.clone(),
+        event_storage.clone(),
+        Some(member_storage.clone()),
+    ));
 
     RoomService::new(synapse_services::room_service::RoomServiceConfig {
         room_storage: Arc::new(RoomStorage::new(pool)),
         member_storage,
-        event_storage,
+        event_storage: event_storage.clone(),
+        event_reader: Some(event_storage.clone()),
+        event_writer: Some(event_storage.clone()),
         room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
         user_storage: Arc::new(UserStorage::new(pool, canonical_cache.clone())),
         room_auth: Arc::new(synapse_services::auth::AuthService::new(
@@ -378,6 +384,7 @@ async fn register_test_appservice_with(
 fn create_test_appservice_manager(pool: &Arc<sqlx::PgPool>) -> Arc<ApplicationServiceManager> {
     Arc::new(ApplicationServiceManager::new(
         Arc::new(ApplicationServiceStorage::new(pool)),
+        Arc::new(EventStorage::new(pool, "localhost".to_string())),
         Arc::new(EventStorage::new(pool, "localhost".to_string())),
         "localhost".to_string(),
     ))
@@ -1211,6 +1218,7 @@ async fn test_appservice_background_sender_flushes_pending_queue() {
     let manager = Arc::new(ApplicationServiceManager::new(
         Arc::new(ApplicationServiceStorage::new(&pool)),
         Arc::new(EventStorage::new(&pool, "localhost".to_string())),
+        Arc::new(EventStorage::new(&pool, "localhost".to_string())),
         "localhost".to_string(),
     ));
 
@@ -1299,6 +1307,7 @@ async fn test_appservice_fatal_delivery_failures_disable_service_and_persist_sta
 
     let manager = Arc::new(ApplicationServiceManager::new(
         Arc::new(ApplicationServiceStorage::new(&pool)),
+        Arc::new(EventStorage::new(&pool, "localhost".to_string())),
         Arc::new(EventStorage::new(&pool, "localhost".to_string())),
         "localhost".to_string(),
     ));

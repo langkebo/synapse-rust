@@ -332,13 +332,19 @@ fn create_room_service(
     user_storage: Arc<dyn UserStore>,
 ) -> RoomService {
     let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
-    let room_summary_service =
-        Arc::new(RoomSummaryService::new(room_summary_storage, event_storage.clone(), Some(member_storage.clone())));
+    let room_summary_service = Arc::new(RoomSummaryService::new(
+        room_summary_storage,
+        event_storage.clone(),
+        event_storage.clone(),
+        Some(member_storage.clone()),
+    ));
 
     RoomService::new(synapse_services::room_service::RoomServiceConfig {
         room_storage,
         member_storage,
-        event_storage,
+        event_storage: event_storage.clone(),
+        event_reader: Some(event_storage.clone()),
+        event_writer: Some(event_storage.clone()),
         room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
         user_storage,
         room_auth: Arc::new(synapse_services::auth::AuthService::new(

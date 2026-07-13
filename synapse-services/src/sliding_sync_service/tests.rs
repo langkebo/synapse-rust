@@ -81,10 +81,12 @@ fn create_test_service() -> SlidingSyncService {
     let pool = Arc::new(
         sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy("postgres://localhost/test").unwrap(),
     );
+    let event_storage = Arc::new(EventStorage::new(&pool, "localhost".to_string()));
     SlidingSyncService {
         storage: Arc::new(SlidingSyncStorage::new(pool.clone())),
         cache: Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
-        event_storage: Arc::new(EventStorage::new(&pool, "localhost".to_string())),
+        event_storage: event_storage.clone(),
+        event_reader: event_storage,
         device_key_storage: DeviceKeyStorage::new(&pool),
         typing_service: Arc::new(crate::typing_service::TypingService::default()),
         presence_storage: Arc::new(PresenceStorage::new(

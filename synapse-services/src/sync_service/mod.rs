@@ -95,6 +95,7 @@ impl SyncService {
         Self::from_deps(SyncServiceDeps {
             presence_storage,
             member_storage,
+            event_reader: event_storage.clone(),
             event_storage,
             room_storage,
             room_account_data_storage,
