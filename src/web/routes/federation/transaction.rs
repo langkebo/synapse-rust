@@ -327,7 +327,19 @@ pub(super) async fn send_transaction(
             let to_membership = content
                 .get("membership")
                 .and_then(|v| v.as_str())
-                .and_then(|s| s.parse::<synapse_common::Membership>().ok());
+                .and_then(|s| {
+                    match s.parse::<synapse_common::Membership>() {
+                        Ok(m) => Some(m),
+                        Err(_) => {
+                            ::tracing::warn!(
+                                event_id = event_id,
+                                membership = %s,
+                                "Inbound m.room.member event with unknown membership value; will rely on auth-event chain for validation"
+                            );
+                            None
+                        }
+                    }
+                });
             if let Some(to) = to_membership {
                 let target = state_key.unwrap_or(user_id);
                 if let Err(error) =

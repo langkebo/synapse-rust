@@ -365,7 +365,17 @@ async fn get_local_verify_key(ctx: &FederationContext, key_id: &str) -> Option<[
             return None;
         }
 
-        let current_key = ctx.key_rotation_manager.get_current_key().await.ok().flatten()?;
+        let current_key = match ctx.key_rotation_manager.get_current_key().await {
+            Ok(Some(key)) => key,
+            Ok(None) => {
+                ::tracing::error!("No current federation signing key available");
+                return None;
+            }
+            Err(e) => {
+                ::tracing::error!(error = %e, "Failed to fetch current federation signing key from DB");
+                return None;
+            }
+        };
 
         if current_key.key_id != key_id {
             return None;

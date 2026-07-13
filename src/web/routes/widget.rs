@@ -373,13 +373,25 @@ async fn ensure_room_widget_manage_access(
     )
     .await?;
 
-    let is_moderator = ctx.room_auth.verify_room_moderator(room_id, &auth_user.user_id).await.is_ok();
+    let is_moderator = match ctx.room_auth.verify_room_moderator(room_id, &auth_user.user_id).await {
+        Ok(()) => true,
+        Err(e) => {
+            ::tracing::warn!(error = %e, room_id = room_id, user_id = %auth_user.user_id, "Room moderator check failed");
+            false
+        }
+    };
 
     if is_moderator {
         return Ok(());
     }
 
-    let is_creator = ctx.room_service.state().is_room_creator(room_id, &auth_user.user_id).await.unwrap_or(false);
+    let is_creator = match ctx.room_service.state().is_room_creator(room_id, &auth_user.user_id).await {
+        Ok(val) => val,
+        Err(e) => {
+            ::tracing::warn!(error = %e, room_id = room_id, user_id = %auth_user.user_id, "Room creator check failed");
+            false
+        }
+    };
 
     if is_creator {
         return Ok(());

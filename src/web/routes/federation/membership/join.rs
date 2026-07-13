@@ -280,7 +280,10 @@ async fn validate_federation_join_access(ctx: &FederationContext, room_id: &str,
             return Ok(());
         }
 
-        if member.membership == "ban" || member.is_banned.unwrap_or(false) {
+        if member.membership == "ban" || member.is_banned.unwrap_or_else(|| {
+            ::tracing::warn!(room_id = room_id, user_id = user_id, "is_banned field is NULL for non-ban member; assuming not banned");
+            false
+        }) {
             return Err(ApiError::forbidden("User is not allowed to join this room"));
         }
     }
