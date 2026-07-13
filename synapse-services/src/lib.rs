@@ -73,6 +73,7 @@ pub mod directory_service;
 pub mod typing_service;
 pub mod uia_service;
 pub mod user_lock_service;
+pub mod user_service;
 
 // =============================================================================
 // Explicit root re-exports of frequently used service types.
@@ -133,6 +134,7 @@ pub use sync_service::{
     SyncRoomSection, SyncService, SyncServiceApi, SyncServiceDeps, SyncServiceRequest, SyncState, SyncToken,
 }; // sync service types
 pub use typing_service::{TypingService, TypingUser}; // typing service types
+pub use user_service::UserService; // user service convenience layer
 
 // Backward-compatible room module aliases (Phase P2-1, P2-2)
 pub use room::service as room_service;
