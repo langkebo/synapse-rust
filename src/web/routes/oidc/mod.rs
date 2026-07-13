@@ -5,8 +5,6 @@ pub(crate) mod builtin;
 pub(crate) mod provider;
 pub(crate) mod sso;
 
-pub(crate) use sso::format_token_response;
-
 use crate::common::error::ApiError;
 use crate::web::routes::context::SsoContext;
 use crate::web::routes::AppState;

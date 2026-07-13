@@ -1,7 +1,7 @@
 use crate::common::ApiError;
 use crate::web::extractors::{AuthenticatedUser, MatrixJson};
 use crate::web::routes::context::AuthContext;
-use crate::web::routes::oidc::format_token_response;
+use crate::web::routes::formatting::format_token_response;
 use crate::web::utils::admin_auth::enforce_admin_login_mfa_svc;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{

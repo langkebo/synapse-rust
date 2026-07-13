@@ -20,6 +20,7 @@ pub mod event_report;
 pub mod extractors;
 pub mod feature_flags;
 pub mod federation;
+pub(crate) mod formatting;
 pub mod guest;
 pub mod handlers;
 pub mod invite_blocklist;
