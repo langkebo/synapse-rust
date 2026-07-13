@@ -137,7 +137,7 @@ impl RoomSummaryService {
     }
 
     pub(crate) async fn sync_summary_state_and_members(&self, room_id: &str) -> Result<(), ApiError> {
-        let states_res = self.event_storage.get_state_events(room_id).await;
+        let states_res = self.event_reader.get_state_events(room_id).await;
 
         let states = match states_res {
             Ok(s) => s,

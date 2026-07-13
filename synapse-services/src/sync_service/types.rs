@@ -110,7 +110,6 @@ pub struct RoomSyncCounts {
 pub struct SyncServiceDeps {
     pub presence_storage: std::sync::Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     pub member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
-    pub event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
     pub event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
     pub room_account_data_storage: RoomAccountDataStorage,

@@ -58,7 +58,7 @@ impl AuthService {
 
     pub(crate) async fn get_room_power_levels_content(&self, room_id: &str) -> ApiResult<Option<serde_json::Value>> {
         let events = self
-            .event_storage
+            .event_reader
             .get_state_events_by_type(room_id, "m.room.power_levels")
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -69,7 +69,7 @@ impl AuthService {
     /// state event, or `DEFAULT_ROOM_VERSION` if not set.
     pub(crate) async fn get_room_version(&self, room_id: &str) -> ApiResult<String> {
         let events = self
-            .event_storage
+            .event_reader
             .get_state_events_by_type(room_id, "m.room.create")
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;

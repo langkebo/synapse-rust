@@ -33,7 +33,6 @@ struct BurnProcessorState {
 
 pub struct BurnAfterReadService {
     storage: Arc<dyn BurnAfterReadStoreApi>,
-    event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
     event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     server_name: String,
     processor_state: Arc<RwLock<BurnProcessorState>>,
@@ -42,13 +41,11 @@ pub struct BurnAfterReadService {
 impl BurnAfterReadService {
     pub fn new(
         storage: Arc<dyn BurnAfterReadStoreApi>,
-        event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
         event_writer: Arc<dyn synapse_storage::event::EventWriter>,
         server_name: String,
     ) -> Self {
         Self {
             storage,
-            event_storage,
             event_writer,
             server_name,
             processor_state: Arc::new(RwLock::new(BurnProcessorState { is_running: false })),
@@ -112,7 +109,7 @@ impl BurnAfterReadService {
     pub async fn delete_burned_message(&self, user_id: &str, room_id: &str, event_id: &str) -> ApiResult<()> {
         let now = Utc::now().timestamp_millis();
 
-        if let Err(e) = self.event_storage.redact_event_content(event_id, Some(user_id)).await {
+        if let Err(e) = self.event_writer.redact_event_content(event_id, Some(user_id)).await {
             ::tracing::warn!(
                 error = %e,
                 user_id = %user_id,
@@ -123,7 +120,7 @@ impl BurnAfterReadService {
         }
 
         if let Err(e) = self
-            .event_storage
+            .event_writer
             .create_event(
                 synapse_storage::event::CreateEventParams {
                     event_id: synapse_common::crypto::generate_event_id(&self.server_name),
@@ -209,7 +206,7 @@ impl BurnAfterReadService {
         let mut expired = Vec::new();
 
         for row in &expired_rows {
-            if let Err(e) = self.event_storage.redact_event_content(&row.event_id, Some(&row.user_id)).await {
+            if let Err(e) = self.event_writer.redact_event_content(&row.event_id, Some(&row.user_id)).await {
                 ::tracing::warn!(
                     error = %e,
                     burn_id = row.id,
@@ -221,7 +218,7 @@ impl BurnAfterReadService {
             }
 
             if let Err(e) = self
-                .event_storage
+                .event_writer
                 .create_event(
                     synapse_storage::event::CreateEventParams {
                         event_id: synapse_common::crypto::generate_event_id(&self.server_name),

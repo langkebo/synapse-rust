@@ -5,7 +5,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use synapse_common::ApiError;
 use synapse_storage::application_service::*;
-use synapse_storage::event::EventStoreApi;
 use tokio::fs;
 use tracing::{info, instrument, warn};
 
@@ -21,7 +20,6 @@ pub use models::NamespacesInfo;
 
 pub struct ApplicationServiceManager {
     storage: Arc<dyn ApplicationServiceStoreApi>,
-    event_storage: Arc<dyn EventStoreApi>,
     event_reader: Arc<dyn synapse_storage::event::EventReader>,
     http_client: Client,
     server_name: String,
@@ -30,7 +28,6 @@ pub struct ApplicationServiceManager {
 impl ApplicationServiceManager {
     pub fn new(
         storage: Arc<dyn ApplicationServiceStoreApi>,
-        event_storage: Arc<dyn EventStoreApi>,
         event_reader: Arc<dyn synapse_storage::event::EventReader>,
         server_name: String,
     ) -> Self {
@@ -50,7 +47,7 @@ impl ApplicationServiceManager {
                 Client::new()
             });
 
-        Self { storage, event_storage, event_reader, http_client, server_name }
+        Self { storage, event_reader, http_client, server_name }
     }
 
     #[instrument(skip(self, config_files))]

@@ -20,7 +20,7 @@ use super::{RoomMember, UserRoomMembership};
 /// - For complex traits, use `mockall::mock!` **in test modules** to generate
 ///   mocks without affecting production compilation.
 ///
-/// Follows the same seam pattern as [`crate::event::api::EventStoreApi`].
+/// Follows the same seam pattern as [`crate::event::EventReader`] / [`crate::event::EventWriter`].
 #[async_trait]
 pub trait MemberStoreApi: Send + Sync {
     /// Returns a reference to the database connection pool.

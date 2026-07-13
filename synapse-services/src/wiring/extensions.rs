@@ -149,7 +149,6 @@ impl ExtensionServices {
             let burn_storage = Arc::new(synapse_storage::burn_after_read::BurnAfterReadStorage::new(&infra.pool));
             Arc::new(BurnAfterReadService::new(
                 burn_storage,
-                rooms.event_storage.clone(),
                 rooms.event_writer.clone(),
                 infra.config.server.name.clone(),
             ))

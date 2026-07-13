@@ -10,12 +10,11 @@ pub use crate::storage::room_summary::{
     RoomSummaryStats, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
 };
 use std::sync::Arc;
-use synapse_storage::{EventStoreApi, MemberStoreApi};
+use synapse_storage::MemberStoreApi;
 use tracing::{debug, info, instrument};
 
 pub struct RoomSummaryService {
     pub(crate) storage: Arc<dyn RoomSummaryStoreApi>,
-    pub(crate) event_storage: Arc<dyn EventStoreApi>,
     pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub(crate) member_storage: Option<Arc<dyn MemberStoreApi>>,
 }
@@ -23,11 +22,10 @@ pub struct RoomSummaryService {
 impl RoomSummaryService {
     pub fn new(
         storage: Arc<dyn RoomSummaryStoreApi>,
-        event_storage: Arc<dyn EventStoreApi>,
         event_reader: Arc<dyn synapse_storage::event::EventReader>,
         member_storage: Option<Arc<dyn MemberStoreApi>>,
     ) -> Self {
-        Self { storage, event_storage, event_reader, member_storage }
+        Self { storage, event_reader, member_storage }
     }
 
     #[instrument(skip(self))]

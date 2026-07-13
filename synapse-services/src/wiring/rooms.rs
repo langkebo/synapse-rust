@@ -11,7 +11,6 @@ use crate::container::SharedInfra;
 pub struct RoomSyncServices {
     pub room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
     pub member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
-    pub event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
     pub event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     pub room_summary_storage: Arc<dyn synapse_storage::room_summary::RoomSummaryStoreApi>,
@@ -49,7 +48,6 @@ impl RoomSyncServices {
         let server_name_for_storage = infra.config.server.get_server_name().to_string();
         let room_storage: Arc<dyn synapse_storage::room::RoomStoreApi> = Arc::new(RoomStorage::new(&infra.pool));
         let event_storage_concrete = Arc::new(EventStorage::new(&infra.pool, server_name_for_storage));
-        let event_storage: Arc<dyn synapse_storage::event::EventStoreApi> = event_storage_concrete.clone();
         let event_reader: Arc<dyn synapse_storage::event::EventReader> = event_storage_concrete.clone();
         let event_writer: Arc<dyn synapse_storage::event::EventWriter> = event_storage_concrete.clone();
         let device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi> =
@@ -61,7 +59,6 @@ impl RoomSyncServices {
 
         let room_summary_service = Arc::new(crate::room_summary_service::RoomSummaryService::new(
             room_summary_storage.clone(),
-            event_storage.clone(),
             event_reader.clone(),
             Some(member_storage.clone()),
         ));
@@ -75,7 +72,6 @@ impl RoomSyncServices {
         let room_service = Arc::new(crate::room_service::RoomService::new(crate::room_service::RoomServiceConfig {
             room_storage: room_storage.clone(),
             member_storage: member_storage.clone(),
-            event_storage: event_storage.clone(),
             event_reader: Some(event_reader.clone()),
             event_writer: Some(event_writer.clone()),
             room_tag_storage: room_tag_storage.clone(),
@@ -106,7 +102,6 @@ impl RoomSyncServices {
             Arc::new(crate::sync_service::SyncService::from_deps(crate::sync_service::SyncServiceDeps {
                 presence_storage: presence_storage.clone(),
                 member_storage: member_storage.clone(),
-                event_storage: event_storage.clone(),
                 event_reader: event_reader.clone(),
                 room_storage: room_storage.clone(),
                 room_account_data_storage: sync_room_account_data_storage,
@@ -126,7 +121,6 @@ impl RoomSyncServices {
         let sliding_sync_service = Arc::new(crate::sliding_sync_service::SlidingSyncService::new(
             sliding_sync_storage,
             infra.cache.clone(),
-            event_storage.clone(),
             event_reader.clone(),
             sync_device_key_storage,
             typing_service.clone(),
@@ -157,7 +151,6 @@ impl RoomSyncServices {
         Self {
             room_storage,
             member_storage,
-            event_storage,
             event_reader,
             event_writer,
             room_summary_storage,

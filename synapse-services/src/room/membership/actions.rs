@@ -66,7 +66,7 @@ impl MembershipService {
         }
 
         let effective_join_rule = if let Some(event) = self
-            .event_storage
+            .event_reader
             .get_state_events_by_type(room_id, "m.room.join_rules")
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to load room join rules", &e))?
@@ -113,7 +113,7 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_log("Failed to update member count", &e))?;
 
         let join_event = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -187,7 +187,7 @@ impl MembershipService {
         }
 
         let leave_event = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),

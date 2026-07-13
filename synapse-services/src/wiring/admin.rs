@@ -211,12 +211,9 @@ impl AdminServices {
         let app_service_storage: Arc<dyn synapse_storage::application_service::ApplicationServiceStoreApi> =
             Arc::new(ApplicationServiceStorage::new(pool));
         let app_service_event_concrete = Arc::new(EventStorage::new(pool, config.server.get_server_name().to_owned()));
-        let app_service_event_storage: Arc<dyn synapse_storage::event::EventStoreApi> =
-            app_service_event_concrete.clone();
         let app_service_event_reader: Arc<dyn synapse_storage::event::EventReader> = app_service_event_concrete.clone();
         let app_service_manager = Arc::new(crate::application_service::ApplicationServiceManager::new(
             app_service_storage.clone(),
-            app_service_event_storage,
             app_service_event_reader.clone(),
             config.server.get_server_name().to_owned(),
         ));

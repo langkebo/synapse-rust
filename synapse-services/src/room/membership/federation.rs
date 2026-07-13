@@ -176,7 +176,7 @@ impl MembershipService {
 
                 // Best-effort persistence — skip on error to avoid blocking the join.
                 if let Err(e) = self
-                    .event_storage
+                    .event_writer
                     .create_event_with_graph(
                         CreateEventParams {
                             event_id: event_id.to_string(),
@@ -228,7 +228,7 @@ impl MembershipService {
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
         if let Err(e) = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: join_event_id,
@@ -328,7 +328,7 @@ impl MembershipService {
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
         if let Err(e) = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id,
@@ -435,7 +435,7 @@ impl MembershipService {
         let persisted_ts = final_event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(now);
 
         if let Err(e) = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: persisted_event_id,
@@ -520,7 +520,7 @@ impl MembershipService {
 
         // Persist the event.
         if let Err(e) = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id,

@@ -11,7 +11,7 @@ use synapse_federation::key_rotation::SigningKey;
 use synapse_federation::signing::sign_and_hash_event;
 use synapse_federation::KeyRotationManager;
 use synapse_storage::event::RoomEvent;
-use synapse_storage::{EventStoreApi, MemberStoreApi, RoomStoreApi, UserStore};
+use synapse_storage::{MemberStoreApi, RoomStoreApi, UserStore};
 
 use crate::room::summary::RoomSummaryService;
 
@@ -21,7 +21,6 @@ use crate::room::summary::RoomSummaryService;
 pub struct MembershipService {
     pub(crate) member_storage: Arc<dyn MemberStoreApi>,
     pub(crate) room_storage: Arc<dyn RoomStoreApi>,
-    pub(crate) event_storage: Arc<dyn EventStoreApi>,
     pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub(crate) event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     pub(crate) user_storage: Arc<dyn UserStore>,
@@ -37,7 +36,6 @@ pub struct MembershipService {
 pub struct MembershipServiceConfig {
     pub member_storage: Arc<dyn MemberStoreApi>,
     pub room_storage: Arc<dyn RoomStoreApi>,
-    pub event_storage: Arc<dyn EventStoreApi>,
     pub event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     pub user_storage: Arc<dyn UserStore>,
@@ -54,7 +52,6 @@ impl MembershipService {
         Self {
             member_storage: config.member_storage,
             room_storage: config.room_storage,
-            event_storage: config.event_storage,
             event_reader: config.event_reader,
             event_writer: config.event_writer,
             user_storage: config.user_storage,
@@ -121,7 +118,7 @@ impl MembershipService {
         event_type: &str,
     ) -> ApiResult<Vec<serde_json::Value>> {
         let events = self
-            .event_storage
+            .event_reader
             .get_state_events_by_type(room_id, event_type)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get state events by type", &e))?;
@@ -186,7 +183,7 @@ impl MembershipService {
         };
 
         // 1. Fetch prev_events (forward extremities of the room).
-        let prev_events = self.event_storage.get_latest_event_ids_in_room(&event.room_id, 10).await.unwrap_or_default();
+        let prev_events = self.event_reader.get_latest_event_ids_in_room(&event.room_id, 10).await.unwrap_or_default();
 
         // Exclude the event itself.
         let prev_events: Vec<String> = prev_events.into_iter().filter(|id| id != &event.event_id).collect();
@@ -226,7 +223,7 @@ impl MembershipService {
         let signatures = pdu.get("signatures").cloned().unwrap_or(serde_json::Value::Null);
         let hashes = pdu.get("hashes").cloned().unwrap_or(serde_json::Value::Null);
         if let Err(e) =
-            self.event_storage.update_event_signatures_and_hashes(&event.event_id, &signatures, &hashes).await
+            self.event_writer.update_event_signatures_and_hashes(&event.event_id, &signatures, &hashes).await
         {
             ::tracing::warn!(
                 event_id = %event.event_id,

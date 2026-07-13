@@ -9,7 +9,7 @@ use super::models::*;
 /// (in-memory). Services should accept `Arc<dyn RoomStoreApi>` so tests can
 /// swap in the in-memory backend without a database.
 ///
-/// Follows the same seam pattern as [`crate::event::api::EventStoreApi`].
+/// Follows the same seam pattern as [`crate::event::EventReader`] / [`crate::event::EventWriter`].
 #[async_trait]
 pub trait RoomStoreApi: Send + Sync {
     /// Returns a reference to the database connection pool.

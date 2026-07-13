@@ -16,7 +16,7 @@ impl SlidingSyncService {
             return Ok(Vec::new());
         };
 
-        let state_events = self.event_storage.get_state_events(room_id).await?;
+        let state_events = self.event_reader.get_state_events(room_id).await?;
         Ok(state_events
             .into_iter()
             .filter(|event| Self::required_state_matches(required_state, event))

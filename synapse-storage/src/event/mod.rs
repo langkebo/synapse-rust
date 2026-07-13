@@ -1,4 +1,3 @@
-pub(crate) mod api;
 pub(crate) mod basic;
 pub mod batch;
 pub(crate) mod create;
@@ -13,7 +12,6 @@ pub(crate) mod signature;
 pub mod state;
 pub(crate) mod writer;
 
-pub use api::EventStoreApi;
 pub use models::*;
 pub use reader::EventReader;
 pub use writer::EventWriter;

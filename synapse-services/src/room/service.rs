@@ -9,7 +9,7 @@ use synapse_common::generate_event_id;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_common::validation::Validator;
 use synapse_storage::room_tag::RoomTagStoreApi;
-use synapse_storage::{EventStoreApi, MemberStoreApi, RoomStoreApi, StateEvent, UserStore};
+use synapse_storage::{MemberStoreApi, RoomStoreApi, StateEvent, UserStore};
 use tokio::sync::RwLock;
 
 use super::infrastructure::RoomInfrastructure;
@@ -48,7 +48,6 @@ pub struct CreateRoomConfig {
 pub struct RoomServiceConfig {
     pub room_storage: Arc<dyn RoomStoreApi>,
     pub member_storage: Arc<dyn MemberStoreApi>,
-    pub event_storage: Arc<dyn EventStoreApi>,
     pub event_reader: Option<Arc<dyn synapse_storage::event::EventReader>>,
     pub event_writer: Option<Arc<dyn synapse_storage::event::EventWriter>>,
     pub room_tag_storage: Arc<dyn RoomTagStoreApi>,
@@ -91,13 +90,16 @@ pub struct RoomService {
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub room_summary_service: Arc<RoomSummaryService>,
-    pub(crate) event_storage: Arc<dyn EventStoreApi>,
     /// Shared infrastructure injected into sub-services.
     pub(crate) infra: RoomInfrastructure,
     pub(crate) sticky_event_storage: Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>,
+    pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
+    #[allow(dead_code)]
+    pub(crate) event_writer: Arc<dyn synapse_storage::event::EventWriter>,
 }
 
 impl RoomService {
+    #[allow(clippy::expect_used)]
     pub fn new(config: RoomServiceConfig) -> Self {
         // Build shared infrastructure FIRST so its handles can be cloned into
         // MembershipService/MessagingService. Values are supplied once here and
@@ -112,7 +114,6 @@ impl RoomService {
         let membership_cfg = MembershipServiceConfig {
             member_storage: config.member_storage.clone(),
             room_storage: config.room_storage.clone(),
-            event_storage: config.event_storage.clone(),
             event_reader: config.event_reader.clone().expect("event_reader required"),
             event_writer: config.event_writer.clone().expect("event_writer required"),
             user_storage: config.user_storage.clone(),
@@ -126,7 +127,6 @@ impl RoomService {
         let membership = MembershipService::new(membership_cfg);
 
         let messaging_cfg = MessagingServiceConfig {
-            event_storage: config.event_storage.clone(),
             event_reader: config.event_reader.clone().expect("event_reader required"),
             event_writer: config.event_writer.clone().expect("event_writer required"),
             room_storage: config.room_storage.clone(),
@@ -148,7 +148,6 @@ impl RoomService {
         let state_cfg = RoomStateServiceConfig {
             room_storage: config.room_storage.clone(),
             member_storage: config.member_storage.clone(),
-            event_storage: config.event_storage.clone(),
             event_reader: config.event_reader.clone().expect("event_reader required"),
             event_writer: config.event_writer.clone().expect("event_writer required"),
             room_tag_storage: config.room_tag_storage.clone(),
@@ -160,7 +159,6 @@ impl RoomService {
         let lifecycle_cfg = LifecycleServiceConfig {
             room_storage: config.room_storage.clone(),
             member_storage: config.member_storage.clone(),
-            event_storage: config.event_storage.clone(),
             event_reader: config.event_reader.clone().expect("event_reader required"),
             event_writer: config.event_writer.clone().expect("event_writer required"),
             user_storage: config.user_storage.clone(),
@@ -177,7 +175,6 @@ impl RoomService {
             lifecycle,
             room_storage: config.room_storage,
             member_storage: config.member_storage,
-            event_storage: config.event_storage,
             user_storage: config.user_storage,
             room_summary_service: config.room_summary_service,
             validator: config.validator,
@@ -186,6 +183,8 @@ impl RoomService {
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
             infra,
             sticky_event_storage: config.sticky_event_storage,
+            event_reader: config.event_reader.clone().expect("event_reader required"),
+            event_writer: config.event_writer.clone().expect("event_writer required"),
         }
     }
 
@@ -366,7 +365,7 @@ impl RoomService {
         }
 
         let state_batch = self
-            .event_storage
+            .event_reader
             .get_state_events_batch(child_room_ids)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to load child state events", &e))?;

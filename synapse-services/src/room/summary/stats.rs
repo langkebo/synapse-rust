@@ -21,7 +21,7 @@ impl RoomSummaryService {
 
     #[instrument(skip(self))]
     pub async fn recalculate_stats(&self, room_id: &str) -> Result<RoomSummaryStats, ApiError> {
-        let events_res = self.event_storage.get_room_events(room_id, i64::MAX).await;
+        let events_res = self.event_reader.get_room_events(room_id, i64::MAX).await;
 
         let events = match events_res {
             Ok(e) => e,
@@ -100,7 +100,7 @@ impl RoomSummaryService {
     }
 
     async fn process_update(&self, update: &RoomSummaryUpdateQueueItem) -> Result<(), ApiError> {
-        let event_res = self.event_storage.get_event(&update.event_id).await;
+        let event_res = self.event_reader.get_event(&update.event_id).await;
 
         let event = match event_res {
             Ok(Some(e)) => e,

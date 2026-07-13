@@ -109,7 +109,7 @@ impl RoomService {
         // 2. Seed event IDs — the most recent events we already have.  The
         //    remote server walks backwards from these.
         let seed_event_ids = self
-            .event_storage
+            .event_reader
             .get_latest_event_ids_in_room(room_id, 20)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to load seed event IDs for backfill", &e))?;
@@ -181,7 +181,7 @@ impl RoomService {
                 };
 
                 // Skip if already present locally.
-                let already_present = self.event_storage.get_event(event_id).await.ok().flatten().is_some();
+                let already_present = self.event_reader.get_event(event_id).await.ok().flatten().is_some();
                 if already_present {
                     continue;
                 }

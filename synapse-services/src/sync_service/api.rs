@@ -24,11 +24,8 @@ impl SyncService {
             return Err(ApiError::forbidden("You are not a member of this room".to_string()));
         }
 
-        let events = self
-            .event_storage
-            .get_room_events(room_id, limit)
-            .await
-            .map_err(map_internal!("Failed to get messages"))?;
+        let events =
+            self.event_reader.get_room_events(room_id, limit).await.map_err(map_internal!("Failed to get messages"))?;
 
         let event_list: Vec<serde_json::Value> =
             events.iter().map(|e| Self::event_to_json(e, SyncEventFormat::Client)).collect();
@@ -93,7 +90,7 @@ impl SyncService {
 
         let limit = 100i64;
         let events = self
-            .event_storage
+            .event_reader
             .get_room_events_batch_since(&room_ids, SinceFilter::OriginServerTs(since_ts), limit)
             .await
             .map_err(map_internal!("Failed to get events"))?;

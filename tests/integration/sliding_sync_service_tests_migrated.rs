@@ -320,7 +320,6 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
     SlidingSyncService::new(
         storage,
         cache,
-        event_storage.clone(),
         event_storage,
         DeviceKeyStorage::new(pool),
         typing_service,

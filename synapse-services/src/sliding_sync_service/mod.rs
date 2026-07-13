@@ -34,7 +34,6 @@ const SLIDING_SYNC_SLOW_REQUESTS_COUNTER: &str = "sliding_sync_slow_requests_tot
 pub struct SlidingSyncService {
     storage: Arc<dyn SlidingSyncStoreApi>,
     cache: Arc<CacheManager>,
-    event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
     event_reader: Arc<dyn synapse_storage::event::EventReader>,
     device_key_storage: DeviceKeyStorage,
     typing_service: Arc<crate::typing_service::TypingService>,
@@ -77,7 +76,6 @@ impl SlidingSyncService {
     pub fn new(
         storage: Arc<dyn SlidingSyncStoreApi>,
         cache: Arc<CacheManager>,
-        event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
         event_reader: Arc<dyn synapse_storage::event::EventReader>,
         device_key_storage: DeviceKeyStorage,
         typing_service: Arc<crate::typing_service::TypingService>,
@@ -95,7 +93,6 @@ impl SlidingSyncService {
         Self {
             storage,
             cache,
-            event_storage,
             event_reader,
             device_key_storage,
             typing_service,

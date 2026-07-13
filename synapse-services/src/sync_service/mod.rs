@@ -33,7 +33,7 @@ use tokio::sync::RwLock;
 pub struct SyncService {
     pub(crate) presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     pub(crate) member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
-    pub(crate) event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
+    pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub(crate) room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
     pub(crate) room_account_data_storage: RoomAccountDataStorage,
     pub(crate) account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
@@ -61,7 +61,7 @@ impl SyncService {
         Self {
             presence_storage: deps.presence_storage,
             member_storage: deps.member_storage,
-            event_storage: deps.event_storage,
+            event_reader: deps.event_reader,
             room_storage: deps.room_storage,
             room_account_data_storage: deps.room_account_data_storage,
             account_data_storage: deps.account_data_storage,
@@ -96,7 +96,6 @@ impl SyncService {
             presence_storage,
             member_storage,
             event_reader: event_storage.clone(),
-            event_storage,
             room_storage,
             room_account_data_storage,
             account_data_storage,

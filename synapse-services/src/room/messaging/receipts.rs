@@ -31,7 +31,7 @@ impl MessagingService {
             }
         });
 
-        self.event_storage
+        self.event_writer
             .add_ephemeral_event(room_id, user_id, "m.receipt", &receipt_content, now_ts)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to store ephemeral receipt", &e))?;

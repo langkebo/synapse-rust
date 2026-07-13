@@ -15,7 +15,7 @@ impl MessagingService {
         _user_id: &str,
         _custom_delay_secs: Option<u64>,
     ) -> ApiResult<()> {
-        let event = match self.event_storage.get_event(event_id).await {
+        let event = match self.event_reader.get_event(event_id).await {
             Ok(Some(e)) => e,
             _ => return Ok(()),
         };

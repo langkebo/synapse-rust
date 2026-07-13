@@ -153,8 +153,8 @@ pub use self::dehydrated_device::{
 pub use self::device::{Device, DeviceListStoreApi, DeviceStorage};
 pub use self::e2ee_audit::{E2eeAuditStorage, E2eeAuditStoreApi, KeyAuditEntry, KeyEvent};
 pub use self::event::{
-    CreateEventParams, EventQueryFilter, EventReport, EventReportId, EventSignature, EventStorage, EventStoreApi,
-    RoomEphemeralEvent, RoomEvent, SinceFilter, StateEvent,
+    CreateEventParams, EventQueryFilter, EventReport, EventReportId, EventSignature, EventStorage, RoomEphemeralEvent,
+    RoomEvent, SinceFilter, StateEvent,
 };
 pub use self::feature_flags::{
     CreateFeatureFlagRequest, FeatureFlag, FeatureFlagFilters, FeatureFlagRecord, FeatureFlagStorage,

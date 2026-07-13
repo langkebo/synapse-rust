@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_federation::signing::sign_and_hash_event;
-use synapse_storage::event::{EventReader, EventStoreApi, EventWriter, RoomEvent};
+use synapse_storage::event::{EventReader, EventWriter, RoomEvent};
 use synapse_storage::membership::MemberStoreApi;
 use synapse_storage::relations::RelationsStoreApi;
 use synapse_storage::room::RoomStoreApi;
@@ -21,7 +21,6 @@ use crate::room::summary::RoomSummaryService;
 /// read markers, burn-after-read, and federation broadcast.
 #[derive(Clone)]
 pub struct MessagingService {
-    pub(crate) event_storage: Arc<dyn EventStoreApi>,
     pub(crate) event_reader: Arc<dyn EventReader>,
     pub(crate) event_writer: Arc<dyn EventWriter>,
     pub(crate) room_storage: Arc<dyn RoomStoreApi>,
@@ -46,7 +45,6 @@ pub struct MessagingService {
 
 /// Configuration for constructing a [`MessagingService`].
 pub struct MessagingServiceConfig {
-    pub event_storage: Arc<dyn EventStoreApi>,
     pub event_reader: Arc<dyn EventReader>,
     pub event_writer: Arc<dyn EventWriter>,
     pub room_storage: Arc<dyn RoomStoreApi>,
@@ -67,7 +65,6 @@ pub struct MessagingServiceConfig {
 impl MessagingService {
     pub fn new(config: MessagingServiceConfig) -> Self {
         Self {
-            event_storage: config.event_storage,
             event_reader: config.event_reader,
             event_writer: config.event_writer,
             room_storage: config.room_storage,
@@ -119,7 +116,7 @@ impl MessagingService {
         };
 
         // 1. Fetch prev_events (forward extremities of the room).
-        let prev_events = self.event_storage.get_latest_event_ids_in_room(&event.room_id, 10).await.unwrap_or_default();
+        let prev_events = self.event_reader.get_latest_event_ids_in_room(&event.room_id, 10).await.unwrap_or_default();
 
         // Exclude the event itself.
         let prev_events: Vec<String> = prev_events.into_iter().filter(|id| id != &event.event_id).collect();
@@ -159,7 +156,7 @@ impl MessagingService {
         let signatures = pdu.get("signatures").cloned().unwrap_or(serde_json::Value::Null);
         let hashes = pdu.get("hashes").cloned().unwrap_or(serde_json::Value::Null);
         if let Err(e) =
-            self.event_storage.update_event_signatures_and_hashes(&event.event_id, &signatures, &hashes).await
+            self.event_writer.update_event_signatures_and_hashes(&event.event_id, &signatures, &hashes).await
         {
             ::tracing::warn!(
                 event_id = %event.event_id,

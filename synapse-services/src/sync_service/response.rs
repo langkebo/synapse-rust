@@ -34,24 +34,24 @@ impl SyncService {
             .map(|t| t.stream_id);
         let (changed_members_by_room, state_change_ts_by_room) = if is_incremental {
             let state_ts_result = if let Some(stream_ord) = since_stream_ordering {
-                self.event_storage
+                self.event_reader
                     .get_state_change_timestamps_batch(room_ids, SinceFilter::StreamOrdering(stream_ord))
                     .await
                     .map_err(ApiError::from)?
             } else {
-                self.event_storage
+                self.event_reader
                     .get_state_change_timestamps_batch(room_ids, SinceFilter::OriginServerTs(since_ts))
                     .await
                     .map_err(ApiError::from)?
             };
             if lazy_load_members {
                 let changed_members = if let Some(stream_ord) = since_stream_ordering {
-                    self.event_storage
+                    self.event_reader
                         .get_membership_state_keys_since_batch(room_ids, SinceFilter::StreamOrdering(stream_ord))
                         .await
                         .map_err(ApiError::from)?
                 } else {
-                    self.event_storage
+                    self.event_reader
                         .get_membership_state_keys_since_batch(room_ids, SinceFilter::OriginServerTs(since_ts))
                         .await
                         .map_err(ApiError::from)?
@@ -295,7 +295,7 @@ impl SyncService {
             async {
                 let lazy_load_members = Self::room_filter_requests_lazy_members(room_filter);
                 if is_incremental && lazy_load_members {
-                    self.event_storage
+                    self.event_reader
                         .get_membership_state_keys_since_batch(
                             &[room_id.to_string()],
                             SinceFilter::OriginServerTs(since_ts),

@@ -13,7 +13,7 @@ impl SlidingSyncService {
             return Ok((Vec::new(), false, None));
         };
 
-        let mut events = self.event_storage.get_room_events_paginated(room_id, None, i64::from(limit) + 1, "b").await?;
+        let mut events = self.event_reader.get_room_events_paginated(room_id, None, i64::from(limit) + 1, "b").await?;
         let limited = events.len() > limit as usize;
         if limited {
             events.truncate(limit as usize);

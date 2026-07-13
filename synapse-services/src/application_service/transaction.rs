@@ -200,7 +200,7 @@ impl ApplicationServiceManager {
         let source_event_ids: Vec<String> =
             pending_events.iter().map(|pe| Self::source_event_id(&pe.event_id)).collect();
 
-        let source_events = self.event_storage.get_events_map(&source_event_ids).await.map_err(|e| {
+        let source_events = self.event_reader.get_events_map(&source_event_ids).await.map_err(|e| {
             ApiError::internal_with_log("Failed to load source room events for application service", &e)
         })?;
 
@@ -248,7 +248,7 @@ impl ApplicationServiceManager {
     ) -> Result<serde_json::Value, ApiError> {
         let source_event_id = Self::source_event_id(&pending_event.event_id);
         let source_event =
-            self.event_storage.get_event(&source_event_id).await.map_err(|e| {
+            self.event_reader.get_event(&source_event_id).await.map_err(|e| {
                 ApiError::internal_with_log("Failed to load source room event for application service", &e)
             })?;
 

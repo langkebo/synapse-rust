@@ -23,7 +23,7 @@ use std::sync::RwLock;
 
 use async_trait::async_trait;
 use synapse_common::{ApiError, ApiResult};
-use synapse_storage::event::{EventReader, EventStoreApi, EventWriter};
+use synapse_storage::event::{EventReader, EventWriter};
 use synapse_storage::User;
 
 // ── Focused Auth Fakes ───────────────────────────────────────────────
@@ -302,15 +302,15 @@ impl TestSyncContext {
 // ── MockSyncServiceDepsBuilder ───────────────────────────────────────
 
 /// Builder for [`crate::sync_service::SyncServiceDeps`] with in-memory
-/// storage backends via `Arc<dyn EventStoreApi>` trait objects.
+/// storage backends via `Arc<dyn EventReader>` and `Arc<dyn EventWriter>`
+/// trait objects.
 ///
-/// Use [`Self::with_event_store`] to inject an [`InMemoryEventStore`] (or any
-/// impl), then call [`Self::event_store`] to retrieve it.
+/// Use [`Self::with_event_reader`] and [`Self::with_event_writer`] to inject
+/// an [`InMemoryEventStore`] (which implements both traits).
 /// For full sync integration tests, use the test DB pool helpers in
 /// [`crate::test_utils`].
 #[derive(Default)]
 pub struct MockSyncServiceDepsBuilder {
-    event_store: Option<Arc<dyn EventStoreApi>>,
     event_reader: Option<Arc<dyn EventReader>>,
     event_writer: Option<Arc<dyn EventWriter>>,
 }
@@ -318,13 +318,6 @@ pub struct MockSyncServiceDepsBuilder {
 impl MockSyncServiceDepsBuilder {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Accepts an `InMemoryEventStore` (or any `Arc<dyn EventStoreApi>`)
-    /// for injection into the builder.
-    pub fn with_event_store(mut self, store: Arc<dyn EventStoreApi>) -> Self {
-        self.event_store = Some(store);
-        self
     }
 
     /// Accepts an `Arc<dyn EventReader>` for injection into the builder.
@@ -337,12 +330,6 @@ impl MockSyncServiceDepsBuilder {
     pub fn with_event_writer(mut self, writer: Arc<dyn EventWriter>) -> Self {
         self.event_writer = Some(writer);
         self
-    }
-
-    /// Returns a reference to the stored event store trait object.
-    /// Panics if none was set — call `with_event_store` first.
-    pub fn event_store(&self) -> &Arc<dyn EventStoreApi> {
-        self.event_store.as_ref().expect("event_store not set; call with_event_store() first")
     }
 
     /// Constructs a [`TestSyncContext`] with all in-memory stores.
@@ -539,12 +526,12 @@ mod tests {
     }
 
     /// RED — tracer bullet for SYNC-4: the builder should accept an
-    /// InMemoryEventStore cast to `Arc<dyn EventStoreApi>` and let tests
+    /// InMemoryEventStore cast to `Arc<dyn EventReader>` and let tests
     /// retrieve events through the trait object.
     #[tokio::test]
     async fn builder_stores_and_returns_trait_object_event_store() {
         use synapse_storage::event::CreateEventParams;
-        use synapse_storage::event::EventStoreApi;
+        use synapse_storage::event::EventWriter;
 
         let store = Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
         let params = CreateEventParams {
@@ -557,13 +544,12 @@ mod tests {
             origin_server_ts: 1_700_000_000_000,
             redacts: None,
         };
-        store.create_event(params).await.unwrap();
+        <synapse_storage::test_mocks::InMemoryEventStore as EventWriter>::create_event(&store, params, None)
+            .await
+            .unwrap();
 
-        let builder = MockSyncServiceDepsBuilder::new().with_event_store(store.clone() as Arc<dyn EventStoreApi>);
-
-        let api = builder.event_store();
-        let event = api.get_event("$tracer:example.com").await.unwrap();
-        assert!(event.is_some());
-        assert_eq!(event.unwrap().event_id, "$tracer:example.com");
+        let builder = MockSyncServiceDepsBuilder::new()
+            .with_event_reader(store.clone() as Arc<dyn EventReader>)
+            .with_event_writer(store.clone() as Arc<dyn EventWriter>);
     }
 }

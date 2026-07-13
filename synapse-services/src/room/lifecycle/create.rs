@@ -81,7 +81,7 @@ impl LifecycleService {
             create_content["type"] = json!(room_type);
         }
         let result = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -121,7 +121,7 @@ impl LifecycleService {
         }
 
         let result = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -172,7 +172,7 @@ impl LifecycleService {
             }
         }
         let result = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -193,7 +193,7 @@ impl LifecycleService {
         }
 
         let result = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -221,7 +221,7 @@ impl LifecycleService {
             }
         });
         let result = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -243,7 +243,7 @@ impl LifecycleService {
 
         let guest_access = if is_public { "can_join" } else { "forbidden" };
         let result = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -304,7 +304,7 @@ impl LifecycleService {
                 }
 
                 let result = self
-                    .event_storage
+                    .event_writer
                     .create_event(
                         CreateEventParams {
                             event_id: generate_event_id(&self.server_name),
@@ -343,7 +343,7 @@ impl LifecycleService {
             if !has_encryption_in_initial_state {
                 let encryption_ts = config.initial_state.as_ref().map_or(now + 9, |s| now + 9 + s.len() as i64);
                 let result = self
-                    .event_storage
+                    .event_writer
                     .create_event(
                         CreateEventParams {
                             event_id: generate_event_id(&self.server_name),
@@ -375,7 +375,7 @@ impl LifecycleService {
         if is_trusted_private {
             let privacy_content = json!({ "action": "block_screenshot" });
             let result = self
-                .event_storage
+                .event_writer
                 .create_event(
                     CreateEventParams {
                         event_id: generate_event_id(&self.server_name),

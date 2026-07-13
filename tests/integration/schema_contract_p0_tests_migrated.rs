@@ -1702,7 +1702,7 @@ async fn test_schema_contract_room_summary_queue_processor_service_closure() {
 
     let storage = Arc::new(RoomSummaryStorage::new(&pool));
     let event_storage = Arc::new(EventStorage::new(&pool, "localhost".to_string()));
-    let service = RoomSummaryService::new(storage.clone(), event_storage.clone(), event_storage.clone(), None);
+    let service = RoomSummaryService::new(storage.clone(), event_storage.clone(), None);
 
     let suffix = uuid::Uuid::new_v4().to_string();
     let (creator, hero, room_id) = seed_users_and_room(&pool, &suffix).await;

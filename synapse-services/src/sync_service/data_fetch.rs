@@ -64,7 +64,7 @@ impl SyncService {
         event_format: SyncEventFormat,
     ) -> ApiResult<HashMap<String, Vec<Value>>> {
         let state_events = self
-            .event_storage
+            .event_reader
             .get_state_events_batch(room_ids)
             .await
             .map_err(map_internal!("Failed to get room state events"))?;
@@ -93,12 +93,12 @@ impl SyncService {
         }
 
         let delta_state_by_room = if let Some(stream_ord) = params.since_stream_ordering {
-            self.event_storage
+            self.event_reader
                 .get_state_events_since_batch(room_ids, SinceFilter::StreamOrdering(stream_ord))
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to get room state events", &e))?
         } else {
-            self.event_storage
+            self.event_reader
                 .get_state_events_since_batch(room_ids, SinceFilter::OriginServerTs(params.since_ts))
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to get room state events", &e))?
@@ -124,7 +124,7 @@ impl SyncService {
         let full_state_for_newly_visible = if newly_visible_rooms.is_empty() {
             HashMap::new()
         } else {
-            self.event_storage
+            self.event_reader
                 .get_state_events_batch(&newly_visible_rooms)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to get full state for newly visible rooms", &e))?
@@ -146,7 +146,7 @@ impl SyncService {
         }
 
         let current_member_state_by_room = self
-            .event_storage
+            .event_reader
             .get_state_events_by_type_batch(room_ids, "m.room.member")
             .await
             .map_err(map_internal!("Failed to get room state events"))?;
@@ -345,7 +345,7 @@ impl SyncService {
         let filter =
             synapse_storage::EventQueryFilter { types: Some(vec!["m.room.member".to_string()]), ..Default::default() };
         let membership_events_by_room = self
-            .event_storage
+            .event_reader
             .get_room_events_batch_since_filtered(
                 &room_ids,
                 SinceFilter::StreamOrdering(since_token.stream_id),
@@ -469,7 +469,7 @@ impl SyncService {
         let now = chrono::Utc::now().timestamp_millis();
         let limit = self.sync_ephemeral_limit();
         let rows = self
-            .event_storage
+            .event_reader
             .get_ephemeral_events(room_id, now, limit)
             .await
             .map_err(map_internal!("Failed to get ephemeral events"))?;
@@ -502,7 +502,7 @@ impl SyncService {
 
         let now = chrono::Utc::now().timestamp_millis();
         let rows = self
-            .event_storage
+            .event_reader
             .get_ephemeral_events_batch(room_ids, now, limit)
             .await
             .map_err(map_internal!("Failed to get room ephemeral events"))?;

@@ -100,3 +100,113 @@ pub trait EventWriter: Send + Sync {
         sender: &str,
     ) -> Result<(), sqlx::Error>;
 }
+
+// ── EventWriter delegation impl for Postgres EventStorage ───────────────
+
+#[async_trait]
+impl crate::event::writer::EventWriter for super::EventStorage {
+    fn pool(&self) -> &Arc<sqlx::PgPool> {
+        &self.pool
+    }
+
+    async fn create_event(
+        &self,
+        params: CreateEventParams,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error> {
+        self.create_event(params, tx).await
+    }
+
+    async fn update_event_signatures_and_hashes(
+        &self,
+        event_id: &str,
+        signatures: &serde_json::Value,
+        hashes: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        self.update_event_signatures_and_hashes(event_id, signatures, hashes).await
+    }
+
+    async fn redact_event_content(&self, event_id: &str, redacted_by: Option<&str>) -> Result<(), sqlx::Error> {
+        self.redact_event_content(event_id, redacted_by).await
+    }
+
+    async fn create_event_with_graph(
+        &self,
+        params: CreateEventParams,
+        prev_events: &[String],
+        auth_events: &[String],
+        depth: i64,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error> {
+        self.create_event_with_graph(params, prev_events, auth_events, depth, tx).await
+    }
+
+    async fn save_event_signature(
+        &self,
+        event_id: &str,
+        user_id: &str,
+        device_id: &str,
+        signature: &str,
+        key_id: &str,
+        algorithm: &str,
+        created_ts: i64,
+    ) -> Result<(), sqlx::Error> {
+        self.save_event_signature(event_id, user_id, device_id, signature, key_id, algorithm, created_ts).await
+    }
+
+    async fn report_event(
+        &self,
+        event_id: &str,
+        room_id: &str,
+        reported_user_id: &str,
+        reporter_user_id: &str,
+        reason: Option<&str>,
+        score: i32,
+    ) -> Result<i64, sqlx::Error> {
+        self.report_event(event_id, room_id, reported_user_id, reporter_user_id, reason, score).await
+    }
+
+    async fn add_ephemeral_event(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+        content: &serde_json::Value,
+        stream_id: i64,
+    ) -> Result<(), sqlx::Error> {
+        self.add_ephemeral_event(room_id, user_id, event_type, content, stream_id).await
+    }
+
+    async fn upsert_ephemeral_event(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+        content: &serde_json::Value,
+        stream_id: i64,
+        created_ts: i64,
+        expires_at: Option<i64>,
+    ) -> Result<(), sqlx::Error> {
+        self.upsert_ephemeral_event(room_id, user_id, event_type, content, stream_id, created_ts, expires_at).await
+    }
+
+    async fn delete_ephemeral_event(&self, room_id: &str, event_type: &str, user_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_ephemeral_event(room_id, event_type, user_id).await
+    }
+
+    async fn delete_events_before(&self, room_id: &str, timestamp: i64) -> Result<u64, sqlx::Error> {
+        self.delete_events_before(room_id, timestamp).await
+    }
+
+    async fn upsert_power_levels_event(
+        &self,
+        event_id: &str,
+        room_id: &str,
+        user_id: &str,
+        content: serde_json::Value,
+        origin_server_ts: i64,
+        sender: &str,
+    ) -> Result<(), sqlx::Error> {
+        self.upsert_power_levels_event(event_id, room_id, user_id, content, origin_server_ts, sender).await
+    }
+}
