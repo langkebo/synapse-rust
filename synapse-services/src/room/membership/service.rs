@@ -250,7 +250,7 @@ impl MembershipService {
     /// rule strings resolve to [`JoinRule::Invite`] (fail-closed).
     pub(crate) async fn resolve_join_rule(&self, room_id: &str) -> ApiResult<JoinRule> {
         let effective = if let Some(event) = self
-            .event_storage
+            .event_reader
             .get_state_events_by_type(room_id, "m.room.join_rules")
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to load room join rules", &e))?

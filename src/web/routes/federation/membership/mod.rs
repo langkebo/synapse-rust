@@ -19,7 +19,7 @@ use serde_json::Value;
 // ---------------------------------------------------------------------------
 use super::{
     acquire_with_timeout, decrement_gauge, increment_counter, increment_gauge, observe_histogram, sender_server_name,
-    user_matches_origin, validate_federation_origin, validate_federation_origin_in_room,
+    user_matches_origin, validate_federation_origin, validate_federation_origin_can_observe_room,
     validate_federation_origin_shares_user_room,
 };
 

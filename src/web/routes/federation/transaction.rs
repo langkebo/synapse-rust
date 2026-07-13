@@ -331,7 +331,7 @@ pub(super) async fn send_transaction(
             if let Some(to) = to_membership {
                 let target = state_key.unwrap_or(user_id);
                 if let Err(error) =
-                    ctx.room_service.membership.authorize_inbound_member_transition(room_id, user_id, target, to).await
+                    ctx.room_service.membership().authorize_inbound_member_transition(room_id, user_id, target, to).await
                 {
                     super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
                     ::tracing::warn!(

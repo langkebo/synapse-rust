@@ -802,6 +802,36 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
             .values()
             .any(|e| e.room_id == room_id && e.event_type == "m.room.encryption" && e.state_key.is_some()))
     }
+
+    // ── unread counts / room state copy (moved from RoomStorage) ───────
+
+    async fn get_unread_counts(
+        &self,
+        room_id: &str,
+        _user_id: &str,
+    ) -> Result<crate::room::RoomUnreadCounts, sqlx::Error> {
+        Ok(crate::room::RoomUnreadCounts { room_id: room_id.to_string(), highlight_count: 0, notification_count: 0 })
+    }
+
+    async fn get_unread_counts_batch(
+        &self,
+        room_ids: &[String],
+        _user_id: &str,
+    ) -> Result<Vec<crate::room::RoomUnreadCounts>, sqlx::Error> {
+        Ok(room_ids
+            .iter()
+            .map(|rid| crate::room::RoomUnreadCounts {
+                room_id: rid.clone(),
+                highlight_count: 0,
+                notification_count: 0,
+            })
+            .collect())
+    }
+
+    async fn copy_room_state(&self, _source_room_id: &str, _target_room_id: &str) -> Result<(), sqlx::Error> {
+        // In-memory mock does not model room_state_events; no-op.
+        Ok(())
+    }
 }
 
 // ── EventWriter implementation for InMemoryEventStore ──────────────────
@@ -982,36 +1012,6 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
                 redacts: None,
             },
         );
-        Ok(())
-    }
-
-    // ── unread counts / room state copy (moved from RoomStorage) ───────
-
-    async fn get_unread_counts(
-        &self,
-        room_id: &str,
-        _user_id: &str,
-    ) -> Result<crate::room::RoomUnreadCounts, sqlx::Error> {
-        Ok(crate::room::RoomUnreadCounts { room_id: room_id.to_string(), highlight_count: 0, notification_count: 0 })
-    }
-
-    async fn get_unread_counts_batch(
-        &self,
-        room_ids: &[String],
-        _user_id: &str,
-    ) -> Result<Vec<crate::room::RoomUnreadCounts>, sqlx::Error> {
-        Ok(room_ids
-            .iter()
-            .map(|rid| crate::room::RoomUnreadCounts {
-                room_id: rid.clone(),
-                highlight_count: 0,
-                notification_count: 0,
-            })
-            .collect())
-    }
-
-    async fn copy_room_state(&self, _source_room_id: &str, _target_room_id: &str) -> Result<(), sqlx::Error> {
-        // In-memory mock does not model room_state_events; no-op.
         Ok(())
     }
 }

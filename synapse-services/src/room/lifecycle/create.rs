@@ -483,7 +483,7 @@ impl LifecycleService {
             return;
         };
 
-        let state_events = match self.event_storage.get_state_events(room_id).await {
+        let state_events = match self.event_reader.get_state_events(room_id).await {
             Ok(events) => events,
             Err(error) => {
                 ::tracing::warn!(

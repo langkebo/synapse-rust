@@ -43,7 +43,7 @@ impl LifecycleService {
             return Err(ApiError::forbidden("Only room creator can migrate content".to_string()));
         }
 
-        self.event_storage
+        self.event_reader
             .copy_room_state(source_room_id, target_room_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to copy room state", &e))?;

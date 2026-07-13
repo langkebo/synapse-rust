@@ -19,6 +19,11 @@ pub(crate) async fn make_leave(
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_user_origin(&auth.origin, &user_id)?;
 
+    // OPT-017: Check room access BEFORE room version to prevent existence leaking.
+    // Access denied and non-existent rooms both return 404.
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
+    let room_version = federatable_room_version(&ctx, &room_id).await?;
+
     let auth_events = ctx.room_service.messaging().get_state_event_records(&room_id).await?;
 
     let auth_events_json: Vec<Value> = auth_events
@@ -31,8 +36,6 @@ pub(crate) async fn make_leave(
             })
         })
         .collect();
-
-    let room_version = federatable_room_version(&ctx, &room_id).await?;
 
     Ok(Json(json!({
         "room_version": room_version,
@@ -60,6 +63,9 @@ pub(crate) async fn send_leave(
 
     let event = body.get("event").ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
     let user_id = validate_federation_member_event(&auth.origin, &room_id, &event_id, event, "leave")?;
+    // OPT-017: Check room access BEFORE room version to prevent existence leaking.
+    // Access denied and non-existent rooms both return 404.
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
     let params = synapse_storage::event::CreateEventParams {

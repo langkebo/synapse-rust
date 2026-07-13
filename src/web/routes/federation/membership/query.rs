@@ -11,7 +11,9 @@ pub(crate) async fn get_room_members(
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
+    // OPT-017: Use can_observe (returns 404) instead of in_room (returns 403)
+    // to prevent room existence leaking through distinct HTTP status codes.
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
     let members = ctx.room_service.membership().get_room_members_by_membership(&room_id, "join").await?;
@@ -42,7 +44,9 @@ pub(crate) async fn get_joined_room_members(
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
+    // OPT-017: Use can_observe (returns 404) instead of in_room (returns 403)
+    // to prevent room existence leaking through distinct HTTP status codes.
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
     let members = ctx.room_service.membership().get_room_members_by_membership(&room_id, "join").await?;
@@ -125,8 +129,10 @@ pub(crate) async fn get_joining_rules(
     let join_rule_content = super::get_effective_room_join_rule_content(&ctx, &room_id).await?;
     let join_rule = super::get_effective_room_join_rule(&ctx, &room_id).await?;
 
+    // OPT-017: Use can_observe (returns 404) instead of in_room (returns 403)
+    // to prevent room existence leaking through distinct HTTP status codes.
     if join_rule != "public" {
-        super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
+        super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     }
 
     let allow = join_rule_content

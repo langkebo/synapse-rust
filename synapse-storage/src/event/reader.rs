@@ -463,22 +463,6 @@ impl crate::event::reader::EventReader for super::EventStorage {
         self.check_room_has_encryption(room_id).await
     }
 
-    async fn delete_events_before(&self, room_id: &str, timestamp: i64) -> Result<u64, sqlx::Error> {
-        self.delete_events_before(room_id, timestamp).await
-    }
-
-    async fn upsert_power_levels_event(
-        &self,
-        event_id: &str,
-        room_id: &str,
-        user_id: &str,
-        content: serde_json::Value,
-        origin_server_ts: i64,
-        sender: &str,
-    ) -> Result<(), sqlx::Error> {
-        self.upsert_power_levels_event(event_id, room_id, user_id, content, origin_server_ts, sender).await
-    }
-
     // ── unread counts / room state copy (moved from RoomStorage) ───────
 
     async fn get_unread_counts(

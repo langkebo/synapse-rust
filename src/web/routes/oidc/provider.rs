@@ -128,7 +128,7 @@ pub(crate) async fn oidc_token(
 
             // Exchange code for tokens via OIDC service
             let token_response: synapse_services::oidc_service::OidcTokenResponse = oidc_service
-                .exchange_code(&code, &redirect_uri, code_verifier.as_deref())
+                .exchange_code(&code, &redirect_uri, code_verifier.as_deref(), None)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Token exchange failed", &e))?;
 

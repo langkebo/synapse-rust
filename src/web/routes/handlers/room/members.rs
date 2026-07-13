@@ -18,7 +18,7 @@ pub(crate) async fn join_room(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    ctx.room_service.membership.join_room(&room_id, &auth_user.user_id).await?;
+    ctx.room_service.membership().join_room(&room_id, &auth_user.user_id).await?;
     Ok(Json(json!({
         "room_id": room_id,
         "joined_ts": chrono::Utc::now().timestamp_millis()
@@ -93,7 +93,7 @@ pub(crate) async fn join_room_by_id_or_alias(
         "User joining room by id or alias"
     );
 
-    ctx.room_service.membership.join_room_with_via_servers(&room_id, &auth_user.user_id, &via_servers).await?;
+    ctx.room_service.membership().join_room_with_via_servers(&room_id, &auth_user.user_id, &via_servers).await?;
 
     Ok(Json(json!({
         "room_id": room_id
@@ -164,7 +164,7 @@ pub(crate) async fn knock_room(
         "User knocking on room"
     );
 
-    ctx.room_service.membership.knock_room(&room_id, &auth_user.user_id, reason.as_deref()).await?;
+    ctx.room_service.membership().knock_room(&room_id, &auth_user.user_id, reason.as_deref()).await?;
 
     Ok(Json(json!({
         "room_id": room_id
@@ -215,7 +215,7 @@ pub(crate) async fn invite_user_by_room(
 
     validate_user_id(invitee)?;
 
-    ctx.auth_service.can_invite_user(&room_id, &auth_user.user_id).await?;
+    ctx.room_auth.can_invite_user(&room_id, &auth_user.user_id).await?;
 
     ::tracing::info!(
         request_id = %request_id,
@@ -225,7 +225,7 @@ pub(crate) async fn invite_user_by_room(
         "User inviting another user to room"
     );
 
-    ctx.room_service.membership.invite_user(&room_id, &auth_user.user_id, invitee).await?;
+    ctx.room_service.membership().invite_user(&room_id, &auth_user.user_id, invitee).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -274,7 +274,7 @@ pub(crate) async fn get_room_members(
         validate_membership(nmf)?;
     }
 
-    let members = ctx.room_service.membership.get_room_members(&room_id, &auth_user.user_id).await?;
+    let members = ctx.room_service.membership().get_room_members(&room_id, &auth_user.user_id).await?;
 
     let filtered = if membership_filter.is_some() || not_membership_filter.is_some() {
         if let Some(chunk) = members.get("chunk").and_then(|c| c.as_array()) {
@@ -323,7 +323,7 @@ pub(crate) async fn get_room_members_recent(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    let members = ctx.room_service.membership.get_room_members(&room_id, &auth_user.user_id).await?;
+    let members = ctx.room_service.membership().get_room_members(&room_id, &auth_user.user_id).await?;
 
     let from = params.get("from").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
     let limit = params.get("limit").and_then(|value| value.parse::<usize>().ok()).unwrap_or(100).min(1000);
