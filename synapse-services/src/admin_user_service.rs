@@ -131,6 +131,7 @@ pub struct BatchUsersResult {
 }
 
 pub struct AdminUserService {
+    user_service: Arc<crate::UserService>,
     user_storage: Arc<dyn UserStore>,
     device_storage: Arc<dyn DeviceListStoreApi>,
     room_storage: Arc<dyn RoomStoreApi>,
@@ -141,26 +142,14 @@ pub struct AdminUserService {
 impl AdminUserService {
     pub fn new(
         _pool: Arc<PgPool>,
+        user_service: Arc<crate::UserService>,
         user_storage: Arc<dyn UserStore>,
         device_storage: Arc<dyn DeviceListStoreApi>,
         room_storage: Arc<dyn RoomStoreApi>,
         member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
         server_name: String,
     ) -> Self {
-        Self { user_storage, device_storage, room_storage, member_storage, server_name }
-    }
-
-    #[instrument(skip(self))]
-    pub async fn get_user_by_identifier(&self, identifier: &str) -> Result<Option<User>, ApiError> {
-        self.user_storage
-            .get_user_by_identifier(identifier)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))
-    }
-
-    #[instrument(skip(self))]
-    pub async fn get_user_or_not_found(&self, identifier: &str) -> Result<User, ApiError> {
-        self.get_user_by_identifier(identifier).await?.ok_or_else(|| ApiError::not_found("User not found".to_string()))
+        Self { user_service, user_storage, device_storage, room_storage, member_storage, server_name }
     }
 
     #[instrument(skip(self))]
@@ -170,14 +159,9 @@ impl AdminUserService {
         created_ts_cursor: Option<i64>,
         user_id_cursor: Option<&str>,
     ) -> Result<AdminLegacyUsersPage, ApiError> {
-        let users = self
-            .user_storage
-            .get_users_paginated(limit, created_ts_cursor, user_id_cursor)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let users = self.user_service.get_users_paginated(limit, created_ts_cursor, user_id_cursor).await?;
 
-        let total =
-            self.user_storage.get_user_count().await.map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let total = self.user_service.get_user_count().await?;
 
         Ok(AdminLegacyUsersPage { users, total })
     }
@@ -271,8 +255,7 @@ impl AdminUserService {
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-        let total =
-            self.user_storage.get_user_count().await.map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let total = self.user_service.get_user_count().await?;
 
         let users = rows
             .iter()
@@ -301,11 +284,7 @@ impl AdminUserService {
 
     #[instrument(skip(self))]
     pub async fn get_user_v2(&self, identifier: &str) -> Result<Option<AdminUserDetails>, ApiError> {
-        let user = self
-            .user_storage
-            .get_user_by_identifier(identifier)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let user = self.user_service.get_user_by_identifier(identifier).await?;
 
         let Some(user) = user else {
             return Ok(None);
@@ -343,25 +322,15 @@ impl AdminUserService {
         user_type: Option<&str>,
         password: Option<&str>,
     ) -> Result<(), ApiError> {
-        let existing_user = self
-            .user_storage
-            .get_user_by_identifier(identifier)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let existing_user = self.user_service.get_user_by_identifier(identifier).await?;
 
         if let Some(existing_user) = existing_user {
             if let Some(displayname) = displayname {
-                self.user_storage
-                    .update_displayname(&existing_user.user_id, Some(displayname))
-                    .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to update user displayname", &e))?;
+                self.user_service.update_displayname(&existing_user.user_id, Some(displayname)).await?;
             }
 
             if let Some(avatar_url) = avatar_url {
-                self.user_storage
-                    .update_avatar_url(&existing_user.user_id, Some(avatar_url))
-                    .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to update user avatar", &e))?;
+                self.user_service.update_avatar_url(&existing_user.user_id, Some(avatar_url)).await?;
             }
 
             if let Some(is_admin) = is_admin {
@@ -417,17 +386,11 @@ impl AdminUserService {
             .map_err(|e| ApiError::internal_with_log("Failed to create user", &e))?;
 
         if let Some(displayname) = displayname {
-            self.user_storage
-                .update_displayname(&created.user_id, Some(displayname))
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to update user displayname", &e))?;
+            self.user_service.update_displayname(&created.user_id, Some(displayname)).await?;
         }
 
         if let Some(avatar_url) = avatar_url {
-            self.user_storage
-                .update_avatar_url(&created.user_id, Some(avatar_url))
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to update user avatar", &e))?;
+            self.user_service.update_avatar_url(&created.user_id, Some(avatar_url)).await?;
         }
 
         if is_deactivated.unwrap_or(false) {
@@ -475,12 +438,7 @@ impl AdminUserService {
 
     #[instrument(skip(self))]
     pub async fn get_single_user_stats(&self, identifier: &str) -> Result<AdminSingleUserStats, ApiError> {
-        let user = self
-            .user_storage
-            .get_user_by_identifier(identifier)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-            .ok_or_else(|| ApiError::not_found("User not found"))?;
+        let user = self.user_service.get_user_or_not_found(identifier).await?;
 
         let rooms_joined = self
             .member_storage
@@ -520,10 +478,7 @@ impl AdminUserService {
             match self.user_storage.create_user(&full_user_id, username, Some(&password_hash), *is_admin).await {
                 Ok(created) => {
                     if let Some(displayname) = displayname.as_deref() {
-                        self.user_storage
-                            .update_displayname(&created.user_id, Some(displayname))
-                            .await
-                            .map_err(|e| ApiError::internal_with_log("Failed to update displayname", &e))?;
+                        self.user_service.update_displayname(&created.user_id, Some(displayname)).await?;
                     }
                     succeeded.push(username.clone());
                 }
@@ -563,17 +518,11 @@ impl AdminUserService {
         is_admin: Option<bool>,
     ) -> Result<(), ApiError> {
         if let Some(displayname) = displayname {
-            self.user_storage
-                .update_displayname(user_id, Some(displayname))
-                .await
-                .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+            self.user_service.update_displayname(user_id, Some(displayname)).await?;
         }
 
         if let Some(avatar_url) = avatar_url {
-            self.user_storage
-                .update_avatar_url(user_id, Some(avatar_url))
-                .await
-                .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+            self.user_service.update_avatar_url(user_id, Some(avatar_url)).await?;
         }
 
         if let Some(is_admin) = is_admin {

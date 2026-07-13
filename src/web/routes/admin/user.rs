@@ -178,7 +178,7 @@ pub struct CreateUpdateUserRequest {
 }
 
 async fn resolve_user(ctx: &AdminContext, identifier: &str) -> Result<AdminUserRecord, ApiError> {
-    ctx.admin_user_service.get_user_or_not_found(identifier).await
+    ctx.user_service.get_user_or_not_found(identifier).await
 }
 
 // Moved to admin/mod.rs
@@ -251,7 +251,7 @@ async fn get_user(
     State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = ctx.admin_user_service.get_user_by_identifier(&user_id).await?;
+    let user = ctx.user_service.get_user_by_identifier(&user_id).await?;
 
     match user {
         Some(u) => Ok(Json(json!({
@@ -578,7 +578,7 @@ pub async fn login_as_user(
     State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = ctx.admin_user_service.get_user_or_not_found(&user_id).await?;
+    let user = ctx.user_service.get_user_or_not_found(&user_id).await?;
 
     if user.is_deactivated {
         return Err(ApiError::bad_request("User is deactivated".to_string()));

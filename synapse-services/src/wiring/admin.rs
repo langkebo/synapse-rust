@@ -261,16 +261,17 @@ impl AdminServices {
             refresh_token_storage.clone(),
             registration_token_service.clone(),
         ));
+        let user_service = Arc::new(UserService::new(user_storage.clone()));
+
         let admin_user_service = Arc::new(crate::admin_user_service::AdminUserService::new(
             pool.clone(),
+            user_service.clone(),
             user_storage.clone(),
             Arc::new(DeviceStorage::new(pool)),
             Arc::new(RoomStorage::new(pool)),
             Arc::new(RoomMemberStorage::new(pool, config.server.get_server_name())),
             config.server.name.clone(),
         ));
-
-        let user_service = Arc::new(UserService::new(user_storage.clone()));
 
         Self {
             user: AdminUserServices {
