@@ -1,6 +1,7 @@
 use crate::common::ApiError;
 use crate::web::extractors::{AuthenticatedUser, MatrixJson};
 use crate::web::routes::context::AuthContext;
+use crate::web::routes::oidc::format_token_response;
 use crate::web::utils::admin_auth::enforce_admin_login_mfa_svc;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
@@ -332,18 +333,14 @@ pub(crate) async fn login(
     let (user, access_token, refresh_token, device_id) =
         ctx.credential_auth.login(username, password, device_id, initial_display_name).await?;
 
-    Ok(Json(json!({
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "expires_in": ctx.token_auth.token_expiry(),
-        "device_id": device_id,
-        "user_id": user.user_id(),
-        "well_known": {
-            "m.homeserver": {
-                "base_url": ctx.config.server.get_public_baseurl()
-            }
-        }
-    })))
+    Ok(Json(format_token_response(
+        &access_token,
+        &refresh_token,
+        ctx.token_auth.token_expiry(),
+        &device_id,
+        &user.user_id(),
+        &ctx.config.server.get_public_baseurl(),
+    )))
 }
 
 pub(crate) async fn logout(
