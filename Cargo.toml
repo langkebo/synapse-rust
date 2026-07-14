@@ -1,6 +1,6 @@
 [package]
 name = "synapse-rust"
-version = "6.0.5"
+version = "6.1.0"
 edition = "2021"
 rust-version = "1.93.0"
 authors = ["Synapse Rust Team"]
