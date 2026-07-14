@@ -17,6 +17,7 @@ mod api_feature_flags_tests;
 mod api_federation_join_key_fetch_priority_tests;
 mod api_federation_key_fetch_limits_tests;
 mod api_federation_tests;
+mod api_federation_transaction_tests;
 mod api_input_validation_tests;
 mod api_invite_blocklist_routes_tests;
 mod api_key_backup_route_table_tests;
