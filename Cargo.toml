@@ -208,6 +208,11 @@ path = "benches/performance_sliding_sync_benchmarks.rs"
 harness = false
 required-features = ["test-utils"]
 
+[[bench]]
+name = "performance_membership_benchmarks"
+path = "benches/performance_membership_benchmarks.rs"
+harness = false
+
 [workspace]
 members = [
     "synapse-common",
