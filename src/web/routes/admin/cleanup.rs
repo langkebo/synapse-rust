@@ -37,10 +37,10 @@ pub async fn cleanup_all(
 
     // 1. Cleanup rooms and orphans
     let room_results = ctx
-        .room_storage
+        .room_service
+        .state()
         .cleanup_abnormal_data(min_age_ms)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Room cleanup failed", &e))?;
+        .await?;
     results.insert("rooms".to_string(), room_results);
 
     // 2. Cleanup tokens
@@ -86,10 +86,10 @@ pub async fn cleanup_rooms(
 ) -> Result<Json<Value>, ApiError> {
     let min_age_ms = body.get("min_age_ms").and_then(|v| v.as_i64());
     let results = ctx
-        .room_storage
+        .room_service
+        .state()
         .cleanup_abnormal_data(min_age_ms)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Room cleanup failed", &e))?;
+        .await?;
     Ok(Json(results))
 }
 

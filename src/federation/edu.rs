@@ -60,7 +60,7 @@ async fn handle_presence_edu(ctx: &FederationContext, origin: &str, edu: &Value,
             crate::common::PresenceState::from_str_opt(presence_str).unwrap_or(crate::common::PresenceState::Online);
         let status_msg = update.get("status_msg").and_then(|v| v.as_str());
 
-        let exists = match ctx.user_storage.user_exists(user_id).await {
+        let exists = match ctx.user_service.user_exists(user_id).await {
             Ok(exists) => exists,
             Err(error) => {
                 ::tracing::warn!("Failed to validate presence user {} from {}: {}", user_id, origin, error);

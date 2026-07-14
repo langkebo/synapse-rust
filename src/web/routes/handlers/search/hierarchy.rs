@@ -15,8 +15,12 @@ pub(crate) async fn build_room_hierarchy_response(
     limit: i32,
     from: Option<&str>,
 ) -> Result<Value, ApiError> {
-    let room_opt =
-        ctx.room_storage.get_room(room_id).await.map_err(|e| ApiError::internal_with_log("Failed to load room", &e))?;
+    let room_opt = ctx
+        .room_service
+        .state()
+        .get_room_record(room_id)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to load room", &e))?;
 
     if let Some(space) = ctx.space_service.get_space_by_room(room_id).await? {
         let response = ctx
