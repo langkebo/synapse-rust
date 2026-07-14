@@ -319,7 +319,7 @@ async fn search_users(ctx: &RoomContext, user_id: &str, search: &UsersSearch) ->
         let presence_state =
             crate::common::PresenceState::from_str_opt(&presence_str).unwrap_or(crate::common::PresenceState::Offline);
 
-        if !visibility.get(&target_user_id).copied().unwrap_or(true) {
+        if !visibility.get(&target_user_id).copied().unwrap_or(false) {
             continue;
         }
 
@@ -385,7 +385,7 @@ pub(crate) async fn search_recipients(
         let presence_state =
             crate::common::PresenceState::from_str_opt(&presence_str).unwrap_or(crate::common::PresenceState::Offline);
         let online = presence_state == crate::common::PresenceState::Online;
-        if !visibility.get(&target_user_id).copied().unwrap_or(true) {
+        if !visibility.get(&target_user_id).copied().unwrap_or(false) {
             continue;
         }
 
