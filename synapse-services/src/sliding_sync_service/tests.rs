@@ -537,7 +537,7 @@ fn create_cached_test_service(event_store: Arc<InMemoryEventStore>) -> SlidingSy
     SlidingSyncService {
         storage: Arc::new(SlidingSyncStorage::new(pool.clone())),
         cache: Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
-        event_storage: event_store as Arc<dyn synapse_storage::event::EventStoreApi>,
+        event_reader: event_store as Arc<dyn synapse_storage::event::EventReader>,
         device_key_storage: DeviceKeyStorage::new(&pool),
         typing_service: Arc::new(crate::typing_service::TypingService::default()),
         presence_storage: Arc::new(PresenceStorage::new(

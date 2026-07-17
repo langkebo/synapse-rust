@@ -437,9 +437,9 @@ mod tests {
     #[tokio::test]
     async fn burn_processor_stops_on_shutdown() {
         let storage: Arc<dyn BurnAfterReadStoreApi> = Arc::new(NoopBurnStore);
-        let event_storage: Arc<dyn synapse_storage::event::EventStoreApi> =
+        let event_writer: Arc<dyn synapse_storage::event::EventWriter> =
             Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
-        let service = Arc::new(BurnAfterReadService::new(storage, event_storage, "test".to_string()));
+        let service = Arc::new(BurnAfterReadService::new(storage, event_writer, "test".to_string()));
 
         let token = tokio_util::sync::CancellationToken::new();
         let handle = service.clone().start_burn_processor(token.clone()).await.expect("first start returns handle");

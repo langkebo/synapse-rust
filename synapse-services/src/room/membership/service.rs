@@ -459,12 +459,14 @@ mod tests {
 
     use std::sync::Arc as StdArc;
     use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_storage::event::{EventReader, EventWriter};
     use synapse_storage::test_mocks::room_summary::InMemoryRoomSummaryStore;
     use synapse_storage::test_mocks::{FakeUserStore, InMemoryEventStore, InMemoryMemberStore, InMemoryRoomStore};
-    use synapse_storage::{EventStoreApi, MemberStoreApi, RoomStoreApi, UserStore};
+    use synapse_storage::{MemberStoreApi, RoomStoreApi, UserStore};
 
     use crate::room::summary::RoomSummaryService;
-    use crate::test_mocks::FakeAuth;
+    use crate::test_mocks::FakeRoomAuth;
+    use crate::user_service::UserService;
 
     const ROOM: &str = "!fed:localhost";
 
@@ -479,23 +481,28 @@ mod tests {
         let room_store = InMemoryRoomStore::new();
         room_store.create_room(ROOM, "@creator:localhost", "public", "10", true).await.unwrap();
 
-        let event_storage: StdArc<dyn EventStoreApi> = StdArc::new(InMemoryEventStore::new());
+        let event_store = StdArc::new(InMemoryEventStore::new());
+        let event_reader: StdArc<dyn EventReader> = event_store.clone();
+        let event_writer: StdArc<dyn EventWriter> = event_store.clone();
         let member_storage: StdArc<dyn MemberStoreApi> = StdArc::new(member_store);
         let room_storage: StdArc<dyn RoomStoreApi> = StdArc::new(room_store);
         let user_storage: StdArc<dyn UserStore> = StdArc::new(FakeUserStore::new());
+        let user_service = StdArc::new(UserService::new(user_storage.clone()));
 
         let room_summary_service = StdArc::new(RoomSummaryService::new(
             StdArc::new(InMemoryRoomSummaryStore::new()),
-            event_storage.clone(),
+            event_reader.clone(),
             Some(member_storage.clone()),
         ));
 
         MembershipService::new(MembershipServiceConfig {
             member_storage,
             room_storage,
-            event_storage,
+            event_reader,
+            event_writer,
             user_storage,
-            auth_service: StdArc::new(FakeAuth::new()),
+            user_service,
+            room_auth: StdArc::new(FakeRoomAuth::new()),
             server_name: "localhost".to_string(),
             federation_client: None,
             key_rotation_manager: None,

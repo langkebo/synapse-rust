@@ -63,7 +63,7 @@ pub fn parse_saml_response(xml: &str) -> Result<SamlAssertionData, XmlParseError
                 }
             }
             Ok(Event::Text(ref e)) => {
-                let text = e.unescape().unwrap_or_default().to_string();
+                let text = e.xml10_content().unwrap_or_default().to_string();
 
                 if in_name_id {
                     name_id = text;
@@ -155,7 +155,7 @@ pub fn parse_saml_metadata(xml: &str) -> Result<SamlMetadataParsed, XmlParseErro
             }
             Ok(Event::Text(ref e)) => {
                 if in_x509_cert {
-                    certificate = e.unescape().unwrap_or_default().to_string();
+                    certificate = e.xml10_content().unwrap_or_default().to_string();
                     in_x509_cert = false;
                 }
             }

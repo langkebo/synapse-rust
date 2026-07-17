@@ -107,7 +107,6 @@ config = { version = "0.14", default-features = false, features = ["yaml", "conv
 
 jsonwebtoken = "9"
 rsa = { version = "0.9", features = ["pem", "sha2"] }
-subtle = "2.5"
 
 metrics = "0.23"
 
@@ -121,14 +120,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"]
 chrono = { version = "0.4", features = ["serde"] }
 
 thiserror = "2.0"
-anyhow = "1.0"
 uuid = { version = "1", features = ["v4", "serde"] }
 futures = "0.3"
 bytes = "1"
 dashmap = { version = "6", features = ["serde"] }
 parking_lot = "0.12"
 regex = "1.10"
-quick-xml = "0.37"
+quick-xml = "0.41"
 flate2 = "1.0"
 url = "2.5"
 urlencoding = "2.1"
@@ -137,7 +135,6 @@ reqwest = { version = "0.12", features = ["json"] }
 validator = { version = "0.20.0", features = ["derive"] }
 ammonia = "4.1"
 infer = "0.19.0"
-textwrap = "0.16"
 synapse-common = { path = "synapse-common" }
 synapse-cache = { path = "synapse-cache" }
 synapse-e2ee = { path = "synapse-e2ee", default-features = false }

@@ -265,11 +265,13 @@ mod tests {
     use synapse_cache::{CacheConfig, CacheManager};
     use synapse_e2ee::test_mocks::InMemoryKeyRotationStorage;
     use synapse_storage::test_mocks::room_summary::InMemoryRoomSummaryStore;
+    use synapse_storage::event::{EventReader, EventWriter};
     use synapse_storage::test_mocks::{FakeUserStore, InMemoryEventStore, InMemoryMemberStore, InMemoryRoomStore};
-    use synapse_storage::{EventStoreApi, MemberStoreApi, RoomStoreApi, UserStore};
+    use synapse_storage::{MemberStoreApi, RoomStoreApi, UserStore};
 
     use crate::room::summary::RoomSummaryService;
-    use crate::test_mocks::FakeAuth;
+    use crate::test_mocks::FakeRoomAuth;
+    use crate::user_service::UserService;
 
     use super::super::service::{MembershipService, MembershipServiceConfig};
 
@@ -282,26 +284,30 @@ mod tests {
         let member_store = InMemoryMemberStore::new();
         member_store.add_member(ROOM_ID, USER_ID, "join", None).await.unwrap();
 
-        let event_store = InMemoryEventStore::new();
+        let event_store = Arc::new(InMemoryEventStore::new());
         let room_store = InMemoryRoomStore::new();
 
-        let event_storage: Arc<dyn EventStoreApi> = Arc::new(event_store);
+        let event_reader: Arc<dyn EventReader> = event_store.clone();
+        let event_writer: Arc<dyn EventWriter> = event_store.clone();
         let member_storage: Arc<dyn MemberStoreApi> = Arc::new(member_store);
         let room_storage: Arc<dyn RoomStoreApi> = Arc::new(room_store);
         let user_storage: Arc<dyn UserStore> = Arc::new(FakeUserStore::new());
+        let user_service = Arc::new(UserService::new(user_storage.clone()));
 
         let room_summary_service = Arc::new(RoomSummaryService::new(
             Arc::new(InMemoryRoomSummaryStore::new()),
-            event_storage.clone(),
+            event_reader.clone(),
             Some(member_storage.clone()),
         ));
 
         MembershipService::new(MembershipServiceConfig {
             member_storage,
             room_storage,
-            event_storage,
+            event_reader,
+            event_writer,
             user_storage,
-            auth_service: Arc::new(FakeAuth::new()),
+            user_service,
+            room_auth: Arc::new(FakeRoomAuth::new()),
             server_name: "localhost".to_string(),
             federation_client: None,
             key_rotation_manager: None,
@@ -315,7 +321,7 @@ mod tests {
 
     /// Seed an `m.room.encryption` state event into the service's event store.
     async fn seed_encryption_event(svc: &MembershipService) {
-        svc.event_storage
+        svc.event_writer
             .create_event(
                 synapse_storage::CreateEventParams {
                     event_id: "$enc:localhost".to_string(),

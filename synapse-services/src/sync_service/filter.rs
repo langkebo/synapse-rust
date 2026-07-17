@@ -1228,9 +1228,9 @@ mod tests {
         SyncService::from_deps(SyncServiceDeps {
             presence_storage: Arc::new(synapse_storage::presence::PresenceStorage::new(pool.clone(), cache.clone())),
             member_storage: Arc::new(synapse_storage::membership::RoomMemberStorage::new(&pool, "localhost")),
-            event_storage: Arc::new(synapse_storage::event::EventStorage::new(&pool, "localhost".to_string())),
+            event_reader: Arc::new(synapse_storage::event::EventStorage::new(&pool, "localhost".to_string())),
             room_storage: Arc::new(synapse_storage::room::RoomStorage::new(&pool)),
-            room_account_data_storage: synapse_storage::room_account_data::RoomAccountDataStorage::new(&pool),
+            room_account_data_storage: Arc::new(synapse_storage::room_account_data::RoomAccountDataStorage::new(&pool)),
             account_data_storage: Arc::new(synapse_storage::account_data::AccountDataStorage::new(&pool)),
             filter_storage: filter_store,
             device_storage: Arc::new(synapse_storage::device::DeviceStorage::new(&pool)),

@@ -67,7 +67,6 @@ argon2 = "0.5"
 aes-gcm = "0.10"
 jsonwebtoken = "9"
 rsa = { version = "0.9", features = ["pem", "sha2"] }
-subtle = "2.5"
 
 image = "0.25"
 hex = "0.4.3"

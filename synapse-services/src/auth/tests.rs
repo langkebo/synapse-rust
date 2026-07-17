@@ -617,9 +617,9 @@ fn test_generate_email_verification_token_direct() {
 
 #[test]
 fn generate_email_verification_token_returns_api_error() {
-    use crate::auth::Auth;
-    use crate::test_mocks::FakeAuth;
-    let auth = FakeAuth::new();
+    use crate::auth::CredentialAuth;
+    use crate::test_mocks::FakeCredentialAuth;
+    let auth = FakeCredentialAuth::new();
     // Type-level assertion: must compile as Result<String, ApiError>
     let result: Result<String, ApiError> = auth.generate_email_verification_token();
     assert!(result.is_ok());

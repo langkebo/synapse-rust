@@ -270,7 +270,7 @@ impl RoomSummaryService {
 #[cfg(test)]
 mod tests {
     use super::RoomSummaryService;
-    use synapse_storage::room_summary::{CreateRoomSummaryRequest, UpdateRoomSummaryRequest};
+    use synapse_storage::room_summary::CreateRoomSummaryRequest;
 
     #[test]
     fn create_request_to_update_request_copies_all_fields() {
