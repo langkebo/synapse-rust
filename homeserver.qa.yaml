@@ -1,0 +1,190 @@
+# QA homeserver config for Stage G end-to-end verification.
+#
+# Based on homeserver.minimal.yaml with adjustments to match the local
+# docker-postgres (port 15432) and HuLa frontend expectation (port 28008).
+#
+# Usage:
+#   SYNAPSE_CONFIG_PATH=homeserver.qa.yaml \
+#   RUST_ENV=development \
+#   ./target/release/synapse-rust
+
+server_name: "localhost"
+
+server:
+  name: "localhost"
+  host: "127.0.0.1"
+  # HuLa .env 期望 VITE_HOMESERVER_URL="http://localhost:28008"
+  port: 28008
+  http_port: 28008
+  https_port: 18449
+  bind_address: "127.0.0.1"
+  public_baseurl: "http://localhost:28008"
+  signing_key_path: "data/signing.key"
+  macaroon_secret_key: "local-dev-macaroon-secret-do-not-use-in-prod--32+"
+  form_secret: "local-dev-form-secret-do-not-use-in-prod--32+chars"
+  registration_shared_secret: "local-dev-registration-shared-secret-32+chars"
+  max_upload_size: 104857600
+  max_image_resolution: 1920
+  enable_registration: true
+  enable_registration_captcha: false
+  background_tasks_interval: 3600
+  dehydrated_device_cleanup_interval_secs: 3600
+  expire_access_token: false
+  expire_access_token_lifetime: 86400
+  refresh_token_lifetime: 604800
+  refresh_token_sliding_window_size: 2592000
+  session_duration: 86400
+  warmup_pool: true
+
+database:
+  # docker-postgres 容器映射 15432:5432，数据库 synapse（251 表，已迁移）
+  host: "localhost"
+  port: 15432
+  username: "synapse"
+  password: "synapse"
+  name: "synapse"
+  pool_size: 10
+  max_size: 20
+  min_idle: 2
+  connection_timeout: 30
+
+redis:
+  host: "localhost"
+  port: 6379
+  key_prefix: "synapse:"
+  pool_size: 10
+  enabled: false
+  connection_timeout_ms: 5000
+  command_timeout_ms: 3000
+
+logging:
+  level: "info"
+  format: "text"
+
+federation:
+  enabled: false
+  allow_ingress: false
+  server_name: "localhost"
+  # 使用 18448 避免与 docker-nginx (8448) 冲突
+  federation_port: 18448
+  connection_pool_size: 100
+  max_transaction_payload: 10485760
+
+security:
+  secret: "local-dev-security-secret-replace-with-openssl-rand-hex-32"
+  expiry_time: 86400
+  refresh_token_expiry: 604800
+
+identity_server_url: "https://vector.im"
+
+search:
+  elasticsearch_url: "http://localhost:9200"
+  enabled: false
+
+rate_limit:
+  enabled: false
+
+admin_registration:
+  enabled: false
+  secret: ""
+  shared_secret: ""
+
+worker:
+  enabled: false
+
+cors:
+  allowed_origins:
+    - "http://localhost:28008"
+    - "http://127.0.0.1:28008"
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+    - "http://localhost:6130"
+    - "http://127.0.0.1:6130"
+    - "http://localhost:3000"
+    - "http://127.0.0.1:3000"
+    - "tauri://localhost"
+    - "https://tauri.localhost"
+    - "vector://vector"
+    - "vector://riot"
+    - "file://"
+  allow_credentials: true
+  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]
+  allowed_headers:
+    - "Authorization"
+    - "Content-Type"
+    - "Accept"
+    - "Origin"
+    - "X-Requested-With"
+    - "X-Matrix-Auth"
+  expose_headers:
+    - "X-Matrix-Error"
+  max_age_seconds: 3600
+
+smtp:
+  enabled: false
+
+voip:
+  enabled: false
+
+push:
+  enabled: false
+
+url_preview:
+  enabled: false
+
+oidc:
+  enabled: false
+  issuer: ""
+  client_id: ""
+  client_secret: ""
+  scopes: []
+  attribute_mapping:
+    localpart: "preferred_username"
+    displayname: "name"
+    email: "email"
+  callback_url: ""
+  allow_existing_users: false
+  block_unknown_users: false
+
+saml:
+  enabled: false
+
+retention:
+  enabled: false
+
+telemetry:
+  enabled: false
+  service_name: "synapse-rust"
+  service_version: "0.1.0"
+  service_namespace: "matrix"
+  trace_enabled: false
+  metrics_enabled: false
+  logs_enabled: false
+  sampling_ratio: 1.0
+  batch_export: false
+  export_timeout_seconds: 30
+  max_queue_size: 2048
+  max_export_batch_size: 512
+  scheduled_delay_millis: 5000
+
+jaeger:
+  enabled: false
+  service_name: "synapse-rust"
+  sampling_rate: 1.0
+  endpoint: ""
+
+prometheus:
+  enabled: false
+  port: 9090
+  path: "/metrics"
+  include_namespace: true
+  host: "127.0.0.1"
+
+bridges:
+  telegram:
+    enabled: false
+  irc:
+    enabled: false
+
+app_service:
+  enabled: false

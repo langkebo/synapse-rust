@@ -1,0 +1,26 @@
+# Fast local Dockerfile — uses pre-compiled release binary instead of rebuilding.
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY docker/synapse-rust /app/synapse-rust
+COPY docker/synapse_worker /app/synapse_worker
+COPY docker/db_migrate.sh /app/scripts/db_migrate.sh
+COPY docker/healthcheck.sh /app/healthcheck
+COPY migrations /app/migrations
+COPY docker/config /app/config
+
+RUN chmod +x /app/synapse-rust /app/synapse_worker /app/healthcheck /app/scripts/db_migrate.sh
+RUN mkdir -p /app/data /app/logs
+
+HEALTHCHECK --interval=15s --timeout=10s --retries=5 --start-period=60s \
+    CMD ["/app/healthcheck"]
+
+EXPOSE 8008 8448 9090
+
+ENTRYPOINT ["/app/synapse-rust"]

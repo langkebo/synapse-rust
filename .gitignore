@@ -98,3 +98,4 @@ test-results-fixed/
 .gstack/
 .claude/worktrees/
 .trae-cn/
+certs/
