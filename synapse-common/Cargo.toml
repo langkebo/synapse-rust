@@ -38,13 +38,10 @@ tokio = { version = "1.49", features = ["full", "test-util"] }
 async-trait = "0.1"
 
 axum = { version = "0.8", optional = true, features = ["macros"] }
-tower = "0.5"
 tower-http = { version = "0.6", optional = true, features = ["fs", "cors", "trace", "compression-gzip", "limit"] }
-hyper = "1"
 http = "1"
 
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate"] }
-ipnetwork = "0.20"
 
 redis = { version = "0.29", features = ["tokio-rustls-comp"] }
 deadpool-redis = "0.20"
@@ -55,34 +52,24 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 
 rand = "0.9"
-sha1 = "0.10"
 sha2 = { version = "0.10", features = ["oid"] }
 hmac = "0.12"
 hkdf = "0.12"
 base64 = "0.22"
-zeroize = "1"
 
 argon2 = "0.5"
 aes-gcm = "0.10"
-chacha20poly1305 = "0.10"
 ed25519-dalek = "2.0"
-x25519-dalek = { version = "2.0", features = ["static_secrets"] }
-generic-array = "0.14"
-typenum = "1"
 
-vodozemac = "0.9"
 
 config = { version = "0.14", default-features = false, features = ["yaml", "convert-case"] }
 
-jsonwebtoken = "9"
-rsa = { version = "0.9", features = ["pem", "sha2"] }
 
 metrics = "0.23"
 
 tracing = { version = "0.1", features = ["attributes"] }
 tracing-opentelemetry = "0.32"
 opentelemetry = { version = "0.31", features = ["metrics", "logs"] }
-opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "metrics", "logs"] }
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json", "registry"] }
 
@@ -91,24 +78,15 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2.0"
 uuid = { version = "1", features = ["v4", "serde"] }
 futures = "0.3"
-bytes = "1"
-dashmap = { version = "6", features = ["serde"] }
 parking_lot = "0.12"
 regex = "1.10"
 quick-xml = "0.41"
-flate2 = "1.0"
 url = "2.5"
-urlencoding = "2.1"
 
-reqwest = { version = "0.12", features = ["json"] }
 validator = { version = "0.20.0", features = ["derive"] }
 ammonia = "4.1"
-infer = "0.19.0"
 
-image = "0.25"
 hex = "0.4.3"
-x509-cert = "0.2"
-ring = "0.17"
 dns-lookup = "3.0.1"
 ipnet = "2.12.0"
 

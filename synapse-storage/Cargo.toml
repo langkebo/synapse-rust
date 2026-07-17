@@ -39,20 +39,16 @@ tokio = { version = "1.49", features = ["full", "test-util"] }
 async-trait = "0.1"
 
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros"] }
-ipnetwork = "0.20"
 
 deadpool-redis = "0.20"
 redis = { version = "0.29", features = ["tokio-rustls-comp"] }
-moka = { version = "0.12", features = ["future", "sync"] }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 chrono = { version = "0.4", features = ["serde"] }
 
-thiserror = "2.0"
 uuid = { version = "1", features = ["v4", "serde"] }
-futures = "0.3"
 tracing = { version = "0.1", features = ["attributes"] }
 
 base64 = "0.22"

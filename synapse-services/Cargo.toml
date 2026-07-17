@@ -46,7 +46,6 @@ tokio-util = "0.7"
 async-trait = "0.1"
 
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros"] }
-ipnetwork = "0.20"
 
 redis = { version = "0.29", features = ["tokio-rustls-comp"] }
 deadpool-redis = "0.20"
@@ -61,7 +60,6 @@ sha1 = "0.10"
 sha2 = { version = "0.10", features = ["oid"] }
 hmac = "0.12"
 base64 = "0.22"
-zeroize = "1"
 
 argon2 = "0.5"
 aes-gcm = "0.10"
@@ -69,15 +67,12 @@ jsonwebtoken = "9"
 rsa = { version = "0.9", features = ["pem", "sha2"] }
 
 image = "0.25"
-hex = "0.4.3"
 infer = "0.19.0"
 x509-cert = "0.2"
 ring = "0.17"
 
-metrics = "0.23"
 
 tracing = { version = "0.1", features = ["attributes"] }
-tracing-opentelemetry = "0.32"
 opentelemetry = { version = "0.31", features = ["metrics", "logs"] }
 opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "metrics", "logs"] }
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }

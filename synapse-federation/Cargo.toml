@@ -46,4 +46,3 @@ moka = { version = "0.12", features = ["future", "sync"] }
 parking_lot = "0.12"
 
 tracing = { version = "0.1", features = ["attributes"] }
-metrics = "0.23"
