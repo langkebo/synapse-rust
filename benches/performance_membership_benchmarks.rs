@@ -23,8 +23,13 @@ fn bench_membership_transitions(c: &mut Criterion) {
         ("self_ban", Some(Membership::Join), Membership::Ban, state_only_ctx(true, false), false),
         ("banned_self_leave", Some(Membership::Ban), Membership::Leave, state_only_ctx(true, false), false),
         ("invite_of_banned", Some(Membership::Ban), Membership::Invite, state_only_ctx(false, true), false),
-        ("join_restricted_not_invited", None, Membership::Join,
-         TransitionCtx::state_only(JoinRule::Invite, true, false, false), false),
+        (
+            "join_restricted_not_invited",
+            None,
+            Membership::Join,
+            TransitionCtx::state_only(JoinRule::Invite, true, false, false),
+            false,
+        ),
         // Allowed paths
         ("invite_to_join", Some(Membership::Invite), Membership::Join, state_only_ctx(true, false), true),
         ("leave_to_invite", Some(Membership::Leave), Membership::Invite, state_only_ctx(false, false), true),

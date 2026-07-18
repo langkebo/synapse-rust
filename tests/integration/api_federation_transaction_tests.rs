@@ -50,21 +50,13 @@ fn signed_federation_request(
     let mut builder = Request::builder()
         .method(method)
         .uri(uri)
-        .header(
-            "Authorization",
-            format!(
-                "X-Matrix origin=\"{}\",key=\"{}\",sig=\"{}\"",
-                origin, key_id, sig_b64
-            ),
-        );
+        .header("Authorization", format!("X-Matrix origin=\"{}\",key=\"{}\",sig=\"{}\"", origin, key_id, sig_b64));
 
     if content.is_some() {
         builder = builder.header("Content-Type", "application/json");
     }
 
-    builder
-        .body(Body::from(content.map(Value::to_string).unwrap_or_default()))
-        .unwrap()
+    builder.body(Body::from(content.map(Value::to_string).unwrap_or_default())).unwrap()
 }
 
 // ============================================================================
@@ -77,9 +69,8 @@ async fn test_send_transaction_rejects_missing_signature() {
     let mut container = synapse_services::ServiceContainer::new_test_with_pool(pool.clone()).await;
     container.core.config.federation.enabled = true;
     container.core.config.federation.allow_ingress = true;
-    let cache = std::sync::Arc::new(synapse_rust::cache::CacheManager::new(
-        &synapse_rust::cache::CacheConfig::default(),
-    ));
+    let cache =
+        std::sync::Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
     let state = synapse_rust::web::routes::state::AppState::new(container, cache);
     let app = synapse_rust::web::create_router(state);
 
@@ -179,8 +170,7 @@ async fn test_send_transaction_with_empty_pdus_returns_ok() {
     let resp_body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
     let json: Value = serde_json::from_slice(&resp_body).unwrap();
     // Empty PDUs → empty results array.
-    assert!(json["results"].as_array().is_some_and(|r| r.is_empty()),
-        "Expected empty results array, got: {json}");
+    assert!(json["results"].as_array().is_some_and(|r| r.is_empty()), "Expected empty results array, got: {json}");
 }
 
 // ============================================================================
@@ -235,10 +225,7 @@ async fn test_send_transaction_with_invalid_pdu_returns_result_error() {
 
     let first = &results[0];
     assert_eq!(first["event_id"], "$test_event:localhost");
-    assert!(
-        first.get("error").is_some(),
-        "Expected error field in PDU result, got: {first}"
-    );
+    assert!(first.get("error").is_some(), "Expected error field in PDU result, got: {first}");
 }
 
 // ============================================================================
@@ -266,13 +253,7 @@ async fn test_send_transaction_with_signed_pdu_accepted() {
         "content": { "body": "hello", "msgtype": "m.text" }
     });
 
-    synapse_rust::federation::signing::sign_and_hash_event(
-        "localhost",
-        key_id,
-        &signing_key_b64,
-        &mut pdu,
-    )
-    .unwrap();
+    synapse_rust::federation::signing::sign_and_hash_event("localhost", key_id, &signing_key_b64, &mut pdu).unwrap();
 
     let body = json!({
         "origin": "localhost",

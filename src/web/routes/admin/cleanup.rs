@@ -36,11 +36,7 @@ pub async fn cleanup_all(
     let mut results = serde_json::Map::new();
 
     // 1. Cleanup rooms and orphans
-    let room_results = ctx
-        .room_service
-        .state()
-        .cleanup_abnormal_data(min_age_ms)
-        .await?;
+    let room_results = ctx.room_service.state().cleanup_abnormal_data(min_age_ms).await?;
     results.insert("rooms".to_string(), room_results);
 
     // 2. Cleanup tokens
@@ -85,11 +81,7 @@ pub async fn cleanup_rooms(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let min_age_ms = body.get("min_age_ms").and_then(|v| v.as_i64());
-    let results = ctx
-        .room_service
-        .state()
-        .cleanup_abnormal_data(min_age_ms)
-        .await?;
+    let results = ctx.room_service.state().cleanup_abnormal_data(min_age_ms).await?;
     Ok(Json(results))
 }
 

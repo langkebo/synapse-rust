@@ -319,8 +319,7 @@ async fn snapshot_sync_authenticated_initial_response_shape() {
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
-    let sync_resp =
-        ServiceExt::<Request<Body>>::oneshot(app, super::with_local_connect_info(sync_req)).await.unwrap();
+    let sync_resp = ServiceExt::<Request<Body>>::oneshot(app, super::with_local_connect_info(sync_req)).await.unwrap();
     assert_eq!(sync_resp.status(), StatusCode::OK);
     let body_bytes = axum::body::to_bytes(sync_resp.into_body(), 65536).await.unwrap();
     let mut body: Value = serde_json::from_slice(&body_bytes).unwrap();

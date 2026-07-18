@@ -10,8 +10,8 @@ pub(crate) mod redaction;
 pub(crate) mod search;
 pub(crate) mod signature;
 pub mod state;
-pub(crate) mod writer;
 pub(crate) mod unread;
+pub(crate) mod writer;
 
 pub use models::*;
 pub use reader::EventReader;

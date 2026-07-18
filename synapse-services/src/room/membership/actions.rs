@@ -264,8 +264,8 @@ mod tests {
 
     use synapse_cache::{CacheConfig, CacheManager};
     use synapse_e2ee::test_mocks::InMemoryKeyRotationStorage;
-    use synapse_storage::test_mocks::room_summary::InMemoryRoomSummaryStore;
     use synapse_storage::event::{EventReader, EventWriter};
+    use synapse_storage::test_mocks::room_summary::InMemoryRoomSummaryStore;
     use synapse_storage::test_mocks::{FakeUserStore, InMemoryEventStore, InMemoryMemberStore, InMemoryRoomStore};
     use synapse_storage::{MemberStoreApi, RoomStoreApi, UserStore};
 
