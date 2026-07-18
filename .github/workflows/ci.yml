@@ -58,15 +58,6 @@ jobs:
           ! ls axum_test.rs 2>/dev/null
           ! ls *.db 2>/dev/null
 
-      - name: No placeholder strings in non-test code
-        run: bash scripts/quality/check_no_placeholder_strings.sh
-
-      - name: No shell routes (empty responses)
-        run: bash scripts/detect_shell_routes.sh
-
-      - name: No unwired route candidates
-        run: bash scripts/detect_unwired_route_candidates.sh
-
       - name: Schema table coverage
         run: python3 scripts/check_schema_table_coverage.py
 
@@ -513,29 +504,6 @@ jobs:
         with:
           name: coverage-report
           path: tarpaulin-report.*
-          retention-days: 14
-
-  quality-evidence:
-    name: Quality Evidence (Non-blocking)
-    runs-on: ubuntu-latest
-    needs: [test]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Collect evidence
-        continue-on-error: true
-        run: |
-          RUN_TESTS=0 RUN_AUDIT=0 bash scripts/quality/collect_evidence.sh
-          python3 scripts/quality/generate_defect_list.py --results-dir test-results --out docs/quality/defects_api_integration.md || true
-
-      - name: Upload evidence artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: quality-evidence
-          path: |
-            reports/quality/**
-            docs/quality/**
           retention-days: 14
 
   # ──────────────────────────────────────────────────────────

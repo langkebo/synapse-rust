@@ -89,7 +89,9 @@ pub fn is_legal(
             }
         }
         (None, MembershipState::Leave) => Err("Cannot leave a room you are not a member of"),
-        (None, MembershipState::Ban) => Err("Cannot ban a user who is not in the room"),
+        // Preventative ban: the spec allows banning from any prior state,
+        // including no membership at all (matches synapse-common's check_ban).
+        (None, MembershipState::Ban) => Ok(()),
 
         // ── invite ──
         (Some(MembershipState::Invite), MembershipState::Join) => Ok(()),
@@ -110,7 +112,7 @@ pub fn is_legal(
         (Some(MembershipState::Leave), MembershipState::Invite) => Ok(()),
         (Some(MembershipState::Leave), MembershipState::Knock) => Ok(()),
         (Some(MembershipState::Leave), MembershipState::Leave) => Ok(()),
-        (Some(MembershipState::Leave), MembershipState::Ban) => Err("Cannot ban a user who is not in the room"),
+        (Some(MembershipState::Leave), MembershipState::Ban) => Ok(()),
 
         // ── ban ──
         (Some(MembershipState::Ban), MembershipState::Leave) => Ok(()),
@@ -161,8 +163,8 @@ mod tests {
     }
 
     #[test]
-    fn test_none_to_ban_rejected() {
-        assert!(is_legal(None, MembershipState::Ban, &TransitionContext::default()).is_err());
+    fn test_none_to_ban_is_legal() {
+        assert!(is_legal(None, MembershipState::Ban, &TransitionContext::default()).is_ok());
     }
 
     // ── invite transitions ──
@@ -227,8 +229,8 @@ mod tests {
     }
 
     #[test]
-    fn test_leave_to_ban_rejected() {
-        assert!(is_legal(Some(MembershipState::Leave), MembershipState::Ban, &TransitionContext::default()).is_err());
+    fn test_leave_to_ban_is_legal() {
+        assert!(is_legal(Some(MembershipState::Leave), MembershipState::Ban, &TransitionContext::default()).is_ok());
     }
 
     // ── ban transitions ──

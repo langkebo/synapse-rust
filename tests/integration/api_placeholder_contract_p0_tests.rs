@@ -776,7 +776,7 @@ async fn test_thirdparty_contract_rejects_builtin_irc_placeholders() {
                 .header("Authorization", format!("Bearer {}", token))
                 .body(Body::empty())
                 .unwrap(),
-            StatusCode::NOT_FOUND,
+            StatusCode::BAD_REQUEST,
             "M_UNRECOGNIZED",
         )
         .await;

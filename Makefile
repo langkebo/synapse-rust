@@ -201,34 +201,6 @@ build-release:
 	@echo "Building release version..."
 	@cargo build --release --all-features
 
-# Schema Operations
-schema-diff:
-	@echo "Generating schema diff..."
-	@python3 scripts/db/extract_schema.py --output /tmp/expected_schema.json --skip-row-counts
-	@PGPASSWORD=synapse psql "$(FLYWAY_URL)" -c "SELECT 'Run drift detection manually'" || true
-
-schema-drift:
-	@echo "Running schema drift detection..."
-	@python3 scripts/db/diff_schema.py /tmp/expected_schema.json /tmp/actual_schema.json || true
-
-# Lifecycle Management
-lifecycle-scan:
-	@echo "Scanning for deprecated/unused migrations..."
-	@python3 scripts/db/lifecycle_manager.py migrations/ --list
-
-lifecycle-candidates:
-	@echo "Finding candidates for deprecation..."
-	@python3 scripts/db/lifecycle_manager.py migrations/ --candidates
-
-# Compression
-compress:
-	@echo "Compressing migration scripts..."
-	@python3 scripts/db/compress_migrations.py migrations/ --dry-run
-
-compress-apply:
-	@echo "Applying compression..."
-	@python3 scripts/db/compress_migrations.py migrations/
-
 # Performance Test
 perf-test:
 	@echo "Running performance tests..."

@@ -814,8 +814,11 @@ impl ApiError {
     }
 
     pub fn unrecognized(message: impl Into<String>) -> Self {
+        // M_UNRECOGNIZED maps to HTTP 400, matching MatrixErrorCode::Unrecognized
+        // and the errcode fallback table (see d8bc373c). The router-level 404
+        // fallback for truly unknown paths is hardcoded in assembly.rs instead.
         Self {
-            kind: ApiErrorKind::NotFound,
+            kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::Unrecognized,
             message: message.into(),
             source: None,
@@ -993,8 +996,8 @@ impl IntoResponse for ApiError {
         let error_msg = self.message();
         // Use `kind` (explicit HTTP semantic kind) for the HTTP status code,
         // and `code` (Matrix error code) only for the `errcode` JSON field.
-        // This lets e.g. `ApiError::unrecognized()` (kind=NotFound, code=Unrecognized)
-        // correctly return 404 while keeping `M_UNRECOGNIZED` in the body.
+        // The two are set independently by each constructor, so an errcode is
+        // not hard-wired to a single HTTP status.
         let status_code = self.kind.default_http_status();
 
         // Emit metrics
@@ -1771,7 +1774,7 @@ mod tests {
 
         // unrecognized
         let err = ApiError::unrecognized("unrecognized");
-        assert_eq!(err.kind, ApiErrorKind::NotFound);
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
         assert_eq!(err.code, MatrixErrorCode::Unrecognized);
 
         // request_timeout
