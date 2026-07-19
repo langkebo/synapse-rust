@@ -35,11 +35,23 @@ mkdir -p artifacts
 # yet have it pre-installed.
 if command -v cargo-deny >/dev/null 2>&1; then
     echo "==> cargo-deny check"
-    cargo deny check \
-        --hide-inclusion-graph \
-        --hide-spans \
-        --show-stats \
-        --format human 2>&1 | tee artifacts/cargo-deny.txt
+    # Build flags compatible with the installed cargo-deny version.
+    # 0.16+: --hide-inclusion-graph
+    # 0.20+: --hide-spans, --show-stats, --format
+    DENY_FLAGS=""
+    if cargo deny check --help 2>&1 | grep -q hide-inclusion-graph; then
+        DENY_FLAGS="${DENY_FLAGS} --hide-inclusion-graph"
+    fi
+    if cargo deny check --help 2>&1 | grep -q hide-spans; then
+        DENY_FLAGS="${DENY_FLAGS} --hide-spans"
+    fi
+    if cargo deny check --help 2>&1 | grep -q show-stats; then
+        DENY_FLAGS="${DENY_FLAGS} --show-stats"
+    fi
+    if cargo deny check --help 2>&1 | grep -q '\--format'; then
+        DENY_FLAGS="${DENY_FLAGS} --format human"
+    fi
+    cargo deny check ${DENY_FLAGS} 2>&1 | tee artifacts/cargo-deny.txt
     if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
         echo "supply_chain_gate: cargo-deny FAILED" >&2
         echo "  See artifacts/cargo-deny.txt for the full report." >&2
