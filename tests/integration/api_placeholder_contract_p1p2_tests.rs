@@ -951,3 +951,35 @@ async fn test_anti_screenshot_read_contract_rejects_non_members() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn test_burn_after_read_contract_rejects_non_members() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let owner = format!("burn_owner_{}", rand::random::<u32>());
+    let outsider = format!("burn_outsider_{}", rand::random::<u32>());
+    let (owner_token, _) = register_user(&app, &owner).await;
+    let (outsider_token, _) = register_user(&app, &outsider).await;
+
+    let room_id = create_room(&app, &owner_token, "Burn Membership Contract").await;
+    let encoded_room_id = encode_room_id(&room_id);
+
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("PUT")
+            .uri(format!(
+                "/_matrix/client/v3/rooms/{}/burn",
+                encoded_room_id
+            ))
+            .header("Authorization", format!("Bearer {}", outsider_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "enabled": true }).to_string()))
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "M_FORBIDDEN",
+    )
+    .await;
+}
