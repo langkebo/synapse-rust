@@ -325,9 +325,17 @@ struct AntiScreenshotPayload {
 
 async fn get_anti_screenshot(
     State(ctx): State<RoomContext>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    ensure_room_member_ctx(
+        &ctx,
+        &auth_user,
+        &room_id,
+        "You must be a room member to get anti-screenshot",
+    )
+    .await?;
+
     // Check room state for com.hula.privacy event with block_screenshot action
     let events: Vec<serde_json::Value> =
         ctx.room_service.messaging().get_state_events_by_type(&room_id, "com.hula.privacy").await?;

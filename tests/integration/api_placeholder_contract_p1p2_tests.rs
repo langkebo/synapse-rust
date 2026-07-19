@@ -920,3 +920,34 @@ async fn test_anti_screenshot_contract_allows_members() {
 
     assert_eq!(response.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn test_anti_screenshot_read_contract_rejects_non_members() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let owner = format!("as_read_owner_{}", rand::random::<u32>());
+    let outsider = format!("as_read_outsider_{}", rand::random::<u32>());
+    let (owner_token, _) = register_user(&app, &owner).await;
+    let (outsider_token, _) = register_user(&app, &outsider).await;
+
+    let room_id = create_room(&app, &owner_token, "Anti-Screenshot Read Contract").await;
+    let encoded_room_id = encode_room_id(&room_id);
+
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("GET")
+            .uri(format!(
+                "/_matrix/client/v3/rooms/{}/anti_screenshot",
+                encoded_room_id
+            ))
+            .header("Authorization", format!("Bearer {}", outsider_token))
+            .body(Body::empty())
+            .unwrap(),
+        StatusCode::FORBIDDEN,
+        "M_FORBIDDEN",
+    )
+    .await;
+}
