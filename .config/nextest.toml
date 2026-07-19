@@ -1,7 +1,9 @@
 [profile.ci]
 fail-fast = false
 retries = 2
-test-threads = 4
+# B.3: raised from 4 → 8 (DB pool max=40 supports the extra concurrency;
+# SHARED_CLONE_SEMAPHORE was raised to match in src/test_utils.rs).
+test-threads = 8
 flaky-result = "fail"
 
 [profile.ci.junit]

@@ -182,7 +182,7 @@ jobs:
           RUST_BACKTRACE: 1
           RUST_LOG: info
           NEXTEST_RETRIES: 2
-        run: cargo nextest run --lib --all-features --locked --test-threads 4
+        run: cargo nextest run --lib --all-features --locked --test-threads 8
 
       - name: Run unit test target (--test unit)
         if: matrix.features-args == '--all-features'
@@ -193,7 +193,7 @@ jobs:
           RUST_BACKTRACE: 1
           RUST_LOG: info
           NEXTEST_RETRIES: 2
-        run: cargo nextest run --test unit --features test-utils --locked --test-threads 4
+        run: cargo nextest run --test unit --features test-utils --locked --test-threads 8
 
   # ──────────────────────────────────────────────────────────
   # Slow Tier — runs on merge to main/develop + weekly schedule
@@ -280,7 +280,7 @@ jobs:
           RUST_BACKTRACE: 1
           RUST_LOG: info
           NEXTEST_RETRIES: 2
-        run: cargo nextest run --test integration --all-features --locked --test-threads 4
+        run: cargo nextest run --test integration --all-features --locked --test-threads 8
 
       # Snapshot gate: fail if any insta snapshot drifted or is missing.
       # Local devs must run `cargo insta test --review` to accept new snapshots
@@ -293,7 +293,7 @@ jobs:
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           NEXTEST_RETRIES: 2
-        run: cargo insta test --no-review --test-runner nextest -- --all-features --locked --test-threads 4
+        run: cargo insta test --no-review --test-runner nextest -- --all-features --locked --test-threads 8
 
       - name: Run performance smoke gate
         env:

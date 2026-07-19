@@ -23,17 +23,35 @@ pub fn test_redis_url() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // ROUND2-ISSUE-2: two tests share the process-wide `TEST_DATABASE_URL` env
+    // var without synchronization, causing a ~50% flaky race under parallel
+    // test execution. Reuse the existing `EnvGuard` helper from `test_utils`
+    // (auto-restores env vars on drop) plus `env_lock_async()` to serialize
+    // the critical section. No new dependency (e.g. serial_test) needed.
+    use crate::test_utils::{env_lock_async, EnvGuard};
 
-    #[test]
-    fn test_database_url_default() {
-        std::env::remove_var("TEST_DATABASE_URL");
-        assert_eq!(test_database_url(), "postgres://synapse:synapse@localhost:5432/synapse_test");
+    #[tokio::test]
+    async fn test_database_url_default() {
+        let _guard = env_lock_async().await;
+        let mut env = EnvGuard::new();
+        env.remove("TEST_DATABASE_URL");
+        assert_eq!(
+            test_database_url(),
+            "postgres://synapse:synapse@localhost:5432/synapse_test"
+        );
     }
 
-    #[test]
-    fn test_database_url_from_env() {
-        std::env::set_var("TEST_DATABASE_URL", "postgres://custom:custom@localhost:5432/custom");
-        assert_eq!(test_database_url(), "postgres://custom:custom@localhost:5432/custom");
-        std::env::remove_var("TEST_DATABASE_URL");
+    #[tokio::test]
+    async fn test_database_url_from_env() {
+        let _guard = env_lock_async().await;
+        let mut env = EnvGuard::new();
+        env.set(
+            "TEST_DATABASE_URL",
+            "postgres://custom:custom@localhost:5432/custom",
+        );
+        assert_eq!(
+            test_database_url(),
+            "postgres://custom:custom@localhost:5432/custom"
+        );
     }
 }

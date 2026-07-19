@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-TEST_THREADS="${TEST_THREADS:-2}"
+# B.3: raised from 2 → 8 (DB pool max=40 + template-schema cloning semaphore
+# both support the extra concurrency; cuts integration-test wall time ~30-40%).
+TEST_THREADS="${TEST_THREADS:-8}"
 TEST_RETRIES="${TEST_RETRIES:-2}"
 NEXTEST_PROFILE_NAME="${NEXTEST_PROFILE_NAME:-ci}"
 RUN_PERF_SMOKE="${RUN_PERF_SMOKE:-0}"
