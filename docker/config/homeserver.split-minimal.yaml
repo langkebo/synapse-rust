@@ -206,7 +206,7 @@ cors:
     - "https://tauri.localhost"
     - "vector://vector"
     - "vector://riot"
-    - "file://"
+
   allow_credentials: true
   allowed_methods:
     - "GET"
@@ -228,7 +228,7 @@ voip:
   turn_uris:
     - "turn:turn.example.com:3478?transport=udp"
     - "turn:turn.example.com:3478?transport=tcp"
-  turn_shared_secret: "test_turn_shared_secret"
+  turn_shared_secret: "${TURN_SHARED_SECRET:?TURN_SHARED_SECRET is required}"
   turn_user_lifetime: "1h"
   turn_allow_guests: true
   stun_uris:
