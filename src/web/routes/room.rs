@@ -5,7 +5,8 @@ use crate::web::routes::handlers::room::{
     create_private_room, get_room_device, get_room_permissions, get_room_reduced_events, get_room_resolve,
 };
 use crate::web::routes::{
-    ban_user, claim_room_keys, convert_room_event, create_room, forget_room, forward_room_keys, get_event_keys,
+    ban_user, claim_room_keys, convert_room_event, create_room, ensure_room_member_ctx, forget_room,
+    forward_room_keys, get_event_keys,
     get_joined_members, get_membership_events, get_messages, get_power_levels, get_receipts, get_retention_policy,
     get_room_account_data, get_room_aliases, get_room_capabilities, get_room_encrypted_events,
     get_room_event_perspective, get_room_event_url, get_room_external_ids, get_room_info, get_room_invites,
@@ -346,6 +347,14 @@ async fn set_anti_screenshot(
     Path(room_id): Path<String>,
     Json(payload): Json<AntiScreenshotPayload>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    ensure_room_member_ctx(
+        &ctx,
+        &auth_user,
+        &room_id,
+        "You must be a room member to set anti-screenshot",
+    )
+    .await?;
+
     let action: &str = if payload.enabled { "block_screenshot" } else { "allow_screenshot" };
 
     let event_id: String = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
