@@ -88,6 +88,7 @@ mod user_storage_tests_migrated;
 
 // Service tests migrated from tests/unit/
 mod admin_registration_service_tests_migrated;
+mod auth_service_coverage_tests;
 mod auth_service_tests_migrated;
 mod captcha_tests_migrated;
 mod exception_tests_migrated;
