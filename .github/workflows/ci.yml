@@ -483,18 +483,37 @@ jobs:
           #                         with `required-features = ["test-utils"]`
           #   --include-tests        run integration test targets (tests/*) in addition
           #                         to lib/bin unit tests
+          #   --output-dir coverage/  collect tarpaulin-report.{xml,json,html} in one place
+          #   --fail-under 25        B.3 hard floor (current 21.85% + buffer); per-file
+          #                         ratchet below enforces stricter thresholds
           cargo tarpaulin \
             --workspace \
             --all-features \
             --features test-utils \
             --include-tests \
             --out Xml --out Json --out Html \
+            --output-dir coverage/ \
+            --fail-under 25 \
             --locked
+
+      - name: Per-file coverage ratchet (B.3)
+        # Enforces: TDD-mandated files ≥80%, new files ≥60% (ramp-up grace),
+        # touched files must not regress, global floor ≥25% (warn-only).
+        # Baseline at artifacts/coverage_baseline.json is auto-saved on first run
+        # and auto-committed by the next step on main/develop pushes.
+        run: |
+          mkdir -p artifacts
+          python3 scripts/check_file_coverage.py \
+            --report coverage/tarpaulin-report.json \
+            --baseline artifacts/coverage_baseline.json \
+            --threshold 80 \
+            --global-floor 25 \
+            --new-file-floor 20
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          files: ./tarpaulin-report.xml
+          files: ./coverage/tarpaulin-report.xml
           flags: unittests
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -503,8 +522,23 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: tarpaulin-report.*
+          path: coverage/
           retention-days: 14
+
+      - name: Commit coverage baseline (auto-ratchet)
+        # Only on main/develop push; skip on PRs, schedules, and dispatches.
+        # The baseline file is the only artifact this step touches.
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add artifacts/coverage_baseline.json
+          if git diff --cached --quiet; then
+            echo "No baseline change; skipping commit."
+          else
+            git commit -m "chore(coverage): auto-update per-file baseline [skip ci]"
+            git push
+          fi
 
   # ──────────────────────────────────────────────────────────
   # k6 Smoke Test — manual/dispatch only

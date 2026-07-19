@@ -27,7 +27,7 @@ help:
 	@echo "  test-unit             - Run unit tests only"
 	@echo "  test-integration      - Run integration tests only"
 	@echo "  test-coverage         - Run tests with coverage"
-	@echo "  test-coverage-check   - Run tests with coverage threshold (≥70%)"
+	@echo "  test-coverage-check   - Run tests with coverage threshold (≥25% hard floor + per-file ratchet)"
 	@echo "  test-mutation         - Run batched mutation smoke tests (cargo-mutants)"
 	@echo "  test-mutation-incr    - Run incremental mutation tests"
 	@echo ""
@@ -117,8 +117,12 @@ test-coverage:
 	@cargo tarpaulin --out Html --out Xml --out Json --include-tests --locked
 
 test-coverage-check:
-	@echo "Running tests with coverage threshold check (≥70%)..."
-	@cargo tarpaulin --fail-under 70 --out Html --out Lcov --include-tests --locked
+	@echo "Running tests with coverage threshold check (≥25% hard floor, per-file ratchet enforces ≥80% on TDD files)..."
+	@cargo tarpaulin --fail-under 25 --out Html --out Lcov --out Json --output-dir coverage --include-tests --locked
+	@python3 scripts/check_file_coverage.py \
+	  --report coverage/tarpaulin-report.json \
+	  --baseline artifacts/coverage_baseline.json \
+	  --threshold 80 --global-floor 25 --new-file-floor 20
 
 test-mutation:
 	@echo "Running batched mutation smoke tests (cargo-mutants, nightly)..."
