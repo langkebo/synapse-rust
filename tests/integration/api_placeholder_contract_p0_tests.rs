@@ -76,7 +76,7 @@ async fn setup_test_app_with_services() -> Option<(axum::Router, synapse_service
     use synapse_rust::web::routes::state::AppState;
     use synapse_services::ServiceContainer;
 
-    let pool = super::get_test_pool().await?;
+    let pool = super::require_test_pool().await;
     let container = ServiceContainer::new_test_with_pool(pool).await;
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container.clone(), cache);
