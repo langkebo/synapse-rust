@@ -1,7 +1,11 @@
 [profile.ci]
 fail-fast = false
 retries = 2
+test-threads = 4
 flaky-result = "fail"
+
+[profile.ci.junit]
+path = "artifacts/nextest-junit.xml"
 
 # P4-3: TDD profile for fast Red-Green-Refactor cycles.
 # Usage: cargo nextest run -p <crate> <test_name> -P tdd
