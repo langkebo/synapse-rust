@@ -491,4 +491,117 @@ mod tests {
         assert_eq!(summary.unverified_devices, 3);
         assert!(summary.security_score < 50.0);
     }
+
+    // =========================================================================
+    // B.3 batch 4/6 — supplemental coverage for Display/FromStr impls and
+    // DeviceVerificationRequest state transitions.
+    // =========================================================================
+
+    #[test]
+    fn test_device_trust_level_display() {
+        assert_eq!(DeviceTrustLevel::Verified.to_string(), "verified");
+        assert_eq!(DeviceTrustLevel::Unverified.to_string(), "unverified");
+        assert_eq!(DeviceTrustLevel::Blocked.to_string(), "blocked");
+    }
+
+    #[test]
+    fn test_device_trust_level_from_str_valid() {
+        assert_eq!("verified".parse::<DeviceTrustLevel>().unwrap(), DeviceTrustLevel::Verified);
+        assert_eq!("unverified".parse::<DeviceTrustLevel>().unwrap(), DeviceTrustLevel::Unverified);
+        assert_eq!("blocked".parse::<DeviceTrustLevel>().unwrap(), DeviceTrustLevel::Blocked);
+        // Case-insensitive.
+        assert_eq!("VERIFIED".parse::<DeviceTrustLevel>().unwrap(), DeviceTrustLevel::Verified);
+    }
+
+    #[test]
+    fn test_device_trust_level_from_str_invalid() {
+        assert!("unknown".parse::<DeviceTrustLevel>().is_err());
+    }
+
+    #[test]
+    fn test_verification_method_display() {
+        assert_eq!(VerificationMethod::Sas.to_string(), "sas");
+        assert_eq!(VerificationMethod::Qr.to_string(), "qr");
+        assert_eq!(VerificationMethod::Emoji.to_string(), "emoji");
+    }
+
+    #[test]
+    fn test_verification_method_from_str_valid() {
+        assert_eq!("sas".parse::<VerificationMethod>().unwrap(), VerificationMethod::Sas);
+        assert_eq!("qr".parse::<VerificationMethod>().unwrap(), VerificationMethod::Qr);
+        assert_eq!("emoji".parse::<VerificationMethod>().unwrap(), VerificationMethod::Emoji);
+        assert_eq!("SAS".parse::<VerificationMethod>().unwrap(), VerificationMethod::Sas);
+    }
+
+    #[test]
+    fn test_verification_method_from_str_invalid() {
+        assert!("unknown".parse::<VerificationMethod>().is_err());
+    }
+
+    #[test]
+    fn test_verification_request_status_display() {
+        assert_eq!(VerificationRequestStatus::Pending.to_string(), "pending");
+        assert_eq!(VerificationRequestStatus::Approved.to_string(), "approved");
+        assert_eq!(VerificationRequestStatus::Rejected.to_string(), "rejected");
+        assert_eq!(VerificationRequestStatus::Expired.to_string(), "expired");
+    }
+
+    #[test]
+    fn test_verification_request_status_from_str_valid() {
+        assert_eq!("pending".parse::<VerificationRequestStatus>().unwrap(), VerificationRequestStatus::Pending);
+        assert_eq!("approved".parse::<VerificationRequestStatus>().unwrap(), VerificationRequestStatus::Approved);
+        assert_eq!("rejected".parse::<VerificationRequestStatus>().unwrap(), VerificationRequestStatus::Rejected);
+        assert_eq!("expired".parse::<VerificationRequestStatus>().unwrap(), VerificationRequestStatus::Expired);
+        assert_eq!("PENDING".parse::<VerificationRequestStatus>().unwrap(), VerificationRequestStatus::Pending);
+    }
+
+    #[test]
+    fn test_verification_request_status_from_str_invalid() {
+        assert!("unknown".parse::<VerificationRequestStatus>().is_err());
+    }
+
+    #[test]
+    fn test_verification_request_approve() {
+        let mut request =
+            DeviceVerificationRequest::new("@user:example.com", "DEVICE_NEW", VerificationMethod::Sas, "token123", 5);
+        request.approve();
+        assert_eq!(request.status, VerificationRequestStatus::Approved);
+        assert!(request.completed_at.is_some());
+    }
+
+    #[test]
+    fn test_verification_request_reject() {
+        let mut request =
+            DeviceVerificationRequest::new("@user:example.com", "DEVICE_NEW", VerificationMethod::Sas, "token123", 5);
+        request.reject();
+        assert_eq!(request.status, VerificationRequestStatus::Rejected);
+        assert!(request.completed_at.is_some());
+    }
+
+    #[test]
+    fn test_verification_request_expire() {
+        let mut request =
+            DeviceVerificationRequest::new("@user:example.com", "DEVICE_NEW", VerificationMethod::Sas, "token123", 5);
+        request.expire();
+        assert_eq!(request.status, VerificationRequestStatus::Expired);
+        assert!(request.completed_at.is_some());
+    }
+
+    #[test]
+    fn test_verification_request_is_expired_after_expiry() {
+        // expires_minutes = -1 → already expired.
+        let request =
+            DeviceVerificationRequest::new("@user:example.com", "DEVICE_NEW", VerificationMethod::Sas, "token123", -1);
+        assert!(request.is_expired());
+    }
+
+    #[test]
+    fn test_key_rotation_log_with_keys_and_reason() {
+        let log = KeyRotationLog::new("@user:example.com", "DEVICE123", "olm")
+            .with_keys("old_key_id", "new_key_id")
+            .with_reason("manual");
+        assert_eq!(log.old_key_id, Some("old_key_id".to_string()));
+        assert_eq!(log.new_key_id, Some("new_key_id".to_string()));
+        assert_eq!(log.reason, Some("manual".to_string()));
+    }
 }
