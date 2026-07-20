@@ -71,7 +71,7 @@ http = "1"
 
 # OpenAPI / Swagger UI (optional)
 utoipa = { version = "5", features = ["axum_extras"], optional = true }
-utoipa-swagger-ui = { version = "9", features = ["axum"], optional = true }
+utoipa-swagger-ui = { version = "9", features = ["axum", "cache"], optional = true }
 
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros", "bigdecimal"] }
 ipnetwork = "0.20"

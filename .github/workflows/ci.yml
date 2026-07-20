@@ -138,6 +138,10 @@ jobs:
         with:
           key: ${{ matrix.rust-toolchain }}-${{ matrix.features-label }}
 
+      - name: Pre-cache swagger-ui zip (avoid GitHub 403 rate-limiting)
+        if: matrix.features-args == '--all-features'
+        run: bash scripts/precache-swagger-ui.sh
+
       - name: Check formatting
         if: matrix.rust-toolchain == 'stable' && matrix.features-args == ''
         run: cargo fmt --all -- --check
@@ -261,6 +265,9 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-insta
+
+      - name: Pre-cache swagger-ui zip
+        run: bash scripts/precache-swagger-ui.sh
 
       - name: Build forward-only sqlx migration source
         run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
@@ -467,6 +474,9 @@ jobs:
         run: |
           sqlx database create
           sqlx migrate run --source artifacts/sqlx-migrations
+
+      - name: Pre-cache swagger-ui zip
+        run: bash scripts/precache-swagger-ui.sh
 
       - name: Run coverage
         env:
