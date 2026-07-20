@@ -1,3 +1,4 @@
+#![allow(clippy::expect_used)]
 //! insta snapshot test helpers for the synapse-rust project.
 //!
 //! Provides reusable redaction filters for Matrix API responses, so
@@ -50,12 +51,12 @@ pub fn redact_matrix_json(value: &mut serde_json::Value) {
             for (k, v) in map.iter_mut() {
                 match k.as_str() {
                     "event_id" | "redacts" => {
-                        if v.as_str().map_or(false, |s| s.starts_with('$')) {
+                        if v.as_str().is_some_and(|s| s.starts_with('$')) {
                             *v = serde_json::Value::String("[EVENT_ID]".into());
                         }
                     }
                     "room_id" => {
-                        if v.as_str().map_or(false, |s| s.starts_with('!')) {
+                        if v.as_str().is_some_and(|s| s.starts_with('!')) {
                             *v = serde_json::Value::String("[ROOM_ID]".into());
                         }
                     }
@@ -78,7 +79,7 @@ pub fn redact_matrix_json(value: &mut serde_json::Value) {
 /// Matches patterns like `550e8400-e29b-41d4-a716-446655440000`.
 fn redact_uuids(value: &mut serde_json::Value) {
     let uuid_re =
-        regex::Regex::new(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}").unwrap();
+        regex::Regex::new(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}").expect("UUID regex pattern");
 
     match value {
         serde_json::Value::String(s) => {

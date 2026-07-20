@@ -341,7 +341,7 @@ fn create_room_service(
         room_storage,
         member_storage,
         event_reader: Some(event_storage.clone()),
-        event_writer: Some(event_storage.clone()),
+        event_writer: Some(event_storage),
         room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
         user_service: Arc::new(UserService::new(user_storage.clone())),
         user_storage,
