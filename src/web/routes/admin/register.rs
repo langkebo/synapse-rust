@@ -292,13 +292,10 @@ mod tests {
 
     #[test]
     fn test_admin_registration_environment_blocks_non_production() {
-        unsafe {
-            std::env::set_var("RUST_ENV", "development");
-        }
+        let _guard = crate::test_utils::env_lock();
+        let mut env = crate::test_utils::EnvGuard::new();
+        env.set("RUST_ENV", "development");
         let result = ensure_admin_registration_environment(true);
-        unsafe {
-            std::env::remove_var("RUST_ENV");
-        }
         assert!(result.is_err());
     }
 

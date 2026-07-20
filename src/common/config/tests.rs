@@ -5,6 +5,7 @@
 #[allow(clippy::module_inception)]
 mod tests {
     use crate::common::config::*;
+    use crate::test_utils::{env_lock, EnvGuard};
     use std::path::PathBuf;
 
     #[test]
@@ -441,9 +442,9 @@ mod tests {
 
     #[test]
     fn test_resolve_env_variables_resolves_redis_password() -> Result<(), String> {
-        unsafe {
-            std::env::set_var("TEST_REDIS_PASSWORD", "resolved-secret");
-        }
+        let _guard = env_lock();
+        let mut env = EnvGuard::new();
+        env.set("TEST_REDIS_PASSWORD", "resolved-secret");
 
         let mut config = Config {
             server: ServerConfig {
@@ -604,10 +605,6 @@ mod tests {
 
         assert_eq!(config.redis.password.as_deref(), Some("resolved-secret"));
 
-        unsafe {
-            std::env::remove_var("TEST_REDIS_PASSWORD");
-        }
-
         Ok(())
     }
 
@@ -704,11 +701,11 @@ mod tests {
 
     #[test]
     fn test_resolve_env_variables_resolves_worker_replication_config() -> Result<(), String> {
-        unsafe {
-            std::env::set_var("TEST_WORKER_INSTANCE", "sync_worker");
-            std::env::set_var("TEST_WORKER_HOST", "sync-worker");
-            std::env::set_var("TEST_REPLICATION_SECRET", "worker_replication_secret_2026");
-        }
+        let _guard = env_lock();
+        let mut env = EnvGuard::new();
+        env.set("TEST_WORKER_INSTANCE", "sync_worker");
+        env.set("TEST_WORKER_HOST", "sync-worker");
+        env.set("TEST_REPLICATION_SECRET", "worker_replication_secret_2026");
 
         let mut config = Config::default();
         config.worker.enabled = true;
@@ -736,12 +733,6 @@ mod tests {
         assert_eq!(config.worker.replication.http.host, "sync-worker");
         assert_eq!(config.worker.replication.http.secret.as_deref(), Some("worker_replication_secret_2026"));
         assert_eq!(config.worker.replication.http.secret_path.as_deref(), Some("/tmp/replication.secret"));
-
-        unsafe {
-            std::env::remove_var("TEST_WORKER_INSTANCE");
-            std::env::remove_var("TEST_WORKER_HOST");
-            std::env::remove_var("TEST_REPLICATION_SECRET");
-        }
 
         Ok(())
     }
