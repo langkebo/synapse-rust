@@ -88,6 +88,7 @@ docs/superpowers/plans/
 # 代码覆盖率和变异测试产物
 coverage/
 mutants.out/
+benchmark.txt
 *.profraw
 
 # 测试结果日志（根目录）
