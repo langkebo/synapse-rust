@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
-  "generated_at": "2026-07-19T05:43:42Z",
-  "synapse_rust_commit": "18d2793ec6cb6cd2ded0ee49dbd9ba022a5a6b54",
+  "generated_at": "2026-07-20T15:05:57Z",
+  "synapse_rust_commit": "4ea2cc71c82770204c71aba66cead18f43c74b8e",
   "state_profile": "default",
   "profile_flags": {
     "oidc_enabled": false,
