@@ -494,8 +494,8 @@ jobs:
           #   --include-tests        run integration test targets (tests/*) in addition
           #                         to lib/bin unit tests
           #   --output-dir coverage/  collect tarpaulin-report.{xml,json,html} in one place
-          #   --fail-under 25        B.3 hard floor (current 21.85% + buffer); per-file
-          #                         ratchet below enforces stricter thresholds
+          #   --fail-under 40        hard floor for overall coverage; core 13 paths
+          #                         enforced at ≥70% by check_file_coverage below
           cargo tarpaulin \
             --workspace \
             --all-features \
@@ -503,12 +503,13 @@ jobs:
             --include-tests \
             --out Xml --out Json --out Html \
             --output-dir coverage/ \
-            --fail-under 25 \
+            --fail-under 40 \
             --locked
 
       - name: Per-file coverage ratchet (B.3)
-        # Enforces: TDD-mandated files ≥80%, new files ≥60% (ramp-up grace),
-        # touched files must not regress, global floor ≥25% (warn-only).
+        # Enforces: TDD-mandated files ≥80%, core 13 paths ≥70%,
+        # new files ≥30% (ramp-up grace), touched files must not regress,
+        # global floor ≥40%.
         # Baseline at artifacts/coverage_baseline.json is auto-saved on first run
         # and auto-committed by the next step on main/develop pushes.
         run: |
@@ -517,8 +518,10 @@ jobs:
             --report coverage/tarpaulin-report.json \
             --baseline artifacts/coverage_baseline.json \
             --threshold 80 \
-            --global-floor 25 \
-            --new-file-floor 20
+            --global-floor 40 \
+            --new-file-floor 30 \
+            --core-files artifacts/core_file_list.txt \
+            --core-threshold 70
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

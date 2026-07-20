@@ -1,0 +1,21 @@
+# Core 13 paths — security-critical and high-traffic modules.
+# Each line is a normalized path prefix (matches any file under that directory).
+# Used by scripts/check_file_coverage.py --core-files with --core-threshold.
+#
+# Normalization: crate/src/ is stripped, so synapse-rust/src/services/auth/mod.rs
+# becomes services/auth/mod.rs. Prefix matching means "services/auth/" matches all
+# files in that directory tree.
+
+services/auth/
+services/sync_service/
+services/room_service.rs
+services/container.rs
+services/refresh_token_service.rs
+e2ee/
+web/routes/
+web/middleware/
+storage/event/
+federation/
+crypto.rs
+security.rs
+megolm/

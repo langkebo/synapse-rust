@@ -8,10 +8,10 @@ out = ["Html", "Lcov", "Json"]
 # Output directory
 output-dir = "coverage"
 
-# B.3: hard floor 25% (current 21.85% + buffer). Long-term 70% target is
-# enforced via per-file ratchet (scripts/check_file_coverage.py) and P0
-# path staged goals (15.2% -> 50% -> 70% via Phase 3 batches).
-fail-under = 25
+# B.3: hard floor 40% overall. Core 13 paths ≥70% enforced separately via
+# scripts/check_file_coverage.py --core-files. Long-term 70% target for all
+# paths enforced via per-file ratchet.
+fail-under = 40
 
 # Include only library code (exclude tests, examples, benches)
 include-lines = ["src/**/*.rs"]
