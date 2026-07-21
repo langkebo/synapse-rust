@@ -94,6 +94,7 @@ coverage/
 mutants.out/
 benchmark.txt
 *.profraw
+lcov.info
 
 # 测试结果日志（根目录）
 test-results-*.log
