@@ -44,14 +44,53 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: No private keys
+      - name: No private keys (key files)
         run: |
-          ! grep -R "BEGIN.*PRIVATE KEY" . --include="*.key" --include="*.pem" --include="*.p12"
-          ! grep -R "BEGIN RSA PRIVATE KEY" . --include="*.key" --include="*.pem" --include="*.p12"
+          # Scan key/cert file extensions for private key markers.
+          # *.pem is NOT included — docker/ssl/fullchain.pem is a public cert chain.
+          # Private .pem files must be gitignored.
+          # Uses `if` instead of `!` prefix because POSIX spec says `! pipeline`
+          # disables set -e for that pipeline, so intermediate checks get skipped.
+          if grep -R "BEGIN.*PRIVATE KEY" . --include="*.key" --include="*.p12" --include="*.pfx" --include="*.jks" 2>/dev/null; then
+            echo "FAIL: private key marker found in key/cert file"
+            exit 1
+          fi
+
+      - name: No private keys in source
+        run: |
+          # Catch hardcoded private keys in source/config files (git tracked only).
+          # Searches for PEM headers with dashes to match real key content only.
+          # Excludes:
+          #   - TEST_*_PRIVATE_KEY (test fixtures under #[cfg(test)])
+          #   - .github/workflows/ci.yml (this file — contains the search patterns)
+          # SECURITY: this gate was bypassed on 2026-05-09 (commit cc5c295c) when
+          # a real Ed25519 key was committed to docker/deploy/synapse-data/.
+          # Branch protection must enforce this job as a required status check.
+          MATCHES=$(git grep -In \
+            -e "-----BEGIN PRIVATE KEY-----" \
+            -e "-----BEGIN RSA PRIVATE KEY-----" \
+            -e "-----BEGIN EC PRIVATE KEY-----" \
+            -e "-----BEGIN OPENSSH PRIVATE KEY-----" \
+            -- '*.rs' '*.json' '*.yml' '*.yaml' '*.toml' '*.sh' \
+            | grep -v "TEST_.*PRIVATE_KEY" \
+            | grep -v "^\.github/workflows/ci\.yml:" || true)
+          if [ -n "$MATCHES" ]; then
+            echo "FAIL: hardcoded private key found in source:"
+            echo "$MATCHES"
+            exit 1
+          fi
 
       - name: No key files tracked
         run: |
-          ! git ls-files '*.key' '*.p12'
+          # *.pem excluded — docker/ssl/fullchain.pem is a public cert chain.
+          # If you must track a private .pem, add an exception in .gitignore
+          # and have it reviewed by a maintainer.
+          TRACKED=$(git ls-files '*.key' '*.p12' '*.pfx' '*.jks' || true)
+          if [ -n "$TRACKED" ]; then
+            echo "FAIL: tracked key files found:"
+            echo "$TRACKED"
+            exit 1
+          fi
 
       - name: No root artifacts
         run: |
