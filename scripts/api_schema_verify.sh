@@ -116,10 +116,10 @@ for mapping in "${API_MAPPINGS[@]}"; do
 
     if [ -z "$missing" ]; then
         echo -e "  ${GREEN}✓${NC} $method $api"
-        ((PASSED+=1))
+        ((PASSED += 1))
     else
         echo -e "  ${RED}✗${NC} $method $api (缺失表:$missing)"
-        ((FAILED+=1))
+        ((FAILED += 1))
     fi
 done
 

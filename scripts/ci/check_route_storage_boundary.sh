@@ -55,13 +55,13 @@ violations=""
 while IFS= read -r line; do
     [[ -z "${line}" ]] && continue
     rel="${line#${ROOT_DIR}/}"
-    file="${rel%%:*}"  # strip the `:line:content` suffix
+    file="${rel%%:*}" # strip the `:line:content` suffix
     if printf '%s\n' "${allowlist_text}" | grep -F -x -q -- "${file}"; then
         echo "check_route_storage_boundary: allowlisted: ${file}"
         continue
     fi
     violations+="${line}"$'\n'
-done <<< "${matches}"
+done <<<"${matches}"
 
 if [[ -n "${violations}" ]]; then
     echo "check_route_storage_boundary: FAIL" >&2

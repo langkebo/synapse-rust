@@ -31,8 +31,8 @@ BASELINE="${CLIPPY_RATCHET_BASELINE:-3416}"
 # We count entries whose `level` field is `error`.
 echo "[check_clippy_ratchet] Running cargo clippy --all-targets (this may take a moment)..."
 CLIPPY_OUTPUT=$(cargo clippy --all-targets --all-features --message-format=json --locked 2>/dev/null) || {
-  echo "❌ cargo clippy invocation failed"
-  exit 2
+    echo "❌ cargo clippy invocation failed"
+    exit 2
 }
 
 CURRENT=$(printf '%s\n' "$CLIPPY_OUTPUT" | grep -c '"level":"error"') || CURRENT=0
@@ -40,15 +40,15 @@ CURRENT=$(printf '%s\n' "$CLIPPY_OUTPUT" | grep -c '"level":"error"') || CURRENT
 echo "[check_clippy_ratchet] Clippy errors: current=$CURRENT, baseline=$BASELINE"
 
 if [ "$CURRENT" -gt "$BASELINE" ]; then
-  echo "❌ Clippy error count increased ($BASELINE → $CURRENT)"
-  echo "   Fix the new clippy errors or lower the baseline in scripts/check_clippy_ratchet.sh"
-  echo "   after verifying the cleanup is committed."
-  exit 1
+    echo "❌ Clippy error count increased ($BASELINE → $CURRENT)"
+    echo "   Fix the new clippy errors or lower the baseline in scripts/check_clippy_ratchet.sh"
+    echo "   after verifying the cleanup is committed."
+    exit 1
 fi
 
 DELTA=$((BASELINE - CURRENT))
 if [ "$DELTA" -gt 0 ]; then
-  echo "✅ Clippy ratchet OK (baseline can be lowered by $DELTA: $BASELINE → $CURRENT)"
+    echo "✅ Clippy ratchet OK (baseline can be lowered by $DELTA: $BASELINE → $CURRENT)"
 else
-  echo "✅ Clippy ratchet OK (at baseline)"
+    echo "✅ Clippy ratchet OK (at baseline)"
 fi

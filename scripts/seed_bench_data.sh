@@ -26,7 +26,7 @@ echo "Room: ${ROOM_ID}"
 
 echo "=== Seeding 100 users for search bench ==="
 for i in $(seq 1 100); do
-    register_user "search_user_${i}" > /dev/null
+    register_user "search_user_${i}" >/dev/null
 done
 
 echo "=== Creating large room with 50 members for sync bench ==="
@@ -37,7 +37,7 @@ LARGE_ROOM=$(curl -s -X POST "${BASE_URL}/_matrix/client/v3/createRoom" \
 for i in $(seq 1 50); do
     TOKEN=$(register_user "large_user_${i}" | jq -r '.access_token')
     curl -s -X POST "${BASE_URL}/_matrix/client/v3/rooms/${LARGE_ROOM}/join" \
-        -H "Authorization: Bearer ${TOKEN}" > /dev/null &
+        -H "Authorization: Bearer ${TOKEN}" >/dev/null &
 done
 wait
 
@@ -45,7 +45,7 @@ echo "=== Registering device keys ==="
 curl -s -X POST "${BASE_URL}/_matrix/client/v3/keys/upload" \
     -H "Authorization: Bearer ${BENCH_TOKEN}" \
     -H "Content-Type: application/json" \
-    -d '{"device_keys": {"user_id": "@bench_user:localhost", "device_id": "BENCHDEV", "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"], "keys": {"curve25519:BENCHDEV": "test", "ed25519:BENCHDEV": "test"}}}' > /dev/null
+    -d '{"device_keys": {"user_id": "@bench_user:localhost", "device_id": "BENCHDEV", "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"], "keys": {"curve25519:BENCHDEV": "test", "ed25519:BENCHDEV": "test"}}}' >/dev/null
 
 echo ""
 echo "=== Seed complete ==="

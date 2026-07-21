@@ -17,14 +17,14 @@ echo ""
 echo "--- Service Layer (known diversion for C-class files documented in LAYER_MIGRATION_OPTIMIZATION_PLAN) ---"
 while IFS= read -r f; do
     filename=$(basename "$f")
-    lines=$(wc -l < "$f" | tr -d ' ')
+    lines=$(wc -l <"$f" | tr -d ' ')
     # Skip mod.rs, container.rs, and files without synapse-services counterpart
     if [ "$filename" = "mod.rs" ] || [ "$filename" = "container.rs" ]; then
         continue
     fi
     ss_lines=0
     if [ -f "synapse-services/src/$filename" ]; then
-        ss_lines=$(wc -l < "synapse-services/src/$filename" | tr -d ' ')
+        ss_lines=$(wc -l <"synapse-services/src/$filename" | tr -d ' ')
     fi
     if [ "$ss_lines" -gt 0 ] && [ "$lines" -gt "$MAX_SERVICE_SHIM_LINES" ]; then
         diff=$((lines - ss_lines))
@@ -42,7 +42,7 @@ done < <(find src/services -maxdepth 1 -name "*.rs" -type f)
 # 2. Check src/storage/ for non-shim files that have synapse-storage counterparts
 while IFS= read -r f; do
     filename=$(basename "$f")
-    lines=$(wc -l < "$f" | tr -d ' ')
+    lines=$(wc -l <"$f" | tr -d ' ')
     # Skip mod.rs
     if [ "$filename" = "mod.rs" ]; then
         continue

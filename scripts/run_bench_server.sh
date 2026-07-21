@@ -49,9 +49,9 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-log()  { echo -e "${GREEN}[bench-server]${NC} $*"; }
+log() { echo -e "${GREEN}[bench-server]${NC} $*"; }
 warn() { echo -e "${YELLOW}[bench-server]${NC} $*"; }
-err()  { echo -e "${RED}[bench-server]${NC} $*" >&2; }
+err() { echo -e "${RED}[bench-server]${NC} $*" >&2; }
 
 # --- Generate homeserver config ----------------------------------------------
 generate_config() {
@@ -68,7 +68,7 @@ with open('$BENCH_SIGNING_KEY', 'w') as f:
 " 2>/dev/null || {
             # Fallback: use openssl
             KEY=$(openssl rand -base64 32 | tr -d '\n/+' | head -c 43)
-            echo "ed25519 abc $KEY" > "$BENCH_SIGNING_KEY"
+            echo "ed25519 abc $KEY" >"$BENCH_SIGNING_KEY"
         }
         log "Signing key generated (ed25519 placeholder — bench only, do not use in production)"
     fi
@@ -76,7 +76,8 @@ with open('$BENCH_SIGNING_KEY', 'w') as f:
     log "Writing bench config: $BENCH_CONFIG"
 
     if [ "$BENCH_REDIS_ENABLE" = "true" ]; then
-        REDIS_YAML=$(cat << REDISYAML
+        REDIS_YAML=$(
+            cat <<REDISYAML
 redis:
   enabled: true
   host: "localhost"
@@ -88,10 +89,11 @@ redis:
   command_timeout_ms: 3000
   circuit_breaker: {}
 REDISYAML
-)
+        )
         REDIS_MODE="redis-enabled"
     else
-        REDIS_YAML=$(cat << REDISYAML
+        REDIS_YAML=$(
+            cat <<REDISYAML
 redis:
   enabled: false
   host: "localhost"
@@ -103,11 +105,11 @@ redis:
   command_timeout_ms: 3000
   circuit_breaker: {}
 REDISYAML
-)
+        )
         REDIS_MODE="redis-disabled"
     fi
 
-    cat > "$BENCH_CONFIG" << YAMLEOF
+    cat >"$BENCH_CONFIG" <<YAMLEOF
 # Auto-generated benchmark homeserver config
 # Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 # Mode: $REDIS_MODE
@@ -216,7 +218,7 @@ start_server() {
     if [ -f "$BENCH_PID_FILE" ]; then
         local existing_pid
         existing_pid=$(cat "$BENCH_PID_FILE" 2>/dev/null || echo "")
-	if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
+        if [ -n "$existing_pid" ] && kill -0 "$existing_pid" 2>/dev/null; then
             warn "Server already running (PID $existing_pid). Use 'stop' first."
             return 1
         fi
@@ -231,13 +233,13 @@ start_server() {
     log "Logs: $BENCH_LOG_DIR/server.log"
 
     SYNAPSE_CONFIG_PATH="$BENCH_CONFIG" \
-    RUST_ENV=development \
-    TOKEN_HASH_SECRET="$BENCH_TOKEN_HASH_SECRET" \
-    RUST_LOG="${RUST_LOG:-warn,synapse=info}" \
-    nohup "$BENCH_BINARY" > "$BENCH_LOG_DIR/server.log" 2>&1 &
+        RUST_ENV=development \
+        TOKEN_HASH_SECRET="$BENCH_TOKEN_HASH_SECRET" \
+        RUST_LOG="${RUST_LOG:-warn,synapse=info}" \
+        nohup "$BENCH_BINARY" >"$BENCH_LOG_DIR/server.log" 2>&1 &
 
     local pid=$!
-    echo "$pid" > "$BENCH_PID_FILE"
+    echo "$pid" >"$BENCH_PID_FILE"
     log "Server started (PID $pid)"
 
     # Wait for health

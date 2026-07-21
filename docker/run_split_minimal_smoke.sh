@@ -87,7 +87,7 @@ if [ -z "$RUNTIME_ENV_FILE" ]; then
     trap 'rm -f "$RUNTIME_ENV_FILE"' EXIT
 fi
 
-python3 - <<'PY' "$ENV_FILE" "$RUNTIME_ENV_FILE" "$PROJECT_NAME"
+python3 - "$ENV_FILE" "$RUNTIME_ENV_FILE" "$PROJECT_NAME" <<'PY'
 from pathlib import Path
 import sys
 
@@ -239,10 +239,10 @@ run_appservice_p0_d2_if_enabled() {
 
     echo "==> Running appservice P0 D2 archive"
     ADMIN_TOKEN="$ADMIN_TOKEN" \
-    BASE_URL="$ADMIN_ENDPOINT" \
-    PROMETHEUS_URL="${PROMETHEUS_URL:-http://127.0.0.1:9090/metrics}" \
-    APPSERVICE_D2_RESOURCE_SUMMARY="$APPSERVICE_D2_RESOURCE_SUMMARY" \
-    bash "$REPO_ROOT/scripts/run_appservice_p0_d2.sh" "$APPSERVICE_P0_D2_LABEL"
+        BASE_URL="$ADMIN_ENDPOINT" \
+        PROMETHEUS_URL="${PROMETHEUS_URL:-http://127.0.0.1:9090/metrics}" \
+        APPSERVICE_D2_RESOURCE_SUMMARY="$APPSERVICE_D2_RESOURCE_SUMMARY" \
+        bash "$REPO_ROOT/scripts/run_appservice_p0_d2.sh" "$APPSERVICE_P0_D2_LABEL"
 }
 
 echo "==> Validating split_minimal compose config"

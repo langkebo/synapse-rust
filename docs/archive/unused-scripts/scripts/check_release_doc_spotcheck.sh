@@ -25,7 +25,7 @@ while [[ $# -gt 0 ]]; do
         --strict)
             STRICT_WARNINGS=1
             ;;
-        --help|-h)
+        --help | -h)
             usage
             exit 0
             ;;

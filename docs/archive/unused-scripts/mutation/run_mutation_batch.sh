@@ -40,39 +40,39 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-log_info()  { echo -e "${BLUE}[INFO]${NC}  $*"; }
-log_ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+log_info() { echo -e "${BLUE}[INFO]${NC}  $*"; }
+log_ok() { echo -e "${GREEN}[OK]${NC}    $*"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 # ── Resolve batch files by ID ──
 get_batch_files() {
     local batch_id="$1"
     case "$batch_id" in
-        batch_01_cache)              echo "${BATCH_01_CACHE[@]}" ;;
-        batch_02_auth)               echo "${BATCH_02_AUTH[@]}" ;;
-        batch_03_worker)             echo "${BATCH_03_WORKER[@]}" ;;
-        batch_04_federation)         echo "${BATCH_04_FEDERATION[@]}" ;;
-        batch_05_common_config)      echo "${BATCH_05_COMMON_CONFIG[@]}" ;;
-        batch_06_common)             echo "${BATCH_06_COMMON_FILES[@]}" ;;
-        batch_07_e2ee_backup_cross)  echo "${BATCH_07_E2EE_BACKUP_CROSS[@]}" ;;
-        batch_08_e2ee_device_keys)   echo "${BATCH_08_E2EE_DEVICE_KEYS[@]}" ;;
-        batch_09_e2ee_key_megolm)    echo "${BATCH_09_E2EE_KEY_MEGOLM[@]}" ;;
-        batch_10_e2ee_remaining)     echo "${BATCH_10_E2EE_REMAINING[@]}" ;;
-        batch_11_storage_event)      echo "${BATCH_11_STORAGE_EVENT[@]}" ;;
-        batch_12_storage_media)      echo "${BATCH_12_STORAGE_MEDIA[@]}" ;;
-        batch_13_storage_room)       echo "${BATCH_13_STORAGE_ROOM[@]}" ;;
-        batch_14_storage_top_a)      echo "${BATCH_14_STORAGE_TOP_A[@]}" ;;
-        batch_15_storage_top_b)      echo "${BATCH_15_STORAGE_TOP_B[@]}" ;;
+        batch_01_cache) echo "${BATCH_01_CACHE[@]}" ;;
+        batch_02_auth) echo "${BATCH_02_AUTH[@]}" ;;
+        batch_03_worker) echo "${BATCH_03_WORKER[@]}" ;;
+        batch_04_federation) echo "${BATCH_04_FEDERATION[@]}" ;;
+        batch_05_common_config) echo "${BATCH_05_COMMON_CONFIG[@]}" ;;
+        batch_06_common) echo "${BATCH_06_COMMON_FILES[@]}" ;;
+        batch_07_e2ee_backup_cross) echo "${BATCH_07_E2EE_BACKUP_CROSS[@]}" ;;
+        batch_08_e2ee_device_keys) echo "${BATCH_08_E2EE_DEVICE_KEYS[@]}" ;;
+        batch_09_e2ee_key_megolm) echo "${BATCH_09_E2EE_KEY_MEGOLM[@]}" ;;
+        batch_10_e2ee_remaining) echo "${BATCH_10_E2EE_REMAINING[@]}" ;;
+        batch_11_storage_event) echo "${BATCH_11_STORAGE_EVENT[@]}" ;;
+        batch_12_storage_media) echo "${BATCH_12_STORAGE_MEDIA[@]}" ;;
+        batch_13_storage_room) echo "${BATCH_13_STORAGE_ROOM[@]}" ;;
+        batch_14_storage_top_a) echo "${BATCH_14_STORAGE_TOP_A[@]}" ;;
+        batch_15_storage_top_b) echo "${BATCH_15_STORAGE_TOP_B[@]}" ;;
         batch_16_services_auth_assemble) echo "${BATCH_16_SERVICES_AUTH_ASSEMBLE[@]}" ;;
-        batch_17_services_room)      echo "${BATCH_17_SERVICES_ROOM[@]}" ;;
-        batch_18_services_sync)      echo "${BATCH_18_SERVICES_SYNC[@]}" ;;
-        batch_19_services_media_id)  echo "${BATCH_19_SERVICES_MEDIA_ID[@]}" ;;
-        batch_20_services_push)      echo "${BATCH_20_SERVICES_PUSH[@]}" ;;
-        batch_21_web_middleware)     echo "${BATCH_21_WEB_MIDDLEWARE[@]}" ;;
-        batch_22_web_extractors)     echo "${BATCH_22_WEB_EXTRACTORS[@]}" ;;
-        batch_23_web_routes_a)       echo "${BATCH_23_WEB_ROUTES_A[@]}" ;;
-        batch_24_web_routes_b)       echo "${BATCH_24_WEB_ROUTES_B[@]}" ;;
+        batch_17_services_room) echo "${BATCH_17_SERVICES_ROOM[@]}" ;;
+        batch_18_services_sync) echo "${BATCH_18_SERVICES_SYNC[@]}" ;;
+        batch_19_services_media_id) echo "${BATCH_19_SERVICES_MEDIA_ID[@]}" ;;
+        batch_20_services_push) echo "${BATCH_20_SERVICES_PUSH[@]}" ;;
+        batch_21_web_middleware) echo "${BATCH_21_WEB_MIDDLEWARE[@]}" ;;
+        batch_22_web_extractors) echo "${BATCH_22_WEB_EXTRACTORS[@]}" ;;
+        batch_23_web_routes_a) echo "${BATCH_23_WEB_ROUTES_A[@]}" ;;
+        batch_24_web_routes_b) echo "${BATCH_24_WEB_ROUTES_B[@]}" ;;
         *)
             log_error "Unknown batch ID: $batch_id"
             log_info "Run with --list to see available batches"
@@ -146,7 +146,7 @@ run_batch() {
             --timeout "$MUTANT_TIMEOUT" \
             --baseline skip \
             -- --test-threads="$TEST_THREADS" \
-            > "$file_output_dir/mutants_output.txt" 2>&1
+            >"$file_output_dir/mutants_output.txt" 2>&1
         exit_code=$?
         set -e
 
@@ -193,7 +193,7 @@ run_batch() {
     fi
 
     local summary_json="$batch_dir/summary.json"
-    cat > "$summary_json" << JSONEOF
+    cat >"$summary_json" <<JSONEOF
 {
   "batch_id": "$batch_id",
   "description": "$desc",
@@ -215,7 +215,7 @@ JSONEOF
     echo ""
     log_info "Batch summary:"
     log_info "  Mutants:    $total_mutants"
-    log_ok   "  Caught:     $total_caught ($caught_pct%)"
+    log_ok "  Caught:     $total_caught ($caught_pct%)"
     log_warn "  Missed:     $total_missed"
     log_info "  Unviable:   $total_unviable"
     log_info "  Timeout:    $total_timeout"
@@ -267,7 +267,7 @@ generate_aggregate_baseline() {
         echo ''
         echo '  ]'
         echo '}'
-    } > "$aggregate_file"
+    } >"$aggregate_file"
 
     # Compute overall totals
     local total_m=0 total_c=0 total_ms=0
@@ -283,7 +283,7 @@ generate_aggregate_baseline() {
 
     log_info "Aggregate totals:"
     log_info "  Total mutants:  $total_m"
-    log_ok   "  Total caught:   $total_c"
+    log_ok "  Total caught:   $total_c"
     log_warn "  Total missed:   $total_ms"
 
     if [ "$total_m" -gt 0 ]; then
@@ -303,10 +303,10 @@ main() {
     fi
 
     case "$1" in
-        --list|-l)
+        --list | -l)
             list_batches
             ;;
-        --all|-a)
+        --all | -a)
             log_info "Running all ${#ALL_BATCH_IDS[@]} batches..."
             for bid in "${ALL_BATCH_IDS[@]}"; do
                 run_batch "$bid" || log_error "Batch $bid failed, continuing..."

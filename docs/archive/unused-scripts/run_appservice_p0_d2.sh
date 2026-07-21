@@ -301,15 +301,15 @@ echo "[appservice-d2] output dir: $RUN_DIR"
 echo "[appservice-d2] running D2 gate (fail-on=$FAIL_ON)"
 
 ADMIN_TOKEN="$ADMIN_TOKEN" \
-BASE_URL="$BASE_URL" \
-PROMETHEUS_URL="$PROMETHEUS_URL" \
-python3 "$ROOT_DIR/scripts/appservice_daily_report.py" \
+    BASE_URL="$BASE_URL" \
+    PROMETHEUS_URL="$PROMETHEUS_URL" \
+    python3 "$ROOT_DIR/scripts/appservice_daily_report.py" \
     --day D2 \
     --fail-on "$FAIL_ON" \
     --output-dir "$RUN_DIR" \
     --resource-summary "$RESOURCE_SUMMARY"
 
-python3 - "$METADATA_FILE" <<'PY' "$RUN_DATE" "$RUN_LABEL" "$FAIL_ON" "$BASE_URL" "$PROMETHEUS_URL" "$RUN_DIR"
+python3 - "$METADATA_FILE" "$RUN_DATE" "$RUN_LABEL" "$FAIL_ON" "$BASE_URL" "$PROMETHEUS_URL" "$RUN_DIR" <<'PY'
 import json
 import sys
 from datetime import datetime, timezone

@@ -109,7 +109,7 @@ warn_note() {
     TOTAL_WARN=$((TOTAL_WARN + 1))
     update_category "warn"
     if [ -n "$CYCLE_WARNINGS_FILE" ]; then
-        echo "$1" >> "$CYCLE_WARNINGS_FILE"
+        echo "$1" >>"$CYCLE_WARNINGS_FILE"
     fi
 }
 
@@ -118,7 +118,7 @@ fail_note() {
     TOTAL_FAIL=$((TOTAL_FAIL + 1))
     update_category "fail"
     if [ -n "$CYCLE_ERRORS_FILE" ]; then
-        echo "$1" >> "$CYCLE_ERRORS_FILE"
+        echo "$1" >>"$CYCLE_ERRORS_FILE"
     fi
 }
 
@@ -385,9 +385,9 @@ json_init() {
     JSON_CYCLES_FILE=$(mktemp)
     CYCLE_WARNINGS_FILE=$(mktemp)
     CYCLE_ERRORS_FILE=$(mktemp)
-    : > "$JSON_CYCLES_FILE"
-    : > "$CYCLE_WARNINGS_FILE"
-    : > "$CYCLE_ERRORS_FILE"
+    : >"$JSON_CYCLES_FILE"
+    : >"$CYCLE_WARNINGS_FILE"
+    : >"$CYCLE_ERRORS_FILE"
 }
 
 reset_cycle_tracking() {
@@ -398,10 +398,10 @@ reset_cycle_tracking() {
     CYCLE_ROUTES="pass"
     CYCLE_SECURITY="pass"
     if [ -n "$CYCLE_WARNINGS_FILE" ]; then
-        : > "$CYCLE_WARNINGS_FILE"
+        : >"$CYCLE_WARNINGS_FILE"
     fi
     if [ -n "$CYCLE_ERRORS_FILE" ]; then
-        : > "$CYCLE_ERRORS_FILE"
+        : >"$CYCLE_ERRORS_FILE"
     fi
 }
 
@@ -450,7 +450,7 @@ update_category() {
 compute_cycle_status() {
     local status="pass"
     for cat_val in "$CYCLE_REACHABILITY" "$CYCLE_TOPOLOGY_DRIFT" "$CYCLE_HEARTBEAT_CONTINUITY" \
-                   "$CYCLE_REPLICATION_POSITION" "$CYCLE_ROUTES" "$CYCLE_SECURITY"; do
+        "$CYCLE_REPLICATION_POSITION" "$CYCLE_ROUTES" "$CYCLE_SECURITY"; do
         if [ "$cat_val" = "fail" ]; then
             status="fail"
             break
@@ -480,10 +480,10 @@ json_record_cycle() {
     timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
     local warnings_json errors_json
-    warnings_json=$(json_array_from_lines < "$CYCLE_WARNINGS_FILE")
-    errors_json=$(json_array_from_lines < "$CYCLE_ERRORS_FILE")
+    warnings_json=$(json_array_from_lines <"$CYCLE_WARNINGS_FILE")
+    errors_json=$(json_array_from_lines <"$CYCLE_ERRORS_FILE")
 
-    cat >> "$JSON_CYCLES_FILE" <<EOF
+    cat >>"$JSON_CYCLES_FILE" <<EOF
 {
   "cycle_num": $cycle_num,
   "timestamp": "$timestamp",
@@ -531,7 +531,7 @@ json_finalize() {
         if command -v jq >/dev/null 2>&1; then
             cycles_json=$(jq -s -c '.' "$JSON_CYCLES_FILE" 2>/dev/null || echo "[]")
         else
-            cycles_json=$(python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in sys.stdin if l.strip()]))' < "$JSON_CYCLES_FILE" 2>/dev/null || echo "[]")
+            cycles_json=$(python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in sys.stdin if l.strip()]))' <"$JSON_CYCLES_FILE" 2>/dev/null || echo "[]")
         fi
     fi
 
@@ -541,7 +541,7 @@ json_finalize() {
     local md_report="$SOAK_OUTPUT_DIR/soak_report_${ts_suffix}.md"
 
     # 写入 JSON 报告
-    cat > "$json_report" <<EOF
+    cat >"$json_report" <<EOF
 {
   "test_run": {
     "start_ts": "$START_TS_ISO",
@@ -655,8 +655,8 @@ run_smoke_cycle() {
     # 1. 基础可达性
     CUR_CATEGORY="reachability"
     echo "  [reachability]"
-    check "admin root"       "$ADMIN_ENDPOINT/_matrix/client/versions" 200 || cycle_ok=0
-    check "admin health"     "$ADMIN_ENDPOINT/health"                  200 || true
+    check "admin root" "$ADMIN_ENDPOINT/_matrix/client/versions" 200 || cycle_ok=0
+    check "admin health" "$ADMIN_ENDPOINT/health" 200 || true
 
     # 2. 拓扑检查
     CUR_CATEGORY="topology"
@@ -677,10 +677,10 @@ run_smoke_cycle() {
     # 5. 路由可达性
     CUR_CATEGORY="routes"
     echo "  [routes]"
-    check "client versions"         "$CLIENT_ENDPOINT/_matrix/client/versions"         200 || cycle_ok=0
-    check "sync route probe"        "$SYNC_ENDPOINT/_matrix/client/v3/sync"            200 || true
-    check "media route probe"       "$MEDIA_ENDPOINT/_matrix/media/v3/config"          200 || true
-    check "federation route probe"  "$FEDERATION_ENDPOINT/_matrix/federation/v1/version" 200 || true
+    check "client versions" "$CLIENT_ENDPOINT/_matrix/client/versions" 200 || cycle_ok=0
+    check "sync route probe" "$SYNC_ENDPOINT/_matrix/client/v3/sync" 200 || true
+    check "media route probe" "$MEDIA_ENDPOINT/_matrix/media/v3/config" 200 || true
+    check "federation route probe" "$FEDERATION_ENDPOINT/_matrix/federation/v1/version" 200 || true
 
     # 6. Replication 安全边界
     CUR_CATEGORY="security"

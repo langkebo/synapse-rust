@@ -495,30 +495,30 @@ ALL_BATCH_IDS=(
 # Batch description lookup function (bash 3.2 compatible)
 get_batch_desc() {
     case "$1" in
-        batch_01_cache)              echo "Cache layer (6 files)" ;;
-        batch_02_auth)               echo "Auth module (8 files)" ;;
-        batch_03_worker)             echo "Worker module (10 files)" ;;
-        batch_04_federation)         echo "Federation module (16 files)" ;;
-        batch_05_common_config)      echo "Common config (15 files)" ;;
-        batch_06_common)             echo "Common remaining (46 files)" ;;
-        batch_07_e2ee_backup_cross)  echo "E2EE backup + cross-signing (15 files)" ;;
-        batch_08_e2ee_device_keys)   echo "E2EE device_keys + key_request (15 files)" ;;
-        batch_09_e2ee_key_megolm)    echo "E2EE key_rotation + megolm (15 files)" ;;
-        batch_10_e2ee_remaining)     echo "E2EE remaining (12 files)" ;;
-        batch_11_storage_event)      echo "Storage event (14 files)" ;;
-        batch_12_storage_media)      echo "Storage media (8 files)" ;;
-        batch_13_storage_room)       echo "Storage room (13 files)" ;;
-        batch_14_storage_top_a)      echo "Storage top-level A (15 files)" ;;
-        batch_15_storage_top_b)      echo "Storage top-level B (15 files)" ;;
+        batch_01_cache) echo "Cache layer (6 files)" ;;
+        batch_02_auth) echo "Auth module (8 files)" ;;
+        batch_03_worker) echo "Worker module (10 files)" ;;
+        batch_04_federation) echo "Federation module (16 files)" ;;
+        batch_05_common_config) echo "Common config (15 files)" ;;
+        batch_06_common) echo "Common remaining (46 files)" ;;
+        batch_07_e2ee_backup_cross) echo "E2EE backup + cross-signing (15 files)" ;;
+        batch_08_e2ee_device_keys) echo "E2EE device_keys + key_request (15 files)" ;;
+        batch_09_e2ee_key_megolm) echo "E2EE key_rotation + megolm (15 files)" ;;
+        batch_10_e2ee_remaining) echo "E2EE remaining (12 files)" ;;
+        batch_11_storage_event) echo "Storage event (14 files)" ;;
+        batch_12_storage_media) echo "Storage media (8 files)" ;;
+        batch_13_storage_room) echo "Storage room (13 files)" ;;
+        batch_14_storage_top_a) echo "Storage top-level A (15 files)" ;;
+        batch_15_storage_top_b) echo "Storage top-level B (15 files)" ;;
         batch_16_services_auth_assemble) echo "Services auth + assemble (20 files)" ;;
-        batch_17_services_room)      echo "Services room + space (20 files)" ;;
-        batch_18_services_sync)      echo "Services sync (15 files)" ;;
-        batch_19_services_media_id)  echo "Services media + identity + rtc (20 files)" ;;
-        batch_20_services_push)      echo "Services push + e2ee + remaining (20 files)" ;;
-        batch_21_web_middleware)     echo "Web middleware + utils (20 files)" ;;
-        batch_22_web_extractors)     echo "Web extractors + handlers (20 files)" ;;
-        batch_23_web_routes_a)       echo "Web routes top-level (20 files)" ;;
-        batch_24_web_routes_b)       echo "Web routes admin + federation + space (20 files)" ;;
-        *)                           echo "Unknown batch: $1" ;;
+        batch_17_services_room) echo "Services room + space (20 files)" ;;
+        batch_18_services_sync) echo "Services sync (15 files)" ;;
+        batch_19_services_media_id) echo "Services media + identity + rtc (20 files)" ;;
+        batch_20_services_push) echo "Services push + e2ee + remaining (20 files)" ;;
+        batch_21_web_middleware) echo "Web middleware + utils (20 files)" ;;
+        batch_22_web_extractors) echo "Web extractors + handlers (20 files)" ;;
+        batch_23_web_routes_a) echo "Web routes top-level (20 files)" ;;
+        batch_24_web_routes_b) echo "Web routes admin + federation + space (20 files)" ;;
+        *) echo "Unknown batch: $1" ;;
     esac
 }

@@ -206,7 +206,7 @@ check_any_status() {
         status=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$TIMEOUT" "$url" 2>/dev/null || echo "000")
     fi
 
-    IFS=',' read -r -a allowed_statuses <<< "$allowed_statuses_csv"
+    IFS=',' read -r -a allowed_statuses <<<"$allowed_statuses_csv"
     for allowed in "${allowed_statuses[@]}"; do
         if [ "$status" = "$allowed" ]; then
             pass_note "$name (HTTP $status)"
@@ -234,7 +234,7 @@ check_header_any_status() {
         status=$(curl -s -D "$header_file" -o /dev/null -w "%{http_code}" --max-time "$TIMEOUT" "$url" 2>/dev/null || echo "000")
     fi
 
-    IFS=',' read -r -a allowed_statuses <<< "$allowed_statuses_csv"
+    IFS=',' read -r -a allowed_statuses <<<"$allowed_statuses_csv"
     local status_allowed=0
     for allowed in "${allowed_statuses[@]}"; do
         if [ "$status" = "$allowed" ]; then
@@ -250,7 +250,8 @@ check_header_any_status() {
     fi
 
     local actual_header_value
-    actual_header_value=$(python3 - "$header_file" <<'PY'
+    actual_header_value=$(
+        python3 - "$header_file" <<'PY'
 import sys
 from pathlib import Path
 header_file = Path(sys.argv[1])
@@ -264,7 +265,7 @@ for line in header_file.read_text(errors="ignore").splitlines():
         break
 print(value)
 PY
-)
+    )
 
     if [ "$actual_header_value" = "$expected_header_value" ]; then
         pass_note "$name exposes x-synapse-route-owner=$actual_header_value"
@@ -297,10 +298,10 @@ run_appservice_gate() {
         BASE_URL="$APPSERVICE_GATE_BASE_URL" \
         PROMETHEUS_URL="$APPSERVICE_GATE_PROMETHEUS_URL" \
         python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/appservice_daily_report.py" \
-            --day "$APPSERVICE_GATE_DAY" \
-            --fail-on "$APPSERVICE_GATE_FAIL_ON" \
-            --output-dir "$APPSERVICE_GATE_OUTPUT_DIR" \
-            --resource-summary "$APPSERVICE_GATE_RESOURCE_SUMMARY"; then
+        --day "$APPSERVICE_GATE_DAY" \
+        --fail-on "$APPSERVICE_GATE_FAIL_ON" \
+        --output-dir "$APPSERVICE_GATE_OUTPUT_DIR" \
+        --resource-summary "$APPSERVICE_GATE_RESOURCE_SUMMARY"; then
         pass_note "appservice gate passed (${APPSERVICE_GATE_DAY}, fail-on=${APPSERVICE_GATE_FAIL_ON})"
         pass_note "appservice gate artifacts saved to $APPSERVICE_GATE_OUTPUT_DIR"
         return 0
@@ -321,15 +322,15 @@ echo ""
 
 # 1. 基础可达性检查 (admin endpoint)
 echo "[1] Basic reachability"
-check "admin root"       "$ADMIN_ENDPOINT/_matrix/client/versions" 200
-check "admin health"     "$ADMIN_ENDPOINT/health"                  200 || true
+check "admin root" "$ADMIN_ENDPOINT/_matrix/client/versions" 200
+check "admin health" "$ADMIN_ENDPOINT/health" 200 || true
 
 # 2. Versions API (公开能力面)
 if [ "$SKIP_VERSIONS" = "0" ]; then
     echo ""
     echo "[2] Versions API"
-    check_json "versions"                "$ADMIN_ENDPOINT/_matrix/client/versions"      200
-    check_json "capabilities (public)"   "$ADMIN_ENDPOINT/_matrix/client/v3/capabilities" 200
+    check_json "versions" "$ADMIN_ENDPOINT/_matrix/client/versions" 200
+    check_json "capabilities (public)" "$ADMIN_ENDPOINT/_matrix/client/v3/capabilities" 200
 fi
 
 # 3. Worker topology API
@@ -402,9 +403,9 @@ fi
 if [ "$SKIP_CLIENT" = "0" ]; then
     echo ""
     echo "[4] Route reachability"
-    check_json "client versions"         "$CLIENT_ENDPOINT/_matrix/client/versions"         200
-    check "client login (公开)"           "$CLIENT_ENDPOINT/_matrix/client/v3/login"         200 || \
-        check "client login (405)"       "$CLIENT_ENDPOINT/_matrix/client/v3/login"         405
+    check_json "client versions" "$CLIENT_ENDPOINT/_matrix/client/versions" 200
+    check "client login (公开)" "$CLIENT_ENDPOINT/_matrix/client/v3/login" 200 ||
+        check "client login (405)" "$CLIENT_ENDPOINT/_matrix/client/v3/login" 405
     check_any_status "sync route probe" "$SYNC_ENDPOINT/_matrix/client/v3/sync" "$SYNC_EXPECTED_STATUSES"
     check_any_status "media route probe" "$MEDIA_ENDPOINT/_matrix/media/v3/config" "$MEDIA_EXPECTED_STATUSES"
     check_any_status "federation route probe" "$FEDERATION_ENDPOINT/_matrix/federation/v1/version" "$FEDERATION_EXPECTED_STATUSES"
@@ -469,10 +470,11 @@ if [ "$SKIP_WORKER_LIFECYCLE" = "0" ]; then
         backlog_task_two=""
         backlog_task_three=""
 
-        register_body=$(cat <<EOF
+        register_body=$(
+            cat <<EOF
 {"worker_id":"$SMOKE_WORKER_ID","worker_name":"$SMOKE_WORKER_NAME","worker_type":"background","host":"$SMOKE_WORKER_HOST","port":$SMOKE_WORKER_PORT,"config":{},"metadata":{"smoke_test":true},"version":"smoke-test"}
 EOF
-)
+        )
         request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/register" "$ADMIN_AUTH_HEADER" "$register_body"
         if [ "$REQUEST_STATUS" = "201" ]; then
             worker_created=1
@@ -486,10 +488,11 @@ EOF
             fail_note "register smoke worker failed (HTTP $REQUEST_STATUS)"
         fi
 
-        peer_register_body=$(cat <<EOF
+        peer_register_body=$(
+            cat <<EOF
 {"worker_id":"$SMOKE_PEER_WORKER_ID","worker_name":"$SMOKE_PEER_WORKER_NAME","worker_type":"background","host":"$SMOKE_PEER_WORKER_HOST","port":$SMOKE_PEER_WORKER_PORT,"config":{},"metadata":{"smoke_test":true,"peer":true},"version":"smoke-test"}
 EOF
-)
+        )
         request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/register" "$ADMIN_AUTH_HEADER" "$peer_register_body"
         if [ "$REQUEST_STATUS" = "201" ]; then
             peer_worker_created=1
@@ -547,10 +550,11 @@ EOF
                 fi
             fi
 
-            replication_body=$(cat <<EOF
+            replication_body=$(
+                cat <<EOF
 {"stream_name":"$SMOKE_STREAM_NAME","position":$SMOKE_STREAM_POSITION}
 EOF
-)
+            )
             request "PUT" "$REPLICATION_ENDPOINT/_synapse/worker/v1/replication/$SMOKE_WORKER_ID/$SMOKE_STREAM_NAME" "$REPLICATION_AUTH_HEADER" "$replication_body"
             if [ "$REQUEST_STATUS" = "200" ]; then
                 pass_note "replication position update accepted for $SMOKE_STREAM_NAME"
@@ -570,10 +574,11 @@ EOF
                 fail_note "replication position readback failed (HTTP $REQUEST_STATUS)"
             fi
 
-            assign_body=$(cat <<EOF
+            assign_body=$(
+                cat <<EOF
 {"task_type":"$SMOKE_TASK_TYPE","task_data":{"smoke_test":true,"worker_id":"$SMOKE_WORKER_ID"},"priority":1,"preferred_worker_id":"$SMOKE_WORKER_ID"}
 EOF
-)
+            )
             request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks" "$ADMIN_AUTH_HEADER" "$assign_body"
             if [ "$REQUEST_STATUS" = "201" ]; then
                 task_id=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
@@ -670,10 +675,11 @@ EOF
                     fail_note "worker selection failed during stopping drain (HTTP $REQUEST_STATUS)"
                 fi
 
-                stopping_assign_body=$(cat <<EOF
+                stopping_assign_body=$(
+                    cat <<EOF
 {"task_type":"$SMOKE_TASK_TYPE","task_data":{"smoke_test":"stopping_claim_reject","worker_id":"$SMOKE_PEER_WORKER_ID"},"priority":100004}
 EOF
-)
+                )
                 request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks" "$ADMIN_AUTH_HEADER" "$stopping_assign_body"
                 if [ "$REQUEST_STATUS" = "201" ]; then
                     stopping_task_id=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
@@ -731,10 +737,11 @@ EOF
                     fail_note "running heartbeat restore failed for $SMOKE_WORKER_ID after stopping drain (HTTP $REQUEST_STATUS)"
                 fi
 
-                next_assign_body=$(cat <<EOF
+                next_assign_body=$(
+                    cat <<EOF
 {"task_type":"$SMOKE_TASK_TYPE","task_data":{"smoke_test":"claim_next","worker_id":"$SMOKE_WORKER_ID"},"priority":1}
 EOF
-)
+                )
                 request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks" "$ADMIN_AUTH_HEADER" "$next_assign_body"
                 if [ "$REQUEST_STATUS" = "201" ]; then
                     next_task_id=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
@@ -776,10 +783,11 @@ EOF
                     fi
                 fi
 
-                error_assign_body=$(cat <<EOF
+                error_assign_body=$(
+                    cat <<EOF
 {"task_type":"$SMOKE_TASK_TYPE","task_data":{"smoke_test":"error_requeue","worker_id":"$SMOKE_WORKER_ID"},"priority":100003}
 EOF
-)
+                )
                 request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks" "$ADMIN_AUTH_HEADER" "$error_assign_body"
                 if [ "$REQUEST_STATUS" = "201" ]; then
                     error_task_id=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
@@ -866,10 +874,11 @@ EOF
                     fail_note "running heartbeat restore failed for $SMOKE_WORKER_ID after error recovery (HTTP $REQUEST_STATUS)"
                 fi
 
-                failed_assign_body=$(cat <<EOF
+                failed_assign_body=$(
+                    cat <<EOF
 {"task_type":"$SMOKE_TASK_TYPE","task_data":{"smoke_test":"fail_path","worker_id":"$SMOKE_WORKER_ID"},"priority":1}
 EOF
-)
+                )
                 request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks" "$ADMIN_AUTH_HEADER" "$failed_assign_body"
                 if [ "$REQUEST_STATUS" = "201" ]; then
                     failed_task_id=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
@@ -922,18 +931,21 @@ EOF
                         fail_note "peer claim_next_task after fail-task expected HTTP 404, got $REQUEST_STATUS"
                     fi
 
-                    backlog_assign_one=$(cat <<EOF
+                    backlog_assign_one=$(
+                        cat <<EOF
 {"task_type":"$SMOKE_TASK_TYPE","task_data":{"smoke_test":"backlog_one","worker_id":"$SMOKE_WORKER_ID"},"priority":100003}
 EOF
-)
-                    backlog_assign_two=$(cat <<EOF
+                    )
+                    backlog_assign_two=$(
+                        cat <<EOF
 {"task_type":"$SMOKE_TASK_TYPE","task_data":{"smoke_test":"backlog_two","worker_id":"$SMOKE_PEER_WORKER_ID"},"priority":100002}
 EOF
-)
-                    backlog_assign_three=$(cat <<EOF
+                    )
+                    backlog_assign_three=$(
+                        cat <<EOF
 {"task_type":"$SMOKE_TASK_TYPE","task_data":{"smoke_test":"backlog_three","worker_id":"$SMOKE_WORKER_ID"},"priority":100001}
 EOF
-)
+                    )
 
                     request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks" "$ADMIN_AUTH_HEADER" "$backlog_assign_one"
                     if [ "$REQUEST_STATUS" = "201" ]; then
@@ -994,10 +1006,11 @@ EOF
                         fail_note "primary worker unregister failed before recovery test (HTTP $REQUEST_STATUS)"
                     fi
 
-                    recovery_assign_body=$(cat <<EOF
+                    recovery_assign_body=$(
+                        cat <<EOF
 {"task_type":"$SMOKE_TASK_TYPE","task_data":{"smoke_test":"recovery_path","worker_id":"$SMOKE_PEER_WORKER_ID"},"priority":100000}
 EOF
-)
+                    )
                     request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks" "$ADMIN_AUTH_HEADER" "$recovery_assign_body"
                     if [ "$REQUEST_STATUS" = "201" ]; then
                         recovery_task_id=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")

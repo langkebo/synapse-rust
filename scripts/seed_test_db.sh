@@ -37,13 +37,19 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-log()  { echo -e "${GREEN}[seed]${NC} $*"; }
+log() { echo -e "${GREEN}[seed]${NC} $*"; }
 warn() { echo -e "${YELLOW}[seed]${NC} $*"; }
-err()  { echo -e "${RED}[seed]${NC} $*" >&2; }
+err() { echo -e "${RED}[seed]${NC} $*" >&2; }
 
 # --- Pre-flight checks -------------------------------------------------------
-command -v psql >/dev/null 2>&1 || { err "psql not found. Install postgresql-client."; exit 1; }
-command -v python3 >/dev/null 2>&1 || { err "python3 not found."; exit 1; }
+command -v psql >/dev/null 2>&1 || {
+    err "psql not found. Install postgresql-client."
+    exit 1
+}
+command -v python3 >/dev/null 2>&1 || {
+    err "python3 not found."
+    exit 1
+}
 
 python3 -c "from argon2 import PasswordHasher" 2>/dev/null || {
     warn "argon2-cffi not installed. Attempting: pip3 install argon2-cffi"
@@ -82,7 +88,7 @@ fi
 log "Phase 1: Generating Argon2id password hashes for $NUM_USERS users..."
 mkdir -p "$PROJECT_ROOT/.gstack"
 
-cat > "$GEN_PY" << 'PYEOF'
+cat >"$GEN_PY" <<'PYEOF'
 import sys
 import json
 from argon2 import PasswordHasher
@@ -118,12 +124,12 @@ log "Generated $(echo "$USER_JSON" | python3 -c 'import sys,json; print(len(json
 # --- Phase 2: Build and execute SQL ------------------------------------------
 log "Phase 2: Building SQL for bulk data seeding..."
 
-NOW_TS=$(date +%s)000  # milliseconds
-NOW_SEC=$(date +%s)      # seconds
+NOW_TS=$(date +%s)000 # milliseconds
+NOW_SEC=$(date +%s)   # seconds
 
 TOTAL_USERS=$((NUM_USERS + ADMIN_COUNT))
 
-cat > "$GEN_SQL" << SQLEOF
+cat >"$GEN_SQL" <<SQLEOF
 -- =============================================================================
 -- synapse-rust performance benchmark seed data
 -- Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -161,9 +167,9 @@ for u in users:
     print(f"INSERT INTO users (user_id, username, password_hash, is_admin, created_ts, displayname) "
           f"VALUES ({chr(39)}{uid}{chr(39)}, {chr(39)}{username}{chr(39)}, {chr(39)}{phash}{chr(39)}, "
           f"{is_admin_str}, {ts}, {chr(39)}Bench User {idx}{chr(39)});")
-' >> "$GEN_SQL"
+' >>"$GEN_SQL"
 
-cat >> "$GEN_SQL" << SQLEOF
+cat >>"$GEN_SQL" <<SQLEOF
 
 -- =============================================================================
 -- Access tokens (pre-computed token hashes for bench users)
@@ -303,7 +309,7 @@ ANALYZE access_tokens;
 SQLEOF
 
 # --- Phase 3: Execute SQL ----------------------------------------------------
-log "Phase 3: Executing seed SQL ($(wc -c < "$GEN_SQL") bytes)..."
+log "Phase 3: Executing seed SQL ($(wc -c <"$GEN_SQL") bytes)..."
 $PSQL -f "$GEN_SQL" 2>&1 | while IFS= read -r line; do
     warn "psql: $line"
 done

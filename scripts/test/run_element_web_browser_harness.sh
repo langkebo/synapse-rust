@@ -18,7 +18,7 @@ ARTIFACT_DIR="${ELEMENT_HARNESS_ARTIFACT_DIR:-$BACKEND_ROOT/artifacts/e2ee-inter
 TEST_USERNAME="${ELEMENT_TEST_USERNAME:-elementweb_$(date +%s)_$RANDOM}"
 TEST_PASSWORD="${ELEMENT_TEST_PASSWORD:-Test@123456}"
 TEST_DISPLAY_NAME="${ELEMENT_TEST_DISPLAY_NAME:-Element Web Smoke}"
-TEST_SCRIPT="${TEST_SCRIPT:-smoke:login}"  # 新增：可以选择测试脚本
+TEST_SCRIPT="${TEST_SCRIPT:-smoke:login}" # 新增：可以选择测试脚本
 DOCKER_CARGO_FEATURE_ARGS="${DOCKER_CARGO_FEATURE_ARGS:---features server --no-default-features}"
 DOCKER_CARGO_BUILD_JOBS="${DOCKER_CARGO_BUILD_JOBS:-1}"
 TEMP_ENV_CREATED=false
@@ -126,7 +126,8 @@ wait_for_url() {
 
 register_test_user() {
     local payload response
-    payload="$(python3 - "$TEST_USERNAME" "$TEST_PASSWORD" "$TEST_DISPLAY_NAME" <<'PY'
+    payload="$(
+        python3 - "$TEST_USERNAME" "$TEST_PASSWORD" "$TEST_DISPLAY_NAME" <<'PY'
 import json
 import sys
 
@@ -137,7 +138,7 @@ print(json.dumps({
     "auth": {"type": "m.login.dummy"},
 }))
 PY
-)"
+    )"
 
     response="$(
         curl -fsS \
@@ -203,7 +204,7 @@ if [ "$BROWSER_ONLY_OVERLAY" != "1" ]; then
     (
         cd "$DOCKER_DIR"
         DOCKER_CARGO_FEATURE_ARGS="$DOCKER_CARGO_FEATURE_ARGS" \
-        DOCKER_CARGO_BUILD_JOBS="$DOCKER_CARGO_BUILD_JOBS" \
+            DOCKER_CARGO_BUILD_JOBS="$DOCKER_CARGO_BUILD_JOBS" \
             docker compose --env-file "$DOCKER_ENV_FILE" -f "$BASE_COMPOSE_FILE" build synapse-rust
     )
 
@@ -233,7 +234,7 @@ register_test_user
 
 log "Running Element Web test: ${TEST_SCRIPT}"
 ELEMENT_BASE_URL="$ELEMENT_BASE_URL" \
-ELEMENT_TEST_USERNAME="$TEST_USERNAME" \
-ELEMENT_TEST_PASSWORD="$TEST_PASSWORD" \
-ELEMENT_HARNESS_ARTIFACT_DIR="$ARTIFACT_DIR" \
+    ELEMENT_TEST_USERNAME="$TEST_USERNAME" \
+    ELEMENT_TEST_PASSWORD="$TEST_PASSWORD" \
+    ELEMENT_HARNESS_ARTIFACT_DIR="$ARTIFACT_DIR" \
     npm --prefix "$HARNESS_DIR" run "$TEST_SCRIPT"

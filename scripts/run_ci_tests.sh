@@ -33,7 +33,10 @@ for arg in "$@"; do
         --lib) RUN_LIB=1 ;;
         --unit) RUN_UNIT=1 ;;
         --integration) RUN_INTEGRATION=1 ;;
-        *) echo "Unknown argument: $arg" >&2; exit 1 ;;
+        *)
+            echo "Unknown argument: $arg" >&2
+            exit 1
+            ;;
     esac
 done
 
