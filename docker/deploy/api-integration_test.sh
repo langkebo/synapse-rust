@@ -1133,8 +1133,7 @@ is_expected_admin_denial() {
     fi
 
     case "$reason" in
-        "HTTP 401" | "HTTP 403" | *M_FORBIDDEN* | *M_UNAUTHORIZED*)
-            ;;
+        "HTTP 401" | "HTTP 403" | *M_FORBIDDEN* | *M_UNAUTHORIZED*) ;;
         *)
             return 1
             ;;

@@ -22,7 +22,7 @@
 **端点**: `/_synapse/admin/info`  
 **问题**: admin 角色可以访问，但应该只允许 super_admin  
 **状态**: ✅ 已修复（待验证）  
-**修复文件**: 
+**修复文件**:
 - `src/web/routes/admin/server.rs` - 添加 AdminUser 参数和角色检查
 - `src/web/routes/admin/mod.rs` - 将路由移到 protected 组
 
