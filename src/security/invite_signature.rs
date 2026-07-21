@@ -98,8 +98,7 @@ mod tests {
     #[test]
     fn sign_and_verify_round_trip() {
         let s = secret();
-        let sig = sign_invite(&s, "code123", "!r:hs", "@alice:hs", Some(1_700_000_000_000), 1_699_900_000_000)
-            .unwrap();
+        let sig = sign_invite(&s, "code123", "!r:hs", "@alice:hs", Some(1_700_000_000_000), 1_699_900_000_000).unwrap();
         assert!(verify_invite_signature(
             &s,
             "code123",
@@ -115,8 +114,7 @@ mod tests {
     #[test]
     fn verify_rejects_tampered_room_id() {
         let s = secret();
-        let sig = sign_invite(&s, "code123", "!r:hs", "@alice:hs", Some(1_700_000_000_000), 1_699_900_000_000)
-            .unwrap();
+        let sig = sign_invite(&s, "code123", "!r:hs", "@alice:hs", Some(1_700_000_000_000), 1_699_900_000_000).unwrap();
         assert!(!verify_invite_signature(
             &s,
             "code123",
@@ -132,8 +130,7 @@ mod tests {
     #[test]
     fn verify_rejects_tampered_exp() {
         let s = secret();
-        let sig = sign_invite(&s, "code123", "!r:hs", "@alice:hs", Some(1_700_000_000_000), 1_699_900_000_000)
-            .unwrap();
+        let sig = sign_invite(&s, "code123", "!r:hs", "@alice:hs", Some(1_700_000_000_000), 1_699_900_000_000).unwrap();
         assert!(!verify_invite_signature(
             &s,
             "code123",
@@ -151,40 +148,20 @@ mod tests {
         let s1 = secret();
         let s2 = b"unit-test-signing-key-32-bytes-BBB".to_vec();
         let sig = sign_invite(&s1, "code123", "!r:hs", "@alice:hs", None, 1_699_900_000_000).unwrap();
-        assert!(!verify_invite_signature(
-            &s2,
-            "code123",
-            "!r:hs",
-            "@alice:hs",
-            None,
-            1_699_900_000_000,
-            &sig
-        )
-        .unwrap());
+        assert!(!verify_invite_signature(&s2, "code123", "!r:hs", "@alice:hs", None, 1_699_900_000_000, &sig).unwrap());
     }
 
     #[test]
     fn verify_rejects_invalid_hex() {
         let s = secret();
-        assert!(!verify_invite_signature(
-            &s,
-            "code123",
-            "!r:hs",
-            "@alice:hs",
-            None,
-            0,
-            "not-a-hex-string"
-        )
-        .unwrap());
+        assert!(!verify_invite_signature(&s, "code123", "!r:hs", "@alice:hs", None, 0, "not-a-hex-string").unwrap());
     }
 
     #[test]
     fn signature_is_deterministic() {
         let s = secret();
-        let a = sign_invite(&s, "code123", "!r:hs", "@alice:hs", Some(1_700_000_000_000), 1_699_900_000_000)
-            .unwrap();
-        let b = sign_invite(&s, "code123", "!r:hs", "@alice:hs", Some(1_700_000_000_000), 1_699_900_000_000)
-            .unwrap();
+        let a = sign_invite(&s, "code123", "!r:hs", "@alice:hs", Some(1_700_000_000_000), 1_699_900_000_000).unwrap();
+        let b = sign_invite(&s, "code123", "!r:hs", "@alice:hs", Some(1_700_000_000_000), 1_699_900_000_000).unwrap();
         assert_eq!(a, b);
     }
 }

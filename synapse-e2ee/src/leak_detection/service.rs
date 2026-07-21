@@ -2,9 +2,9 @@
 // E2EE Phase 2: Detect potential session key leaks
 
 use crate::megolm::MegolmSession;
-use synapse_common::ApiError;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use synapse_common::ApiError;
 
 pub struct LeakDetectionService {
     storage: Arc<LeakDetectionStorage>,
@@ -118,9 +118,15 @@ impl LeakDetectionService {
         }
 
         // Determine risk level
-        let risk_level = if alerts.iter().any(|a| a.details.as_ref().and_then(|d| d.get("severity")).and_then(|v| v.as_str()) == Some("high")) {
+        let risk_level = if alerts
+            .iter()
+            .any(|a| a.details.as_ref().and_then(|d| d.get("severity")).and_then(|v| v.as_str()) == Some("high"))
+        {
             "high"
-        } else if alerts.iter().any(|a| a.details.as_ref().and_then(|d| d.get("severity")).and_then(|v| v.as_str()) == Some("medium")) {
+        } else if alerts
+            .iter()
+            .any(|a| a.details.as_ref().and_then(|d| d.get("severity")).and_then(|v| v.as_str()) == Some("medium"))
+        {
             "medium"
         } else {
             "low"

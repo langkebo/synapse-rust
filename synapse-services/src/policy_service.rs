@@ -8,8 +8,8 @@
 //! policy checks return `PolicyResult::Allow`. When `enabled = true`,
 //! the service sends HTTP requests to the configured policy server endpoint.
 
-use synapse_common::config::PolicyServerConfig;
 use serde::{Deserialize, Serialize};
+use synapse_common::config::PolicyServerConfig;
 use tracing;
 
 /// Result of a policy check.
@@ -64,13 +64,7 @@ impl PolicyService {
     /// When the policy server is disabled, this always returns `PolicyResult::Allow`.
     /// When enabled, it sends an HTTP POST to the policy server endpoint.
     /// On network failure, the behavior depends on `fail_open` configuration.
-    pub async fn check_policy(
-        &self,
-        entity_type: &str,
-        entity_id: &str,
-        actor: &str,
-        action: &str,
-    ) -> PolicyResult {
+    pub async fn check_policy(&self, entity_type: &str, entity_id: &str, actor: &str, action: &str) -> PolicyResult {
         if !self.config.is_configured() {
             return PolicyResult::Allow;
         }
@@ -100,9 +94,7 @@ impl PolicyService {
                         PolicyResult::Allow
                     } else {
                         PolicyResult::Deny(
-                            policy_response
-                                .reason
-                                .unwrap_or_else(|| "Denied by policy server".to_string()),
+                            policy_response.reason.unwrap_or_else(|| "Denied by policy server".to_string()),
                         )
                     }
                 }
@@ -190,13 +182,8 @@ mod tests {
 
     #[test]
     fn test_policy_server_config_enabled_but_no_endpoint() {
-        let config = PolicyServerConfig {
-            enabled: true,
-            endpoint: None,
-            api_key: None,
-            timeout_secs: 5,
-            fail_open: true,
-        };
+        let config =
+            PolicyServerConfig { enabled: true, endpoint: None, api_key: None, timeout_secs: 5, fail_open: true };
         assert!(!config.is_configured());
     }
 
@@ -213,21 +200,12 @@ mod tests {
         let config = PolicyServerConfig::default();
         let service = PolicyService::new(config);
 
-        assert_eq!(
-            service.check_room_create("!room:test.com", "@user:test.com").await,
-            PolicyResult::Allow
-        );
-        assert_eq!(
-            service.check_room_join("!room:test.com", "@user:test.com").await,
-            PolicyResult::Allow
-        );
+        assert_eq!(service.check_room_create("!room:test.com", "@user:test.com").await, PolicyResult::Allow);
+        assert_eq!(service.check_room_join("!room:test.com", "@user:test.com").await, PolicyResult::Allow);
         assert_eq!(
             service.check_room_invite("!room:test.com", "@a:test.com", "@b:test.com").await,
             PolicyResult::Allow
         );
-        assert_eq!(
-            service.check_content_send("!room:test.com", "@user:test.com").await,
-            PolicyResult::Allow
-        );
+        assert_eq!(service.check_content_send("!room:test.com", "@user:test.com").await, PolicyResult::Allow);
     }
 }

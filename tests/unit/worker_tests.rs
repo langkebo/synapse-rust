@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
-    use synapse_services::ServiceContainer;
     use synapse_services::worker::protocol::{ReplicationCommand, ReplicationProtocol};
     use synapse_services::worker::types::*;
+    use synapse_services::ServiceContainer;
 
     #[test]
     fn test_worker_type_as_str() {

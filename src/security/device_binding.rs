@@ -97,9 +97,7 @@ mod tests {
     fn rejects_tampered_key_type() {
         let s = secret();
         let t = sign_device_binding(&s, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_000).unwrap();
-        assert!(
-            !verify_device_binding(&s, "@alice:hs", "ABCDEFGH", "self_signing", 1_700_000_000_000, &t).unwrap()
-        );
+        assert!(!verify_device_binding(&s, "@alice:hs", "ABCDEFGH", "self_signing", 1_700_000_000_000, &t).unwrap());
     }
 
     #[test]

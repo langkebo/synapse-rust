@@ -83,10 +83,9 @@ fn cross_inviter_signature_isolation() {
     let code = "INVITE-IMPERSONATE";
     let sig = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts).unwrap();
 
-    assert!(!verify_invite_signature(
-        TEST_SECRET, code, "!r:hs", "@bob:hs", Some(expires_at), created_ts, &sig,
-    )
-    .unwrap());
+    assert!(
+        !verify_invite_signature(TEST_SECRET, code, "!r:hs", "@bob:hs", Some(expires_at), created_ts, &sig,).unwrap()
+    );
 }
 
 #[test]
@@ -99,10 +98,8 @@ fn exp_tamper_is_detected() {
     let sig = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(original_exp), created_ts).unwrap();
 
     let attacker_exp = original_exp + 365 * 24 * 3600 * 1000; // +1 year
-    assert!(!verify_invite_signature(
-        TEST_SECRET, code, "!r:hs", "@alice:hs", Some(attacker_exp), created_ts, &sig,
-    )
-    .unwrap());
+    assert!(!verify_invite_signature(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(attacker_exp), created_ts, &sig,)
+        .unwrap());
 }
 
 #[test]
@@ -115,8 +112,7 @@ fn no_exp_vs_exp_distinct_signatures() {
     let code = "INVITE-NO-EXP";
 
     let sig_no_exp = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", None, created_ts).unwrap();
-    let sig_exp =
-        sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(1_800_000_000_000), created_ts).unwrap();
+    let sig_exp = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(1_800_000_000_000), created_ts).unwrap();
 
     assert_ne!(sig_no_exp, sig_exp);
 }
@@ -130,10 +126,9 @@ fn cross_secret_isolation() {
     let sig = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts).unwrap();
 
     let new_secret: &[u8; 32] = b"sprint-5-cross-service-test-2!00";
-    assert!(!verify_invite_signature(
-        new_secret, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts, &sig,
-    )
-    .unwrap());
+    assert!(
+        !verify_invite_signature(new_secret, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts, &sig,).unwrap()
+    );
 }
 
 #[test]
@@ -180,8 +175,6 @@ fn field_reordering_resilience() {
     // the swapped one.)
     let _ = wrong_sig; // suppress unused
     let legit_sig = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts).unwrap();
-    assert!(verify_invite_signature(
-        TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts, &legit_sig
-    )
-    .unwrap());
+    assert!(verify_invite_signature(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts, &legit_sig)
+        .unwrap());
 }
