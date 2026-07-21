@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
-  "generated_at": "2026-07-21T06:41:26Z",
-  "synapse_rust_commit": "f282009ea36a63cacdd12770d441b2a2a655d082",
+  "generated_at": "2026-07-21T22:45:19Z",
+  "synapse_rust_commit": "9f351a02b14e6993892a0ff6dac8f8328798db86",
   "state_profile": "openclaw",
   "profile_flags": {
     "oidc_enabled": false,
