@@ -21,7 +21,7 @@
    ```
 
 2. **计算 HMAC-SHA256**
-   
+
    HMAC 计算格式：
    ```
    HMAC-SHA256(shared_secret, nonce + "\0" + username + "\0" + password + "\0" + "admin\0\0\0"/"notadmin" + ("\0" + user_type if user_type exists))
