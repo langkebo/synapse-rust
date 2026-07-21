@@ -80,7 +80,7 @@ def main() -> int:
     latest_baselines = sorted(
         name for name in primary_names if name.startswith("00000000_unified_schema_v")
     )
-    if latest_baselines and latest_baselines[-1] != "00000000_unified_schema_v8.sql":
+    if latest_baselines and latest_baselines[-1] != "00000000_unified_schema_v10.sql":
         issues.append(
             {
                 "type": "unexpected_latest_baseline",
