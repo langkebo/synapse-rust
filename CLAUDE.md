@@ -24,10 +24,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   `cargo nt --test unit <test_name>`
 - **Integration tests (requires PostgreSQL):**
   `cargo nt --features privacy-ext,voice-extended,voip-tracking,beacons,server-notifications --test integration`
+- **Single named integration test:** `cargo nt --test integration <test_name>`
 - **Full CI suite:** `bash scripts/run_ci_tests.sh`
 - **Clippy:** `SQLX_OFFLINE=true cargo clippy --all-features --locked -- -D warnings`
+- **E2E tests:** `cargo nextest run --test e2e`
+- **Performance manual tests:** `cargo nextest run --features performance-tests --test performance_manual -- --nocapture`
 
-**Why `--profile test` is required:** Lib tests in `synapse-services` import
+**Why the `test` nextest profile is required:** Lib tests in `synapse-services` import
 `test_mocks` modules from sibling crates (`synapse-storage`, `synapse-e2ee`,
 `synapse-federation`). These modules are gated on
 `#[cfg(any(test, feature = "test-utils"))]`. Rust's `#[cfg(test)]` does NOT
@@ -35,7 +38,8 @@ propagate to dependency crates — so without `--features test-utils`, the
 `test_mocks` modules are missing at compile time and you get 119 E0432/E0433
 errors.
 
-The `test` nextest profile injects `test-utils` automatically.
+The `test` nextest profile injects `test-utils` automatically. `cargo nt` is
+an alias for `cargo nextest run --profile test --features test-utils`.
 
 ### Benchmarks and coverage
 - API benchmark compile/run path: `cargo bench --bench performance_api_benchmarks --no-run`
