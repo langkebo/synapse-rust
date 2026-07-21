@@ -23,7 +23,7 @@ needless_pass_by_value = "warn"
 redundant_else = "warn"
 
 [features]
-default = ["server", "core-private-chat", "openclaw"]
+default = ["server", "core-private-chat", "openclaw", "test-utils"]
 server = ["dep:axum", "dep:tower-http"]
 openclaw = ["openclaw-routes"]
 openclaw-routes = ["synapse-common/openclaw-routes", "synapse-services/openclaw-routes", "synapse-storage/openclaw-routes"]

@@ -18,3 +18,16 @@ path = "artifacts/nextest-junit.xml"
 fail-fast = true
 retries = 0
 flaky-result = "fail"
+
+# Dev profile for zero-flags test runs.
+# Usage: cargo nextest run --profile test
+#         cargo nextest run --profile test --lib          (lib tests only)
+#         cargo nextest run --profile test --test unit     (unit test target)
+#         cargo nextest run --profile test --test integration  (needs DB)
+#
+# Includes test-utils feature so lib tests that import test_mocks
+# from sibling crates compile correctly.
+[profile.test]
+features = "test-utils"
+fail-fast = true
+retries = 0
