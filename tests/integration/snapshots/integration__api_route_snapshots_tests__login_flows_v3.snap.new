@@ -1,0 +1,15 @@
+---
+source: tests/integration/api_route_snapshots_tests.rs
+assertion_line: 70
+expression: body
+---
+{
+  "flows": [
+    {
+      "type": "m.login.password"
+    },
+    {
+      "type": "m.login.token"
+    }
+  ]
+}
