@@ -25,9 +25,9 @@ jobs:
       - name: Discover active markdown files
         id: docs
         run: |
-          # Collect root-level *.md and docs/*.md excluding docs/archive/
+          # Collect root-level *.md and docs/*.md excluding all archive/ directories
           files=$(find . -maxdepth 1 -name "*.md" -type f | sort)
-          docs_files=$(find docs -name "*.md" -type f -not -path "docs/archive/*" 2>/dev/null | sort)
+          docs_files=$(find docs -name "*.md" -type f -not -path "*/archive/*" 2>/dev/null | sort)
           all_files="$files"$'\n'"$docs_files"
           # Filter out empty lines and format as space-separated for shell steps
           active=$(echo "$all_files" | grep -v '^$' | tr '\n' ' ')

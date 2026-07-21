@@ -25,10 +25,7 @@ def parse_struct_fields(file_content):
     structs = {}
 
     # Match struct definitions - handle nested braces (e.g., HashMap<String, Vec<Device>>)
-    struct_pattern = re.compile(
-        r'pub\s+struct\s+(\w+)\s*\{',
-        re.DOTALL
-    )
+    struct_pattern = re.compile(r"pub\s+struct\s+(\w+)\s*\{", re.DOTALL)
 
     for match in struct_pattern.finditer(file_content):
         struct_name = match.group(1)
@@ -38,19 +35,19 @@ def parse_struct_fields(file_content):
         depth = 1
         pos = start
         while pos < len(file_content) and depth > 0:
-            if file_content[pos] == '{':
+            if file_content[pos] == "{":
                 depth += 1
-            elif file_content[pos] == '}':
+            elif file_content[pos] == "}":
                 depth -= 1
             pos += 1
 
-        body = file_content[start:pos - 1]
+        body = file_content[start : pos - 1]
 
         fields = {}
         renames = {}
 
         # Parse field definitions line by line
-        lines = body.split('\n')
+        lines = body.split("\n")
         i = 0
         while i < len(lines):
             line = lines[i].strip()
@@ -58,7 +55,9 @@ def parse_struct_fields(file_content):
             # Check for sqlx rename attribute on previous line(s)
             sqlx_rename = None
             j = i - 1
-            while j >= 0 and (lines[j].strip().startswith('#[') or lines[j].strip().startswith('//')):
+            while j >= 0 and (
+                lines[j].strip().startswith("#[") or lines[j].strip().startswith("//")
+            ):
                 rm = re.search(r'#\[sqlx\s*\(\s*rename\s*=\s*"([^"]+)"\s*\)', lines[j])
                 if rm:
                     sqlx_rename = rm.group(1)
@@ -68,7 +67,9 @@ def parse_struct_fields(file_content):
             # Check for serde rename attribute
             serde_rename = None
             j = i - 1
-            while j >= 0 and (lines[j].strip().startswith('#[') or lines[j].strip().startswith('//')):
+            while j >= 0 and (
+                lines[j].strip().startswith("#[") or lines[j].strip().startswith("//")
+            ):
                 rm = re.search(r'#\[serde\s*\(\s*rename\s*=\s*"([^"]+)"\s*\)', lines[j])
                 if rm:
                     serde_rename = rm.group(1)
@@ -76,11 +77,11 @@ def parse_struct_fields(file_content):
                 j -= 1
 
             # Match field definition: pub field_name: Type,
-            m = re.match(r'pub\s+(\w+)\s*:\s*(.+?)(?:,|$)', line)
+            m = re.match(r"pub\s+(\w+)\s*:\s*(.+?)(?:,|$)", line)
             if m:
                 field_name = m.group(1)
-                field_type = m.group(2).strip().rstrip(',')
-                is_optional = field_type.startswith('Option<')
+                field_type = m.group(2).strip().rstrip(",")
+                is_optional = field_type.startswith("Option<")
                 fields[field_name] = is_optional
 
                 if sqlx_rename:
@@ -88,31 +89,31 @@ def parse_struct_fields(file_content):
 
             i += 1
 
-        structs[struct_name] = {'fields': fields, 'renames': renames}
+        structs[struct_name] = {"fields": fields, "renames": renames}
 
     return structs
 
 
 def fix_column_aliases(sql_text, struct_info):
     """Replace AS col with AS "col!" or AS "col?" in the SQL string."""
-    fields = struct_info['fields']
-    renames = struct_info.get('renames', {})
+    fields = struct_info["fields"]
+    renames = struct_info.get("renames", {})
 
     result = sql_text
 
     for field_name, is_optional in fields.items():
         sql_col = renames.get(field_name, field_name)
-        suffix = '?' if is_optional else '!'
+        suffix = "?" if is_optional else "!"
 
         # Match AS sql_col where sql_col is NOT already quoted with ! or ?
         pattern = re.compile(
-            r'\bAS\s+(' + re.escape(sql_col) + r')\b(?!["!?])',
-            re.DOTALL
+            r"\bAS\s+(" + re.escape(sql_col) + r')\b(?!["!?])', re.DOTALL
         )
 
         def make_replacer(col, s):
             def replacer(m):
                 return f'AS "{col}{s}"'
+
             return replacer
 
         result = pattern.sub(make_replacer(sql_col, suffix), result)
@@ -143,14 +144,14 @@ def fix_query_aliases(sql_text):
 def find_sql_string(content, after_pos):
     """Find the raw/regular SQL string after a position. Returns (sql_start, sql_end) or None."""
     # Look for raw string: r", r#", r##", etc.
-    raw_match = re.search(r'(r(#*))"', content[after_pos:after_pos + 50])
+    raw_match = re.search(r'(r(#*))"', content[after_pos : after_pos + 50])
     if raw_match:
         hash_count = len(raw_match.group(2))
-        open_quote = 'r' + '#' * hash_count + '"'
-        close_quote = '"' + '#' * hash_count
+        open_quote = "r" + "#" * hash_count + '"'
+        close_quote = '"' + "#" * hash_count
     else:
         # Regular string
-        quote_match = re.search(r'"', content[after_pos:after_pos + 2])
+        quote_match = re.search(r'"', content[after_pos : after_pos + 2])
         if not quote_match:
             return None
         open_quote = '"'
@@ -170,7 +171,7 @@ def find_sql_string(content, after_pos):
 
 def process_file(filepath):
     """Process a single file, fixing all sqlx macro type annotations."""
-    with open(filepath, 'r', encoding='utf-8') as f:
+    with open(filepath, "r", encoding="utf-8") as f:
         content = f.read()
 
     original_content = content
@@ -182,10 +183,7 @@ def process_file(filepath):
     replacements = []  # List of (start, end, new_text)
 
     # --- query_as! calls ---
-    query_as_pattern = re.compile(
-        r'sqlx::query_as!\s*\(\s*\n?\s*(\w+)\s*,',
-        re.DOTALL
-    )
+    query_as_pattern = re.compile(r"sqlx::query_as!\s*\(\s*\n?\s*(\w+)\s*,", re.DOTALL)
 
     for match in query_as_pattern.finditer(content):
         struct_name = match.group(1)
@@ -205,10 +203,7 @@ def process_file(filepath):
             replacements.append((sql_start, sql_end, fixed_sql))
 
     # --- query_scalar! calls ---
-    query_scalar_pattern = re.compile(
-        r'sqlx::query_scalar!\s*\(\s*\n?\s*',
-        re.DOTALL
-    )
+    query_scalar_pattern = re.compile(r"sqlx::query_scalar!\s*\(\s*\n?\s*", re.DOTALL)
 
     for match in query_scalar_pattern.finditer(content):
         after_pos = match.end()
@@ -224,10 +219,7 @@ def process_file(filepath):
             replacements.append((sql_start, sql_end, fixed_sql))
 
     # --- query! calls (not query_as! or query_scalar!) ---
-    query_pattern = re.compile(
-        r'(?<!_)sqlx::query!\s*\(\s*\n?\s*',
-        re.DOTALL
-    )
+    query_pattern = re.compile(r"(?<!_)sqlx::query!\s*\(\s*\n?\s*", re.DOTALL)
 
     for match in query_pattern.finditer(content):
         after_pos = match.end()
@@ -251,7 +243,7 @@ def process_file(filepath):
 
     if content != original_content:
         print(f"Modified: {filepath} ({len(replacements)} replacements)")
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
     else:
         print(f"No changes: {filepath}")
@@ -266,5 +258,5 @@ def main():
             print(f"File not found: {filepath}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

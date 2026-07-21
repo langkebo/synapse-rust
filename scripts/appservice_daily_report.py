@@ -31,7 +31,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run appservice long-window soak scenarios and generate a daily JSON/Markdown report."
     )
-    parser.add_argument("--day", default="D2", choices=["D1", "D2", "D3"], help="Daily report phase label.")
+    parser.add_argument(
+        "--day",
+        default="D2",
+        choices=["D1", "D2", "D3"],
+        help="Daily report phase label.",
+    )
     parser.add_argument(
         "--scenarios",
         nargs="+",
@@ -41,7 +46,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", default="http://localhost:8008")
     parser.add_argument("--prometheus-url", default="http://localhost:9090/metrics")
     parser.add_argument("--token-file", default="/tmp/admin_token.txt")
-    parser.add_argument("--output-dir", required=True, help="Directory to write scenario outputs and the daily report.")
+    parser.add_argument(
+        "--output-dir",
+        required=True,
+        help="Directory to write scenario outputs and the daily report.",
+    )
     parser.add_argument("--event-only-duration", type=int, default=60)
     parser.add_argument("--transaction-only-duration", type=int, default=60)
     parser.add_argument("--mixed-duration", type=int, default=60)
@@ -114,7 +123,9 @@ def scenario_display_name(name: str) -> str:
     return mapping[name]
 
 
-def run_named_scenario(client: soak.AdminClient, args: argparse.Namespace, name: str) -> dict:
+def run_named_scenario(
+    client: soak.AdminClient, args: argparse.Namespace, name: str
+) -> dict:
     if name in {"event-only", "transaction-only", "mixed", "super-event-heavy"}:
         return run_stress_scenario(args, name)
     if name == "mixed-backoff":
@@ -157,11 +168,23 @@ def run_stress_scenario(args: argparse.Namespace, name: str) -> dict:
         name,
         str(scenario_duration(args, name)),
     ]
-    subprocess.run(command, check=True, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(
+        command,
+        check=True,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
-    scenario_payload = json.loads((results_dir / f"{name}.json").read_text(encoding="utf-8"))
-    preflight_payload = json.loads((results_dir / "outlet-consistency-preflight.json").read_text(encoding="utf-8"))
-    postrun_payload = json.loads((results_dir / "outlet-consistency-post-run.json").read_text(encoding="utf-8"))
+    scenario_payload = json.loads(
+        (results_dir / f"{name}.json").read_text(encoding="utf-8")
+    )
+    preflight_payload = json.loads(
+        (results_dir / "outlet-consistency-preflight.json").read_text(encoding="utf-8")
+    )
+    postrun_payload = json.loads(
+        (results_dir / "outlet-consistency-post-run.json").read_text(encoding="utf-8")
+    )
     return {
         "scenario": name,
         "duration_seconds": scenario_payload["duration_seconds"],
@@ -262,7 +285,10 @@ def summarize_day(results: list[dict], args: argparse.Namespace) -> dict:
             }
         )
         if reasons:
-            warnings.extend(f"{scenario_display_name(result['scenario'])}: {reason}" for reason in reasons)
+            warnings.extend(
+                f"{scenario_display_name(result['scenario'])}: {reason}"
+                for reason in reasons
+            )
 
     if all(observability_states):
         observability = "可信"
@@ -283,13 +309,25 @@ def summarize_day(results: list[dict], args: argparse.Namespace) -> dict:
 
     report_date = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d")
     execution_result = "；".join(
-        f"{summary['display_name']}: {summary['status']}" for summary in scenario_summaries
+        f"{summary['display_name']}: {summary['status']}"
+        for summary in scenario_summaries
     )
-    core_metrics = " | ".join(build_core_metric_line(summary["raw"], summary["status"]) for summary in scenario_summaries)
-    service_samples = " | ".join(build_service_sample_line(summary["raw"]) for summary in scenario_summaries)
-    risk_and_blockers = "；".join(warnings) if warnings else "无新增阻塞，保留观测样本继续累计"
+    core_metrics = " | ".join(
+        build_core_metric_line(summary["raw"], summary["status"])
+        for summary in scenario_summaries
+    )
+    service_samples = " | ".join(
+        build_service_sample_line(summary["raw"]) for summary in scenario_summaries
+    )
+    risk_and_blockers = (
+        "；".join(warnings) if warnings else "无新增阻塞，保留观测样本继续累计"
+    )
     report_exit_code = soak.exit_code_for_status(
-        "失败" if conclusion == "进入参数评审" else "预警" if conclusion == "继续观察" else "通过",
+        "失败"
+        if conclusion == "进入参数评审"
+        else "预警"
+        if conclusion == "继续观察"
+        else "通过",
         args.fail_on,
     )
 

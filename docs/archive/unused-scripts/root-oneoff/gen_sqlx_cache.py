@@ -12,12 +12,21 @@ queries = {
             "columns": [],
             "parameters": {
                 "Left": [
-                    "Text", "Text", "Text", "Text", "Text", "Text", "Text", "Text",
-                    "Int8", "Float8", "Float8"
+                    "Text",
+                    "Text",
+                    "Text",
+                    "Text",
+                    "Text",
+                    "Text",
+                    "Text",
+                    "Text",
+                    "Int8",
+                    "Float8",
+                    "Float8",
                 ]
             },
-            "nullable": []
-        }
+            "nullable": [],
+        },
     },
     "get_request_by_token": {
         "query": """SELECT
@@ -48,11 +57,24 @@ queries = {
                 {"ordinal": 8, "name": "pubkey", "type_info": "Text"},
                 {"ordinal": 9, "name": "created_ts", "type_info": "Int8"},
                 {"ordinal": 10, "name": "expires_at!", "type_info": "Int8"},
-                {"ordinal": 11, "name": "completed_at", "type_info": "Int8"}
+                {"ordinal": 11, "name": "completed_at", "type_info": "Int8"},
             ],
             "parameters": {"Left": ["Text"]},
-            "nullable": [False, False, False, True, False, False, False, True, True, False, None, True]
-        }
+            "nullable": [
+                False,
+                False,
+                False,
+                True,
+                False,
+                False,
+                False,
+                True,
+                True,
+                False,
+                None,
+                True,
+            ],
+        },
     },
     "get_pending_request": {
         "query": """SELECT
@@ -83,11 +105,24 @@ queries = {
                 {"ordinal": 8, "name": "pubkey", "type_info": "Text"},
                 {"ordinal": 9, "name": "created_ts", "type_info": "Int8"},
                 {"ordinal": 10, "name": "expires_at!", "type_info": "Int8"},
-                {"ordinal": 11, "name": "completed_at", "type_info": "Int8"}
+                {"ordinal": 11, "name": "completed_at", "type_info": "Int8"},
             ],
             "parameters": {"Left": ["Text", "Text"]},
-            "nullable": [False, False, False, True, False, False, False, True, True, False, None, True]
-        }
+            "nullable": [
+                False,
+                False,
+                False,
+                True,
+                False,
+                False,
+                False,
+                True,
+                True,
+                False,
+                None,
+                True,
+            ],
+        },
     },
     "update_request_status": {
         "query": """UPDATE device_verification_request
@@ -96,18 +131,14 @@ queries = {
         "describe": {
             "columns": [],
             "parameters": {"Left": ["Text", "Float8", "Text"]},
-            "nullable": []
-        }
+            "nullable": [],
+        },
     },
     "cleanup_expired_requests": {
         "query": """UPDATE device_verification_request
              SET status = 'expired', completed_at = NOW()
              WHERE status = 'pending' AND expires_at < NOW()""",
-        "describe": {
-            "columns": [],
-            "parameters": {"Left": []},
-            "nullable": []
-        }
+        "describe": {"columns": [], "parameters": {"Left": []}, "nullable": []},
     },
     "log_key_rotation": {
         "query": """INSERT INTO key_rotation_log
@@ -115,10 +146,21 @@ queries = {
              VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8::double precision / 1000.0))""",
         "describe": {
             "columns": [],
-            "parameters": {"Left": ["Text", "Text", "Text", "Text", "Text", "Text", "Text", "Float8"]},
-            "nullable": []
-        }
-    }
+            "parameters": {
+                "Left": [
+                    "Text",
+                    "Text",
+                    "Text",
+                    "Text",
+                    "Text",
+                    "Text",
+                    "Text",
+                    "Float8",
+                ]
+            },
+            "nullable": [],
+        },
+    },
 }
 
 sqlx_dir = "/Users/ljf/Desktop/hu_ts/synapse-rust/.sqlx"
@@ -130,9 +172,9 @@ for name, data in queries.items():
         "db_name": "PostgreSQL",
         "query": query_text,
         "describe": data["describe"],
-        "hash": hash_val
+        "hash": hash_val,
     }
     filepath = os.path.join(sqlx_dir, f"query-{hash_val}.json")
-    with open(filepath, 'w') as f:
+    with open(filepath, "w") as f:
         json.dump(entry, f, indent=2)
     print(f"Created {filepath} for {name}")

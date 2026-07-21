@@ -24,7 +24,9 @@ STORAGE_ROOT = REPO_ROOT / "src" / "storage"
 CANONICAL_STORAGE_ROOT = REPO_ROOT / "synapse-storage" / "src"
 
 FORBIDDEN_STORAGE_GLOB = re.compile(r"pub\s+use\s+crate::storage::\*")
-FACADE_EXPORT = re.compile(r"pub\s+use\s+synapse_(services|storage|common|cache|e2ee|federation)[^;]*;")
+FACADE_EXPORT = re.compile(
+    r"pub\s+use\s+synapse_(services|storage|common|cache|e2ee|federation)[^;]*;"
+)
 ATTRIBUTE_LINE = re.compile(r"^\s*#(!)?\[[^\]]+\]\s*$")
 LINE_COMMENT = re.compile(r"//.*$")
 
@@ -100,7 +102,9 @@ def classify_root_file(file_path: Path) -> str:
     return "full_impl"
 
 
-def collect_layer_summary(layer_name: str, root_dir: Path, canonical_dir: Path) -> tuple[list[str], Counter[str]]:
+def collect_layer_summary(
+    layer_name: str, root_dir: Path, canonical_dir: Path
+) -> tuple[list[str], Counter[str]]:
     overlaps = find_overlaps(root_dir, canonical_dir)
     categories: Counter[str] = Counter()
     for rel_path in overlaps:
@@ -112,9 +116,13 @@ def collect_layer_summary(layer_name: str, root_dir: Path, canonical_dir: Path) 
         if categories[category]:
             print(f"[ledger]   - {category}: {categories[category]}")
 
-    full_impl_paths = [path for path in overlaps if classify_root_file(root_dir / path) == "full_impl"]
+    full_impl_paths = [
+        path for path in overlaps if classify_root_file(root_dir / path) == "full_impl"
+    ]
     if full_impl_paths:
-        print(f"[ledger]   - full_impl sample ({min(20, len(full_impl_paths))}/{len(full_impl_paths)}):")
+        print(
+            f"[ledger]   - full_impl sample ({min(20, len(full_impl_paths))}/{len(full_impl_paths)}):"
+        )
         for rel_path in full_impl_paths[:20]:
             print(f"[ledger]     * {layer_name}/{rel_path}")
 
@@ -131,7 +139,9 @@ def find_storage_glob_violations() -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Inventory root/canonical overlap debt and guard service storage re-export leaks.")
+    parser = argparse.ArgumentParser(
+        description="Inventory root/canonical overlap debt and guard service storage re-export leaks."
+    )
     parser.add_argument(
         "--fail-on-full-impl",
         action="store_true",
@@ -140,12 +150,19 @@ def main() -> int:
     args = parser.parse_args()
 
     print("[ledger] root/canonical overlap inventory")
-    service_overlaps, service_categories = collect_layer_summary("services", SERVICE_ROOT, CANONICAL_SERVICE_ROOT)
-    storage_overlaps, storage_categories = collect_layer_summary("storage", STORAGE_ROOT, CANONICAL_STORAGE_ROOT)
+    service_overlaps, service_categories = collect_layer_summary(
+        "services", SERVICE_ROOT, CANONICAL_SERVICE_ROOT
+    )
+    storage_overlaps, storage_categories = collect_layer_summary(
+        "storage", STORAGE_ROOT, CANONICAL_STORAGE_ROOT
+    )
 
     violations = find_storage_glob_violations()
     if violations:
-        print("[ledger] FAIL: forbidden `pub use crate::storage::*` found in service layer", file=sys.stderr)
+        print(
+            "[ledger] FAIL: forbidden `pub use crate::storage::*` found in service layer",
+            file=sys.stderr,
+        )
         for rel_path in violations:
             print(f"[ledger]   * {rel_path}", file=sys.stderr)
         return 1
@@ -159,7 +176,9 @@ def main() -> int:
         f"(facade={storage_categories['thin_facade']}, full_impl={storage_categories['full_impl']})"
     )
 
-    if args.fail_on_full_impl and (service_categories["full_impl"] or storage_categories["full_impl"]):
+    if args.fail_on_full_impl and (
+        service_categories["full_impl"] or storage_categories["full_impl"]
+    ):
         print("[ledger] FAIL: full_impl overlaps remain", file=sys.stderr)
         return 1
 

@@ -71,7 +71,10 @@ class Handler(BaseHTTPRequestHandler):
                 FAILURE_BUDGET[token] = remaining_failures - 1
                 self._write_json(
                     503,
-                    {"error": "configured transient failure", "remaining_failures": FAILURE_BUDGET[token]},
+                    {
+                        "error": "configured transient failure",
+                        "remaining_failures": FAILURE_BUDGET[token],
+                    },
                 )
                 return
 

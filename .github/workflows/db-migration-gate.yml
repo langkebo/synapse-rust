@@ -210,31 +210,31 @@ jobs:
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-        run: cargo test --locked --test unit thread_storage_tests -- --test-threads=1
+        run: cargo test --locked --features test-utils --test unit thread_storage_tests -- --test-threads=1
 
       - name: Run retention storage database smoke tests
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-        run: cargo test --locked --test unit retention_storage_tests -- --test-threads=1
+        run: cargo test --locked --features test-utils --test unit retention_storage_tests -- --test-threads=1
 
       - name: Run room summary storage database smoke tests
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-        run: cargo test --locked --test unit room_summary_storage_tests -- --test-threads=1
+        run: cargo test --locked --features test-utils --test unit room_summary_storage_tests -- --test-threads=1
 
       - name: Run db schema smoke tests
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-        run: cargo test --locked --test unit db_schema_smoke_tests -- --test-threads=1
+        run: cargo test --locked --features test-utils --test unit db_schema_smoke_tests -- --test-threads=1
 
       - name: Run schema contract p0 tests
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-        run: cargo test --locked --test unit schema_contract_p0 -- --test-threads=1
+        run: cargo test --locked --features test-utils --test unit schema_contract_p0 -- --test-threads=1
 
       - name: Run room core schema contract integration tests
         env:
@@ -391,7 +391,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-        run: cargo test --locked --test unit invite_blocklist_tests -- --test-threads=1
+        run: cargo test --locked --features test-utils --test unit invite_blocklist_tests -- --test-threads=1
 
       - name: Generate logical checksum report
         env:

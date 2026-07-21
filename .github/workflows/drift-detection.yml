@@ -318,22 +318,14 @@ jobs:
             fi
 
             ran_any=1
-            start_time=$(python3 - <<'PY'
-            from time import time_ns
-            print(time_ns() // 1_000_000)
-            PY
-            )
+            start_time=$(date +%s%3N)
 
             if ! PGPASSWORD=synapse psql -h localhost -U synapse -d synapse -f "$migration"; then
               failed=1
               continue
             fi
 
-            end_time=$(python3 - <<'PY'
-            from time import time_ns
-            print(time_ns() // 1_000_000)
-            PY
-            )
+            end_time=$(date +%s%3N)
             duration=$((end_time - start_time))
 
             echo "Migration: $(basename "$migration")"

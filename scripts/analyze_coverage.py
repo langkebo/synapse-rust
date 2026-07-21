@@ -106,7 +106,9 @@ def classify(pct: float, lh: int, threshold: float, warn_floor: float) -> str:
     return "FAIL"
 
 
-def parse_lcov(path: pathlib.Path, threshold: float, warn_floor: float) -> List[FileCoverage]:
+def parse_lcov(
+    path: pathlib.Path, threshold: float, warn_floor: float
+) -> List[FileCoverage]:
     """Parse lcov.info and return list of FileCoverage records.
 
     Only files under src/ directories (any crate) with .rs extension are kept.
@@ -196,7 +198,9 @@ def render_markdown(
     out.append("# synapse-rust 测试覆盖率分析报告")
     out.append("")
     out.append(f"- 数据来源: `coverage/lcov.info`")
-    out.append(f"- 阈值: 达标 ≥ {threshold:.0f}% | 警告 ≥ {warn_floor:.0f}% | 不达标 < {warn_floor:.0f}% | 零覆盖 LH=0")
+    out.append(
+        f"- 阈值: 达标 ≥ {threshold:.0f}% | 警告 ≥ {warn_floor:.0f}% | 不达标 < {warn_floor:.0f}% | 零覆盖 LH=0"
+    )
     if crate_filter:
         out.append(f"- Crate 过滤: `{crate_filter}`")
     out.append("")
@@ -224,10 +228,18 @@ def render_markdown(
     out.append(f"| 总行数 (LF) | {total_lf:,} |")
     out.append(f"| 命中行数 (LH) | {total_lh:,} |")
     out.append(f"| 整体行覆盖率 | **{overall_pct:.2f}%** |")
-    out.append(f"| ✅ 达标文件 (≥{threshold:.0f}%) | {len(pass_files)} ({len(pass_files)/total_files*100:.1f}%) |")
-    out.append(f"| ⚠️ 警告文件 ({warn_floor:.0f}-{threshold:.0f}%) | {len(warn_files)} ({len(warn_files)/total_files*100:.1f}%) |")
-    out.append(f"| ❌ 不达标文件 (<{warn_floor:.0f}%) | {len(fail_files)} ({len(fail_files)/total_files*100:.1f}%) |")
-    out.append(f"| ⛔ 零覆盖文件 (LH=0) | {len(zero_files)} ({len(zero_files)/total_files*100:.1f}%) |")
+    out.append(
+        f"| ✅ 达标文件 (≥{threshold:.0f}%) | {len(pass_files)} ({len(pass_files) / total_files * 100:.1f}%) |"
+    )
+    out.append(
+        f"| ⚠️ 警告文件 ({warn_floor:.0f}-{threshold:.0f}%) | {len(warn_files)} ({len(warn_files) / total_files * 100:.1f}%) |"
+    )
+    out.append(
+        f"| ❌ 不达标文件 (<{warn_floor:.0f}%) | {len(fail_files)} ({len(fail_files) / total_files * 100:.1f}%) |"
+    )
+    out.append(
+        f"| ⛔ 零覆盖文件 (LH=0) | {len(zero_files)} ({len(zero_files) / total_files * 100:.1f}%) |"
+    )
     out.append("")
 
     # ---- 按 crate 分组 ----
@@ -241,8 +253,12 @@ def render_markdown(
 
     out.append("## 2. 按 Crate 分组统计")
     out.append("")
-    out.append("| Crate | 文件数 | 总行数 | 命中行数 | 加权覆盖率 | 平均覆盖率 | 不达标+零覆盖 |")
-    out.append("|-------|--------|--------|----------|-----------|-----------|---------------|")
+    out.append(
+        "| Crate | 文件数 | 总行数 | 命中行数 | 加权覆盖率 | 平均覆盖率 | 不达标+零覆盖 |"
+    )
+    out.append(
+        "|-------|--------|--------|----------|-----------|-----------|---------------|"
+    )
     for crate_name in sorted(crate_stats.keys()):
         cs = crate_stats[crate_name]
         failing = len(cs.failing_files)
@@ -286,9 +302,7 @@ def render_markdown(
         out.append("| # | 文件路径 | 覆盖率 | 总行数 LF | 命中行数 LH |")
         out.append("|---|----------|--------|-----------|-------------|")
         for i, f in enumerate(warn_all, 1):
-            out.append(
-                f"| {i} | `{f.rel_path}` | {f.pct:.2f}% | {f.lf} | {f.lh} |"
-            )
+            out.append(f"| {i} | `{f.rel_path}` | {f.pct:.2f}% | {f.lf} | {f.lh} |")
         out.append("")
 
     # ---- 每个 crate 中覆盖率最低的 5 个文件 ----
@@ -321,11 +335,23 @@ def render_markdown(
         ("synapse-storage", "device", ["synapse-storage/src/device"]),
         ("synapse-services", "auth", ["synapse-services/src/auth/"]),
         ("synapse-services", "sync_service", ["synapse-services/src/sync_service"]),
-        ("synapse-services", "sliding_sync_service", ["synapse-services/src/sliding_sync_service"]),
-        ("synapse-services", "friend_room_service", ["synapse-services/src/friend_room_service"]),
+        (
+            "synapse-services",
+            "sliding_sync_service",
+            ["synapse-services/src/sliding_sync_service"],
+        ),
+        (
+            "synapse-services",
+            "friend_room_service",
+            ["synapse-services/src/friend_room_service"],
+        ),
         ("synapse-federation", "client", ["synapse-federation/src/client.rs"]),
         ("synapse-federation", "event_auth", ["synapse-federation/src/event_auth"]),
-        ("synapse-federation", "device_sync", ["synapse-federation/src/device_sync.rs"]),
+        (
+            "synapse-federation",
+            "device_sync",
+            ["synapse-federation/src/device_sync.rs"],
+        ),
         ("src/web/routes", "login", ["src/web/routes/auth.rs", "src/web/routes/auth/"]),
         ("src/web/routes", "register", ["src/web/routes/register.rs"]),
         ("src/web/routes", "sync", ["src/web/routes/sync.rs"]),
@@ -340,7 +366,9 @@ def render_markdown(
     for crate_name, mod_name, prefixes in key_modules:
         matched = [f for f in files if any(f.rel_path.startswith(p) for p in prefixes)]
         if not matched:
-            out.append(f"| {crate_name} | {mod_name} | ⛔ 无覆盖率数据 | lcov.info 中未找到匹配文件 (前缀: {', '.join(prefixes)}) |")
+            out.append(
+                f"| {crate_name} | {mod_name} | ⛔ 无覆盖率数据 | lcov.info 中未找到匹配文件 (前缀: {', '.join(prefixes)}) |"
+            )
             continue
         agg_lf = sum(f.lf for f in matched)
         agg_lh = sum(f.lh for f in matched)
@@ -367,19 +395,27 @@ def main() -> int:
         description="Analyze lcov.info and emit a Markdown coverage report."
     )
     parser.add_argument(
-        "--lcov", type=pathlib.Path, default=DEFAULT_LCOV,
+        "--lcov",
+        type=pathlib.Path,
+        default=DEFAULT_LCOV,
         help=f"Path to lcov.info (default: {DEFAULT_LCOV})",
     )
     parser.add_argument(
-        "--threshold", type=float, default=80.0,
+        "--threshold",
+        type=float,
+        default=80.0,
         help="Pass threshold (default: 80)",
     )
     parser.add_argument(
-        "--warn-floor", type=float, default=70.0,
+        "--warn-floor",
+        type=float,
+        default=70.0,
         help="Warn floor / global threshold (default: 70)",
     )
     parser.add_argument(
-        "--crate", type=str, default=None,
+        "--crate",
+        type=str,
+        default=None,
         help="Filter to a specific crate (e.g. synapse-storage, 'main (src/)')",
     )
     args = parser.parse_args()

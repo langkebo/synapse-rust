@@ -46,8 +46,7 @@ def save_baseline(path: pathlib.Path, files: Dict[str, float]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "files": [
-            {"path": p, "line_pct": round(v, 2)}
-            for p, v in sorted(files.items())
+            {"path": p, "line_pct": round(v, 2)} for p, v in sorted(files.items())
         ]
     }
     with open(path, "w") as f:
@@ -119,11 +118,11 @@ def _normalize_path(p: str) -> str:
     for marker in ["/src/", "src/"]:
         idx = p.find(marker)
         if idx != -1:
-            return p[idx + len(marker):]
+            return p[idx + len(marker) :]
     try:
         rel = str(pathlib.Path(p).relative_to(ROOT))
         if rel.startswith("src/"):
-            return rel[len("src/"):]
+            return rel[len("src/") :]
         return rel
     except ValueError:
         return p
@@ -253,40 +252,58 @@ def main() -> int:
         description="Enforce per-file coverage thresholds from a tarpaulin JSON report."
     )
     parser.add_argument(
-        "--report", required=True, type=pathlib.Path,
-        help="Path to tarpaulin JSON report."
+        "--report",
+        required=True,
+        type=pathlib.Path,
+        help="Path to tarpaulin JSON report.",
     )
     parser.add_argument(
-        "--baseline", required=True, type=pathlib.Path,
-        help="Path to prior coverage baseline JSON (created if missing)."
+        "--baseline",
+        required=True,
+        type=pathlib.Path,
+        help="Path to prior coverage baseline JSON (created if missing).",
     )
     parser.add_argument(
-        "--threshold", type=float, default=80.0,
-        help="TDD-mandated file line-coverage floor (default: 80)."
+        "--threshold",
+        type=float,
+        default=80.0,
+        help="TDD-mandated file line-coverage floor (default: 80).",
     )
     parser.add_argument(
-        "--tdd-files", type=pathlib.Path, default=None,
-        help="File listing TDD-mandated paths (one per line, relative to src/)."
+        "--tdd-files",
+        type=pathlib.Path,
+        default=None,
+        help="File listing TDD-mandated paths (one per line, relative to src/).",
     )
     parser.add_argument(
-        "--global-floor", type=float, default=70.0,
-        help="Global coverage floor for all src files (default: 70)."
+        "--global-floor",
+        type=float,
+        default=70.0,
+        help="Global coverage floor for all src files (default: 70).",
     )
     parser.add_argument(
-        "--new-file-floor", type=float, default=60.0,
-        help="Ramp-up coverage floor for files without a baseline (default: 60)."
+        "--new-file-floor",
+        type=float,
+        default=60.0,
+        help="Ramp-up coverage floor for files without a baseline (default: 60).",
     )
     parser.add_argument(
-        "--core-files", type=pathlib.Path, default=None,
-        help="File listing core security paths (one prefix per line, matched by prefix)."
+        "--core-files",
+        type=pathlib.Path,
+        default=None,
+        help="File listing core security paths (one prefix per line, matched by prefix).",
     )
     parser.add_argument(
-        "--core-threshold", type=float, default=70.0,
-        help="Core-path coverage floor (default: 70)."
+        "--core-threshold",
+        type=float,
+        default=70.0,
+        help="Core-path coverage floor (default: 70).",
     )
     parser.add_argument(
-        "--save-baseline", type=pathlib.Path, default=None,
-        help="Path to write the updated baseline snapshot (default: overwrite --baseline)."
+        "--save-baseline",
+        type=pathlib.Path,
+        default=None,
+        help="Path to write the updated baseline snapshot (default: overwrite --baseline).",
     )
     args = parser.parse_args()
 

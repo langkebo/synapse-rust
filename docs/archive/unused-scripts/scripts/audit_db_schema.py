@@ -189,7 +189,9 @@ def extract_rust_structs():
                 }
 
     # Now extract struct-to-table mapping from query_as calls
-    struct_table_map, alias_maps, projection_structs, query_columns = _extract_struct_table_mapping(rust_dir, structs)
+    struct_table_map, alias_maps, projection_structs, query_columns = (
+        _extract_struct_table_mapping(rust_dir, structs)
+    )
     for sname, tname in struct_table_map.items():
         if sname in structs:
             structs[sname]["table"] = tname
@@ -240,7 +242,9 @@ def _extract_struct_table_mapping(rust_dir, structs):
                     if sname not in mapping:
                         mapping[sname] = tname
 
-                select_m = re.search(r"\bSELECT\b(.*?)\bFROM\b", sql_text, re.IGNORECASE | re.DOTALL)
+                select_m = re.search(
+                    r"\bSELECT\b(.*?)\bFROM\b", sql_text, re.IGNORECASE | re.DOTALL
+                )
                 if select_m:
                     selected = select_m.group(1)
                     selected_cols = _extract_selected_output_columns(selected)
@@ -292,7 +296,9 @@ def _extract_struct_table_mapping(rust_dir, structs):
 def _extract_selected_output_columns(selected):
     """Return likely output column names from a SELECT list."""
     columns = set()
-    for alias_m in re.finditer(r"\bAS\s+\"?([A-Za-z_][A-Za-z0-9_]*)\"?", selected, re.IGNORECASE):
+    for alias_m in re.finditer(
+        r"\bAS\s+\"?([A-Za-z_][A-Za-z0-9_]*)\"?", selected, re.IGNORECASE
+    ):
         columns.add(alias_m.group(1))
 
     for part in selected.split(","):
@@ -441,7 +447,9 @@ def compare_schema_vs_code(sql_tables, rust_structs):
         # Check: Rust fields with no matching SQL column
         for db_name, (fname, ftype) in db_to_rust.items():
             if db_name not in sql_cols:
-                if is_projection and (fname in query_output_columns or db_name in query_output_columns):
+                if is_projection and (
+                    fname in query_output_columns or db_name in query_output_columns
+                ):
                     continue
                 is_option = "Option<" in ftype
                 target = issues["critical"] if not is_option else issues["high"]

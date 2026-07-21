@@ -27,17 +27,32 @@ FAIL_ON_CHOICES = ("never", "warning", "failure")
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run extended live appservice soak scenarios.")
+    parser = argparse.ArgumentParser(
+        description="Run extended live appservice soak scenarios."
+    )
     parser.add_argument(
         "scenario",
         choices=["continuous-ingress", "mixed-backoff", "recovery"],
         help="Scenario to execute.",
     )
-    parser.add_argument("--base-url", default=os.environ.get("BASE_URL", "http://localhost:8008"))
-    parser.add_argument("--prometheus-url", default=os.environ.get("PROMETHEUS_URL", "http://localhost:9090/metrics"))
-    parser.add_argument("--token-file", default=os.environ.get("ADMIN_TOKEN_FILE", "/tmp/admin_token.txt"))
+    parser.add_argument(
+        "--base-url", default=os.environ.get("BASE_URL", "http://localhost:8008")
+    )
+    parser.add_argument(
+        "--prometheus-url",
+        default=os.environ.get("PROMETHEUS_URL", "http://localhost:9090/metrics"),
+    )
+    parser.add_argument(
+        "--token-file",
+        default=os.environ.get("ADMIN_TOKEN_FILE", "/tmp/admin_token.txt"),
+    )
     parser.add_argument("--output", help="Optional path to write the JSON result.")
-    parser.add_argument("--duration", type=int, default=60, help="Loop duration in seconds for sustained scenarios.")
+    parser.add_argument(
+        "--duration",
+        type=int,
+        default=60,
+        help="Loop duration in seconds for sustained scenarios.",
+    )
     parser.add_argument(
         "--recovery-wait",
         type=int,
@@ -60,7 +75,9 @@ def load_token(token_file: str) -> str:
         with open(token_file, "r", encoding="utf-8") as handle:
             return handle.read().strip()
     except OSError as exc:
-        raise SystemExit(f"failed to read admin token from {token_file}: {exc}") from exc
+        raise SystemExit(
+            f"failed to read admin token from {token_file}: {exc}"
+        ) from exc
 
 
 class AdminClient:
@@ -101,7 +118,11 @@ class AdminClient:
                 if attempt + 1 >= retries:
                     raise
                 time.sleep(retry_delay)
-        raise last_error if last_error is not None else RuntimeError("request failed without an error")
+        raise (
+            last_error
+            if last_error is not None
+            else RuntimeError("request failed without an error")
+        )
 
     def post_event(self, as_id: str, room_id: str, body: str) -> None:
         payload = {
@@ -111,7 +132,11 @@ class AdminClient:
             "content": {"msgtype": "m.text", "body": body},
         }
         try:
-            self._request(f"/_synapse/admin/v1/appservices/{as_id}/events", method="POST", payload=payload)
+            self._request(
+                f"/_synapse/admin/v1/appservices/{as_id}/events",
+                method="POST",
+                payload=payload,
+            )
         except urllib.error.URLError:
             # Keep long-running soak loops moving if the local instance hiccups.
             return
@@ -153,9 +178,13 @@ def parse_metric_value(raw: str) -> int | float:
 def aggregate_statistics_summary(stats: list[dict]) -> dict:
     return {
         "total_services": len(stats),
-        "scheduler_available_services": sum(1 for item in stats if item.get("scheduler", {}).get("available") is True),
+        "scheduler_available_services": sum(
+            1 for item in stats if item.get("scheduler", {}).get("available") is True
+        ),
         "services_in_backoff": sum(
-            1 for item in stats if item.get("scheduler", {}).get("transaction_state") == "retry_backoff"
+            1
+            for item in stats
+            if item.get("scheduler", {}).get("transaction_state") == "retry_backoff"
         ),
         "services_capacity_limited": sum(
             1
@@ -166,18 +195,34 @@ def aggregate_statistics_summary(stats: list[dict]) -> dict:
         "services_with_pending_transactions": sum(
             1
             for item in stats
-            if (item.get("pending_transaction_count", 0) or item.get("scheduler", {}).get("pending_transaction_count", 0))
+            if (
+                item.get("pending_transaction_count", 0)
+                or item.get("scheduler", {}).get("pending_transaction_count", 0)
+            )
             > 0
         ),
-        "total_pending_events": sum(item.get("pending_event_count", 0) for item in stats),
-        "total_pending_transactions": sum(item.get("pending_transaction_count", 0) for item in stats),
-        "total_success_count": sum(item.get("scheduler", {}).get("total_success_count", 0) for item in stats),
-        "total_failure_count": sum(item.get("scheduler", {}).get("total_failure_count", 0) for item in stats),
-        "total_backoff_count": sum(item.get("scheduler", {}).get("total_backoff_count", 0) for item in stats),
-        "total_capacity_limited_count": sum(
-            item.get("scheduler", {}).get("total_capacity_limited_count", 0) for item in stats
+        "total_pending_events": sum(
+            item.get("pending_event_count", 0) for item in stats
         ),
-        "total_in_flight_count": sum(item.get("scheduler", {}).get("total_in_flight_count", 0) for item in stats),
+        "total_pending_transactions": sum(
+            item.get("pending_transaction_count", 0) for item in stats
+        ),
+        "total_success_count": sum(
+            item.get("scheduler", {}).get("total_success_count", 0) for item in stats
+        ),
+        "total_failure_count": sum(
+            item.get("scheduler", {}).get("total_failure_count", 0) for item in stats
+        ),
+        "total_backoff_count": sum(
+            item.get("scheduler", {}).get("total_backoff_count", 0) for item in stats
+        ),
+        "total_capacity_limited_count": sum(
+            item.get("scheduler", {}).get("total_capacity_limited_count", 0)
+            for item in stats
+        ),
+        "total_in_flight_count": sum(
+            item.get("scheduler", {}).get("total_in_flight_count", 0) for item in stats
+        ),
     }
 
 
@@ -209,7 +254,9 @@ def build_prometheus_summary(metrics_text: str) -> dict:
         "total_capacity_limited_count": "synapse_appservice_scheduler_capacity_limited_count",
         "total_in_flight_count": "synapse_appservice_scheduler_in_flight_count",
     }
-    return {key: metric_map.get(metric_name, 0) for key, metric_name in metric_names.items()}
+    return {
+        key: metric_map.get(metric_name, 0) for key, metric_name in metric_names.items()
+    }
 
 
 def compare_outlets(statistics: dict, telemetry: dict, prometheus: dict) -> dict:
@@ -237,7 +284,9 @@ def compare_outlets(statistics: dict, telemetry: dict, prometheus: dict) -> dict
     return {
         "consistent": not mismatched_keys,
         "mismatched_keys": mismatched_keys,
-        "max_abs_delta": int(max_abs_delta) if max_abs_delta.is_integer() else max_abs_delta,
+        "max_abs_delta": int(max_abs_delta)
+        if max_abs_delta.is_integer()
+        else max_abs_delta,
         "comparisons": comparisons,
     }
 
@@ -249,7 +298,9 @@ def collect_outlet_snapshot(client: AdminClient) -> dict:
     statistics_summary = aggregate_statistics_summary(stats)
     telemetry_summary = normalize_telemetry_summary(telemetry)
     prometheus_summary = build_prometheus_summary(prometheus)
-    consistency = compare_outlets(statistics_summary, telemetry_summary, prometheus_summary)
+    consistency = compare_outlets(
+        statistics_summary, telemetry_summary, prometheus_summary
+    )
     return {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "raw_statistics": stats,
@@ -270,7 +321,9 @@ def classify_scenario_result(result: dict) -> tuple[str, list[str]]:
     reasons: list[str] = []
 
     if not consistency["consistent"]:
-        reasons.append(f"三出口关键聚合不一致: {', '.join(consistency['mismatched_keys']) or 'unknown'}")
+        reasons.append(
+            f"三出口关键聚合不一致: {', '.join(consistency['mismatched_keys']) or 'unknown'}"
+        )
         return "失败", reasons
 
     if scenario == "recovery":
@@ -282,7 +335,9 @@ def classify_scenario_result(result: dict) -> tuple[str, list[str]]:
             or service.get("transaction_state") not in (None, "", "idle")
         ]
         if unrecovered:
-            reasons.append(f"恢复窗口结束后仍有服务未回到 idle: {', '.join(unrecovered)}")
+            reasons.append(
+                f"恢复窗口结束后仍有服务未回到 idle: {', '.join(unrecovered)}"
+            )
             return "预警", reasons
         return "通过", reasons
 
@@ -334,7 +389,9 @@ def classify_scenario_result(result: dict) -> tuple[str, list[str]]:
 
     if scenario == "mixed-backoff":
         healthy_success = result["scenario_metrics"]["healthy"]["total_success_count"]
-        unhealthy_backoff = result["scenario_metrics"]["unhealthy"]["total_backoff_count"]
+        unhealthy_backoff = result["scenario_metrics"]["unhealthy"][
+            "total_backoff_count"
+        ]
         pending_events = stats["total_pending_events"]
         if healthy_success <= 0:
             reasons.append("健康 AS 未观察到成功推进")
@@ -353,7 +410,9 @@ def classify_scenario_result(result: dict) -> tuple[str, list[str]]:
             reasons.append("轻量服务未获得 dispatch，疑似出现饿死")
             return "失败", reasons
         if stats["services_capacity_limited"] > 0:
-            reasons.append(f"极端场景命中 capacity_limited: {stats['services_capacity_limited']}")
+            reasons.append(
+                f"极端场景命中 capacity_limited: {stats['services_capacity_limited']}"
+            )
             return "预警", reasons
         return "通过", reasons
 
@@ -400,7 +459,9 @@ def run_continuous_ingress(client: AdminClient, duration: int) -> dict:
             "injected": injected,
             "pending_event_count": service.get("pending_event_count", 0),
             "pending_transaction_count": service.get("pending_transaction_count", 0),
-            "total_success_count": service.get("scheduler", {}).get("total_success_count", 0),
+            "total_success_count": service.get("scheduler", {}).get(
+                "total_success_count", 0
+            ),
             "last_result": service.get("scheduler", {}).get("last_result"),
         },
         "preflight": preflight,
@@ -429,17 +490,29 @@ def run_mixed_backoff(client: AdminClient, duration: int) -> dict:
             "injected": injected,
             "healthy": {
                 "pending_event_count": healthy.get("pending_event_count", 0),
-                "pending_transaction_count": healthy.get("pending_transaction_count", 0),
-                "total_success_count": healthy.get("scheduler", {}).get("total_success_count", 0),
+                "pending_transaction_count": healthy.get(
+                    "pending_transaction_count", 0
+                ),
+                "total_success_count": healthy.get("scheduler", {}).get(
+                    "total_success_count", 0
+                ),
                 "last_result": healthy.get("scheduler", {}).get("last_result"),
             },
             "unhealthy": {
                 "pending_event_count": unhealthy.get("pending_event_count", 0),
-                "pending_transaction_count": unhealthy.get("pending_transaction_count", 0),
-                "transaction_state": unhealthy.get("scheduler", {}).get("transaction_state"),
+                "pending_transaction_count": unhealthy.get(
+                    "pending_transaction_count", 0
+                ),
+                "transaction_state": unhealthy.get("scheduler", {}).get(
+                    "transaction_state"
+                ),
                 "last_result": unhealthy.get("scheduler", {}).get("last_result"),
-                "total_backoff_count": unhealthy.get("scheduler", {}).get("total_backoff_count", 0),
-                "total_failure_count": unhealthy.get("scheduler", {}).get("total_failure_count", 0),
+                "total_backoff_count": unhealthy.get("scheduler", {}).get(
+                    "total_backoff_count", 0
+                ),
+                "total_failure_count": unhealthy.get("scheduler", {}).get(
+                    "total_failure_count", 0
+                ),
             },
         },
         "preflight": preflight,
@@ -466,12 +539,22 @@ def run_recovery(client: AdminClient, recovery_wait: int) -> dict:
             {
                 "as_id": service.get("as_id"),
                 "pending_event_count": service.get("pending_event_count", 0),
-                "pending_transaction_count": service.get("pending_transaction_count", 0),
-                "transaction_state": service.get("scheduler", {}).get("transaction_state"),
+                "pending_transaction_count": service.get(
+                    "pending_transaction_count", 0
+                ),
+                "transaction_state": service.get("scheduler", {}).get(
+                    "transaction_state"
+                ),
                 "last_result": service.get("scheduler", {}).get("last_result"),
-                "total_backoff_count": service.get("scheduler", {}).get("total_backoff_count", 0),
-                "total_failure_count": service.get("scheduler", {}).get("total_failure_count", 0),
-                "total_success_count": service.get("scheduler", {}).get("total_success_count", 0),
+                "total_backoff_count": service.get("scheduler", {}).get(
+                    "total_backoff_count", 0
+                ),
+                "total_failure_count": service.get("scheduler", {}).get(
+                    "total_failure_count", 0
+                ),
+                "total_success_count": service.get("scheduler", {}).get(
+                    "total_success_count", 0
+                ),
             }
         )
 
