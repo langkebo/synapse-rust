@@ -21,7 +21,6 @@ pub struct AdminRegistrationService {
     server_name: String,
     config: AdminRegistrationConfig,
     user_storage: Arc<dyn UserStore>,
-    // TODO(D4): wire user_service into convenience calls that currently go through user_storage
     #[allow(dead_code)]
     user_service: Arc<UserService>,
     cache: Arc<CacheManager>,

@@ -18,7 +18,6 @@ pub struct RoomStateService {
     pub(crate) event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     pub(crate) room_tag_storage: Arc<dyn RoomTagStoreApi>,
     pub(crate) user_storage: Arc<dyn UserStore>,
-    // TODO(D4): wire into user_service for room-state convenience calls
     #[allow(dead_code)]
     pub(crate) user_service: Arc<UserService>,
     pub(crate) server_name: String,

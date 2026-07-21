@@ -14,7 +14,6 @@ pub struct UserRateLimit {
 
 pub struct AdminSecurityService {
     user_storage: Arc<dyn UserStore>,
-    // TODO(D4): wire user_service into convenience calls when admin security operations are migrated
     #[allow(dead_code)]
     user_service: Arc<UserService>,
     rate_limit_storage: Arc<dyn RateLimitStoreApi>,
