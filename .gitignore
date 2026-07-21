@@ -89,6 +89,9 @@ register_test_accounts.py
 # gstack 计划文件（自动化工作流生成）
 docs/superpowers/plans/
 
+# 测试工具链依赖（由 npm install 重建，不应入仓）
+tests/element-web-harness/node_modules/
+
 # 代码覆盖率和变异测试产物
 coverage/
 mutants.out/
