@@ -11,19 +11,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Format check: `cargo fmt --all -- --check`
 - Clippy: `SQLX_OFFLINE=true cargo clippy --all-features --locked -- -D warnings`
 - Doc tests: `cargo test --doc --locked`
-- Full test suite: `cargo test --all-features --locked -- --test-threads=4`
-- CI-equivalent Rust test entrypoint: `TEST_THREADS=4 TEST_RETRIES=2 bash scripts/run_ci_tests.sh`
-- If `cargo-nextest` is installed, `scripts/run_ci_tests.sh` uses it automatically; otherwise it falls back to `cargo test` with retries.
 
 - Enable local git hooks: `git config core.hooksPath .githooks` (pre-commit: cargo audit advisory, pre-push: cargo deny advisories blocking)
 
-### Running specific tests
-- Unit test target: `cargo test --test unit`
-- Integration test target: `cargo test --test integration`
-- E2E target: `cargo test --test e2e`
-- Performance manual target: `cargo test --features performance-tests --test performance_manual -- --nocapture`
-- Run one named test: `cargo test --test integration <test_name> -- --exact --nocapture`
-- Run one unit test from the unit target: `cargo test --test unit <test_name> -- --exact --nocapture`
+### Running tests
+
+- **Full suite (all lib + unit tests, no DB):**
+  `cargo nt --lib --test unit`
+- **Lib tests only:** `cargo nt --lib`
+- **Unit test target only:** `cargo nt --test unit`
+- **Single named test:**
+  `cargo nt --test unit <test_name>`
+- **Integration tests (requires PostgreSQL):**
+  `cargo nt --features privacy-ext,voice-extended,voip-tracking,beacons,server-notifications --test integration`
+- **Full CI suite:** `bash scripts/run_ci_tests.sh`
+- **Clippy:** `SQLX_OFFLINE=true cargo clippy --all-features --locked -- -D warnings`
+
+**Why `--profile test` is required:** Lib tests in `synapse-services` import
+`test_mocks` modules from sibling crates (`synapse-storage`, `synapse-e2ee`,
+`synapse-federation`). These modules are gated on
+`#[cfg(any(test, feature = "test-utils"))]`. Rust's `#[cfg(test)]` does NOT
+propagate to dependency crates — so without `--features test-utils`, the
+`test_mocks` modules are missing at compile time and you get 119 E0432/E0433
+errors.
+
+The `test` nextest profile injects `test-utils` automatically.
 
 ### Benchmarks and coverage
 - API benchmark compile/run path: `cargo bench --bench performance_api_benchmarks --no-run`
