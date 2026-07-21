@@ -21,6 +21,8 @@ exclude-files = [
     "src/test_utils.rs",
     "tests/**",
     "benches/**",
+    "**/test_mocks.rs",
+    "**/test_mocks/**",
 ]
 
 # Features to enable

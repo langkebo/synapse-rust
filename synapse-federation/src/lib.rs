@@ -15,6 +15,7 @@ pub mod memory_tracker;
 pub mod server_acl;
 pub mod signing;
 pub mod state_resolution;
+#[cfg(any(test, feature = "test-utils"))]
 pub mod test_mocks;
 
 pub use client::FederationClient;

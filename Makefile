@@ -114,15 +114,29 @@ test-integration:
 
 test-coverage:
 	@echo "Running tests with coverage (tarpaulin)..."
-	@cargo tarpaulin --out Html --out Xml --out Json --include-tests --locked
+	@cargo tarpaulin --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications" \
+	  --out Html --out Xml --out Json --include-tests --locked
 
 test-coverage-check:
-	@echo "Running tests with coverage threshold check (≥25% hard floor, per-file ratchet enforces ≥80% on TDD files)..."
-	@cargo tarpaulin --fail-under 25 --out Html --out Lcov --out Json --output-dir coverage --include-tests --locked
+	@echo "Running tests with coverage threshold check (≥40% hard floor, per-file ratchet enforces ≥80% on TDD files)..."
+	@cargo tarpaulin --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications" \
+	  --fail-under 40 --out Html --out Lcov --out Json --output-dir coverage --include-tests --locked
 	@python3 scripts/check_file_coverage.py \
 	  --report coverage/tarpaulin-report.json \
 	  --baseline artifacts/coverage_baseline.json \
-	  --threshold 80 --global-floor 25 --new-file-floor 20
+	  --threshold 80 --global-floor 40 --new-file-floor 30 \
+	  --core-files artifacts/core_file_list.txt --core-threshold 70
+
+test-cov-local:
+	@echo "Running tarpaulin (local, no network needed)..."
+	@cargo tarpaulin --workspace \
+	  --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications" \
+	  --include-tests --out Html --out Json --output-dir coverage/ --fail-under 40 --locked
+	@python3 scripts/check_file_coverage.py \
+	  --report coverage/tarpaulin-report.json \
+	  --baseline artifacts/coverage_baseline.json \
+	  --threshold 80 --global-floor 40 --new-file-floor 30 \
+	  --core-files artifacts/core_file_list.txt --core-threshold 70
 
 test-mutation:
 	@echo "Running batched mutation smoke tests (cargo-mutants, nightly)..."

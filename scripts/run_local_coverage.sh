@@ -46,10 +46,8 @@ echo "    Output directory = $OUTPUT_DIR/"
 
 # Tarpaulin flag rationale:
 #   --workspace           Cover every crate in the workspace (not just root)
-#   --all-features        Compile every source-level feature so all .rs files
-#                         are visible to the instrumenter
-#   --features test-utils Build the integration/unit/e2e test binaries declared
-#                         with `required-features = ["test-utils"]` in Cargo.toml
+#   --features            Minimal set: test-utils (test binaries) + features
+#                         required by integration/unit/e2e test targets
 #   --include-tests       Run integration test targets (tests/*) in addition
 #                         to lib/bin unit tests
 #   --out Lcov            Emit coverage/lcov.info for analyze_coverage.py
@@ -61,8 +59,7 @@ echo "    Output directory = $OUTPUT_DIR/"
 #   default parallelism (1 thread per CPU) is acceptable for coverage runs.
 cargo tarpaulin \
     --workspace \
-    --all-features \
-    --features test-utils \
+    --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications" \
     --include-tests \
     --out Lcov \
     --output-dir "$OUTPUT_DIR" \

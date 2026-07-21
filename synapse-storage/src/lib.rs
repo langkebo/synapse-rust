@@ -58,6 +58,7 @@ pub mod sliding_sync;
 pub mod space;
 pub mod state_groups;
 pub mod sticky_event;
+#[cfg(any(test, feature = "test-utils"))]
 pub mod test_mocks;
 pub mod thread;
 pub mod threepid;

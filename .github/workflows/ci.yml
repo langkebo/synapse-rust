@@ -475,9 +475,6 @@ jobs:
           sqlx database create
           sqlx migrate run --source artifacts/sqlx-migrations
 
-      - name: Pre-cache swagger-ui zip
-        run: bash scripts/precache-swagger-ui.sh
-
       - name: Run coverage
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
@@ -487,10 +484,8 @@ jobs:
         run: |
           # Tarpaulin flag rationale (see scripts/run_local_coverage.sh):
           #   --workspace           cover every crate in the workspace
-          #   --all-features         compile every source-level feature so all .rs files
-          #                         are visible to the instrumenter
-          #   --features test-utils build integration/unit/e2e test binaries declared
-          #                         with `required-features = ["test-utils"]`
+          #   --features            minimal set: test-utils (test binaries) + features
+          #                         required by integration/unit/e2e test targets
           #   --include-tests        run integration test targets (tests/*) in addition
           #                         to lib/bin unit tests
           #   --output-dir coverage/  collect tarpaulin-report.{xml,json,html} in one place
@@ -498,8 +493,7 @@ jobs:
           #                         enforced at ≥70% by check_file_coverage below
           cargo tarpaulin \
             --workspace \
-            --all-features \
-            --features test-utils \
+            --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications" \
             --include-tests \
             --out Xml --out Json --out Html \
             --output-dir coverage/ \
