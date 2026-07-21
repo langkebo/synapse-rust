@@ -19,15 +19,15 @@ fail-fast = true
 retries = 0
 flaky-result = "fail"
 
-# Dev profile for zero-flags test runs.
-# Usage: cargo nextest run --profile test
-#         cargo nextest run --profile test --lib          (lib tests only)
-#         cargo nextest run --profile test --test unit     (unit test target)
-#         cargo nextest run --profile test --test integration  (needs DB)
+# Dev profile for zero-flags test runs (with nextest 0.9.140).
+# Usage: cargo nt --lib          (lib tests with test-utils)
+#        cargo nt --test unit    (unit test target)
+#        cargo nt --test integration  (needs DB)
 #
-# Includes test-utils feature so lib tests that import test_mocks
-# from sibling crates compile correctly.
+# NOTE: nextest 0.9.140 does NOT support 'features' in profile config;
+#       the 'features = "test-utils"' line is silently ignored with a warning.
+#       Use the 'cargo nt' alias instead:
+#         cargo nt = nextest run --profile test --features test-utils
 [profile.test]
-features = "test-utils"
 fail-fast = true
 retries = 0
