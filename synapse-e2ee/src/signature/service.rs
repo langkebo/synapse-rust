@@ -199,7 +199,13 @@ mod tests {
         let signature = signing_key.sign(b"$original:localhost");
         let sig_base64 = base64::engine::general_purpose::STANDARD.encode(signature.to_bytes());
 
-        let result = svc.verify_event("$tampered:localhost", "@user:localhost", "DEVICE1", &sig_base64, verifying_key.as_bytes());
+        let result = svc.verify_event(
+            "$tampered:localhost",
+            "@user:localhost",
+            "DEVICE1",
+            &sig_base64,
+            verifying_key.as_bytes(),
+        );
         assert!(!result.unwrap());
     }
 

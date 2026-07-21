@@ -5,10 +5,9 @@ use crate::web::routes::handlers::room::{
     create_private_room, get_room_device, get_room_permissions, get_room_reduced_events, get_room_resolve,
 };
 use crate::web::routes::{
-    ban_user, claim_room_keys, convert_room_event, create_room, ensure_room_member_ctx, forget_room,
-    forward_room_keys, get_event_keys,
-    get_joined_members, get_membership_events, get_messages, get_power_levels, get_receipts, get_retention_policy,
-    get_room_account_data, get_room_aliases, get_room_capabilities, get_room_encrypted_events,
+    ban_user, claim_room_keys, convert_room_event, create_room, ensure_room_member_ctx, forget_room, forward_room_keys,
+    get_event_keys, get_joined_members, get_membership_events, get_messages, get_power_levels, get_receipts,
+    get_retention_policy, get_room_account_data, get_room_aliases, get_room_capabilities, get_room_encrypted_events,
     get_room_event_perspective, get_room_event_url, get_room_external_ids, get_room_info, get_room_invites,
     get_room_key_count, get_room_keys, get_room_keys_version, get_room_members, get_room_members_recent,
     get_room_membership, get_room_message_queue, get_room_metadata, get_room_notifications, get_room_rendered,
@@ -328,13 +327,7 @@ async fn get_anti_screenshot(
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    ensure_room_member_ctx(
-        &ctx,
-        &auth_user,
-        &room_id,
-        "You must be a room member to get anti-screenshot",
-    )
-    .await?;
+    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a room member to get anti-screenshot").await?;
 
     // Check room state for com.hula.privacy event with block_screenshot action
     let events: Vec<serde_json::Value> =
@@ -355,13 +348,7 @@ async fn set_anti_screenshot(
     Path(room_id): Path<String>,
     Json(payload): Json<AntiScreenshotPayload>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    ensure_room_member_ctx(
-        &ctx,
-        &auth_user,
-        &room_id,
-        "You must be a room member to set anti-screenshot",
-    )
-    .await?;
+    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a room member to set anti-screenshot").await?;
 
     let action: &str = if payload.enabled { "block_screenshot" } else { "allow_screenshot" };
 

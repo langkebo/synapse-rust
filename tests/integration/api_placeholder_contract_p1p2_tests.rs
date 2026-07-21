@@ -939,10 +939,7 @@ async fn test_anti_screenshot_read_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("GET")
-            .uri(format!(
-                "/_matrix/client/v3/rooms/{}/anti_screenshot",
-                encoded_room_id
-            ))
+            .uri(format!("/_matrix/client/v3/rooms/{}/anti_screenshot", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .body(Body::empty())
             .unwrap(),
@@ -970,10 +967,7 @@ async fn test_burn_after_read_contract_rejects_non_members() {
         &app,
         Request::builder()
             .method("PUT")
-            .uri(format!(
-                "/_matrix/client/v3/rooms/{}/burn",
-                encoded_room_id
-            ))
+            .uri(format!("/_matrix/client/v3/rooms/{}/burn", encoded_room_id))
             .header("Authorization", format!("Bearer {}", outsider_token))
             .header("Content-Type", "application/json")
             .body(Body::from(json!({ "enabled": true }).to_string()))

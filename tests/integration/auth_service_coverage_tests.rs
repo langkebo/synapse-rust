@@ -59,10 +59,7 @@ fn build_auth(pool: &Arc<sqlx::PgPool>, security: &SecurityConfig) -> AuthServic
 }
 
 /// Build an AuthService whose cache is shared so we can pre-seed lockout keys.
-fn build_auth_with_cache(
-    pool: &Arc<sqlx::PgPool>,
-    security: &SecurityConfig,
-) -> (AuthService, Arc<CacheManager>) {
+fn build_auth_with_cache(pool: &Arc<sqlx::PgPool>, security: &SecurityConfig) -> (AuthService, Arc<CacheManager>) {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let metrics = Arc::new(MetricsCollector::new());
     let auth = AuthService::new(pool, cache.clone(), metrics, security, "localhost");
@@ -156,10 +153,7 @@ async fn test_register_empty_password_returns_missing_param() {
     let username = unique_username();
     let result = auth.register(&username, "", false, None).await;
     assert!(result.is_err());
-    assert!(
-        result.unwrap_err().code_is(MatrixErrorCode::MissingParam),
-        "empty password should yield M_MISSING_PARAM"
-    );
+    assert!(result.unwrap_err().code_is(MatrixErrorCode::MissingParam), "empty password should yield M_MISSING_PARAM");
 }
 
 #[tokio::test]
@@ -170,9 +164,7 @@ async fn test_register_with_displayname_sets_displayname() {
 
     let username = unique_username();
     let displayname = format!("Display Name {}", unique_id());
-    let result = auth
-        .register(&username, "StrongP@ss1!", false, Some(&displayname))
-        .await;
+    let result = auth.register(&username, "StrongP@ss1!", false, Some(&displayname)).await;
     assert!(result.is_ok(), "register with displayname should succeed: {:?}", result.err());
 
     // Verify displayname was persisted (best-effort; update_displayname failure
@@ -188,15 +180,7 @@ async fn test_register_with_device_name_returns_device_id() {
     let auth = build_auth(&pool, &security);
 
     let username = unique_username();
-    let result = auth
-        .register_with_device_name(
-            &username,
-            "StrongP@ss1!",
-            false,
-            None,
-            Some("my-test-device"),
-        )
-        .await;
+    let result = auth.register_with_device_name(&username, "StrongP@ss1!", false, None, Some("my-test-device")).await;
     assert!(result.is_ok(), "register_with_device_name should succeed: {:?}", result.err());
     let (_user, _access, _refresh, device_id) = result.unwrap();
     assert!(!device_id.is_empty(), "device_id must be generated");
@@ -244,11 +228,7 @@ async fn test_login_with_wrong_password_returns_forbidden() {
     let login_result = auth.login(&username, "WrongPassword99!", None, None).await;
     assert!(login_result.is_err());
     let err = login_result.unwrap_err();
-    assert!(
-        err.code_is(MatrixErrorCode::Forbidden),
-        "expected M_FORBIDDEN for wrong password, got {:?}",
-        err.code()
-    );
+    assert!(err.code_is(MatrixErrorCode::Forbidden), "expected M_FORBIDDEN for wrong password, got {:?}", err.code());
 
     // Failure counter should be incremented.
     let failure_counter = auth.metrics.get_counter("auth_login_failure_total");
@@ -267,9 +247,7 @@ async fn test_login_with_explicit_device_id_creates_new_device() {
     auth.register(&username, password, false, None).await.unwrap();
 
     let custom_device_id = format!("explicitdev_{}", unique_id());
-    let login_result = auth
-        .login(&username, password, Some(&custom_device_id), None)
-        .await;
+    let login_result = auth.login(&username, password, Some(&custom_device_id), None).await;
     assert!(login_result.is_ok(), "login with explicit device_id should succeed: {:?}", login_result.err());
     let (_user, _access, _refresh, device_id) = login_result.unwrap();
     assert_eq!(device_id, custom_device_id, "login should return the supplied device_id");
@@ -286,16 +264,10 @@ async fn test_login_with_initial_display_name_too_long_returns_bad_request() {
     auth.register(&username, password, false, None).await.unwrap();
 
     let long_name = "x".repeat(101);
-    let result = auth
-        .login(&username, password, None, Some(&long_name))
-        .await;
+    let result = auth.login(&username, password, None, Some(&long_name)).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(
-        err.is_bad_request(),
-        "expected bad_request for >100 char display name, got {:?}",
-        err.code()
-    );
+    assert!(err.is_bad_request(), "expected bad_request for >100 char display name, got {:?}", err.code());
 }
 
 #[tokio::test]
@@ -306,10 +278,7 @@ async fn test_login_deactivated_user_returns_forbidden() {
 
     let username = unique_username();
     let password = "StrongP@ss1!";
-    let (user, _access, _refresh, _device) = auth
-        .register(&username, password, false, None)
-        .await
-        .unwrap();
+    let (user, _access, _refresh, _device) = auth.register(&username, password, false, None).await.unwrap();
 
     // Deactivate the user directly via SQL.
     sqlx::query("UPDATE users SET is_deactivated = TRUE WHERE user_id = $1")
@@ -320,10 +289,7 @@ async fn test_login_deactivated_user_returns_forbidden() {
 
     let result = auth.login(&username, password, None, None).await;
     assert!(result.is_err());
-    assert!(
-        result.unwrap_err().code_is(MatrixErrorCode::Forbidden),
-        "deactivated user login should be M_FORBIDDEN"
-    );
+    assert!(result.unwrap_err().code_is(MatrixErrorCode::Forbidden), "deactivated user login should be M_FORBIDDEN");
 }
 
 #[tokio::test]
@@ -334,10 +300,7 @@ async fn test_verify_user_credentials_success() {
 
     let username = unique_username();
     let password = "StrongP@ss1!";
-    let (user, _access, _refresh, _device) = auth
-        .register(&username, password, false, None)
-        .await
-        .unwrap();
+    let (user, _access, _refresh, _device) = auth.register(&username, password, false, None).await.unwrap();
 
     let verify = auth.verify_user_credentials(&user.user_id, password).await;
     assert!(verify.is_ok(), "verify_user_credentials should succeed: {:?}", verify.err());
@@ -350,17 +313,11 @@ async fn test_verify_user_credentials_wrong_password_returns_forbidden() {
     let auth = build_auth(&pool, &security);
 
     let username = unique_username();
-    let (user, _access, _refresh, _device) = auth
-        .register(&username, "StrongP@ss1!", false, None)
-        .await
-        .unwrap();
+    let (user, _access, _refresh, _device) = auth.register(&username, "StrongP@ss1!", false, None).await.unwrap();
 
     let result = auth.verify_user_credentials(&user.user_id, "WrongPassword99!").await;
     assert!(result.is_err());
-    assert!(
-        result.unwrap_err().code_is(MatrixErrorCode::Forbidden),
-        "wrong password should yield M_FORBIDDEN"
-    );
+    assert!(result.unwrap_err().code_is(MatrixErrorCode::Forbidden), "wrong password should yield M_FORBIDDEN");
 }
 
 #[tokio::test]
@@ -369,14 +326,9 @@ async fn test_verify_user_credentials_nonexistent_user_returns_forbidden() {
     let security = test_security();
     let auth = build_auth(&pool, &security);
 
-    let result = auth
-        .verify_user_credentials("@nonexistent_cov:localhost", "anypassword")
-        .await;
+    let result = auth.verify_user_credentials("@nonexistent_cov:localhost", "anypassword").await;
     assert!(result.is_err());
-    assert!(
-        result.unwrap_err().code_is(MatrixErrorCode::Forbidden),
-        "nonexistent user should yield M_FORBIDDEN"
-    );
+    assert!(result.unwrap_err().code_is(MatrixErrorCode::Forbidden), "nonexistent user should yield M_FORBIDDEN");
 }
 
 #[tokio::test]
@@ -387,10 +339,7 @@ async fn test_login_locked_account_returns_rate_limited() {
 
     let username = unique_username();
     let password = "StrongP@ss1!";
-    let (user, _access, _refresh, _device) = auth
-        .register(&username, password, false, None)
-        .await
-        .unwrap();
+    let (user, _access, _refresh, _device) = auth.register(&username, password, false, None).await.unwrap();
 
     // Pre-seed the lockout cache key so is_account_locked() returns true.
     let lockout_key = format!("auth:lockout:{}", user.user_id);
@@ -419,10 +368,7 @@ async fn test_login_failure_lockout_after_threshold() {
 
     let username = unique_username();
     let password = "StrongP@ss1!";
-    let (user, _access, _refresh, _device) = auth
-        .register(&username, password, false, None)
-        .await
-        .unwrap();
+    let (user, _access, _refresh, _device) = auth.register(&username, password, false, None).await.unwrap();
 
     // Two wrong-password logins should trigger lockout (threshold = 2).
     for _ in 0..2 {
@@ -432,10 +378,7 @@ async fn test_login_failure_lockout_after_threshold() {
     // After lockout, even the correct password should be rate-limited.
     let lockout_key = format!("auth:lockout:{}", user.user_id);
     let lockout_until: Option<i64> = cache.get(&lockout_key).await.unwrap();
-    assert!(
-        lockout_until.is_some(),
-        "lockout key should be set after threshold failures"
-    );
+    assert!(lockout_until.is_some(), "lockout key should be set after threshold failures");
 
     let result = auth.login(&username, password, None, None).await;
     assert!(result.is_err());
@@ -453,10 +396,7 @@ async fn test_login_clears_logout_marker_on_success() {
 
     let username = unique_username();
     let password = "StrongP@ss1!";
-    let (user, _access, _refresh, _device) = auth
-        .register(&username, password, false, None)
-        .await
-        .unwrap();
+    let (user, _access, _refresh, _device) = auth.register(&username, password, false, None).await.unwrap();
 
     // Seed a logout marker (as if the user had previously called logout_all).
     let logout_marker = format!("user:logout_all:{}", user.user_id);
@@ -467,9 +407,5 @@ async fn test_login_clears_logout_marker_on_success() {
 
     // The logout marker should have been deleted.
     let marker: Option<String> = cache.get(&logout_marker).await.unwrap();
-    assert!(
-        marker.is_none(),
-        "logout marker should be cleared on successful login"
-    );
+    assert!(marker.is_none(), "logout marker should be cleared on successful login");
 }
-

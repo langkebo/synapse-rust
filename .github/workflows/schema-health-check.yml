@@ -61,19 +61,19 @@ jobs:
       - name: Wait for Postgres
         run: |
           for i in {1..30}; do
-            if pg_isready -h 127.0.0.1 -p 5432; then break; fi
+            if pg_isready -h 127.0.0.1 -p 5432 -U synapse; then break; fi
             sleep 2
           done
 
-      - name: Apply v8 baseline schema
+      - name: Apply v10 baseline schema
         env:
           PGPASSWORD: synapse
         run: |
           psql -h 127.0.0.1 -U synapse -d synapse_health -v ON_ERROR_STOP=1 \
-            -f migrations/00000000_unified_schema_v8.sql
-          if [ -f migrations/00000001_extensions_v8.sql ]; then
+            -f migrations/00000000_unified_schema_v10.sql
+          if [ -f migrations/00000001_extensions_v10.sql ]; then
             psql -h 127.0.0.1 -U synapse -d synapse_health -v ON_ERROR_STOP=1 \
-              -f migrations/00000001_extensions_v8.sql
+              -f migrations/00000001_extensions_v10.sql
           fi
 
       - name: Build schema_health_check binary

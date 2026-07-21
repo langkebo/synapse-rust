@@ -577,11 +577,11 @@ mod tests {
             })
         }
         async fn cancel_burn(&self, user_id: &str, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
-            self.state
-                .lock()
-                .expect("fake mutex poisoned")
-                .cancel_burn_calls
-                .push((user_id.into(), room_id.into(), event_id.into()));
+            self.state.lock().expect("fake mutex poisoned").cancel_burn_calls.push((
+                user_id.into(),
+                room_id.into(),
+                event_id.into(),
+            ));
             Ok(())
         }
         async fn get_pending_burns(&self, _u: &str, _r: &str) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
@@ -601,11 +601,12 @@ mod tests {
             event_id: &str,
             ts: i64,
         ) -> Result<(), sqlx::Error> {
-            self.state
-                .lock()
-                .expect("fake mutex poisoned")
-                .log_burned_calls
-                .push((user_id.into(), room_id.into(), event_id.into(), ts));
+            self.state.lock().expect("fake mutex poisoned").log_burned_calls.push((
+                user_id.into(),
+                room_id.into(),
+                event_id.into(),
+                ts,
+            ));
             Ok(())
         }
         async fn get_user_stats(&self, _user_id: &str) -> Result<BurnStatsRow, sqlx::Error> {
@@ -624,9 +625,7 @@ mod tests {
         }
     }
 
-    fn make_service(
-        storage: Arc<dyn BurnAfterReadStoreApi>,
-    ) -> Arc<BurnAfterReadService> {
+    fn make_service(storage: Arc<dyn BurnAfterReadStoreApi>) -> Arc<BurnAfterReadService> {
         let event_writer: Arc<dyn synapse_storage::event::EventWriter> =
             Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
         Arc::new(BurnAfterReadService::new(storage, event_writer, "test.example.com".to_string()))
@@ -718,7 +717,11 @@ mod tests {
         // delete_ts should be roughly now + 5_000 (allow 2s skew for test latency)
         let now = chrono::Utc::now().timestamp_millis();
         let delete_ts = calls[0].3;
-        assert!(delete_ts >= now + 4_900 && delete_ts <= now + 5_100, "delete_ts={delete_ts}, now+5000={}", now + 5_000);
+        assert!(
+            delete_ts >= now + 4_900 && delete_ts <= now + 5_100,
+            "delete_ts={delete_ts}, now+5000={}",
+            now + 5_000
+        );
     }
 
     #[tokio::test]
@@ -734,11 +737,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_user_stats_maps_row_to_burn_stats() {
-        let store = Arc::new(FakeBurnStore::with_stats(BurnStatsRow {
-            total_burned: 5,
-            total_pending: 2,
-            rooms_enabled: 3,
-        }));
+        let store =
+            Arc::new(FakeBurnStore::with_stats(BurnStatsRow { total_burned: 5, total_pending: 2, rooms_enabled: 3 }));
         let svc = make_service(store);
         let stats = svc.get_user_stats("@alice:ex.com").await.unwrap();
         assert_eq!(stats.total_burned, 5);

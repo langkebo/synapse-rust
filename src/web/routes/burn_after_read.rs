@@ -87,13 +87,8 @@ pub async fn enable_burn(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_room_member_ctx(
-        &ctx,
-        &auth_user,
-        &room_id,
-        "You must be a room member to configure burn-after-read",
-    )
-    .await?;
+    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a room member to configure burn-after-read")
+        .await?;
 
     let room_exists: bool = ctx
         .room_service
@@ -128,13 +123,8 @@ pub async fn get_burn_settings(
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_room_member_ctx(
-        &ctx,
-        &auth_user,
-        &room_id,
-        "You must be a room member to view burn-after-read settings",
-    )
-    .await?;
+    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a room member to view burn-after-read settings")
+        .await?;
 
     let room_exists: bool = ctx
         .room_service
@@ -172,13 +162,8 @@ pub async fn mark_burn_read(
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_room_member_ctx(
-        &ctx,
-        &auth_user,
-        &room_id,
-        "You must be a room member to mark burn-after-read events",
-    )
-    .await?;
+    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a room member to mark burn-after-read events")
+        .await?;
 
     let room_exists: bool = ctx
         .room_service
@@ -274,13 +259,8 @@ pub async fn cancel_burn(
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_room_member_ctx(
-        &ctx,
-        &auth_user,
-        &room_id,
-        "You must be a room member to cancel burn-after-read events",
-    )
-    .await?;
+    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a room member to cancel burn-after-read events")
+        .await?;
 
     let room_exists: bool = ctx
         .room_service

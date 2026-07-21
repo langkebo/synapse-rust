@@ -92,8 +92,7 @@ mod tests {
     use synapse_common::task_queue::RedisTaskQueue;
     use synapse_storage::event::RoomEvent;
     use synapse_storage::test_mocks::{
-        InMemoryEventStore, InMemoryMemberStore, InMemoryRelationsStore, InMemoryRoomStore,
-        InMemoryRoomSummaryStore,
+        InMemoryEventStore, InMemoryMemberStore, InMemoryRelationsStore, InMemoryRoomStore, InMemoryRoomSummaryStore,
     };
 
     /// Build a minimal MessagingService with `task_queue=None` and seeded events.
@@ -105,10 +104,7 @@ mod tests {
     /// `Some`, the scheduling path is exercised (the spawned task sleeps, so
     /// with `tokio::time::pause()` the submit() call never fires and no real
     /// Redis connection is needed).
-    async fn make_service_with_queue(
-        seeded: Vec<RoomEvent>,
-        queue: Option<Arc<RedisTaskQueue>>,
-    ) -> MessagingService {
+    async fn make_service_with_queue(seeded: Vec<RoomEvent>, queue: Option<Arc<RedisTaskQueue>>) -> MessagingService {
         let event_store = Arc::new(InMemoryEventStore::new());
         event_store.seed_events(seeded).await;
 
@@ -173,27 +169,21 @@ mod tests {
     async fn process_read_receipt_returns_ok_when_event_not_found() {
         let svc = make_service(vec![]).await;
         // event_id does not exist — early return Ok(()).
-        svc.process_read_receipt("!room:ex.com", "$missing:ex.com", "@alice:ex.com", None)
-            .await
-            .unwrap();
+        svc.process_read_receipt("!room:ex.com", "$missing:ex.com", "@alice:ex.com", None).await.unwrap();
     }
 
     #[tokio::test]
     async fn process_read_receipt_returns_ok_when_content_is_not_object() {
         let event = make_event("$e1:ex.com", serde_json::json!(42));
         let svc = make_service(vec![event]).await;
-        svc.process_read_receipt("!room:ex.com", "$e1:ex.com", "@alice:ex.com", None)
-            .await
-            .unwrap();
+        svc.process_read_receipt("!room:ex.com", "$e1:ex.com", "@alice:ex.com", None).await.unwrap();
     }
 
     #[tokio::test]
     async fn process_read_receipt_returns_ok_when_content_lacks_burn_after_read_key() {
         let event = make_event("$e2:ex.com", serde_json::json!({"body": "hi"}));
         let svc = make_service(vec![event]).await;
-        svc.process_read_receipt("!room:ex.com", "$e2:ex.com", "@alice:ex.com", None)
-            .await
-            .unwrap();
+        svc.process_read_receipt("!room:ex.com", "$e2:ex.com", "@alice:ex.com", None).await.unwrap();
     }
 
     #[tokio::test]
@@ -201,9 +191,7 @@ mod tests {
         // Content has burn_after_read but task_queue is None — early return Ok(()).
         let event = make_event("$e3:ex.com", serde_json::json!({"burn_after_read": true}));
         let svc = make_service(vec![event]).await;
-        svc.process_read_receipt("!room:ex.com", "$e3:ex.com", "@alice:ex.com", None)
-            .await
-            .unwrap();
+        svc.process_read_receipt("!room:ex.com", "$e3:ex.com", "@alice:ex.com", None).await.unwrap();
         // active_tasks must remain empty because we never spawn a task.
         assert!(svc.active_tasks.read().await.is_empty(), "no task should be scheduled without a queue");
     }
@@ -214,19 +202,18 @@ mod tests {
         // the `map_or(BURN_AFTER_READ_DELAY_SECS, ...)` fallback branch. The
         // spawned task's `sleep` is parked indefinitely because of
         // `start_paused = true`, so the fake Redis pool is never contacted.
-        let event = make_event(
-            "$e4:ex.com",
-            serde_json::json!({"burn_after_read": true, "body": "self-destruct"}),
-        );
+        let event = make_event("$e4:ex.com", serde_json::json!({"burn_after_read": true, "body": "self-destruct"}));
         let svc = make_service_with_queue(vec![event], Some(make_fake_queue())).await;
-        svc.process_read_receipt("!room:ex.com", "$e4:ex.com", "@alice:ex.com", None)
-            .await
-            .unwrap();
+        svc.process_read_receipt("!room:ex.com", "$e4:ex.com", "@alice:ex.com", None).await.unwrap();
 
         let tasks = svc.active_tasks.read().await;
         assert_eq!(tasks.len(), 1, "exactly one burn task must be scheduled");
         let expected_id = format!("burn_after_read:!room:ex.com:$e4:ex.com:{BURN_AFTER_READ_DELAY_SECS}");
-        assert!(tasks.contains_key(&expected_id), "task_id must match expected format; got keys: {:?}", tasks.keys().collect::<Vec<_>>());
+        assert!(
+            tasks.contains_key(&expected_id),
+            "task_id must match expected format; got keys: {:?}",
+            tasks.keys().collect::<Vec<_>>()
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -234,18 +221,18 @@ mod tests {
         // Content specifies burn_after_read_delay_seconds=10 — exercises the
         // `content.get("burn_after_read_delay_seconds").and_then(...)` branch
         // producing 10 (not the default).
-        let event = make_event(
-            "$e5:ex.com",
-            serde_json::json!({"burn_after_read": true, "burn_after_read_delay_seconds": 10}),
-        );
+        let event =
+            make_event("$e5:ex.com", serde_json::json!({"burn_after_read": true, "burn_after_read_delay_seconds": 10}));
         let svc = make_service_with_queue(vec![event], Some(make_fake_queue())).await;
-        svc.process_read_receipt("!room:ex.com", "$e5:ex.com", "@alice:ex.com", None)
-            .await
-            .unwrap();
+        svc.process_read_receipt("!room:ex.com", "$e5:ex.com", "@alice:ex.com", None).await.unwrap();
 
         let tasks = svc.active_tasks.read().await;
         assert_eq!(tasks.len(), 1);
         let expected_id = "burn_after_read:!room:ex.com:$e5:ex.com:10";
-        assert!(tasks.contains_key(expected_id), "task_id must encode custom delay=10; got keys: {:?}", tasks.keys().collect::<Vec<_>>());
+        assert!(
+            tasks.contains_key(expected_id),
+            "task_id must encode custom delay=10; got keys: {:?}",
+            tasks.keys().collect::<Vec<_>>()
+        );
     }
 }

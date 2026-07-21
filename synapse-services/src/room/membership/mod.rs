@@ -546,8 +546,20 @@ mod coverage_tests {
     async fn get_room_members_returns_multiple_members_in_chunk() {
         let ctx = build_service().await;
         ctx.room_store.create_room(ROOM, "@alice:localhost", "public", "1", true).await.unwrap();
-        seed_joined_member(&ctx.member_store, ROOM, "@alice:localhost", Some("Alice"), None, None, None, Some(1), Some(1)).await;
-        seed_joined_member(&ctx.member_store, ROOM, "@bob:localhost", Some("Bob"), None, None, None, Some(2), Some(2)).await;
+        seed_joined_member(
+            &ctx.member_store,
+            ROOM,
+            "@alice:localhost",
+            Some("Alice"),
+            None,
+            None,
+            None,
+            Some(1),
+            Some(1),
+        )
+        .await;
+        seed_joined_member(&ctx.member_store, ROOM, "@bob:localhost", Some("Bob"), None, None, None, Some(2), Some(2))
+            .await;
         // Alice must be a member to call get_room_members; both seeded above.
         let result = ctx.svc.get_room_members(ROOM, "@alice:localhost").await.unwrap();
         let chunk = result["chunk"].as_array().unwrap();
@@ -562,8 +574,30 @@ mod coverage_tests {
     async fn get_joined_rooms_returns_only_rooms_where_user_is_joined() {
         let ctx = build_service().await;
         // Seed user joined to two rooms, left one room, banned in another.
-        seed_joined_member(&ctx.member_store, "!r1:localhost", "@u:localhost", None, None, None, None, Some(1), Some(1)).await;
-        seed_joined_member(&ctx.member_store, "!r2:localhost", "@u:localhost", None, None, None, None, Some(2), Some(2)).await;
+        seed_joined_member(
+            &ctx.member_store,
+            "!r1:localhost",
+            "@u:localhost",
+            None,
+            None,
+            None,
+            None,
+            Some(1),
+            Some(1),
+        )
+        .await;
+        seed_joined_member(
+            &ctx.member_store,
+            "!r2:localhost",
+            "@u:localhost",
+            None,
+            None,
+            None,
+            None,
+            Some(2),
+            Some(2),
+        )
+        .await;
         ctx.member_store.add_member("!r3:localhost", "@u:localhost", "leave", None).await.unwrap();
         ctx.member_store.add_member("!r4:localhost", "@u:localhost", "ban", None).await.unwrap();
 
@@ -576,8 +610,30 @@ mod coverage_tests {
     #[tokio::test]
     async fn share_common_room_true_when_both_joined_same_room() {
         let ctx = build_service().await;
-        seed_joined_member(&ctx.member_store, "!shared:localhost", "@alice:localhost", None, None, None, None, Some(1), Some(1)).await;
-        seed_joined_member(&ctx.member_store, "!shared:localhost", "@bob:localhost", None, None, None, None, Some(1), Some(1)).await;
+        seed_joined_member(
+            &ctx.member_store,
+            "!shared:localhost",
+            "@alice:localhost",
+            None,
+            None,
+            None,
+            None,
+            Some(1),
+            Some(1),
+        )
+        .await;
+        seed_joined_member(
+            &ctx.member_store,
+            "!shared:localhost",
+            "@bob:localhost",
+            None,
+            None,
+            None,
+            None,
+            Some(1),
+            Some(1),
+        )
+        .await;
 
         assert!(ctx.svc.share_common_room("@alice:localhost", "@bob:localhost").await.unwrap());
     }
@@ -585,8 +641,30 @@ mod coverage_tests {
     #[tokio::test]
     async fn share_common_room_false_when_no_shared_room() {
         let ctx = build_service().await;
-        seed_joined_member(&ctx.member_store, "!a:localhost", "@alice:localhost", None, None, None, None, Some(1), Some(1)).await;
-        seed_joined_member(&ctx.member_store, "!b:localhost", "@bob:localhost", None, None, None, None, Some(1), Some(1)).await;
+        seed_joined_member(
+            &ctx.member_store,
+            "!a:localhost",
+            "@alice:localhost",
+            None,
+            None,
+            None,
+            None,
+            Some(1),
+            Some(1),
+        )
+        .await;
+        seed_joined_member(
+            &ctx.member_store,
+            "!b:localhost",
+            "@bob:localhost",
+            None,
+            None,
+            None,
+            None,
+            Some(1),
+            Some(1),
+        )
+        .await;
 
         assert!(!ctx.svc.share_common_room("@alice:localhost", "@bob:localhost").await.unwrap());
     }
@@ -594,14 +672,62 @@ mod coverage_tests {
     #[tokio::test]
     async fn share_common_rooms_batch_returns_only_users_with_shared_room() {
         let ctx = build_service().await;
-        seed_joined_member(&ctx.member_store, "!shared:localhost", "@alice:localhost", None, None, None, None, Some(1), Some(1)).await;
-        seed_joined_member(&ctx.member_store, "!shared:localhost", "@bob:localhost", None, None, None, None, Some(1), Some(1)).await;
-        seed_joined_member(&ctx.member_store, "!shared:localhost", "@carol:localhost", None, None, None, None, Some(1), Some(1)).await;
+        seed_joined_member(
+            &ctx.member_store,
+            "!shared:localhost",
+            "@alice:localhost",
+            None,
+            None,
+            None,
+            None,
+            Some(1),
+            Some(1),
+        )
+        .await;
+        seed_joined_member(
+            &ctx.member_store,
+            "!shared:localhost",
+            "@bob:localhost",
+            None,
+            None,
+            None,
+            None,
+            Some(1),
+            Some(1),
+        )
+        .await;
+        seed_joined_member(
+            &ctx.member_store,
+            "!shared:localhost",
+            "@carol:localhost",
+            None,
+            None,
+            None,
+            None,
+            Some(1),
+            Some(1),
+        )
+        .await;
         // dave is NOT in the shared room.
-        seed_joined_member(&ctx.member_store, "!other:localhost", "@dave:localhost", None, None, None, None, Some(1), Some(1)).await;
+        seed_joined_member(
+            &ctx.member_store,
+            "!other:localhost",
+            "@dave:localhost",
+            None,
+            None,
+            None,
+            None,
+            Some(1),
+            Some(1),
+        )
+        .await;
 
-        let shared = ctx.svc
-            .share_common_rooms_batch("@alice:localhost", &["@bob:localhost".to_string(), "@carol:localhost".to_string(), "@dave:localhost".to_string()])
+        let shared = ctx
+            .svc
+            .share_common_rooms_batch(
+                "@alice:localhost",
+                &["@bob:localhost".to_string(), "@carol:localhost".to_string(), "@dave:localhost".to_string()],
+            )
             .await
             .unwrap();
         let mut sorted = shared;
@@ -854,11 +980,7 @@ mod coverage_tests {
         ctx.member_store.add_member(ROOM, "@bob:remote.srv", "join", None).await.unwrap();
 
         let candidates = vec!["@alice:localhost".to_string(), "@carol:localhost".to_string()];
-        let filtered = ctx
-            .svc
-            .filter_users_sharing_room_with_server(&candidates, "remote.srv")
-            .await
-            .unwrap();
+        let filtered = ctx.svc.filter_users_sharing_room_with_server(&candidates, "remote.srv").await.unwrap();
         assert!(filtered.contains("@alice:localhost"));
         assert!(!filtered.contains("@carol:localhost"));
     }
@@ -882,11 +1004,7 @@ mod coverage_tests {
         ctx.member_store.add_member(ROOM, "@alice:localhost", "join", None).await.unwrap();
         ctx.member_store.add_member(ROOM, "@bob:localhost", "join", None).await.unwrap();
 
-        let page = ctx
-            .svc
-            .get_room_members_paginated_admin(ROOM, "join", 10, None)
-            .await
-            .unwrap();
+        let page = ctx.svc.get_room_members_paginated_admin(ROOM, "join", 10, None).await.unwrap();
         assert_eq!(page.len(), 2);
         // Pagination is sorted by user_id ascending.
         assert!(page[0].user_id <= page[1].user_id);

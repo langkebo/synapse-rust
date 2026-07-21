@@ -14,6 +14,10 @@ docker/nginx/ssl/
 !.env.federation-test.example
 docker/.env
 
+# 签名密钥（不应入仓）
+*.key
+signing.key
+
 # 生产配置文件（包含真实密码）
 homeserver.yaml
 homeserver.local.yaml

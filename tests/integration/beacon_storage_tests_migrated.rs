@@ -1088,10 +1088,7 @@ fn test_beacon_info_with_locations_structure() {
         created_ts: 1234567890000,
     }];
 
-    let with_locs = synapse_storage::beacon::BeaconInfoWithLocations {
-        beacon_info,
-        locations,
-    };
+    let with_locs = synapse_storage::beacon::BeaconInfoWithLocations { beacon_info, locations };
 
     assert_eq!(with_locs.beacon_info.event_id, "$event1");
     assert_eq!(with_locs.locations.len(), 1);

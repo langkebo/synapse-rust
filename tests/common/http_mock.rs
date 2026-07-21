@@ -27,9 +27,7 @@ pub struct HttpMock {
 impl HttpMock {
     /// Start a new mock server and return it wrapped in an `HttpMock`.
     pub async fn new() -> Self {
-        Self {
-            server: MockServer::start().await,
-        }
+        Self { server: MockServer::start().await }
     }
 
     /// Return the mock server's base URI (e.g., `http://127.0.0.1:54321`).
@@ -62,13 +60,7 @@ impl HttpMock {
 
     /// Mount a custom Matrix endpoint handler with the given HTTP method,
     /// path, status code, and JSON response body.
-    pub async fn mock_matrix_endpoint(
-        &self,
-        http_method: &str,
-        endpoint_path: &str,
-        status: u16,
-        body: Value,
-    ) {
+    pub async fn mock_matrix_endpoint(&self, http_method: &str, endpoint_path: &str, status: u16, body: Value) {
         Mock::given(method(http_method))
             .and(path(endpoint_path))
             .respond_with(ResponseTemplate::new(status).set_body_json(body))
@@ -107,8 +99,7 @@ mod tests {
 
         assert_eq!(resp.status(), 200);
 
-        let body: serde_json::Value =
-            resp.json().await.expect("response body should be valid JSON");
+        let body: serde_json::Value = resp.json().await.expect("response body should be valid JSON");
         assert_eq!(body["user_id"], "@test:localhost");
         assert_eq!(body["access_token"], "mock_access_token");
     }
@@ -129,16 +120,12 @@ mod tests {
             .await;
 
         let client = reqwest::Client::new();
-        let resp = client
-            .get(http_mock.url("/_matrix/client/v3/versions"))
-            .send()
-            .await
-            .expect("HTTP request should succeed");
+        let resp =
+            client.get(http_mock.url("/_matrix/client/v3/versions")).send().await.expect("HTTP request should succeed");
 
         assert_eq!(resp.status(), 200);
 
-        let body: serde_json::Value =
-            resp.json().await.expect("response body should be valid JSON");
+        let body: serde_json::Value = resp.json().await.expect("response body should be valid JSON");
         assert_eq!(body["versions"][0], "r0.6.1");
     }
 
@@ -146,13 +133,7 @@ mod tests {
     async fn base_url_includes_scheme_and_port() {
         let http_mock = HttpMock::new().await;
         let url = http_mock.base_url();
-        assert!(
-            url.starts_with("http://"),
-            "base_url should start with http://, got: {url}"
-        );
-        assert!(
-            url.contains("127.0.0.1"),
-            "base_url should contain 127.0.0.1, got: {url}"
-        );
+        assert!(url.starts_with("http://"), "base_url should start with http://, got: {url}");
+        assert!(url.contains("127.0.0.1"), "base_url should contain 127.0.0.1, got: {url}");
     }
 }

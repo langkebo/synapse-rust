@@ -197,17 +197,11 @@ mod tests {
 
     impl MockFriendRoomProvider {
         fn new_returning_ok() -> Arc<Self> {
-            Arc::new(Self {
-                calls: Mutex::new(Vec::new()),
-                next_result: Mutex::new(Ok(())),
-            })
+            Arc::new(Self { calls: Mutex::new(Vec::new()), next_result: Mutex::new(Ok(())) })
         }
 
         fn new_returning_err(err: ApiError) -> Arc<Self> {
-            Arc::new(Self {
-                calls: Mutex::new(Vec::new()),
-                next_result: Mutex::new(Err(err)),
-            })
+            Arc::new(Self { calls: Mutex::new(Vec::new()), next_result: Mutex::new(Err(err)) })
         }
 
         fn calls(&self) -> Vec<(String, String, serde_json::Value)> {
@@ -223,10 +217,11 @@ mod tests {
             requester_id: &str,
             content: serde_json::Value,
         ) -> Result<(), ApiError> {
-            self.calls
-                .lock()
-                .expect("mock mutex poisoned")
-                .push((user_id.to_string(), requester_id.to_string(), content));
+            self.calls.lock().expect("mock mutex poisoned").push((
+                user_id.to_string(),
+                requester_id.to_string(),
+                content,
+            ));
             self.next_result.lock().expect("mock mutex poisoned").clone()
         }
     }

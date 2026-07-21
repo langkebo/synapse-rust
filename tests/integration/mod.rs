@@ -1,6 +1,4 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-#[path = "../common/mod.rs"]
-mod common;
 mod api_account_data_routes_tests;
 mod api_admin_audit_tests;
 mod api_admin_federation_tests;
@@ -48,6 +46,8 @@ mod api_widget_tests;
 mod api_worker_replication_auth_tests;
 mod cache_tests;
 mod cleanup_tests;
+#[path = "../common/mod.rs"]
+mod common;
 mod concurrency_tests;
 mod database_integrity_tests;
 mod federation_error_tests;

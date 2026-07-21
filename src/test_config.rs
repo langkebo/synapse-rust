@@ -35,23 +35,14 @@ mod tests {
         let _guard = env_lock_async().await;
         let mut env = EnvGuard::new();
         env.remove("TEST_DATABASE_URL");
-        assert_eq!(
-            test_database_url(),
-            "postgres://synapse:synapse@localhost:5432/synapse_test"
-        );
+        assert_eq!(test_database_url(), "postgres://synapse:synapse@localhost:5432/synapse_test");
     }
 
     #[tokio::test]
     async fn test_database_url_from_env() {
         let _guard = env_lock_async().await;
         let mut env = EnvGuard::new();
-        env.set(
-            "TEST_DATABASE_URL",
-            "postgres://custom:custom@localhost:5432/custom",
-        );
-        assert_eq!(
-            test_database_url(),
-            "postgres://custom:custom@localhost:5432/custom"
-        );
+        env.set("TEST_DATABASE_URL", "postgres://custom:custom@localhost:5432/custom");
+        assert_eq!(test_database_url(), "postgres://custom:custom@localhost:5432/custom");
     }
 }

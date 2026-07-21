@@ -43,14 +43,18 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
         .execute(pool.as_ref())
         .await
         .expect("Failed to create sliding_sync_pos_seq");
-    sqlx::query("CREATE TABLE IF NOT EXISTS sliding_sync_connections (LIKE sliding_sync_connections INCLUDING ALL DEFAULT)")
-        .execute(pool.as_ref())
-        .await
-        .ok();
-    sqlx::query("CREATE TABLE IF NOT EXISTS sliding_sync_room_state (LIKE sliding_sync_room_state INCLUDING ALL DEFAULT)")
-        .execute(pool.as_ref())
-        .await
-        .ok();
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS sliding_sync_connections (LIKE sliding_sync_connections INCLUDING ALL DEFAULT)",
+    )
+    .execute(pool.as_ref())
+    .await
+    .ok();
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS sliding_sync_room_state (LIKE sliding_sync_room_state INCLUDING ALL DEFAULT)",
+    )
+    .execute(pool.as_ref())
+    .await
+    .ok();
     sqlx::query("CREATE TABLE IF NOT EXISTS sliding_sync_lists (LIKE sliding_sync_lists INCLUDING ALL DEFAULT)")
         .execute(pool.as_ref())
         .await
@@ -138,10 +142,7 @@ async fn test_sync_latency_p95_ms_is_none_before_any_sync() {
     setup_test_database(&pool).await;
     let service = create_service(&pool);
 
-    assert!(
-        service.sync_latency_p95_ms().is_none(),
-        "p95 should be None before any sync observation"
-    );
+    assert!(service.sync_latency_p95_ms().is_none(), "p95 should be None before any sync observation");
 }
 
 #[tokio::test]
@@ -150,11 +151,7 @@ async fn test_slow_sync_request_count_is_zero_initially() {
     setup_test_database(&pool).await;
     let service = create_service(&pool);
 
-    assert_eq!(
-        service.slow_sync_request_count(),
-        0,
-        "slow request count should be 0 before any sync"
-    );
+    assert_eq!(service.slow_sync_request_count(), 0, "slow request count should be 0 before any sync");
 }
 
 #[tokio::test]
@@ -171,10 +168,7 @@ async fn test_sync_latency_p95_ms_is_some_after_sync() {
 
     // After a sync, the histogram should have at least one observation.
     let p95 = service.sync_latency_p95_ms();
-    assert!(
-        p95.is_some(),
-        "p95 should be Some after a sync observation (got None)"
-    );
+    assert!(p95.is_some(), "p95 should be Some after a sync observation (got None)");
     let p95_val = p95.unwrap();
     assert!(p95_val > 0.0, "p95 should be positive, got {p95_val}");
 }
@@ -195,10 +189,7 @@ async fn test_sync_records_slow_request_when_threshold_exceeded() {
     // A fast sync should not increment the slow counter. The threshold is
     // typically 1000ms+ and our empty-room sync completes in <100ms.
     let count = service.slow_sync_request_count();
-    assert_eq!(
-        count, 0,
-        "slow request count should be 0 for a fast sync (got {count})"
-    );
+    assert_eq!(count, 0, "slow request count should be 0 for a fast sync (got {count})");
 }
 
 // =============================================================================
@@ -245,10 +236,7 @@ async fn test_sync_with_multiple_conn_ids_same_user() {
     assert_eq!(resp_b.conn_id, Some("connB".to_string()));
 
     // Positions should be different (different connections)
-    assert_ne!(
-        resp_a.pos, resp_b.pos,
-        "different conn_ids should produce different positions"
-    );
+    assert_ne!(resp_a.pos, resp_b.pos, "different conn_ids should produce different positions");
 }
 
 #[tokio::test]
@@ -418,4 +406,3 @@ async fn test_sync_with_unsubscribe_rooms() {
     let response = service.sync(&user_id, "DEV1", request).await;
     assert!(response.is_ok(), "sync with unsubscribe_rooms should succeed: {:?}", response.err());
 }
-

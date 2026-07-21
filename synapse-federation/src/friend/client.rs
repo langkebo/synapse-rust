@@ -372,10 +372,8 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         std::env::remove_var("FEDERATION_SIGNING_KEY");
         let client = FriendFederationClient::new("example.com".to_string(), None);
-        let err = client
-            .send_invite("remote.example.com", "!room:example.com", &serde_json::json!({}))
-            .await
-            .unwrap_err();
+        let err =
+            client.send_invite("remote.example.com", "!room:example.com", &serde_json::json!({})).await.unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("not configured") || msg.contains("signing key"),
@@ -403,8 +401,7 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         std::env::remove_var("FEDERATION_SIGNING_KEY");
         let manager = make_key_rotation_manager("example.com");
-        let client =
-            FriendFederationClient::new("example.com".to_string(), Some(manager));
+        let client = FriendFederationClient::new("example.com".to_string(), Some(manager));
         let err = client.query_remote_friends("remote.example.com", "@alice:example.com").await.unwrap_err();
         let msg = err.to_string();
         assert!(
@@ -418,10 +415,8 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let _k = EnvVarGuard::set("FEDERATION_SIGNING_KEY", &valid_b64_signing_key());
         let client = FriendFederationClient::new("example.com".to_string(), None);
-        let err = client
-            .send_invite("127.0.0.1:1", "!room:example.com", &serde_json::json!({"k": "v"}))
-            .await
-            .unwrap_err();
+        let err =
+            client.send_invite("127.0.0.1:1", "!room:example.com", &serde_json::json!({"k": "v"})).await.unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("Federation request failed") || msg.contains("request failed") || msg.contains("connect"),
