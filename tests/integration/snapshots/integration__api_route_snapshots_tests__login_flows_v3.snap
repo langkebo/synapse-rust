@@ -10,6 +10,13 @@ expression: body
     },
     {
       "type": "m.login.token"
+    },
+    {
+      "type": "m.login.cas"
+    },
+    {
+      "identity_providers": "[redacted_sso_providers]",
+      "type": "m.login.sso"
     }
   ]
 }
