@@ -256,4 +256,42 @@ mod tests {
         let other_err = sqlx::Error::RowNotFound;
         assert!(!is_retryable_db_error(&other_err));
     }
+
+    #[test]
+    fn test_is_retryable_db_error_connection_error() {
+        let conn_err = sqlx::Error::PoolTimedOut;
+        assert!(!is_retryable_db_error(&conn_err));
+    }
+
+    #[test]
+    fn test_transaction_error_display() {
+        let err = TransactionError::Transaction("test error".to_string());
+        assert_eq!(err.to_string(), "Transaction error: test error");
+
+        let err = TransactionError::AlreadyCompleted;
+        assert_eq!(err.to_string(), "Transaction already committed or rolled back");
+
+        let err = TransactionError::NotStarted;
+        assert_eq!(err.to_string(), "Transaction not started");
+    }
+
+    #[test]
+    fn test_transaction_error_from_sqlx() {
+        let sqlx_err = sqlx::Error::RowNotFound;
+        let tx_err = TransactionError::from(sqlx_err);
+        assert!(matches!(tx_err, TransactionError::Database(_)));
+    }
+
+    #[test]
+    fn test_transaction_error_kinds() {
+        // Verify all error variants can be created and displayed
+        let err1 = TransactionError::Transaction("custom".to_string());
+        assert!(matches!(err1, TransactionError::Transaction(_)));
+
+        let err2 = TransactionError::AlreadyCompleted;
+        assert!(matches!(err2, TransactionError::AlreadyCompleted));
+
+        let err3 = TransactionError::NotStarted;
+        assert!(matches!(err3, TransactionError::NotStarted));
+    }
 }
