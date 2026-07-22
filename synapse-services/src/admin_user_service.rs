@@ -538,7 +538,7 @@ impl AdminUserService {
 
 #[cfg(test)]
 mod cursor_tests {
-    use super::{decode_user_cursor, encode_user_cursor, AdminUserCursor};
+    use super::{decode_user_cursor, encode_user_cursor, AdminUserCursor, AdminUserProfile, AdminUserStats, BatchUsersResult, AdminUserEvictionResult, AdminEvictionFailure, AdminUserListItem, AdminUserDeviceInfo};
 
     #[test]
     fn test_user_cursor_round_trip() {
@@ -556,5 +556,139 @@ mod cursor_tests {
     fn test_user_cursor_rejects_invalid_value() {
         assert_eq!(decode_user_cursor(Some("bad-cursor")), None);
         assert_eq!(decode_user_cursor(Some("123|")), None);
+    }
+
+    #[test]
+    fn test_user_cursor_empty_user_id() {
+        assert_eq!(decode_user_cursor(Some("123|")), None);
+    }
+
+    #[test]
+    fn test_user_cursor_none() {
+        assert_eq!(decode_user_cursor(None), None);
+    }
+
+    #[test]
+    fn test_user_cursor_invalid_timestamp() {
+        assert_eq!(decode_user_cursor(Some("abc|user")), None);
+    }
+
+    #[test]
+    fn test_admin_user_profile_from_user() {
+        let user = synapse_storage::User {
+            user_id: "@alice:example.com".to_string(),
+            username: "alice".to_string(),
+            password_hash: None,
+            is_admin: true,
+            is_guest: false,
+            is_shadow_banned: false,
+            is_deactivated: false,
+            created_ts: 1_700_000_000_000,
+            updated_ts: None,
+            displayname: Some("Alice".to_string()),
+            avatar_url: Some("mxc://example.com/avatar".to_string()),
+            email: None,
+            phone: None,
+            generation: None,
+            consent_version: None,
+            appservice_id: None,
+            user_type: Some("staff".to_string()),
+            invalid_update_at: None,
+            migration_state: None,
+            password_changed_ts: None,
+            is_password_change_required: false,
+            password_expires_at: None,
+            failed_login_attempts: 0,
+            locked_until: None,
+            must_change_password: false,
+        };
+
+        let profile = AdminUserProfile::from(&user);
+        assert_eq!(profile.user_id, "@alice:example.com");
+        assert_eq!(profile.username, "alice");
+        assert!(profile.is_admin);
+        assert!(!profile.is_guest);
+        assert!(!profile.is_deactivated);
+        assert_eq!(profile.created_ts, 1_700_000_000_000);
+        assert_eq!(profile.displayname, Some("Alice".to_string()));
+        assert_eq!(profile.avatar_url, Some("mxc://example.com/avatar".to_string()));
+        assert_eq!(profile.user_type, Some("staff".to_string()));
+    }
+
+    #[test]
+    fn test_admin_user_stats_creation() {
+        let stats = AdminUserStats {
+            total_users: 100,
+            active_users: 80,
+            admin_users: 5,
+            deactivated_users: 2,
+            guest_users: 10,
+            average_rooms_per_user: 3.5,
+        };
+        assert_eq!(stats.total_users, 100);
+        assert_eq!(stats.active_users, 80);
+        assert_eq!(stats.admin_users, 5);
+        assert_eq!(stats.deactivated_users, 2);
+        assert_eq!(stats.guest_users, 10);
+        assert!((stats.average_rooms_per_user - 3.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_batch_users_result_creation() {
+        let result = BatchUsersResult {
+            succeeded: vec!["user1".to_string(), "user2".to_string()],
+            failed: vec!["user3".to_string()],
+        };
+        assert_eq!(result.succeeded.len(), 2);
+        assert_eq!(result.failed.len(), 1);
+        assert!(result.succeeded.contains(&"user1".to_string()));
+        assert!(result.failed.contains(&"user3".to_string()));
+    }
+
+    #[test]
+    fn test_admin_user_eviction_result_creation() {
+        let result = AdminUserEvictionResult {
+            joined_rooms: vec!["!room1:example.com".to_string(), "!room2:example.com".to_string()],
+            failures: vec![AdminEvictionFailure {
+                room_id: "!room3:example.com".to_string(),
+                error: "Permission denied".to_string(),
+            }],
+        };
+        assert_eq!(result.joined_rooms.len(), 2);
+        assert_eq!(result.failures.len(), 1);
+        assert_eq!(result.failures[0].room_id, "!room3:example.com");
+        assert_eq!(result.failures[0].error, "Permission denied");
+    }
+
+    #[test]
+    fn test_admin_user_list_item_creation() {
+        let item = AdminUserListItem {
+            user_id: "@alice:example.com".to_string(),
+            created_ts: 1_700_000_000_000,
+            is_admin: true,
+            is_guest: false,
+            user_type: Some("staff".to_string()),
+            is_deactivated: false,
+            displayname: Some("Alice".to_string()),
+            avatar_url: Some("mxc://example.com/avatar".to_string()),
+        };
+        assert_eq!(item.user_id, "@alice:example.com");
+        assert!(item.is_admin);
+        assert!(!item.is_guest);
+        assert!(!item.is_deactivated);
+    }
+
+    #[test]
+    fn test_admin_user_device_info_creation() {
+        let device = AdminUserDeviceInfo {
+            device_id: "DEVICE123".to_string(),
+            display_name: Some("My Phone".to_string()),
+            last_seen_ts: Some(1_700_000_000_000),
+            last_seen_ip: Some("192.168.1.1".to_string()),
+        };
+        assert_eq!(device.device_id, "DEVICE123");
+        assert_eq!(device.display_name, Some("My Phone".to_string()));
+        assert_eq!(device.last_seen_ts, Some(1_700_000_000_000));
+        assert_eq!(device.last_seen_ip, Some("192.168.1.1".to_string()));
     }
 }
