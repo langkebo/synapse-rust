@@ -1,0 +1,5 @@
+{
+  "prod_unsafe_total": 4,
+  "test_unsafe_total": 0,
+  "note": "Production unsafe baseline as of 2026-07-23. All 4 unsafe blocks are in #[test] functions (std::env::set_var/remove_var, which require unsafe in Rust 2024 edition). cargo-geiger reports per-file, not per-function, so these test-only unsafe blocks appear as 'production' because the files are in src/. Files: synapse-common/src/config/mod.rs (2), synapse-services/src/worker/topology_validator.rs (2). To decrease this baseline, migrate test env mutations to a test-only helper crate or use std::env::set_var via a safe wrapper."
+}

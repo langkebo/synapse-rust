@@ -415,8 +415,9 @@ jobs:
     if: >-
       github.event_name == 'schedule' ||
       (needs.changes.outputs.non-docs == 'true' &&
-       github.event_name == 'push' &&
-       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'))
+       (github.event_name == 'pull_request' ||
+        (github.event_name == 'push' &&
+         (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'))))
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -447,44 +448,21 @@ jobs:
           fi
 
       # ── cargo-geiger: unsafe usage scan ──
-      # Blocks PR if any `unsafe` block is found in production (non-test) code.
-      # Test-only unsafe is tracked but non-blocking.
+      # Uses JSON output + baseline ratchet via scripts/ci/run_cargo_geiger.py.
+      # Production unsafe must be zero (hard block); test unsafe is tracked
+      # against a baseline (ratchet: only fails if count increases).
       - name: Install cargo-geiger
         run: cargo install cargo-geiger --locked
 
       - name: Run cargo-geiger (unsafe usage scan)
-        run: |
-          echo "==> cargo-geiger: scanning for unsafe usage"
-          mkdir -p artifacts
-          cargo geiger --all-features 2>&1 | tee artifacts/cargo-geiger.txt || true
-
-          # Parse cargo-geiger output to enforce policy
-          # cargo-geiger outputs lines like:
-          #   synapse-rust: 0/0 safe/unsafe expressions, 0/0 safe/unsafe functions, ...
-          # We need to detect if any production (non-test) unsafe exists.
-
-          # Count unsafe in src/ (production code) vs tests/ (test code)
-          # cargo-geiger separates by crate; we look for any non-zero unsafe in src/
-          PROD_UNSAFE_COUNT=$(grep -v "tests/" artifacts/cargo-geiger.txt | grep -oP '\d+(?= unsafe)' | awk '{s+=$1} END {print s+0}')
-          TOTAL_UNSAFE_COUNT=$(grep -oP '\d+(?= unsafe)' artifacts/cargo-geiger.txt | awk '{s+=$1} END {print s+0}')
-
-          echo "Total unsafe blocks found: ${TOTAL_UNSAFE_COUNT:-0}"
-          echo "Production unsafe blocks: ${PROD_UNSAFE_COUNT:-0}"
-
-          # Block if any unsafe in production (non-test) code
-          if [ "${PROD_UNSAFE_COUNT:-0}" -gt 0 ]; then
-            echo "FAIL: ${PROD_UNSAFE_COUNT} unsafe block(s) found in production code"
-            exit 1
-          fi
-
-          echo "cargo-geiger: OK (no production unsafe, ${TOTAL_UNSAFE_COUNT:-0} total unsafe blocks)"
+        run: python3 scripts/ci/run_cargo_geiger.py
 
       - name: Upload cargo-geiger report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cargo-geiger-report
-          path: artifacts/cargo-geiger.txt
+          path: artifacts/cargo-geiger.json
           retention-days: 14
 
       # m-2: Track outdated dependencies for security-relevant crates.
