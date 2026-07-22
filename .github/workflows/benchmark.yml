@@ -74,9 +74,14 @@ jobs:
       - name: Run benchmarks
         run: |
           : > benchmark.txt
+          # Run with bencher format for github-action-benchmark
           cargo bench --locked --bench performance_api_benchmarks -- --output-format bencher | tee -a benchmark.txt
           cargo bench --locked --bench performance_federation_benchmarks -- --output-format bencher | tee -a benchmark.txt
           cargo bench --locked --bench performance_sliding_sync_benchmarks -- --output-format bencher | tee -a benchmark.txt
+          # Also generate standard text output for PR gate comparison
+          : > benchmark_standard.txt
+          cargo bench --locked --bench performance_federation_benchmarks -- --noplot | tee -a benchmark_standard.txt
+          cargo bench --locked --bench performance_membership_benchmarks -- --noplot | tee -a benchmark_standard.txt
 
       - name: Check pagination benchmark gain
         run: |
@@ -106,7 +111,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
-          path: benchmark.txt
+          path: |
+            benchmark.txt
+            benchmark_standard.txt
           retention-days: 30
 
   performance-comparison:

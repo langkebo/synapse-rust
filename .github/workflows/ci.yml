@@ -238,6 +238,54 @@ jobs:
           NEXTEST_RETRIES: 2
         run: cargo nextest run --test unit --features test-utils --locked --test-threads 8
 
+  # ──────────────────────────────────────────────
+  # PR Benchmark Gate — runs on every PR (~30-60s)
+  # Pure-Rust benchmarks only (federation + membership)
+  # ──────────────────────────────────────────────
+  pr-benchmark-gate:
+    name: PR Benchmark Gate
+    runs-on: ubuntu-latest
+    needs: [changes]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.non-docs == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: pr-benchmark-gate
+
+      - name: Download baseline benchmark results
+        uses: dawidd6/action-download-artifact@v3
+        continue-on-error: true
+        with:
+          workflow: benchmark.yml
+          name: benchmark-results
+          path: baseline
+          check_artifacts: true
+          search_artifacts: true
+
+      - name: Run PR benchmark gate
+        run: bash scripts/ci/benchmark_pr_gate.sh
+        env:
+          BENCH_THRESHOLD_PERCENT: 15
+          BENCH_BASELINE_PATH: baseline/benchmark.txt
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-benchmark-results-${{ github.run_id }}
+          path: artifacts/pr_benchmark_results.json
+          retention-days: 7
+
   # ──────────────────────────────────────────────────────────
   # Slow Tier — runs on merge to main/develop + weekly schedule
   # Skipped when only docs (*.md, docs/) changed
@@ -397,6 +445,47 @@ jobs:
             echo "rand::rng() is temporarily banned until RUSTSEC-2026-0097 is resolved"
             exit 1
           fi
+
+      # ── cargo-geiger: unsafe usage scan ──
+      # Blocks PR if any `unsafe` block is found in production (non-test) code.
+      # Test-only unsafe is tracked but non-blocking.
+      - name: Install cargo-geiger
+        run: cargo install cargo-geiger --locked
+
+      - name: Run cargo-geiger (unsafe usage scan)
+        run: |
+          echo "==> cargo-geiger: scanning for unsafe usage"
+          mkdir -p artifacts
+          cargo geiger --all-features 2>&1 | tee artifacts/cargo-geiger.txt || true
+
+          # Parse cargo-geiger output to enforce policy
+          # cargo-geiger outputs lines like:
+          #   synapse-rust: 0/0 safe/unsafe expressions, 0/0 safe/unsafe functions, ...
+          # We need to detect if any production (non-test) unsafe exists.
+
+          # Count unsafe in src/ (production code) vs tests/ (test code)
+          # cargo-geiger separates by crate; we look for any non-zero unsafe in src/
+          PROD_UNSAFE_COUNT=$(grep -v "tests/" artifacts/cargo-geiger.txt | grep -oP '\d+(?= unsafe)' | awk '{s+=$1} END {print s+0}')
+          TOTAL_UNSAFE_COUNT=$(grep -oP '\d+(?= unsafe)' artifacts/cargo-geiger.txt | awk '{s+=$1} END {print s+0}')
+
+          echo "Total unsafe blocks found: ${TOTAL_UNSAFE_COUNT:-0}"
+          echo "Production unsafe blocks: ${PROD_UNSAFE_COUNT:-0}"
+
+          # Block if any unsafe in production (non-test) code
+          if [ "${PROD_UNSAFE_COUNT:-0}" -gt 0 ]; then
+            echo "FAIL: ${PROD_UNSAFE_COUNT} unsafe block(s) found in production code"
+            exit 1
+          fi
+
+          echo "cargo-geiger: OK (no production unsafe, ${TOTAL_UNSAFE_COUNT:-0} total unsafe blocks)"
+
+      - name: Upload cargo-geiger report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-geiger-report
+          path: artifacts/cargo-geiger.txt
+          retention-days: 14
 
       # m-2: Track outdated dependencies for security-relevant crates.
       # Non-blocking: only warns, does not fail the pipeline.

@@ -61,3 +61,5 @@ mod coverage_tests;
 
 #[cfg(test)]
 mod worker_coverage_tests;
+
+mod benchmark_pr_gate_tests;
