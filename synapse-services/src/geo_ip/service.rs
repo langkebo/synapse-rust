@@ -348,7 +348,9 @@ mod tests {
             id: 1,
             ip_pattern: "192.168.0.0/16".to_string(),
             allow: true,
+            reason: None,
             priority: 1,
+            created_ts: 0,
         };
 
         service.add_rule(rule).await;
@@ -366,7 +368,9 @@ mod tests {
             id: 1,
             ip_pattern: "192.168.0.0/16".to_string(),
             allow: true,
+            reason: None,
             priority: 1,
+            created_ts: 0,
         };
 
         service.add_rule(rule).await;

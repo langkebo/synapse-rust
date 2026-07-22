@@ -324,4 +324,36 @@ mod tests {
         assert!(BeaconService::parse_geo_uri("invalid").is_none());
         assert!(BeaconService::parse_geo_uri("geo:invalid").is_none());
     }
+
+    #[test]
+    fn test_parse_geo_uri_with_negative_coordinates() {
+        let uri = "geo:-51.5008,-0.1247;u=35";
+        let result = BeaconService::parse_geo_uri(uri);
+
+        assert!(result.is_some());
+        let (lat, lon, accuracy) = result.unwrap();
+        assert!((lat - (-51.5008)).abs() < 0.0001);
+        assert!((lon - (-0.1247)).abs() < 0.0001);
+        assert_eq!(accuracy, Some(35.0));
+    }
+
+    #[test]
+    fn test_parse_geo_uri_without_prefix() {
+        assert!(BeaconService::parse_geo_uri("51.5008,0.1247").is_none());
+    }
+
+    #[test]
+    fn test_parse_geo_uri_empty() {
+        assert!(BeaconService::parse_geo_uri("").is_none());
+    }
+
+    #[test]
+    fn test_parse_geo_uri_only_prefix() {
+        assert!(BeaconService::parse_geo_uri("geo:").is_none());
+    }
+
+    #[test]
+    fn test_parse_geo_uri_single_coordinate() {
+        assert!(BeaconService::parse_geo_uri("geo:51.5008").is_none());
+    }
 }
