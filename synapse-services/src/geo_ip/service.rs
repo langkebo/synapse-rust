@@ -270,4 +270,108 @@ mod tests {
         assert!(!result.is_datacenter);
         assert!(!result.is_vpn);
     }
+
+    #[test]
+    fn test_is_enabled_when_config_enabled() {
+        let service = GeoIpService::new(GeoIpConfig {
+            enabled: true,
+            provider: GeoIpProvider::MaxMind,
+            ..GeoIpConfig::default()
+        });
+        assert!(service.is_enabled());
+    }
+
+    #[test]
+    fn test_is_disabled_when_config_disabled() {
+        let service = GeoIpService::new(GeoIpConfig {
+            enabled: false,
+            provider: GeoIpProvider::MaxMind,
+            ..GeoIpConfig::default()
+        });
+        assert!(!service.is_enabled());
+    }
+
+    #[test]
+    fn test_is_disabled_when_provider_disabled() {
+        let service = GeoIpService::new(GeoIpConfig {
+            enabled: true,
+            provider: GeoIpProvider::Disabled,
+            ..GeoIpConfig::default()
+        });
+        assert!(!service.is_enabled());
+    }
+
+    #[test]
+    fn test_matches_ip_pattern_exact_match() {
+        assert!(GeoIpService::matches_ip_pattern("192.168.1.1", "192.168.1.1"));
+        assert!(!GeoIpService::matches_ip_pattern("192.168.1.1", "192.168.1.2"));
+    }
+
+    #[test]
+    fn test_matches_ip_pattern_cidr() {
+        assert!(GeoIpService::matches_ip_pattern("192.168.1.1", "192.168.0.0/16"));
+        assert!(GeoIpService::matches_ip_pattern("192.168.1.1", "192.168.1.0/24"));
+        assert!(!GeoIpService::matches_ip_pattern("10.0.0.1", "192.168.0.0/16"));
+    }
+
+    #[tokio::test]
+    async fn test_check_access_when_disabled() {
+        let service = GeoIpService::new(GeoIpConfig {
+            enabled: false,
+            provider: GeoIpProvider::Disabled,
+            ..GeoIpConfig::default()
+        });
+
+        let result = service.check_access("203.0.113.1").await.expect("check_access should succeed");
+        assert!(result, "When disabled, all IPs should be allowed");
+    }
+
+    #[tokio::test]
+    async fn test_check_access_blocked_country() {
+        let service = GeoIpService::new(GeoIpConfig {
+            enabled: true,
+            provider: GeoIpProvider::MaxMind,
+            default_country: Some("CN".to_string()),
+            blocked_countries: vec!["CN".to_string()],
+            ..GeoIpConfig::default()
+        });
+
+        let result = service.check_access("203.0.113.1").await.expect("check_access should succeed");
+        assert!(!result, "Blocked country should be denied");
+    }
+
+    #[tokio::test]
+    async fn test_add_and_get_rules() {
+        let service = GeoIpService::new(GeoIpConfig::default());
+
+        let rule = IpAccessRule {
+            id: 1,
+            ip_pattern: "192.168.0.0/16".to_string(),
+            allow: true,
+            priority: 1,
+        };
+
+        service.add_rule(rule).await;
+        let rules = service.get_rules().await;
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].ip_pattern, "192.168.0.0/16");
+        assert!(rules[0].allow);
+    }
+
+    #[tokio::test]
+    async fn test_remove_rule() {
+        let service = GeoIpService::new(GeoIpConfig::default());
+
+        let rule = IpAccessRule {
+            id: 1,
+            ip_pattern: "192.168.0.0/16".to_string(),
+            allow: true,
+            priority: 1,
+        };
+
+        service.add_rule(rule).await;
+        service.remove_rule(1).await;
+        let rules = service.get_rules().await;
+        assert!(rules.is_empty());
+    }
 }
