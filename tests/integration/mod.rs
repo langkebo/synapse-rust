@@ -119,9 +119,20 @@ mod nullable_decode_tests;
 mod coverage_tests;
 
 use std::sync::Arc;
+use std::sync::Once;
 use std::time::{Duration, Instant};
 
 static TEST_POOL: tokio::sync::OnceCell<Option<Arc<sqlx::PgPool>>> = tokio::sync::OnceCell::const_new();
+static TRACING_INIT: Once = Once::new();
+
+fn init_tracing() {
+    TRACING_INIT.call_once(|| {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_target(false)
+            .try_init();
+    });
+}
 
 pub fn with_local_connect_info(mut request: hyper::Request<axum::body::Body>) -> hyper::Request<axum::body::Body> {
     use axum::extract::ConnectInfo;
@@ -169,6 +180,7 @@ fn describe_integration_test_setup(mode: &str, elapsed: Duration) -> String {
 }
 
 pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
+    init_tracing();
     TEST_POOL
         .get_or_init(|| async {
             let use_isolated = std::env::var("TEST_ISOLATED_SCHEMAS")
@@ -376,6 +388,7 @@ impl TestContext {
     }
 
     async fn build(isolated: bool) -> Option<Self> {
+        init_tracing();
         let (pool, lease) = if isolated {
             // Isolated path: run full migrations, no pooling
             let pool = synapse_rust::test_utils::prepare_isolated_test_pool().await.ok()?;
@@ -386,9 +399,11 @@ impl TestContext {
             let pool = lease.pool.clone();
             (pool, Some(lease))
         };
+
         let cache = Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
         let container =
             synapse_services::ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
+
         let state = synapse_rust::web::routes::state::AppState::new(container, cache);
         let app = synapse_rust::web::create_router(state.clone());
         Some(Self { app, state, pool, _lease: lease })

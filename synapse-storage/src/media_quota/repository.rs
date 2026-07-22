@@ -278,9 +278,29 @@ impl MediaQuotaStorage {
 
     pub async fn get_server_quota(&self) -> Result<ServerMediaQuota, ApiError> {
         let quota = sqlx::query_as::<_, ServerMediaQuota>(r"SELECT id, max_storage_bytes, max_file_size_bytes, max_files_count, current_storage_bytes, current_files_count, alert_threshold_percent, updated_ts FROM server_media_quota WHERE id = 1")
-            .fetch_one(&self.pool)
+            .fetch_optional(&self.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get server quota", &e))?;
+
+        if let Some(quota) = quota {
+            return Ok(quota);
+        }
+
+        // Auto-create the default server quota row if missing. This handles
+        // cases where the seed row was lost (e.g. schema pool reuse after
+        // TRUNCATE, or connection search_path drift in tests). The ON CONFLICT
+        // guard handles races where another request creates the row first.
+        let now = Utc::now().timestamp_millis();
+        let quota = sqlx::query_as::<_, ServerMediaQuota>(
+            r"INSERT INTO server_media_quota (id, max_storage_bytes, max_file_size_bytes, max_files_count, current_storage_bytes, current_files_count, alert_threshold_percent, updated_ts)
+             VALUES (1, 10995116277760, 1073741824, 1000000, 0, 0, 80, $1)
+             ON CONFLICT (id) DO UPDATE SET updated_ts = EXCLUDED.updated_ts
+             RETURNING id, max_storage_bytes, max_file_size_bytes, max_files_count, current_storage_bytes, current_files_count, alert_threshold_percent, updated_ts"
+        )
+        .bind(now)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to create default server quota", &e))?;
 
         Ok(quota)
     }

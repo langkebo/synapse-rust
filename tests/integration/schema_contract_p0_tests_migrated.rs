@@ -76,14 +76,15 @@ async fn cleanup_space_fixtures(pool: &sqlx::PgPool, space_id: &str, user_ids: &
 }
 
 async fn assert_table_exists(pool: &sqlx::PgPool, table_name: &str) {
+    // Use unqualified name so to_regclass resolves via search_path (test_XXX, public).
     let regclass: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)::text")
-        .bind(format!("public.{table_name}"))
+        .bind(table_name)
         .fetch_one(pool)
         .await
         .expect("Failed to query table existence");
     assert!(
-        regclass.as_deref() == Some(table_name) || regclass.as_deref() == Some(format!("public.{table_name}").as_str()),
-        "Expected table '{table_name}' to exist, got: {regclass:?}"
+        regclass.is_some(),
+        "Expected table '{table_name}' to exist, got: None"
     );
 }
 

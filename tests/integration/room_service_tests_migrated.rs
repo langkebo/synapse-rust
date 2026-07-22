@@ -1160,17 +1160,28 @@ async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
     assert_eq!(bridge_event["content"]["body"], format!("bridge-e2e-body-{id}"));
     assert!(bridge_event["queue_event_id"].as_str().is_some());
 
-    let pending_transactions = ApplicationServiceStorage::new(&pool)
-        .get_pending_transactions(&bridge_as_id)
-        .await
-        .expect("pending transactions should load");
-    assert!(pending_transactions.is_empty(), "successful bridge delivery should complete transaction");
-
-    let pending_events = ApplicationServiceStorage::new(&pool)
-        .get_pending_events(&bridge_as_id, 10)
-        .await
-        .expect("pending events should load");
-    assert!(pending_events.is_empty(), "successful bridge delivery should mark queue events processed");
+    // Transaction completion and queue-event marking are asynchronous steps
+    // in the appservice sender. Under parallel-test pressure the second step
+    // can lag behind the first (transaction cleared but events not yet marked
+    // processed), so retry briefly until both clear.
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let pending_transactions = ApplicationServiceStorage::new(&pool)
+                .get_pending_transactions(&bridge_as_id)
+                .await
+                .expect("pending transactions should load");
+            let pending_events = ApplicationServiceStorage::new(&pool)
+                .get_pending_events(&bridge_as_id, 10)
+                .await
+                .expect("pending events should load");
+            if pending_transactions.is_empty() && pending_events.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("successful bridge delivery should complete transaction and mark queue events processed within 3s");
 
     let delivery_status = manager
         .get_state(&bridge_as_id, "delivery_status")

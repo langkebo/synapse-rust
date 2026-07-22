@@ -22,26 +22,28 @@ fn unique_id() -> u64 {
 }
 
 async fn assert_table_exists(pool: &sqlx::PgPool, table_name: &str) {
+    // Use unqualified name so to_regclass resolves via search_path (test_XXX, public).
+    // Hardcoding "public." would fail because tables live in the per-test test_XXX schema.
     let regclass: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)::text")
-        .bind(format!("public.{table_name}"))
+        .bind(table_name)
         .fetch_one(pool)
         .await
         .expect("Failed to query table existence");
     assert!(
-        regclass.as_deref() == Some(table_name) || regclass.as_deref() == Some(format!("public.{table_name}").as_str()),
-        "Expected table '{table_name}' to exist, got: {regclass:?}"
+        regclass.is_some(),
+        "Expected table '{table_name}' to exist, got: None"
     );
 }
 
 async fn assert_view_exists(pool: &sqlx::PgPool, view_name: &str) {
     let regclass: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)::text")
-        .bind(format!("public.{view_name}"))
+        .bind(view_name)
         .fetch_one(pool)
         .await
         .expect("Failed to query view existence");
     assert!(
-        regclass.as_deref() == Some(view_name) || regclass.as_deref() == Some(format!("public.{view_name}").as_str()),
-        "Expected view '{view_name}' to exist, got: {regclass:?}"
+        regclass.is_some(),
+        "Expected view '{view_name}' to exist, got: None"
     );
 }
 

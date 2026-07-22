@@ -172,19 +172,18 @@ impl KeyRotationManager {
             return Ok(());
         }
 
-        let table_exists: bool = sqlx::query_scalar!(
+        let table_exists: bool = sqlx::query_scalar::<_, bool>(
             r"
             SELECT EXISTS (
                 SELECT 1
                 FROM information_schema.tables
-                WHERE table_schema = 'public'
+                WHERE table_schema = current_schema()
                   AND table_name = 'federation_signing_keys'
             )
             ",
         )
         .fetch_one(&*self.pool)
-        .await?
-        .unwrap_or(false);
+        .await?;
 
         if !table_exists {
             sqlx::query(
@@ -207,19 +206,18 @@ impl KeyRotationManager {
             .await?;
         }
 
-        let server_created_index_exists: bool = sqlx::query_scalar!(
+        let server_created_index_exists: bool = sqlx::query_scalar::<_, bool>(
             r"
             SELECT EXISTS (
                 SELECT 1
                 FROM pg_indexes
-                WHERE schemaname = 'public'
+                WHERE schemaname = current_schema()
                   AND indexname = 'idx_federation_signing_keys_server_created'
             )
             ",
         )
         .fetch_one(&*self.pool)
-        .await?
-        .unwrap_or(false);
+        .await?;
 
         if !server_created_index_exists {
             sqlx::query(
@@ -232,19 +230,18 @@ impl KeyRotationManager {
             .await?;
         }
 
-        let key_id_index_exists: bool = sqlx::query_scalar!(
+        let key_id_index_exists: bool = sqlx::query_scalar::<_, bool>(
             r"
             SELECT EXISTS (
                 SELECT 1
                 FROM pg_indexes
-                WHERE schemaname = 'public'
+                WHERE schemaname = current_schema()
                   AND indexname = 'idx_federation_signing_keys_key_id'
             )
             ",
         )
         .fetch_one(&*self.pool)
-        .await?
-        .unwrap_or(false);
+        .await?;
 
         if !key_id_index_exists {
             sqlx::query(
