@@ -62,3 +62,40 @@ impl Default for SearchConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_search_config_default() {
+        let config = SearchConfig::default();
+        assert!(config.elasticsearch_url.is_empty());
+        assert!(!config.enabled);
+        assert_eq!(config.provider, "postgres");
+        assert_eq!(config.search_index_name, "synapse_search");
+    }
+
+    #[test]
+    fn test_postgres_fts_config_default() {
+        let config = PostgresFtsConfig::default();
+        assert!(!config.enabled);
+        assert_eq!(config.weights.title, 0.0);
+        assert_eq!(config.weights.body, 0.0);
+        assert_eq!(config.weights.sender, 0.0);
+    }
+
+    #[test]
+    fn test_postgres_fts_weights_default() {
+        let weights = PostgresFtsWeights::default();
+        assert_eq!(weights.title, 0.0);
+        assert_eq!(weights.body, 0.0);
+        assert_eq!(weights.sender, 0.0);
+    }
+
+    #[test]
+    fn test_default_values() {
+        assert_eq!(default_search_provider(), "postgres");
+        assert_eq!(default_search_index_name(), "synapse_search");
+    }
+}

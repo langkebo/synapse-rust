@@ -58,3 +58,29 @@ fn default_sync_ephemeral_limit() -> u32 {
 fn default_sliding_sync_latency_threshold_ms() -> u64 {
     5000
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_performance_config_default() {
+        let config = PerformanceConfig::default();
+        assert_eq!(config.sync_event_limit, 100);
+        assert_eq!(config.sync_poll_interval_ms, 250);
+        assert_eq!(config.sync_slow_request_threshold_ms, 750);
+        assert_eq!(config.sync_to_device_limit, 200);
+        assert_eq!(config.sync_ephemeral_limit, 100);
+        assert_eq!(config.sliding_sync_latency_threshold_ms, 5000);
+    }
+
+    #[test]
+    fn test_default_values() {
+        assert_eq!(default_sync_event_limit(), 100);
+        assert_eq!(default_sync_poll_interval_ms(), 250);
+        assert_eq!(default_sync_slow_request_threshold_ms(), 750);
+        assert_eq!(default_sync_to_device_limit(), 200);
+        assert_eq!(default_sync_ephemeral_limit(), 100);
+        assert_eq!(default_sliding_sync_latency_threshold_ms(), 5000);
+    }
+}

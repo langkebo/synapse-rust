@@ -50,3 +50,48 @@ impl PolicyServerConfig {
 fn default_policy_server_timeout() -> u64 {
     5
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_policy_server_config_default() {
+        let config = PolicyServerConfig::default();
+        assert!(!config.enabled);
+        assert!(config.endpoint.is_none());
+        assert!(config.api_key.is_none());
+        assert_eq!(config.timeout_secs, 5);
+        assert!(config.fail_open);
+    }
+
+    #[test]
+    fn test_policy_server_config_is_configured_disabled() {
+        let config = PolicyServerConfig::default();
+        assert!(!config.is_configured());
+    }
+
+    #[test]
+    fn test_policy_server_config_is_configured_no_endpoint() {
+        let config = PolicyServerConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        assert!(!config.is_configured());
+    }
+
+    #[test]
+    fn test_policy_server_config_is_configured_with_endpoint() {
+        let config = PolicyServerConfig {
+            enabled: true,
+            endpoint: Some("https://policy.example.com".to_string()),
+            ..Default::default()
+        };
+        assert!(config.is_configured());
+    }
+
+    #[test]
+    fn test_default_policy_server_timeout() {
+        assert_eq!(default_policy_server_timeout(), 5);
+    }
+}

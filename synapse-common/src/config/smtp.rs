@@ -74,3 +74,41 @@ fn default_smtp_per_minute() -> u32 {
 fn default_smtp_per_hour() -> u32 {
     10
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_smtp_config_default() {
+        let config = SmtpConfig::default();
+        assert!(!config.enabled);
+        assert!(config.host.is_empty());
+        // Note: Default derive gives u16 default of 0, not 587
+        // The serde default only applies during deserialization
+        assert_eq!(config.port, 0);
+        assert!(config.username.is_empty());
+        assert!(config.password.is_empty());
+        assert!(config.from.is_empty());
+        // Default derive gives bool default of false, not true
+        assert!(!config.tls);
+        assert_eq!(config.verification_token_expire, 0);
+    }
+
+    #[test]
+    fn test_smtp_rate_limit_config_default() {
+        let config = SmtpRateLimitConfig::default();
+        assert_eq!(config.per_minute, 3);
+        assert_eq!(config.per_hour, 10);
+    }
+
+    #[test]
+    fn test_default_values() {
+        assert_eq!(default_smtp_enabled(), false);
+        assert_eq!(default_smtp_port(), 587);
+        assert_eq!(default_true(), true);
+        assert_eq!(default_verification_expire(), 900);
+        assert_eq!(default_smtp_per_minute(), 3);
+        assert_eq!(default_smtp_per_hour(), 10);
+    }
+}
