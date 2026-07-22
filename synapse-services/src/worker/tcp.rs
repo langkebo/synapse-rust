@@ -185,4 +185,58 @@ mod tests {
         let cmd = ReplicationProtocol::create_ping();
         assert_eq!(protocol.encode_command(&cmd), cloned.encode_command(&cmd));
     }
+
+    #[test]
+    fn test_replication_connection_new() {
+        let conn = ReplicationConnection::new("worker1".to_string());
+        assert_eq!(conn.worker_name, "worker1");
+    }
+
+    #[tokio::test]
+    async fn test_replication_client_disconnect_when_not_connected() {
+        let mut client = TcpReplicationClient::new("worker1".to_string());
+        assert!(!client.is_connected());
+        client.disconnect().await;
+        assert!(!client.is_connected());
+    }
+
+    #[tokio::test]
+    async fn test_replication_connection_disconnect_when_not_connected() {
+        let conn = ReplicationConnection::new("worker1".to_string());
+        conn.disconnect().await;
+        assert!(!conn.is_connected().await);
+    }
+
+    #[test]
+    fn test_replication_protocol_create_ping() {
+        let ping = ReplicationProtocol::create_ping();
+        match ping {
+            ReplicationCommand::Ping { timestamp } => assert!(timestamp > 0),
+            _ => panic!("Expected Ping command"),
+        }
+    }
+
+    #[test]
+    fn test_replication_protocol_create_sync() {
+        let sync = ReplicationProtocol::create_sync("stream1", 42);
+        match sync {
+            ReplicationCommand::Sync { stream_name, position } => {
+                assert_eq!(stream_name, "stream1");
+                assert_eq!(position, 42);
+            }
+            _ => panic!("Expected Sync command"),
+        }
+    }
+
+    #[test]
+    fn test_replication_protocol_create_position() {
+        let pos = ReplicationProtocol::create_position("stream1", 100);
+        match pos {
+            ReplicationCommand::Position { stream_name, position } => {
+                assert_eq!(stream_name, "stream1");
+                assert_eq!(position, 100);
+            }
+            _ => panic!("Expected Position command"),
+        }
+    }
 }
