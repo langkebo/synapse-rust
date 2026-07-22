@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use synapse_services::database_initializer::{DatabaseInitMode, DatabaseInitService};
 use tokio::sync::OnceCell;
-use tokio::sync::{Mutex as TokioMutex, Semaphore};
+use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock, Semaphore};
 
 static PREPARED_TEST_POOLS: LazyLock<Mutex<VecDeque<Arc<PgPool>>>> = LazyLock::new(|| Mutex::new(VecDeque::new()));
 pub static TEST_ENV_LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
@@ -42,6 +42,13 @@ static SHARED_CLONE_SEMAPHORE: LazyLock<Semaphore> =
 //   by a table-count safety check and DROPped instead of pooled.
 
 static SCHEMA_POOL: TokioMutex<Vec<String>> = TokioMutex::const_new(Vec::new());
+
+// RwLock to prevent deadlock between init_template_schema (write lock, ALTER
+// TABLE on template) and clone_schema_from_template (read lock, CREATE TABLE
+// LIKE on template). Without this, the ALTER TABLE's AccessExclusiveLock and
+// CREATE TABLE LIKE's AccessShareLock deadlock on first run when OnceCell
+// initialization is retried after a runtime cancellation.
+static TEMPLATE_RW_LOCK: TokioRwLock<()> = TokioRwLock::const_new(());
 
 #[allow(clippy::expect_used)]
 static CLEANUP_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
@@ -377,7 +384,13 @@ async fn init_template_schema(database_url: &str, template_name: &str) -> Result
         return Err(format!("template schema initialization errors: {}", report.errors.join(" | ")));
     }
 
-    ensure_test_schema_contract(&pool).await?;
+    // Acquire write lock so no clone_schema_from_template can run concurrently.
+    // The ALTER TABLEs below take AccessExclusiveLock on template tables; a
+    // concurrent CREATE TABLE LIKE (AccessShareLock) would deadlock.
+    {
+        let _write_guard = TEMPLATE_RW_LOCK.write().await;
+        ensure_test_schema_contract(&pool).await?;
+    }
     mark_template_schema_ready(template_name)?;
 
     // Close the template pool — we only need it for initialization
@@ -530,6 +543,10 @@ async fn clone_schema_from_template(
 ) -> Result<(Arc<PgPool>, String), String> {
     let schema_name = next_test_schema_name();
     let connect_timeout = configured_test_pool_connect_timeout();
+
+    // Acquire read lock so init_template_schema (write lock) cannot run
+    // concurrently. Multiple clones can run concurrently (shared read lock).
+    let _read_guard = TEMPLATE_RW_LOCK.read().await;
 
     let admin_pool = tokio::time::timeout(
         connect_timeout,
