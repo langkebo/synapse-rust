@@ -288,4 +288,62 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().is_forbidden());
     }
+
+    #[test]
+    fn test_login_response_has_well_known() {
+        let response = serde_json::json!({
+            "access_token": "test_token",
+            "refresh_token": "test_refresh",
+            "expires_in": 86400,
+            "device_id": "DEVICE123",
+            "user_id": "@test:example.com",
+            "well_known": {
+                "m.homeserver": {
+                    "base_url": "http://localhost:8008"
+                }
+            }
+        });
+
+        assert!(response.get("well_known").is_some());
+        assert_eq!(response["well_known"]["m.homeserver"]["base_url"], "http://localhost:8008");
+    }
+
+    #[test]
+    fn test_login_response_user_id_format() {
+        let response = serde_json::json!({
+            "access_token": "test_token",
+            "refresh_token": "test_refresh",
+            "expires_in": 86400,
+            "device_id": "DEVICE123",
+            "user_id": "@test:example.com",
+            "well_known": {
+                "m.homeserver": {
+                    "base_url": "http://localhost:8008"
+                }
+            }
+        });
+
+        let user_id = response["user_id"].as_str().unwrap();
+        assert!(user_id.starts_with('@'));
+        assert!(user_id.contains(':'));
+    }
+
+    #[test]
+    fn test_login_response_device_id_present() {
+        let response = serde_json::json!({
+            "access_token": "test_token",
+            "refresh_token": "test_refresh",
+            "expires_in": 86400,
+            "device_id": "DEVICE123",
+            "user_id": "@test:example.com",
+            "well_known": {
+                "m.homeserver": {
+                    "base_url": "http://localhost:8008"
+                }
+            }
+        });
+
+        let device_id = response["device_id"].as_str().unwrap();
+        assert!(!device_id.is_empty());
+    }
 }
