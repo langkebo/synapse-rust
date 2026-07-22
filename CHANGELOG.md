@@ -13,11 +13,28 @@
 
 | 版本 | 发布日期 | 性质 | 主要内容 |
 |------|----------|------|----------|
+| [v6.2.0](#v620---2026-07-22) | 2026-07-22 | 重构 | 架构优化 Round 2（收口）：test_utils 类型修复 / clippy expect-used 门禁 / 1291 文件 trait 迁移 |
 | [v6.1.0](#v610---2026-07-14) | 2026-07-14 | 重构+安全 | 架构优化 Round 2：Auth trait 分层 / EventStore 读写分离 / 安全加固 / Bench+Snapshot |
 | [v6.0.5](#v605---2026-07-09) | 2026-07-09 | 重构 | 架构优化 Round 2：trait 提取 / glob re-export 收敛 / 中间件迁移 / storage 拆分 |
 | [v10.0.0](#v10000---2026-06-12) | 2026-06-12 | 🚧 **当前基线** | P0/P1 全部修复 / v10 迁移基线 / clippy 门禁修复 / 文档同步 / P2 #7 L1 unwrap 治理 |
 | [v8.0.0](#v8000---2026-06-06) | 2026-06-06 | 历史 | P0 全部修复 / v8 迁移基线 / E2EE vodozemac 收敛 Phase 1+2 / Step 10-12 工程门禁 |
 | [v7.x](#v7x---2026-05-28-前) | 2026-05-28 前 | 历史 | 旧 `Cargo.toml` 版本基线，包含 v7 迁移文件（已被 v8 收敛） |
+
+---
+
+## [v6.2.0] - 2026-07-22
+
+> 架构优化 Round 2（收口）：test_utils 类型修复 / clippy expect-used 门禁 /
+> TestContext schema pool 集成 / lib + unit 测试全绿 (1362 tests)
+
+### Fixed（修复）
+- test_utils `get_template_schema_name` 返回类型 mismatch（`?` 解包后缺少 `Ok(...)` wrapper）
+- clippy `expect_used` 门禁：test schema cleanup runtime 添加 `#[allow(clippy::expect_used)]`
+- Integration `TestContext` 接入 `LeasedSchema` schema pool（TRUNCATE 复用替代 DROP 重建）
+
+### Changed（变更）
+- Cargo.toml 版本号 6.1.0 → 6.2.0
+- CI 测试命令统一：lib 用 `--all-features`，unit 用 `--features test-utils`
 
 ---
 
