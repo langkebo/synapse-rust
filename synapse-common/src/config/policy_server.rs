@@ -73,10 +73,7 @@ mod tests {
 
     #[test]
     fn test_policy_server_config_is_configured_no_endpoint() {
-        let config = PolicyServerConfig {
-            enabled: true,
-            ..Default::default()
-        };
+        let config = PolicyServerConfig { enabled: true, ..Default::default() };
         assert!(!config.is_configured());
     }
 

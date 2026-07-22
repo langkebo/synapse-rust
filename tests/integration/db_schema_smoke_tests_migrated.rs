@@ -29,10 +29,7 @@ async fn assert_table_exists(pool: &sqlx::PgPool, table_name: &str) {
         .fetch_one(pool)
         .await
         .expect("Failed to query table existence");
-    assert!(
-        regclass.is_some(),
-        "Expected table '{table_name}' to exist, got: None"
-    );
+    assert!(regclass.is_some(), "Expected table '{table_name}' to exist, got: None");
 }
 
 async fn assert_view_exists(pool: &sqlx::PgPool, view_name: &str) {
@@ -41,10 +38,7 @@ async fn assert_view_exists(pool: &sqlx::PgPool, view_name: &str) {
         .fetch_one(pool)
         .await
         .expect("Failed to query view existence");
-    assert!(
-        regclass.is_some(),
-        "Expected view '{view_name}' to exist, got: None"
-    );
+    assert!(regclass.is_some(), "Expected view '{view_name}' to exist, got: None");
 }
 
 async fn seed_room(pool: &sqlx::PgPool, suffix: u64, prefix: &str) -> (String, String) {

@@ -82,10 +82,7 @@ async fn assert_table_exists(pool: &sqlx::PgPool, table_name: &str) {
         .fetch_one(pool)
         .await
         .expect("Failed to query table existence");
-    assert!(
-        regclass.is_some(),
-        "Expected table '{table_name}' to exist, got: None"
-    );
+    assert!(regclass.is_some(), "Expected table '{table_name}' to exist, got: None");
 }
 
 async fn assert_column(

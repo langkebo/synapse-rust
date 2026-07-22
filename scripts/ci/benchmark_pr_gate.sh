@@ -67,7 +67,7 @@ extract_benchmarks() {
                 echo "$name $value $unit"
             fi
         fi
-    done < "$file"
+    done <"$file"
 }
 
 # Convert value+unit to nanoseconds for comparison
@@ -79,10 +79,10 @@ normalize_to_ns() {
 
     case "$unit" in
         ns) echo "$value" ;;
-        us|µs) awk "BEGIN {print $value * 1000}" ;;
+        us | µs) awk "BEGIN {print $value * 1000}" ;;
         ms) awk "BEGIN {print $value * 1000000}" ;;
-        s)  awk "BEGIN {print $value * 1000000000}" ;;
-        *)  echo "$value" ;; # unknown unit, pass through
+        s) awk "BEGIN {print $value * 1000000000}" ;;
+        *) echo "$value" ;; # unknown unit, pass through
     esac
 }
 
@@ -90,16 +90,16 @@ normalize_to_ns() {
 # 3) Extract current results
 # ---------------------------------------------------------------------------
 CURRENT_RESULTS="artifacts/pr_benchmark_results.txt"
-: > "$CURRENT_RESULTS"
+: >"$CURRENT_RESULTS"
 
 for log in artifacts/bench_federation.log artifacts/bench_membership.log; do
     if [ -f "$log" ]; then
-        extract_benchmarks "$log" >> "$CURRENT_RESULTS"
+        extract_benchmarks "$log" >>"$CURRENT_RESULTS"
     fi
 done
 
 # Sort for consistent comparison
-sort "$CURRENT_RESULTS" > "${CURRENT_RESULTS}.sorted"
+sort "$CURRENT_RESULTS" >"${CURRENT_RESULTS}.sorted"
 mv "${CURRENT_RESULTS}.sorted" "$CURRENT_RESULTS"
 
 echo ""
@@ -115,7 +115,7 @@ if [ -n "${BENCH_BASELINE_PATH:-}" ] && [ -f "$BENCH_BASELINE_PATH" ]; then
 
     # Parse baseline results (same format)
     BASELINE_RESULTS="artifacts/baseline_results.txt"
-    : > "$BASELINE_RESULTS"
+    : >"$BASELINE_RESULTS"
 
     while IFS= read -r line; do
         if echo "$line" | grep -q 'time: \['; then
@@ -126,12 +126,12 @@ if [ -n "${BENCH_BASELINE_PATH:-}" ] && [ -f "$BENCH_BASELINE_PATH" ]; then
             local unit
             unit=$(echo "$line" | sed 's/.*time: \[[^ ]* [^ ]* \([^ ]*\) [^ ]*\].*/\1/')
             if [ -n "$name" ] && [ -n "$value" ] && [ -n "$unit" ]; then
-                echo "$name $value $unit" >> "$BASELINE_RESULTS"
+                echo "$name $value $unit" >>"$BASELINE_RESULTS"
             fi
         fi
-    done < "$BENCH_BASELINE_PATH"
+    done <"$BENCH_BASELINE_PATH"
 
-    sort "$BASELINE_RESULTS" > "${BASELINE_RESULTS}.sorted"
+    sort "$BASELINE_RESULTS" >"${BASELINE_RESULTS}.sorted"
     mv "${BASELINE_RESULTS}.sorted" "$BASELINE_RESULTS"
 
     echo "Baseline results:"
@@ -177,7 +177,7 @@ if [ -n "${BENCH_BASELINE_PATH:-}" ] && [ -f "$BENCH_BASELINE_PATH" ]; then
         else
             echo "INFO: $bench_name — no baseline found (new benchmark)"
         fi
-    done < "$CURRENT_RESULTS"
+    done <"$CURRENT_RESULTS"
 
     echo ""
     if [ "$REGRESSIONS" -gt 0 ]; then
@@ -195,9 +195,9 @@ fi
 # 5) Generate JSON report for artifacts
 # ---------------------------------------------------------------------------
 JSON_REPORT="artifacts/pr_benchmark_results.json"
-echo "{" > "$JSON_REPORT"
-echo "  \"threshold_percent\": $THRESHOLD," >> "$JSON_REPORT"
-echo "  \"benchmarks\": [" >> "$JSON_REPORT"
+echo "{" >"$JSON_REPORT"
+echo "  \"threshold_percent\": $THRESHOLD," >>"$JSON_REPORT"
+echo "  \"benchmarks\": [" >>"$JSON_REPORT"
 
 FIRST=true
 while IFS= read -r line; do
@@ -209,15 +209,15 @@ while IFS= read -r line; do
     if [ "$FIRST" = "true" ]; then
         FIRST=false
     else
-        echo "," >> "$JSON_REPORT"
+        echo "," >>"$JSON_REPORT"
     fi
 
-    echo "    {\"name\": \"$bench_name\", \"value\": \"$bench_value\", \"unit\": \"$bench_unit\"}" >> "$JSON_REPORT"
-done < "$CURRENT_RESULTS"
+    echo "    {\"name\": \"$bench_name\", \"value\": \"$bench_value\", \"unit\": \"$bench_unit\"}" >>"$JSON_REPORT"
+done <"$CURRENT_RESULTS"
 
-echo "" >> "$JSON_REPORT"
-echo "  ]" >> "$JSON_REPORT"
-echo "}" >> "$JSON_REPORT"
+echo "" >>"$JSON_REPORT"
+echo "  ]" >>"$JSON_REPORT"
+echo "}" >>"$JSON_REPORT"
 
 echo ""
 echo "Benchmark report generated: $JSON_REPORT"

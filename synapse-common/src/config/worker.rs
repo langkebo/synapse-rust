@@ -174,11 +174,7 @@ mod tests {
 
     #[test]
     fn test_instance_location_config_creation() {
-        let config = InstanceLocationConfig {
-            host: "localhost".to_string(),
-            port: 8080,
-            tls: true,
-        };
+        let config = InstanceLocationConfig { host: "localhost".to_string(), port: 8080, tls: true };
         assert_eq!(config.host, "localhost");
         assert_eq!(config.port, 8080);
         assert!(config.tls);

@@ -222,12 +222,8 @@ pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         .map_err(|error| format!("failed to create schema {schema_name}: {error}"))?;
 
     // Ensure pg_trgm is in `public` schema (see init_template_schema for rationale).
-    let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public")
-        .execute(&admin_pool)
-        .await;
-    let _ = sqlx::query("ALTER EXTENSION pg_trgm SET SCHEMA public")
-        .execute(&admin_pool)
-        .await;
+    let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public").execute(&admin_pool).await;
+    let _ = sqlx::query("ALTER EXTENSION pg_trgm SET SCHEMA public").execute(&admin_pool).await;
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
     let pool = tokio::time::timeout(
@@ -357,15 +353,11 @@ async fn init_template_schema(database_url: &str, template_name: &str) -> Result
     // (template_name is NOT in the search_path of cloned/pooled schemas).
     // `CREATE EXTENSION IF NOT EXISTS` is a no-op if the extension already exists
     // (in any schema), so this is safe to call on every template init.
-    let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public")
-        .execute(&admin_pool)
-        .await;
+    let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public").execute(&admin_pool).await;
     // If the extension was previously installed in a different schema (e.g. by
     // an older version of this code), move it to public so functions are
     // accessible. ALTER EXTENSION ... SET SCHEMA is idempotent.
-    let _ = sqlx::query("ALTER EXTENSION pg_trgm SET SCHEMA public")
-        .execute(&admin_pool)
-        .await;
+    let _ = sqlx::query("ALTER EXTENSION pg_trgm SET SCHEMA public").execute(&admin_pool).await;
 
     let search_path_sql = format!("SET search_path TO {template_name}, public");
     let pool = tokio::time::timeout(
@@ -557,10 +549,7 @@ fn mark_template_schema_ready(schema_name: &str) -> Result<(), String> {
 /// Clone the template schema into a fresh per-test schema and return the pool
 /// plus the schema name. The schema name is needed by the pool's lease tracker
 /// to TRUNCATE/DROP it later.
-async fn clone_schema_from_template(
-    database_url: &str,
-    template_name: &str,
-) -> Result<(Arc<PgPool>, String), String> {
+async fn clone_schema_from_template(database_url: &str, template_name: &str) -> Result<(Arc<PgPool>, String), String> {
     let schema_name = next_test_schema_name();
     let connect_timeout = configured_test_pool_connect_timeout();
 
@@ -786,7 +775,9 @@ impl Drop for LeasedSchema {
             let admin_pool = match admin_pool {
                 Ok(Ok(pool)) => pool,
                 _ => {
-                    eprintln!("schema pool: failed to connect admin pool for cleanup of {schema_name}; schema orphaned");
+                    eprintln!(
+                        "schema pool: failed to connect admin pool for cleanup of {schema_name}; schema orphaned"
+                    );
                     return;
                 }
             };
@@ -830,27 +821,21 @@ pub async fn acquire_pooled_schema() -> Result<LeasedSchema, String> {
             let pool = create_pool_for_schema(&database_url, &schema_name).await?;
             return Ok(LeasedSchema {
                 pool,
-                inner: Some(LeasedSchemaInner {
-                    schema_name,
-                    template_name,
-                    database_url,
-                    poisoned: false,
-                }),
+                inner: Some(LeasedSchemaInner { schema_name, template_name, database_url, poisoned: false }),
             });
         }
         // Schema corrupted — drop it and try the next one from the pool
         eprintln!("schema pool: dropping corrupted schema {schema_name} (table count mismatch)");
-        if let Ok(admin_pool) = PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url).await {
+        if let Ok(admin_pool) =
+            PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url).await
+        {
             let _ = drop_schema(&admin_pool, &schema_name).await;
             admin_pool.close().await;
         }
     }
 
     // Slow path: clone a new schema from the template
-    let _permit = SHARED_CLONE_SEMAPHORE
-        .acquire()
-        .await
-        .map_err(|_| "shared clone semaphore closed".to_string())?;
+    let _permit = SHARED_CLONE_SEMAPHORE.acquire().await.map_err(|_| "shared clone semaphore closed".to_string())?;
     let (pool, schema_name) = clone_schema_from_template(&database_url, &template_name).await?;
     drop(_permit);
 
@@ -863,11 +848,8 @@ pub async fn acquire_pooled_schema() -> Result<LeasedSchema, String> {
 /// Validate that a schema has the same table count as the template.
 /// Returns false if the schema is corrupted (missing tables).
 async fn validate_schema_table_count(database_url: &str, schema_name: &str, template_name: &str) -> bool {
-    let Ok(admin_pool) = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect(database_url)
-        .await
+    let Ok(admin_pool) =
+        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(database_url).await
     else {
         return true; // Can't validate — assume OK (fail open, not blocking tests)
     };
@@ -927,29 +909,21 @@ async fn create_pool_for_schema(database_url: &str, schema_name: &str) -> Result
 /// Safety check: if the table count drops below a threshold (indicating a
 /// destructive test corrupted the schema), returns an error so the caller
 /// DROPs the schema instead of pooling it.
-async fn truncate_and_reseed_schema(
-    admin_pool: &PgPool,
-    schema_name: &str,
-    template_name: &str,
-) -> Result<(), String> {
+async fn truncate_and_reseed_schema(admin_pool: &PgPool, schema_name: &str, template_name: &str) -> Result<(), String> {
     // Safety check: compare table count against the template. A healthy clone
     // must have the same number of tables as the template. If a destructive
     // test dropped some, we detect it here and refuse to pool the corrupted schema.
-    let table_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM pg_tables WHERE schemaname = $1",
-    )
-    .bind(schema_name)
-    .fetch_one(admin_pool)
-    .await
-    .map_err(|e| format!("failed to count tables in {schema_name}: {e}"))?;
+    let table_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pg_tables WHERE schemaname = $1")
+        .bind(schema_name)
+        .fetch_one(admin_pool)
+        .await
+        .map_err(|e| format!("failed to count tables in {schema_name}: {e}"))?;
 
-    let template_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM pg_tables WHERE schemaname = $1",
-    )
-    .bind(template_name)
-    .fetch_one(admin_pool)
-    .await
-    .map_err(|e| format!("failed to count tables in template {template_name}: {e}"))?;
+    let template_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pg_tables WHERE schemaname = $1")
+        .bind(template_name)
+        .fetch_one(admin_pool)
+        .await
+        .map_err(|e| format!("failed to count tables in template {template_name}: {e}"))?;
 
     if table_count < template_count {
         return Err(format!(
@@ -972,10 +946,7 @@ async fn truncate_and_reseed_schema(
 
     if let Some(trunc_list) = trunc_list {
         let sql = format!("TRUNCATE TABLE {trunc_list} RESTART IDENTITY CASCADE");
-        sqlx::raw_sql(&sql)
-            .execute(admin_pool)
-            .await
-            .map_err(|e| format!("TRUNCATE failed for {schema_name}: {e}"))?;
+        sqlx::raw_sql(&sql).execute(admin_pool).await.map_err(|e| format!("TRUNCATE failed for {schema_name}: {e}"))?;
     }
 
     // Re-seed reference/config tables from the template (same 3 tables that
@@ -1040,12 +1011,8 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
         .map_err(|error| format!("failed to create schema {schema_name}: {error}"))?;
 
     // Ensure pg_trgm is in `public` schema (see init_template_schema for rationale).
-    let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public")
-        .execute(&admin_pool)
-        .await;
-    let _ = sqlx::query("ALTER EXTENSION pg_trgm SET SCHEMA public")
-        .execute(&admin_pool)
-        .await;
+    let _ = sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public").execute(&admin_pool).await;
+    let _ = sqlx::query("ALTER EXTENSION pg_trgm SET SCHEMA public").execute(&admin_pool).await;
 
     let search_path_sql = format!("SET search_path TO {schema_name}, public");
     let pool = tokio::time::timeout(

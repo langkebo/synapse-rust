@@ -109,8 +109,7 @@ fn test_script_generates_json_report() {
 
     // Verify it's valid JSON
     let content = fs::read_to_string(&report_path).unwrap();
-    let json: serde_json::Value = serde_json::from_str(&content)
-        .expect("Report should be valid JSON");
+    let json: serde_json::Value = serde_json::from_str(&content).expect("Report should be valid JSON");
 
     assert_eq!(json["threshold_percent"], 15, "Threshold should be 15%");
     assert!(json["benchmarks"].is_array(), "Benchmarks should be an array");
@@ -162,8 +161,7 @@ fn test_regression_detection_logic() {
     let pct_change = ((current_ms - baseline_ms) / baseline_ms) * 100.0;
 
     // Regression should be ~48.6%, which exceeds 15% threshold
-    assert!(pct_change > threshold,
-        "Regression of {:.2}% should exceed {}% threshold", pct_change, threshold);
+    assert!(pct_change > threshold, "Regression of {:.2}% should exceed {}% threshold", pct_change, threshold);
 }
 
 #[test]
@@ -177,8 +175,7 @@ fn test_no_regression_within_threshold() {
     let abs_change = pct_change.abs();
 
     // Should be within threshold
-    assert!(abs_change <= threshold,
-        "Change of {:.2}% should be within {}% threshold", abs_change, threshold);
+    assert!(abs_change <= threshold, "Change of {:.2}% should be within {}% threshold", abs_change, threshold);
 }
 
 #[test]
@@ -201,16 +198,12 @@ auth_chain_build_10          time:   [0.1234 ms 0.1345 ms 0.1456 ms]
 "#;
 
     let lines: Vec<&str> = output.lines().collect();
-    let benchmark_lines: Vec<&str> = lines.iter()
-        .filter(|line| line.contains("time:"))
-        .copied()
-        .collect();
+    let benchmark_lines: Vec<&str> = lines.iter().filter(|line| line.contains("time:")).copied().collect();
 
     assert_eq!(benchmark_lines.len(), 3, "Should find 3 benchmark lines");
 
-    let names: Vec<String> = benchmark_lines.iter()
-        .map(|line| line.split("time:").next().unwrap().trim().to_string())
-        .collect();
+    let names: Vec<String> =
+        benchmark_lines.iter().map(|line| line.split("time:").next().unwrap().trim().to_string()).collect();
 
     assert!(names.contains(&"state_resolution_chain_10".to_string()));
     assert!(names.contains(&"state_resolution_chain_100".to_string()));

@@ -565,12 +565,7 @@ async fn test_user_directory_search_and_list_respect_profile_visibility() {
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), search_request).await.unwrap();
     let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
-    assert_eq!(
-        status,
-        StatusCode::OK,
-        "search failed: {}",
-        String::from_utf8_lossy(&body)
-    );
+    assert_eq!(status, StatusCode::OK, "search failed: {}", String::from_utf8_lossy(&body));
     let json: Value = serde_json::from_slice(&body).unwrap();
     let results = json["results"].as_array().unwrap();
     assert!(results.iter().all(|entry| entry["user_id"] != alice_id));

@@ -84,11 +84,7 @@ mod tests {
 
     #[test]
     fn test_builtin_oidc_config_is_enabled_no_issuer() {
-        let config = BuiltinOidcConfig {
-            enabled: true,
-            issuer: String::new(),
-            ..Default::default()
-        };
+        let config = BuiltinOidcConfig { enabled: true, issuer: String::new(), ..Default::default() };
         assert!(!config.is_enabled());
     }
 

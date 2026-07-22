@@ -151,20 +151,14 @@ mod tests {
 
     #[test]
     fn test_retention_policy_creation() {
-        let policy = RetentionPolicy {
-            min_lifetime: Some(3600),
-            max_lifetime: Some(86400),
-        };
+        let policy = RetentionPolicy { min_lifetime: Some(3600), max_lifetime: Some(86400) };
         assert_eq!(policy.min_lifetime, Some(3600));
         assert_eq!(policy.max_lifetime, Some(86400));
     }
 
     #[test]
     fn test_retention_purge_job_creation() {
-        let job = RetentionPurgeJob {
-            interval: 3600,
-            batch_size: 50,
-        };
+        let job = RetentionPurgeJob { interval: 3600, batch_size: 50 };
         assert_eq!(job.interval, 3600);
         assert_eq!(job.batch_size, 50);
     }

@@ -538,7 +538,10 @@ impl AdminUserService {
 
 #[cfg(test)]
 mod cursor_tests {
-    use super::{decode_user_cursor, encode_user_cursor, AdminUserCursor, AdminUserProfile, AdminUserStats, BatchUsersResult, AdminUserEvictionResult, AdminEvictionFailure, AdminUserListItem, AdminUserDeviceInfo};
+    use super::{
+        decode_user_cursor, encode_user_cursor, AdminEvictionFailure, AdminUserCursor, AdminUserDeviceInfo,
+        AdminUserEvictionResult, AdminUserListItem, AdminUserProfile, AdminUserStats, BatchUsersResult,
+    };
 
     #[test]
     fn test_user_cursor_round_trip() {
