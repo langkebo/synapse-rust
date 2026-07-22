@@ -10,7 +10,7 @@
 |------|------|------|---------|---------|
 | `cargo-deny` | 许可证 / 依赖 bans / 来源 | **Grade A (阻断)** | 许可证违规、未知 registry、wildcard 依赖、yanked crate | `deny.toml` |
 | `cargo-audit` | CVE / 安全公告 | **Grade A (阻断)** | 高危/中危 CVE 未列入 ignore 清单 | `.cargo/audit.toml` |
-| `cargo-geiger` | `unsafe` 代码检测 | **Grade A (阻断)** | 生产代码（`src/`）出现任何 `unsafe` 块 | `.github/workflows/ci.yml` |
+| `cargo-geiger` | `unsafe` 代码检测 | **Grade A (阻断)** | 生产代码 `unsafe` 超过 baseline | `scripts/ci/run_cargo_geiger.py` + `geiger_baseline.json` |
 | `cargo-outdated` | 依赖新鲜度 | **Grade B (警告)** | 安全相关 crate 有更新时告警 | CI 步骤 (`continue-on-error: true`) |
 | `rand::rng()` 扫描 | 特定漏洞防护 | **Grade A (阻断)** | 代码中出现 `rand::rng()` 调用 | CI 步骤 (`git grep`) |
 
@@ -43,14 +43,17 @@
   - review-by 日期
 
 #### cargo-geiger
+- **实现**：`scripts/ci/run_cargo_geiger.py`（JSON 输出 + baseline ratchet）
 - **检查内容**：Rust 代码中的 `unsafe` 块
 - **阻断条件**：
-  - 生产代码（`src/` 目录下，排除 `tests/`、`benches/`）出现任何 `unsafe`
+  - 生产代码（非 `tests/` 目录文件）unsafe 总数超过 baseline
+  - 新文件出现 unsafe（baseline 中未记录）
 - **非阻断但追踪**：
-  - 测试代码中的 `unsafe` 块数量需记录基线，新增时告警
-- **当前基线**（截至 2026-07-22）：
-  - 生产代码 `unsafe`：0
-  - 测试代码 `unsafe`：4（全部在 `#[test]` 函数中，用于环境变量操作）
+  - 测试代码（`tests/` 目录）中的 `unsafe` 块数量需记录基线，新增时告警
+- **当前基线**（截至 2026-07-23，`scripts/ci/geiger_baseline.json`）：
+  - 生产文件 unsafe：4（全部在 `src/` 文件的 `#[test]` 函数中，cargo-geiger 按文件统计不区分 `#[test]`；用于 `std::env::set_var`/`remove_var`，Rust 2024 要求 unsafe）
+  - 测试文件 unsafe：0
+- **注意**：cargo-geiger 按文件级别报告，不区分同一文件中的 `#[test]` 函数和非测试代码。baseline 中的 4 个 "生产" unsafe 实际上是 `src/` 文件内 `#[test]` 函数的环境变量操作，未来可通过迁移到 test-only helper crate 来降低 baseline。
 
 #### rand::rng() 扫描
 - **检查内容**：代码中是否出现 `rand::rng()` 调用
