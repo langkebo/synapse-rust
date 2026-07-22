@@ -317,4 +317,46 @@ mod tests {
         assert!(params.room_id.is_none());
         assert!(params.waveform.is_none());
     }
+
+    #[test]
+    fn test_validate_audio_content_type_case_sensitive() {
+        assert!(VoiceService::validate_audio_content_type("AUDIO/OGG").is_err());
+        assert!(VoiceService::validate_audio_content_type("Audio/Ogg").is_err());
+    }
+
+    #[test]
+    fn test_validate_audio_content_type_with_parameters() {
+        assert!(VoiceService::validate_audio_content_type("audio/ogg; codecs=opus; bitrate=128000").is_ok());
+        assert!(VoiceService::validate_audio_content_type("audio/mp4; codecs=aac").is_ok());
+    }
+
+    #[test]
+    fn test_upload_params_large_content() {
+        let params = VoiceMessageUploadParams {
+            user_id: "@alice:example.com".to_string(),
+            room_id: Some("!room:example.com".to_string()),
+            content: vec![0u8; 50 * 1024 * 1024],
+            content_type: "audio/ogg".to_string(),
+            duration_ms: 60000,
+            waveform: Some(vec![0u16; 100]),
+        };
+
+        assert_eq!(params.content.len(), 50 * 1024 * 1024);
+        assert_eq!(params.duration_ms, 60000);
+        assert_eq!(params.waveform.as_ref().unwrap().len(), 100);
+    }
+
+    #[test]
+    fn test_upload_params_empty_waveform() {
+        let params = VoiceMessageUploadParams {
+            user_id: "@alice:example.com".to_string(),
+            room_id: None,
+            content: vec![0u8; 1024],
+            content_type: "audio/ogg".to_string(),
+            duration_ms: 5000,
+            waveform: Some(vec![]),
+        };
+
+        assert!(params.waveform.as_ref().unwrap().is_empty());
+    }
 }
