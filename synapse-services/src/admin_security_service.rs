@@ -136,4 +136,35 @@ mod tests {
         assert_eq!(limit.messages_per_second, 5.0);
         assert_eq!(limit.burst_count, 10);
     }
+
+    #[tokio::test]
+    async fn set_shadow_ban_updates_user() {
+        let svc = test_service();
+        // Initially not shadow banned
+        let user = svc.user_service.get_user_or_not_found("@alice:example.com").await.unwrap();
+        assert!(!user.is_shadow_banned);
+
+        svc.set_shadow_ban("@alice:example.com", true).await.unwrap();
+
+        let updated = svc.user_service.get_user_or_not_found("@alice:example.com").await.unwrap();
+        assert!(updated.is_shadow_banned);
+    }
+
+    #[tokio::test]
+    async fn set_shadow_ban_on_nonexistent_user_returns_not_found() {
+        let svc = test_service();
+        let result = svc.set_shadow_ban("@nonexistent:example.com", true).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn set_shadow_ban_false_removes_ban() {
+        let svc = test_service();
+        svc.set_shadow_ban("@alice:example.com", true).await.unwrap();
+        svc.set_shadow_ban("@alice:example.com", false).await.unwrap();
+
+        let user = svc.user_service.get_user_or_not_found("@alice:example.com").await.unwrap();
+        assert!(!user.is_shadow_banned);
+    }
 }

@@ -725,4 +725,111 @@ mod tests {
 
         assert!(success, "is_success should be true");
     }
+
+    #[test]
+    fn test_calculate_checksum_is_deterministic() {
+        let checksum1 = DatabaseInitService::calculate_checksum("CREATE TABLE users (id INT);");
+        let checksum2 = DatabaseInitService::calculate_checksum("CREATE TABLE users (id INT);");
+        let checksum3 = DatabaseInitService::calculate_checksum("CREATE TABLE users (id BIGINT);");
+
+        assert_eq!(checksum1, checksum2);
+        assert_ne!(checksum1, checksum3);
+        assert_eq!(checksum1.len(), 16);
+    }
+
+    #[test]
+    fn test_split_sql_statements_simple() {
+        let sql = "CREATE TABLE users (id INT); INSERT INTO users VALUES (1);";
+        let statements = DatabaseInitService::split_sql_statements(sql);
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].contains("CREATE TABLE users"));
+        assert!(statements[1].contains("INSERT INTO users"));
+    }
+
+    #[test]
+    fn test_split_sql_statements_with_single_quotes() {
+        let sql = "INSERT INTO users VALUES ('O''Brien'); SELECT 1;";
+        let statements = DatabaseInitService::split_sql_statements(sql);
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].contains("O''Brien"));
+    }
+
+    #[test]
+    fn test_split_sql_statements_with_line_comments() {
+        let sql = "SELECT 1; -- comment\nSELECT 2;";
+        let statements = DatabaseInitService::split_sql_statements(sql);
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].contains("SELECT 1"));
+        assert!(statements[1].contains("SELECT 2"));
+    }
+
+    #[test]
+    fn test_split_sql_statements_with_block_comments() {
+        let sql = "SELECT 1; /* block comment */ SELECT 2;";
+        let statements = DatabaseInitService::split_sql_statements(sql);
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].contains("SELECT 1"));
+        assert!(statements[1].contains("SELECT 2"));
+    }
+
+    #[test]
+    fn test_split_sql_statements_with_dollar_quoted_string() {
+        let sql = "CREATE FUNCTION foo() RETURNS TEXT AS $$ BEGIN RETURN 'hello'; END; $$ LANGUAGE plpgsql; SELECT 1;";
+        let statements = DatabaseInitService::split_sql_statements(sql);
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].contains("CREATE FUNCTION"));
+        assert!(statements[1].contains("SELECT 1"));
+    }
+
+    #[test]
+    fn test_split_sql_statements_empty_and_whitespace() {
+        let sql = "   ; ; SELECT 1;   ;";
+        let statements = DatabaseInitService::split_sql_statements(sql);
+        assert_eq!(statements.len(), 1);
+        assert!(statements[0].contains("SELECT 1"));
+    }
+
+    #[test]
+    fn test_normalize_migration_sql_replaces_public_schema() {
+        let sql = "SELECT * FROM information_schema.tables WHERE table_schema = 'public';";
+        let normalized = DatabaseInitService::normalize_migration_sql(sql);
+        assert!(normalized.contains("table_schema = current_schema()"));
+        assert!(!normalized.contains("table_schema = 'public'"));
+    }
+
+    #[test]
+    fn test_normalize_migration_sql_replaces_schemaname() {
+        let sql = "SELECT * FROM pg_tables WHERE schemaname = 'public';";
+        let normalized = DatabaseInitService::normalize_migration_sql(sql);
+        assert!(normalized.contains("schemaname = current_schema()"));
+        assert!(!normalized.contains("schemaname = 'public'"));
+    }
+
+    #[test]
+    fn test_find_dollar_tag_end_simple() {
+        let chars: Vec<char> = "$$body$$".chars().collect();
+        let end = DatabaseInitService::find_dollar_tag_end(&chars, 0);
+        assert_eq!(end, Some(1));
+    }
+
+    #[test]
+    fn test_find_dollar_tag_end_with_tag() {
+        let chars: Vec<char> = "$tag$body$tag$".chars().collect();
+        let end = DatabaseInitService::find_dollar_tag_end(&chars, 0);
+        assert_eq!(end, Some(4));
+    }
+
+    #[test]
+    fn test_find_dollar_tag_end_no_end() {
+        let chars: Vec<char> = "$no_end".chars().collect();
+        let end = DatabaseInitService::find_dollar_tag_end(&chars, 0);
+        assert_eq!(end, None);
+    }
+
+    #[test]
+    fn test_find_dollar_tag_end_invalid_char() {
+        let chars: Vec<char> = "$tag space$".chars().collect();
+        let end = DatabaseInitService::find_dollar_tag_end(&chars, 0);
+        assert_eq!(end, None);
+    }
 }

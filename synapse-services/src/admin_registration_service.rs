@@ -232,4 +232,33 @@ mod tests {
         assert!(json.contains("token123"));
         assert!(json.contains("@admin:example.com"));
     }
+
+    #[test]
+    fn test_admin_register_request_without_admin_field() {
+        let json = r#"{
+            "nonce": "test_nonce",
+            "username": "admin",
+            "password": "secret",
+            "mac": "abcd1234"
+        }"#;
+        let request: AdminRegisterRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.nonce, "test_nonce");
+        assert_eq!(request.admin, None);
+    }
+
+    #[test]
+    fn test_admin_register_request_with_user_type() {
+        let json = r#"{
+            "nonce": "test_nonce",
+            "username": "admin",
+            "password": "secret",
+            "admin": true,
+            "user_type": "bot",
+            "displayname": "Admin User",
+            "mac": "abcd1234"
+        }"#;
+        let request: AdminRegisterRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.user_type, Some("bot".to_string()));
+        assert_eq!(request.displayname, Some("Admin User".to_string()));
+    }
 }

@@ -213,4 +213,69 @@ mod tests {
         assert!(!is_retryable_error("MismatchSenderId"));
         assert!(!is_retryable_error("NotRegistered"));
     }
+
+    #[test]
+    fn test_push_result_success() {
+        let result = PushResult::success();
+        assert!(result.is_success);
+        assert!(result.error.is_none());
+        assert!(!result.should_retry);
+    }
+
+    #[test]
+    fn test_push_result_success_with_response() {
+        let result = PushResult::success_with_response("ok");
+        assert!(result.is_success);
+        assert_eq!(result.provider_response, Some("ok".to_string()));
+    }
+
+    #[test]
+    fn test_push_result_failure() {
+        let result = PushResult::failure("timeout");
+        assert!(!result.is_success);
+        assert_eq!(result.error, Some("timeout".to_string()));
+        assert!(!result.should_retry);
+    }
+
+    #[test]
+    fn test_push_result_retryable_failure() {
+        let result = PushResult::retryable_failure("503");
+        assert!(!result.is_success);
+        assert_eq!(result.error, Some("503".to_string()));
+        assert!(result.should_retry);
+    }
+
+    #[test]
+    fn test_push_gateway_type_display() {
+        assert_eq!(PushGatewayType::Apns.to_string(), "apns");
+        assert_eq!(PushGatewayType::Fcm.to_string(), "fcm");
+        assert_eq!(PushGatewayType::WebPush.to_string(), "webpush");
+    }
+
+    #[test]
+    fn test_notification_payload_default() {
+        let payload = NotificationPayload {
+            title: "Hello".to_string(),
+            body: "World".to_string(),
+            icon: None,
+            badge: None,
+            sound: None,
+            tag: None,
+            data: serde_json::json!({}),
+            event_id: None,
+            room_id: None,
+            room_name: None,
+            sender: None,
+            counts: None,
+        };
+        assert_eq!(payload.title, "Hello");
+        assert!(payload.icon.is_none());
+    }
+
+    #[test]
+    fn test_notification_counts_default() {
+        let counts = NotificationCounts { unread: 5, missed_calls: 1 };
+        assert_eq!(counts.unread, 5);
+        assert_eq!(counts.missed_calls, 1);
+    }
 }

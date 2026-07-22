@@ -262,4 +262,73 @@ mod tests {
 
         assert_eq!(request.tool_name, "search");
     }
+
+    #[test]
+    fn test_extract_mcp_url_from_config() {
+        let conn = AiConnection {
+            id: "conn1".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            provider: "openai".to_string(),
+            config: Some(serde_json::json!({"mcp_url": "https://api.example.com/mcp"})),
+            is_active: true,
+            created_ts: 0,
+            updated_ts: None,
+        };
+
+        let service = MatrixAiConnectionService::new(Arc::new(FakeAiStore), Arc::new(FakeMcpProxy));
+        let url = service.extract_mcp_url(&conn);
+        assert_eq!(url.unwrap(), "https://api.example.com/mcp");
+    }
+
+    #[test]
+    fn test_extract_mcp_url_missing_returns_error() {
+        let conn = AiConnection {
+            id: "conn1".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            provider: "openai".to_string(),
+            config: None,
+            is_active: true,
+            created_ts: 0,
+            updated_ts: None,
+        };
+
+        let service = MatrixAiConnectionService::new(Arc::new(FakeAiStore), Arc::new(FakeMcpProxy));
+        let result = service.extract_mcp_url(&conn);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("mcp_url not found"));
+    }
+
+    #[test]
+    fn test_extract_mcp_url_missing_key_returns_error() {
+        let conn = AiConnection {
+            id: "conn1".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            provider: "openai".to_string(),
+            config: Some(serde_json::json!({"other_key": "value"})),
+            is_active: true,
+            created_ts: 0,
+            updated_ts: None,
+        };
+
+        let service = MatrixAiConnectionService::new(Arc::new(FakeAiStore), Arc::new(FakeMcpProxy));
+        let result = service.extract_mcp_url(&conn);
+        assert!(result.is_err());
+    }
+
+    struct FakeAiStore;
+    #[async_trait::async_trait]
+    impl AiConnectionStoreApi for FakeAiStore {
+        async fn get_user_connections(&self, _user_id: &str) -> Result<Vec<AiConnection>, sqlx::Error> { unimplemented!() }
+        async fn get_connection(&self, _id: &str) -> Result<Option<AiConnection>, sqlx::Error> { unimplemented!() }
+        async fn create_connection(&self, _conn: &AiConnection) -> Result<(), sqlx::Error> { unimplemented!() }
+        async fn update_connection_status(&self, _id: &str, _is_active: bool) -> Result<(), sqlx::Error> { unimplemented!() }
+        async fn delete_connection(&self, _id: &str) -> Result<(), sqlx::Error> { unimplemented!() }
+        async fn get_user_provider_connection(&self, _user_id: &str, _provider: &str) -> Result<Option<AiConnection>, sqlx::Error> { unimplemented!() }
+    }
+
+    struct FakeMcpProxy;
+    impl McpProxyService for FakeMcpProxy {
+        async fn list_tools(&self, _mcp_url: &str) -> Result<Value, ApiError> { unimplemented!() }
+        async fn call_tool(&self, _mcp_url: &str, _tool_name: &str, _arguments: Value, _provider: &str, _user_id: &str) -> Result<Value, ApiError> { unimplemented!() }
+    }
 }

@@ -321,4 +321,45 @@ mod tests {
         assert!(update.is_encrypted.is_none());
         assert!(update.last_event_id.is_none());
     }
+
+    #[test]
+    fn create_request_to_update_request_preserves_room_type() {
+        let create = CreateRoomSummaryRequest {
+            room_id: "!r:ex.com".to_string(),
+            room_type: Some("m.space".to_string()),
+            name: Some("Space".to_string()),
+            topic: None,
+            avatar_url: None,
+            canonical_alias: None,
+            join_rule: None,
+            history_visibility: None,
+            guest_access: None,
+            is_direct: None,
+            is_space: Some(true),
+        };
+        let update = RoomSummaryService::create_request_to_update_request(&create);
+        assert_eq!(update.name, Some("Space".to_string()));
+        assert_eq!(update.is_space, Some(true));
+        assert!(update.topic.is_none());
+    }
+
+    #[test]
+    fn create_request_to_update_request_empty_strings_preserved() {
+        let create = CreateRoomSummaryRequest {
+            room_id: "!r:ex.com".to_string(),
+            room_type: None,
+            name: Some("".to_string()),
+            topic: Some("".to_string()),
+            avatar_url: None,
+            canonical_alias: None,
+            join_rule: None,
+            history_visibility: None,
+            guest_access: None,
+            is_direct: None,
+            is_space: None,
+        };
+        let update = RoomSummaryService::create_request_to_update_request(&create);
+        assert_eq!(update.name, Some("".to_string()));
+        assert_eq!(update.topic, Some("".to_string()));
+    }
 }
