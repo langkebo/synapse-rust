@@ -364,4 +364,79 @@ mod tests {
         queue.clear().await;
         assert_eq!(queue.get_size().await, 0);
     }
+
+    #[tokio::test]
+    async fn test_push_queue_mark_failed() {
+        let queue = PushQueue::new(QueueConfig::default());
+
+        let notification =
+            QueuedNotification::new("@user:example.com", "DEVICE123", "fcm", "token", serde_json::json!({}), 5);
+        let id = notification.id.clone();
+
+        queue.enqueue(notification).await.unwrap();
+        queue.dequeue_batch().await;
+        queue.mark_failed(&id, false).await;
+
+        let stats = queue.get_stats().await;
+        assert_eq!(stats.total_failed, 1);
+    }
+
+    #[tokio::test]
+    async fn test_push_queue_remove_for_user() {
+        let queue = PushQueue::new(QueueConfig::default());
+
+        for i in 0..3 {
+            let notification = QueuedNotification::new(
+                "@user:example.com",
+                &format!("DEVICE{i}"),
+                "fcm",
+                "token",
+                serde_json::json!({}),
+                5,
+            );
+            queue.enqueue(notification).await.unwrap();
+        }
+
+        let removed = queue.remove_for_user("@user:example.com").await;
+        assert_eq!(removed, 3);
+        assert_eq!(queue.get_size().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_push_queue_prioritize() {
+        let queue = PushQueue::new(QueueConfig::default());
+
+        let notification1 =
+            QueuedNotification::new("@user:example.com", "DEVICE1", "fcm", "token", serde_json::json!({}), 5);
+        let id = notification1.id.clone();
+
+        queue.enqueue(notification1).await.unwrap();
+        let prioritized = queue.prioritize(&id).await;
+        assert!(prioritized);
+    }
+
+    #[tokio::test]
+    async fn test_push_queue_get_pending_count() {
+        let queue = PushQueue::new(QueueConfig::default());
+
+        let notification =
+            QueuedNotification::new("@user:example.com", "DEVICE123", "fcm", "token", serde_json::json!({}), 5);
+
+        queue.enqueue(notification).await.unwrap();
+        queue.dequeue_batch().await;
+
+        let pending_count = queue.get_pending_count().await;
+        assert_eq!(pending_count, 1);
+    }
+
+    #[test]
+    fn test_queued_notification_max_attempts_reached() {
+        let mut notification =
+            QueuedNotification::new("@user:example.com", "DEVICE123", "fcm", "token123", serde_json::json!({}), 5);
+
+        notification.max_attempts = 2;
+        notification.increment_attempt();
+        notification.increment_attempt();
+        assert!(!notification.can_retry());
+    }
 }
