@@ -66,9 +66,10 @@ const DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_TEST_DB_IDLE_TIMEOUT_SECS: u64 = 60;
 const DEFAULT_TEST_DB_MAX_LIFETIME_SECS: u64 = 300;
 const DEFAULT_TEST_DB_INIT_TIMEOUT_SECS: u64 = 300;
-// B.3: raised from 4 → 8 to match nextest test-threads=8 (each parallel test
-// may clone the template schema concurrently; DB pool max=40 supports it).
-const DEFAULT_TEST_DB_SHARED_CLONE_CONCURRENCY: usize = 8;
+// P1: raised from 8 → 12 to match nextest ci test-threads=12.
+// Each parallel test may clone the template schema concurrently; DB pool
+// max=40 per pool, PostgreSQL max_connections=100 supports 12*~5=60 conns.
+const DEFAULT_TEST_DB_SHARED_CLONE_CONCURRENCY: usize = 12;
 const TEST_TEMPLATE_SCHEMA_REVISION: u32 = 2;
 const TEST_TEMPLATE_READY_MARKER_PREFIX: &str = "synapse_test_template_ready";
 
