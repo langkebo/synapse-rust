@@ -38,9 +38,11 @@ DEFAULT_REPORT = ROOT_DIR / "artifacts" / "cargo-geiger.json"
 def run_geiger() -> list[dict]:
     """Run cargo geiger and return parsed JSON output."""
     cmd = [
-        "cargo", "geiger",
+        "cargo",
+        "geiger",
         "--all-features",
-        "--output-format", "json",
+        "--output-format",
+        "json",
     ]
     result = subprocess.run(
         cmd,
@@ -163,7 +165,9 @@ def main() -> int:
 
     # ── Gate 2: Test unsafe must not exceed baseline (ratchet) ──
     if test_total > baseline_test:
-        print(f"\nFAIL: Test unsafe count ({test_total}) exceeds baseline ({baseline_test}).")
+        print(
+            f"\nFAIL: Test unsafe count ({test_total}) exceeds baseline ({baseline_test})."
+        )
         print("      To increase the baseline, update:")
         print(f"        {args.baseline}")
         print("      with justification for the new unsafe blocks.")
