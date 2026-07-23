@@ -1,7 +1,7 @@
 use super::models::*;
-use chrono::Utc;
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Clone)]
 pub struct ApplicationServiceStorage {
@@ -17,7 +17,7 @@ impl ApplicationServiceStorage {
         &self,
         request: RegisterApplicationServiceRequest,
     ) -> Result<ApplicationService, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let protocols = request.protocols.clone().unwrap_or_default();
         let namespaces = request.namespaces.unwrap_or(serde_json::json!({
             "users": [],
@@ -60,7 +60,7 @@ impl ApplicationServiceStorage {
         &self,
         request: RegisterApplicationServiceRequest,
     ) -> Result<ApplicationService, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let protocols = request.protocols.clone().unwrap_or_default();
         let namespaces = request.namespaces.unwrap_or(serde_json::json!({
             "users": [],
@@ -115,7 +115,7 @@ impl ApplicationServiceStorage {
     }
 
     async fn insert_namespaces(&self, service: &ApplicationService) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         if let Some(users) = service.namespaces.get("users").and_then(|v| v.as_array()) {
             for rule in users {
@@ -263,13 +263,13 @@ impl ApplicationServiceStorage {
         .bind(request.is_enabled)
         .bind(&request.api_key)
         .bind(&config)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .fetch_one(&*self.pool)
         .await
     }
 
     pub async fn update_timestamp(&self, as_id: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(r"UPDATE application_services SET updated_ts = $2 WHERE as_id = $1")
             .bind(as_id)
             .bind(now)
@@ -289,7 +289,7 @@ impl ApplicationServiceStorage {
         state_key: &str,
         state_value: &str,
     ) -> Result<ApplicationServiceState, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query_as::<_, ApplicationServiceState>(
             r"
             INSERT INTO application_service_state (as_id, state_key, value, state_value, updated_ts)
@@ -364,7 +364,7 @@ impl ApplicationServiceStorage {
         _content: serde_json::Value,
         _state_key: Option<&str>,
     ) -> Result<ApplicationServiceEvent, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query_as::<_, ApplicationServiceEvent>(
             r"
             INSERT INTO application_service_events (
@@ -441,7 +441,7 @@ impl ApplicationServiceStorage {
     }
 
     pub async fn mark_event_processed(&self, event_id: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"UPDATE application_service_events SET is_processed = TRUE, processed_ts = $2 WHERE event_id = $1 AND is_processed = FALSE",
         )
@@ -458,7 +458,7 @@ impl ApplicationServiceStorage {
         transaction_id: &str,
         events: &[serde_json::Value],
     ) -> Result<ApplicationServiceTransaction, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query_as::<_, ApplicationServiceTransaction>(
             r"
             INSERT INTO application_service_transactions (as_id, txn_id, transaction_id, events, sent_ts, created_ts)
@@ -477,7 +477,7 @@ impl ApplicationServiceStorage {
     }
 
     pub async fn complete_transaction(&self, as_id: &str, transaction_id: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"UPDATE application_service_transactions SET completed_ts = $3, is_processed = TRUE, processed_ts = $3 WHERE as_id = $1 AND (txn_id = $2 OR transaction_id = $2) AND is_processed = FALSE",
         )
@@ -495,7 +495,7 @@ impl ApplicationServiceStorage {
         transaction_id: &str,
         error: &str,
     ) -> Result<ApplicationServiceTransaction, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query_as::<_, ApplicationServiceTransaction>(
             r"
             UPDATE application_service_transactions
@@ -546,7 +546,7 @@ impl ApplicationServiceStorage {
         displayname: Option<&str>,
         avatar_url: Option<&str>,
     ) -> Result<ApplicationServiceUser, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query_as::<_, ApplicationServiceUser>(
             r"
             INSERT INTO application_service_users (as_id, user_id, displayname, avatar_url, created_ts)
@@ -838,7 +838,7 @@ impl ApplicationServiceStorage {
     }
 
     pub async fn update_last_seen(&self, as_id: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"

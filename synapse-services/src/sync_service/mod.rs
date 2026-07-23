@@ -24,7 +24,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 use synapse_common::*;
-use synapse_e2ee::device_keys::DeviceKeyStorage;
+use synapse_e2ee::device_keys::DeviceKeyStoreApi;
 use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_storage::UserRoomMembership;
 use tokio::sync::RwLock;
@@ -38,7 +38,7 @@ pub struct SyncService {
     pub(crate) account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
     pub(crate) filter_storage: Arc<dyn synapse_storage::filter::FilterStoreApi>,
     pub(crate) device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
-    pub(crate) device_key_storage: DeviceKeyStorage,
+    pub(crate) device_key_storage: Arc<dyn DeviceKeyStoreApi>,
     pub(crate) key_rotation_storage: KeyRotationStorage,
     pub(crate) to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
     pub(crate) lazy_loaded_members_cache: Arc<RwLock<HashMap<LazyLoadedMembersCacheKey, HashSet<String>>>>,
@@ -87,7 +87,7 @@ impl SyncService {
         account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
         filter_storage: Arc<dyn synapse_storage::filter::FilterStoreApi>,
         device_storage: Arc<synapse_storage::device::DeviceStorage>,
-        device_key_storage: DeviceKeyStorage,
+        device_key_storage: Arc<dyn DeviceKeyStoreApi>,
         key_rotation_storage: KeyRotationStorage,
         to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
         metrics: Arc<MetricsCollector>,

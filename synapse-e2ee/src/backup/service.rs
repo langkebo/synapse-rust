@@ -1,8 +1,9 @@
 use super::models::*;
 use super::storage::{BackupKeyInsertParams, BackupKeyStorage, KeyBackupStorage};
-use crate::device_keys::DeviceKeyStorage;
+use crate::device_keys::DeviceKeyStoreApi;
 use crate::signed_json::verify_signed_json;
 use sqlx::Row;
+use std::sync::Arc;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone)]
@@ -21,7 +22,7 @@ pub struct BackupKeyUploadParams {
 pub struct KeyBackupService {
     storage: KeyBackupStorage,
     key_storage: BackupKeyStorage,
-    device_key_storage: Option<DeviceKeyStorage>,
+    device_key_storage: Option<Arc<dyn DeviceKeyStoreApi>>,
 }
 
 impl KeyBackupService {
@@ -29,7 +30,7 @@ impl KeyBackupService {
         Self { storage: storage.clone(), key_storage: BackupKeyStorage::new(&storage.pool), device_key_storage: None }
     }
 
-    pub fn with_device_key_storage(mut self, storage: DeviceKeyStorage) -> Self {
+    pub fn with_device_key_storage(mut self, storage: Arc<dyn DeviceKeyStoreApi>) -> Self {
         self.device_key_storage = Some(storage);
         self
     }

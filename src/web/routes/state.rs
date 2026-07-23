@@ -95,7 +95,8 @@ impl AppState {
             matrix_ai_connection_service: Arc::new(
                 synapse_services::matrix_ai_connection_service::MatrixAiConnectionService::new(
                     Arc::new(synapse_storage::ai_connection::AiConnectionStorage::new(pool)),
-                    Arc::new(synapse_services::mcp_proxy::McpProxyService::new(canonical_cache.clone())),
+                    Arc::new(synapse_services::mcp_proxy::McpProxyService::new(canonical_cache.clone()))
+                        as Arc<dyn synapse_services::mcp_proxy::McpProxyServiceApi>,
                 ),
             ),
             #[cfg(feature = "openclaw-routes")]

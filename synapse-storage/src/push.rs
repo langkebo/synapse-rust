@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
+#[cfg(test)]
+use synapse_common::current_timestamp_millis;
 
 /// Trait abstraction over [`PushStorage`] for testability and service wiring.
 #[async_trait]
@@ -525,7 +527,7 @@ mod db_tests {
         let user_id = unique_user_id("@test");
         let device_id = "device1";
         let pushkey = "pushkey1";
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         cleanup_pushers(&pool, &user_id).await;
 
@@ -564,7 +566,7 @@ mod db_tests {
 
         cleanup_pushers(&pool, &user_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         storage
             .upsert_pusher(&user_id, "d1", "pk1", "http", "app.id", "App", "Dev", &None, "en", &None, now)
             .await
@@ -596,7 +598,7 @@ mod db_tests {
 
         cleanup_pushers(&pool, &user_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         storage
             .upsert_pusher(&user_id, "d1", "pk1", "http", "app.id", "App", "Dev", &None, "en", &None, now)
             .await
@@ -629,7 +631,7 @@ mod db_tests {
         let user_id = unique_user_id("@test");
         let device_id = "dev_update";
         let pushkey = "pk_update";
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         cleanup_pushers(&pool, &user_id).await;
 
@@ -660,7 +662,7 @@ mod db_tests {
         let user_id = unique_user_id("@test");
         let device_id = "dev_del";
         let pushkey = "pk_del";
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         cleanup_pushers(&pool, &user_id).await;
 
@@ -696,7 +698,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         cleanup_push_rules(&pool, &user_id).await;
 
@@ -738,7 +740,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         cleanup_push_rules(&pool, &user_id).await;
 
@@ -785,7 +787,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         cleanup_push_rules(&pool, &user_id).await;
 
@@ -821,7 +823,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         cleanup_push_rules(&pool, &user_id).await;
 
@@ -863,7 +865,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         cleanup_push_rules(&pool, &user_id).await;
 
@@ -902,7 +904,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         cleanup_push_rules(&pool, &user_id).await;
 
@@ -945,7 +947,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         cleanup_notifications(&pool, &user_id).await;
 
@@ -965,7 +967,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         cleanup_notifications(&pool, &user_id).await;
 
@@ -995,7 +997,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         cleanup_notifications(&pool, &user_id).await;
 
@@ -1015,7 +1017,7 @@ mod db_tests {
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@test");
         let other_user = unique_user_id("@other");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         cleanup_notifications(&pool, &user_id).await;
         cleanup_notifications(&pool, &other_user).await;
@@ -1038,7 +1040,7 @@ mod db_tests {
         let user_id = unique_user_id("@test");
 
         let result = storage
-            .ack_notification(99999999, &user_id, chrono::Utc::now().timestamp_millis())
+            .ack_notification(99999999, &user_id, current_timestamp_millis())
             .await
             .expect("ack_notification should succeed");
         assert!(result.is_none(), "non-existent notification id should return None");

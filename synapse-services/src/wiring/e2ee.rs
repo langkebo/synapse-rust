@@ -6,6 +6,7 @@ use synapse_cache::CacheManager;
 use synapse_e2ee::backup::KeyBackupService;
 use synapse_e2ee::cross_signing::CrossSigningService;
 use synapse_e2ee::device_keys::DeviceKeyService;
+use synapse_e2ee::device_keys::DeviceKeyStoreApi;
 use synapse_e2ee::key_request::KeyRequestService;
 use synapse_e2ee::megolm::MegolmProvider;
 use synapse_e2ee::ssss::SecretStorageService;
@@ -37,15 +38,14 @@ impl E2eeServices {
         megolm_encryption_key_path: Option<&str>,
     ) -> Self {
         let device_key_storage = synapse_e2ee::device_keys::DeviceKeyStorage::new(pool);
-        let device_key_storage_for_cs = Arc::new(device_key_storage.clone());
-        let backup_device_key_storage = device_key_storage.clone();
+        let device_key_storage_arc: Arc<dyn DeviceKeyStoreApi> = Arc::new(device_key_storage);
         let cross_signing_storage = synapse_e2ee::cross_signing::CrossSigningStorage::new(pool);
         let cross_signing_storage_arc = Arc::new(cross_signing_storage.clone());
         let dehydrated_device_storage = synapse_storage::DehydratedDeviceStorage::new(pool);
         let dehydrated_device_storage_arc: Arc<dyn synapse_storage::dehydrated_device::DehydratedDeviceStoreApi> =
             Arc::new(dehydrated_device_storage.clone());
 
-        let device_keys_service = DeviceKeyService::new(device_key_storage, cache.clone())
+        let device_keys_service = DeviceKeyService::new(device_key_storage_arc.clone(), cache.clone())
             .with_cross_signing_storage(cross_signing_storage_arc)
             .with_dehydrated_device_storage(dehydrated_device_storage.clone());
 
@@ -63,7 +63,7 @@ impl E2eeServices {
             Arc::new(dehydrated_device_service.clone());
 
         let cross_signing_service = CrossSigningService::new(cross_signing_storage)
-            .with_device_keys_storage(device_key_storage_for_cs)
+            .with_device_keys_storage(device_key_storage_arc.clone())
             .with_dehydrated_device_service(dehydrated_device_provider.clone());
 
         let ssss_storage = synapse_e2ee::ssss::SecretStorage::new(pool);
@@ -71,8 +71,7 @@ impl E2eeServices {
             .with_dehydrated_device_service(dehydrated_device_provider);
 
         let key_backup_storage = synapse_e2ee::backup::KeyBackupStorage::new(pool);
-        let backup_service =
-            KeyBackupService::new(&key_backup_storage).with_device_key_storage(backup_device_key_storage);
+        let backup_service = KeyBackupService::new(&key_backup_storage).with_device_key_storage(device_key_storage_arc);
 
         let secure_backup_service = synapse_e2ee::secure_backup::SecureBackupService::new(pool);
 

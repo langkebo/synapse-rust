@@ -318,18 +318,45 @@ mod tests {
     struct FakeAiStore;
     #[async_trait::async_trait]
     impl AiConnectionStoreApi for FakeAiStore {
-        async fn get_user_connections(&self, _user_id: &str) -> Result<Vec<AiConnection>, sqlx::Error> { unimplemented!() }
-        async fn get_connection(&self, _id: &str) -> Result<Option<AiConnection>, sqlx::Error> { unimplemented!() }
-        async fn create_connection(&self, _conn: &AiConnection) -> Result<(), sqlx::Error> { unimplemented!() }
-        async fn update_connection_status(&self, _id: &str, _is_active: bool) -> Result<(), sqlx::Error> { unimplemented!() }
-        async fn delete_connection(&self, _id: &str) -> Result<(), sqlx::Error> { unimplemented!() }
-        async fn get_user_provider_connection(&self, _user_id: &str, _provider: &str) -> Result<Option<AiConnection>, sqlx::Error> { unimplemented!() }
+        async fn get_user_connections(&self, _user_id: &str) -> Result<Vec<AiConnection>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn get_connection(&self, _id: &str) -> Result<Option<AiConnection>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn create_connection(&self, _conn: &AiConnection) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn update_connection_status(&self, _id: &str, _is_active: bool) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn delete_connection(&self, _id: &str) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn get_user_provider_connection(
+            &self,
+            _user_id: &str,
+            _provider: &str,
+        ) -> Result<Option<AiConnection>, sqlx::Error> {
+            unimplemented!()
+        }
     }
 
     struct FakeMcpProxy;
     #[async_trait::async_trait]
     impl McpProxyServiceApi for FakeMcpProxy {
-        async fn list_tools(&self, _mcp_url: &str) -> Result<Value, ApiError> { unimplemented!() }
-        async fn call_tool(&self, _mcp_url: &str, _tool_name: &str, _arguments: Value, _provider: &str, _user_id: &str) -> Result<Value, ApiError> { unimplemented!() }
+        async fn list_tools(&self, _mcp_url: &str) -> Result<Value, ApiError> {
+            unimplemented!()
+        }
+        async fn call_tool(
+            &self,
+            _mcp_url: &str,
+            _tool_name: &str,
+            _arguments: Value,
+            _provider: &str,
+            _user_id: &str,
+        ) -> Result<Value, ApiError> {
+            unimplemented!()
+        }
     }
 }

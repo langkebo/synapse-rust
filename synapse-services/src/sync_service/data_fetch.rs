@@ -711,7 +711,8 @@ mod tests {
             account_data_storage: account_data_store,
             filter_storage: Arc::new(synapse_storage::filter::FilterStorage::new(&pool)),
             device_storage: Arc::new(synapse_storage::test_mocks::InMemoryDeviceListStore::new()),
-            device_key_storage: synapse_e2ee::device_keys::DeviceKeyStorage::new(&pool),
+            device_key_storage: Arc::new(synapse_e2ee::device_keys::DeviceKeyStorage::new(&pool))
+                as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
             key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage::new(pool.clone()),
             to_device_storage: synapse_e2ee::to_device::ToDeviceStorage::new(&pool),
             metrics: Arc::new(synapse_common::MetricsCollector::new()),
@@ -926,7 +927,8 @@ mod tests {
             account_data_storage: Arc::new(synapse_storage::account_data::AccountDataStorage::new(&pool)),
             filter_storage: Arc::new(synapse_storage::filter::FilterStorage::new(&pool)),
             device_storage: device_store,
-            device_key_storage: synapse_e2ee::device_keys::DeviceKeyStorage::new(&pool),
+            device_key_storage: Arc::new(synapse_e2ee::device_keys::DeviceKeyStorage::new(&pool))
+                as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
             key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage::new(pool.clone()),
             to_device_storage: synapse_e2ee::to_device::ToDeviceStorage::new(&pool),
             metrics: Arc::new(synapse_common::MetricsCollector::new()),

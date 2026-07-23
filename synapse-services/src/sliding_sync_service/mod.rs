@@ -5,7 +5,7 @@ use synapse_cache::CacheManager;
 use synapse_common::config::PerformanceConfig;
 use synapse_common::error::ApiError;
 use synapse_common::metrics::MetricsCollector;
-use synapse_e2ee::device_keys::DeviceKeyStorage;
+use synapse_e2ee::device_keys::DeviceKeyStoreApi;
 use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse, SlidingSyncStoreApi};
 
@@ -35,7 +35,7 @@ pub struct SlidingSyncService {
     storage: Arc<dyn SlidingSyncStoreApi>,
     cache: Arc<CacheManager>,
     event_reader: Arc<dyn synapse_storage::event::EventReader>,
-    device_key_storage: DeviceKeyStorage,
+    device_key_storage: Arc<dyn DeviceKeyStoreApi>,
     typing_service: Arc<crate::typing_service::TypingService>,
     presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
@@ -77,7 +77,7 @@ impl SlidingSyncService {
         storage: Arc<dyn SlidingSyncStoreApi>,
         cache: Arc<CacheManager>,
         event_reader: Arc<dyn synapse_storage::event::EventReader>,
-        device_key_storage: DeviceKeyStorage,
+        device_key_storage: Arc<dyn DeviceKeyStoreApi>,
         typing_service: Arc<crate::typing_service::TypingService>,
         presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
         member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use chrono::Utc;
 use sqlx::PgPool;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 use super::models::*;
@@ -17,8 +17,8 @@ impl CasStorage {
     }
 
     pub async fn create_ticket(&self, request: CreateTicketRequest) -> Result<CasTicket, ApiError> {
-        let now = Utc::now().timestamp_millis();
-        let expires_at = Utc::now().timestamp_millis() + request.expires_in_seconds * 1000;
+        let now = current_timestamp_millis();
+        let expires_at = current_timestamp_millis() + request.expires_in_seconds * 1000;
 
         let ticket = sqlx::query_as::<_, CasTicketRow>(
             r"
@@ -40,7 +40,7 @@ impl CasStorage {
     }
 
     pub async fn validate_ticket(&self, ticket_id: &str, service_url: &str) -> Result<Option<CasTicket>, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let ticket = sqlx::query_as::<_, CasTicketRow>(
             r"
@@ -92,7 +92,7 @@ impl CasStorage {
     }
 
     pub async fn cleanup_expired_tickets(&self) -> Result<u64, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query(
             r"
             DELETE FROM cas_tickets
@@ -108,8 +108,8 @@ impl CasStorage {
     }
 
     pub async fn create_proxy_ticket(&self, request: CreateProxyTicketRequest) -> Result<CasProxyTicket, ApiError> {
-        let now = Utc::now().timestamp_millis();
-        let expires_at = Utc::now().timestamp_millis() + request.expires_in_seconds * 1000;
+        let now = current_timestamp_millis();
+        let expires_at = current_timestamp_millis() + request.expires_in_seconds * 1000;
 
         let ticket = sqlx::query_as::<_, CasProxyTicketRow>(
             r"
@@ -136,7 +136,7 @@ impl CasStorage {
         proxy_ticket_id: &str,
         service_url: &str,
     ) -> Result<Option<CasProxyTicket>, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let ticket = sqlx::query_as::<_, CasProxyTicketRow>(
             r"
@@ -157,8 +157,8 @@ impl CasStorage {
     }
 
     pub async fn create_pgt(&self, request: CreatePgtRequest) -> Result<CasProxyGrantingTicket, ApiError> {
-        let now = Utc::now().timestamp_millis();
-        let expires_at = Utc::now().timestamp_millis() + request.expires_in_seconds * 1000;
+        let now = current_timestamp_millis();
+        let expires_at = current_timestamp_millis() + request.expires_in_seconds * 1000;
 
         let pgt = sqlx::query_as::<_, CasProxyGrantingTicket>(
             r"
@@ -217,7 +217,7 @@ impl CasStorage {
             serde_json::to_value(request.allowed_attributes.unwrap_or_default()).unwrap_or(serde_json::json!([]));
         let allowed_proxy_callbacks =
             serde_json::to_value(request.allowed_proxy_callbacks.unwrap_or_default()).unwrap_or(serde_json::json!([]));
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let service = sqlx::query_as::<_, CasRegisteredServiceRow>(
             r"
@@ -322,7 +322,7 @@ impl CasStorage {
         attribute_name: &str,
         attribute_value: &str,
     ) -> Result<CasUserAttribute, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let attr = sqlx::query_as::<_, CasUserAttributeRow>(
             r"
@@ -367,7 +367,7 @@ impl CasStorage {
         service_url: &str,
         ticket_id: Option<&str>,
     ) -> Result<CasSloSession, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let session = sqlx::query_as::<_, CasSloSessionRow>(
             r"
             INSERT INTO cas_slo_sessions (session_id, user_id, service_url, ticket_id, created_ts)
@@ -388,7 +388,7 @@ impl CasStorage {
     }
 
     pub async fn mark_slo_sent(&self, session_id: &str) -> Result<bool, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query(
             r"
             UPDATE cas_slo_sessions

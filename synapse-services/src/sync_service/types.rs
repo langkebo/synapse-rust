@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use synapse_common::config::PerformanceConfig;
 use synapse_common::*;
-use synapse_e2ee::device_keys::DeviceKeyStorage;
+use synapse_e2ee::device_keys::DeviceKeyStoreApi;
 use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_e2ee::to_device::ToDeviceStorage;
 
@@ -115,7 +115,7 @@ pub struct SyncServiceDeps {
     pub account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
     pub filter_storage: Arc<dyn synapse_storage::filter::FilterStoreApi>,
     pub device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
-    pub device_key_storage: DeviceKeyStorage,
+    pub device_key_storage: Arc<dyn DeviceKeyStoreApi>,
     pub key_rotation_storage: KeyRotationStorage,
     pub to_device_storage: ToDeviceStorage,
     pub metrics: Arc<MetricsCollector>,

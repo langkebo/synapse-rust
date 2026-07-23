@@ -962,43 +962,90 @@ mod tests {
 
     #[async_trait::async_trait]
     impl OpenClawStoreApi for FakeOpenClawStore {
-        async fn create_connection(&self, _params: synapse_storage::openclaw::CreateConnectionParams<'_>) -> Result<synapse_storage::openclaw::OpenClawConnection, sqlx::Error> {
+        async fn create_connection(
+            &self,
+            _params: synapse_storage::openclaw::CreateConnectionParams<'_>,
+        ) -> Result<synapse_storage::openclaw::OpenClawConnection, sqlx::Error> {
             unimplemented!()
         }
-        async fn get_connection(&self, _id: i64) -> Result<Option<synapse_storage::openclaw::OpenClawConnection>, sqlx::Error> {
+        async fn get_connection(
+            &self,
+            _id: i64,
+        ) -> Result<Option<synapse_storage::openclaw::OpenClawConnection>, sqlx::Error> {
             unimplemented!()
         }
-        async fn get_user_connections(&self, _user_id: &str) -> Result<Vec<synapse_storage::openclaw::OpenClawConnection>, sqlx::Error> {
+        async fn get_user_connections(
+            &self,
+            _user_id: &str,
+        ) -> Result<Vec<synapse_storage::openclaw::OpenClawConnection>, sqlx::Error> {
             unimplemented!()
         }
-        async fn get_default_connection(&self, _user_id: &str) -> Result<Option<synapse_storage::openclaw::OpenClawConnection>, sqlx::Error> {
+        async fn get_default_connection(
+            &self,
+            _user_id: &str,
+        ) -> Result<Option<synapse_storage::openclaw::OpenClawConnection>, sqlx::Error> {
             unimplemented!()
         }
-        async fn update_connection(&self, _params: synapse_storage::openclaw::UpdateConnectionParams<'_>) -> Result<synapse_storage::openclaw::OpenClawConnection, sqlx::Error> {
+        async fn update_connection(
+            &self,
+            _params: synapse_storage::openclaw::UpdateConnectionParams<'_>,
+        ) -> Result<synapse_storage::openclaw::OpenClawConnection, sqlx::Error> {
             unimplemented!()
         }
         async fn delete_connection(&self, _id: i64) -> Result<(), sqlx::Error> {
             unimplemented!()
         }
-        async fn create_conversation(&self, _params: synapse_storage::openclaw::CreateConversationParams<'_>) -> Result<synapse_storage::openclaw::AiConversation, sqlx::Error> {
+        async fn create_conversation(
+            &self,
+            _params: synapse_storage::openclaw::CreateConversationParams<'_>,
+        ) -> Result<synapse_storage::openclaw::AiConversation, sqlx::Error> {
             unimplemented!()
         }
-        async fn get_conversation(&self, _id: i64) -> Result<Option<synapse_storage::openclaw::AiConversation>, sqlx::Error> {
+        async fn get_conversation(
+            &self,
+            _id: i64,
+        ) -> Result<Option<synapse_storage::openclaw::AiConversation>, sqlx::Error> {
             unimplemented!()
         }
-        async fn get_user_conversations(&self, _user_id: &str, _limit: i64, _from: Option<synapse_storage::openclaw::ConversationCursor>) -> Result<(Vec<synapse_storage::openclaw::AiConversation>, Option<String>), sqlx::Error> {
+        async fn get_user_conversations(
+            &self,
+            _user_id: &str,
+            _limit: i64,
+            _from: Option<synapse_storage::openclaw::ConversationCursor>,
+        ) -> Result<(Vec<synapse_storage::openclaw::AiConversation>, Option<String>), sqlx::Error> {
             unimplemented!()
         }
-        async fn update_conversation(&self, _id: i64, _title: Option<&str>, _system_prompt: Option<&str>, _temperature: Option<f32>, _max_tokens: Option<i32>, _is_pinned: Option<bool>) -> Result<synapse_storage::openclaw::AiConversation, sqlx::Error> {
+        async fn update_conversation(
+            &self,
+            _id: i64,
+            _title: Option<&str>,
+            _system_prompt: Option<&str>,
+            _temperature: Option<f32>,
+            _max_tokens: Option<i32>,
+            _is_pinned: Option<bool>,
+        ) -> Result<synapse_storage::openclaw::AiConversation, sqlx::Error> {
             unimplemented!()
         }
         async fn delete_conversation(&self, _id: i64) -> Result<(), sqlx::Error> {
             unimplemented!()
         }
-        async fn create_message(&self, _conversation_id: i64, _role: &str, _content: &str, _token_count: Option<i32>, _tool_calls: Option<serde_json::Value>, _tool_call_id: Option<&str>) -> Result<synapse_storage::openclaw::AiMessage, sqlx::Error> {
+        async fn create_message(
+            &self,
+            _conversation_id: i64,
+            _role: &str,
+            _content: &str,
+            _token_count: Option<i32>,
+            _tool_calls: Option<serde_json::Value>,
+            _tool_call_id: Option<&str>,
+        ) -> Result<synapse_storage::openclaw::AiMessage, sqlx::Error> {
             unimplemented!()
         }
-        async fn get_conversation_messages(&self, _conversation_id: i64, _limit: i64, _from: Option<synapse_storage::openclaw::MessageCursor>) -> Result<(Vec<synapse_storage::openclaw::AiMessage>, Option<String>), sqlx::Error> {
+        async fn get_conversation_messages(
+            &self,
+            _conversation_id: i64,
+            _limit: i64,
+            _from: Option<synapse_storage::openclaw::MessageCursor>,
+        ) -> Result<(Vec<synapse_storage::openclaw::AiMessage>, Option<String>), sqlx::Error> {
             unimplemented!()
         }
         async fn get_message(&self, _id: i64) -> Result<Option<synapse_storage::openclaw::AiMessage>, sqlx::Error> {
@@ -1007,31 +1054,62 @@ mod tests {
         async fn delete_message(&self, _id: i64) -> Result<(), sqlx::Error> {
             unimplemented!()
         }
-        async fn create_generation(&self, _user_id: &str, _conversation_id: Option<i64>, _gen_type: &str, _prompt: &str) -> Result<synapse_storage::openclaw::AiGeneration, sqlx::Error> {
+        async fn create_generation(
+            &self,
+            _user_id: &str,
+            _conversation_id: Option<i64>,
+            _gen_type: &str,
+            _prompt: &str,
+        ) -> Result<synapse_storage::openclaw::AiGeneration, sqlx::Error> {
             unimplemented!()
         }
-        async fn update_generation_status(&self, _id: i64, _status: &str, _result_url: Option<&str>, _result_mxc: Option<&str>, _error_message: Option<&str>) -> Result<synapse_storage::openclaw::AiGeneration, sqlx::Error> {
+        async fn update_generation_status(
+            &self,
+            _id: i64,
+            _status: &str,
+            _result_url: Option<&str>,
+            _result_mxc: Option<&str>,
+            _error_message: Option<&str>,
+        ) -> Result<synapse_storage::openclaw::AiGeneration, sqlx::Error> {
             unimplemented!()
         }
-        async fn get_generation(&self, _id: i64) -> Result<Option<synapse_storage::openclaw::AiGeneration>, sqlx::Error> {
+        async fn get_generation(
+            &self,
+            _id: i64,
+        ) -> Result<Option<synapse_storage::openclaw::AiGeneration>, sqlx::Error> {
             unimplemented!()
         }
-        async fn get_user_generations(&self, _user_id: &str, _gen_type: Option<&str>, _limit: i64, _from: Option<synapse_storage::openclaw::GenerationCursor>) -> Result<(Vec<synapse_storage::openclaw::AiGeneration>, Option<String>), sqlx::Error> {
+        async fn get_user_generations(
+            &self,
+            _user_id: &str,
+            _gen_type: Option<&str>,
+            _limit: i64,
+            _from: Option<synapse_storage::openclaw::GenerationCursor>,
+        ) -> Result<(Vec<synapse_storage::openclaw::AiGeneration>, Option<String>), sqlx::Error> {
             unimplemented!()
         }
         async fn delete_generation(&self, _id: i64) -> Result<(), sqlx::Error> {
             unimplemented!()
         }
-        async fn create_chat_role(&self, _params: synapse_storage::openclaw::CreateChatRoleParams<'_>) -> Result<synapse_storage::openclaw::AiChatRole, sqlx::Error> {
+        async fn create_chat_role(
+            &self,
+            _params: synapse_storage::openclaw::CreateChatRoleParams<'_>,
+        ) -> Result<synapse_storage::openclaw::AiChatRole, sqlx::Error> {
             unimplemented!()
         }
         async fn get_chat_role(&self, _id: i64) -> Result<Option<synapse_storage::openclaw::AiChatRole>, sqlx::Error> {
             unimplemented!()
         }
-        async fn get_user_chat_roles(&self, _user_id: &str) -> Result<Vec<synapse_storage::openclaw::AiChatRole>, sqlx::Error> {
+        async fn get_user_chat_roles(
+            &self,
+            _user_id: &str,
+        ) -> Result<Vec<synapse_storage::openclaw::AiChatRole>, sqlx::Error> {
             unimplemented!()
         }
-        async fn update_chat_role(&self, _params: synapse_storage::openclaw::UpdateChatRoleParams<'_>) -> Result<synapse_storage::openclaw::AiChatRole, sqlx::Error> {
+        async fn update_chat_role(
+            &self,
+            _params: synapse_storage::openclaw::UpdateChatRoleParams<'_>,
+        ) -> Result<synapse_storage::openclaw::AiChatRole, sqlx::Error> {
             unimplemented!()
         }
         async fn delete_chat_role(&self, _id: i64) -> Result<(), sqlx::Error> {

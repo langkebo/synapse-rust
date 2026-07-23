@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
+#[cfg(test)]
+use synapse_common::current_timestamp_millis;
 use tracing;
 
 /// SELECT list for the `state_groups` table.
@@ -541,7 +543,7 @@ mod db_tests {
     }
 
     async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO rooms (room_id, room_version, is_public, creator, created_ts)
                VALUES ($1, '10', false, $2, $3)
@@ -556,7 +558,7 @@ mod db_tests {
     }
 
     async fn ensure_test_event(pool: &Pool<Postgres>, event_id: &str, room_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts, state_key, depth)
                VALUES ($1, $2, '@test:localhost', 'm.room.message', '{}', $3, '', 0)
@@ -613,7 +615,7 @@ mod db_tests {
         cleanup_test_data(&pool, &room_id).await;
         ensure_test_room_and_event(&pool, &room_id, &event_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let state_hash = format!("hash_create_{suffix}");
         let id = storage
             .create_state_group(&room_id, &event_id, &state_hash, now)
@@ -636,7 +638,7 @@ mod db_tests {
         cleanup_test_data(&pool, &room_id).await;
         ensure_test_room_and_event(&pool, &room_id, &event_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let state_hash = format!("hash_get_{suffix}");
         let id =
             storage.create_state_group(&room_id, &event_id, &state_hash, now).await.expect("create should succeed");
@@ -676,7 +678,7 @@ mod db_tests {
         cleanup_test_data(&pool, &room_id).await;
         ensure_test_room_and_event(&pool, &room_id, &event_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let state_hash = format!("hash_by_ev_{suffix}");
         let id =
             storage.create_state_group(&room_id, &event_id, &state_hash, now).await.expect("create should succeed");
@@ -710,7 +712,7 @@ mod db_tests {
         ensure_test_room_and_event(&pool, &room_id, &event_id1).await;
         ensure_test_event(&pool, &event_id2, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let id1 = storage
             .create_state_group(&room_id, &event_id1, &format!("hash_a_{suffix}"), now)
             .await
@@ -756,7 +758,7 @@ mod db_tests {
         ensure_test_room_and_event(&pool, &room_id, &ev_a).await;
         ensure_test_event(&pool, &ev_b, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let sg_a = storage
             .create_state_group(&room_id, &ev_a, &format!("edge_hash_a_{suffix}"), now)
             .await
@@ -791,7 +793,7 @@ mod db_tests {
             ensure_test_event(&pool, ev, &room_id).await;
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let sg_main = storage
             .create_state_group(&room_id, &ev_main, &format!("batch_main_{suffix}"), now)
             .await
@@ -837,7 +839,7 @@ mod db_tests {
         ensure_test_room_and_event(&pool, &room_id, &ev_cur).await;
         ensure_test_event(&pool, &ev_old, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let sg_cur = storage
             .create_state_group(&room_id, &ev_cur, &format!("prev_cur_{suffix}"), now)
             .await
@@ -872,7 +874,7 @@ mod db_tests {
         ensure_test_room_and_event(&pool, &room_id, &ev_a).await;
         ensure_test_event(&pool, &ev_b, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let sg_a =
             storage.create_state_group(&room_id, &ev_a, &format!("next_a_{suffix}"), now).await.expect("create sg_a");
         let sg_b =
@@ -906,7 +908,7 @@ mod db_tests {
         ensure_test_room_and_event(&pool, &room_id, &sg_ev).await;
         ensure_test_event(&pool, &bind_ev, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let sg_id =
             storage.create_state_group(&room_id, &sg_ev, &format!("bind_hash_{suffix}"), now).await.expect("create sg");
 
@@ -950,7 +952,7 @@ mod db_tests {
         ensure_test_room_and_event(&pool, &room_id, &sg_ev).await;
         ensure_test_event(&pool, &state_ev, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let sg_id =
             storage.create_state_group(&room_id, &sg_ev, &format!("se_hash_{suffix}"), now).await.expect("create sg");
 
@@ -998,7 +1000,7 @@ mod db_tests {
             ensure_test_event(&pool, ev, &room_id).await;
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let sg_id =
             storage.create_state_group(&room_id, &sg_ev, &format!("bs_hash_{suffix}"), now).await.expect("create sg");
 

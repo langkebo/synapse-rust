@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
@@ -103,7 +104,7 @@ impl ThreepidStorage {
     }
 
     pub async fn add_threepid(&self, request: CreateThreepidRequest) -> Result<UserThreepid, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let threepid = sqlx::query_as::<_, UserThreepid>(
             r"
@@ -276,7 +277,7 @@ impl ThreepidStorage {
     }
 
     pub async fn verify_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query(
             r"
@@ -297,7 +298,7 @@ impl ThreepidStorage {
     }
 
     pub async fn verify_threepid_by_token(&self, token: &str) -> Result<Option<UserThreepid>, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let threepid = sqlx::query_as::<_, UserThreepid>(
             r"
@@ -388,7 +389,7 @@ impl ThreepidStorage {
     }
 
     pub async fn cleanup_expired_verifications(&self) -> Result<u64, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query(
             r"
@@ -458,7 +459,7 @@ impl ThreepidStorage {
         .bind(session_id)
         .bind(client_secret)
         .bind(token)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get validation session", &e))
@@ -490,7 +491,7 @@ impl ThreepidStorage {
             ",
         )
         .bind(id)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to mark session validated", &e))?;
@@ -510,7 +511,7 @@ impl ThreepidStorage {
 
     pub async fn cleanup_expired_validation_sessions(&self) -> Result<u64, ApiError> {
         sqlx::query("DELETE FROM threepid_validation_session WHERE expires_at < $1")
-            .bind(chrono::Utc::now().timestamp_millis())
+            .bind(current_timestamp_millis())
             .execute(&*self.pool)
             .await
             .map(|r| r.rows_affected())
@@ -642,7 +643,7 @@ mod db_tests {
     }
 
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
@@ -900,7 +901,7 @@ mod db_tests {
         let _ = storage.remove_threepid(&user_id, "email", &address).await;
         ensure_test_user(&pool, &user_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let rows = storage
             .add_verified_threepid(&user_id, "email", &address, now, now)
             .await
@@ -934,7 +935,7 @@ mod db_tests {
         let _ = storage.remove_threepid(&user_id, "email", &unverified_addr).await;
         ensure_test_user(&pool, &user_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         // Add verified threepid
         storage
@@ -981,7 +982,7 @@ mod db_tests {
         let uuid = uuid::Uuid::new_v4();
         let session_id = format!("session_{uuid}");
         let address = format!("vsession_{uuid}@test.com");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + 3600_000;
 
         // Cleanup: delete any matching validation sessions
@@ -1046,7 +1047,7 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
 
         // Add a threepid with an expired verification_expires_at
-        let past_time = chrono::Utc::now().timestamp_millis() - 3600_000;
+        let past_time = current_timestamp_millis() - 3600_000;
         storage
             .add_threepid(CreateThreepidRequest {
                 user_id: user_id.clone(),
@@ -1077,7 +1078,7 @@ mod db_tests {
         let user_id = format!("@vbt_{uuid}:test.com");
         let address = format!("vbt_{uuid}@test.com");
         let token = format!("tok_{uuid}");
-        let future_expires = chrono::Utc::now().timestamp_millis() + 3600_000;
+        let future_expires = current_timestamp_millis() + 3600_000;
 
         let _ = storage.remove_threepid(&user_id, "email", &address).await;
         ensure_test_user(&pool, &user_id).await;

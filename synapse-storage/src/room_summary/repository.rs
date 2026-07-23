@@ -1,7 +1,7 @@
 use super::models::*;
-use chrono::Utc;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Clone)]
 pub struct RoomSummaryStorage {
@@ -15,7 +15,7 @@ impl RoomSummaryStorage {
 
     pub async fn create_summary(&self, request: CreateRoomSummaryRequest) -> Result<RoomSummary, sqlx::Error> {
         tracing::info!(room_id = %request.room_id, "Creating room summary");
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomSummary>(
             r"
@@ -76,7 +76,7 @@ impl RoomSummaryStorage {
         request: UpdateRoomSummaryRequest,
     ) -> Result<RoomSummary, sqlx::Error> {
         tracing::info!(room_id = %room_id, "Updating room summary");
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let row = sqlx::query_as::<_, RoomSummary>(
             r"
             UPDATE room_summaries SET
@@ -126,7 +126,7 @@ impl RoomSummaryStorage {
         room_id: &str,
         canonical_alias: Option<&str>,
     ) -> Result<RoomSummary, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query_as::<_, RoomSummary>(
             r"
             UPDATE room_summaries
@@ -180,7 +180,7 @@ impl RoomSummaryStorage {
 
     pub async fn add_member(&self, request: CreateSummaryMemberRequest) -> Result<RoomSummaryMember, sqlx::Error> {
         tracing::info!(room_id = %request.room_id, user_id = %request.user_id, membership = %request.membership, "Adding member to room summary");
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomSummaryMember>(
             r"
@@ -225,7 +225,7 @@ impl RoomSummaryStorage {
 
         tracing::info!(room_id = %room_id, count = members.len(), "Batch adding members to room summary");
 
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut user_ids: Vec<String> = Vec::with_capacity(members.len());
         let mut display_names: Vec<Option<String>> = Vec::with_capacity(members.len());
         let mut avatar_urls: Vec<Option<String>> = Vec::with_capacity(members.len());
@@ -284,7 +284,7 @@ impl RoomSummaryStorage {
         request: UpdateSummaryMemberRequest,
     ) -> Result<RoomSummaryMember, sqlx::Error> {
         tracing::info!(room_id = %room_id, user_id = %user_id, "Updating room summary member");
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let row = sqlx::query_as::<_, RoomSummaryMember>(
             r"
             UPDATE room_summary_members SET
@@ -438,7 +438,7 @@ impl RoomSummaryStorage {
         event_id: Option<&str>,
         content: serde_json::Value,
     ) -> Result<RoomSummaryState, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomSummaryState>(
             r"
@@ -470,7 +470,7 @@ impl RoomSummaryStorage {
             return Ok(0);
         }
 
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let event_types: Vec<String> = entries.iter().map(|e| e.event_type.clone()).collect();
         let state_keys: Vec<String> = entries.iter().map(|e| e.state_key.clone()).collect();
         let event_ids: Vec<Option<String>> = entries.iter().map(|e| e.event_id.clone()).collect();
@@ -549,7 +549,7 @@ impl RoomSummaryStorage {
         total_media: i64,
         storage_size: i64,
     ) -> Result<RoomSummaryStats, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomSummaryStats>(
             r"
@@ -586,7 +586,7 @@ impl RoomSummaryStorage {
         state_key: Option<&str>,
         priority: i32,
     ) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -625,7 +625,7 @@ impl RoomSummaryStorage {
     }
 
     pub async fn mark_update_processed(&self, id: i64) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query("UPDATE room_summary_update_queue SET status = 'processed', processed_ts = $2 WHERE id = $1")
             .bind(id)
@@ -656,7 +656,7 @@ impl RoomSummaryStorage {
     }
 
     pub async fn increment_unread_notifications(&self, room_id: &str, highlight: bool) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         if highlight {
             sqlx::query(
                 "UPDATE room_summaries SET unread_notifications = unread_notifications + 1, unread_highlight = unread_highlight + 1, updated_ts = $2 WHERE room_id = $1",
@@ -683,7 +683,7 @@ impl RoomSummaryStorage {
             "UPDATE room_summaries SET unread_notifications = 0, unread_highlight = 0, updated_ts = $2 WHERE room_id = $1",
         )
         .bind(room_id)
-        .bind(Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(&*self.pool)
         .await?;
 
@@ -691,7 +691,7 @@ impl RoomSummaryStorage {
     }
 
     async fn refresh_member_counts(&self, room_id: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             UPDATE room_summaries

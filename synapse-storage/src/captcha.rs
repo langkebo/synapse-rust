@@ -1,8 +1,10 @@
 use async_trait::async_trait;
+#[cfg(test)]
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use tracing::info;
 use uuid::Uuid;
@@ -142,7 +144,7 @@ impl CaptchaStorage {
 
     pub async fn create_captcha(&self, request: CreateCaptchaRequest) -> Result<RegistrationCaptcha, ApiError> {
         let captcha_id = Uuid::new_v4().to_string();
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + (request.expires_in_seconds * 1000);
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
@@ -189,7 +191,7 @@ impl CaptchaStorage {
         target: &str,
         captcha_type: &str,
     ) -> Result<Option<RegistrationCaptcha>, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let row = sqlx::query_as::<_, RegistrationCaptcha>(
             r"
             SELECT id, captcha_id, captcha_type, target, code, created_ts, expires_at, used_at, verified_at, ip_address, user_agent, attempt_count, max_attempts, status, metadata FROM registration_captcha
@@ -209,7 +211,7 @@ impl CaptchaStorage {
     }
 
     pub async fn verify_captcha(&self, captcha_id: &str, code: &str) -> Result<bool, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let captcha = self.get_captcha(captcha_id).await?.ok_or_else(|| ApiError::bad_request("Captcha not found"))?;
 
@@ -265,7 +267,7 @@ impl CaptchaStorage {
     }
 
     pub async fn invalidate_captcha(&self, captcha_id: &str) -> Result<(), ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query("UPDATE registration_captcha SET status = 'used', used_at = $1 WHERE captcha_id = $2")
             .bind(now)
@@ -279,7 +281,7 @@ impl CaptchaStorage {
     }
 
     pub async fn create_send_log(&self, request: CreateSendLogRequest) -> Result<CaptchaSendLog, ApiError> {
-        let sent_ts = chrono::Utc::now().timestamp_millis();
+        let sent_ts = current_timestamp_millis();
         let row = sqlx::query_as::<_, CaptchaSendLog>(
             r"
             INSERT INTO captcha_send_log (
@@ -313,7 +315,7 @@ impl CaptchaStorage {
         captcha_type: &str,
         max_per_hour: i32,
     ) -> Result<bool, ApiError> {
-        let one_hour_ago_ts = (Utc::now() - chrono::Duration::hours(1)).timestamp_millis();
+        let one_hour_ago_ts = current_timestamp_millis() - chrono::Duration::hours(1).num_milliseconds();
 
         let count: (i64,) = sqlx::query_as(
             r"
@@ -332,7 +334,7 @@ impl CaptchaStorage {
     }
 
     pub async fn check_ip_rate_limit(&self, ip_address: &str, max_per_hour: i32) -> Result<bool, ApiError> {
-        let one_hour_ago_ts = (Utc::now() - chrono::Duration::hours(1)).timestamp_millis();
+        let one_hour_ago_ts = current_timestamp_millis() - chrono::Duration::hours(1).num_milliseconds();
 
         let count: (i64,) = sqlx::query_as(
             r"
@@ -393,7 +395,7 @@ impl CaptchaStorage {
     }
 
     pub async fn cleanup_expired_captchas(&self) -> Result<u64, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query("DELETE FROM registration_captcha WHERE expires_at < $1 AND status = 'pending'")
             .bind(now)
             .execute(&*self.pool)
@@ -742,7 +744,7 @@ mod db_tests {
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_verify_expired_{}@example.com", unique_suffix());
         let sql_target = target.clone();
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let captcha_id = Uuid::new_v4().to_string();
 
         // Direct INSERT with an already-expired captcha (status=pending, expires_at in the past)
@@ -1052,7 +1054,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let template_name = format!("test_template_{}", unique_suffix());
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -1087,7 +1089,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let template_name = format!("test_disabled_{}", unique_suffix());
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -1131,7 +1133,7 @@ mod db_tests {
         let storage = CaptchaStorage::new(&pool);
         let template_name = format!("test_default_{}", unique_suffix());
         let captcha_type = format!("type_{}", unique_suffix());
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         // Insert a default template with a unique captcha_type
         sqlx::query(
@@ -1168,7 +1170,7 @@ mod db_tests {
         let storage = CaptchaStorage::new(&pool);
         let template_name = format!("test_default_dis_{}", unique_suffix());
         let captcha_type = format!("type_dis_{}", unique_suffix());
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -1203,7 +1205,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let config_key = format!("test_config_{}", unique_suffix());
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             "INSERT INTO captcha_config (config_key, config_value, created_ts) VALUES ($1, '42', $2) ON CONFLICT (config_key) DO NOTHING",
@@ -1234,7 +1236,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let config_key = format!("test_config_int_{}", unique_suffix());
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             "INSERT INTO captcha_config (config_key, config_value, created_ts) VALUES ($1, '99', $2) ON CONFLICT (config_key) DO NOTHING",
@@ -1266,7 +1268,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let config_key = format!("test_config_bad_{}", unique_suffix());
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             "INSERT INTO captcha_config (config_key, config_value, created_ts) VALUES ($1, 'not-a-number', $2) ON CONFLICT (config_key) DO NOTHING",

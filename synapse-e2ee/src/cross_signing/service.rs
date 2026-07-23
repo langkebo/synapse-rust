@@ -1,6 +1,6 @@
 use super::models::*;
 use super::storage::CrossSigningStorage;
-use crate::device_keys::DeviceKeyStorage;
+use crate::device_keys::DeviceKeyStoreApi;
 use crate::signed_json::verify_signed_json;
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
@@ -11,7 +11,7 @@ use synapse_common::ApiError;
 #[derive(Clone)]
 pub struct CrossSigningService {
     storage: CrossSigningStorage,
-    device_keys_storage: Option<Arc<DeviceKeyStorage>>,
+    device_keys_storage: Option<Arc<dyn DeviceKeyStoreApi>>,
     dehydrated_device_service: Option<Arc<dyn DehydratedDeviceProvider>>,
 }
 
@@ -50,7 +50,7 @@ impl CrossSigningService {
         Self { storage, device_keys_storage: None, dehydrated_device_service: None }
     }
 
-    pub fn with_device_keys_storage(mut self, storage: Arc<DeviceKeyStorage>) -> Self {
+    pub fn with_device_keys_storage(mut self, storage: Arc<dyn DeviceKeyStoreApi>) -> Self {
         self.device_keys_storage = Some(storage);
         self
     }

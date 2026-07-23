@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -45,7 +46,7 @@ impl OpenIdTokenStorage {
     }
 
     pub async fn create_token(&self, request: CreateOpenIdTokenRequest) -> Result<OpenIdToken, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let token = sqlx::query_as::<_, OpenIdToken>(
             r"
@@ -83,7 +84,7 @@ impl OpenIdTokenStorage {
     }
 
     pub async fn validate_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let token_data = sqlx::query_as::<_, OpenIdToken>(
             r"
@@ -134,7 +135,7 @@ impl OpenIdTokenStorage {
     }
 
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query(
             r"
@@ -246,7 +247,7 @@ mod db_tests {
     }
 
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
@@ -267,7 +268,7 @@ mod db_tests {
         let storage = OpenIdTokenStorage::new(&pool);
         let user_id = &format!("@openid_test_create_{}:localhost", uuid::Uuid::new_v4().to_string().replace('-', ""));
         let token_str = format!("tok_create_{}", uuid::Uuid::new_v4());
-        let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
+        let far_future = current_timestamp_millis() + 86400000;
 
         ensure_test_user(&pool, user_id).await;
 
@@ -302,7 +303,7 @@ mod db_tests {
         let storage = OpenIdTokenStorage::new(&pool);
         let user_id = &format!("@openid_test_get_{}:localhost", uuid::Uuid::new_v4().to_string().replace('-', ""));
         let token_str = format!("tok_get_{}", uuid::Uuid::new_v4());
-        let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
+        let far_future = current_timestamp_millis() + 86400000;
 
         ensure_test_user(&pool, user_id).await;
 
@@ -313,7 +314,7 @@ mod db_tests {
         .bind(&token_str)
         .bind(user_id)
         .bind::<Option<String>>(None)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .bind(far_future)
         .bind(true)
         .execute(&*pool)
@@ -351,7 +352,7 @@ mod db_tests {
         let storage = OpenIdTokenStorage::new(&pool);
         let user_id = &format!("@openid_test_val_{}:localhost", uuid::Uuid::new_v4().to_string().replace('-', ""));
         let token_str = format!("tok_val_{}", uuid::Uuid::new_v4());
-        let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
+        let far_future = current_timestamp_millis() + 86400000;
 
         ensure_test_user(&pool, user_id).await;
 
@@ -361,7 +362,7 @@ mod db_tests {
         .bind(&token_str)
         .bind(user_id)
         .bind::<Option<String>>(None)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .bind(far_future)
         .execute(&*pool)
         .await
@@ -386,7 +387,7 @@ mod db_tests {
         let storage = OpenIdTokenStorage::new(&pool);
         let user_id = &format!("@openid_test_exp_{}:localhost", uuid::Uuid::new_v4().to_string().replace('-', ""));
         let token_str = format!("tok_exp_{}", uuid::Uuid::new_v4());
-        let past = chrono::Utc::now().timestamp_millis() - 3600000; // 1 hour ago
+        let past = current_timestamp_millis() - 3600000; // 1 hour ago
 
         ensure_test_user(&pool, user_id).await;
 
@@ -396,7 +397,7 @@ mod db_tests {
         .bind(&token_str)
         .bind(user_id)
         .bind::<Option<String>>(None)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .bind(past)
         .execute(&*pool)
         .await
@@ -420,7 +421,7 @@ mod db_tests {
         let storage = OpenIdTokenStorage::new(&pool);
         let user_id = &format!("@openid_test_revoke_{}:localhost", uuid::Uuid::new_v4().to_string().replace('-', ""));
         let token_str = format!("tok_revoke_{}", uuid::Uuid::new_v4());
-        let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
+        let far_future = current_timestamp_millis() + 86400000;
 
         ensure_test_user(&pool, user_id).await;
 
@@ -430,7 +431,7 @@ mod db_tests {
         .bind(&token_str)
         .bind(user_id)
         .bind::<Option<String>>(None)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .bind(far_future)
         .execute(&*pool)
         .await
@@ -469,8 +470,8 @@ mod db_tests {
         let storage = OpenIdTokenStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = &format!("@openid_bulk_revoke_{suffix}:test.com");
-        let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
-        let now = chrono::Utc::now().timestamp_millis();
+        let far_future = current_timestamp_millis() + 86400000;
+        let now = current_timestamp_millis();
 
         ensure_test_user(&pool, user_id).await;
 
@@ -521,9 +522,9 @@ mod db_tests {
         let storage = OpenIdTokenStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = &format!("@openid_cleanup_{suffix}:test.com");
-        let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
-        let past = chrono::Utc::now().timestamp_millis() - 3600000;
-        let now = chrono::Utc::now().timestamp_millis();
+        let far_future = current_timestamp_millis() + 86400000;
+        let past = current_timestamp_millis() - 3600000;
+        let now = current_timestamp_millis();
 
         ensure_test_user(&pool, user_id).await;
 
@@ -590,12 +591,12 @@ mod db_tests {
         let storage = OpenIdTokenStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = &format!("@openid_list_{suffix}:test.com");
-        let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
+        let far_future = current_timestamp_millis() + 86400000;
 
         ensure_test_user(&pool, user_id).await;
 
         // Insert tokens with staggered timestamps
-        let base_ts = chrono::Utc::now().timestamp_millis();
+        let base_ts = current_timestamp_millis();
         sqlx::query(
             "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, TRUE)",
         )

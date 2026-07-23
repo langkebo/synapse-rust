@@ -1,9 +1,8 @@
 use async_trait::async_trait;
-use chrono::Utc;
 use serde_json::Value;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
-
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -65,7 +64,7 @@ impl EmailVerificationStorage {
         user_id: Option<&str>,
         session_data: Option<serde_json::Value>,
     ) -> Result<i64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + expires_in_seconds * 1000;
 
         let row = sqlx::query_as::<_, TokenIdRow>(
@@ -88,7 +87,7 @@ impl EmailVerificationStorage {
     }
 
     pub async fn verify_token(&self, email: &str, token: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
             r"
@@ -139,7 +138,7 @@ impl EmailVerificationStorage {
             return Err(ApiError::bad_request("Verification token has already been used".to_string()));
         }
 
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         if verification_token.expires_at.is_none_or(|expires_at| expires_at < now) {
             return Err(ApiError::bad_request("Verification token has expired".to_string()));
         }
@@ -203,7 +202,7 @@ impl EmailVerificationStorage {
     /// （client_secret、purpose 等）。一旦此函数返回 `Some`，行就已物理
     /// 删除，无法被重放。
     pub async fn claim_used_token(&self, token_id: i64) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let row = sqlx::query_as::<_, EmailVerificationToken>(
             r"
             DELETE FROM email_verification_tokens
@@ -220,7 +219,7 @@ impl EmailVerificationStorage {
     }
 
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query(
             r"
             DELETE FROM email_verification_tokens WHERE expires_at < $1
@@ -233,7 +232,7 @@ impl EmailVerificationStorage {
     }
 
     pub async fn get_token_by_email(&self, email: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let token_record = sqlx::query_as::<_, EmailVerificationToken>(
             r"
@@ -314,8 +313,8 @@ mod tests {
             user_id: Some("@test:example.com".to_string()),
             email: "test@example.com".to_string(),
             token: "abc123".to_string(),
-            expires_at: Some(chrono::Utc::now().timestamp_millis() + 3600000),
-            created_ts: chrono::Utc::now().timestamp_millis(),
+            expires_at: Some(current_timestamp_millis() + 3600000),
+            created_ts: current_timestamp_millis(),
             is_used: false,
             session_data: None,
         };
@@ -332,8 +331,8 @@ mod tests {
             user_id: Some("@user:example.com".to_string()),
             email: "user@example.com".to_string(),
             token: "token456".to_string(),
-            expires_at: Some(chrono::Utc::now().timestamp_millis() + 3600000),
-            created_ts: chrono::Utc::now().timestamp_millis(),
+            expires_at: Some(current_timestamp_millis() + 3600000),
+            created_ts: current_timestamp_millis(),
             is_used: false,
             session_data: Some(serde_json::json!({"key": "value"})),
         };
@@ -342,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_email_verification_token_expired() {
-        let current_ts = chrono::Utc::now().timestamp_millis();
+        let current_ts = current_timestamp_millis();
         let token = EmailVerificationToken {
             id: 3,
             user_id: Some("@expired:example.com".to_string()),
@@ -363,8 +362,8 @@ mod tests {
             user_id: Some("@used:example.com".to_string()),
             email: "used@example.com".to_string(),
             token: "used_token".to_string(),
-            expires_at: Some(chrono::Utc::now().timestamp_millis() + 3600000),
-            created_ts: chrono::Utc::now().timestamp_millis(),
+            expires_at: Some(current_timestamp_millis() + 3600000),
+            created_ts: current_timestamp_millis(),
             is_used: true,
             session_data: None,
         };

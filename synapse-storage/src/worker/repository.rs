@@ -1,7 +1,7 @@
 use super::models::*;
-use chrono::Utc;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Clone)]
 pub struct WorkerStorage {
@@ -18,7 +18,7 @@ impl WorkerStorage {
     }
 
     pub async fn register_worker(&self, request: RegisterWorkerRequest) -> Result<WorkerInfo, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let config = request.config.unwrap_or(serde_json::json!({}));
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
@@ -110,7 +110,7 @@ impl WorkerStorage {
     }
 
     pub async fn update_worker_status(&self, worker_id: &str, status: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
 
         if Self::status_releases_in_flight_work(status) {
@@ -150,7 +150,7 @@ impl WorkerStorage {
     }
 
     pub async fn update_heartbeat(&self, worker_id: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(r"UPDATE workers SET last_heartbeat_ts = $2, status = 'running' WHERE worker_id = $1")
             .bind(worker_id)
@@ -162,7 +162,7 @@ impl WorkerStorage {
     }
 
     pub async fn unregister_worker(&self, worker_id: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
 
         sqlx::query(
@@ -191,7 +191,7 @@ impl WorkerStorage {
     }
 
     pub async fn create_command(&self, request: SendCommandRequest) -> Result<WorkerCommand, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let command_id = uuid::Uuid::new_v4().to_string();
 
         let row: WorkerCommandRow = sqlx::query_as::<_, WorkerCommandRow>(
@@ -245,7 +245,7 @@ impl WorkerStorage {
     }
 
     pub async fn mark_command_sent(&self, command_id: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(r"UPDATE worker_commands SET status = 'sent', sent_ts = $2 WHERE command_id = $1")
             .bind(command_id)
@@ -257,7 +257,7 @@ impl WorkerStorage {
     }
 
     pub async fn complete_command(&self, command_id: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(r"UPDATE worker_commands SET status = 'completed', completed_ts = $2 WHERE command_id = $1")
             .bind(command_id)
@@ -269,7 +269,7 @@ impl WorkerStorage {
     }
 
     pub async fn fail_command(&self, command_id: &str, error: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -298,7 +298,7 @@ impl WorkerStorage {
         sender: Option<&str>,
         event_data: serde_json::Value,
     ) -> Result<WorkerEvent, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, WorkerEventRow>(
             r"
@@ -361,7 +361,7 @@ impl WorkerStorage {
         stream_name: &str,
         position: i64,
     ) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -413,7 +413,7 @@ impl WorkerStorage {
     }
 
     pub async fn assign_task(&self, request: AssignTaskRequest) -> Result<WorkerTaskAssignment, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let task_id = uuid::Uuid::new_v4().to_string();
 
         let row: WorkerTaskAssignment = sqlx::query_as::<_, WorkerTaskAssignment>(
@@ -466,7 +466,7 @@ impl WorkerStorage {
     }
 
     pub async fn claim_next_pending_task(&self, worker_id: &str) -> Result<Option<WorkerTaskAssignment>, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, WorkerTaskAssignment>(
             r#"
@@ -501,7 +501,7 @@ impl WorkerStorage {
         worker_id: &str,
         allowed_task_types: &[String],
     ) -> Result<Option<WorkerTaskAssignment>, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, WorkerTaskAssignment>(
             r#"
@@ -534,7 +534,7 @@ impl WorkerStorage {
     }
 
     pub async fn assign_task_to_worker(&self, task_id: &str, worker_id: &str) -> Result<bool, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result: sqlx::postgres::PgQueryResult = sqlx::query(
             r"
@@ -555,7 +555,7 @@ impl WorkerStorage {
     }
 
     pub async fn complete_task(&self, task_id: &str, result: Option<serde_json::Value>) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"UPDATE worker_task_assignments SET status = 'completed', completed_ts = $2, result = $3 WHERE task_id = $1",
@@ -570,7 +570,7 @@ impl WorkerStorage {
     }
 
     pub async fn fail_task(&self, task_id: &str, error: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"UPDATE worker_task_assignments SET status = 'failed', completed_ts = $2, error_message = $3 WHERE task_id = $1",

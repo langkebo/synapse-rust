@@ -107,7 +107,8 @@ impl RoomSyncServices {
             Arc::new(RoomAccountDataStorage::new(&infra.pool));
         let sync_account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi> =
             Arc::new(synapse_storage::account_data::AccountDataStorage::new(&infra.pool));
-        let sync_device_key_storage = synapse_e2ee::device_keys::DeviceKeyStorage::new(&infra.pool);
+        let sync_device_key_storage: Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi> =
+            Arc::new(synapse_e2ee::device_keys::DeviceKeyStorage::new(&infra.pool));
         let sync_key_rotation_storage = synapse_e2ee::key_rotation::KeyRotationStorage::new(infra.pool.clone());
         let sync_service =
             Arc::new(crate::sync_service::SyncService::from_deps(crate::sync_service::SyncServiceDeps {

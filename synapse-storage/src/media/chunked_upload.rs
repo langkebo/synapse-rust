@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use tracing::{info, warn};
 
@@ -276,7 +277,7 @@ impl ChunkedUploadStorage {
     /// cleanup without constructing a full `ChunkedUploadService` or holding a
     /// raw `PgPool`.
     pub async fn cleanup_expired(&self) -> Result<u64, ApiError> {
-        let now_ts = chrono::Utc::now().timestamp_millis();
+        let now_ts = current_timestamp_millis();
         let expired = self.list_expired_upload_ids(now_ts).await?;
 
         let mut cleaned = 0u64;
@@ -358,7 +359,7 @@ mod db_tests {
     /// Insert a minimal user row so the foreign-key constraint on
     /// `upload_progress.user_id` is satisfied. Uses ON CONFLICT DO NOTHING.
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
@@ -390,7 +391,7 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
         cleanup_upload(&pool, &upload_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + 3600000;
         storage
             .create_upload(CreateChunkedUploadRequest {
@@ -443,7 +444,7 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
         cleanup_upload(&pool, &upload_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + 3600000;
         storage
             .create_upload(CreateChunkedUploadRequest {
@@ -497,7 +498,7 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
         cleanup_upload(&pool, &upload_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + 3600000;
         storage
             .create_upload(CreateChunkedUploadRequest {
@@ -556,7 +557,7 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
         cleanup_upload(&pool, &upload_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + 3600000;
         storage
             .create_upload(CreateChunkedUploadRequest {
@@ -631,7 +632,7 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
         cleanup_upload(&pool, &upload_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + 3600000;
         storage
             .create_upload(CreateChunkedUploadRequest {
@@ -660,7 +661,7 @@ mod db_tests {
             .expect("store_chunk should succeed");
 
         storage
-            .finalize_upload(&upload_id, chrono::Utc::now().timestamp_millis())
+            .finalize_upload(&upload_id, current_timestamp_millis())
             .await
             .expect("finalize_upload should succeed");
 
@@ -690,7 +691,7 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
         cleanup_upload(&pool, &upload_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + 3600000;
         storage
             .create_upload(CreateChunkedUploadRequest {
@@ -744,7 +745,7 @@ mod db_tests {
         cleanup_upload(&pool, &upload_b).await;
         cleanup_upload(&pool, &upload_c).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + 3600000;
 
         // Upload A: pending (should appear)
@@ -792,7 +793,7 @@ mod db_tests {
             .await
             .expect("create upload_c should succeed");
         storage
-            .finalize_upload(&upload_c, chrono::Utc::now().timestamp_millis())
+            .finalize_upload(&upload_c, current_timestamp_millis())
             .await
             .expect("finalize upload_c should succeed");
 
@@ -821,7 +822,7 @@ mod db_tests {
         cleanup_upload(&pool, &active_upload).await;
         cleanup_upload(&pool, &expired_upload).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         // Active upload: expires in the future
         storage
@@ -879,7 +880,7 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
         cleanup_upload(&pool, &upload_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + 3600000;
 
         // Step 1: Create the upload session
@@ -940,7 +941,7 @@ mod db_tests {
 
         // Step 5: Finalize
         storage
-            .finalize_upload(&upload_id, chrono::Utc::now().timestamp_millis())
+            .finalize_upload(&upload_id, current_timestamp_millis())
             .await
             .expect("finalize_upload should succeed");
 
@@ -975,7 +976,7 @@ mod db_tests {
         cleanup_upload(&pool, &upload_a).await;
         cleanup_upload(&pool, &upload_b).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + 3600000;
 
         storage

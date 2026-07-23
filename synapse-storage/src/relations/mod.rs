@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct EventRelation {
@@ -91,7 +92,7 @@ impl RelationsStorage {
     }
 
     pub async fn create_relation(&self, params: CreateRelationParams) -> Result<EventRelation, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, EventRelation>(
             r"
@@ -551,7 +552,7 @@ mod db_tests {
 
     /// Ensure a room row exists so FK constraints on event_relations are satisfied.
     async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query("INSERT INTO rooms (room_id, created_ts) VALUES ($1, $2) ON CONFLICT (room_id) DO NOTHING")
             .bind(room_id)
             .bind(now)
@@ -576,7 +577,7 @@ mod db_tests {
             relates_to_event_id: format!("$related_{suffix}"),
             relation_type: "m.annotation".to_string(),
             sender: format!("@user_{suffix}:example.com"),
-            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            origin_server_ts: current_timestamp_millis(),
             content: json!({"body": "👍"}),
         }
     }
@@ -627,7 +628,7 @@ mod db_tests {
             relates_to_event_id: format!("$related_{suffix}"),
             relation_type: "m.annotation".to_string(),
             sender: format!("@user_{suffix}:example.com"),
-            origin_server_ts: chrono::Utc::now().timestamp_millis() + 1000,
+            origin_server_ts: current_timestamp_millis() + 1000,
             content: json!({"body": "👎", "extra": true}),
         };
 
@@ -739,7 +740,7 @@ mod db_tests {
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_{i}_{suffix}:example.com"),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
                 content: json!({"body": "👍"}),
             };
             storage.create_relation(params).await.expect("create_relation should succeed");
@@ -774,7 +775,7 @@ mod db_tests {
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_{i}_{suffix}:example.com"),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
                 content: json!({"body": "👍"}),
             };
             storage.create_relation(params).await.unwrap();
@@ -787,7 +788,7 @@ mod db_tests {
             relates_to_event_id: relates_to.clone(),
             relation_type: "m.reference".to_string(),
             sender: format!("@user_ref_{suffix}:example.com"),
-            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            origin_server_ts: current_timestamp_millis(),
             content: json!({"body": "ref"}),
         };
         storage.create_relation(ref_params).await.unwrap();
@@ -981,7 +982,7 @@ mod db_tests {
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_{i}_{suffix}:example.com"),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
                 content: json!({"body": "👍"}),
             };
             storage.create_relation(params).await.unwrap();
@@ -992,7 +993,7 @@ mod db_tests {
             relates_to_event_id: relates_to.clone(),
             relation_type: "m.reference".to_string(),
             sender: format!("@user_ref_{suffix}:example.com"),
-            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            origin_server_ts: current_timestamp_millis(),
             content: json!({"body": "ref"}),
         };
         storage.create_relation(ref_params).await.unwrap();
@@ -1038,7 +1039,7 @@ mod db_tests {
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_{i}_{suffix}:example.com"),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
                 content: json!({"body": "👍"}),
             };
             storage.create_relation(params).await.unwrap();
@@ -1051,7 +1052,7 @@ mod db_tests {
             relates_to_event_id: relates_to.clone(),
             relation_type: "m.reference".to_string(),
             sender: format!("@user_ref_{suffix}:example.com"),
-            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            origin_server_ts: current_timestamp_millis(),
             content: json!({"body": "ref"}),
         };
         storage.create_relation(ref_params).await.unwrap();
@@ -1087,7 +1088,7 @@ mod db_tests {
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_{i}_{suffix}:example.com"),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
                 content: json!({"body": format!("{}", i)}),
             };
             storage.create_relation(params).await.unwrap();
@@ -1124,7 +1125,7 @@ mod db_tests {
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.reference".to_string(),
                 sender: format!("@user_{i}_{suffix}:example.com"),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
                 content: json!({"body": format!("ref {}", i)}),
             };
             storage.create_relation(params).await.unwrap();
@@ -1137,7 +1138,7 @@ mod db_tests {
             relates_to_event_id: relates_to.clone(),
             relation_type: "m.annotation".to_string(),
             sender: format!("@user_annot_{suffix}:example.com"),
-            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            origin_server_ts: current_timestamp_millis(),
             content: json!({"body": "👍"}),
         };
         storage.create_relation(annot_params).await.unwrap();
@@ -1215,7 +1216,7 @@ mod db_tests {
             relates_to_event_id: relates_to.clone(),
             relation_type: "m.replace".to_string(),
             sender: format!("@alice_{suffix}:example.com"),
-            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            origin_server_ts: current_timestamp_millis(),
             content: json!({"body": "edit", "msgtype": "m.text"}),
         };
         storage.create_relation(params).await.unwrap();
@@ -1251,7 +1252,7 @@ mod db_tests {
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_up_{i}_{suffix}:example.com"),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
                 content: json!({"body": "👍"}),
             };
             storage.create_relation(params).await.unwrap();
@@ -1263,7 +1264,7 @@ mod db_tests {
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_down_{i}_{suffix}:example.com"),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
                 content: json!({"body": "👎"}),
             };
             storage.create_relation(params).await.unwrap();
@@ -1306,7 +1307,7 @@ mod db_tests {
             relates_to_event_id: relates_to.clone(),
             relation_type: "m.annotation".to_string(),
             sender: format!("@user_{suffix}:example.com"),
-            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            origin_server_ts: current_timestamp_millis(),
             content: json!({"body": "👍"}),
         };
         storage.create_relation(annot_params).await.unwrap();
@@ -1318,7 +1319,7 @@ mod db_tests {
             relates_to_event_id: relates_to.clone(),
             relation_type: "m.reference".to_string(),
             sender: format!("@user_ref_{suffix}:example.com"),
-            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            origin_server_ts: current_timestamp_millis(),
             content: json!({"body": "ref"}),
         };
         storage.create_relation(ref_params).await.unwrap();

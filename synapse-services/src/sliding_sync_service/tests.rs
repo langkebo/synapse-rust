@@ -1,4 +1,5 @@
 use super::*;
+use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
@@ -87,7 +88,8 @@ fn create_test_service() -> SlidingSyncService {
         storage: Arc::new(SlidingSyncStorage::new(pool.clone())),
         cache: Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
         event_reader: event_storage,
-        device_key_storage: DeviceKeyStorage::new(&pool),
+        device_key_storage: Arc::new(DeviceKeyStorage::new(&pool))
+            as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         typing_service: Arc::new(crate::typing_service::TypingService::default()),
         presence_storage: Arc::new(PresenceStorage::new(
             pool.clone(),
@@ -538,7 +540,8 @@ fn create_cached_test_service(event_store: Arc<InMemoryEventStore>) -> SlidingSy
         storage: Arc::new(SlidingSyncStorage::new(pool.clone())),
         cache: Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
         event_reader: event_store as Arc<dyn synapse_storage::event::EventReader>,
-        device_key_storage: DeviceKeyStorage::new(&pool),
+        device_key_storage: Arc::new(DeviceKeyStorage::new(&pool))
+            as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         typing_service: Arc::new(crate::typing_service::TypingService::default()),
         presence_storage: Arc::new(PresenceStorage::new(
             pool.clone(),

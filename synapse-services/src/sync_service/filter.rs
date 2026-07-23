@@ -1234,7 +1234,8 @@ mod tests {
             account_data_storage: Arc::new(synapse_storage::account_data::AccountDataStorage::new(&pool)),
             filter_storage: filter_store,
             device_storage: Arc::new(synapse_storage::device::DeviceStorage::new(&pool)),
-            device_key_storage: synapse_e2ee::device_keys::DeviceKeyStorage::new(&pool),
+            device_key_storage: Arc::new(synapse_e2ee::device_keys::DeviceKeyStorage::new(&pool))
+                as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
             key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage::new(pool.clone()),
             to_device_storage: synapse_e2ee::to_device::ToDeviceStorage::new(&pool),
             metrics: Arc::new(synapse_common::MetricsCollector::new()),
