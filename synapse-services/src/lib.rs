@@ -71,6 +71,8 @@ pub mod room;
 pub mod search_service;
 pub mod sliding_sync_service;
 pub mod sms_provider;
+/// Sync services domain group — re-exports sync service types under `sync::`.
+pub mod sync;
 pub mod sync_helpers;
 pub mod sync_service;
 pub mod telemetry_service;
@@ -121,13 +123,7 @@ pub use search_service::{
     SearchResult, SearchResultItem, SearchRoomEvent, SearchRoomEventsPage, SearchRoomSummary, SearchService,
     TimestampDirection, TimestampEventMatch,
 }; // search service types
-pub use sliding_sync_service::SlidingSyncService; // sliding sync service types
-pub use sync_service::{
-    BuildRoomSyncRequest, BuildRoomSyncValueRequest, BuildSyncResponseRequest, FetchEventsRequest, IncrementalUpdate,
-    LazyLoadMembersRequest, LazyLoadedMembersCacheKey, RoomFilter, RoomSyncCounts, RoomSyncState,
-    StateEventsBatchParams, SyncEventFormat, SyncFilter, SyncPerformanceSnapshot, SyncRequest, SyncResponseFilter,
-    SyncRoomSection, SyncService, SyncServiceApi, SyncServiceDeps, SyncServiceRequest, SyncState, SyncToken,
-}; // sync service types
+pub use sync::*; // sync domain group (backward-compat flat re-export)
 pub use typing_service::{TypingService, TypingUser}; // typing service types
 pub use user_service::UserService; // user service convenience layer
 

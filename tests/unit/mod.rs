@@ -63,4 +63,5 @@ mod coverage_tests;
 mod worker_coverage_tests;
 
 mod benchmark_pr_gate_tests;
+mod services_sync_domain_refactor_tests;
 mod storage_admin_domain_refactor_tests;
