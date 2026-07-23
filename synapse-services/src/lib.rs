@@ -40,6 +40,8 @@ pub mod admin_security_service;
 pub mod admin_server_service;
 pub mod admin_token_service;
 pub mod admin_user_service;
+/// Application services domain group — re-exports application modules under `application::`.
+pub mod application;
 pub mod application_service;
 pub mod background_update_service;
 pub mod captcha_service;
@@ -97,15 +99,17 @@ pub mod user_service;
 // =============================================================================
 // Explicit root re-exports of frequently used service types.
 //
-// Domain-grouped modules (account, admin, event, identity, infra, media, push,
-// room, sync) are re-exported via `pub use <domain>::*;` globs below. The
-// remaining flat re-exports cover modules not yet grouped into a domain.
+// All service modules are now grouped into domain modules (account, admin,
+// application, event, identity, infra, media, push, room, sync) and
+// re-exported via `pub use <domain>::*;` globs below. These globs keep the
+// legacy root-level paths working.
 // =============================================================================
 // Domain group globs — backward-compatibility flat re-exports via domain modules.
 // Consumers should prefer the domain path (e.g. `synapse_services::account::*`)
 // but these globs keep the legacy root-level paths working.
 pub use account::*; // account domain group (account_device_list_service, account_identity_service, registration_service)
 pub use admin::*; // admin domain group (backward-compat flat re-export)
+pub use application::*; // application domain group (application_service, module_service)
 #[allow(ambiguous_glob_reexports)]
 pub use event::*; // event domain group (event_broadcaster_trait, event_notifier, event_report_service)
 #[allow(ambiguous_glob_reexports)]
@@ -120,16 +124,6 @@ pub use push::*; // push domain group (push, client_push_service)
 pub use room::*; // room domain group (room, directory_service, typing_service)
 pub use sync::*; // sync domain group (backward-compat flat re-export)
 
-// Flat re-exports for modules NOT yet grouped into a domain.
-pub use application_service::{ApplicationServiceManager, ApplicationServiceScheduler, NamespacesInfo}; // application service integration types
-pub use dehydrated_device_service::DehydratedDeviceService; // dehydrated device service types
-pub use search_service::{
-    AdvancedSearchOptions, EventContextEntry, EventContextWindow, IndexedEvent, RoomEventsSearchFilter, SearchFilters,
-    SearchResult, SearchResultItem, SearchRoomEvent, SearchRoomEventsPage, SearchRoomSummary, SearchService,
-    TimestampDirection, TimestampEventMatch,
-}; // search service types
-pub use user_service::UserService; // user service convenience layer
-
 // Backward-compatible room module aliases (Phase P2-1, P2-2)
 pub use room::service as room_service;
 pub use room::space as space_service;
@@ -140,8 +134,6 @@ pub use room::summary as room_summary_service;
 // =============================================================================
 #[cfg(feature = "builtin-oidc")]
 pub mod builtin_oidc_provider;
-#[cfg(feature = "builtin-oidc")]
-pub use builtin_oidc_provider::{AuthSession, BuiltinOidcProvider, RefreshToken as BuiltinRefreshToken};
 
 // =============================================================================
 // L3 — Experimental / non-core extensions (feature-gated, off by default)
@@ -155,17 +147,9 @@ pub mod openclaw_service;
 
 #[cfg(feature = "friends")]
 pub mod friend_room_service;
-#[cfg(feature = "friends")]
-pub use friend_room_service::{
-    decode_friend_list_cursor, encode_friend_list_cursor, DirectMapUpdateAction, DirectRoomSnapshot, DmPartnerInfo,
-    EnsureDirectRoomResult, FriendListCursor, FriendListEntry, FriendListPage, FriendListRequest,
-    FriendRoomCreateRoomConfig, FriendRoomService,
-};
 
 #[cfg(feature = "voice-extended")]
 pub mod voice_service;
-#[cfg(feature = "voice-extended")]
-pub use voice_service::{VoiceMessageUploadParams, VoiceService};
 
 #[cfg(feature = "saml-sso")]
 pub mod saml_service;
@@ -175,8 +159,6 @@ pub mod cas_service;
 
 #[cfg(feature = "beacons")]
 pub mod beacon_service;
-#[cfg(feature = "beacons")]
-pub use beacon_service::BeaconService;
 
 // =============================================================================
 // RTC domain — unified real-time communication (TURN/STUN, calls, sessions, SFU)
@@ -219,13 +201,6 @@ pub mod burn_after_read_service;
 
 #[cfg(feature = "external-services")]
 pub mod external_service_integration;
-#[cfg(feature = "external-services")]
-pub use external_service_integration::{
-    ExternalServiceConfig, ExternalServiceIntegration, ExternalServiceType, ServiceHealthStatus, TrendRadarConfig,
-    TrendRadarPayload, WebhookAuthInput, WebhookPayload,
-};
-#[cfg(all(feature = "external-services", feature = "openclaw-routes"))]
-pub use external_service_integration::{OpenClawConfig, OpenClawPayload};
 
 #[cfg(feature = "geo-ip")]
 pub mod geo_ip;

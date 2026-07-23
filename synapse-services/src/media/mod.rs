@@ -6,7 +6,12 @@ pub use chunked_upload::{ChunkedUploadService, CompleteUploadRequest};
 #[allow(deprecated)]
 pub use crate::media_service::{MediaService, ThumbnailConfig, ThumbnailMethod, ThumbnailSettings};
 
-use crate::media_quota_service::MediaQuotaService;
+// P7.4 — additional media-domain service re-exports (previously flat in lib.rs).
+pub use crate::content_scanner::*;
+pub use crate::media_quota_service::*;
+#[cfg(feature = "voice-extended")]
+pub use crate::voice_service::{VoiceMessageUploadParams, VoiceService};
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;

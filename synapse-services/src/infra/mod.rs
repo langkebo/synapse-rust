@@ -16,3 +16,16 @@ pub use crate::database_initializer::{
 };
 pub use crate::feature_flag_service::FeatureFlagService;
 pub use crate::federation_key_rotation_service::FederationKeyRotationService;
+
+// P7.4 — additional infra-domain service re-exports (previously flat in lib.rs).
+pub use crate::background_update_service::*;
+pub use crate::e2ee_audit::*;
+#[cfg(feature = "external-services")]
+pub use crate::external_service_integration::{
+    ExternalServiceConfig, ExternalServiceIntegration, ExternalServiceType, ServiceHealthStatus, TrendRadarConfig,
+    TrendRadarPayload, WebhookAuthInput, WebhookPayload,
+};
+#[cfg(all(feature = "external-services", feature = "openclaw-routes"))]
+pub use crate::external_service_integration::{OpenClawConfig, OpenClawPayload};
+pub use crate::telemetry_service::*;
+pub use crate::translation_service::*;

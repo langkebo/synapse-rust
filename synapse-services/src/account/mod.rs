@@ -14,3 +14,14 @@ pub use crate::account_device_list_service::{
 };
 pub use crate::account_identity_service::AccountIdentityService;
 pub use crate::registration_service::RegistrationService;
+
+// P7.4 — additional account-domain service re-exports (previously flat in lib.rs).
+pub use crate::account_data_service::*;
+pub use crate::captcha_service::*;
+pub use crate::dehydrated_device_service::DehydratedDeviceService;
+pub use crate::refresh_token_service::*;
+pub use crate::registration_token_service::*;
+pub use crate::sms_provider::*;
+pub use crate::uia_service::*;
+pub use crate::user_lock_service::*;
+pub use crate::user_service::UserService;

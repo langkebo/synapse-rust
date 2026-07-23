@@ -15,3 +15,11 @@ pub use crate::sync_service::{
     StateEventsBatchParams, SyncEventFormat, SyncFilter, SyncPerformanceSnapshot, SyncRequest, SyncResponseFilter,
     SyncRoomSection, SyncService, SyncServiceApi, SyncServiceDeps, SyncServiceRequest, SyncState, SyncToken,
 };
+
+// P7.4 — additional sync-domain service re-exports (previously flat in lib.rs).
+pub use crate::presence_service::*;
+pub use crate::search_service::{
+    AdvancedSearchOptions, EventContextEntry, EventContextWindow, IndexedEvent, RoomEventsSearchFilter, SearchFilters,
+    SearchResult, SearchResultItem, SearchRoomEvent, SearchRoomEventsPage, SearchRoomSummary, SearchService,
+    TimestampDirection, TimestampEventMatch,
+};

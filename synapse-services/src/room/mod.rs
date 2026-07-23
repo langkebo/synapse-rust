@@ -39,3 +39,16 @@ pub use summary::{
     CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryMember, RoomSummaryResponse, RoomSummaryService,
     RoomSummaryState, RoomSummaryStats, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
 };
+
+// P7.4 — additional room-domain service re-exports (previously flat in lib.rs).
+#[cfg(feature = "beacons")]
+pub use crate::beacon_service::BeaconService;
+#[cfg(feature = "friends")]
+pub use crate::friend_room_service::{
+    decode_friend_list_cursor, encode_friend_list_cursor, DirectMapUpdateAction, DirectRoomSnapshot, DmPartnerInfo,
+    EnsureDirectRoomResult, FriendListCursor, FriendListEntry, FriendListPage, FriendListRequest,
+    FriendRoomCreateRoomConfig, FriendRoomService,
+};
+pub use crate::relations_service::*;
+pub use crate::retention_service::*;
+pub use crate::thread_service::*;
