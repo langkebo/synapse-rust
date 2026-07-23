@@ -41,3 +41,23 @@ fn test_audit_event_storage_path_identity() {
         assert_same_type(a, b);
     }
 }
+
+// --- P2: e2ee domain grouping ---
+
+#[test]
+fn test_dehydrated_device_storage_path_identity() {
+    let legacy_ref: Option<&synapse_storage::DehydratedDeviceStorage> = None;
+    let grouped_ref: Option<&synapse_storage::e2ee::DehydratedDeviceStorage> = None;
+    if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
+        assert_same_type(a, b);
+    }
+}
+
+#[test]
+fn test_e2ee_audit_storage_path_identity() {
+    let legacy_ref: Option<&synapse_storage::E2eeAuditStorage> = None;
+    let grouped_ref: Option<&synapse_storage::e2ee::E2eeAuditStorage> = None;
+    if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
+        assert_same_type(a, b);
+    }
+}

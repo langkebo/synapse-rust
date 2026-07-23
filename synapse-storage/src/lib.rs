@@ -20,6 +20,8 @@ pub mod audit;
 pub mod background_update;
 pub mod dehydrated_device;
 pub mod device;
+/// E2EE storage domain group — re-exports e2ee modules under `e2ee::`.
+pub mod e2ee;
 pub mod e2ee_audit;
 pub mod email_verification;
 pub mod event;
@@ -142,11 +144,7 @@ pub use self::captcha::{
     CaptchaConfig, CaptchaRateLimit, CaptchaSendLog, CaptchaStorage, CaptchaStoreApi, CaptchaTemplate,
     CreateCaptchaRequest, CreateSendLogRequest, RegistrationCaptcha,
 };
-pub use self::dehydrated_device::{
-    DehydratedDevice, DehydratedDeviceStorage, DehydratedDeviceStoreApi, UpsertDehydratedDeviceParams,
-};
 pub use self::device::{Device, DeviceListStoreApi, DeviceStorage};
-pub use self::e2ee_audit::{E2eeAuditStorage, E2eeAuditStoreApi, KeyAuditEntry, KeyEvent};
 pub use self::event::{
     CreateEventParams, EventQueryFilter, EventReport, EventReportId, EventSignature, EventStorage, RoomEphemeralEvent,
     RoomEvent, SinceFilter, StateEvent,
@@ -167,7 +165,8 @@ pub use self::media_quota::{
     CreateQuotaConfigRequest, MediaQuotaAlert, MediaQuotaConfig, MediaQuotaStorage, MediaQuotaStoreApi, MediaUsageLog,
     QuotaCheckResult, ServerMediaQuota, SetUserQuotaRequest, UpdateUsageRequest, UserMediaQuota,
 };
-pub use admin::*; // admin domain group (backward-compat flat re-export)
+pub use admin::*;
+pub use e2ee::*; // e2ee domain group (backward-compat flat re-export) // admin domain group (backward-compat flat re-export)
 
 // Quarantine stream storage
 pub use self::media::quarantine_stream::QuarantinedMediaChangeStoreApi;
