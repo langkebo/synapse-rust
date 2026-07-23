@@ -161,7 +161,7 @@
 | **P3** ⏭️ | room 域分组（storage） | 中 | 新建 `storage/room/mod.rs`（跳过：room/mod.rs 1800+ 行风险过高） |
 | **P4** ✅ | auth 域分组（storage） | 中 | 新建 `storage/auth/mod.rs`（已完成 162741dd） |
 | **P5** ✅ | sync 域分组（services） | 中 | 新建 `services/sync/mod.rs`（已完成 a2dd9a2c） |
-| **P6** | prelude 模块 | 低 | 新建 `prelude.rs` |
+| **P6** ✅ | prelude 模块 | 低 | 新建 `prelude.rs`（已完成） |
 | **P7** | 移除 lib.rs 扁平 re-export | 高 | 需更新所有消费者 import |
 
 ### 3.2 每个阶段的标准操作

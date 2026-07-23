@@ -42,6 +42,8 @@ pub mod module;
 pub mod monitoring;
 pub mod openid_token;
 pub mod performance;
+/// Backward-compatibility prelude — glob-import point for domain-grouped types.
+pub mod prelude;
 pub mod presence;
 pub mod pruning;
 pub mod push;

@@ -62,6 +62,8 @@ pub mod oidc_service;
 pub mod presence_service;
 pub mod push;
 pub use push::service as push_notification_service;
+/// Backward-compatibility prelude — glob-import point for domain-grouped types.
+pub mod prelude;
 pub mod refresh_token_service;
 pub mod registration_service;
 pub mod registration_token_service;
