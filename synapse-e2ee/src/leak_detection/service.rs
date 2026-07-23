@@ -4,8 +4,8 @@
 use crate::megolm::MegolmSession;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use synapse_common::ApiError;
 use synapse_common::current_timestamp_millis;
+use synapse_common::ApiError;
 
 pub struct LeakDetectionService {
     storage: Arc<LeakDetectionStorage>,
