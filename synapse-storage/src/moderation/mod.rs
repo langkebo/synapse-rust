@@ -4,6 +4,11 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+// Moderation domain group — re-exports invite_blocklist types under `moderation::`.
+// Consumers should prefer `synapse_storage::moderation::InviteBlocklistStorage`
+// over the flat `synapse_storage::InviteBlocklistStorage`.
+pub use crate::invite_blocklist::{InviteBlocklistStorage, InviteBlocklistStoreApi};
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ModerationRule {
     pub id: i64,

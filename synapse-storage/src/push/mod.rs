@@ -4,6 +4,15 @@ use std::sync::Arc;
 #[cfg(test)]
 use synapse_common::current_timestamp_millis;
 
+// Push domain group — re-exports push_notification types under `push::`.
+// Consumers should prefer `synapse_storage::push::PushNotificationStorage`
+// over the flat `synapse_storage::PushNotificationStorage`.
+pub use crate::push_notification::{
+    CreateNotificationLogRequest, CreatePushRuleRequest, PushDevice, PushNotificationLog, PushNotificationQueue,
+    PushNotificationStorage, PushNotificationStoreApi, PushRule, QueueNotificationRequest, RegisterDeviceRequest,
+    RoomNotification,
+};
+
 /// Trait abstraction over [`PushStorage`] for testability and service wiring.
 #[async_trait]
 pub trait PushStoreApi: Send + Sync {

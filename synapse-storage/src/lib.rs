@@ -10,11 +10,15 @@ use tokio::sync::RwLock;
 // =============================================================================
 // L0 — Core Matrix storage modules (always compiled, required for core-private-chat)
 // =============================================================================
+/// Account storage domain group — re-exports account modules under `account::`.
+pub mod account;
 pub mod account_data;
 /// Admin storage domain group — re-exports admin modules under `admin::`.
 pub mod admin;
 pub mod admin_federation;
 pub mod admin_media;
+/// Application service storage domain group — re-exports application modules under `application::`.
+pub mod application;
 pub mod application_service;
 pub mod audit;
 /// Auth storage domain group — re-exports auth modules under `auth::`.
@@ -32,6 +36,8 @@ pub mod feature_flags;
 pub mod federation_blacklist;
 pub mod federation_queue;
 pub mod filter;
+/// Infrastructure storage domain group — re-exports infra modules under `infra::`.
+pub mod infra;
 pub mod invite_blocklist;
 pub mod maintenance;
 pub mod media;
@@ -40,6 +46,8 @@ pub mod membership;
 pub mod moderation;
 pub mod module;
 pub mod monitoring;
+/// OIDC storage domain group — re-exports oidc modules under `oidc::`.
+pub mod oidc;
 pub mod openid_token;
 pub mod performance;
 /// Backward-compatibility prelude — glob-import point for domain-grouped types.
@@ -66,6 +74,8 @@ pub mod sliding_sync;
 pub mod space;
 pub mod state_groups;
 pub mod sticky_event;
+/// Sync storage domain group — re-exports sync modules under `sync::`.
+pub mod sync;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_mocks;
 pub mod thread;
@@ -131,85 +141,32 @@ pub use user_store_fake::FakeUserStore;
 #[cfg(test)]
 pub mod test_utils;
 
-pub use self::account_data::{AccountDataRecord, AccountDataStorage, AccountDataStoreApi};
-pub use self::application_service::{
-    ApplicationService, ApplicationServiceEvent, ApplicationServiceNamespace, ApplicationServiceState,
-    ApplicationServiceStorage, ApplicationServiceStoreApi, ApplicationServiceTransaction, ApplicationServiceUser,
-    NamespaceRule, Namespaces, RegisterApplicationServiceRequest, UpdateApplicationServiceRequest,
-};
-pub use self::background_update::{
-    BackgroundUpdate, BackgroundUpdateHistory, BackgroundUpdateLock, BackgroundUpdateStats, BackgroundUpdateStorage,
-    BackgroundUpdateStoreApi, CreateBackgroundUpdateRequest, UpdateBackgroundUpdateRequest,
-};
-pub use self::event::{
-    CreateEventParams, EventQueryFilter, EventReport, EventReportId, EventSignature, EventStorage, RoomEphemeralEvent,
-    RoomEvent, SinceFilter, StateEvent,
-};
-pub use self::feature_flags::{
-    CreateFeatureFlagRequest, FeatureFlag, FeatureFlagFilters, FeatureFlagRecord, FeatureFlagStorage,
-    FeatureFlagStoreApi, FeatureFlagTargetInput, FeatureFlagTargetRecord, UpdateFeatureFlagRequest,
-};
-pub use self::federation_blacklist::{
-    decode_federation_blacklist_cursor, encode_federation_blacklist_cursor, AddBlacklistRequest, CreateLogRequest,
-    CreateRuleRequest, FederationAccessStats, FederationBlacklist, FederationBlacklistCursor, FederationBlacklistLog,
-    FederationBlacklistRule, FederationBlacklistStorage, FederationBlacklistStoreApi, UpdateStatsRequest,
-};
+// Flat re-exports for modules NOT yet grouped into a domain.
+// Modules grouped into a domain (account, admin, application, auth, e2ee,
+// event, infra, media, moderation, oidc, push, room, space, sync) are
+// re-exported via `pub use <domain>::*;` globs below.
 pub use self::filter::{CreateFilterRequest, Filter, FilterStorage, FilterStoreApi};
-pub use self::invite_blocklist::{InviteBlocklistStorage, InviteBlocklistStoreApi};
-pub use self::maintenance::{DatabaseMaintenance, MaintenanceReport, TableStats, VacuumResult};
-pub use self::media_quota::{
-    CreateQuotaConfigRequest, MediaQuotaAlert, MediaQuotaConfig, MediaQuotaStorage, MediaQuotaStoreApi, MediaUsageLog,
-    QuotaCheckResult, ServerMediaQuota, SetUserQuotaRequest, UpdateUsageRequest, UserMediaQuota,
-};
-pub use self::room::*;
-pub use admin::*; // admin domain group (backward-compat flat re-export)
-pub use auth::*; // auth domain group (backward-compat flat re-export)
-pub use e2ee::*; // e2ee domain group (backward-compat flat re-export) // room domain group (backward-compat flat re-export)
 
-// Quarantine stream storage
-pub use self::media::quarantine_stream::QuarantinedMediaChangeStoreApi;
-pub use self::moderation::{
-    ContentScanResult, ContentType, CreateModerationRuleParams, MatchedRule, ModerationAction, ModerationLog,
-    ModerationLogStorage, ModerationLogStoreApi, ModerationRule, ModerationRuleType, ModerationStorage,
-    ModerationStoreApi, ScanContentRequest,
-};
-pub use self::monitoring::{
-    ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor, DuplicateEntry,
-    ForeignKeyViolation, NullConstraintViolation, OrphanedRecord, PerformanceMetrics,
-};
-pub use self::oidc_user_mapping::{OidcUserMappingStorage, OidcUserMappingStoreApi};
-pub use self::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
+// Domain group globs — backward-compatibility flat re-exports via domain modules.
+// Consumers should prefer the domain path (e.g. `synapse_storage::account::*`)
+// but these globs keep the legacy root-level paths working.
+pub use self::room::*;
+pub use account::*; // account domain group (account_data, qr_login, rendezvous)
+pub use admin::*; // admin domain group (admin_federation, admin_media, audit)
+pub use application::*; // application domain group (application_service)
+pub use auth::*; // auth domain group (user, device, token, threepid, captcha, openid_token)
+pub use e2ee::*; // e2ee domain group (dehydrated_device, e2ee_audit)
+pub use event::*; // event domain group (event)
+pub use infra::*; // infra domain group (background_update, feature_flags, federation_blacklist, federation_queue, maintenance, monitoring, performance, rate_limit, schema_validator)
+pub use media::*; // media domain group (media, media_quota)
+pub use moderation::*; // moderation domain group (moderation, invite_blocklist)
+pub use oidc::*; // oidc domain group (oauth_client_storage, oidc_session_storage, oidc_user_mapping)
+pub use push::*; // push domain group (push, push_notification)
+pub use space::*; // space domain group (space, sticky_event)
+pub use sync::*; // sync domain group (sliding_sync, search_index)
+
+// Flat re-exports for modules NOT yet grouped into a domain.
 pub use self::presence::{PresenceSnapshot, PresenceStorage};
-pub use self::push::{PushStorage, PushStoreApi};
-pub use self::push_notification::{
-    CreateNotificationLogRequest, CreatePushRuleRequest, PushDevice, PushNotificationLog, PushNotificationQueue,
-    PushNotificationStorage, PushNotificationStoreApi, PushRule, QueueNotificationRequest, RegisterDeviceRequest,
-    RoomNotification,
-};
-pub use self::qr_login::{QrLoginStorage, QrLoginStoreApi, QrTransaction};
-pub use self::rate_limit::{RateLimitRecord, RateLimitStorage, RateLimitStoreApi};
-pub use self::rendezvous::{
-    CreateRendezvousSessionParams, RendezvousCode, RendezvousIntent, RendezvousLoginFinish, RendezvousLoginStart,
-    RendezvousLoginUser, RendezvousMessage, RendezvousMessageStorage, RendezvousMessageStoreApi, RendezvousSession,
-    RendezvousStorage, RendezvousStoreApi, RendezvousTransport, StoredRendezvousMessage,
-};
-pub use self::schema_validator::{SchemaValidationResult, SchemaValidator, TableSchemaInfo};
-pub use self::search_index::{
-    SearchIndexCursor, SearchIndexEntry, SearchIndexStats, SearchIndexStorage, SearchIndexStoreApi, SearchQuery,
-    SearchResult,
-};
-pub use self::sliding_sync::{
-    decode_room_token_sync_cursor, encode_room_token_sync_cursor, AdminRoomTokenSyncEntry, RoomTokenSyncCursor,
-    SlidingSyncFilters, SlidingSyncList, SlidingSyncListData, SlidingSyncListQuery, SlidingSyncListRequest,
-    SlidingSyncRequest, SlidingSyncResponse, SlidingSyncRoom, SlidingSyncStorage, SlidingSyncStoreApi,
-    SlidingSyncToken,
-};
-pub use self::space::{
-    AddChildRequest, CreateSpaceRequest, Space, SpaceChild, SpaceChildInfo, SpaceEvent, SpaceHierarchy,
-    SpaceHierarchyNode, SpaceHierarchyRequest, SpaceHierarchyResponse, SpaceHierarchyRoom, SpaceMember, SpaceStorage,
-    SpaceStoreApi, SpaceSummary, UpdateSpaceRequest,
-};
-pub use self::sticky_event::{StickyEvent, StickyEventStorage, StickyEventStoreApi};
 pub use self::worker::{
     AssignTaskRequest, HeartbeatRequest, RdataEvent, RdataPosition, RegisterWorkerRequest, ReplicationPosition,
     SendCommandRequest, StreamPosition, UpdateConnectionStatsRequest, WorkerCapabilities, WorkerCommand,
@@ -219,10 +176,9 @@ pub use self::worker::{
     WorkerTopologySummary, WorkerType,
 };
 
-// Storage repository traits (explicit re-exports for service-layer consumption)
-pub use self::federation_queue::FederationQueueStoreApi;
-pub use self::oauth_client_storage::OAuthClientStoreApi;
-pub use self::oidc_session_storage::OidcSessionStoreApi;
+// Storage repository traits (explicit re-exports for service-layer consumption).
+// federation_queue, oauth_client_storage, oidc_session_storage traits are now
+// re-exported via `pub use infra::*;` and `pub use oidc::*;` respectively.
 pub use self::url_preview_storage::UrlPreviewStoreApi;
 
 // Feature-gated re-exports
