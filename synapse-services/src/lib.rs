@@ -28,6 +28,8 @@ pub mod capability_governance;
 pub mod account_data_service;
 pub mod account_device_list_service;
 pub mod account_identity_service;
+/// Admin domain group — re-exports admin service types under `admin::`.
+pub mod admin;
 pub mod admin_audit_service;
 pub mod admin_federation_service;
 pub mod admin_media_service;
@@ -92,20 +94,7 @@ pub use account_device_list_service::{
     AccountDeviceListService, DeviceListDeletion, DeviceListDelta, DeviceListEntry, DeviceListSnapshot,
 }; // account device list service types
 pub use account_identity_service::AccountIdentityService; // account identity and threepid service types
-pub use admin_audit_service::AdminAuditService; // AdminAuditService
-pub use admin_federation_service::{
-    decode_destination_cursor, decode_pending_federation_cursor, encode_destination_cursor,
-    encode_pending_federation_cursor, AdminFederationService, ConfirmFederationResult, DestinationCursor,
-    DestinationInfo, FederationCacheEntry, PendingFederationCursor, PendingFederationInfo, ResolveFederationResult,
-}; // admin federation management service
-pub use admin_registration_service::{
-    AdminRegisterRequest, AdminRegisterResponse, AdminRegistrationService, NonceResponse,
-}; // admin registration management service
-pub use admin_user_service::{
-    decode_user_cursor, encode_user_cursor, AdminEvictionFailure, AdminLegacyUsersPage, AdminSingleUserStats,
-    AdminUserCursor, AdminUserDetails, AdminUserDeviceInfo, AdminUserEvictionResult, AdminUserListItem,
-    AdminUserProfile, AdminUserService, AdminUserStats, AdminUsersPage, BatchUsersResult,
-}; // admin user management service
+pub use admin::*; // admin domain group (backward-compat flat re-export)
 pub use application_service::{ApplicationServiceManager, ApplicationServiceScheduler, NamespacesInfo}; // application service integration types
 #[allow(ambiguous_glob_reexports)]
 pub use database_initializer::{
