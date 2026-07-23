@@ -26,6 +26,8 @@ use crate::megolm::storage::MegolmSessionStorage;
 use std::sync::Arc;
 use std::time::Instant;
 use synapse_cache::CacheManager;
+use synapse_common::current_timestamp_millis;
+use synapse_common::current_timestamp_utc;
 use synapse_common::server_metrics::ServerMetrics;
 use synapse_common::ApiError;
 use vodozemac::megolm::{
@@ -189,9 +191,9 @@ impl MegolmVodozemacService {
             session_key: legacy_session_key,
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 0,
-            created_ts: chrono::Utc::now(),
-            last_used_ts: chrono::Utc::now(),
-            expires_at: Some(chrono::Utc::now() + chrono::Duration::days(get_session_max_age_days())),
+            created_ts: current_timestamp_utc(),
+            last_used_ts: current_timestamp_utc(),
+            expires_at: Some(current_timestamp_utc() + chrono::Duration::days(get_session_max_age_days())),
             pickle_format,
             vodozemac_pickle: Some(pickle_str.clone()),
         };
@@ -245,9 +247,9 @@ impl MegolmVodozemacService {
             session_key: pickle_str.clone(),
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 0,
-            created_ts: chrono::Utc::now(),
-            last_used_ts: chrono::Utc::now(),
-            expires_at: Some(chrono::Utc::now() + chrono::Duration::days(get_session_max_age_days())),
+            created_ts: current_timestamp_utc(),
+            last_used_ts: current_timestamp_utc(),
+            expires_at: Some(current_timestamp_utc() + chrono::Duration::days(get_session_max_age_days())),
             pickle_format: PickleFormat::Vodozemac,
             vodozemac_pickle: Some(pickle_str.clone()),
         };
@@ -331,7 +333,7 @@ impl MegolmVodozemacService {
         }
 
         // Persist the updated pickle and counter atomically.
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = current_timestamp_millis();
         let new_pickle_str = pickle_to_string(&outbound.pickle());
         let new_index =
             self.storage.increment_message_index(session_id, plaintexts.len() as i64, now_ms).await?.ok_or_else(
@@ -377,7 +379,7 @@ impl MegolmVodozemacService {
         let updated_session = MegolmSession {
             session_key: new_pickle_str.clone(),
             message_index: new_index,
-            last_used_ts: chrono::Utc::now(),
+            last_used_ts: current_timestamp_utc(),
             pickle_format: PickleFormat::Vodozemac,
             vodozemac_pickle: Some(new_pickle_str),
             ..session
@@ -411,7 +413,7 @@ impl MegolmVodozemacService {
         let new_pickle_str = inbound_pickle_to_string(&inbound.pickle());
 
         // Phase 2: 持久化新 pickle 到 vodozemac_pickle 列（best-effort）
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = current_timestamp_millis();
         if let Err(e) = self.storage.update_vodozemac_pickle(session_id, &new_pickle_str, now_ms).await {
             ::tracing::warn!(
                 target: "security_audit",
@@ -425,7 +427,7 @@ impl MegolmVodozemacService {
         let cache_key = format!("megolm_session:{session_id}");
         let updated_session = MegolmSession {
             session_key: new_pickle_str.clone(),
-            last_used_ts: chrono::Utc::now(),
+            last_used_ts: current_timestamp_utc(),
             pickle_format: PickleFormat::Vodozemac,
             vodozemac_pickle: Some(new_pickle_str),
             ..session
@@ -459,7 +461,7 @@ impl MegolmVodozemacService {
         let (session, outbound) = self.load_outbound(session_id).await?;
         let session_key_b64 = outbound.session_key().to_base64();
 
-        let created_ts = chrono::Utc::now().timestamp_millis();
+        let created_ts = current_timestamp_millis();
         let expires_at = session.expires_at.map_or_else(|| created_ts + 7 * 24 * 3600 * 1000, |t| t.timestamp_millis());
 
         let db_start = Instant::now();
@@ -682,9 +684,9 @@ mod tests {
             session_key: "legacy_encrypted_session_key".to_string(),
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 0,
-            created_ts: chrono::Utc::now(),
-            last_used_ts: chrono::Utc::now(),
-            expires_at: Some(chrono::Utc::now() + chrono::Duration::days(7)),
+            created_ts: current_timestamp_utc(),
+            last_used_ts: current_timestamp_utc(),
+            expires_at: Some(current_timestamp_utc() + chrono::Duration::days(7)),
             pickle_format: PickleFormat::Dual,
             vodozemac_pickle: Some("base64_vodozemac_pickle".to_string()),
         };

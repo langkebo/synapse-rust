@@ -660,10 +660,7 @@ mod db_tests {
             .await
             .expect("store_chunk should succeed");
 
-        storage
-            .finalize_upload(&upload_id, current_timestamp_millis())
-            .await
-            .expect("finalize_upload should succeed");
+        storage.finalize_upload(&upload_id, current_timestamp_millis()).await.expect("finalize_upload should succeed");
 
         let progress = storage
             .get_progress(&upload_id)
@@ -792,10 +789,7 @@ mod db_tests {
             })
             .await
             .expect("create upload_c should succeed");
-        storage
-            .finalize_upload(&upload_c, current_timestamp_millis())
-            .await
-            .expect("finalize upload_c should succeed");
+        storage.finalize_upload(&upload_c, current_timestamp_millis()).await.expect("finalize upload_c should succeed");
 
         let uploads = storage.list_user_uploads(&user_id).await.expect("list_user_uploads should succeed");
 
@@ -940,10 +934,7 @@ mod db_tests {
         assert_eq!(combined, b"abc");
 
         // Step 5: Finalize
-        storage
-            .finalize_upload(&upload_id, current_timestamp_millis())
-            .await
-            .expect("finalize_upload should succeed");
+        storage.finalize_upload(&upload_id, current_timestamp_millis()).await.expect("finalize_upload should succeed");
 
         let finalized = storage
             .get_progress(&upload_id)

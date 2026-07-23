@@ -1,8 +1,9 @@
 // Device Trust Models
 // E2EE Phase 1: Device trust and verification
 
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use synapse_common::current_timestamp_millis;
+use synapse_common::current_timestamp_utc;
 
 /// Device trust level enum
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -53,7 +54,7 @@ pub struct DeviceTrustStatus {
 
 impl DeviceTrustStatus {
     pub fn new(user_id: &str, device_id: &str) -> Self {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         Self {
             id: 0,
             user_id: user_id.to_string(),
@@ -69,15 +70,15 @@ impl DeviceTrustStatus {
     pub fn verify(&mut self, verified_by: &str) {
         self.trust_level = DeviceTrustLevel::Verified;
         self.verified_by_device_id = Some(verified_by.to_string());
-        self.verified_at = Some(Utc::now().timestamp_millis());
-        self.updated_ts = Utc::now().timestamp_millis();
+        self.verified_at = Some(current_timestamp_millis());
+        self.updated_ts = current_timestamp_millis();
     }
 
     pub fn block(&mut self) {
         self.trust_level = DeviceTrustLevel::Blocked;
         self.verified_by_device_id = None;
         self.verified_at = None;
-        self.updated_ts = Utc::now().timestamp_millis();
+        self.updated_ts = current_timestamp_millis();
     }
 }
 
@@ -177,7 +178,7 @@ impl DeviceVerificationRequest {
         token: &str,
         expires_minutes: i64,
     ) -> Self {
-        let now = Utc::now();
+        let now = current_timestamp_utc();
         Self {
             id: 0,
             user_id: user_id.to_string(),
@@ -195,22 +196,22 @@ impl DeviceVerificationRequest {
     }
 
     pub fn is_expired(&self) -> bool {
-        Utc::now().timestamp_millis() > self.expires_at
+        current_timestamp_millis() > self.expires_at
     }
 
     pub fn approve(&mut self) {
         self.status = VerificationRequestStatus::Approved;
-        self.completed_at = Some(Utc::now().timestamp_millis());
+        self.completed_at = Some(current_timestamp_millis());
     }
 
     pub fn reject(&mut self) {
         self.status = VerificationRequestStatus::Rejected;
-        self.completed_at = Some(Utc::now().timestamp_millis());
+        self.completed_at = Some(current_timestamp_millis());
     }
 
     pub fn expire(&mut self) {
         self.status = VerificationRequestStatus::Expired;
-        self.completed_at = Some(Utc::now().timestamp_millis());
+        self.completed_at = Some(current_timestamp_millis());
     }
 }
 
@@ -239,7 +240,7 @@ impl KeyRotationLog {
             old_key_id: None,
             new_key_id: None,
             reason: None,
-            rotated_at: Utc::now().timestamp_millis(),
+            rotated_at: current_timestamp_millis(),
         }
     }
 
@@ -283,7 +284,7 @@ impl E2eeSecurityEvent {
             event_data: None,
             ip_address: None,
             user_agent: None,
-            created_ts: Utc::now().timestamp_millis(),
+            created_ts: current_timestamp_millis(),
         }
     }
 

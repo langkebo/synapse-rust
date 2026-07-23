@@ -336,6 +336,7 @@ mod db_tests {
     /// Insert a minimal room row so foreign-key constraints are satisfied
     /// when other tables reference rooms. Not needed for `voice_usage_stats`
     /// (which has no FK to rooms), but provided as a standard helper.
+    #[allow(dead_code)]
     async fn ensure_test_room(pool: &PgPool, room_id: &str) {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
@@ -354,6 +355,7 @@ mod db_tests {
     /// when other tables reference events. Not needed for `voice_usage_stats`
     /// (which has no FK to events and no event_id column), but provided as a
     /// standard helper.
+    #[allow(dead_code)]
     async fn ensure_test_event(pool: &PgPool, event_id: &str, room_id: &str, sender: &str) {
         let now = chrono::Utc::now().timestamp_millis();
         ensure_test_room(pool, room_id).await;

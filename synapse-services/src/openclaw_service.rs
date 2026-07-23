@@ -1,5 +1,4 @@
 use sha2::{Digest, Sha256};
-use std::net::IpAddr;
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::openclaw::{
@@ -25,16 +24,22 @@ impl OpenClawService {
 
     /// Resolve the API key encryption key from environment / config.
     pub fn resolve_encryption_key(macaroon_secret_key: Option<&str>, security_secret: &str) -> Option<[u8; 32]> {
-        let explicit = std::env::var("API_KEY_ENCRYPTION_KEY").ok();
-        let config_secret = macaroon_secret_key
-            .map(|s| s.to_string())
-            .or_else(|| Some(security_secret.to_string()))
-            .filter(|value| !value.trim().is_empty());
+        let explicit = std::env::var("API_KEY_ENCRYPTION_KEY").ok().filter(|v| !v.trim().is_empty());
 
-        explicit
-            .filter(|value| !value.trim().is_empty())
-            .or(config_secret)
-            .map(|secret| derive_api_key_encryption_key(secret.trim()))
+        // Try macaroon_secret_key first, then fall back to security_secret.
+        // Each must be filtered for emptiness BEFORE the fallback, so that
+        // `Some("")` correctly triggers the `or_else` branch.
+        let config_secret =
+            macaroon_secret_key.map(|s| s.to_string()).filter(|value| !value.trim().is_empty()).or_else(|| {
+                let s = security_secret.to_string();
+                if s.trim().is_empty() {
+                    None
+                } else {
+                    Some(s)
+                }
+            });
+
+        explicit.or(config_secret).map(|secret| derive_api_key_encryption_key(secret.trim()))
     }
 
     // -----------------------------------------------------------------------
@@ -72,40 +77,48 @@ impl OpenClawService {
             return Err(ApiError::bad_request("OpenClaw base_url must use http or https".to_string()));
         }
 
+        // `url.host()` returns the parsed `Host` enum, which correctly handles
+        // IPv6 addresses (unlike `host_str()` which wraps them in `[...]`
+        // brackets that `IpAddr::from_str` cannot parse).
         let host =
-            url.host_str().ok_or_else(|| ApiError::bad_request("OpenClaw base_url must include a host".to_string()))?;
+            url.host().ok_or_else(|| ApiError::bad_request("OpenClaw base_url must include a host".to_string()))?;
 
-        let is_forbidden_host = host.eq_ignore_ascii_case("localhost")
-            || host.eq_ignore_ascii_case("localhost.")
-            || host.ends_with(".localhost");
+        match host {
+            url::Host::Domain(domain) => {
+                let is_forbidden_host = domain.eq_ignore_ascii_case("localhost")
+                    || domain.eq_ignore_ascii_case("localhost.")
+                    || domain.ends_with(".localhost");
 
-        if is_forbidden_host {
-            return Err(ApiError::bad_request("OpenClaw base_url cannot target localhost".to_string()));
-        }
-
-        if let Ok(ip) = host.parse::<IpAddr>() {
-            let forbidden_ip = match ip {
-                IpAddr::V4(ip) => {
-                    ip.is_private()
-                        || ip.is_loopback()
-                        || ip.is_link_local()
-                        || ip.is_broadcast()
-                        || ip.is_multicast()
-                        || ip.is_unspecified()
+                if is_forbidden_host {
+                    return Err(ApiError::bad_request("OpenClaw base_url cannot target localhost".to_string()));
                 }
-                IpAddr::V6(ip) => {
-                    ip.is_loopback()
-                        || ip.is_multicast()
-                        || ip.is_unspecified()
-                        || ip.is_unique_local()
-                        || ip.is_unicast_link_local()
-                }
-            };
+            }
+            url::Host::Ipv4(ip) => {
+                let forbidden = ip.is_private()
+                    || ip.is_loopback()
+                    || ip.is_link_local()
+                    || ip.is_broadcast()
+                    || ip.is_multicast()
+                    || ip.is_unspecified();
 
-            if forbidden_ip {
-                return Err(ApiError::bad_request(
-                    "OpenClaw base_url cannot target local or private IP ranges".to_string(),
-                ));
+                if forbidden {
+                    return Err(ApiError::bad_request(
+                        "OpenClaw base_url cannot target local or private IP ranges".to_string(),
+                    ));
+                }
+            }
+            url::Host::Ipv6(ip) => {
+                let forbidden = ip.is_loopback()
+                    || ip.is_multicast()
+                    || ip.is_unspecified()
+                    || ip.is_unique_local()
+                    || ip.is_unicast_link_local();
+
+                if forbidden {
+                    return Err(ApiError::bad_request(
+                        "OpenClaw base_url cannot target local or private IP ranges".to_string(),
+                    ));
+                }
             }
         }
 

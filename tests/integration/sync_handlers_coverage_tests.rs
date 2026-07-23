@@ -80,7 +80,7 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
         storage,
         cache,
         event_storage,
-        DeviceKeyStorage::new(pool),
+        Arc::new(DeviceKeyStorage::new(pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         typing_service,
         presence_storage,
         member_storage,

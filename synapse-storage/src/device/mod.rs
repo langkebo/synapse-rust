@@ -1601,6 +1601,7 @@ mod db_tests {
         .expect("failed to create test user");
     }
 
+    #[allow(dead_code)]
     async fn ensure_test_device(pool: &Pool<Postgres>, user_id: &str, device_id: &str) {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(

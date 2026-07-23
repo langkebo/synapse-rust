@@ -12,11 +12,49 @@ use crate::user::{
 #[derive(Clone, Default)]
 pub struct FakeUserStore {
     locked_users: Arc<RwLock<Vec<LockedUser>>>,
+    users: Arc<RwLock<HashMap<String, User>>>,
 }
 
 impl FakeUserStore {
     pub fn new() -> Self {
-        Self { locked_users: Arc::new(RwLock::new(Vec::new())) }
+        let mut users = HashMap::new();
+        // Seed a default test user so admin/security tests have a target.
+        users.insert(
+            "@alice:example.com".to_string(),
+            User {
+                user_id: "@alice:example.com".to_string(),
+                username: "alice".to_string(),
+                password_hash: None,
+                is_admin: false,
+                is_guest: false,
+                is_shadow_banned: false,
+                is_deactivated: false,
+                created_ts: 0,
+                updated_ts: None,
+                displayname: None,
+                avatar_url: None,
+                email: None,
+                phone: None,
+                generation: None,
+                consent_version: None,
+                appservice_id: None,
+                user_type: None,
+                invalid_update_at: None,
+                migration_state: None,
+                password_changed_ts: None,
+                is_password_change_required: false,
+                password_expires_at: None,
+                failed_login_attempts: 0,
+                locked_until: None,
+                must_change_password: false,
+            },
+        );
+        Self { locked_users: Arc::new(RwLock::new(Vec::new())), users: Arc::new(RwLock::new(users)) }
+    }
+
+    /// Insert (or replace) a user in the in-memory store for test setup.
+    pub async fn seed_user(&self, user: User) {
+        self.users.write().await.insert(user.user_id.clone(), user);
     }
 }
 
@@ -87,8 +125,8 @@ impl UserStore for FakeUserStore {
 
     // ---- query methods (stubs) ----
 
-    async fn get_user_by_id(&self, _user_id: &str) -> Result<Option<User>, sqlx::Error> {
-        Ok(None)
+    async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, sqlx::Error> {
+        Ok(self.users.read().await.get(user_id).cloned())
     }
 
     async fn get_user_by_username(&self, _username: &str) -> Result<Option<User>, sqlx::Error> {
@@ -99,8 +137,12 @@ impl UserStore for FakeUserStore {
         Ok(None)
     }
 
-    async fn get_user_by_identifier(&self, _identifier: &str) -> Result<Option<User>, sqlx::Error> {
-        Ok(None)
+    async fn get_user_by_identifier(&self, identifier: &str) -> Result<Option<User>, sqlx::Error> {
+        if identifier.starts_with('@') && identifier.contains(':') {
+            self.get_user_by_id(identifier).await
+        } else {
+            self.get_user_by_username(identifier).await
+        }
     }
 
     async fn get_users_paginated(
@@ -122,8 +164,8 @@ impl UserStore for FakeUserStore {
         Ok(vec![])
     }
 
-    async fn user_exists(&self, _user_id: &str) -> Result<bool, sqlx::Error> {
-        Ok(false)
+    async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
+        Ok(self.users.read().await.contains_key(user_id))
     }
 
     async fn filter_existing_users(&self, _user_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {
@@ -178,8 +220,14 @@ impl UserStore for FakeUserStore {
         Ok(())
     }
 
-    async fn set_shadow_ban(&self, _user_id: &str, _is_shadow_banned: bool) -> Result<bool, sqlx::Error> {
-        Ok(true)
+    async fn set_shadow_ban(&self, user_id: &str, is_shadow_banned: bool) -> Result<bool, sqlx::Error> {
+        let mut users = self.users.write().await;
+        if let Some(user) = users.get_mut(user_id) {
+            user.is_shadow_banned = is_shadow_banned;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     async fn delete_user(&self, _user_id: &str) -> Result<(), sqlx::Error> {

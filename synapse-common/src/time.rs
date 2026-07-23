@@ -1,7 +1,11 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 
 pub fn current_timestamp_millis() -> i64 {
     Utc::now().timestamp_millis()
+}
+
+pub fn current_timestamp_utc() -> DateTime<Utc> {
+    Utc::now()
 }
 
 pub fn calculate_age(timestamp: i64) -> i64 {

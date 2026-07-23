@@ -548,7 +548,7 @@ mod tests {
             .await
             .unwrap();
 
-        let builder = MockSyncServiceDepsBuilder::new()
+        let _builder = MockSyncServiceDepsBuilder::new()
             .with_event_reader(store.clone() as Arc<dyn EventReader>)
             .with_event_writer(store.clone() as Arc<dyn EventWriter>);
     }

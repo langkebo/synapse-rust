@@ -719,10 +719,7 @@ mod tests {
         let response = service.query_keys(request).await.expect("query_keys must succeed with mock store");
 
         // The response should contain @alice in device_keys.
-        let device_keys_map = response
-            .device_keys
-            .as_object()
-            .expect("device_keys should be a JSON object");
+        let device_keys_map = response.device_keys.as_object().expect("device_keys should be a JSON object");
         assert!(
             device_keys_map.contains_key("@alice:example.com"),
             "expected @alice:example.com in device_keys response, got: {device_keys_map:?}"

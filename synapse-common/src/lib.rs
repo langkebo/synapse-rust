@@ -143,8 +143,8 @@ pub use task_queue::{BackgroundTaskManager, TaskHandler, TaskId, TaskQueue, Task
 pub use task_queue::{QueueMetrics, RedisTaskQueue, TaskQueueError};
 pub use telemetry_config::{OpenTelemetryConfig, PrometheusConfig};
 pub use time::{
-    calculate_age, calculate_ttl, current_timestamp_millis, generate_stream_token_from_ts, is_expired,
-    parse_stream_token,
+    calculate_age, calculate_ttl, current_timestamp_millis, current_timestamp_utc, generate_stream_token_from_ts,
+    is_expired, parse_stream_token,
 };
 pub use tracing::{DistributedTracer, RequestId, RequestIdPropagationLayer};
 pub use transaction::{

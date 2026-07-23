@@ -2,8 +2,8 @@ use super::models::*;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::sync::Arc;
-use synapse_common::ApiError;
 use synapse_common::current_timestamp_millis;
+use synapse_common::ApiError;
 
 /// Internal query struct that mirrors the `device_keys` table column types
 /// (BIGINT timestamps) for direct sqlx::query_as mapping. The public
@@ -855,6 +855,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
 mod tests {
     use super::*;
     use serde_json::json;
+    use synapse_common::current_timestamp_utc;
 
     fn create_test_device_key() -> DeviceKey {
         DeviceKey {
@@ -870,8 +871,8 @@ mod tests {
                     "ed25519:DEVICE_ABC": "signature_base64_string"
                 }
             }),
-            created_ts: chrono::Utc::now(),
-            updated_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         }
     }
 
@@ -899,8 +900,8 @@ mod tests {
             key_id: "KEY123".to_string(),
             public_key: "public_key".to_string(),
             signatures: json!({}),
-            created_ts: chrono::Utc::now(),
-            updated_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         };
 
         assert!(key.display_name.is_none());
@@ -930,8 +931,8 @@ mod tests {
             key_id: "KEY_EMPTY".to_string(),
             public_key: "public_key".to_string(),
             signatures: json!({}),
-            created_ts: chrono::Utc::now(),
-            updated_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         };
 
         assert!(key.signatures.is_object());
@@ -1012,8 +1013,8 @@ mod tests {
                     "ed25519:DEVICE_ABC": "alice_cross_signature"
                 }
             }),
-            created_ts: chrono::Utc::now(),
-            updated_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         };
 
         let sig_obj = multi_sig_key.signatures.as_object().unwrap();
@@ -1024,7 +1025,7 @@ mod tests {
 
     #[test]
     fn test_device_key_timestamps() {
-        let now = chrono::Utc::now();
+        let now = current_timestamp_utc();
         let earlier = now - chrono::Duration::hours(1);
 
         let key = DeviceKey {
@@ -1059,8 +1060,8 @@ mod tests {
                     "ed25519:DEVICE_SPECIAL": "特殊签名"
                 }
             }),
-            created_ts: chrono::Utc::now(),
-            updated_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         };
 
         assert!(key.user_id.contains('-'));
@@ -1083,8 +1084,8 @@ mod tests {
                 key_id: format!("KEY_{idx}"),
                 public_key: "test_key".to_string(),
                 signatures: json!({}),
-                created_ts: chrono::Utc::now(),
-                updated_ts: chrono::Utc::now(),
+                created_ts: current_timestamp_utc(),
+                updated_ts: current_timestamp_utc(),
             };
 
             assert_eq!(key.algorithm, *algo);

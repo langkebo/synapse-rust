@@ -1,6 +1,4 @@
 use async_trait::async_trait;
-#[cfg(test)]
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
@@ -502,7 +500,6 @@ mod tests {
 #[cfg(test)]
 mod db_tests {
     use super::*;
-    use chrono::Utc;
     use sqlx::postgres::PgPoolOptions;
     use std::env;
 

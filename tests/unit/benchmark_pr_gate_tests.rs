@@ -16,9 +16,15 @@ fn benchmark_script_path() -> PathBuf {
     path
 }
 
-/// Helper to create a temporary directory for test artifacts
+/// Helper to create a temporary directory for test artifacts.
+///
+/// Uses a unique directory per call (atomic counter) so that parallel tests
+/// do not race on shared temp paths or delete each other's artifacts.
 fn temp_dir() -> PathBuf {
-    let path = PathBuf::from(format!("/tmp/bench_test_{}", std::process::id()));
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let path = PathBuf::from(format!("/tmp/bench_test_{}_{}", std::process::id(), id));
     fs::create_dir_all(&path).unwrap();
     path
 }
