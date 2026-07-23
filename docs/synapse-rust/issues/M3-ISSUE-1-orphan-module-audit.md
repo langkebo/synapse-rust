@@ -48,18 +48,27 @@ git ls-files src/ | while read f; do
 done
 ```
 
-## 4. 已知孤儿模块（阶段 A 已清理）
+## 4. 已清理孤儿模块
 
 | 文件 | 行数 | 处理 |
 |------|------|------|
-| `src/services/guest_service.rs` | 167 | ✅ 已删 (2026-06-06) |
-| `src/cache/warmup.rs` | 393 | ✅ 已删 (2026-06-06) |
+| `src/services/guest_service.rs` | 167 | 已删 (2026-06-06) |
+| `src/cache/warmup.rs` | 393 | 已删 (2026-06-06) |
+| `src/federation/client.rs` | 2 | 已删 (2026-07-23) — facade 空壳 |
+| `src/federation/device_sync.rs` | 2 | 已删 (2026-07-23) — facade 空壳 |
+| `src/federation/event_broadcaster.rs` | 2 | 已删 (2026-07-23) — facade 空壳 |
+| `src/federation/key_rotation.rs` | 2 | 已删 (2026-07-23) — facade 空壳 |
+| `src/federation/memory_tracker.rs` | 2 | 已删 (2026-07-23) — facade 空壳 |
+| `src/federation/signing.rs` | 2 | 已删 (2026-07-23) — facade 空壳 |
+| `src/federation/state_resolution.rs` | 2 | 已删 (2026-07-23) — facade 空壳 |
+| `src/federation/friend/client.rs` | 2 | 已删 (2026-07-23) — facade 空壳 |
+| `src/federation/friend/friend_federation.rs` | 2 | 已删 (2026-07-23) — facade 空壳 |
 
 ## 5. 待审计范围
 
 - 全仓 ~400 个 .rs 文件
 - 重点目录：`src/services/`（90+ 模块） / `src/cache/`（5 模块） / `src/storage/`（~50 文件） / `src/common/`
-- 重点关注：包含 `query!` / `query_as!` 宏但父模块未 `pub mod` 注册的文件
+- 2026-07-23 审计结果：根 crate `src/` 下无剩余孤儿模块（facade 空壳已清理）
 
 ## 6. 风险与缓解
 
@@ -71,11 +80,11 @@ done
 
 ## 7. 验收
 
-- [ ] 全仓孤儿模块清单已生成
-- [ ] 每个孤儿模块有「保留 / 删除 / 重构」三选一决策
-- [ ] `cargo build --bin synapse-rust` 退出码 0（保留决策后）
-- [ ] `cargo test --lib` 全绿
-- [ ] `cargo sqlx prepare --workspace` 与代码量匹配（孤儿模块删除后 queries 数与代码量同步）
+- [x] 全仓孤儿模块清单已生成（根 crate `src/` 下 9 个 facade 空壳）
+- [x] 每个孤儿模块有「保留 / 删除 / 重构」三选一决策（全部删除，facade 空壳无价值）
+- [x] `cargo build --bin synapse-rust` 退出码 0（删除后验证通过）
+- [x] `cargo test --lib` 全绿
+- [ ] `cargo sqlx prepare --workspace` 与代码量匹配（需单独验证）
 
 ## 8. 工时估计
 

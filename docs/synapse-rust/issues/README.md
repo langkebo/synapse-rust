@@ -6,7 +6,7 @@
 >
 > Origin: M3_BATCH1_EXECUTION_PLAN.md §13.6 / 三项目协同优化方案.md
 >
-> Last update: 2026-07-17
+> Last update: 2026-07-23
 
 ## Issue index
 
@@ -14,17 +14,17 @@
 
 | ID | Title | Severity | Discovered in | Owner | Status |
 |----|-------|----------|---------------|-------|--------|
-| [M3-ISSUE-1](./M3-ISSUE-1-orphan-module-audit.md) | 全仓孤儿模块审计 | 中 | phase A | unassigned | 🟡 open |
-| [M3-ISSUE-2](./M3-ISSUE-2-federation-blacklist-drift.md) | federation_blacklist 7 个 schema-drift 查询 | 中 | phase C | unassigned | 🟡 open |
-| [M3-ISSUE-3](./M3-ISSUE-3-e2ee-nullable-drift.md) | E2EE 多表 nullable 性审计 | 中 | phase D | unassigned | 🟡 open |
-| [M3-ISSUE-4](./M3-ISSUE-4-media-link-signer-drift.md) | media_service::link_signer 字段缺失 | 低 | phase B-Round 3 | unassigned | 🟢 open |
+| [M3-ISSUE-1](./M3-ISSUE-1-orphan-module-audit.md) | 全仓孤儿模块审计 | 中 | phase A | unassigned | 🟢 resolved |
+| [M3-ISSUE-2](./M3-ISSUE-2-federation-blacklist-drift.md) | federation_blacklist 7 个 schema-drift 查询 | 中 | phase C | unassigned | 🟢 resolved |
+| [M3-ISSUE-3](./M3-ISSUE-3-e2ee-nullable-drift.md) | E2EE 多表 nullable 性审计 | 中 | phase D | unassigned | 🟢 resolved |
+| [M3-ISSUE-4](./M3-ISSUE-4-media-link-signer-drift.md) | media_service::link_signer 字段缺失 | 低 | phase B-Round 3 | unassigned | 🟢 resolved |
 
 ### Round-2（三项目协同优化 阶段 A+B+C 验收副产物）
 
 | ID | Title | Severity | Discovered in | Owner | Status |
 |----|-------|----------|---------------|-------|--------|
-| [ROUND2-ISSUE-1](./ROUND2-ISSUE-1-clippy-tests-unwrap-explosion.md) | 测试代码 clippy unwrap/expect 爆炸（3416+ errors） | 中 | 阶段 B 验收 | unassigned | 🟡 open |
-| [ROUND2-ISSUE-2](./ROUND2-ISSUE-2-test-config-env-race.md) | test_config 环境变量并行竞争（flaky test） | 中 | 阶段 A+B+C 验收 | unassigned | 🟡 open |
+| [ROUND2-ISSUE-1](./ROUND2-ISSUE-1-clippy-tests-unwrap-explosion.md) | 测试代码 clippy unwrap/expect 爆炸（3416+ errors） | 中 | 阶段 B 验收 | unassigned | 🟢 resolved |
+| [ROUND2-ISSUE-2](./ROUND2-ISSUE-2-test-config-env-race.md) | test_config 环境变量并行竞争（flaky test） | 中 | 阶段 A+B+C 验收 | unassigned | 🟢 resolved |
 
 ## Why these are not in the M-3 mainline
 

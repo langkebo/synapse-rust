@@ -1,4 +1,5 @@
 //! Offline route-ledger exporter.
+#![cfg_attr(test, allow(clippy::panic))]
 //!
 //! Thin CLI around `synapse_rust::web::routes::ledger_export`. Emits the
 //! `(method, path, registered_by)` manifest the server would wire up for

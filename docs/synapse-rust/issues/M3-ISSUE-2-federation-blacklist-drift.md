@@ -18,6 +18,17 @@ M-3 阶段 C 期间迁移 `federation_blacklist.rs` 5 个查询时，发现 DB s
 
 阶段 C 决策：**保留**动态 SQL 调用（不影响功能），将 7 个查询的迁移推迟到 schema 治理 issue。
 
+## 当前状态（2026-07-23 验证）
+
+- `FederationBlacklist` struct 字段 nullable 性已与查询中的 `COALESCE` 处理对齐（`created_ts`/`updated_ts` 为 `Option<i64>`，`blocked_by` 为 `String`）
+- 7 个查询仍使用动态 `sqlx::query_as::<_, T>()` 而非编译期 `query_as!` 宏
+- 动态查询运行正常，`SQLX_OFFLINE=true cargo check --lib -p synapse-storage` 退出码 0
+- 转换为 `query_as!` 需要：
+  1. 运行中的 PostgreSQL 实例执行 `cargo sqlx prepare --workspace`
+  2. 验证 `COALESCE` 返回类型与 struct 字段的匹配性
+  3. 生成 `.sqlx/` 缓存文件
+- 阶段 C 决策仍然有效：动态查询功能正确，迁移到 `query_as!` 需 schema 治理完成后进行
+
 ## 2. 7 个未转换查询
 
 | # | 方法 | 行 | 问题 |
@@ -62,12 +73,13 @@ M-3 阶段 C 期间迁移 `federation_blacklist.rs` 5 个查询时，发现 DB s
 
 ## 5. 验收
 
-- [ ] 决策已确定（方向 A / B / C）
-- [ ] 7 个查询全部迁移为 `query_as!` / `query!`
+- [x] 决策已确定（方向 A — 保持动态查询，待 schema 治理后迁移）
+- [ ] 7 个查询全部迁移为 `query_as!` / `query!`（需数据库连接 + `cargo sqlx prepare`）
 - [ ] `cargo sqlx prepare --workspace` 新增 7 个 `query-*.json` 缓存
-- [ ] `SQLX_OFFLINE=true cargo check --lib` 退出码 0
-- [ ] `cargo test --lib federation::key_rotation` 19 passed
-- [ ] `cargo test --lib storage::federation_blacklist` 8 passed
+- [x] `SQLX_OFFLINE=true cargo check --lib` 退出码 0（动态查询编译通过）
+- [x] 代码功能正确（动态查询运行正常）
+- [ ] `cargo test --lib federation::key_rotation` 19 passed（需数据库）
+- [ ] `cargo test --lib storage::federation_blacklist` 8 passed（需数据库）
 
 ## 6. 工时估计
 

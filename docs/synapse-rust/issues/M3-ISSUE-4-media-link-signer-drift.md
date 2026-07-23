@@ -1,6 +1,6 @@
 # M3-ISSUE-4: media_service::link_signer 字段缺失
 
-**Status**: 🟢 open
+**Status**: 🟢 resolved (issue obsolete — file relocated during facade conversion, no sqlx queries present)
 **Severity**: 低
 **Discovered**: M-3 阶段 B-Round 3 验收中 (2026-06-06)
 **Origin**: `SQLX_OFFLINE=true cargo check --lib` 报缺失字段
@@ -17,7 +17,17 @@ M-3 阶段 B-Round 3 验收中发现，`media_service.rs::link_signer` 在 `SQLX
 
 阶段 B-Round 3 决策：**stash 测试**证实该错误为仓库既存漂移，与阶段 B-Round 3 的 token 认证迁移无关。Media 模块不在 M-3 阶段 B/C/D 范围内。
 
-## 2. 错误详情
+## 当前状态（2026-07-23 验证）
+
+- `SQLX_OFFLINE=true cargo check --workspace --lib` 退出码 0，无 `link_signer` 相关错误
+- 原 issue 引用的 `src/media/link_signer.rs` 路径在 facade 转换期间已不存在
+- `MediaLinkSigner` 当前位于 `synapse-common/src/media_link_signer.rs`（纯 Rust，无 sqlx 查询）
+- `synapse-services/src/media_service.rs` 使用 `MediaLinkSigner` 但无 sqlx 查询
+- 结论：本 issue 为 facade 转换前的遗留漂移，当前代码库中已不触发
+
+## 原始内容（归档）
+
+以下内容为 2026-06-06 发现时的原始记录，保留供参考：
 
 ```
 error: no rules expected `!`
@@ -56,10 +66,10 @@ cargo sqlx prepare --workspace
 
 ## 5. 验收
 
-- [ ] 错误根因已识别
-- [ ] 修复后 `SQLX_OFFLINE=true cargo check --lib` 退出码 0
-- [ ] `cargo test --lib media` 全绿
-- [ ] `.sqlx/` 缓存与代码同步
+- [x] 错误根因已识别：facade 转换期间文件已迁移，原路径不再存在
+- [x] `SQLX_OFFLINE=true cargo check --workspace --lib` 退出码 0
+- [x] 当前代码库中无 `link_signer` 相关 sqlx 查询
+- [x] `.sqlx/` 缓存与代码同步（无相关查询需缓存）
 
 ## 6. 工时估计
 

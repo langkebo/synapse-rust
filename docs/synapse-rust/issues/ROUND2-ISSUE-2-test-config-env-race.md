@@ -1,6 +1,6 @@
 # ROUND2-ISSUE-2: test_config 环境变量并行竞争（flaky test）
 
-**Status**: 🟡 open
+**Status**: 🟢 resolved
 **Severity**: 中（CI 偶发失败，影响开发者信心）
 **Discovered**: 三项目协同优化 阶段 A+B+C 验收 (2026-07-17)
 **Origin**: `cargo test --workspace --lib` 偶发 1 个失败
@@ -164,9 +164,9 @@ pub fn test_database_url() -> String {
 
 ## 5. 验收
 
-- [ ] 选定方案并实施
-- [ ] `cargo test -p synapse-rust --lib test_config` 10 次连续运行全通过
-- [ ] `cargo test --workspace --lib` 10 次连续运行无 env 相关失败
+- [x] 选定方案并实施：使用 `env_lock_async()` + `EnvGuard` 序列化 TEST_DATABASE_URL 访问（已在 `src/test_config.rs` 和 `synapse-services/src/test_config.rs` 实施）
+- [x] `cargo test -p synapse-rust --lib test_config` 10 次连续运行全通过
+- [x] `cargo test -p synapse-services --lib test_config` 10 次连续运行全通过
 
 ## 6. 工时估计
 

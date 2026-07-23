@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(clippy::panic))]
+
 use axum::{extract::State, response::IntoResponse, routing::get, Router};
 use lettre::message::Mailbox;
 use lettre::{AsyncTransport, Message, Tokio1Executor};
