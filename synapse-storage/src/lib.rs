@@ -11,6 +11,8 @@ use tokio::sync::RwLock;
 // L0 — Core Matrix storage modules (always compiled, required for core-private-chat)
 // =============================================================================
 pub mod account_data;
+/// Admin storage domain group — re-exports admin modules under `admin::`.
+pub mod admin;
 pub mod admin_federation;
 pub mod admin_media;
 pub mod application_service;
@@ -127,22 +129,10 @@ pub use user_store_fake::FakeUserStore;
 pub mod test_utils;
 
 pub use self::account_data::{AccountDataRecord, AccountDataStorage, AccountDataStoreApi};
-pub use self::admin_federation::{
-    AdminFederationStorage, AdminFederationStoreApi, FederationCacheRecord, FederationDestinationRecord,
-    PendingFederationRecord,
-};
-pub use self::admin_media::{
-    decode_media_cursor, encode_media_cursor, AdminMediaInfo, AdminMediaPage, AdminMediaQuotaSummary,
-    AdminMediaStorage, AdminMediaStoreApi, MediaCursor,
-};
 pub use self::application_service::{
     ApplicationService, ApplicationServiceEvent, ApplicationServiceNamespace, ApplicationServiceState,
     ApplicationServiceStorage, ApplicationServiceStoreApi, ApplicationServiceTransaction, ApplicationServiceUser,
     NamespaceRule, Namespaces, RegisterApplicationServiceRequest, UpdateApplicationServiceRequest,
-};
-pub use self::audit::{
-    decode_audit_event_cursor, encode_audit_event_cursor, AuditEvent, AuditEventCursor, AuditEventFilters,
-    AuditEventStorage, AuditEventStoreApi, CreateAuditEventRequest,
 };
 pub use self::background_update::{
     BackgroundUpdate, BackgroundUpdateHistory, BackgroundUpdateLock, BackgroundUpdateStats, BackgroundUpdateStorage,
@@ -177,6 +167,7 @@ pub use self::media_quota::{
     CreateQuotaConfigRequest, MediaQuotaAlert, MediaQuotaConfig, MediaQuotaStorage, MediaQuotaStoreApi, MediaUsageLog,
     QuotaCheckResult, ServerMediaQuota, SetUserQuotaRequest, UpdateUsageRequest, UserMediaQuota,
 };
+pub use admin::*; // admin domain group (backward-compat flat re-export)
 
 // Quarantine stream storage
 pub use self::media::quarantine_stream::QuarantinedMediaChangeStoreApi;
