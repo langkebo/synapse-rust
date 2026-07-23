@@ -33,7 +33,7 @@
 | 2 | **P1** | SyncService 无共享缓存，/sync 热路径直打 DB（10 处未缓存） | ✅ 已修复 | [sync_service/filter.rs:30,35](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/sync_service/filter.rs): filter cache TTL 86400s；[data_fetch.rs:228,285](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/sync_service/data_fetch.rs): account_data cache + ACCOUNT_DATA_CACHE_TTL_SECS；[data_fetch.rs:324,332](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/sync_service/data_fetch.rs): DEVICE_LIST_MAX_STREAM cache；[account_data_service.rs:106-108](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/account_data_service.rs): delete 时主动失效（OPT-015-b） |
 | 3 | **P2** | `account_data_service.rs:100` 时间戳秒/毫秒混用 bug | ✅ 已修复 | [account_data_service.rs:123](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/account_data_service.rs): `Utc::now().timestamp_millis()`（毫秒）；[account_data_service.rs:496-502](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/account_data_service.rs): 测试 `room_account_data_uses_millis` 验证 |
 | 4 | **P2** | sync/sliding 读逻辑重复 | ⏭️ SKIP | [15_arch_review_round2.md](file:///Users/ljf/Desktop/hu_ts/synapse-rust/docs/audit/15_arch_review_round2.md) C2 评估：两套服务于不同 API（sync v2 vs MSC3575），response shape/分页语义不可互换，强行统一引入不必要抽象。**结论：非 copy-paste 重复，SKIP 正确** |
-| 5 | **P2** | 3 处 `Box<dyn Error>` 未用 ApiError（auth/trait.rs:75, mod.rs:204, account.rs:264） | ✅ 已修复 | `grep "Box<dyn (std::error::Error|Error)>"` 全库无匹配，已统一为 ApiError |
+| 5 | **P2** | 3 处 `Box<dyn Error>` 未用 ApiError（auth/trait.rs:75, mod.rs:204, account.rs:264） | ✅ 已修复 | `grep "Box<dyn (std::error::Error\|Error)>"` 全库无匹配，已统一为 ApiError |
 
 ### 2.2 06_e2ee_federation_review.md（E2EE/联邦）
 
