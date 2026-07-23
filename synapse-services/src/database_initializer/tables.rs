@@ -1,3 +1,4 @@
+#[cfg(feature = "runtime-ddl")]
 use super::models::DatabaseInitService;
 #[cfg(feature = "runtime-ddl")]
 use synapse_common::current_timestamp_millis;

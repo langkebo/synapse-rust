@@ -1,5 +1,5 @@
-use synapse_common::current_timestamp_millis;
 use super::models::*;
+use synapse_common::current_timestamp_millis;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 

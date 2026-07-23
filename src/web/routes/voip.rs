@@ -9,6 +9,7 @@ use crate::web::routes::{ensure_room_member_ctx, validate_room_id};
 use axum::extract::Path;
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "voip-tracking")]
 use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

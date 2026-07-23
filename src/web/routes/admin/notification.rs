@@ -1,3 +1,4 @@
+#[cfg(feature = "server-notifications")]
 use crate::common::ApiError;
 #[cfg(feature = "server-notifications")]
 use crate::web::routes::context::AdminContext;
