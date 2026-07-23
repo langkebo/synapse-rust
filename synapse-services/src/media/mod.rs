@@ -2,8 +2,11 @@ pub mod chunked_upload;
 
 pub use chunked_upload::{ChunkedUploadService, CompleteUploadRequest};
 
+// Media domain group — re-exports media_service types under `media::`.
+#[allow(deprecated)]
+pub use crate::media_service::{MediaService, ThumbnailConfig, ThumbnailMethod, ThumbnailSettings};
+
 use crate::media_quota_service::MediaQuotaService;
-use crate::media_service::MediaService;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;

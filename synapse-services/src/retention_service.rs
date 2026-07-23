@@ -1,8 +1,8 @@
+#[cfg(feature = "beacons")]
 use crate::beacon_service::BeaconService;
 use std::sync::Arc;
 use std::time::Instant;
 use synapse_common::config::RetentionConfig;
-#[cfg(feature = "beacons")]
 use synapse_common::current_timestamp_millis;
 use synapse_common::metrics::{Counter, Gauge, Histogram, MetricsCollector};
 use synapse_common::ApiError;

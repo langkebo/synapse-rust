@@ -27,3 +27,15 @@ pub mod summary;
 pub mod utils;
 
 pub use api_trait::RoomServiceApi;
+
+// Room domain group — re-exports room sub-module types and sibling room-related
+// service modules (directory_service, typing_service) under `room::` so that
+// `pub use room::*;` in lib.rs covers the legacy flat re-exports.
+pub use crate::directory_service::{DirectoryRoom, DirectoryService};
+pub use crate::typing_service::{TypingService, TypingUser};
+pub use service::{CreateRoomConfig, RoomService, RoomServiceConfig};
+pub use space::SpaceService;
+pub use summary::{
+    CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryMember, RoomSummaryResponse, RoomSummaryService,
+    RoomSummaryState, RoomSummaryStats, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
+};

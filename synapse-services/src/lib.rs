@@ -25,6 +25,8 @@ pub mod capability_governance;
 // =============================================================================
 // L0 — Core Matrix services (always compiled, required for core-private-chat)
 // =============================================================================
+/// Account services domain group — re-exports account service types under `account::`.
+pub mod account;
 pub mod account_data_service;
 pub mod account_device_list_service;
 pub mod account_identity_service;
@@ -47,13 +49,18 @@ pub mod database_initializer;
 pub mod dehydrated_device_service;
 /// E2EE audit service (not the full e2ee crate — that is re-exported as `e2ee`).
 pub mod e2ee_audit;
+/// Event services domain group — re-exports event service types under `event::`.
+pub mod event;
 pub mod event_broadcaster_trait;
 pub mod event_notifier;
 pub mod event_report_service;
 pub mod feature_flag_service;
 pub mod federation_blacklist_service;
 pub mod federation_key_rotation_service;
+/// Identity services domain group — re-exports identity service types under `identity::`.
 pub mod identity;
+/// Infrastructure services domain group — re-exports infra service types under `infra::`.
+pub mod infra;
 pub mod media;
 pub mod media_quota_service;
 pub mod media_service;
@@ -90,43 +97,37 @@ pub mod user_service;
 // =============================================================================
 // Explicit root re-exports of frequently used service types.
 //
-// P2-11 removed the old `pub use <module>::*` wildcard surface. The exports
-// below keep the root API ergonomic without reintroducing an uncontrolled
-// public namespace.
+// Domain-grouped modules (account, admin, event, identity, infra, media, push,
+// room, sync) are re-exported via `pub use <domain>::*;` globs below. The
+// remaining flat re-exports cover modules not yet grouped into a domain.
 // =============================================================================
-pub use account_device_list_service::{
-    AccountDeviceListService, DeviceListDeletion, DeviceListDelta, DeviceListEntry, DeviceListSnapshot,
-}; // account device list service types
-pub use account_identity_service::AccountIdentityService; // account identity and threepid service types
+// Domain group globs — backward-compatibility flat re-exports via domain modules.
+// Consumers should prefer the domain path (e.g. `synapse_services::account::*`)
+// but these globs keep the legacy root-level paths working.
+pub use account::*; // account domain group (account_device_list_service, account_identity_service, registration_service)
 pub use admin::*; // admin domain group (backward-compat flat re-export)
-pub use application_service::{ApplicationServiceManager, ApplicationServiceScheduler, NamespacesInfo}; // application service integration types
 #[allow(ambiguous_glob_reexports)]
-pub use database_initializer::{
-    initialize_database, DatabaseInitMode, DatabaseInitService, Environment, InitializationReport,
-}; // database initialization helpers
+pub use event::*; // event domain group (event_broadcaster_trait, event_notifier, event_report_service)
+#[allow(ambiguous_glob_reexports)]
+pub use identity::*; // identity domain group (identity, oidc_service)
+#[allow(ambiguous_glob_reexports)]
+pub use infra::*; // infra domain group (database_initializer, feature_flag_service, federation_key_rotation_service)
+#[allow(deprecated, ambiguous_glob_reexports)]
+pub use media::*; // media domain group (media, media_service)
+#[allow(ambiguous_glob_reexports)]
+pub use push::*; // push domain group (push, client_push_service)
+#[allow(ambiguous_glob_reexports)]
+pub use room::*; // room domain group (room, directory_service, typing_service)
+pub use sync::*; // sync domain group (backward-compat flat re-export)
+
+// Flat re-exports for modules NOT yet grouped into a domain.
+pub use application_service::{ApplicationServiceManager, ApplicationServiceScheduler, NamespacesInfo}; // application service integration types
 pub use dehydrated_device_service::DehydratedDeviceService; // dehydrated device service types
-pub use directory_service::{DirectoryRoom, DirectoryService}; // room directory service types
-pub use feature_flag_service::FeatureFlagService; // feature flag service types
-pub use federation_key_rotation_service::FederationKeyRotationService; // federation key rotation service types
-#[allow(deprecated)]
-pub use media_service::{MediaService, ThumbnailConfig, ThumbnailMethod, ThumbnailSettings}; // media service types
-pub use oidc_service::OidcService;
-pub use push::service::{NotificationPayload, PushNotificationService, PushRuleResult, SendNotificationRequest}; // push notification service types
-pub use registration_service::RegistrationService; // registration service types
-pub use room::api_trait::RoomServiceApi;
-pub use room::service::{CreateRoomConfig, RoomService, RoomServiceConfig}; // RoomService and room config types
-pub use room::space::SpaceService; // SpaceService
-pub use room::summary::{
-    CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryMember, RoomSummaryResponse, RoomSummaryService,
-    RoomSummaryState, RoomSummaryStats, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
-}; // RoomSummaryService
 pub use search_service::{
     AdvancedSearchOptions, EventContextEntry, EventContextWindow, IndexedEvent, RoomEventsSearchFilter, SearchFilters,
     SearchResult, SearchResultItem, SearchRoomEvent, SearchRoomEventsPage, SearchRoomSummary, SearchService,
     TimestampDirection, TimestampEventMatch,
 }; // search service types
-pub use sync::*; // sync domain group (backward-compat flat re-export)
-pub use typing_service::{TypingService, TypingUser}; // typing service types
 pub use user_service::UserService; // user service convenience layer
 
 // Backward-compatible room module aliases (Phase P2-1, P2-2)
