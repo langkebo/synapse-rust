@@ -1,4 +1,4 @@
-use crate::mcp_proxy::McpProxyService;
+use crate::mcp_proxy::McpProxyServiceApi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -48,11 +48,11 @@ pub struct McpToolCallResponse {
 
 pub struct MatrixAiConnectionService {
     storage: Arc<dyn AiConnectionStoreApi>,
-    mcp_proxy: Arc<McpProxyService>,
+    mcp_proxy: Arc<dyn McpProxyServiceApi>,
 }
 
 impl MatrixAiConnectionService {
-    pub fn new(storage: Arc<dyn AiConnectionStoreApi>, mcp_proxy: Arc<McpProxyService>) -> Self {
+    pub fn new(storage: Arc<dyn AiConnectionStoreApi>, mcp_proxy: Arc<dyn McpProxyServiceApi>) -> Self {
         Self { storage, mcp_proxy }
     }
 
@@ -327,7 +327,8 @@ mod tests {
     }
 
     struct FakeMcpProxy;
-    impl McpProxyService for FakeMcpProxy {
+    #[async_trait::async_trait]
+    impl McpProxyServiceApi for FakeMcpProxy {
         async fn list_tools(&self, _mcp_url: &str) -> Result<Value, ApiError> { unimplemented!() }
         async fn call_tool(&self, _mcp_url: &str, _tool_name: &str, _arguments: Value, _provider: &str, _user_id: &str) -> Result<Value, ApiError> { unimplemented!() }
     }
