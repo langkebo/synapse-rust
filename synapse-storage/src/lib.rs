@@ -17,6 +17,8 @@ pub mod admin_federation;
 pub mod admin_media;
 pub mod application_service;
 pub mod audit;
+/// Auth storage domain group — re-exports auth modules under `auth::`.
+pub mod auth;
 pub mod background_update;
 pub mod dehydrated_device;
 pub mod device;
@@ -120,11 +122,8 @@ pub mod oidc_session_storage;
 pub mod oidc_user_mapping;
 pub mod url_preview_storage;
 
-pub use self::threepid::UserThreepid;
-pub use self::user::{
-    LockedUser, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserSearchResultWithPresence,
-    UserStatsSummary, UserStorage, UserStore,
-};
+// auth domain types (user, device, token, threepid, captcha, openid_token) are
+// re-exported via `pub use auth::*;` below.
 pub use user_store_fake::FakeUserStore;
 
 #[cfg(test)]
@@ -140,11 +139,6 @@ pub use self::background_update::{
     BackgroundUpdate, BackgroundUpdateHistory, BackgroundUpdateLock, BackgroundUpdateStats, BackgroundUpdateStorage,
     BackgroundUpdateStoreApi, CreateBackgroundUpdateRequest, UpdateBackgroundUpdateRequest,
 };
-pub use self::captcha::{
-    CaptchaConfig, CaptchaRateLimit, CaptchaSendLog, CaptchaStorage, CaptchaStoreApi, CaptchaTemplate,
-    CreateCaptchaRequest, CreateSendLogRequest, RegistrationCaptcha,
-};
-pub use self::device::{Device, DeviceListStoreApi, DeviceStorage};
 pub use self::event::{
     CreateEventParams, EventQueryFilter, EventReport, EventReportId, EventSignature, EventStorage, RoomEphemeralEvent,
     RoomEvent, SinceFilter, StateEvent,
@@ -165,8 +159,9 @@ pub use self::media_quota::{
     CreateQuotaConfigRequest, MediaQuotaAlert, MediaQuotaConfig, MediaQuotaStorage, MediaQuotaStoreApi, MediaUsageLog,
     QuotaCheckResult, ServerMediaQuota, SetUserQuotaRequest, UpdateUsageRequest, UserMediaQuota,
 };
-pub use admin::*;
-pub use e2ee::*; // e2ee domain group (backward-compat flat re-export) // admin domain group (backward-compat flat re-export)
+pub use admin::*; // admin domain group (backward-compat flat re-export)
+pub use auth::*; // auth domain group (backward-compat flat re-export)
+pub use e2ee::*; // e2ee domain group (backward-compat flat re-export)
 
 // Quarantine stream storage
 pub use self::media::quarantine_stream::QuarantinedMediaChangeStoreApi;
@@ -181,7 +176,6 @@ pub use self::monitoring::{
     ForeignKeyViolation, NullConstraintViolation, OrphanedRecord, PerformanceMetrics,
 };
 pub use self::oidc_user_mapping::{OidcUserMappingStorage, OidcUserMappingStoreApi};
-pub use self::openid_token::{CreateOpenIdTokenRequest, OpenIdToken, OpenIdTokenStorage, OpenIdTokenStoreApi};
 pub use self::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
 pub use self::presence::{PresenceSnapshot, PresenceStorage};
 pub use self::push::{PushStorage, PushStoreApi};
@@ -223,8 +217,6 @@ pub use self::thread::{
     CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadReadReceipt, ThreadRelation, ThreadReply,
     ThreadRoot, ThreadStatistics, ThreadStorage, ThreadStoreApi, ThreadSubscription, ThreadSummary, ThreadWithReplies,
 };
-pub use self::threepid::{CreateThreepidRequest, ThreepidStorage, ThreepidStoreApi, ThreepidValidationSession};
-pub use self::token::{AccessToken, AccessTokenStorage, AccessTokenStoreApi};
 pub use self::worker::{
     AssignTaskRequest, HeartbeatRequest, RdataEvent, RdataPosition, RegisterWorkerRequest, ReplicationPosition,
     SendCommandRequest, StreamPosition, UpdateConnectionStatsRequest, WorkerCapabilities, WorkerCommand,

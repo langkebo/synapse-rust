@@ -61,3 +61,32 @@ fn test_e2ee_audit_storage_path_identity() {
         assert_same_type(a, b);
     }
 }
+
+// --- P4: auth domain grouping ---
+
+#[test]
+fn test_user_storage_path_identity() {
+    let legacy_ref: Option<&synapse_storage::UserStorage> = None;
+    let grouped_ref: Option<&synapse_storage::auth::UserStorage> = None;
+    if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
+        assert_same_type(a, b);
+    }
+}
+
+#[test]
+fn test_device_storage_path_identity() {
+    let legacy_ref: Option<&synapse_storage::DeviceStorage> = None;
+    let grouped_ref: Option<&synapse_storage::auth::DeviceStorage> = None;
+    if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
+        assert_same_type(a, b);
+    }
+}
+
+#[test]
+fn test_access_token_storage_path_identity() {
+    let legacy_ref: Option<&synapse_storage::AccessTokenStorage> = None;
+    let grouped_ref: Option<&synapse_storage::auth::AccessTokenStorage> = None;
+    if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
+        assert_same_type(a, b);
+    }
+}
