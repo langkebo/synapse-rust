@@ -68,7 +68,7 @@ impl KeyBackupStorage {
     }
 
     pub async fn get_backup(&self, user_id: &str) -> Result<Option<KeyBackup>, ApiError> {
-        let row = sqlx::query_as::<_, KeyBackup>(
+        let row = sqlx::query_as::<_, KeyBackupRow>(
             r"
             SELECT
                 user_id,
@@ -89,11 +89,11 @@ impl KeyBackupStorage {
         .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(row)
+        Ok(row.map(KeyBackup::from))
     }
 
     pub async fn get_all_backup_versions(&self, user_id: &str) -> Result<Vec<KeyBackup>, ApiError> {
-        let rows = sqlx::query_as::<_, KeyBackup>(
+        let rows = sqlx::query_as::<_, KeyBackupRow>(
             r"
             SELECT
                 user_id,
@@ -113,12 +113,12 @@ impl KeyBackupStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        Ok(rows)
+        Ok(rows.into_iter().map(KeyBackup::from).collect())
     }
 
     pub async fn get_backup_version(&self, user_id: &str, version: &str) -> Result<Option<KeyBackup>, ApiError> {
         let version_int: i64 = version.parse().unwrap_or(0);
-        let row = sqlx::query_as::<_, KeyBackup>(
+        let row = sqlx::query_as::<_, KeyBackupRow>(
             r"
             SELECT
                 user_id,
@@ -138,7 +138,7 @@ impl KeyBackupStorage {
         .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(row)
+        Ok(row.map(KeyBackup::from))
     }
 
     pub async fn delete_backup(&self, user_id: &str, version: &str) -> Result<(), ApiError> {

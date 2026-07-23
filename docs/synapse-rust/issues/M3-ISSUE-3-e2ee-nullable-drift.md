@@ -83,7 +83,8 @@ diff <(psql ... 列) <(cat src/.../models.rs 字段)
 | `auth_data` | JSONB | NULL | `backup_data` | `serde_json::Value` | 运行时 panic |
 
 **根因**：`KeyBackup` struct 未使用 `*Row` 包装，直接映射到业务模型。
-**修复建议**：引入 `KeyBackupRow` 包装 struct，将 `auth_key`、`mgmt_key`、`backup_data` 改为 `Option<>` 类型，再通过 `From` trait 转换为业务模型。
+**修复方案**：引入 `KeyBackupRow` 包装 struct，将 `auth_key`、`mgmt_key`、`backup_data` 改为 `Option<>` 类型，再通过 `From` trait 转换为业务模型。
+**状态**：✅ 已修复 (2026-07-23) — `KeyBackupRow` 已引入，`KeyBackupStorage` 查询已更新
 
 ## 4. 已知/疑似 Drift 详情
 
@@ -139,7 +140,8 @@ diff <(psql ... 列) <(cat src/.../models.rs 字段)
 
 - [x] 全 E2EE 表 nullable 性审计完成（2026-07-23）
 - [x] 每个 drift 项有「包装 struct / 改 struct / 改 schema」三选一决策
-- [ ] `key_backups` 表引入 `KeyBackupRow` 包装 struct（待实施）
+- [x] `key_backups` 表引入 `KeyBackupRow` 包装 struct（2026-07-23）
+- [x] `cargo check --lib -p synapse-e2ee` 通过
 - [ ] `cargo test --lib e2ee` 全部通过
 - [ ] 无 panic 风险（用 `as "field?"` 处理可空字段）
 

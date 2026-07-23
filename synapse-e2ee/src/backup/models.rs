@@ -13,6 +13,34 @@ pub struct KeyBackup {
     pub etag: Option<String>,
 }
 
+/// SQLx row type for KeyBackup — absorbs nullable columns from the DB schema.
+#[derive(sqlx::FromRow)]
+pub struct KeyBackupRow {
+    pub user_id: String,
+    pub backup_id: String,
+    pub version: i64,
+    pub algorithm: String,
+    pub auth_key: Option<String>,
+    pub mgmt_key: Option<String>,
+    pub backup_data: Option<serde_json::Value>,
+    pub etag: Option<String>,
+}
+
+impl From<KeyBackupRow> for KeyBackup {
+    fn from(row: KeyBackupRow) -> Self {
+        Self {
+            user_id: row.user_id,
+            backup_id: row.backup_id,
+            version: row.version,
+            algorithm: row.algorithm,
+            auth_key: row.auth_key.unwrap_or_default(),
+            mgmt_key: row.mgmt_key.unwrap_or_default(),
+            backup_data: row.backup_data.unwrap_or(serde_json::json!({})),
+            etag: row.etag,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupVersion {
     pub version: String,
