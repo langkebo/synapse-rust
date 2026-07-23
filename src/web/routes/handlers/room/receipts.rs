@@ -7,6 +7,7 @@ use crate::web::routes::{
 };
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 pub(crate) async fn send_receipt(
     State(ctx): State<RoomContext>,
@@ -34,7 +35,7 @@ pub(crate) async fn send_receipt(
             "room_id": room_id,
             "event_id": event_id,
             "receipt_type": receipt_type,
-            "ts": chrono::Utc::now().timestamp_millis()
+            "ts": current_timestamp_millis()
         })));
     }
 
@@ -46,7 +47,7 @@ pub(crate) async fn send_receipt(
         "room_id": room_id,
         "event_id": event_id,
         "receipt_type": receipt_type,
-        "ts": chrono::Utc::now().timestamp_millis()
+        "ts": current_timestamp_millis()
     })))
 }
 
@@ -92,6 +93,6 @@ pub(crate) async fn set_read_markers(
 
     Ok(Json(json!({
         "room_id": room_id,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }

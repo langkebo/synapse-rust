@@ -1,5 +1,6 @@
-#[cfg(feature = "runtime-ddl")]
 use super::models::DatabaseInitService;
+#[cfg(feature = "runtime-ddl")]
+use synapse_common::current_timestamp_millis;
 #[cfg(feature = "runtime-ddl")]
 use tracing::warn;
 
@@ -1161,7 +1162,7 @@ impl DatabaseInitService {
         let captcha_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM captcha_template").fetch_one(&*self.pool).await.unwrap_or(0);
         if captcha_count == 0 {
-            let now_ts = chrono::Utc::now().timestamp_millis();
+            let now_ts = current_timestamp_millis();
             if let Err(e) = sqlx::query(
                 r#"
                 INSERT INTO captcha_template (template_name, captcha_type, subject, content, is_default, is_enabled, created_ts, updated_ts)

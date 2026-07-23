@@ -7,6 +7,7 @@ use super::super::service::CreateRoomConfig;
 use super::super::utils::validate_room_alias_input;
 use super::service::LifecycleService;
 use serde_json::json;
+use synapse_common::current_timestamp_millis;
 use synapse_common::room_versions::{resolve_room_version, DEFAULT_ROOM_VERSION};
 use synapse_common::{generate_event_id, generate_room_id, ApiError, ApiResult};
 use synapse_storage::CreateEventParams;
@@ -62,7 +63,7 @@ impl LifecycleService {
             return Err(ApiError::internal_with_log("Failed to create room", &e));
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut create_content = json!({
             "creator": user_id,
             "room_version": room_version,

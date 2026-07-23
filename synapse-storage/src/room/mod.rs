@@ -8,6 +8,7 @@ pub use models::*;
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use tracing;
 
 use synapse_common::room_versions::DEFAULT_ROOM_VERSION;
@@ -60,7 +61,7 @@ impl RoomStorage {
         E: sqlx::Executor<'a, Database = Postgres>,
     {
         tracing::info!(room_id = %room_id, creator = %creator, join_rule = %join_rule, is_public = is_public, "Creating room");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, history_visibility, created_ts, last_activity_ts)
@@ -635,7 +636,7 @@ impl RoomStorage {
             ",
         )
         .bind(room_id)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -652,7 +653,7 @@ impl RoomStorage {
             ",
         )
         .bind(room_id)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -692,7 +693,7 @@ impl RoomStorage {
     }
 
     pub async fn set_room_alias(&self, room_id: &str, alias: &str, _created_by: &str) -> Result<(), sqlx::Error> {
-        let creation_ts = chrono::Utc::now().timestamp_millis();
+        let creation_ts = current_timestamp_millis();
         let server_name = alias
             .rsplit_once(':')
             .map(|(_, server_name)| server_name)
@@ -824,7 +825,7 @@ impl RoomStorage {
     }
 
     pub async fn set_room_directory(&self, room_id: &str, is_public: bool) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO room_directory (room_id, is_public, added_ts)
@@ -888,7 +889,7 @@ impl RoomStorage {
     }
 
     pub async fn update_read_marker(&self, room_id: &str, user_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
-        let now: i64 = chrono::Utc::now().timestamp_millis();
+        let now: i64 = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO read_markers (room_id, user_id, event_id, marker_type, created_ts, updated_ts)
@@ -914,7 +915,7 @@ impl RoomStorage {
         event_id: &str,
         marker_type: &str,
     ) -> Result<(), sqlx::Error> {
-        let now: i64 = chrono::Utc::now().timestamp_millis();
+        let now: i64 = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO read_markers (room_id, user_id, event_id, marker_type, created_ts, updated_ts)
@@ -983,7 +984,7 @@ impl RoomStorage {
         receipt_type: &str,
         data: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
-        let now: i64 = chrono::Utc::now().timestamp_millis();
+        let now: i64 = current_timestamp_millis();
         let receipt_data = if data.is_object() { data.clone() } else { json!({}) };
 
         sqlx::query(
@@ -1127,7 +1128,7 @@ mod db_tests {
 
     #[allow(dead_code)]
     async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str, creator: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, history_visibility, created_ts, last_activity_ts)
                VALUES ($1, $2, 'invite', '10', false, 'joined', $3, $3)

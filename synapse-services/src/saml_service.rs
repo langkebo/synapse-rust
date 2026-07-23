@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use synapse_common::config::SamlConfig;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use synapse_common::xml_parser::{parse_saml_metadata, parse_saml_response};
 use synapse_storage::saml::*;
@@ -422,7 +423,7 @@ impl SamlService {
         let session = self.storage.get_session(session_id).await?;
 
         if let Some(ref session) = session {
-            if session.expires_at < Utc::now().timestamp_millis() {
+            if session.expires_at < current_timestamp_millis() {
                 self.storage.invalidate_session(session_id).await?;
                 return Ok(None);
             }

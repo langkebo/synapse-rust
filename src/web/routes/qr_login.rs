@@ -8,6 +8,7 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 /// Get login QR code
 /// Generates a QR code for login confirmation
@@ -16,7 +17,7 @@ pub async fn get_qr_code(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let transaction_id = format!("qr_{}_{}", uuid::Uuid::new_v4(), chrono::Utc::now().timestamp_millis());
+    let transaction_id = format!("qr_{}_{}", uuid::Uuid::new_v4(), current_timestamp_millis());
 
     // Generate a random challenge
     let challenge = uuid::Uuid::new_v4().to_string();
@@ -58,7 +59,7 @@ pub async fn confirm_qr_login(
         .ok_or_else(|| ApiError::not_found("Transaction not found".to_string()))?;
 
     // Check if expired
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     if now > transaction.expires_at {
         ctx.qr_login_storage
             .update_qr_status(transaction_id, "expired")
@@ -105,7 +106,7 @@ pub async fn start_qr_login(State(ctx): State<AuthContext>, Json(body): Json<Val
         .ok_or_else(|| ApiError::not_found("Transaction not found".to_string()))?;
 
     // Check if expired
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     if now > transaction.expires_at {
         ctx.qr_login_storage
             .update_qr_status(transaction_id, "expired")
@@ -141,7 +142,7 @@ pub async fn get_qr_status(
         .ok_or_else(|| ApiError::not_found("Transaction not found".to_string()))?;
 
     // Check if expired
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let status =
         if now > transaction.expires_at && transaction.status == "pending" { "expired" } else { &transaction.status };
 

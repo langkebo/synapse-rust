@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres};
@@ -561,7 +562,7 @@ async fn test_cleanup_expired_tokens_removes_only_expired() {
     storage.create_or_update_token(&user_id, &device_id, None).await.unwrap();
 
     // Manually expire one token row
-    let past_ts = chrono::Utc::now().timestamp_millis() - 1000;
+    let past_ts = current_timestamp_millis() - 1000;
     sqlx::query("UPDATE sliding_sync_tokens SET expires_at = $1 WHERE user_id = $2 AND device_id = $3")
         .bind(past_ts)
         .bind(&user_id)
@@ -709,7 +710,7 @@ async fn test_get_global_account_data_with_rows() {
     let pool = test_pool().await;
     let storage = SlidingSyncStorage::new(pool.clone());
     let user_id = unique_id("@user");
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     sqlx::query(
         r#"
@@ -792,7 +793,7 @@ async fn test_get_receipts_for_rooms_with_rows() {
     let room_id = unique_id("!room");
     let user_id = unique_id("@user");
     let event_id = unique_id("$event");
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     sqlx::query(
         r#"
@@ -963,7 +964,7 @@ async fn test_sliding_sync_room_is_invited_column() {
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
     let room_id = unique_id("!room");
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     // Insert a room with is_invited = true via upsert (uses the renamed column)
     storage

@@ -18,6 +18,7 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 use synapse_common::generate_event_id;
 use synapse_federation::signing::sign_and_hash_event;
 use synapse_storage::CreateEventParams;
@@ -170,7 +171,7 @@ impl MembershipService {
                 let origin_server_ts = state_event
                     .get("origin_server_ts")
                     .and_then(|v| v.as_i64())
-                    .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+                    .unwrap_or_else(current_timestamp_millis);
 
                 let redacts = state_event.get("redacts").and_then(|v| v.as_str()).map(|s| s.to_string());
 
@@ -225,10 +226,8 @@ impl MembershipService {
 
         let join_content = event_template.get("content").cloned().unwrap_or(json!({ "membership": "join" }));
 
-        let join_ts = event_template
-            .get("origin_server_ts")
-            .and_then(|v| v.as_i64())
-            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        let join_ts =
+            event_template.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
 
         if let Err(e) = self
             .event_writer
@@ -328,10 +327,8 @@ impl MembershipService {
 
         let leave_content = event_template.get("content").cloned().unwrap_or(json!({ "membership": "leave" }));
 
-        let leave_ts = event_template
-            .get("origin_server_ts")
-            .and_then(|v| v.as_i64())
-            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        let leave_ts =
+            event_template.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
 
         if let Err(e) = self
             .event_writer
@@ -390,7 +387,7 @@ impl MembershipService {
 
         // 1. Build the invite event.
         let event_id = generate_event_id(&self.server_name);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let mut invite_event = json!({
             "event_id": event_id,
@@ -517,10 +514,8 @@ impl MembershipService {
 
         let content = signed_event.get("content").cloned().unwrap_or(json!({ "membership": "invite" }));
 
-        let origin_server_ts = signed_event
-            .get("origin_server_ts")
-            .and_then(|v| v.as_i64())
-            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        let origin_server_ts =
+            signed_event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
 
         // Add the invitee as an invited member.
         if let Some(ref invitee_id) = state_key {

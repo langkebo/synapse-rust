@@ -5,6 +5,7 @@
 #[cfg(test)]
 mod boundary_suite {
     use serde_json::json;
+    use synapse_common::current_timestamp_millis;
 
     // ==================== String Length Boundary Tests ====================
 
@@ -185,14 +186,14 @@ mod boundary_suite {
 
     #[test]
     fn test_expired_timestamp() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expired = now - 3_600_000;
         assert!(expired < now);
     }
 
     #[test]
     fn test_future_timestamp() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let future = now + 3_600_000;
         assert!(future > now);
     }

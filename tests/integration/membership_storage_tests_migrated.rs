@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_storage::membership::{RoomMember, RoomMemberStorage, UserRoomMembership};
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -107,7 +108,7 @@ fn create_storage(pool: &Arc<sqlx::PgPool>) -> RoomMemberStorage {
 }
 
 async fn insert_user(pool: &sqlx::PgPool, user_id: &str, username: &str) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING")
         .bind(user_id)
         .bind(username)
@@ -118,7 +119,7 @@ async fn insert_user(pool: &sqlx::PgPool, user_id: &str, username: &str) {
 }
 
 async fn insert_room(pool: &sqlx::PgPool, room_id: &str) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query("INSERT INTO rooms (room_id, created_ts) VALUES ($1, $2) ON CONFLICT DO NOTHING")
         .bind(room_id)
         .bind(now)
@@ -128,7 +129,7 @@ async fn insert_room(pool: &sqlx::PgPool, room_id: &str) {
 }
 
 async fn insert_membership(pool: &sqlx::PgPool, room_id: &str, user_id: &str, membership: &str) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query(
         r#"INSERT INTO room_memberships (room_id, user_id, membership, joined_ts, updated_ts)
         VALUES ($1, $2, $3, $4, $5)

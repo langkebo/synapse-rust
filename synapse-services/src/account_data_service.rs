@@ -2,6 +2,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::crypto::random_string;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::account_data::AccountDataStoreApi;
 use synapse_storage::filter::{CreateFilterRequest, FilterStoreApi};
@@ -120,7 +121,7 @@ impl AccountDataService {
         body: &Value,
     ) -> Result<(), ApiError> {
         validate_account_data_payload(data_type, body)?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         self.room_account_data_storage
             .upsert_room_account_data(user_id, room_id, data_type, body, now)
             .await
@@ -183,7 +184,7 @@ impl AccountDataService {
         device_id: Option<&str>,
         expires_in_seconds: i64,
     ) -> Result<(String, i64), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let token = random_string(32);
         let expires_at = now + expires_in_seconds * 1000;
         self.openid_token_storage
@@ -496,7 +497,7 @@ mod tests {
     async fn room_account_data_uses_millis() {
         let service = make_service();
 
-        let before = chrono::Utc::now().timestamp_millis();
+        let before = current_timestamp_millis();
         service.set_room_account_data("@a:localhost", "!r:localhost", "m.tag", &json!({})).await.unwrap();
 
         let stored = service

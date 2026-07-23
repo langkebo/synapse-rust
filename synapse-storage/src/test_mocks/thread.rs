@@ -1,4 +1,5 @@
 use super::*;
+use synapse_common::current_timestamp_millis;
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
@@ -40,7 +41,7 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
         &self,
         params: crate::thread::CreateThreadRootParams,
     ) -> Result<crate::thread::ThreadRoot, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let root = crate::thread::ThreadRoot {
             id: self.next_id_val(),
             room_id: params.room_id.clone(),
@@ -123,7 +124,7 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
         &self,
         params: crate::thread::CreateThreadReplyParams,
     ) -> Result<crate::thread::ThreadReply, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let reply = crate::thread::ThreadReply {
             id: self.next_id_val(),
             room_id: params.room_id.clone(),
@@ -212,7 +213,7 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
         user_id: &str,
         notification_level: &str,
     ) -> Result<crate::thread::ThreadSubscription, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let sub = crate::thread::ThreadSubscription {
             id: self.next_id_val(),
             room_id: room_id.to_string(),
@@ -245,7 +246,7 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
         let mut subs = self.subscriptions.write().await;
         let key = (room_id.to_string(), thread_id.to_string(), user_id.to_string());
         let sub = subs.entry(key).or_insert_with(|| {
-            let now = chrono::Utc::now().timestamp_millis();
+            let now = current_timestamp_millis();
             crate::thread::ThreadSubscription {
                 id: 0,
                 room_id: room_id.to_string(),
@@ -259,7 +260,7 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
             }
         });
         sub.is_muted = true;
-        sub.updated_ts = chrono::Utc::now().timestamp_millis();
+        sub.updated_ts = current_timestamp_millis();
         Ok(sub.clone())
     }
 
@@ -298,7 +299,7 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
         event_id: &str,
         origin_server_ts: i64,
     ) -> Result<crate::thread::ThreadReadReceipt, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let key = (room_id.to_string(), thread_id.to_string(), user_id.to_string());
         let mut receipts = self.read_receipts.write().await;
         let receipt = receipts.entry(key).or_insert_with(|| crate::thread::ThreadReadReceipt {
@@ -334,7 +335,7 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
     }
 
     async fn increment_unread_count(&self, room_id: &str, thread_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let key = (room_id.to_string(), thread_id.to_string(), user_id.to_string());
         let mut receipts = self.read_receipts.write().await;
         let receipt = receipts.entry(key).or_insert_with(|| crate::thread::ThreadReadReceipt {
@@ -361,7 +362,7 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
         thread_id: Option<&str>,
         is_falling_back: bool,
     ) -> Result<crate::thread::ThreadRelation, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let relation = crate::thread::ThreadRelation {
             id: self.next_id_val(),
             room_id: room_id.to_string(),

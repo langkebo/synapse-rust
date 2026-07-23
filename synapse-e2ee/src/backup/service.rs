@@ -4,6 +4,7 @@ use crate::device_keys::DeviceKeyStoreApi;
 use crate::signed_json::verify_signed_json;
 use sqlx::Row;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone)]
@@ -520,7 +521,7 @@ impl KeyBackupService {
             .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
         let total_keys = self.get_backup_key_count(user_id).await?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         Ok(RecoveryProgress {
             user_id: user_id.to_string(),

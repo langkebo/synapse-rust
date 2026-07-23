@@ -1,5 +1,6 @@
 use super::*;
 use crate::presence::PresenceStoreApi;
+use synapse_common::current_timestamp_millis;
 
 /// In-memory presence snapshot: `(presence, status_msg, last_active_ts)`.
 type PresenceSnapshot = (String, Option<String>, Option<i64>);
@@ -30,7 +31,7 @@ impl PresenceStoreApi for InMemoryPresenceStore {
     }
 
     async fn set_presence(&self, user_id: &str, presence: &str, status_msg: Option<&str>) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         self.presences
             .write()
             .await

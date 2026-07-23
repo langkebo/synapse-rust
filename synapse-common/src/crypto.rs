@@ -1,3 +1,4 @@
+use crate::current_timestamp_millis;
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
@@ -132,7 +133,7 @@ pub fn generate_room_id(server_name: &str) -> String {
 }
 
 pub fn generate_event_id(server_name: &str) -> String {
-    let timestamp = chrono::Utc::now().timestamp_millis();
+    let timestamp = current_timestamp_millis();
     let mut bytes = [0u8; 18];
     rand::rng().fill_bytes(&mut bytes);
     format!("${}${}:{}", timestamp, URL_SAFE_NO_PAD.encode(bytes), server_name)

@@ -3,6 +3,7 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_rust::common::config::PerformanceConfig;
 use synapse_rust::common::metrics::MetricsCollector;
@@ -319,7 +320,7 @@ async fn create_test_user(pool: &Pool<Postgres>, user_id: &str, username: &str) 
     )
     .bind(user_id)
     .bind(username)
-    .bind(chrono::Utc::now().timestamp_millis())
+    .bind(current_timestamp_millis())
     .execute(pool)
     .await
     .expect("Failed to create test user");
@@ -725,7 +726,7 @@ async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
         .unwrap();
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
 
-    let topic_ts = chrono::Utc::now().timestamp_millis() + 1_000;
+    let topic_ts = current_timestamp_millis() + 1_000;
     event_storage
         .create_event(
             CreateEventParams {
@@ -840,7 +841,7 @@ async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite
         .unwrap();
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
 
-    let topic_ts = chrono::Utc::now().timestamp_millis() + 1_000;
+    let topic_ts = current_timestamp_millis() + 1_000;
     event_storage
         .create_event(
             CreateEventParams {
@@ -1030,7 +1031,7 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
 
     room_service.membership.join_room(&room_id, "@bob:localhost").await.unwrap();
 
-    let base_ts = chrono::Utc::now().timestamp_millis();
+    let base_ts = current_timestamp_millis();
     event_storage
         .create_event(
             CreateEventParams {
@@ -1210,7 +1211,7 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
 
     room_service.membership.join_room(&room_id, "@bob:localhost").await.unwrap();
 
-    let base_ts = chrono::Utc::now().timestamp_millis();
+    let base_ts = current_timestamp_millis();
     event_storage
         .create_event(
             CreateEventParams {
@@ -1389,7 +1390,7 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
 
     room_service.membership.join_room(&room_id, "@bob:localhost").await.unwrap();
 
-    let base_ts = chrono::Utc::now().timestamp_millis();
+    let base_ts = current_timestamp_millis();
     event_storage
         .create_event(
             CreateEventParams {
@@ -1561,7 +1562,7 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
 
     room_service.membership.join_room(&room_id, "@bob:localhost").await.unwrap();
 
-    let base_ts = chrono::Utc::now().timestamp_millis();
+    let base_ts = current_timestamp_millis();
     event_storage
         .create_event(
             CreateEventParams {

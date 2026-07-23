@@ -1,6 +1,7 @@
 use super::models::*;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone)]
@@ -26,7 +27,7 @@ impl KeyBackupStorage {
     }
 
     pub async fn create_backup(&self, backup: &KeyBackup) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO key_backups (
@@ -208,7 +209,7 @@ impl BackupKeyStorage {
         .bind(&params.room_id)
         .bind(&params.session_id)
         .bind(&params.backup_data)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .bind(params.first_message_index)
         .bind(params.forwarded_count)
         .bind(params.is_verified)

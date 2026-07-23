@@ -7,6 +7,7 @@ use axum::{
     http::HeaderMap,
 };
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 use super::{
     dispatch_federation_member_event_to_appservice, federatable_room_version, validate_federation_member_event,
@@ -135,7 +136,7 @@ pub(crate) async fn send_leave_v2(
         event_type: "m.room.member".to_string(),
         content: membership_content,
         state_key: Some(sender.to_string()),
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
 

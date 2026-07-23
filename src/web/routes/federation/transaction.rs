@@ -9,6 +9,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 const TXN_DEDUP_TTL_SECS: u64 = 86400;
@@ -712,7 +713,7 @@ async fn acquire_origin_edu_permit(
 }
 
 async fn get_presence_backoff_remaining_ms(ctx: &FederationContext, origin: &str) -> Option<u64> {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let guard = ctx.federation_presence_backoff_until.read().await;
     let until = guard.get(origin).copied()?;
     (until > now).then_some((until - now) as u64)

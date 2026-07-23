@@ -1,6 +1,7 @@
 use super::types::*;
 use super::SyncService;
 use crate::map_internal;
+use synapse_common::current_timestamp_millis;
 use synapse_common::*;
 use synapse_storage::event::SinceFilter;
 
@@ -30,10 +31,9 @@ impl SyncService {
         let event_list: Vec<serde_json::Value> =
             events.iter().map(|e| Self::event_to_json(e, SyncEventFormat::Client)).collect();
 
-        let end_token = events.last().map_or_else(
-            || format!("t{}", chrono::Utc::now().timestamp_millis()),
-            |e| format!("t{}", e.origin_server_ts),
-        );
+        let end_token = events
+            .last()
+            .map_or_else(|| format!("t{}", current_timestamp_millis()), |e| format!("t{}", e.origin_server_ts));
 
         Ok(json!({
             "chunk": event_list,
@@ -60,11 +60,8 @@ impl SyncService {
             })
             .collect();
 
-        let next_batch = if room_list.len() as i64 >= limit {
-            Some(format!("p{}", chrono::Utc::now().timestamp_millis()))
-        } else {
-            None
-        };
+        let next_batch =
+            if room_list.len() as i64 >= limit { Some(format!("p{}", current_timestamp_millis())) } else { None };
 
         let mut response = json!({
             "chunk": room_list,
@@ -102,7 +99,7 @@ impl SyncService {
             }
         }
 
-        let end_token = format!("s{}", chrono::Utc::now().timestamp_millis());
+        let end_token = format!("s{}", current_timestamp_millis());
 
         Ok(json!({
             "start": from,

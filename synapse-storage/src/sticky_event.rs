@@ -5,6 +5,7 @@
 use async_trait::async_trait;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[async_trait]
 pub trait StickyEventStoreApi: Send + Sync {
@@ -46,7 +47,7 @@ impl StickyEventStorage {
         event_type: &str,
         is_sticky: bool,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -140,7 +141,7 @@ impl StickyEventStorage {
         user_id: &str,
         event_type: &str,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -265,7 +266,7 @@ mod db_tests {
 
     /// Insert a minimal user row to satisfy the FK from room_sticky_events.user_id.
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
@@ -282,7 +283,7 @@ mod db_tests {
 
     /// Insert a minimal room row to satisfy the FK from room_sticky_events.room_id.
     async fn ensure_test_room(pool: &PgPool, room_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO rooms (room_id, created_ts)
                VALUES ($1, $2)

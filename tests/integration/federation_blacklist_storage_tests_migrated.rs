@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_storage::federation_blacklist::{
     decode_federation_blacklist_cursor, encode_federation_blacklist_cursor, AddBlacklistRequest, CreateLogRequest,
     CreateRuleRequest, FederationBlacklistCursor, FederationBlacklistStorage, UpdateStatsRequest,
@@ -112,7 +113,7 @@ async fn insert_blacklist_entry(
     is_enabled: bool,
     expires_at: Option<i64>,
 ) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query(
         r#"
         INSERT INTO federation_blacklist (
@@ -218,7 +219,7 @@ async fn test_add_to_blacklist_with_metadata() {
         block_type: "blacklist".to_string(),
         reason: None,
         blocked_by: "@admin:example.com".to_string(),
-        expires_at: Some(chrono::Utc::now().timestamp_millis() + 86_400_000),
+        expires_at: Some(current_timestamp_millis() + 86_400_000),
         metadata: Some(serde_json::json!({"source": "automated"})),
     };
 
@@ -377,7 +378,7 @@ async fn test_is_server_blocked_expired() {
     let suffix = unique_id();
     let server_name = format!("expired-{suffix}.example.com");
 
-    let past_ts = chrono::Utc::now().timestamp_millis() - 86_400_000;
+    let past_ts = current_timestamp_millis() - 86_400_000;
 
     insert_blacklist_entry(
         &pool,
@@ -801,7 +802,7 @@ async fn test_cleanup_expired_entries() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
-    let past_ts = chrono::Utc::now().timestamp_millis() - 86_400_000;
+    let past_ts = current_timestamp_millis() - 86_400_000;
 
     insert_blacklist_entry(
         &pool,
@@ -843,7 +844,7 @@ async fn test_cleanup_expired_entries_none_expired() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 86_400_000;
+    let future_ts = current_timestamp_millis() + 86_400_000;
 
     insert_blacklist_entry(
         &pool,

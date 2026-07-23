@@ -1,4 +1,5 @@
 use super::*;
+use synapse_common::current_timestamp_millis;
 
 use std::sync::atomic::{AtomicI64, Ordering};
 
@@ -29,7 +30,7 @@ impl FilterStoreApi for InMemoryFilterStore {
             user_id: request.user_id.clone(),
             filter_id: request.filter_id.clone(),
             content: request.content.clone(),
-            created_ts: Utc::now().timestamp_millis(),
+            created_ts: current_timestamp_millis(),
         };
         self.filters.write().await.insert((request.user_id, request.filter_id), filter.clone());
         Ok(filter)

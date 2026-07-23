@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use tokio::sync::RwLock;
 
@@ -410,7 +411,7 @@ impl FederationClient {
         {
             let cache = self.key_cache.read().await;
             if let Some(cached) = cache.get(destination) {
-                let now_ms = chrono::Utc::now().timestamp_millis();
+                let now_ms = current_timestamp_millis();
                 if cached.cached_at.elapsed().as_secs() < effective_cache_ttl_secs(&cached.keys, now_ms) {
                     return Ok(cached.keys.clone());
                 }
@@ -840,7 +841,7 @@ mod tests {
 
     #[test]
     fn cache_ttl_shrinks_to_valid_until_ts_window() {
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = current_timestamp_millis();
 
         // Key expires 600s from now -> effective TTL should shrink to that window.
         let soon = ServerKeys {

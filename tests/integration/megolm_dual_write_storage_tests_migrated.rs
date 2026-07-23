@@ -12,6 +12,7 @@
 //! 只覆盖 `megolm_sessions` 表 + 新增列。
 
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 use chrono::{Duration, Utc};
 use uuid::Uuid;
@@ -133,7 +134,7 @@ async fn test_update_vodozemac_pickle_persists_new_ratchet() {
     let session = make_vodozemac_session("!room:example.com");
     storage.create_session(&session).await.unwrap();
 
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = current_timestamp_millis();
     let updated = storage.update_vodozemac_pickle(&session.session_id, "new_ratchet_state_v2", now_ms).await.unwrap();
     assert!(updated, "update_vodozemac_pickle should report at least one row affected");
 
@@ -148,7 +149,7 @@ async fn test_update_vodozemac_pickle_no_match_returns_false() {
     let pool = setup_test_database().await;
     let storage = MegolmSessionStorage::new(&pool);
 
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = current_timestamp_millis();
     let updated = storage.update_vodozemac_pickle("nonexistent_session", "any", now_ms).await.unwrap();
     assert!(!updated, "no rows should be updated for unknown session_id");
 }
@@ -162,7 +163,7 @@ async fn test_promote_legacy_to_dual_succeeds() {
     let session = make_legacy_session("!room:example.com");
     storage.create_session(&session).await.unwrap();
 
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = current_timestamp_millis();
     let promoted = storage.promote_to_dual(&session.session_id, "promoted_vodozemac_pickle", now_ms).await.unwrap();
     assert!(promoted, "promote_to_dual should affect 1 row");
 
@@ -182,7 +183,7 @@ async fn test_promote_to_dual_is_idempotent() {
     let session = make_legacy_session("!room:example.com");
     storage.create_session(&session).await.unwrap();
 
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = current_timestamp_millis();
     let first = storage.promote_to_dual(&session.session_id, "first_pickle", now_ms).await.unwrap();
     assert!(first, "first promote should succeed");
 
@@ -202,7 +203,7 @@ async fn test_promote_to_dual_skips_non_legacy_rows() {
     let session = make_dual_session("!room:example.com");
     storage.create_session(&session).await.unwrap();
 
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = current_timestamp_millis();
     let promoted = storage.promote_to_dual(&session.session_id, "should_not_apply", now_ms).await.unwrap();
     assert!(!promoted, "promote_to_dual must not touch dual/vodozemac rows");
 
@@ -304,7 +305,7 @@ async fn test_lazy_migration_end_to_end() {
     assert_eq!(batch.len(), 5);
 
     // 阶段 2：批量 promote
-    let now_ms = Utc::now().timestamp_millis();
+    let now_ms = current_timestamp_millis();
     let mut promoted = 0;
     for s in &batch {
         if storage.promote_to_dual(&s.session_id, "lazy_vodozemac", now_ms).await.unwrap() {

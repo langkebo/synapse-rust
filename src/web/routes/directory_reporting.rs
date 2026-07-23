@@ -11,6 +11,7 @@ use axum::{
     http::HeaderMap,
 };
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 fn decode_public_rooms_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
     let cursor = cursor?;
@@ -327,7 +328,7 @@ pub(crate) async fn set_room_alias(
     Ok(Json(json!({
         "room_id": room_id,
         "alias": room_alias,
-        "created_ts": chrono::Utc::now().timestamp_millis()
+        "created_ts": current_timestamp_millis()
     })))
 }
 
@@ -393,7 +394,7 @@ pub(crate) async fn set_room_alias_direct(
     Ok(Json(json!({
         "room_id": room_id,
         "alias": room_alias,
-        "created_ts": chrono::Utc::now().timestamp_millis()
+        "created_ts": current_timestamp_millis()
     })))
 }
 

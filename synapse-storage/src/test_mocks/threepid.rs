@@ -1,4 +1,5 @@
 use super::*;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Clone, Default)]
 pub struct InMemoryThreepidStore {
@@ -113,8 +114,8 @@ impl InMemoryThreepidStore {
             user_id: user_id.to_string(),
             medium: medium.to_string(),
             address: address.to_string(),
-            validated_at: Some(chrono::Utc::now().timestamp_millis()),
-            added_ts: chrono::Utc::now().timestamp_millis(),
+            validated_at: Some(current_timestamp_millis()),
+            added_ts: current_timestamp_millis(),
             is_verified: true,
             verification_token: None,
             verification_expires_at: None,

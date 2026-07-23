@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct BeaconInfo {
@@ -144,7 +145,7 @@ impl BeaconStorage {
     }
 
     pub async fn create_beacon_info(&self, params: CreateBeaconInfoParams) -> Result<BeaconInfo, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = if params.timeout > 0 { Some(params.created_ts + params.timeout) } else { None };
 
         let row = sqlx::query_as::<_, BeaconInfo>(
@@ -175,7 +176,7 @@ impl BeaconStorage {
     }
 
     pub async fn deactivate_beacons_by_state_key(&self, room_id: &str, state_key: &str) -> Result<u64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query(
             r#"
             UPDATE beacon_info
@@ -227,7 +228,7 @@ impl BeaconStorage {
     }
 
     pub async fn get_active_beacons(&self, room_id: &str) -> Result<Vec<BeaconInfo>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let rows = sqlx::query_as::<_, BeaconInfo>(
             r#"
@@ -253,7 +254,7 @@ impl BeaconStorage {
         is_live: bool,
         timeout: Option<i64>,
     ) -> Result<Option<BeaconInfo>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let expires_at = timeout.map(|t| now + t);
 
@@ -344,7 +345,7 @@ impl BeaconStorage {
                 )
                 .bind(beacon_info_id)
                 .bind(new_expiry)
-                .bind(chrono::Utc::now().timestamp_millis())
+                .bind(current_timestamp_millis())
                 .execute(&*self.pool)
                 .await?;
             }
@@ -498,7 +499,7 @@ impl BeaconStorage {
     }
 
     pub async fn cleanup_expired_beacons(&self) -> Result<u64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query(
             r#"
@@ -518,7 +519,7 @@ impl BeaconStorage {
         room_id: &str,
         include_expired: bool,
     ) -> Result<Vec<BeaconInfoWithLocations>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let beacon_infos = if include_expired {
             sqlx::query_as::<_, BeaconInfo>(
@@ -891,7 +892,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
-        let far_future = chrono::Utc::now().timestamp_millis() + 86_400_000; // 1 day from now
+        let far_future = current_timestamp_millis() + 86_400_000; // 1 day from now
 
         // Active: is_live=true, expires_at in the future
         storage
@@ -1326,7 +1327,7 @@ mod db_tests {
             .unwrap();
 
         // Create a non-expired beacon: expires_at far in the future
-        let far_future = chrono::Utc::now().timestamp_millis() + 86_400_000;
+        let far_future = current_timestamp_millis() + 86_400_000;
         storage
             .create_beacon_info(CreateBeaconInfoParams {
                 room_id: room_id.clone(),
@@ -1352,7 +1353,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
         let room_id = unique_room_id();
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let one_day = 86_400_000i64;
 
         let active_event_id = format!("$active_{}", uuid::Uuid::new_v4());

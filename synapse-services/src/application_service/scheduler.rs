@@ -12,11 +12,11 @@
 //! events into transactions and delivers them, with per-AS concurrency control
 //! and exponential-backoff recovery.
 
-use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use synapse_common::current_timestamp_millis;
 use synapse_storage::application_service::ApplicationService;
 use tokio::sync::Mutex;
 use tokio::time::MissedTickBehavior;
@@ -655,7 +655,7 @@ impl ApplicationServiceScheduler {
         last_dispatched_events: Option<i64>,
         last_elapsed_ms: Option<i64>,
     ) {
-        let tick_ts = Utc::now().timestamp_millis().to_string();
+        let tick_ts = current_timestamp_millis().to_string();
         self.set_scheduler_state(as_id, SCHEDULER_STATE_LAST_TICK_TS, &tick_ts).await;
         self.set_scheduler_state(as_id, SCHEDULER_STATE_LAST_RESULT, result.as_str()).await;
         self.set_scheduler_state(as_id, SCHEDULER_STATE_PENDING_EVENT_COUNT, &observed.pending_event_count.to_string())

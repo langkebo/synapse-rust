@@ -2,6 +2,7 @@ use super::*;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 async fn test_pool() -> Arc<PgPool> {
     let db_url = std::env::var("TEST_DATABASE_URL")
@@ -645,7 +646,7 @@ async fn test_get_space_statistics_returns_rows() {
     let space = storage.create_space(request).await.unwrap();
 
     // Insert a statistics row directly
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let _ = sqlx::query(
             r"INSERT INTO space_statistics (space_id, name, is_public, child_room_count, member_count, created_ts, updated_ts)
                VALUES ($1, $2, TRUE, 2, 5, $3, $3)

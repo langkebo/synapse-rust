@@ -1,5 +1,6 @@
 use std::env;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
@@ -46,7 +47,7 @@ async fn insert_event(
     content: &serde_json::Value,
 ) {
     let event_id = format!("${}", uuid::Uuid::new_v4().simple());
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query(
         "INSERT INTO events (event_id, room_id, sender, event_type, state_key, content, origin_server_ts, depth) VALUES ($1, $2, $3, $4, $5, $6, $7, 1)",
     )
@@ -215,7 +216,7 @@ async fn test_get_effective_direct_links_fallback() {
     ensure_test_user(&pool, &user_b).await;
     ensure_test_room(&pool, &dm_room).await;
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     // Insert room_summaries with is_direct=true
     sqlx::query(
         "INSERT INTO room_summaries (room_id, is_direct, updated_ts, created_ts) VALUES ($1, true, $2, $2) ON CONFLICT (room_id) DO NOTHING",
@@ -278,7 +279,7 @@ async fn test_get_existing_direct_room_id() {
     ensure_test_user(&pool, &user_b).await;
     ensure_test_room(&pool, &dm_room).await;
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query(
         "INSERT INTO room_summaries (room_id, is_direct, updated_ts, created_ts) VALUES ($1, true, $2, $2) ON CONFLICT (room_id) DO NOTHING",
     )

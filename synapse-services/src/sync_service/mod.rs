@@ -23,6 +23,7 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
+use synapse_common::current_timestamp_millis;
 use synapse_common::*;
 use synapse_e2ee::device_keys::DeviceKeyStoreApi;
 use synapse_e2ee::key_rotation::KeyRotationStorage;
@@ -440,7 +441,7 @@ impl SyncService {
                 (Some(ts), Some(token)) => ts.max(token.stream_id),
                 (Some(ts), None) => ts,
                 (None, Some(token)) => token.stream_id,
-                (None, None) => chrono::Utc::now().timestamp_millis(),
+                (None, None) => current_timestamp_millis(),
             }
         }
     }

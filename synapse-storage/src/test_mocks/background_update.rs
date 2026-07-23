@@ -1,4 +1,5 @@
 use super::*;
+use synapse_common::current_timestamp_millis;
 
 pub struct InMemoryBackgroundUpdateStore {
     updates: tokio::sync::RwLock<HashMap<String, BackgroundUpdate>>,
@@ -27,7 +28,7 @@ impl InMemoryBackgroundUpdateStore {
 #[async_trait::async_trait]
 impl BackgroundUpdateStoreApi for InMemoryBackgroundUpdateStore {
     async fn create_update(&self, request: CreateBackgroundUpdateRequest) -> Result<BackgroundUpdate, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let update = BackgroundUpdate {
             job_name: request.job_name.clone(),
             job_type: request.job_type,
@@ -97,7 +98,7 @@ impl BackgroundUpdateStoreApi for InMemoryBackgroundUpdateStore {
     async fn update_status(&self, job_name: &str, status: &str) -> Result<BackgroundUpdate, sqlx::Error> {
         let mut updates = self.updates.write().await;
         let update = updates.get_mut(job_name).ok_or_else(|| sqlx::Error::RowNotFound)?;
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         update.status = status.to_string();
         update.updated_ts = Some(now);
         if status == "running" {
@@ -125,7 +126,7 @@ impl BackgroundUpdateStoreApi for InMemoryBackgroundUpdateStore {
             update.progress =
                 serde_json::json!(((update.processed_items as f64 / update.total_items as f64) * 100.0).round() as i64);
         }
-        update.updated_ts = Some(Utc::now().timestamp_millis());
+        update.updated_ts = Some(current_timestamp_millis());
         Ok(update.clone())
     }
 
@@ -134,7 +135,7 @@ impl BackgroundUpdateStoreApi for InMemoryBackgroundUpdateStore {
         let update = updates.get_mut(job_name).ok_or_else(|| sqlx::Error::RowNotFound)?;
         update.status = "failed".to_string();
         update.error_message = Some(error_message.to_string());
-        update.updated_ts = Some(Utc::now().timestamp_millis());
+        update.updated_ts = Some(current_timestamp_millis());
         update.retry_count += 1;
         Ok(update.clone())
     }
@@ -187,7 +188,7 @@ impl BackgroundUpdateStoreApi for InMemoryBackgroundUpdateStore {
         let mut next_id = self.next_history_id.write().await;
         let id = *next_id;
         *next_id += 1;
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let entry = BackgroundUpdateHistory {
             id,
             job_name: job_name.to_string(),

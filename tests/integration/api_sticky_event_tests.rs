@@ -2,13 +2,14 @@
 
 mod sticky_event_integration_suite {
     use sqlx::PgPool;
+    use synapse_common::current_timestamp_millis;
     use synapse_storage::sticky_event::{StickyEvent, StickyEventStorage};
 
     /// Insert prerequisite rooms and users rows so FK constraints on
     /// room_sticky_events are satisfied. Uses ON CONFLICT DO NOTHING so
     /// repeated calls within the same schema are safe.
     async fn ensure_room_and_user(pool: &PgPool, room_id: &str, user_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query("INSERT INTO rooms (room_id, room_version, creator, created_ts) VALUES ($1, '11', $2, $3) ON CONFLICT (room_id) DO NOTHING")
             .bind(room_id)
             .bind(user_id)

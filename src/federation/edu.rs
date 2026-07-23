@@ -9,6 +9,7 @@ pub use synapse_federation::edu::{user_matches_origin, EduProcessResult, EduType
 use crate::web::routes::context::FederationContext;
 use serde_json::Value;
 use std::str::FromStr;
+use synapse_common::current_timestamp_millis;
 
 fn increment_counter(ctx: &FederationContext, name: &str) {
     if let Some(counter) = ctx.metrics.get_counter(name) {
@@ -27,7 +28,7 @@ fn increment_counter_by(ctx: &FederationContext, name: &str, delta: u64) {
 }
 
 async fn set_presence_backoff(ctx: &FederationContext, origin: &str) {
-    let until = chrono::Utc::now().timestamp_millis() + ctx.config.federation.inbound_presence_backoff_ms as i64;
+    let until = current_timestamp_millis() + ctx.config.federation.inbound_presence_backoff_ms as i64;
     let mut guard = ctx.federation_presence_backoff_until.write().await;
     guard.insert(origin.to_string(), until);
 }
@@ -171,8 +172,7 @@ async fn handle_device_list_update_edu(
 
     let device_id = content.get("device_id").and_then(|v| v.as_str());
 
-    let stream_id =
-        content.get("stream_id").and_then(|v| v.as_i64()).unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+    let stream_id = content.get("stream_id").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
 
     let change_type =
         if content.get("deleted").and_then(|v| v.as_bool()).unwrap_or(false) { "deleted" } else { "updated" };

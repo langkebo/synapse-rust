@@ -2,6 +2,7 @@
 //! read receipts, and other room-level transient state.
 
 use std::collections::HashMap;
+use synapse_common::current_timestamp_millis;
 
 use super::models::RoomEphemeralEvent;
 use super::EventStorage;
@@ -15,7 +16,7 @@ impl EventStorage {
         content: &serde_json::Value,
         stream_id: i64,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         self.upsert_ephemeral_event(room_id, user_id, event_type, content, stream_id, now, None).await
     }
 

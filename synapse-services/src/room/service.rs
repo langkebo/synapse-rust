@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
+use synapse_common::current_timestamp_millis;
 use synapse_common::generate_event_id;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_common::validation::Validator;
@@ -459,7 +460,7 @@ impl RoomService {
                         "replacement_room": new_room_id.clone(),
                     }),
                     state_key: Some("".to_string()),
-                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                    origin_server_ts: current_timestamp_millis(),
                     redacts: None,
                 },
                 None,

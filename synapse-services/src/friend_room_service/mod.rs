@@ -8,6 +8,7 @@ pub use models::{
     EnsureDirectRoomResult, FriendListCursor, FriendListEntry, FriendListPage, FriendListRequest,
     FriendRoomCreateRoomConfig, FriendRoomService,
 };
+use synapse_common::current_timestamp_millis;
 
 use serde_json::{json, Map, Value};
 
@@ -231,7 +232,7 @@ impl FriendRoomService {
                     "requester": sender_id,
                     "target": receiver_id,
                     "message": message,
-                    "timestamp": chrono::Utc::now().timestamp_millis(),
+                    "timestamp": current_timestamp_millis(),
                     "msgtype": "m.friend_request"
                 });
 
@@ -293,7 +294,7 @@ impl FriendRoomService {
                 let accept_content = json!({
                     "requester": requester_id,
                     "accepter": user_id,
-                    "timestamp": chrono::Utc::now().timestamp_millis(),
+                    "timestamp": current_timestamp_millis(),
                     "msgtype": "m.friend_request.accepted"
                 });
 
@@ -435,7 +436,7 @@ impl FriendRoomService {
             let invite_content = json!({
                 "requester": user_id,
                 "target": friend_id,
-                "timestamp": chrono::Utc::now().timestamp_millis(),
+                "timestamp": current_timestamp_millis(),
                 "msgtype": "m.friend_request"
             });
 
@@ -873,7 +874,7 @@ impl FriendRoomService {
             next_batch,
             version,
             cached: false,
-            generated_ts: chrono::Utc::now().timestamp_millis(),
+            generated_ts: current_timestamp_millis(),
         };
 
         if let Err(e) = self.cache.set(&cache_key, page.clone(), FRIEND_LIST_CACHE_TTL_SECS).await {
@@ -908,7 +909,7 @@ impl FriendRoomService {
             return Ok(0);
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut updated_lists = 0usize;
 
         for link in links {
@@ -990,7 +991,7 @@ impl FriendRoomService {
         state_key: &str,
         content: serde_json::Value,
     ) -> ApiResult<()> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         self.room_service
             .messaging()
             .create_event(
@@ -1051,11 +1052,11 @@ impl FriendRoomService {
                     "user_id": friend_id,
                     "since": chrono::Utc::now().timestamp(),
                     "status": "normal",
-                    "added_at": chrono::Utc::now().timestamp_millis(),
+                    "added_at": current_timestamp_millis(),
                     "dm_room_id": dm_room_id,
                     "dm_room_active": dm_room_id.is_some(),
                     "dm_room_state": if dm_room_id.is_some() { "active" } else { "none" },
-                    "dm_room_updated_ts": chrono::Utc::now().timestamp_millis()
+                    "dm_room_updated_ts": current_timestamp_millis()
                 }));
             }
         } else if action == "remove" {
@@ -1095,7 +1096,7 @@ impl FriendRoomService {
             .map_err(|e| ApiError::database_with_log("Database error", &e))?
             .unwrap_or_else(|| json!({ "friends": [], "version": 1 }));
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut touched = false;
 
         if let Some(friends) = content.get_mut("friends").and_then(|value| value.as_array_mut()) {

@@ -1,8 +1,8 @@
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_cache::CacheManager;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::ThreepidStoreApi;
 
@@ -80,7 +80,7 @@ impl UiaService {
             session_id: session_id.clone(),
             user_id: user_id.to_string(),
             completed: Vec::new(),
-            created_ts: Utc::now().timestamp_millis(),
+            created_ts: current_timestamp_millis(),
             flows,
         };
         let key = format!("uia:session:{session_id}");

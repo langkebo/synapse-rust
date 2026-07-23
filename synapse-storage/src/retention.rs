@@ -1,8 +1,8 @@
 use async_trait::async_trait;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RoomRetentionPolicy {
@@ -148,7 +148,7 @@ impl RetentionStorage {
         &self,
         request: CreateRoomRetentionPolicyRequest,
     ) -> Result<RoomRetentionPolicy, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, RoomRetentionPolicy>(
             r"
@@ -309,7 +309,7 @@ impl RetentionStorage {
         &self,
         request: UpdateServerRetentionPolicyRequest,
     ) -> Result<ServerRetentionPolicy, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, ServerRetentionPolicy>(
             r#"
@@ -529,7 +529,7 @@ mod db_tests {
     /// Insert a minimal room row to satisfy `room_retention_policies.room_id` FK →
     /// `rooms(room_id)` and `events.room_id` FK → `rooms(room_id)`.
     async fn ensure_test_room(pool: &PgPool, room_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO rooms (room_id, creator, created_ts)
                VALUES ($1, $2, $3)
@@ -887,8 +887,8 @@ mod db_tests {
         cleanup_room(&pool, room_id).await;
         ensure_test_room(&pool, room_id).await;
 
-        let old_ts = chrono::Utc::now().timestamp_millis() - 86_400_000; // 1 day ago
-        let recent_ts = chrono::Utc::now().timestamp_millis() - 3_600_000; // 1 hour ago
+        let old_ts = current_timestamp_millis() - 86_400_000; // 1 day ago
+        let recent_ts = current_timestamp_millis() - 3_600_000; // 1 hour ago
 
         ensure_test_event(&pool, &format!("evt_old_{}", uuid::Uuid::new_v4()), room_id, "@sender:test.com", old_ts)
             .await;
@@ -902,7 +902,7 @@ mod db_tests {
         .await;
 
         // Cutoff at 12 hours ago — only the 1-day-old event is before it
-        let cutoff = chrono::Utc::now().timestamp_millis() - 43_200_000;
+        let cutoff = current_timestamp_millis() - 43_200_000;
         let deleted = storage.delete_events_before(room_id, cutoff).await.expect("delete_events_before should succeed");
 
         assert!(deleted >= 1, "should delete at least the old event");

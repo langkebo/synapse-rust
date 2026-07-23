@@ -10,6 +10,7 @@ use axum::{
     http::HeaderMap,
 };
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 pub(crate) async fn join_room(
     State(ctx): State<RoomContext>,
@@ -21,7 +22,7 @@ pub(crate) async fn join_room(
     ctx.room_service.membership().join_room(&room_id, &auth_user.user_id).await?;
     Ok(Json(json!({
         "room_id": room_id,
-        "joined_ts": chrono::Utc::now().timestamp_millis()
+        "joined_ts": current_timestamp_millis()
     })))
 }
 
@@ -193,7 +194,7 @@ pub(crate) async fn invite_user(
     Ok(Json(json!({
         "room_id": room_id,
         "invited_user_id": invitee,
-        "invited_ts": chrono::Utc::now().timestamp_millis()
+        "invited_ts": current_timestamp_millis()
     })))
 }
 
@@ -230,7 +231,7 @@ pub(crate) async fn invite_user_by_room(
     Ok(Json(json!({
         "room_id": room_id,
         "invited_user_id": invitee,
-        "invited_ts": chrono::Utc::now().timestamp_millis()
+        "invited_ts": current_timestamp_millis()
     })))
 }
 

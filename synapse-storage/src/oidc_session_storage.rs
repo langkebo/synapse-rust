@@ -390,6 +390,7 @@ impl OidcSessionStoreApi for OidcSessionStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synapse_common::current_timestamp_millis;
 
     fn sample_auth_session() -> OidcAuthSession {
         OidcAuthSession {
@@ -666,7 +667,7 @@ mod tests {
 
         let storage = OidcSessionStorage::new(&pool);
         let session_key = format!("pkce_state_{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + 3_600_000;
         let session = make_auth_session(session_key.clone(), now, expires_at);
 
@@ -707,7 +708,7 @@ mod tests {
 
         let storage = OidcSessionStorage::new(&pool);
         let session_key = format!("pkce_state_{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let session = make_auth_session(session_key.clone(), now, now + 3_600_000);
 
         storage.save_auth_session(&session).await.expect("save_auth_session should succeed");
@@ -749,7 +750,7 @@ mod tests {
         setup_oidc_session_db(&pool).await;
 
         let storage = OidcSessionStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let past_ts = now - 3_600_000;
         let future_ts = now + 3_600_000;
 
@@ -848,7 +849,7 @@ mod tests {
 
         let storage = OidcSessionStorage::new(&pool);
         let token_hash = format!("hash_{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let future_ts = now + 3_600_000;
         let token = make_refresh_token(token_hash.clone(), now, Some(future_ts));
 
@@ -882,7 +883,7 @@ mod tests {
 
         let storage = OidcSessionStorage::new(&pool);
         let token_hash = format!("hash_{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let token = make_refresh_token(token_hash.clone(), now, Some(now + 3_600_000));
 
         storage.save_refresh_token(&token).await.expect("save_refresh_token should succeed");
@@ -919,7 +920,7 @@ mod tests {
         setup_oidc_session_db(&pool).await;
 
         let storage = OidcSessionStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let future_ts = now + 3_600_000;
         let user_id = format!("@user_{}:server", uuid::Uuid::new_v4());
 
@@ -976,7 +977,7 @@ mod tests {
 
         let storage = OidcSessionStorage::new(&pool);
         let session_id = format!("consent_{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let future_ts = now + 3_600_000;
         let session = make_consent_session(session_id.clone(), now, future_ts);
 

@@ -231,6 +231,7 @@ impl AccountIdentityService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synapse_common::current_timestamp_millis;
     use synapse_storage::test_mocks::{shared_fake_user_store, InMemoryThreepidStore};
 
     fn make_service(threepid_store: Arc<InMemoryThreepidStore>) -> AccountIdentityService {
@@ -309,7 +310,7 @@ mod tests {
     #[tokio::test]
     async fn add_verified_threepid_succeeds() {
         let svc = make_service(Arc::new(InMemoryThreepidStore::new()));
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = svc.add_verified_threepid("@alice:example.com", "email", "alice@example.com", now, now).await;
         assert!(result.is_ok());
     }

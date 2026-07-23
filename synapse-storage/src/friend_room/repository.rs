@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 use sqlx::{Pool, Postgres, Row};
 
@@ -267,7 +268,7 @@ impl FriendRoomStorage {
     /// 创建好友分组
     pub async fn create_friend_group(&self, room_id: &str, user_id: &str, group_name: &str) -> Result<(), sqlx::Error> {
         let mut groups = self.get_friend_groups(room_id).await?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         if groups.is_none() {
             groups = Some(serde_json::json!({
@@ -311,7 +312,7 @@ impl FriendRoomStorage {
         group_name: &str,
     ) -> Result<bool, sqlx::Error> {
         let groups = self.get_friend_groups(room_id).await?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let groups_val = groups.unwrap_or(serde_json::json!({"groups": []}));
         let groups_array = groups_val.get("groups").and_then(|g| g.as_array().cloned()).unwrap_or_default();
@@ -345,7 +346,7 @@ impl FriendRoomStorage {
         new_name: &str,
     ) -> Result<bool, sqlx::Error> {
         let groups = self.get_friend_groups(room_id).await?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let groups_val = groups.unwrap_or(serde_json::json!({"groups": []}));
         let mut groups_array = groups_val.get("groups").and_then(|g| g.as_array().cloned()).unwrap_or_default();
@@ -383,7 +384,7 @@ impl FriendRoomStorage {
         friend_id: &str,
     ) -> Result<bool, sqlx::Error> {
         let groups = self.get_friend_groups(room_id).await?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let groups_val = groups.unwrap_or(serde_json::json!({"groups": []}));
         let mut groups_array = groups_val.get("groups").and_then(|g| g.as_array().cloned()).unwrap_or_default();
@@ -429,7 +430,7 @@ impl FriendRoomStorage {
         friend_id: &str,
     ) -> Result<bool, sqlx::Error> {
         let groups = self.get_friend_groups(room_id).await?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let groups_val = groups.unwrap_or(serde_json::json!({"groups": []}));
         let mut groups_array = groups_val.get("groups").and_then(|g| g.as_array().cloned()).unwrap_or_default();
@@ -473,7 +474,7 @@ impl FriendRoomStorage {
         user_id: &str,
         content: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let event_id = format!("${}", uuid::Uuid::new_v4().simple());
 
         sqlx::query(
@@ -503,7 +504,7 @@ impl FriendRoomStorage {
         receiver_id: &str,
         message: Option<&str>,
     ) -> Result<i64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query(
             r"
@@ -625,7 +626,7 @@ impl FriendRoomStorage {
         receiver_id: &str,
         status: &str,
     ) -> Result<bool, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query(
             r"

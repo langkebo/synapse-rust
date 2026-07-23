@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use base64::Engine;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct OAuthClient {
@@ -127,7 +127,7 @@ impl OAuthClientStorage {
     ) -> Result<OAuthClient, sqlx::Error> {
         let client_id = uuid::Uuid::new_v4().to_string();
         let client_secret = Self::generate_client_secret();
-        let now_ts = Utc::now().timestamp_millis();
+        let now_ts = current_timestamp_millis();
 
         let redirect_uris_json =
             serde_json::Value::Array(redirect_uris.into_iter().map(serde_json::Value::String).collect());
@@ -359,7 +359,7 @@ mod tests {
 
         let storage = OAuthClientStorage::new(&pool);
         let client_id = format!("test-client-{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let client = make_client(client_id.clone(), now);
 
         storage.register_client(&client).await.expect("register_client should succeed");
@@ -390,7 +390,7 @@ mod tests {
 
         let storage = OAuthClientStorage::new(&pool);
         let client_id = format!("test-client-{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let client = OAuthClient {
             client_id: client_id.clone(),
             client_secret: "secret".to_string(),
@@ -428,7 +428,7 @@ mod tests {
 
         let storage = OAuthClientStorage::new(&pool);
         let client_id = format!("test-client-{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let client = make_client(client_id.clone(), now);
 
         storage.register_client(&client).await.expect("register_client should succeed");

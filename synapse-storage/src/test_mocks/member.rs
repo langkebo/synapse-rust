@@ -1,4 +1,5 @@
 use super::*;
+use synapse_common::current_timestamp_millis;
 
 /// In-memory member store mirroring [`crate::membership::RoomMemberStorage`].
 #[derive(Clone, Default)]
@@ -222,14 +223,14 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
         sender: Option<&str>,
         _tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<crate::membership::RoomMember, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let joined_ts = if membership == "join" { Some(now) } else { None };
         let member = crate::membership::RoomMember {
             room_id: room_id.to_string(),
             user_id: user_id.to_string(),
             sender: sender.map(|s| s.to_string()),
             membership: membership.to_string(),
-            event_id: Some(format!("$auto_{}", chrono::Utc::now().timestamp_millis())),
+            event_id: Some(format!("$auto_{}", current_timestamp_millis())),
             event_type: Some("m.room.member".to_string()),
             display_name: display_name.map(|s| s.to_string()),
             avatar_url: None,
@@ -405,7 +406,7 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
             member.membership = "ban".to_string();
             member.is_banned = Some(true);
             member.banned_by = Some(banned_by.to_string());
-            member.banned_ts = Some(chrono::Utc::now().timestamp_millis());
+            member.banned_ts = Some(current_timestamp_millis());
         }
         Ok(())
     }

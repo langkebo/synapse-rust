@@ -11,6 +11,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 use validator::Validate;
 
 /// Nest prefixes under which `create_key_backup_router` mounts its internal
@@ -294,7 +295,7 @@ struct RoomKeysBody {
 }
 
 fn current_etag(version: &str) -> String {
-    format!("{}_{}", version, chrono::Utc::now().timestamp_millis())
+    format!("{}_{}", version, current_timestamp_millis())
 }
 
 fn write_response(version: &str, count: u64) -> Json<Value> {

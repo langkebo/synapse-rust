@@ -4,6 +4,7 @@ pub use models::{initialize_database, DatabaseInitMode, DatabaseInitService, Env
 
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_storage::SchemaValidator;
 use tracing::{debug, error, info, warn};
 
@@ -379,7 +380,7 @@ impl DatabaseInitService {
         execution_time_ms: i64,
         success: bool,
     ) -> Result<(), sqlx::Error> {
-        let now_ts = chrono::Utc::now().timestamp_millis();
+        let now_ts = current_timestamp_millis();
         sqlx::query(
             r"INSERT INTO schema_migrations (version, checksum, applied_ts, execution_time_ms, is_success)
                VALUES ($1, $2, $3, $4, $5)

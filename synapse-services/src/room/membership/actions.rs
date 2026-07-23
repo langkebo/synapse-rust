@@ -2,6 +2,7 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
+use synapse_common::current_timestamp_millis;
 use synapse_common::{generate_event_id, is_legal, Membership, TransitionCtx};
 use synapse_storage::CreateEventParams;
 
@@ -103,7 +104,7 @@ impl MembershipService {
                         "displayname": user_id.trim_start_matches('@').split(':').next().unwrap_or(user_id),
                     }),
                     state_key: Some(user_id.to_string()),
-                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                    origin_server_ts: current_timestamp_millis(),
                     redacts: None,
                 },
                 None,
@@ -180,7 +181,7 @@ impl MembershipService {
                     event_type: "m.room.member".to_string(),
                     content: json!({ "membership": "leave" }),
                     state_key: Some(user_id.to_string()),
-                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                    origin_server_ts: current_timestamp_millis(),
                     redacts: None,
                 },
                 None,

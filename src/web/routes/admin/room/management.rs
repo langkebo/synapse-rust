@@ -9,6 +9,7 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 #[axum::debug_handler]
 pub async fn cleanup_abnormal_rooms(
@@ -138,7 +139,7 @@ pub async fn purge_history(
     let timestamp = body
         .get("purge_up_to_ts")
         .and_then(|v| v.as_i64())
-        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
+        .unwrap_or_else(|| current_timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
 
     if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -151,7 +152,7 @@ pub async fn purge_history(
         admin_user_id = %admin.user_id,
         target_room_id = %room_id,
         purge_up_to_ts = timestamp,
-        timestamp_ms = chrono::Utc::now().timestamp_millis(),
+        timestamp_ms = current_timestamp_millis(),
         "Admin purge history operation"
     );
 
@@ -248,7 +249,7 @@ pub async fn purge_room(
         action = "admin.delete_room",
         admin_user_id = %admin.user_id,
         target_room_id = %room_id,
-        timestamp_ms = chrono::Utc::now().timestamp_millis(),
+        timestamp_ms = current_timestamp_millis(),
         "Admin delete room operation"
     );
 
@@ -509,7 +510,7 @@ async fn kick_user_internal(
             ctx.room_service.membership().leave_room(room_id, user_id).await?;
         }
         Some(_) => {
-            let now = chrono::Utc::now().timestamp_millis();
+            let now = current_timestamp_millis();
             ctx.room_service.membership().force_leave_membership(room_id, user_id, now).await?;
         }
         None => {}

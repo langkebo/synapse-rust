@@ -5,6 +5,7 @@ use crate::verification::models::{
 };
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 pub struct VerificationStorage {
@@ -88,7 +89,7 @@ impl VerificationStorage {
 
     /// Update verification state
     pub async fn update_state(&self, transaction_id: &str, state: VerificationState) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query("UPDATE verification_requests SET state = $1, updated_ts = $2 WHERE transaction_id = $3")
             .bind(serialize_state(&state))
             .bind(now)

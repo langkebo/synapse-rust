@@ -1,8 +1,9 @@
-#[cfg(feature = "beacons")]
 use crate::beacon_service::BeaconService;
 use std::sync::Arc;
 use std::time::Instant;
 use synapse_common::config::RetentionConfig;
+#[cfg(feature = "beacons")]
+use synapse_common::current_timestamp_millis;
 use synapse_common::metrics::{Counter, Gauge, Histogram, MetricsCollector};
 use synapse_common::ApiError;
 
@@ -324,8 +325,8 @@ impl RetentionService {
 
         let max_lifetime =
             policy.max_lifetime.ok_or_else(|| ApiError::bad_request("No retention policy configured for this room"))?;
-        let cutoff_ts = chrono::Utc::now().timestamp_millis() - max_lifetime;
-        let started_ts = chrono::Utc::now().timestamp_millis();
+        let cutoff_ts = current_timestamp_millis() - max_lifetime;
+        let started_ts = current_timestamp_millis();
 
         match self.storage.delete_events_before(room_id, cutoff_ts).await {
             Ok(deleted_count) => {
@@ -339,7 +340,7 @@ impl RetentionService {
                     media_deleted: 0,
                     bytes_freed: 0,
                     started_ts,
-                    completed_ts: Some(chrono::Utc::now().timestamp_millis()),
+                    completed_ts: Some(current_timestamp_millis()),
                     status: "completed".to_string(),
                     error_message: None,
                 })
@@ -408,7 +409,7 @@ impl RetentionService {
             .map_err(|e| ApiError::internal_with_log("Failed to get policy", &e))?;
 
         if let Some(max_lifetime) = policy.max_lifetime {
-            let cutoff_ts = chrono::Utc::now().timestamp_millis() - max_lifetime;
+            let cutoff_ts = current_timestamp_millis() - max_lifetime;
             Ok(origin_server_ts < cutoff_ts)
         } else {
             Ok(false)
@@ -472,7 +473,7 @@ impl RetentionService {
         beacon_service: &BeaconService,
         config: &RetentionConfig,
     ) -> DataLifecycleCleanupSummary {
-        let started_ts = chrono::Utc::now().timestamp_millis();
+        let started_ts = current_timestamp_millis();
         let started = Instant::now();
         let mut summary = DataLifecycleCleanupSummary { started_ts, ..Default::default() };
 
@@ -502,7 +503,7 @@ impl RetentionService {
     #[cfg(not(feature = "beacons"))]
     #[instrument(skip(self, config))]
     pub async fn run_data_lifecycle_cycle_no_beacons(&self, config: &RetentionConfig) -> DataLifecycleCleanupSummary {
-        let started_ts = chrono::Utc::now().timestamp_millis();
+        let started_ts = current_timestamp_millis();
         let started = Instant::now();
         let mut summary = DataLifecycleCleanupSummary { started_ts, ..Default::default() };
 
@@ -585,7 +586,7 @@ impl RetentionService {
         }
 
         summary.duration_ms = started.elapsed().as_millis() as i64;
-        summary.completed_ts = chrono::Utc::now().timestamp_millis();
+        summary.completed_ts = current_timestamp_millis();
         self.lifecycle_metrics.observe_cycle(summary);
         let result = summary.clone();
         *self.last_lifecycle_summary.write().await = Some(result.clone());

@@ -9,6 +9,7 @@ use serde_json::json;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use synapse_common::telemetry_config::{OpenTelemetryConfig, PrometheusConfig};
 use synapse_storage::{DatabaseHealthStatus, DatabaseMonitor};
@@ -314,7 +315,7 @@ impl TelemetryAlertService {
             .await
             .map_err(|error| ApiError::internal_with_log("failed to collect telemetry health", &error))?;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut active_rules: HashMap<&str, TelemetryAlert> = HashMap::new();
 
         if !health.is_healthy {
@@ -413,7 +414,7 @@ impl TelemetryAlertService {
                 return Self::build_alert(alert_key, rule_name, severity, owner, message.to_string(), metrics);
             }
         };
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let entry = alerts.entry(alert_key.to_string()).or_insert_with(|| {
             Self::build_alert(alert_key, rule_name, severity, owner, message.to_string(), metrics.clone())
         });
@@ -462,7 +463,7 @@ impl TelemetryAlertService {
                 return Err(ApiError::internal("Failed to acquire alerts write lock"));
             }
         };
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let alert = alerts
             .values_mut()
             .find(|a| a.alert_id == alert_id)
@@ -485,7 +486,7 @@ impl TelemetryAlertService {
         message: String,
         metrics: serde_json::Value,
     ) -> TelemetryAlert {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         TelemetryAlert {
             alert_id: uuid::Uuid::new_v4().to_string(),
             alert_key: key.to_string(),

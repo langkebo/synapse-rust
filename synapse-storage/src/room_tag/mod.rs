@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RoomTag {
@@ -66,7 +67,7 @@ impl RoomTagStorage {
         tag: &str,
         order: Option<f64>,
     ) -> Result<(), sqlx::Error> {
-        let created_ts = chrono::Utc::now().timestamp_millis();
+        let created_ts = current_timestamp_millis();
         sqlx::query(
             "INSERT INTO room_tags (user_id, room_id, tag, order_value, created_ts) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (user_id, room_id, tag) DO UPDATE SET order_value = EXCLUDED.order_value"
         )

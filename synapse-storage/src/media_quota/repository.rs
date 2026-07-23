@@ -1,6 +1,6 @@
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
-use chrono::Utc;
 use sqlx::PgPool;
 use synapse_common::ApiError;
 
@@ -37,7 +37,7 @@ impl MediaQuotaStorage {
     }
 
     pub async fn create_config(&self, request: CreateQuotaConfigRequest) -> Result<MediaQuotaConfig, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let allowed_mime_types =
             serde_json::to_value(request.allowed_mime_types.unwrap_or_default()).unwrap_or(serde_json::json!([]));
         let blocked_mime_types =
@@ -115,7 +115,7 @@ impl MediaQuotaStorage {
 
         let default_config = self.get_default_config().await?;
         let quota_config_id = default_config.map(|c| c.id);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let quota = sqlx::query_as::<_, UserMediaQuota>(
             r"
@@ -135,7 +135,7 @@ impl MediaQuotaStorage {
     }
 
     pub async fn set_user_quota(&self, request: SetUserQuotaRequest) -> Result<UserMediaQuota, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let quota = sqlx::query_as::<_, UserMediaQuota>(
             r"
@@ -168,7 +168,7 @@ impl MediaQuotaStorage {
     }
 
     pub async fn update_usage(&self, request: UpdateUsageRequest) -> Result<(), ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -290,7 +290,7 @@ impl MediaQuotaStorage {
         // cases where the seed row was lost (e.g. schema pool reuse after
         // TRUNCATE, or connection search_path drift in tests). The ON CONFLICT
         // guard handles races where another request creates the row first.
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let quota = sqlx::query_as::<_, ServerMediaQuota>(
             r"INSERT INTO server_media_quota (id, max_storage_bytes, max_file_size_bytes, max_files_count, current_storage_bytes, current_files_count, alert_threshold_percent, updated_ts)
              VALUES (1, 10995116277760, 1073741824, 1000000, 0, 0, 80, $1)
@@ -312,7 +312,7 @@ impl MediaQuotaStorage {
         max_files_count: Option<i32>,
         alert_threshold_percent: Option<i32>,
     ) -> Result<ServerMediaQuota, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let quota = sqlx::query_as::<_, ServerMediaQuota>(
             r"
@@ -348,7 +348,7 @@ impl MediaQuotaStorage {
         quota_limit: i64,
         message: Option<&str>,
     ) -> Result<MediaQuotaAlert, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let alert = sqlx::query_as::<_, MediaQuotaAlert>(
             r"
             INSERT INTO media_quota_alerts (
@@ -405,7 +405,7 @@ impl MediaQuotaStorage {
 
     pub async fn get_usage_stats(&self, user_id: &str) -> Result<serde_json::Value, ApiError> {
         let quota = self.get_or_create_user_quota(user_id).await?;
-        let seven_days_ago = Utc::now().timestamp_millis() - (7 * 24 * 60 * 60 * 1000);
+        let seven_days_ago = current_timestamp_millis() - (7 * 24 * 60 * 60 * 1000);
 
         let recent_uploads: i64 = sqlx::query_scalar(
             r"SELECT COALESCE(SUM(file_size_bytes), 0)::BIGINT FROM media_usage_log

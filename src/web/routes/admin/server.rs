@@ -7,6 +7,7 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 pub fn create_server_router(_state: AppState) -> Router<crate::web::routes::AppState> {
     Router::new()
@@ -115,7 +116,7 @@ pub async fn purge_media_cache(
     let before_ts = body
         .get("before_ts")
         .and_then(|v| v.as_i64())
-        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
+        .unwrap_or_else(|| current_timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
 
     let deleted = ctx
         .media_service

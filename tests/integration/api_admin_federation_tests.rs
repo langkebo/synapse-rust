@@ -5,6 +5,7 @@ use axum::{
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use tower::ServiceExt;
 
 async fn setup_test_context() -> Option<(axum::Router, Arc<PgPool>)> {
@@ -439,7 +440,7 @@ async fn test_federation_admission_confirm_accept_pending_server() {
 
     sqlx::query("INSERT INTO federation_servers (server_name, status, updated_ts) VALUES ($1, 'pending', $2)")
         .bind(&server_name)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(&*pool)
         .await
         .unwrap();
@@ -481,7 +482,7 @@ async fn test_federation_admission_confirm_reject_pending_server() {
 
     sqlx::query("INSERT INTO federation_servers (server_name, status, updated_ts) VALUES ($1, 'pending', $2)")
         .bind(&server_name)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(&*pool)
         .await
         .unwrap();
@@ -521,7 +522,7 @@ async fn test_federation_admission_confirm_rejects_non_pending() {
 
     sqlx::query("INSERT INTO federation_servers (server_name, status, updated_ts) VALUES ($1, 'active', $2)")
         .bind(&active_server)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(&*pool)
         .await
         .unwrap();
@@ -573,7 +574,7 @@ async fn test_federation_admission_list_pending() {
         )
         .bind(name)
         .bind(status)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(&*pool)
         .await
         .unwrap();
@@ -608,7 +609,7 @@ async fn test_federation_admission_destinations_include_status() {
 
     sqlx::query("INSERT INTO federation_servers (server_name, status, updated_ts) VALUES ($1, 'pending', $2)")
         .bind(&server_name)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(&*pool)
         .await
         .unwrap();

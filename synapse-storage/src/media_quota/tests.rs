@@ -1,4 +1,4 @@
-use chrono::Utc;
+use synapse_common::current_timestamp_millis;
 
 use super::*;
 
@@ -14,8 +14,8 @@ fn create_test_quota_config() -> MediaQuotaConfig {
         blocked_mime_types: serde_json::json!(["application/exe"]),
         is_default: true,
         is_enabled: true,
-        created_ts: Utc::now().timestamp_millis(),
-        updated_ts: Some(Utc::now().timestamp_millis()),
+        created_ts: current_timestamp_millis(),
+        updated_ts: Some(current_timestamp_millis()),
     }
 }
 
@@ -29,8 +29,8 @@ fn create_test_user_quota() -> UserMediaQuota {
         custom_max_files_count: None,
         current_storage_bytes: 524288000,
         current_files_count: 50,
-        created_ts: Utc::now().timestamp_millis(),
-        updated_ts: Some(Utc::now().timestamp_millis()),
+        created_ts: current_timestamp_millis(),
+        updated_ts: Some(current_timestamp_millis()),
     }
 }
 
@@ -44,7 +44,7 @@ fn create_test_media_alert() -> MediaQuotaAlert {
         quota_limit_bytes: 1073741824,
         message: Some("Storage usage at 80%".to_string()),
         is_read: false,
-        created_ts: Utc::now().timestamp_millis(),
+        created_ts: current_timestamp_millis(),
     }
 }
 
@@ -152,7 +152,7 @@ fn test_server_media_quota() {
         current_storage_bytes: 549755813888,
         current_files_count: 25000,
         alert_threshold_percent: 90,
-        updated_ts: Utc::now().timestamp_millis(),
+        updated_ts: current_timestamp_millis(),
     };
     assert_eq!(quota.max_storage_bytes, Some(1099511627776));
     assert_eq!(quota.alert_threshold_percent, 90);

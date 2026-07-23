@@ -6,6 +6,7 @@ use crate::web::utils::encoding::decode_base64_32;
 use axum::extract::{Extension, Json, Path, State};
 use base64::Engine;
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 pub(super) async fn server_key(State(ctx): State<FederationContext>) -> Result<Json<Value>, ApiError> {
     if ctx.config.federation.signing_key.is_none() {
@@ -240,7 +241,7 @@ async fn resolve_server_keys(ctx: &FederationContext) -> Result<Value, ApiError>
         }
     };
 
-    let valid_until = chrono::Utc::now().timestamp_millis() + 3600 * 1000;
+    let valid_until = current_timestamp_millis() + 3600 * 1000;
 
     let key_id_for_sign = key_id.clone();
     let mut response = json!({
@@ -339,7 +340,7 @@ async fn fetch_remote_server_keys_response(
         let Some(valid_until_ts) = validate_server_key_response(&body, server_name) else {
             continue;
         };
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = current_timestamp_millis();
 
         let canonical_response = json!({
             "server_name": body
@@ -410,7 +411,7 @@ fn validate_server_key_response(body: &Value, server_name: &str) -> Option<i64> 
     }
 
     // `valid_until_ts` must be present and in the future.
-    let now_ms = chrono::Utc::now().timestamp_millis();
+    let now_ms = current_timestamp_millis();
     let valid_until_ts = match body.get("valid_until_ts").and_then(|v| v.as_i64()) {
         Some(ts) => ts,
         None => {
@@ -706,7 +707,7 @@ mod tests {
     }
 
     fn future_ts() -> i64 {
-        chrono::Utc::now().timestamp_millis() + 86_400_000
+        current_timestamp_millis() + 86_400_000
     }
 
     #[test]
@@ -738,7 +739,7 @@ mod tests {
     #[test]
     fn test_validate_rejects_expired_valid_until_ts() {
         let (key_id, pub_key_b64, signing_key) = gen_keypair();
-        let past_ts = chrono::Utc::now().timestamp_millis() - 1000;
+        let past_ts = current_timestamp_millis() - 1000;
         let body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, past_ts);
         assert!(validate_server_key_response(&body, "example.com").is_none());
     }
@@ -809,7 +810,7 @@ mod tests {
                 json!({
                     old_key_id: {
                         "key": old_pub_key_b64,
-                        "expired_ts": chrono::Utc::now().timestamp_millis() - 1000
+                        "expired_ts": current_timestamp_millis() - 1000
                     }
                 }),
             );
@@ -924,7 +925,7 @@ mod tests {
                 json!({
                     old_key_id.clone(): {
                         "key": old_pub_key_b64,
-                        "expired_ts": chrono::Utc::now().timestamp_millis() - 1000
+                        "expired_ts": current_timestamp_millis() - 1000
                     }
                 }),
             );
@@ -936,7 +937,7 @@ mod tests {
                 json!({
                     old_key_id: {
                         "key": pub_key_b64,
-                        "expired_ts": chrono::Utc::now().timestamp_millis() - 1000
+                        "expired_ts": current_timestamp_millis() - 1000
                     }
                 }),
             );

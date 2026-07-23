@@ -8,6 +8,7 @@ use axum::{
     response::IntoResponse,
 };
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 // ---------------------------------------------------------------------------
 // Shared upload helpers
@@ -286,7 +287,7 @@ pub(crate) async fn create_upload_token(
     let filename = body.get("filename").and_then(|v| v.as_str()).unwrap_or("upload");
     let content_type = body.get("content_type").and_then(|v| v.as_str()).unwrap_or("application/octet-stream");
 
-    let token = format!("upload_{}_{}", auth_user.user_id, chrono::Utc::now().timestamp_millis());
+    let token = format!("upload_{}_{}", auth_user.user_id, current_timestamp_millis());
 
     Ok((
         StatusCode::OK,

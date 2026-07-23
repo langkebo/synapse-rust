@@ -7,6 +7,7 @@ use axum::{
     response::IntoResponse,
 };
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 pub(crate) async fn media_config(State(ctx): State<MediaContext>) -> impl IntoResponse {
     let route_owner = synapse_services::worker::topology_validator::current_instance_worker_type(&ctx.config.worker);
@@ -44,7 +45,7 @@ pub(crate) async fn preview_url(
         return Err(ApiError::forbidden(format!("URL not allowed: {e}")));
     }
 
-    let ts = params.get("ts").and_then(|v| v.as_i64()).unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+    let ts = params.get("ts").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
 
     match ctx.media_domain_service.preview_url(url, ts) {
         Ok(preview) => Ok(Json(preview)),

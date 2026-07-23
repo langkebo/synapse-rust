@@ -2,6 +2,7 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
+use synapse_common::current_timestamp_millis;
 use synapse_storage::{Room, RoomSearchCursor, RoomSearchOrder};
 
 use super::service::RoomStateService;
@@ -108,7 +109,7 @@ impl RoomStateService {
     }
 
     pub async fn block_room(&self, room_id: &str, blocked_by: &str, reason: Option<&str>) -> ApiResult<()> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         self.room_storage
             .block_room(room_id, now, blocked_by, reason)
             .await
@@ -218,7 +219,7 @@ impl RoomStateService {
     pub async fn grant_room_admin(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         let event_id = synapse_common::generate_event_id(&self.server_name);
         let sender = format!("@admin:{}", self.server_name);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let power_levels = json!({
             "users": {
                 user_id: 100

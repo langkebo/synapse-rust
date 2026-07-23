@@ -1,4 +1,5 @@
 use super::*;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Clone, Default)]
 pub struct InMemoryRegistrationTokenStore {
@@ -23,7 +24,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
         request: crate::registration_token::CreateRegistrationTokenRequest,
     ) -> Result<crate::registration_token::RegistrationToken, sqlx::Error> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let token_str = request.token.unwrap_or_else(|| {
             use rand::Rng;
             let mut rng = rand::rng();
@@ -89,7 +90,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
         if let Some(exp) = request.expires_at {
             t.expires_at = Some(exp);
         }
-        t.updated_ts = Some(chrono::Utc::now().timestamp_millis());
+        t.updated_ts = Some(current_timestamp_millis());
         let result = t.clone();
         // Also update in tokens map
         self.tokens.write().await.insert(t.token.clone(), t.clone());
@@ -139,7 +140,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
                     });
                 }
                 if let Some(exp) = t.expires_at {
-                    if exp < chrono::Utc::now().timestamp_millis() {
+                    if exp < current_timestamp_millis() {
                         return Ok(crate::registration_token::TokenValidationResult {
                             is_valid: false,
                             token_id: Some(t.id),
@@ -176,7 +177,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
             if t.token_type == "single_use" {
                 t.is_used = true;
             }
-            t.last_used_ts = Some(chrono::Utc::now().timestamp_millis());
+            t.last_used_ts = Some(current_timestamp_millis());
             self.tokens.write().await.insert(t.token.clone(), t.clone());
         }
         let usage = crate::registration_token::RegistrationTokenUsage {
@@ -188,7 +189,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
             email: email.map(|s| s.to_string()),
             ip_address: ip_address.map(|s| s.to_string()),
             user_agent: user_agent.map(|s| s.to_string()),
-            used_ts: chrono::Utc::now().timestamp_millis(),
+            used_ts: current_timestamp_millis(),
             is_success: true,
             error_message: None,
         };
@@ -227,7 +228,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
     }
 
     async fn get_active_tokens(&self) -> Result<Vec<crate::registration_token::RegistrationToken>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         Ok(self
             .tokens
             .read()
@@ -256,7 +257,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
     }
 
     async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut count = 0i64;
         for (_, t) in self.token_by_id.write().await.iter_mut() {
             if t.is_enabled && t.expires_at.is_some_and(|e| e < now) {
@@ -272,7 +273,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
         request: crate::registration_token::CreateRoomInviteRequest,
     ) -> Result<crate::registration_token::RoomInvite, sqlx::Error> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let invite_code: String = {
             use rand::Rng;
             let mut rng = rand::rng();
@@ -312,13 +313,13 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
                 return Ok(false);
             }
             if let Some(exp) = i.expires_at {
-                if exp < chrono::Utc::now().timestamp_millis() {
+                if exp < current_timestamp_millis() {
                     return Ok(false);
                 }
             }
             i.is_used = true;
             i.invitee_user_id = Some(invitee_user_id.to_string());
-            i.used_ts = Some(chrono::Utc::now().timestamp_millis());
+            i.used_ts = Some(current_timestamp_millis());
             Ok(true)
         } else {
             Ok(false)
@@ -328,7 +329,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
     async fn revoke_room_invite(&self, invite_code: &str, reason: &str) -> Result<(), sqlx::Error> {
         if let Some(i) = self.invites.write().await.get_mut(invite_code) {
             i.is_revoked = true;
-            i.revoked_at = Some(chrono::Utc::now().timestamp_millis());
+            i.revoked_at = Some(current_timestamp_millis());
             i.revoked_reason = Some(reason.to_string());
         }
         Ok(())
@@ -347,7 +348,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
             token_count: batch.token_count,
             tokens_used: 0,
             created_by: batch.created_by.clone(),
-            created_ts: chrono::Utc::now().timestamp_millis(),
+            created_ts: current_timestamp_millis(),
             expires_at: batch.expires_at,
             is_enabled: true,
             allowed_email_domains: batch.allowed_email_domains.clone(),
@@ -355,7 +356,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
         };
         for token_str in tokens {
             let tid = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let now = chrono::Utc::now().timestamp_millis();
+            let now = current_timestamp_millis();
             let t = crate::registration_token::RegistrationToken {
                 id: tid,
                 token: token_str.clone(),

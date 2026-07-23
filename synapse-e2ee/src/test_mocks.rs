@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use tokio::sync::RwLock;
 
 use crate::device_keys::models::DeviceKey;
@@ -140,7 +141,7 @@ impl InMemoryDeviceKeyStore {
 #[async_trait::async_trait]
 impl DeviceKeyStoreApi for InMemoryDeviceKeyStore {
     async fn record_device_list_change_best_effort(&self, user_id: &str, device_id: Option<&str>, change_type: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut stream = self.device_list_stream.write().await;
         let stream_id = (stream.len() + 1) as i64;
         stream.push(DeviceListStreamEntry {

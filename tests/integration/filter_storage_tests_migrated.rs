@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 use serde_json::json;
 use sqlx::PgPool;
@@ -176,13 +177,13 @@ async fn test_create_filter_sets_created_ts() {
     let suffix = unique_id();
     let user_id = format!("@filter_ts_{suffix}:localhost");
 
-    let before = chrono::Utc::now().timestamp_millis();
+    let before = current_timestamp_millis();
 
     let request =
         CreateFilterRequest { user_id: user_id.clone(), filter_id: "ts_filter".to_string(), content: json!({}) };
 
     let filter = storage.create_filter(request).await.unwrap();
-    let after = chrono::Utc::now().timestamp_millis();
+    let after = current_timestamp_millis();
 
     assert!(filter.created_ts >= before);
     assert!(filter.created_ts <= after);

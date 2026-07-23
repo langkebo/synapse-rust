@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 use sqlx::PgPool;
 
@@ -18,7 +19,7 @@ impl OpenClawStorage {
         &self,
         params: CreateConnectionParams<'_>,
     ) -> Result<OpenClawConnection, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         if params.is_default {
             sqlx::query(
@@ -97,7 +98,7 @@ impl OpenClawStorage {
         &self,
         params: UpdateConnectionParams<'_>,
     ) -> Result<OpenClawConnection, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         if let Some(true) = params.is_default {
             let conn = self.get_connection(params.id).await?;
@@ -162,7 +163,7 @@ impl OpenClawStorage {
         &self,
         params: CreateConversationParams<'_>,
     ) -> Result<AiConversation, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let conv = sqlx::query_as::<_, AiConversation>(
             r#"
@@ -259,7 +260,7 @@ impl OpenClawStorage {
         max_tokens: Option<i32>,
         is_pinned: Option<bool>,
     ) -> Result<AiConversation, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let conv = sqlx::query_as::<_, AiConversation>(
             r#"
@@ -310,7 +311,7 @@ impl OpenClawStorage {
         tool_calls: Option<serde_json::Value>,
         tool_call_id: Option<&str>,
     ) -> Result<AiMessage, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let msg = sqlx::query_as::<_, AiMessage>(
             r#"
@@ -426,7 +427,7 @@ impl OpenClawStorage {
         gen_type: &str,
         prompt: &str,
     ) -> Result<AiGeneration, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let gen = sqlx::query_as::<_, AiGeneration>(
             r#"
@@ -455,7 +456,7 @@ impl OpenClawStorage {
         result_mxc: Option<&str>,
         error_message: Option<&str>,
     ) -> Result<AiGeneration, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let gen = sqlx::query_as::<_, AiGeneration>(
             r#"
@@ -592,7 +593,7 @@ impl OpenClawStorage {
     }
 
     pub async fn create_chat_role(&self, params: CreateChatRoleParams<'_>) -> Result<AiChatRole, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let role = sqlx::query_as::<_, AiChatRole>(
             r#"
@@ -644,7 +645,7 @@ impl OpenClawStorage {
     }
 
     pub async fn update_chat_role(&self, params: UpdateChatRoleParams<'_>) -> Result<AiChatRole, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let role = sqlx::query_as::<_, AiChatRole>(
             r#"

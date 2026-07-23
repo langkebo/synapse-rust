@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct AccessToken {
@@ -40,7 +41,7 @@ impl AccessTokenStorage {
         device_id: Option<&str>,
         expires_at: Option<i64>,
     ) -> Result<AccessToken, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let token_hash = Self::hash_token(token);
         let row = sqlx::query_as!(
             AccessToken,
@@ -251,7 +252,7 @@ impl AccessTokenStorage {
     pub async fn is_in_blacklist(&self, token: &str) -> Result<bool, sqlx::Error> {
         let token_hash = Self::hash_token(token);
         let legacy_hash = Self::hash_token_legacy(token);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query_scalar!(
             r#"
             SELECT 1 AS "exists!"
@@ -274,7 +275,7 @@ impl AccessTokenStorage {
     }
 
     pub async fn cleanup_expired_blacklist_entries(&self, max_age_seconds: i64) -> Result<u64, sqlx::Error> {
-        let cutoff = chrono::Utc::now().timestamp_millis() - max_age_seconds * 1000;
+        let cutoff = current_timestamp_millis() - max_age_seconds * 1000;
         let result = sqlx::query!(
             r#"
             DELETE FROM token_blacklist WHERE expires_at > 0 AND expires_at < $1
@@ -287,7 +288,7 @@ impl AccessTokenStorage {
     }
 
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query!(
             r#"
             DELETE FROM access_tokens WHERE expires_at IS NOT NULL AND expires_at < $1
@@ -390,7 +391,7 @@ mod tests {
 
     #[test]
     fn test_access_token_expiration() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let token = AccessToken {
             id: 4,
             token_hash: "expiring_token_hash".to_string(),
@@ -477,7 +478,7 @@ mod db_tests {
     /// `access_tokens.user_id` is satisfied.  Uses ON CONFLICT DO NOTHING
     /// so the same user can safely be referenced by multiple tests.
     async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
@@ -495,7 +496,7 @@ mod db_tests {
     /// Insert a minimal device row so the foreign-key constraint on
     /// `access_tokens.device_id` is satisfied.
     async fn ensure_test_device(pool: &Pool<Postgres>, user_id: &str, device_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO devices (device_id, user_id, created_ts, first_seen_ts)
                VALUES ($1, $2, $3, $4)
@@ -552,7 +553,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = AccessTokenStorage::new(&pool);
         let token_str = &format!("test_expiring_token_{}", uuid::Uuid::new_v4());
-        let expires_at = chrono::Utc::now().timestamp_millis() + 3600000;
+        let expires_at = current_timestamp_millis() + 3600000;
 
         ensure_test_user(&pool, "@bob:test.com").await;
 

@@ -9,6 +9,7 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 async fn require_password_uia(
     ctx: &DeviceContext,
@@ -148,7 +149,7 @@ async fn broadcast_device_list_update(ctx: &DeviceContext, user_id: &str, device
         "content": {
             "user_id": user_id,
             "device_id": device_id,
-            "stream_id": chrono::Utc::now().timestamp_millis(),
+            "stream_id": current_timestamp_millis(),
             "prev_ids": [],
         }
     });
@@ -269,7 +270,7 @@ pub async fn update_device(
     Ok(Json(json!({
         "device_id": device.device_id,
         "display_name": device.display_name,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }
 

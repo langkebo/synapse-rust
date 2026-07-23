@@ -7,6 +7,7 @@ use axum::{
     http::HeaderMap,
 };
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 use super::{
     dispatch_federation_member_event_to_appservice, federatable_room_version, validate_federation_member_event,
@@ -227,7 +228,7 @@ pub(crate) async fn send_join_v2(
             origin_server_ts: body
                 .get("origin_server_ts")
                 .and_then(|v| v.as_i64())
-                .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+                .unwrap_or_else(current_timestamp_millis),
             redacts: None,
         };
         ctx.room_service

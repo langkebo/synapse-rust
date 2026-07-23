@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use base64::Engine;
 use std::sync::atomic::{AtomicU64, Ordering};
+use synapse_common::current_timestamp_millis;
 use synapse_rust::federation::device_sync::DeviceSyncManager;
 use synapse_rust::federation::key_rotation::KeyRotationManager;
 
@@ -92,7 +93,7 @@ async fn test_should_rotate_keys() {
     assert!(current_key.is_some(), "Key should be in memory after initialization");
 
     let key = current_key.unwrap();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let days_until_expiry = (key.expires_at - now) / (24 * 60 * 60 * 1000);
 
     assert!(days_until_expiry >= 6, "Key should have at least 6 days until expiry, got {days_until_expiry} days");

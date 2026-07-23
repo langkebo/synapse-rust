@@ -8,6 +8,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 fn create_push_compat_router() -> Router<AppState> {
     Router::new()
@@ -356,7 +357,7 @@ async fn set_push_rule_actions(
     Ok(Json(json!({
         "rule_id": rule_id,
         "actions": actions,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }
 
@@ -389,7 +390,7 @@ async fn set_push_rule_enabled(
     Ok(Json(json!({
         "rule_id": rule_id,
         "enabled": enabled,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }
 
@@ -420,7 +421,7 @@ async fn ack_notification(
         Ok(Json(json!({
             "notification_id": notification_id,
             "is_read": true,
-            "updated_ts": chrono::Utc::now().timestamp_millis()
+            "updated_ts": current_timestamp_millis()
         })))
     } else {
         Err(ApiError::not_found("Notification not found".to_string()))

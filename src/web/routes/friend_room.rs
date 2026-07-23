@@ -13,6 +13,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 const DEFAULT_FRIEND_LIST_LIMIT: usize = 20;
 
@@ -613,7 +614,7 @@ async fn remove_friend(
     Ok(Json(json!({
         "removed": true,
         "user_id": friend_id,
-        "removed_ts": chrono::Utc::now().timestamp_millis()
+        "removed_ts": current_timestamp_millis()
     })))
 }
 
@@ -634,7 +635,7 @@ async fn update_friend_note(
     Ok(Json(json!({
         "user_id": friend_id,
         "note": body.note,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }
 
@@ -656,7 +657,7 @@ async fn update_friend_status(
     Ok(Json(json!({
         "user_id": friend_id,
         "status": body.status,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }
 
@@ -691,7 +692,7 @@ async fn update_friend_displayname(
     Ok(Json(json!({
         "user_id": friend_id,
         "displayname": body.display_name,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }
 
@@ -813,7 +814,7 @@ async fn delete_friend_group(
     Ok(Json(json!({
         "deleted": true,
         "group_id": group_id,
-        "deleted_ts": chrono::Utc::now().timestamp_millis()
+        "deleted_ts": current_timestamp_millis()
     })))
 }
 
@@ -832,7 +833,7 @@ async fn rename_friend_group(
     Ok(Json(json!({
         "group_id": group_id,
         "name": body.name,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }
 
@@ -848,7 +849,7 @@ async fn add_friend_to_group(
     Ok(Json(json!({
         "group_id": group_id,
         "user_id": user_id,
-        "added_ts": chrono::Utc::now().timestamp_millis()
+        "added_ts": current_timestamp_millis()
     })))
 }
 
@@ -864,7 +865,7 @@ async fn remove_friend_from_group(
     Ok(Json(json!({
         "group_id": group_id,
         "user_id": user_id,
-        "removed_ts": chrono::Utc::now().timestamp_millis()
+        "removed_ts": current_timestamp_millis()
     })))
 }
 

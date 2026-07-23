@@ -9,6 +9,7 @@ use crate::web::routes::{ensure_room_member_ctx, validate_room_id};
 use axum::extract::Path;
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnServerResponse {
@@ -188,7 +189,7 @@ pub async fn call_invite(
     let _session = ctx.rtc_domain_service.call.handle_invite(&room_id, &auth_user.user_id, content.clone()).await?;
 
     let event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let content_value = serde_json::to_value(content).unwrap_or_default();
 
     // create_event with tx=None already dispatches to appservices internally,
@@ -246,7 +247,7 @@ pub async fn call_answer(
     let _session = ctx.rtc_domain_service.call.handle_answer(&room_id, &auth_user.user_id, content.clone()).await?;
 
     let event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let content_value = serde_json::to_value(content).unwrap_or_default();
 
     // create_event with tx=None already dispatches to appservices internally,

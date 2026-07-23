@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::Arc;
 use std::sync::{Mutex, OnceLock};
+use synapse_common::current_timestamp_millis;
 use synapse_storage::event::{CreateEventParams, EventStorage, SinceFilter};
 
 fn event_storage_test_guard() -> &'static Mutex<()> {
@@ -59,7 +60,7 @@ async fn test_create_event_success() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "Hello"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
 
@@ -94,7 +95,7 @@ async fn test_get_room_events_batch_multiple_rooms() {
     setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
 
-    let ts = chrono::Utc::now().timestamp_millis();
+    let ts = current_timestamp_millis();
 
     for i in 1..=3 {
         let params = CreateEventParams {
@@ -133,7 +134,7 @@ async fn test_get_room_events_since_batch() {
     setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
 
-    let base_ts = chrono::Utc::now().timestamp_millis();
+    let base_ts = current_timestamp_millis();
     let room_id = "!room_batch:localhost".to_string();
 
     for i in 1..=5 {
@@ -170,7 +171,7 @@ async fn test_get_room_events_batch_limit_per_room() {
     setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
 
-    let base_ts = chrono::Utc::now().timestamp_millis();
+    let base_ts = current_timestamp_millis();
     let room_id = "!room_limit:localhost".to_string();
 
     for i in 1..=10 {
@@ -206,7 +207,7 @@ async fn test_encrypted_event_origin_decode_handles_null_boundary_and_malformed_
     setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
     let room_id = "!origin-room:localhost";
-    let base_ts = chrono::Utc::now().timestamp_millis();
+    let base_ts = current_timestamp_millis();
     let cases = [
         ("$origin_null:localhost", None, "self"),
         ("$origin_empty:localhost", Some(""), "self"),

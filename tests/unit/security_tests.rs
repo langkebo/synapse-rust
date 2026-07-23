@@ -1,3 +1,4 @@
+use synapse_common::current_timestamp_millis;
 use synapse_rust::common::security::{
     compute_signature_hash, ConstantTimeComparison, ReplayProtectionCache, ReplayProtectionConfig, SecurityValidator,
 };
@@ -153,7 +154,7 @@ fn test_jwt_secret_validation_low_entropy() {
 
 #[test]
 fn test_federation_timestamp_validation_current() {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let tolerance_ms = 60_000i64;
 
     assert!(
@@ -164,7 +165,7 @@ fn test_federation_timestamp_validation_current() {
 
 #[test]
 fn test_federation_timestamp_validation_within_tolerance() {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let tolerance_ms = 60_000i64;
 
     let within_tolerance = now - 30000;
@@ -182,7 +183,7 @@ fn test_federation_timestamp_validation_within_tolerance() {
 
 #[test]
 fn test_federation_timestamp_validation_expired() {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let tolerance_ms = 60_000i64;
 
     let expired = now - 120000;

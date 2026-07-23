@@ -4,6 +4,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_rust::cache::CacheManager;
 use tower::ServiceExt;
 
@@ -53,7 +54,7 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
 }
 
 async fn set_profile_visibility_private(pool: &sqlx::PgPool, user_id: &str) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     sqlx::query(
         r#"

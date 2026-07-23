@@ -9,6 +9,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_services::telemetry_service::{ExportConfig, TelemetryAlert, TelemetryAlertFilters, TelemetryService};
 
 #[derive(Debug, Serialize)]
@@ -136,7 +137,7 @@ pub async fn get_metrics_summary(
         total_gauges: inventory.total_gauges,
         total_histograms: inventory.total_histograms,
         rendered_bytes: rendered.len(),
-        snapshot_ts: chrono::Utc::now().timestamp_millis(),
+        snapshot_ts: current_timestamp_millis(),
         appservice_scheduler: summarize_appservice_scheduler_metrics(&appservice_statistics),
     }))
 }

@@ -2,6 +2,7 @@ use crate::admin_audit_service::AdminAuditService;
 use serde_json::json;
 use std::collections::HashSet;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::{
     CreateFeatureFlagRequest, FeatureFlag, FeatureFlagFilters, FeatureFlagStoreApi, FeatureFlagTargetInput,
@@ -25,7 +26,7 @@ impl FeatureFlagService {
         request: CreateFeatureFlagRequest,
     ) -> Result<FeatureFlag, ApiError> {
         validate_create_request(&request)?;
-        let created_ts = chrono::Utc::now().timestamp_millis();
+        let created_ts = current_timestamp_millis();
         let flag = self.storage.create_flag(&request, actor_id, created_ts).await.map_err(map_storage_error)?;
 
         self.audit_service
@@ -56,7 +57,7 @@ impl FeatureFlagService {
         request: UpdateFeatureFlagRequest,
     ) -> Result<FeatureFlag, ApiError> {
         validate_update_request(flag_key, &request)?;
-        let updated_ts = chrono::Utc::now().timestamp_millis();
+        let updated_ts = current_timestamp_millis();
         let flag = self
             .storage
             .update_flag(flag_key, &request, updated_ts)
@@ -206,7 +207,7 @@ fn validate_targets(targets: &[FeatureFlagTargetInput]) -> Result<(), ApiError> 
 
 fn validate_expiration(expires_at: Option<i64>) -> Result<(), ApiError> {
     if let Some(expires_at) = expires_at {
-        if expires_at <= chrono::Utc::now().timestamp_millis() {
+        if expires_at <= current_timestamp_millis() {
             return Err(ApiError::bad_request("FLAG_EXPIRED: expires_at must be greater than current timestamp"));
         }
     }
@@ -384,13 +385,13 @@ mod tests {
 
     #[test]
     fn future_expiration_is_ok() {
-        let future = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future = current_timestamp_millis() + 3_600_000;
         assert!(validate_expiration(Some(future)).is_ok());
     }
 
     #[test]
     fn past_expiration_is_bad_request() {
-        let past = chrono::Utc::now().timestamp_millis() - 1;
+        let past = current_timestamp_millis() - 1;
         assert!(validate_expiration(Some(past)).is_err());
     }
 

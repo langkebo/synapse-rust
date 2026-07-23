@@ -3,6 +3,7 @@ use crate::refresh_token::{
     CreateRefreshTokenRequest, RecordUsageRequest, RefreshToken, RefreshTokenFamily, RefreshTokenRotation,
     RefreshTokenStats, RefreshTokenStoreApi, RefreshTokenUsage,
 };
+use synapse_common::current_timestamp_millis;
 
 /// In-memory test double for [`RefreshTokenStoreApi`].
 #[derive(Clone, Default)]
@@ -70,7 +71,7 @@ impl RefreshTokenStoreApi for InMemoryRefreshTokenStore {
 
     async fn create_token(&self, request: CreateRefreshTokenRequest) -> Result<RefreshToken, sqlx::Error> {
         let id = self.next_id().await;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let token = RefreshToken {
             id,
             token_hash: request.token_hash.clone(),
@@ -103,7 +104,7 @@ impl RefreshTokenStoreApi for InMemoryRefreshTokenStore {
     }
 
     async fn get_active_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let tokens = self.tokens.read().await;
         Ok(tokens
             .values()
@@ -169,7 +170,7 @@ impl RefreshTokenStoreApi for InMemoryRefreshTokenStore {
         user_id: &str,
         device_id: Option<&str>,
     ) -> Result<RefreshTokenFamily, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         Ok(RefreshTokenFamily {
             id: self.next_id().await,
             family_id: family_id.to_string(),
@@ -214,13 +215,13 @@ impl RefreshTokenStoreApi for InMemoryRefreshTokenStore {
     }
 
     async fn is_blacklisted(&self, token_hash: &str) -> Result<bool, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let blacklist = self.blacklist.read().await;
         Ok(blacklist.get(token_hash).is_some_and(|exp| *exp > now))
     }
 
     async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut tokens = self.tokens.write().await;
         let mut hash_index = self.token_hash_index.write().await;
         let mut removed = 0i64;
@@ -239,7 +240,7 @@ impl RefreshTokenStoreApi for InMemoryRefreshTokenStore {
     }
 
     async fn cleanup_blacklist(&self) -> Result<i64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut blacklist = self.blacklist.write().await;
         let expired: Vec<String> = blacklist.iter().filter(|(_, exp)| **exp < now).map(|(k, _)| k.clone()).collect();
         let count = expired.len() as i64;

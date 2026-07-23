@@ -1,5 +1,5 @@
-use chrono::Utc;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiResult;
 use synapse_storage::burn_after_read::BurnAfterReadStoreApi;
 use tokio::sync::RwLock;
@@ -107,7 +107,7 @@ impl BurnAfterReadService {
     }
 
     pub async fn delete_burned_message(&self, user_id: &str, room_id: &str, event_id: &str) -> ApiResult<()> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         if let Err(e) = self.event_writer.redact_event_content(event_id, Some(user_id)).await {
             ::tracing::warn!(
@@ -183,7 +183,7 @@ impl BurnAfterReadService {
         event_id: &str,
         burn_after_ms: i64,
     ) -> ApiResult<()> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let delete_at = now + burn_after_ms;
 
         self.storage
@@ -195,7 +195,7 @@ impl BurnAfterReadService {
     }
 
     pub async fn process_expired_burns(&self) -> ApiResult<Vec<BurnEvent>> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let expired_rows = self
             .storage
@@ -715,7 +715,7 @@ mod tests {
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].2, "$event:ex.com");
         // delete_ts should be roughly now + 5_000 (allow 2s skew for test latency)
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let delete_ts = calls[0].3;
         assert!(
             delete_ts >= now + 4_900 && delete_ts <= now + 5_100,

@@ -1,6 +1,7 @@
 // Session Leak Detection Service
 // E2EE Phase 2: Detect potential session key leaks
 
+use synapse_common::current_timestamp_millis;
 use crate::megolm::MegolmSession;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -68,7 +69,7 @@ impl LeakDetectionService {
                     "room_id": session.room_id,
                     "user_id": session.sender_key,
                 })),
-                created_ts: chrono::Utc::now().timestamp_millis(),
+                created_ts: current_timestamp_millis(),
                 is_acknowledged: false,
                 acknowledged_by: None,
                 acknowledged_at: None,
@@ -89,7 +90,7 @@ impl LeakDetectionService {
                     "room_id": session.room_id,
                     "user_id": session.sender_key,
                 })),
-                created_ts: chrono::Utc::now().timestamp_millis(),
+                created_ts: current_timestamp_millis(),
                 is_acknowledged: false,
                 acknowledged_by: None,
                 acknowledged_at: None,
@@ -110,7 +111,7 @@ impl LeakDetectionService {
                     "room_id": session.room_id,
                     "user_id": session.sender_key,
                 })),
-                created_ts: chrono::Utc::now().timestamp_millis(),
+                created_ts: current_timestamp_millis(),
                 is_acknowledged: false,
                 acknowledged_by: None,
                 acknowledged_at: None,
@@ -230,7 +231,7 @@ impl LeakDetectionStorage {
     }
 
     pub async fn acknowledge_alert(&self, alert_id: i64, acknowledged_by: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             "UPDATE leak_alerts
              SET is_acknowledged = true, acknowledged_by = $2, acknowledged_at = $3

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 use sqlx::postgres::PgPoolOptions;
 use std::env;
@@ -29,7 +30,7 @@ async fn cleanup_test_data(pool: &sqlx::PgPool, suffix: &str) {
 }
 
 async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
     sqlx::query(
         "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
@@ -196,7 +197,7 @@ async fn test_update_token_success_and_not_found() {
         .expect("create_token should succeed");
 
     // Successful update
-    let future_expiry = chrono::Utc::now().timestamp_millis() + 86_400_000;
+    let future_expiry = current_timestamp_millis() + 86_400_000;
     let update_req = UpdateRegistrationTokenRequest {
         description: Some("updated".to_string()),
         max_uses: Some(20),
@@ -294,7 +295,7 @@ async fn test_validate_token_expired() {
     let storage = RegistrationTokenStorage::new(&pool);
     let token_str = make_full_token(&suffix);
 
-    let past = chrono::Utc::now().timestamp_millis() - 86_400_000;
+    let past = current_timestamp_millis() - 86_400_000;
     let created = storage
         .create_token(CreateRegistrationTokenRequest {
             token: Some(token_str.clone()),
@@ -587,7 +588,7 @@ async fn test_get_active_tokens_returns_active_only() {
 
     // Create an expired token
     let expired_str = format!("expired_{}", suffix);
-    let past = chrono::Utc::now().timestamp_millis() - 86_400_000;
+    let past = current_timestamp_millis() - 86_400_000;
     storage
         .create_token(CreateRegistrationTokenRequest {
             token: Some(expired_str.clone()),
@@ -723,7 +724,7 @@ async fn test_cleanup_expired_tokens() {
 
     // Create an expired token (expires_at in the past), must be enabled
     let expired_str = format!("expired_{}", suffix);
-    let past = chrono::Utc::now().timestamp_millis() - 86_400_000;
+    let past = current_timestamp_millis() - 86_400_000;
     let expired = storage
         .create_token(CreateRegistrationTokenRequest {
             token: Some(expired_str.clone()),
@@ -806,7 +807,7 @@ async fn test_get_room_invite_found_and_not_found() {
     let room_id = format!("!room2_{}:test.local", suffix);
     let inviter = format!("@inviter2_{}:test.local", suffix);
     let invite_code = format!("invitecode_{}", suffix);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     // Not found before creation
     let missing = storage.get_room_invite("nonexistent_code").await.expect("get_room_invite should not error");

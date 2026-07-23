@@ -10,6 +10,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use synapse_common::current_timestamp_millis;
 use synapse_services::friend_room_service::FriendRoomCreateRoomConfig;
 use validator::Validate;
 
@@ -526,7 +527,7 @@ pub async fn update_dm_room(
 ) -> Result<Json<Value>, ApiError> {
     let (mut direct_map, mut users, _) = load_direct_room_snapshot(&ctx, &auth_user.user_id, &room_id).await?;
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     if let Some(action) = parse_direct_map_update(body)? {
         (direct_map, users, _) = update_direct_room_snapshot(&ctx, &auth_user.user_id, &room_id, action).await?;

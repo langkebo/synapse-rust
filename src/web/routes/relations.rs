@@ -18,6 +18,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use synapse_common::current_timestamp_millis;
 
 fn create_relations_core_router() -> Router<AppState> {
     Router::new()
@@ -215,7 +216,7 @@ async fn send_relation(
     }
 
     let sender = auth_user.user_id.clone();
-    let origin_server_ts = chrono::Utc::now().timestamp_millis();
+    let origin_server_ts = current_timestamp_millis();
 
     let result_event_id = match rel_type.as_str() {
         "m.annotation" => {

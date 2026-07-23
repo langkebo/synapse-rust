@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, info, warn};
@@ -39,7 +40,7 @@ impl QueuedNotification {
             priority,
             attempts: 0,
             max_attempts: 3,
-            created_ts: chrono::Utc::now().timestamp_millis(),
+            created_ts: current_timestamp_millis(),
             next_attempt_ts: None,
         }
     }
@@ -51,7 +52,7 @@ impl QueuedNotification {
     pub fn increment_attempt(&mut self) {
         self.attempts += 1;
         let delay_ms = 2u64.pow(self.attempts) * 1000;
-        self.next_attempt_ts = Some(chrono::Utc::now().timestamp_millis() + delay_ms as i64);
+        self.next_attempt_ts = Some(current_timestamp_millis() + delay_ms as i64);
     }
 }
 

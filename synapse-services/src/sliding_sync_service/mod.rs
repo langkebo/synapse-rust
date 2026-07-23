@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use synapse_cache::CacheManager;
 use synapse_common::config::PerformanceConfig;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use synapse_common::metrics::MetricsCollector;
 use synapse_e2ee::device_keys::DeviceKeyStoreApi;
@@ -211,7 +212,7 @@ impl SlidingSyncService {
         self.gc_expired_connections(user_id, device_id).await;
 
         // Touch the connection in the LRU tracker (records last access time).
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let tracker_key = Self::connection_tracker_key(user_id, device_id, conn_id);
         self.connection_tracker.insert(tracker_key, now);
 

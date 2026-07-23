@@ -296,6 +296,7 @@ mod cursor_tests {
 mod db_tests {
     use super::*;
     use sqlx::postgres::PgPoolOptions;
+    use synapse_common::current_timestamp_millis;
     use uuid::Uuid;
 
     async fn test_pool() -> Arc<PgPool> {
@@ -324,7 +325,7 @@ mod db_tests {
         let storage = AuditEventStorage::new(&pool);
 
         let event_id = Uuid::new_v4().to_string();
-        let ts = chrono::Utc::now().timestamp_millis();
+        let ts = current_timestamp_millis();
 
         // Insert a test event
         let event = storage

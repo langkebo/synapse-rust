@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use sqlx::{Pool, Postgres, Row};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 // ── Trait ───────────────────────────────────────────────────────────────
 
@@ -146,7 +147,7 @@ impl DeviceStorage {
         device_id: Option<&str>,
         change_type: &str,
     ) -> Result<i64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let row = sqlx::query(
             r"
             INSERT INTO device_lists_stream (user_id, device_id, created_ts)
@@ -198,7 +199,7 @@ impl DeviceStorage {
         if device_ids.is_empty() {
             return Ok(());
         }
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             WITH inserted AS (
@@ -280,7 +281,7 @@ impl DeviceStorage {
             return Ok(0);
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let member_user_ids: Vec<&str> = member_user_ids.iter().map(String::as_str).collect();
         let result = sqlx::query(
             r"
@@ -395,7 +396,7 @@ impl DeviceStorage {
         user_id: &str,
         display_name: Option<&str>,
     ) -> Result<Device, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let device = sqlx::query_as::<_, Device>(
             r"
             INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_ts)
@@ -512,7 +513,7 @@ impl DeviceStorage {
     }
 
     pub async fn update_device_last_seen(&self, device_id: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             UPDATE devices SET last_seen_ts = $1 WHERE device_id = $2
@@ -568,7 +569,7 @@ impl DeviceStorage {
         if rows_affected > 0 {
             let _ = Self::delete_lazy_loaded_members_for_device_tx(&mut tx, user_id, device_id).await;
 
-            let now = chrono::Utc::now().timestamp_millis();
+            let now = current_timestamp_millis();
             let stream_id: i64 = sqlx::query_scalar(
                 r"
                 INSERT INTO device_lists_stream (user_id, device_id, created_ts)
@@ -822,7 +823,7 @@ impl DeviceStorage {
             return Ok(0);
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query(
             r"
             UPDATE devices SET last_seen_ts = $1 WHERE device_id = ANY($2)
@@ -1538,7 +1539,7 @@ mod tests {
         )
         .bind("@alice:localhost")
         .bind("alice")
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(&*pool)
         .await
         .expect("Failed to insert test user");
@@ -1586,7 +1587,7 @@ mod db_tests {
     }
 
     async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
@@ -1603,7 +1604,7 @@ mod db_tests {
 
     #[allow(dead_code)]
     async fn ensure_test_device(pool: &Pool<Postgres>, user_id: &str, device_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO devices (device_id, user_id, created_ts, first_seen_ts)
                VALUES ($1, $2, $3, $4)

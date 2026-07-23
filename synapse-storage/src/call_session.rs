@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct CallSession {
@@ -75,7 +76,7 @@ impl CallSessionStorage {
 
     /// 创建呼叫会话
     pub async fn create_session(&self, params: CreateCallSessionParams) -> Result<CallSession, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let lifetime = params.lifetime.unwrap_or(60_000); // Default 60 seconds
 
         let session = sqlx::query_as::<_, CallSession>(
@@ -117,7 +118,7 @@ impl CallSessionStorage {
 
     /// 更新会话状态
     pub async fn update_state(&self, call_id: &str, room_id: &str, state: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r#"
@@ -138,7 +139,7 @@ impl CallSessionStorage {
 
     /// 设置应答SDP
     pub async fn set_answer(&self, call_id: &str, room_id: &str, answer_sdp: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r#"
@@ -165,7 +166,7 @@ impl CallSessionStorage {
         sender_id: &str,
         candidate: serde_json::Value,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r#"
@@ -208,7 +209,7 @@ impl CallSessionStorage {
 
     /// 清理过期的呼叫会话
     pub async fn cleanup_expired(&self) -> Result<u64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query(
             r#"

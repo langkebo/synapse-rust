@@ -6,6 +6,7 @@ use futures::future::join_all;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Instant;
+use synapse_common::current_timestamp_millis;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::web::routes::state::AppState;
 use synapse_services::ServiceContainer;
@@ -153,7 +154,7 @@ async fn put_beacon_info(app: &axum::Router, token: &str, room_id: &str, state_k
                         "timeout": 60_000,
                         "live": true
                     },
-                    "m.ts": chrono::Utc::now().timestamp_millis(),
+                    "m.ts": current_timestamp_millis(),
                     "m.asset": { "type": "m.self" }
                 })
                 .to_string(),
@@ -326,7 +327,7 @@ async fn beacon_hot_room_backpressure_load_smoke() {
     let mut limited_count = 0usize;
     let mut other_count = 0usize;
     let concurrency = 20usize;
-    let base_ts = chrono::Utc::now().timestamp_millis();
+    let base_ts = current_timestamp_millis();
     let mut global_idx = 0usize;
 
     for chunk in participant_tokens.chunks(concurrency) {

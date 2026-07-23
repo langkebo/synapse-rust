@@ -1,4 +1,5 @@
 use super::*;
+use synapse_common::current_timestamp_millis;
 
 /// In-memory event store mirroring [`crate::event::EventStorage`].
 #[derive(Clone, Default)]
@@ -778,7 +779,7 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
     }
 
     async fn get_daily_message_count(&self) -> Result<i64, sqlx::Error> {
-        let one_day_ago = chrono::Utc::now().timestamp_millis() - 86_400_000;
+        let one_day_ago = current_timestamp_millis() - 86_400_000;
         let events = self.events.read().await;
         Ok(events.values().filter(|e| e.origin_server_ts >= one_day_ago).count() as i64)
     }
@@ -856,7 +857,7 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
             state_key: params.state_key,
             depth: 0,
             origin_server_ts: params.origin_server_ts,
-            processed_ts: chrono::Utc::now().timestamp_millis(),
+            processed_ts: current_timestamp_millis(),
             not_before: 0,
             status: Some("processed".to_string()),
             reference_image: None,
@@ -903,7 +904,7 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
             state_key: params.state_key,
             depth,
             origin_server_ts: params.origin_server_ts,
-            processed_ts: chrono::Utc::now().timestamp_millis(),
+            processed_ts: current_timestamp_millis(),
             not_before: 0,
             status: None,
             reference_image: None,

@@ -1,5 +1,6 @@
 use reqwest::StatusCode;
 use serde_json::json;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::application_service::*;
 use tracing::{error, info, warn};
@@ -86,7 +87,7 @@ impl ApplicationServiceManager {
                 ApiError::internal_with_log("Failed to get pending application service transactions", &e)
             })?;
         if let Some(transaction) = pending_transactions.first() {
-            let now = chrono::Utc::now().timestamp_millis();
+            let now = current_timestamp_millis();
             if !Self::is_transaction_ready_to_retry(transaction, now) {
                 return Ok(0);
             }

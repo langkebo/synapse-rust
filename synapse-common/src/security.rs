@@ -1,3 +1,4 @@
+use crate::current_timestamp_millis;
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
 use moka::sync::Cache;
 use sha2::{Digest, Sha256};
@@ -118,7 +119,7 @@ impl SecurityValidator {
     }
 
     pub fn validate_federation_timestamp(signature_ts: i64, tolerance_ms: i64) -> Result<(), String> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let diff = (signature_ts - now).abs();
 
         if diff > tolerance_ms {
@@ -276,13 +277,13 @@ mod tests {
 
     #[test]
     fn test_validate_federation_timestamp_valid() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         assert!(SecurityValidator::validate_federation_timestamp(now, 60_000).is_ok());
     }
 
     #[test]
     fn test_validate_federation_timestamp_expired() {
-        let old = chrono::Utc::now().timestamp_millis() - 120000;
+        let old = current_timestamp_millis() - 120000;
         assert!(SecurityValidator::validate_federation_timestamp(old, 60_000).is_err());
     }
 
@@ -439,7 +440,7 @@ mod tests {
     #[test]
     fn test_validate_federation_timestamp_boundary_tolerance() {
         // Exactly at tolerance boundary should pass (diff == tolerance).
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         // 60_000ms tolerance; a timestamp exactly 60_000ms old has diff == 60_000.
         let boundary = now - 60_000;
         let result = SecurityValidator::validate_federation_timestamp(boundary, 60_000);
@@ -453,14 +454,14 @@ mod tests {
     #[test]
     fn test_validate_federation_timestamp_future_within_tolerance() {
         // A future timestamp within tolerance should pass.
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let future = now + 5_000;
         assert!(SecurityValidator::validate_federation_timestamp(future, 60_000).is_ok());
     }
 
     #[test]
     fn test_validate_federation_timestamp_future_outside_tolerance() {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let far_future = now + 120_000;
         assert!(SecurityValidator::validate_federation_timestamp(far_future, 60_000).is_err());
     }

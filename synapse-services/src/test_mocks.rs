@@ -18,6 +18,7 @@ pub use synapse_storage::test_mocks::{
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 use std::sync::RwLock;
 
@@ -377,7 +378,7 @@ impl RegistrationTokenApi for InMemoryRegistrationTokenService {
             *n
         };
         let token_str = request.token.unwrap_or_else(|| format!("auto_token_{id}"));
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let token = RegistrationToken {
             id,
             token: token_str.clone(),

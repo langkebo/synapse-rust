@@ -7,6 +7,7 @@ use crate::web::routes::context::RoomContext;
 use crate::web::routes::{validate_room_id, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 #[cfg(feature = "beacons")]
 use synapse_storage::beacon::CreateBeaconInfoParams;
 use synapse_storage::event::CreateEventParams;
@@ -102,7 +103,7 @@ pub(crate) async fn send_state_event(
     let content = body;
 
     let new_event_id = crate::common::crypto::generate_event_id(&ctx.server_name);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
     ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
@@ -224,7 +225,7 @@ pub(crate) async fn put_state_event(
     validate_room_id(&room_id)?;
 
     let new_event_id = crate::common::crypto::generate_event_id(&ctx.server_name);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
     ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
@@ -373,7 +374,7 @@ pub(crate) async fn put_state_event_empty_key(
     validate_room_id(&room_id)?;
 
     let new_event_id = crate::common::crypto::generate_event_id(&ctx.server_name);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
     ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
@@ -413,7 +414,7 @@ pub(crate) async fn put_state_event_no_key(
     validate_room_id(&room_id)?;
 
     let new_event_id = crate::common::crypto::generate_event_id(&ctx.server_name);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
     ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;

@@ -1,4 +1,5 @@
 use super::{decode_registration_token_cursor, encode_registration_token_cursor, RegistrationTokenCursor};
+use synapse_common::current_timestamp_millis;
 
 #[test]
 fn registration_token_cursor_round_trip() {
@@ -232,7 +233,7 @@ fn test_generate_token_no_ambiguous_chars() {
 
 #[test]
 fn test_registration_token_expiry_logic() {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let valid_token = RegistrationToken {
         id: 1,

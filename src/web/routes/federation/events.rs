@@ -5,6 +5,7 @@ use crate::web::routes::validate_room_alias;
 use axum::extract::{Extension, Json, Path, Query, RawQuery, State};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 pub(super) async fn get_room_auth(
     State(ctx): State<FederationContext>,
@@ -541,7 +542,7 @@ pub(super) async fn backfill(
         if let Some(latest) = recent_events.first() {
             backfill_before_ts = latest.origin_server_ts;
         } else {
-            backfill_before_ts = chrono::Utc::now().timestamp_millis();
+            backfill_before_ts = current_timestamp_millis();
         }
     }
 
@@ -565,7 +566,7 @@ pub(super) async fn backfill(
 
     Ok(Json(json!({
         "origin": ctx.server_name,
-        "origin_server_ts": chrono::Utc::now().timestamp_millis(),
+        "origin_server_ts": current_timestamp_millis(),
         "pdus": pdus,
         "auth_chain": auth_chain
     })))
@@ -579,7 +580,7 @@ fn build_federation_event_response(server_name: &str, event: &synapse_storage::e
 
     json!({
         "origin": server_name,
-        "origin_server_ts": chrono::Utc::now().timestamp_millis(),
+        "origin_server_ts": current_timestamp_millis(),
         "pdus": [{
             "event_id": event.event_id,
             "type": event.event_type,

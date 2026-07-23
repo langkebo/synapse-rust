@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -301,14 +302,11 @@ impl ReplicationProtocol {
     }
 
     pub fn create_ping() -> ReplicationCommand {
-        ReplicationCommand::Ping { timestamp: chrono::Utc::now().timestamp_millis() }
+        ReplicationCommand::Ping { timestamp: current_timestamp_millis() }
     }
 
     pub fn create_pong(server_name: &str) -> ReplicationCommand {
-        ReplicationCommand::Pong {
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            server_name: server_name.to_string(),
-        }
+        ReplicationCommand::Pong { timestamp: current_timestamp_millis(), server_name: server_name.to_string() }
     }
 
     pub fn create_position(stream_name: &str, position: i64) -> ReplicationCommand {

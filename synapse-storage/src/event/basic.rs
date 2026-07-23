@@ -2,6 +2,7 @@ use super::models::*;
 use super::ROOM_EVENT_COLS;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 impl EventStorage {
     pub fn new(pool: &Arc<Pool<Postgres>>, server_name: String) -> Self {
@@ -110,7 +111,7 @@ impl EventStorage {
 
     /// Count `m.room.message` events sent in the last 24 hours.
     pub async fn get_daily_message_count(&self) -> Result<i64, sqlx::Error> {
-        let cutoff = chrono::Utc::now().timestamp_millis() - 24 * 60 * 60 * 1000;
+        let cutoff = current_timestamp_millis() - 24 * 60 * 60 * 1000;
         let count = sqlx::query_scalar::<_, i64>(
             r"
             SELECT COALESCE(COUNT(*), 0) FROM events

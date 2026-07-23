@@ -9,12 +9,13 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::collections::HashSet;
+use synapse_common::current_timestamp_millis;
 
 /// 把 `last_active_ts`（绝对时间戳，ms）换算为：
 /// - `last_active_ago`：距离现在的毫秒数（presence != offline 时有意义）
 /// - `currently_active`：是否在近 5 分钟内有活动（presence 为 online 时才可能 true）
 fn derive_activity(presence: &PresenceState, last_active_ts: Option<i64>) -> (Option<i64>, Option<bool>) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     presence.derive_activity(last_active_ts, now)
 }
 

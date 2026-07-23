@@ -1,8 +1,8 @@
 use async_trait::async_trait;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use tracing::info;
 
@@ -162,7 +162,7 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn add_to_blacklist(&self, request: AddBlacklistRequest) -> Result<FederationBlacklist, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, FederationBlacklist>(
@@ -202,7 +202,7 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn remove_from_blacklist(&self, server_name: &str, performed_by: &str) -> Result<(), ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query!(
             r#"
@@ -265,7 +265,7 @@ impl FederationBlacklistStorage {
 
         if let Some(entry) = entry {
             if let Some(expires_at) = entry.expires_at {
-                let now = Utc::now().timestamp_millis();
+                let now = current_timestamp_millis();
                 if expires_at < now {
                     return Ok(false);
                 }
@@ -369,7 +369,7 @@ impl FederationBlacklistStorage {
 
     pub async fn create_log(&self, request: CreateLogRequest) -> Result<FederationBlacklistLog, ApiError> {
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, FederationBlacklistLog>(
             r#"
@@ -398,7 +398,7 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn update_access_stats(&self, request: UpdateStatsRequest) -> Result<FederationAccessStats, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, FederationAccessStats>(
             r#"
@@ -454,7 +454,7 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn create_rule(&self, request: CreateRuleRequest) -> Result<FederationBlacklistRule, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as!(
             FederationBlacklistRule,
@@ -496,7 +496,7 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn cleanup_expired_entries(&self) -> Result<u64, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query!(
             "UPDATE federation_blacklist SET is_enabled = false WHERE expires_at < $1 AND is_enabled = true",
             now
@@ -962,7 +962,7 @@ mod db_tests {
 
         cleanup_by_server(&pool, &server_name).await;
 
-        let past = Utc::now().timestamp_millis() - 86_400_000; // 1 day ago
+        let past = current_timestamp_millis() - 86_400_000; // 1 day ago
         storage
             .add_to_blacklist(AddBlacklistRequest {
                 server_name: server_name.clone(),
@@ -1381,7 +1381,7 @@ mod db_tests {
         cleanup_by_server(&pool, &server_name_exp).await;
         cleanup_by_server(&pool, &server_name_active).await;
 
-        let past = Utc::now().timestamp_millis() - 86_400_000; // 1 day ago
+        let past = current_timestamp_millis() - 86_400_000; // 1 day ago
         storage
             .add_to_blacklist(AddBlacklistRequest {
                 server_name: server_name_exp.clone(),
@@ -1394,7 +1394,7 @@ mod db_tests {
             .await
             .expect("add expired entry should succeed");
 
-        let future = Utc::now().timestamp_millis() + 86_400_000; // 1 day from now
+        let future = current_timestamp_millis() + 86_400_000; // 1 day from now
         storage
             .add_to_blacklist(AddBlacklistRequest {
                 server_name: server_name_active.clone(),

@@ -1,4 +1,5 @@
 use super::*;
+use synapse_common::current_timestamp_millis;
 
 use std::sync::atomic::{AtomicI64, Ordering};
 
@@ -25,7 +26,7 @@ impl InMemoryDehydratedDeviceStore {
 #[async_trait::async_trait]
 impl DehydratedDeviceStoreApi for InMemoryDehydratedDeviceStore {
     async fn get_by_user(&self, user_id: &str) -> Result<Option<DehydratedDevice>, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         Ok(self
             .devices
             .read()
@@ -36,7 +37,7 @@ impl DehydratedDeviceStoreApi for InMemoryDehydratedDeviceStore {
     }
 
     async fn upsert_for_user(&self, params: UpsertDehydratedDeviceParams) -> Result<DehydratedDevice, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let id = self.next_id.fetch_add(1, Ordering::SeqCst) + 1;
         let record = DehydratedDevice {
             id,
@@ -59,7 +60,7 @@ impl DehydratedDeviceStoreApi for InMemoryDehydratedDeviceStore {
     }
 
     async fn sweep_expired(&self) -> Result<u64, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut devices = self.devices.write().await;
         let before = devices.len();
         devices.retain(|_, device| device.expires_at.is_none_or(|expires| expires > now));

@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use synapse_cache::{FederationSignatureCache, KeyRotationEvent};
+use synapse_common::current_timestamp_millis;
 use synapse_common::key_encryption::{decrypt_key, encrypt_key, is_encrypted};
 use synapse_common::ApiError;
 use tokio::sync::RwLock;
@@ -37,7 +38,7 @@ impl Default for FederationRotationConfig {
 }
 
 fn new_key_id() -> String {
-    let ts = Utc::now().timestamp_millis();
+    let ts = current_timestamp_millis();
     let rand: u32 = rand::random();
     format!("ed25519:{ts:x}_{rand:08x}")
 }
@@ -387,7 +388,7 @@ impl KeyRotationManager {
             LIMIT 1
             "#,
             &self.server_name,
-            Utc::now().timestamp_millis()
+            current_timestamp_millis()
         )
         .fetch_optional(&*self.pool)
         .await;
@@ -457,7 +458,7 @@ impl KeyRotationManager {
     pub async fn initialize(&self, secret_key: &str, key_id: &str) -> Result<(), ApiError> {
         self.ensure_signing_keys_table().await?;
 
-        let created_ts = Utc::now().timestamp_millis();
+        let created_ts = current_timestamp_millis();
         let interval_days = self.rotation_config.read().await.rotation_interval_days;
         let expires_at = (Utc::now() + Duration::days(interval_days)).timestamp_millis();
 
@@ -521,7 +522,7 @@ impl KeyRotationManager {
 
     pub async fn should_rotate_keys(&self) -> bool {
         if let Some(key) = &*self.current_key.read().await {
-            let now = Utc::now().timestamp_millis();
+            let now = current_timestamp_millis();
             let threshold_days = self.rotation_config.read().await.rotation_threshold_days;
             let rotation_threshold = Duration::days(threshold_days).num_milliseconds();
             key.expires_at.saturating_sub(now) <= rotation_threshold
@@ -619,7 +620,7 @@ impl KeyRotationManager {
     }
 
     async fn is_within_grace_period(&self, key: &SigningKey) -> bool {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let grace_minutes = self.rotation_config.read().await.grace_period_minutes;
         let grace_end = key.expires_at + Duration::minutes(grace_minutes).num_milliseconds();
         now <= grace_end
@@ -669,7 +670,7 @@ impl KeyRotationManager {
         match key_record {
             Some(record) => {
                 let expires_at = record.expires_at;
-                let now = Utc::now().timestamp_millis();
+                let now = current_timestamp_millis();
 
                 if expires_at > 0 {
                     let grace_minutes = self.rotation_config.read().await.grace_period_minutes;
@@ -773,7 +774,7 @@ impl KeyRotationManager {
         key_id: &str,
         reason: Option<&str>,
     ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let key_json_update = if let Some(r) = reason {
             serde_json::json!({

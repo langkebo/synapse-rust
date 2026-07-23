@@ -7,6 +7,7 @@ use crate::media_service::MediaService;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::random_string;
 use synapse_common::ApiError;
 
@@ -80,7 +81,7 @@ impl MediaDomainService {
             .as_ref()
             .ok_or_else(|| ApiError::internal("Quarantine stream storage not configured"))?;
 
-        let now_ts = chrono::Utc::now().timestamp_millis();
+        let now_ts = current_timestamp_millis();
 
         // Record the quarantine change in the stream
         let stream_id =
@@ -121,7 +122,7 @@ impl MediaDomainService {
             .as_ref()
             .ok_or_else(|| ApiError::internal("Quarantine stream storage not configured"))?;
 
-        let now_ts = chrono::Utc::now().timestamp_millis();
+        let now_ts = current_timestamp_millis();
 
         // Record the unquarantine change in the stream
         let stream_id =

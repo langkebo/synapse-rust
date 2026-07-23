@@ -12,6 +12,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 use synapse_services::uia_service::UiaService;
 
 pub(crate) async fn whoami(
@@ -464,7 +465,7 @@ pub(crate) async fn add_threepid(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let user_id = &auth_user.user_id;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let sid = body
         .get("sid")

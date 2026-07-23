@@ -8,6 +8,7 @@ use chrono::Utc;
 use serde_json::Value;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::DehydratedDeviceStorage;
 
@@ -560,7 +561,7 @@ impl DeviceKeyService {
         current_user_id: &str,
     ) -> Result<(Vec<String>, Vec<String>), ApiError> {
         let from_ts = from.parse::<i64>().unwrap_or(0);
-        let to_ts = to.parse::<i64>().unwrap_or(Utc::now().timestamp_millis());
+        let to_ts = to.parse::<i64>().unwrap_or(current_timestamp_millis());
 
         self.storage.get_key_changes_with_left(from_ts, to_ts, current_user_id).await
     }

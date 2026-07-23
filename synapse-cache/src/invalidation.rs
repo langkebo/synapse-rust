@@ -4,6 +4,7 @@ use redis::{AsyncCommands, Client};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
@@ -31,7 +32,7 @@ pub struct CacheInvalidationMessage {
 
 impl CacheInvalidationMessage {
     pub fn new(key: String, invalidation_type: InvalidationType, sender_instance: String) -> Self {
-        Self { key, invalidation_type, sender_instance, timestamp: chrono::Utc::now().timestamp_millis(), reason: None }
+        Self { key, invalidation_type, sender_instance, timestamp: current_timestamp_millis(), reason: None }
     }
 
     pub fn with_reason(mut self, reason: String) -> Self {

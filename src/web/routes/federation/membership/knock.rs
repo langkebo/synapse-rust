@@ -3,6 +3,7 @@ use crate::web::middleware::FederationRequestAuth;
 use crate::web::routes::context::FederationContext;
 use axum::extract::{Extension, Json, Path, State};
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 use super::{
     dispatch_federation_member_event_to_appservice, federatable_room_version, validate_federation_user_origin,
@@ -19,7 +20,7 @@ pub(crate) async fn knock_room(
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
     let event_id = format!("${}", crate::common::crypto::generate_event_id(&ctx.server_name));
-    let origin_server_ts = chrono::Utc::now().timestamp_millis();
+    let origin_server_ts = current_timestamp_millis();
 
     let content = json!({"membership": "knock"});
     let params = synapse_storage::event::CreateEventParams {

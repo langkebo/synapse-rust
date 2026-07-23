@@ -4,6 +4,7 @@ use super::TOKEN_CACHE_TTL_SECS;
 use super::USER_ACTIVE_CACHE_TTL_SECS;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use synapse_common::current_timestamp_millis;
 use synapse_common::*;
 use synapse_storage::refresh_token::CreateRefreshTokenRequest;
 
@@ -201,7 +202,7 @@ impl AuthService {
     pub async fn generate_refresh_token(&self, user_id: &str, device_id: &str) -> ApiResult<String> {
         let token = super::auth_generate_token(32);
         let token_hash = Self::hash_token(&token);
-        let expiry_ts = Utc::now().timestamp_millis() + (self.refresh_token_expiry * 1000);
+        let expiry_ts = current_timestamp_millis() + (self.refresh_token_expiry * 1000);
 
         let request = CreateRefreshTokenRequest {
             token_hash: token_hash.clone(),

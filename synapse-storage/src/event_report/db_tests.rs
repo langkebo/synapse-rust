@@ -1,7 +1,7 @@
 use std::env;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
-use chrono::Utc;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
@@ -39,7 +39,7 @@ async fn cleanup_all(pool: &PgPool, prefix: &str) {
 
 /// Insert a user row to satisfy the FK constraint on report_rate_limits.user_id -> users.user_id.
 async fn ensure_user(pool: &PgPool, user_id: &str) {
-    let now = Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let _ = sqlx::query(
         "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
     )
@@ -618,7 +618,7 @@ async fn test_check_rate_limit_blocked_user() {
 
     ensure_user(&pool, &user_id).await;
     let storage = EventReportStorage::new(&pool);
-    let blocked_until = Utc::now().timestamp_millis() + 86_400_000; // 1 day from now
+    let blocked_until = current_timestamp_millis() + 86_400_000; // 1 day from now
     storage.block_user_reports(&user_id, blocked_until, "Harassment").await.expect("block_user_reports should succeed");
 
     let check = storage.check_rate_limit(&user_id).await.expect("check_rate_limit should succeed");
@@ -639,7 +639,7 @@ async fn test_check_rate_limit_block_expired_auto_unblocks() {
 
     ensure_user(&pool, &user_id).await;
     let storage = EventReportStorage::new(&pool);
-    let past = Utc::now().timestamp_millis() - 1000; // 1 second ago
+    let past = current_timestamp_millis() - 1000; // 1 second ago
     storage.block_user_reports(&user_id, past, "Old block").await.expect("block_user_reports should succeed");
 
     let check = storage.check_rate_limit(&user_id).await.expect("check_rate_limit should succeed");
@@ -659,7 +659,7 @@ async fn test_check_rate_limit_daily_limit_exceeded() {
     cleanup_all(&pool, &user_id).await;
 
     ensure_user(&pool, &user_id).await;
-    let now = Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     // Directly insert a row with 50 reports in the last 24h
     sqlx::query(
@@ -777,7 +777,7 @@ async fn test_block_user_reports_upsert() {
 
     ensure_user(&pool, &user_id).await;
     let storage = EventReportStorage::new(&pool);
-    let until = Utc::now().timestamp_millis() + 86_400_000;
+    let until = current_timestamp_millis() + 86_400_000;
 
     // First block
     storage.block_user_reports(&user_id, until, "First reason").await.expect("first block should succeed");
@@ -809,7 +809,7 @@ async fn test_unblock_user_reports() {
 
     ensure_user(&pool, &user_id).await;
     let storage = EventReportStorage::new(&pool);
-    let until = Utc::now().timestamp_millis() + 86_400_000;
+    let until = current_timestamp_millis() + 86_400_000;
 
     // Block first
     storage.block_user_reports(&user_id, until, "Test block").await.expect("block should succeed");

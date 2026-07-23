@@ -1,6 +1,7 @@
 use super::models::*;
 use sqlx::{Pool, Postgres, QueryBuilder};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Clone)]
 pub struct SlidingSyncStorage {
@@ -19,7 +20,7 @@ impl SlidingSyncStorage {
         conn_id: Option<&str>,
     ) -> Result<SlidingSyncToken, sqlx::Error> {
         self.ensure_schema()?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + 7 * 24 * 3600 * 1000;
 
         let token = uuid::Uuid::new_v4().to_string();
@@ -101,7 +102,7 @@ impl SlidingSyncStorage {
         ranges: &[(u32, u32)],
     ) -> Result<SlidingSyncList, sqlx::Error> {
         self.ensure_schema()?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let sort_json = serde_json::to_value(sort).unwrap_or(serde_json::json!([]));
         let filters_json =
             filters.map(|f| serde_json::to_value(f).unwrap_or(serde_json::json!({}))).unwrap_or(serde_json::json!({}));
@@ -199,7 +200,7 @@ impl SlidingSyncStorage {
         timestamp: i64,
     ) -> Result<SlidingSyncRoom, sqlx::Error> {
         self.ensure_schema()?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, SlidingSyncRoom>(
             r"
@@ -352,7 +353,7 @@ impl SlidingSyncStorage {
             return Ok(None);
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let bump_stamp = sqlx::query_scalar::<_, Option<i64>>(
             r"
             SELECT MAX(origin_server_ts)
@@ -474,7 +475,7 @@ impl SlidingSyncStorage {
         notification_count: i32,
     ) -> Result<(), sqlx::Error> {
         self.ensure_schema()?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -505,7 +506,7 @@ impl SlidingSyncStorage {
         bump_stamp: i64,
     ) -> Result<(), sqlx::Error> {
         self.ensure_schema()?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -528,7 +529,7 @@ impl SlidingSyncStorage {
 
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error> {
         self.ensure_schema()?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query(
             r"
@@ -550,7 +551,7 @@ impl SlidingSyncStorage {
         from: Option<&RoomTokenSyncCursor>,
     ) -> Result<Vec<AdminRoomTokenSyncEntry>, sqlx::Error> {
         self.ensure_schema()?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         // Fetch one extra row so callers can detect "more pages available",
         // but truncate back to `limit` before returning so the public contract
         // (length <= limit) holds.

@@ -1,5 +1,6 @@
 use super::*;
 use crate::device::{Device, DeviceListStoreApi};
+use synapse_common::current_timestamp_millis;
 
 /// In-memory lazy-loaded members: `(user_id, device_id, room_id) → member set`.
 type LazyLoadedMembersMap = HashMap<(String, String, String), std::collections::HashSet<String>>;
@@ -34,7 +35,7 @@ impl DeviceListStoreApi for InMemoryDeviceListStore {
         user_id: &str,
         display_name: Option<&str>,
     ) -> Result<Device, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let device = Device {
             device_id: device_id.to_string(),
             user_id: user_id.to_string(),

@@ -2,6 +2,7 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
+use synapse_common::current_timestamp_millis;
 use synapse_common::generate_event_id;
 use synapse_storage::CreateEventParams;
 
@@ -300,7 +301,7 @@ impl MessagingService {
         pinned_event_ids: &[String],
     ) -> ApiResult<()> {
         let event_id = generate_event_id(&self.server_name);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         self.create_event(
             CreateEventParams {
                 event_id,

@@ -1,4 +1,5 @@
 use super::*;
+use synapse_common::current_timestamp_millis;
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
@@ -31,7 +32,7 @@ impl crate::space::SpaceStoreApi for InMemorySpaceStore {
         request: crate::space::CreateSpaceRequest,
     ) -> Result<crate::space::Space, sqlx::Error> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let server_name = request.room_id.split(':').next_back().unwrap_or("localhost");
         let space_id = format!("!space_{}:{}", id, server_name);
         let creator = request.creator.clone();
@@ -106,7 +107,7 @@ impl crate::space::SpaceStoreApi for InMemorySpaceStore {
         if let Some(v) = request.is_public {
             space.is_public = v;
         }
-        space.updated_ts = Some(chrono::Utc::now().timestamp_millis());
+        space.updated_ts = Some(current_timestamp_millis());
         Ok(space.clone())
     }
 
@@ -117,7 +118,7 @@ impl crate::space::SpaceStoreApi for InMemorySpaceStore {
 
     async fn add_child(&self, request: crate::space::AddChildRequest) -> Result<crate::space::SpaceChild, sqlx::Error> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let child = crate::space::SpaceChild {
             id,
             space_id: request.space_id,
@@ -156,7 +157,7 @@ impl crate::space::SpaceStoreApi for InMemorySpaceStore {
         membership: &str,
         inviter: Option<&str>,
     ) -> Result<crate::space::SpaceMember, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let member = crate::space::SpaceMember {
             space_id: space_id.to_string(),
             user_id: user_id.to_string(),
@@ -241,7 +242,7 @@ impl crate::space::SpaceStoreApi for InMemorySpaceStore {
     }
 
     async fn update_space_summary(&self, space_id: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let children_count = self.children.read().await.iter().filter(|c| c.space_id == space_id).count() as i64;
         let member_count =
             self.members.read().await.values().filter(|m| m.space_id == space_id && m.membership == "join").count()
@@ -268,7 +269,7 @@ impl crate::space::SpaceStoreApi for InMemorySpaceStore {
         content: serde_json::Value,
         state_key: Option<&str>,
     ) -> Result<crate::space::SpaceEvent, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let event = crate::space::SpaceEvent {
             event_id: event_id.to_string(),
             space_id: space_id.to_string(),

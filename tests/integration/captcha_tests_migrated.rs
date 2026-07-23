@@ -4,6 +4,7 @@ use deadpool_redis::{Config as RedisPoolConfig, Runtime as RedisRuntime};
 use redis::AsyncCommands;
 use sqlx::Row;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_rust::test_utils::TEST_ENV_LOCK;
@@ -42,7 +43,7 @@ async fn ensure_default_template(
     subject: Option<&str>,
     content: &str,
 ) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query(
         r"
         INSERT INTO captcha_template (
@@ -225,7 +226,7 @@ async fn test_captcha_storage_config() {
     let pool = crate::require_test_pool().await;
 
     // 初始化测试需要的配置
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query(
         r"
         INSERT INTO captcha_config (

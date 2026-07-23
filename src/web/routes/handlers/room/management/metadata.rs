@@ -4,6 +4,7 @@ use crate::web::routes::{validate_room_id, AuthenticatedUser};
 use axum::extract::{Json, Path, Query, State};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 use crate::web::routes::context::RoomContext;
 
@@ -366,7 +367,7 @@ pub(crate) async fn set_room_vault_data(
     Ok(Json(json!({
         "room_id": room_id,
         "vault_data": body,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }
 

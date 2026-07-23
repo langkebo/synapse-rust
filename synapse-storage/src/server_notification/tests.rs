@@ -1,5 +1,6 @@
 use super::*;
 use chrono::{Duration, Utc};
+use synapse_common::current_timestamp_millis;
 
 #[test]
 fn test_create_notification_request_defaults() {
@@ -126,8 +127,8 @@ fn test_server_notification_struct() {
         action_url: None,
         action_text: None,
         created_by: Some("admin".to_string()),
-        created_ts: Utc::now().timestamp_millis(),
-        updated_ts: Utc::now().timestamp_millis(),
+        created_ts: current_timestamp_millis(),
+        updated_ts: current_timestamp_millis(),
     };
     assert_eq!(notification.title, "Test");
     assert!(notification.is_enabled);
@@ -143,7 +144,7 @@ fn test_user_notification_status() {
         is_dismissed: false,
         read_ts: None,
         dismissed_ts: None,
-        created_ts: Utc::now().timestamp_millis(),
+        created_ts: current_timestamp_millis(),
     };
     assert!(!status.is_read);
     assert!(!status.is_dismissed);
@@ -159,8 +160,8 @@ fn test_notification_template() {
         notification_type: "info".to_string(),
         variables: serde_json::json!(["username"]),
         is_enabled: true,
-        created_ts: Utc::now().timestamp_millis(),
-        updated_ts: Utc::now().timestamp_millis(),
+        created_ts: current_timestamp_millis(),
+        updated_ts: current_timestamp_millis(),
     };
     assert_eq!(template.name, "welcome");
     assert!(template.is_enabled);

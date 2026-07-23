@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
-use chrono::Utc;
 use synapse_common::error::ApiError;
 use tracing::{debug, info};
 
@@ -17,8 +17,8 @@ impl SamlStorage {
     }
 
     pub async fn create_session(&self, request: CreateSamlSessionRequest) -> Result<SamlSession, ApiError> {
-        let now = Utc::now().timestamp_millis();
-        let expires_at = Utc::now().timestamp_millis() + request.expires_in_seconds * 1000;
+        let now = current_timestamp_millis();
+        let expires_at = current_timestamp_millis() + request.expires_in_seconds * 1000;
         let attributes_json = serde_json::to_value(&request.attributes).unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, SamlSession>(
@@ -59,7 +59,7 @@ impl SamlStorage {
     }
 
     pub async fn get_session_by_user(&self, user_id: &str) -> Result<Option<SamlSession>, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let row = sqlx::query_as::<_, SamlSession>(
             r#"
             SELECT id, session_id, user_id, name_id, issuer, session_index, attributes, created_ts, expires_at, last_used_ts, status FROM saml_sessions
@@ -101,7 +101,7 @@ impl SamlStorage {
     }
 
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query("DELETE FROM saml_sessions WHERE expires_at < $1 OR status = 'invalidated'")
             .bind(now)
             .execute(&*self.pool)
@@ -119,7 +119,7 @@ impl SamlStorage {
         &self,
         request: CreateSamlUserMappingRequest,
     ) -> Result<SamlUserMapping, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let attributes_json = serde_json::to_value(&request.attributes).unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, SamlUserMapping>(
@@ -310,7 +310,7 @@ impl SamlStorage {
         &self,
         request: CreateSamlIdentityProviderRequest,
     ) -> Result<SamlIdentityProvider, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let attribute_mapping = request.attribute_mapping.unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, SamlIdentityProvider>(
@@ -387,7 +387,7 @@ impl SamlStorage {
         metadata_xml: &str,
         valid_until: Option<i64>,
     ) -> Result<(), ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"
             UPDATE saml_identity_providers
@@ -422,7 +422,7 @@ impl SamlStorage {
     }
 
     pub async fn create_auth_event(&self, request: CreateSamlAuthEventRequest) -> Result<SamlAuthEvent, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let attributes_json = serde_json::to_value(&request.attributes).unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, SamlAuthEvent>(
@@ -477,7 +477,7 @@ impl SamlStorage {
         &self,
         request: CreateSamlLogoutRequestRequest,
     ) -> Result<SamlLogoutRequest, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let row = sqlx::query_as::<_, SamlLogoutRequest>(
             r#"
             INSERT INTO saml_logout_requests (
@@ -513,7 +513,7 @@ impl SamlStorage {
     }
 
     pub async fn process_logout_request(&self, request_id: &str) -> Result<(), ApiError> {
-        let now_ts = chrono::Utc::now().timestamp_millis();
+        let now_ts = current_timestamp_millis();
         sqlx::query("UPDATE saml_logout_requests SET status = 'processed', processed_ts = $2 WHERE request_id = $1")
             .bind(request_id)
             .bind(now_ts)
@@ -561,7 +561,7 @@ impl SamlStorage {
     /// The caller (SamlService) is responsible for enforcing the
     /// `MUTABLE_CONFIG_FIELDS` whitelist; this method trusts its inputs.
     pub async fn upsert_config_override(&self, key: &str, value: &serde_json::Value) -> Result<(), ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"
             INSERT INTO saml_config_overrides (config_key, config_value, updated_ts)

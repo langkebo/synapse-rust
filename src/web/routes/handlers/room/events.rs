@@ -10,6 +10,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use synapse_common::current_timestamp_millis;
 use synapse_storage::event::CreateEventParams;
 
 pub(crate) async fn get_single_event(
@@ -635,7 +636,7 @@ pub(crate) async fn sign_room_event(
         str::to_owned,
     );
 
-    let created_ts = chrono::Utc::now().timestamp_millis();
+    let created_ts = current_timestamp_millis();
 
     ctx.room_service
         .messaging()
@@ -854,7 +855,7 @@ pub(crate) async fn redact_event(
     let reason = body.get("reason").and_then(|v| v.as_str());
 
     let new_event_id = crate::common::crypto::generate_event_id(&ctx.server_name);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     // P0-05: redaction events must carry the target event_id in the `redacts`
     // field.  For room versions 1-10 this is a top-level PDU field (stored in

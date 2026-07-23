@@ -4,6 +4,7 @@ use crate::map_internal;
 use crate::*;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
+use synapse_common::current_timestamp_millis;
 use synapse_common::*;
 use synapse_storage::event::SinceFilter;
 
@@ -397,10 +398,9 @@ impl SyncService {
             .iter()
             .map(|event| Self::filter_event_fields(Self::event_to_json(event, event_format), event_fields))
             .collect();
-        let prev_batch = events.first().map_or_else(
-            || format!("t{}", chrono::Utc::now().timestamp_millis()),
-            |event| format!("t{}", event.origin_server_ts),
-        );
+        let prev_batch = events
+            .first()
+            .map_or_else(|| format!("t{}", current_timestamp_millis()), |event| format!("t{}", event.origin_server_ts));
 
         json!({
             "state": {

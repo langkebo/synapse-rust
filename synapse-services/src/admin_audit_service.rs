@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::{AuditEvent, AuditEventFilters, AuditEventStoreApi, CreateAuditEventRequest};
 use tracing::{error, instrument};
@@ -19,7 +20,7 @@ impl AdminAuditService {
         validate_request(&request)?;
 
         let event_id = uuid::Uuid::new_v4().to_string();
-        let created_ts = chrono::Utc::now().timestamp_millis();
+        let created_ts = current_timestamp_millis();
 
         self.storage.create_event(&event_id, created_ts, &request).await.map_err(|error| {
             error!(target: "security_audit", event_id = %event_id, "failed to persist audit event: {}", error);

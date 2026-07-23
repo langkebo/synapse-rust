@@ -10,6 +10,7 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 use synapse_storage::rendezvous::{
     CreateRendezvousSessionParams, RendezvousIntent, RendezvousMessage, RendezvousSession, RendezvousTransport,
     StoredRendezvousMessage,
@@ -272,12 +273,12 @@ async fn send_message(
     ::tracing::info!(request_id = %request_id, session_id = %session_id, message_type, "Stored rendezvous message");
 
     // Generate a message ID based on session and timestamp
-    let message_id = format!("{}_{}", session_id, chrono::Utc::now().timestamp_millis());
+    let message_id = format!("{}_{}", session_id, current_timestamp_millis());
 
     Ok(Json(json!({
         "session_id": session_id,
         "message_id": message_id,
-        "sent_ts": chrono::Utc::now().timestamp_millis()
+        "sent_ts": current_timestamp_millis()
     })))
 }
 

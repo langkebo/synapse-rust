@@ -8,6 +8,7 @@ use crate::room_summary::RoomSummaryStoreApi;
 use crate::sliding_sync::SlidingSyncStoreApi;
 use crate::user::UserStore;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[tokio::test]
 async fn shared_fake_user_store_is_usable_via_trait_object() {
@@ -727,7 +728,7 @@ impl crate::burn_after_read::BurnAfterReadStoreApi for InMemoryBurnAfterReadStor
         is_enabled: bool,
         burn_after_ms: i64,
     ) -> Result<crate::burn_after_read::BurnSettingsRow, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let row = crate::burn_after_read::BurnSettingsRow {
             user_id: user_id.to_string(),
             room_id: room_id.to_string(),
@@ -753,7 +754,7 @@ impl crate::burn_after_read::BurnAfterReadStoreApi for InMemoryBurnAfterReadStor
             user_id: user_id.to_string(),
             room_id: room_id.to_string(),
             event_id: event_id.to_string(),
-            created_ts: chrono::Utc::now().timestamp_millis(),
+            created_ts: current_timestamp_millis(),
             delete_ts,
             is_processed: false,
         };
@@ -837,7 +838,7 @@ impl crate::burn_after_read::BurnAfterReadStoreApi for InMemoryBurnAfterReadStor
     }
 
     async fn set_user_default(&self, user_id: &str, default_burn_ms: i64) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         self.defaults.write().await.insert(
             user_id.to_string(),
             crate::burn_after_read::BurnUserDefaultsRow {
@@ -870,7 +871,7 @@ async fn burn_after_read_settings_round_trip() {
 #[tokio::test]
 async fn burn_after_read_schedule_and_expire() {
     let store = InMemoryBurnAfterReadStore::new();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     store.schedule_burn("@alice:example.com", "!room:example.com", "$ev1", now + 60_000).await.unwrap();
     store.schedule_burn("@alice:example.com", "!room:example.com", "$ev2", now - 60_000).await.unwrap();
@@ -887,7 +888,7 @@ async fn burn_after_read_schedule_and_expire() {
 #[tokio::test]
 async fn burn_after_read_cancel_removes_from_pending() {
     let store = InMemoryBurnAfterReadStore::new();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     store.schedule_burn("@alice:example.com", "!room:example.com", "$ev1", now + 60_000).await.unwrap();
 

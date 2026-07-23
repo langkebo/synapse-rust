@@ -5,12 +5,13 @@
 //! depth/origin fields are needed.
 
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 use synapse_storage::event::RoomEvent;
 use synapse_storage::StateEvent;
 
 /// Convert a [`RoomEvent`] to its Client-format JSON representation.
 pub fn room_event_to_json(event: &RoomEvent) -> Value {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let age = now.saturating_sub(event.origin_server_ts);
     let mut obj = json!({
         "type": event.event_type,
@@ -31,7 +32,7 @@ pub fn room_event_to_json(event: &RoomEvent) -> Value {
 
 /// Convert a [`StateEvent`] to its Client-format JSON representation.
 pub fn state_event_to_json(event: &StateEvent) -> Value {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let age = now.saturating_sub(event.origin_server_ts);
     let sender = event.user_id.as_deref().unwrap_or(&event.sender);
     let event_type = event.event_type.as_deref().unwrap_or("m.room.message");

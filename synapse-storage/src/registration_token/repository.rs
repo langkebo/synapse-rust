@@ -1,6 +1,6 @@
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
-use chrono::Utc;
 use sqlx::PgPool;
 
 use super::models::*;
@@ -19,7 +19,7 @@ impl RegistrationTokenStorage {
         &self,
         request: CreateRegistrationTokenRequest,
     ) -> Result<RegistrationToken, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let token = request.token.unwrap_or_else(Self::generate_token);
         let token_type = request.token_type.unwrap_or_else(|| "single_use".to_string());
 
@@ -146,7 +146,7 @@ impl RegistrationTokenStorage {
                 }
 
                 if let Some(expires_at) = t.expires_at {
-                    let now = Utc::now().timestamp_millis();
+                    let now = current_timestamp_millis();
                     if expires_at < now {
                         return Ok(TokenValidationResult {
                             is_valid: false,
@@ -183,7 +183,7 @@ impl RegistrationTokenStorage {
                 return Ok(false);
             }
         };
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -266,7 +266,7 @@ impl RegistrationTokenStorage {
 }
 impl RegistrationTokenStorage {
     pub async fn get_active_tokens(&self) -> Result<Vec<RegistrationToken>, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let rows = sqlx::query_as::<_, RegistrationToken>(
             r"
@@ -305,7 +305,7 @@ impl RegistrationTokenStorage {
     }
 
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query(
             "UPDATE registration_tokens SET is_enabled = FALSE WHERE expires_at IS NOT NULL AND expires_at < $1 AND is_enabled = TRUE",
@@ -318,7 +318,7 @@ impl RegistrationTokenStorage {
     }
 
     pub async fn create_room_invite(&self, request: CreateRoomInviteRequest) -> Result<RoomInvite, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let invite_code = Self::generate_token();
 
         let row = sqlx::query_as::<_, RoomInvite>(
@@ -362,13 +362,13 @@ impl RegistrationTokenStorage {
                 }
 
                 if let Some(expires_at) = i.expires_at {
-                    let now = Utc::now().timestamp_millis();
+                    let now = current_timestamp_millis();
                     if expires_at < now {
                         return Ok(false);
                     }
                 }
 
-                let now = Utc::now().timestamp_millis();
+                let now = current_timestamp_millis();
 
                 sqlx::query(
                     r"
@@ -391,7 +391,7 @@ impl RegistrationTokenStorage {
     }
 
     pub async fn revoke_room_invite(&self, invite_code: &str, reason: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -412,7 +412,7 @@ impl RegistrationTokenStorage {
     }
 
     pub async fn create_batch(&self, batch: &RegistrationTokenBatch, tokens: &[String]) -> Result<i64, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, RegistrationTokenBatch>(
             r"

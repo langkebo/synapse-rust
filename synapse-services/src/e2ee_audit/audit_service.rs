@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_e2ee::{CrossSigningStorage, DeviceTrustLevel, DeviceTrustStorage};
 use synapse_storage::{DeviceStorage, E2eeAuditStorage};
@@ -159,7 +160,7 @@ impl CrossSigningVerificationService {
                         "cross_signed": cross_signing_setup,
                     })),
                     ip_address: None,
-                    timestamp: chrono::Utc::now().timestamp_millis(),
+                    timestamp: current_timestamp_millis(),
                 })
                 .await?;
 
@@ -179,7 +180,7 @@ impl CrossSigningVerificationService {
                     "unverified_count": report.unverified_count,
                 })),
                 ip_address: None,
-                timestamp: chrono::Utc::now().timestamp_millis(),
+                timestamp: current_timestamp_millis(),
             })
             .await?;
 
@@ -215,7 +216,7 @@ impl CrossSigningVerificationService {
                     "cross_signed": cross_signed,
                 })),
                 ip_address: None,
-                timestamp: chrono::Utc::now().timestamp_millis(),
+                timestamp: current_timestamp_millis(),
             })
             .await?;
 
@@ -223,7 +224,7 @@ impl CrossSigningVerificationService {
     }
 
     pub async fn mark_device_verified(&self, user_id: &str, device_id: &str, method: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         self.device_trust_storage
             .set_device_trust(user_id, device_id, DeviceTrustLevel::Verified, Some(method))
@@ -249,7 +250,7 @@ impl CrossSigningVerificationService {
     }
 
     pub async fn mark_device_unverified(&self, user_id: &str, device_id: &str, reason: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         self.device_trust_storage.set_device_trust(user_id, device_id, DeviceTrustLevel::Unverified, None).await?;
 

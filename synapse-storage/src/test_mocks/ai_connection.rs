@@ -1,5 +1,6 @@
-#[cfg(feature = "openclaw-routes")]
 use super::*;
+#[cfg(feature = "openclaw-routes")]
+use synapse_common::current_timestamp_millis;
 
 #[cfg(feature = "openclaw-routes")]
 #[derive(Clone, Default)]
@@ -51,7 +52,7 @@ impl crate::ai_connection::AiConnectionStoreApi for InMemoryAiConnectionStore {
     async fn update_connection_status(&self, id: &str, is_active: bool) -> Result<(), sqlx::Error> {
         if let Some(conn) = self.connections.write().await.get_mut(id) {
             conn.is_active = is_active;
-            conn.updated_ts = Some(chrono::Utc::now().timestamp_millis());
+            conn.updated_ts = Some(current_timestamp_millis());
         }
         Ok(())
     }

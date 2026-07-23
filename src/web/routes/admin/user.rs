@@ -11,6 +11,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 use synapse_services::admin_user_service::{decode_user_cursor, encode_user_cursor, AdminUserCursor};
 use synapse_storage::user::User as AdminUserRecord;
 use validator::Validate;
@@ -403,7 +404,7 @@ pub async fn deactivate_user(
         action = "admin.deactivate_user",
         admin_user_id = %admin.user_id,
         target_user_id = %user.user_id,
-        timestamp_ms = chrono::Utc::now().timestamp_millis(),
+        timestamp_ms = current_timestamp_millis(),
         "Admin deactivate user operation"
     );
 
@@ -467,7 +468,7 @@ pub async fn reset_user_password(
         action = "admin.reset_password",
         admin_user_id = %admin.user_id,
         target_user_id = %user.user_id,
-        timestamp_ms = chrono::Utc::now().timestamp_millis(),
+        timestamp_ms = current_timestamp_millis(),
         "Admin reset user password operation"
     );
 

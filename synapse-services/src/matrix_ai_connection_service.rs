@@ -2,6 +2,7 @@ use crate::mcp_proxy::McpProxyServiceApi;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use synapse_storage::ai_connection::{AiConnection, AiConnectionStoreApi};
 use tracing::info;
@@ -85,7 +86,7 @@ impl MatrixAiConnectionService {
         request: CreateConnectionRequest,
     ) -> Result<AiConnection, ApiError> {
         let id = uuid::Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let conn = AiConnection {
             id: id.clone(),

@@ -8,6 +8,7 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 async fn ensure_invite_list_view_access(
     ctx: &AdminContext,
@@ -91,7 +92,7 @@ pub async fn set_invite_blocklist(
         "room_id": room_id,
         "blocklist": user_ids.clone(),
         "blocked_users": user_ids,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }
 
@@ -141,6 +142,6 @@ pub async fn set_invite_allowlist(
         "room_id": room_id,
         "allowlist": user_ids.clone(),
         "allowed_users": user_ids,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }

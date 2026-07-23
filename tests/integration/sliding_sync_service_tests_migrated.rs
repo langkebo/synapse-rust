@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_rust::cache::{CacheConfig, CacheManager};
@@ -605,7 +606,7 @@ async fn test_cleanup_expired_tokens() {
     let storage = SlidingSyncStorage::new(pool.clone());
     let token = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
 
-    let past_expiry = chrono::Utc::now().timestamp_millis() - 1000;
+    let past_expiry = current_timestamp_millis() - 1000;
     sqlx::query("UPDATE sliding_sync_tokens SET expires_at = $1 WHERE id = $2")
         .bind(past_expiry)
         .bind(token.id)

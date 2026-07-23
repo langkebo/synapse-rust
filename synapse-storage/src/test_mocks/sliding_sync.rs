@@ -1,3 +1,5 @@
+use synapse_common::current_timestamp_millis;
+
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
 pub struct InMemorySlidingSyncStore {
@@ -42,7 +44,7 @@ impl crate::sliding_sync::SlidingSyncStoreApi for InMemorySlidingSyncStore {
         conn_id: Option<&str>,
     ) -> Result<crate::sliding_sync::SlidingSyncToken, sqlx::Error> {
         let key = Self::key(user_id, device_id, conn_id);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let token_id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let token = crate::sliding_sync::SlidingSyncToken {
             id: token_id,
@@ -93,7 +95,7 @@ impl crate::sliding_sync::SlidingSyncStoreApi for InMemorySlidingSyncStore {
     ) -> Result<crate::sliding_sync::SlidingSyncList, sqlx::Error> {
         let list_key_owned =
             (user_id.to_string(), device_id.to_string(), conn_id.map(|s| s.to_string()), list_key.to_string());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let list = crate::sliding_sync::SlidingSyncList {
             id,
@@ -162,7 +164,7 @@ impl crate::sliding_sync::SlidingSyncStoreApi for InMemorySlidingSyncStore {
         timestamp: i64,
     ) -> Result<crate::sliding_sync::SlidingSyncRoom, sqlx::Error> {
         let key = (user_id.to_string(), device_id.to_string(), conn_id.map(|s| s.to_string()), room_id.to_string());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let room = crate::sliding_sync::SlidingSyncRoom {
             id,
@@ -311,7 +313,7 @@ impl crate::sliding_sync::SlidingSyncStoreApi for InMemorySlidingSyncStore {
     }
 
     async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut tokens = self.tokens.write().await;
         let before = tokens.len() as u64;
         tokens.retain(|_, t| t.expires_at.is_none_or(|e| e > now));
@@ -351,7 +353,7 @@ impl crate::sliding_sync::SlidingSyncStoreApi for InMemorySlidingSyncStore {
                 is_invited: false,
                 name: None,
                 avatar: None,
-                is_expired: t.expires_at.is_some_and(|e| e <= chrono::Utc::now().timestamp_millis()),
+                is_expired: t.expires_at.is_some_and(|e| e <= current_timestamp_millis()),
             })
             .collect();
         entries.sort_by_key(|e| e.room_updated_ts);

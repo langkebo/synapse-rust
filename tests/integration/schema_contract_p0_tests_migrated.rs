@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use sqlx::Row;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_services::room_summary_service::RoomSummaryService;
 use synapse_storage::event::{CreateEventParams, EventStorage};
 use synapse_storage::room_summary::{
@@ -424,7 +425,7 @@ async fn test_schema_contract_account_data_query_and_write_read_closure() {
         "theme": "light",
         "layout": "expanded"
     });
-    let created_ts = chrono::Utc::now().timestamp_millis();
+    let created_ts = current_timestamp_millis();
     let updated_ts = created_ts + 1000;
 
     sqlx::query(
@@ -505,7 +506,7 @@ async fn test_schema_contract_room_account_data_query_and_write_read_closure() {
     let updated_data = serde_json::json!({
         "tags": { "m.lowpriority": { "order": 0.9 } }
     });
-    let created_ts = chrono::Utc::now().timestamp_millis();
+    let created_ts = current_timestamp_millis();
     let updated_ts = created_ts + 2000;
 
     sqlx::query(
@@ -622,7 +623,7 @@ async fn test_schema_contract_push_rules_query_and_write_read_closure() {
         "pattern": "schema-contract"
     }]);
     let pattern = Some("schema-contract".to_string());
-    let created_ts = chrono::Utc::now().timestamp_millis();
+    let created_ts = current_timestamp_millis();
 
     sqlx::query(
         r#"
@@ -1263,7 +1264,7 @@ async fn test_schema_contract_search_index_query_and_write_read_closure() {
     let user_id = format!("@search-user-{}:localhost", uuid::Uuid::new_v4());
     let event_type = "m.room.message";
     let content_type = "m.text";
-    let created_ts_old = chrono::Utc::now().timestamp_millis();
+    let created_ts_old = current_timestamp_millis();
     let created_ts_new = created_ts_old + 5000;
     let updated_ts = created_ts_new + 1000;
     let original_content = "Hello Search Contract";

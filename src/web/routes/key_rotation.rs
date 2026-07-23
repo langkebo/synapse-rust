@@ -5,8 +5,8 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
-use chrono::Utc;
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 pub async fn get_key_rotation_status(
     State(ctx): State<DeviceContext>,
@@ -249,7 +249,7 @@ pub async fn check_needs_rotation(
         }
     };
 
-    let now = Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let interval_ms = ctx.config.federation.key_rotation_grace_period_ms;
 
     let needs_rotation = match last_rotation {

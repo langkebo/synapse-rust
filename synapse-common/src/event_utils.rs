@@ -51,6 +51,7 @@ pub fn events_to_json_without_age(events: &[RoomEvent]) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::current_timestamp_millis;
     use serde_json::json;
 
     fn create_test_event() -> RoomEvent {
@@ -59,7 +60,7 @@ mod tests {
             room_id: "!test:example.com".to_string(),
             event_type: "m.room.message".to_string(),
             content: json!({"body": "test message"}),
-            origin_server_ts: chrono::Utc::now().timestamp_millis() - 1000,
+            origin_server_ts: current_timestamp_millis() - 1000,
             user_id: "@test:example.com".to_string(),
             state_key: None,
             depth: 0,

@@ -7,6 +7,7 @@ use axum::{
     http::HeaderMap,
 };
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 use super::{dispatch_federation_member_event_to_appservice, federatable_room_version};
 
@@ -52,7 +53,7 @@ pub(crate) async fn thirdparty_invite(
         event_type: "m.room.member".to_string(),
         content: content.clone(),
         state_key: Some(invitee.to_string()),
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
 
@@ -94,10 +95,7 @@ pub(crate) async fn invite_v2(
         event_type: "m.room.member".to_string(),
         content,
         state_key: Some(state_key.to_string()),
-        origin_server_ts: body
-            .get("origin_server_ts")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(chrono::Utc::now().timestamp_millis()),
+        origin_server_ts: body.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(current_timestamp_millis()),
         redacts: None,
     };
 
@@ -165,7 +163,7 @@ pub(crate) async fn exchange_third_party_invite(
     let event_id = body.get("event_id").and_then(|v| v.as_str()).unwrap_or(&default_event_id).to_string();
 
     let origin_server_ts =
-        body.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        body.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
 
     let (sender, state_key) = validate_federation_exchange_third_party_invite_event(&auth.origin, &room_id, &body)?;
     let content = body.get("content").cloned().unwrap_or_else(|| json!({}));

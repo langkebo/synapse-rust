@@ -5,6 +5,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use synapse_common::current_timestamp_millis;
 
 use crate::common::error::ApiError;
 use crate::web::routes::{AppState, AuthenticatedUser};
@@ -77,7 +78,7 @@ async fn add_reaction(
     // 提取 reaction 内容 (emoji)
     let annotation = body.get("body").and_then(|v| v.as_str()).unwrap_or("👍").to_string();
 
-    let origin_server_ts = chrono::Utc::now().timestamp_millis();
+    let origin_server_ts = current_timestamp_millis();
     let relation = ctx
         .relations_service
         .send_annotation(synapse_services::relations_service::SendAnnotationRequest {

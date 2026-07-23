@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use synapse_common::current_timestamp_millis;
     use synapse_services::refresh_token_service::RefreshTokenService;
     use synapse_services::ServiceContainer;
     use synapse_storage::refresh_token::*;
@@ -12,7 +13,7 @@ mod tests {
             device_id: Some("DEVICE123".to_string()),
             access_token_id: Some("access_token_id".to_string()),
             scope: Some("openid profile".to_string()),
-            expires_at: chrono::Utc::now().timestamp_millis() + 604800000,
+            expires_at: current_timestamp_millis() + 604800000,
             client_info: None,
             ip_address: Some("127.0.0.1".to_string()),
             user_agent: Some("TestAgent/1.0".to_string()),

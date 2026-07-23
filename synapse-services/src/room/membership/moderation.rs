@@ -2,6 +2,7 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
+use synapse_common::current_timestamp_millis;
 use synapse_common::{generate_event_id, is_legal, JoinRule, Membership, TransitionCtx};
 use synapse_storage::CreateEventParams;
 
@@ -100,7 +101,7 @@ impl MembershipService {
                             .unwrap_or(invitee_id),
                     }),
                     state_key: Some(invitee_id.to_string()),
-                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                    origin_server_ts: current_timestamp_millis(),
                     redacts: None,
                 },
                 None,
@@ -223,7 +224,7 @@ impl MembershipService {
                     event_type: "m.room.member".to_string(),
                     content,
                     state_key: Some(user_id.to_string()),
-                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                    origin_server_ts: current_timestamp_millis(),
                     redacts: None,
                 },
                 None,
@@ -295,7 +296,7 @@ impl MembershipService {
                     event_type: "m.room.member".to_string(),
                     content,
                     state_key: Some(user_id.to_string()),
-                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                    origin_server_ts: current_timestamp_millis(),
                     redacts: None,
                 },
                 None,
@@ -392,7 +393,7 @@ impl MembershipService {
                     event_type: "m.room.member".to_string(),
                     content,
                     state_key: Some(target_user_id.to_string()),
-                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                    origin_server_ts: current_timestamp_millis(),
                     redacts: None,
                 },
                 None,

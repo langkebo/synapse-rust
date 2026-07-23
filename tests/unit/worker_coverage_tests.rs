@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_services::worker::bus::{BusMessage, RedisBusConfig, WorkerBus};
 use synapse_services::worker::health::{HealthCheckConfig, HealthChecker, HealthStatus};
 use synapse_services::worker::load_balancer::WorkerLoadStats as LoadBalancerStats;
@@ -1090,7 +1091,7 @@ async fn test_load_balancer_update_worker_load() {
     use synapse_services::worker::types::WorkerInfo;
 
     let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let worker = WorkerInfo {
         id: 1,
@@ -1130,7 +1131,7 @@ async fn test_load_balancer_get_all_stats() {
     use synapse_services::worker::types::WorkerInfo;
 
     let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let worker = WorkerInfo {
         id: 1,
@@ -1159,7 +1160,7 @@ async fn test_load_balancer_get_active_worker_count() {
     use synapse_services::worker::types::WorkerInfo;
 
     let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let worker = WorkerInfo {
         id: 1,

@@ -1,9 +1,9 @@
 use async_trait::async_trait;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use synapse_storage::module::*;
 use tracing::{error, info, instrument};
@@ -632,7 +632,7 @@ impl AccountValidityService {
         let validity = self.get_validity(user_id).await?;
 
         if let Some(v) = validity {
-            let now = Utc::now().timestamp_millis();
+            let now = current_timestamp_millis();
             Ok(v.is_valid && v.expiration_at.is_none_or(|e| e > now))
         } else {
             Ok(true)

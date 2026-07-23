@@ -2,6 +2,7 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
+use synapse_common::current_timestamp_millis;
 use synapse_common::{generate_event_id, generate_stream_token_from_ts, parse_stream_token};
 use synapse_storage::CreateEventParams;
 
@@ -26,7 +27,7 @@ impl MessagingService {
         }
 
         let event_id = generate_event_id(&self.server_name);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let max_ts = self.event_reader.get_max_origin_server_ts_for_room(room_id).await.unwrap_or(0);
         let now = now.max(max_ts + 1);
 
@@ -272,7 +273,7 @@ impl MessagingService {
         room_id: &str,
         limit: i64,
     ) -> ApiResult<Vec<serde_json::Value>> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let rows = self
             .event_reader
             .get_ephemeral_events(room_id, now, limit)
@@ -305,7 +306,7 @@ impl MessagingService {
         let content = json!({
             "user_ids": typing_user_ids
         });
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         self.event_writer
             .upsert_ephemeral_event(room_id, user_id, "m.typing", &content, now, now, Some(now + timeout_ms))
             .await

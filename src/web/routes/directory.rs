@@ -6,6 +6,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 use validator::Validate;
 
 #[derive(Debug, Deserialize, Validate)]
@@ -153,7 +154,7 @@ pub async fn set_room_alias_handler(
     Ok(Json(json!({
         "room_id": room_id,
         "alias": room_alias,
-        "created_ts": chrono::Utc::now().timestamp_millis()
+        "created_ts": current_timestamp_millis()
     })))
 }
 

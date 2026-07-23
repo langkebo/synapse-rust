@@ -3,6 +3,7 @@ use super::SyncService;
 use crate::map_internal;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use synapse_common::current_timestamp_millis;
 use synapse_common::*;
 use synapse_storage::event::SinceFilter;
 
@@ -196,7 +197,7 @@ impl SyncService {
             return Ok(Vec::new());
         };
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let last_active_ago = if presence == "offline" { None } else { last_active_ts.map(|ts| (now - ts).max(0)) };
         let currently_active = if presence == "online" {
             Some(last_active_ts.is_some_and(|ts| (now - ts) <= 5 * 60 * 1000))
@@ -489,7 +490,7 @@ impl SyncService {
         room_id: &str,
         _user_id: &str,
     ) -> ApiResult<Vec<serde_json::Value>> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let limit = self.sync_ephemeral_limit();
         let rows = self
             .event_reader
@@ -523,7 +524,7 @@ impl SyncService {
             return Ok(result);
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let rows = self
             .event_reader
             .get_ephemeral_events_batch(room_ids, now, limit)

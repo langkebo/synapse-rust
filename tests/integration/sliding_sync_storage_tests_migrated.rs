@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_storage::sliding_sync::{
     decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomTokenSyncCursor, SlidingSyncFilters,
     SlidingSyncListQuery, SlidingSyncStorage,
@@ -1036,7 +1037,7 @@ async fn test_cleanup_expired_tokens() {
 
     let token = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
 
-    let past_expiry = chrono::Utc::now().timestamp_millis() - 1000;
+    let past_expiry = current_timestamp_millis() - 1000;
     sqlx::query("UPDATE sliding_sync_tokens SET expires_at = $1 WHERE id = $2")
         .bind(past_expiry)
         .bind(token.id)

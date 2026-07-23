@@ -1,5 +1,6 @@
-#[cfg(feature = "cas-sso")]
 use super::*;
+#[cfg(feature = "cas-sso")]
+use synapse_common::current_timestamp_millis;
 
 #[cfg(feature = "cas-sso")]
 #[derive(Clone, Default)]
@@ -40,7 +41,7 @@ impl InMemoryCasStore {
 #[async_trait::async_trait]
 impl CasStoreApi for InMemoryCasStore {
     async fn create_ticket(&self, request: CreateTicketRequest) -> Result<CasTicket, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let ticket = CasTicket {
             id: self.next_id().await,
             ticket_id: request.ticket_id.clone(),
@@ -60,7 +61,7 @@ impl CasStoreApi for InMemoryCasStore {
         let mut tickets = self.tickets.write().await;
         if let Some(ticket) = tickets.get_mut(ticket_id) {
             if ticket.is_valid {
-                let now = Utc::now().timestamp_millis();
+                let now = current_timestamp_millis();
                 ticket.consumed_ts = Some(now);
                 ticket.consumed_by = Some(service_url.to_string());
                 return Ok(Some(ticket.clone()));
@@ -91,7 +92,7 @@ impl CasStoreApi for InMemoryCasStore {
     }
 
     async fn create_pgt(&self, request: CreatePgtRequest) -> Result<CasProxyGrantingTicket, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let pgt = CasProxyGrantingTicket {
             id: self.next_id().await,
             pgt_id: request.pgt_id.clone(),
@@ -111,7 +112,7 @@ impl CasStoreApi for InMemoryCasStore {
     }
 
     async fn create_proxy_ticket(&self, request: CreateProxyTicketRequest) -> Result<CasProxyTicket, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let ticket = CasProxyTicket {
             id: self.next_id().await,
             proxy_ticket_id: request.proxy_ticket_id.clone(),
@@ -135,7 +136,7 @@ impl CasStoreApi for InMemoryCasStore {
         let mut tickets = self.proxy_tickets.write().await;
         if let Some(ticket) = tickets.get_mut(proxy_ticket_id) {
             if ticket.is_valid {
-                let now = Utc::now().timestamp_millis();
+                let now = current_timestamp_millis();
                 ticket.consumed_ts = Some(now);
                 return Ok(Some(ticket.clone()));
             }
@@ -144,7 +145,7 @@ impl CasStoreApi for InMemoryCasStore {
     }
 
     async fn register_service(&self, request: RegisterServiceRequest) -> Result<CasRegisteredService, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let service = CasRegisteredService {
             id: self.next_id().await,
             service_id: request.service_id.clone(),
@@ -203,7 +204,7 @@ impl CasStoreApi for InMemoryCasStore {
     }
 
     async fn cleanup_expired_tickets(&self) -> Result<u64, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut count = 0u64;
         let mut tickets = self.tickets.write().await;
         tickets.retain(|_, t| {

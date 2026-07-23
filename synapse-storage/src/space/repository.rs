@@ -1,9 +1,9 @@
 use super::models::*;
 use crate::trigram_ranking::TrigramRanking;
-use chrono::Utc;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 fn escape_like_pattern(input: &str) -> String {
     input.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
@@ -20,7 +20,7 @@ impl SpaceStorage {
     }
 
     pub async fn create_space(&self, request: CreateSpaceRequest) -> Result<Space, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let space_id = format!(
             "!space_{}:{}",
             uuid::Uuid::new_v4(),
@@ -88,7 +88,7 @@ impl SpaceStorage {
     }
 
     pub async fn update_space(&self, space_id: &str, request: &UpdateSpaceRequest) -> Result<Space, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, Space>(
             r"
@@ -122,7 +122,7 @@ impl SpaceStorage {
     }
 
     pub async fn add_child(&self, request: AddChildRequest) -> Result<SpaceChild, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let via_servers =
             serde_json::Value::Array(request.via_servers.iter().cloned().map(serde_json::Value::String).collect());
 
@@ -227,7 +227,7 @@ impl SpaceStorage {
         membership: &str,
         inviter: Option<&str>,
     ) -> Result<SpaceMember, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, SpaceMember>(
             r"
@@ -252,7 +252,7 @@ impl SpaceStorage {
     }
 
     pub async fn remove_space_member(&self, space_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"UPDATE space_members SET membership = 'leave', left_ts = $3, updated_ts = $3 WHERE space_id = $1 AND user_id = $2"
@@ -333,7 +333,7 @@ impl SpaceStorage {
     }
 
     pub async fn update_space_summary(&self, space_id: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let children_count: i64 = sqlx::query_scalar(r"SELECT COUNT(*) FROM space_children WHERE space_id = $1")
             .bind(space_id)
@@ -382,7 +382,7 @@ impl SpaceStorage {
         content: serde_json::Value,
         state_key: Option<&str>,
     ) -> Result<SpaceEvent, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, SpaceEvent>(
             r"

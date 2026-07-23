@@ -1,4 +1,5 @@
 use super::*;
+use synapse_common::current_timestamp_millis;
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
@@ -31,7 +32,7 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
         request: crate::worker::RegisterWorkerRequest,
     ) -> Result<crate::worker::WorkerInfo, sqlx::Error> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let info = crate::worker::WorkerInfo {
             id,
             worker_id: request.worker_id.clone(),
@@ -75,7 +76,7 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
         if let Some(worker) = workers.get_mut(worker_id) {
             worker.status = status.to_string();
             if status == "stopped" {
-                worker.stopped_ts = Some(chrono::Utc::now().timestamp_millis());
+                worker.stopped_ts = Some(current_timestamp_millis());
             }
         }
         Ok(())
@@ -84,7 +85,7 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
     async fn update_heartbeat(&self, worker_id: &str) -> Result<(), sqlx::Error> {
         let mut workers = self.workers.write().await;
         if let Some(worker) = workers.get_mut(worker_id) {
-            worker.last_heartbeat_ts = Some(chrono::Utc::now().timestamp_millis());
+            worker.last_heartbeat_ts = Some(current_timestamp_millis());
         }
         Ok(())
     }
@@ -99,7 +100,7 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
         request: crate::worker::SendCommandRequest,
     ) -> Result<crate::worker::WorkerCommand, sqlx::Error> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let command_id = format!("cmd-{id}");
         let command = crate::worker::WorkerCommand {
             id,
@@ -135,7 +136,7 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
     }
 
     async fn mark_command_sent(&self, command_id: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut commands = self.commands.write().await;
         for cmd in commands.iter_mut() {
             if cmd.command_id == command_id {
@@ -148,7 +149,7 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
     }
 
     async fn complete_command(&self, command_id: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut commands = self.commands.write().await;
         for cmd in commands.iter_mut() {
             if cmd.command_id == command_id {
@@ -161,7 +162,7 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
     }
 
     async fn fail_command(&self, command_id: &str, error: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut commands = self.commands.write().await;
         for cmd in commands.iter_mut() {
             if cmd.command_id == command_id {
@@ -185,7 +186,7 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
     ) -> Result<crate::worker::WorkerEvent, sqlx::Error> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let stream_id = id;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let event = crate::worker::WorkerEvent {
             id,
             event_id: event_id.to_string(),
@@ -233,7 +234,7 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
         stream_name: &str,
         position: i64,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let key = (worker_id.to_string(), stream_name.to_string());
         self.replication_positions.write().await.insert(
@@ -267,7 +268,7 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
         request: crate::worker::AssignTaskRequest,
     ) -> Result<crate::worker::WorkerTaskAssignment, sqlx::Error> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let task_id = format!("task-{id}");
         let task = crate::worker::WorkerTaskAssignment {
             id,
@@ -299,7 +300,7 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
         &self,
         worker_id: &str,
     ) -> Result<Option<crate::worker::WorkerTaskAssignment>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut tasks = self.tasks.write().await;
         // Pick highest priority, earliest created pending task
         let mut chosen: Option<usize> = None;
@@ -334,7 +335,7 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
         worker_id: &str,
         allowed_task_types: &[String],
     ) -> Result<Option<crate::worker::WorkerTaskAssignment>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut tasks = self.tasks.write().await;
         let mut chosen: Option<usize> = None;
         for (idx, task) in tasks.iter().enumerate() {
@@ -367,7 +368,7 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
     }
 
     async fn assign_task_to_worker(&self, task_id: &str, worker_id: &str) -> Result<bool, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut tasks = self.tasks.write().await;
         for task in tasks.iter_mut() {
             if task.task_id == task_id && task.status == "pending" {
@@ -381,7 +382,7 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
     }
 
     async fn complete_task(&self, task_id: &str, result: Option<serde_json::Value>) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut tasks = self.tasks.write().await;
         for task in tasks.iter_mut() {
             if task.task_id == task_id {
@@ -395,7 +396,7 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
     }
 
     async fn fail_task(&self, task_id: &str, error: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut tasks = self.tasks.write().await;
         for task in tasks.iter_mut() {
             if task.task_id == task_id {

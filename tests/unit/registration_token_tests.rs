@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use synapse_common::current_timestamp_millis;
     use synapse_services::ServiceContainer;
     use synapse_storage::registration_token::*;
 
@@ -10,7 +11,7 @@ mod tests {
             token_type: Some("single_use".to_string()),
             description: Some("Test token".to_string()),
             max_uses: Some(1),
-            expires_at: Some(chrono::Utc::now().timestamp_millis() + 86_400_000),
+            expires_at: Some(current_timestamp_millis() + 86_400_000),
             created_by: Some("@admin:example.com".to_string()),
             allowed_email_domains: Some(vec!["example.com".to_string()]),
             allowed_user_ids: None,

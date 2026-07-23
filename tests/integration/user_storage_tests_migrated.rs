@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_storage::user::UserStorage;
 
@@ -147,8 +148,8 @@ async fn test_get_user_by_email() {
     .bind(&user_id)
     .bind(&username)
     .bind(&email)
-    .bind(chrono::Utc::now().timestamp_millis())
-    .bind(chrono::Utc::now().timestamp_millis())
+    .bind(current_timestamp_millis())
+    .bind(current_timestamp_millis())
     .execute(pool.as_ref())
     .await
     .unwrap();
@@ -177,8 +178,8 @@ async fn test_get_user_by_email_deactivated_excluded() {
     .bind(&user_id)
     .bind(&username)
     .bind(&email)
-    .bind(chrono::Utc::now().timestamp_millis())
-    .bind(chrono::Utc::now().timestamp_millis())
+    .bind(current_timestamp_millis())
+    .bind(current_timestamp_millis())
     .execute(pool.as_ref())
     .await
     .unwrap();

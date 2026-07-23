@@ -1,6 +1,6 @@
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
-use chrono::Utc;
 use sqlx::PgPool;
 
 use super::models::*;
@@ -30,7 +30,7 @@ impl EventReportStorage {
     }
 
     pub async fn create_report(&self, request: CreateEventReportRequest) -> Result<EventReport, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, EventReport>(
             r"
@@ -215,7 +215,7 @@ impl EventReportStorage {
     }
 
     pub async fn update_report(&self, id: i64, request: UpdateEventReportRequest) -> Result<EventReport, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let resolved_ts =
             if request.status.as_deref() == Some("resolved") || request.status.as_deref() == Some("dismissed") {
@@ -266,7 +266,7 @@ impl EventReportStorage {
         reason: Option<&str>,
         metadata: Option<serde_json::Value>,
     ) -> Result<EventReportHistory, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         tracing::info!(
             report_id = report_id,
             action = action,
@@ -310,7 +310,7 @@ impl EventReportStorage {
             Some(l) => {
                 if l.is_blocked {
                     if let Some(blocked_until) = l.blocked_until_at {
-                        let now = Utc::now().timestamp_millis();
+                        let now = current_timestamp_millis();
                         if blocked_until < now {
                             sqlx::query(
                                 "UPDATE report_rate_limits SET is_blocked = FALSE, blocked_until_at = NULL, block_reason = NULL, updated_ts = $2 WHERE user_id = $1",
@@ -333,7 +333,7 @@ impl EventReportStorage {
                     });
                 }
 
-                let one_day_ago = Utc::now().timestamp_millis() - 86_400_000;
+                let one_day_ago = current_timestamp_millis() - 86_400_000;
                 if l.last_report_at.is_some_and(|last_report_at| last_report_at > one_day_ago) {
                     if l.report_count >= max_reports_per_day {
                         return Ok(ReportRateLimitCheck {
@@ -359,7 +359,7 @@ impl EventReportStorage {
     }
 
     pub async fn record_report(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let one_day_ago = now - 86_400_000;
 
         let existing = sqlx::query_as::<_, ReportRateLimit>(&format!("{REPORT_RATE_LIMIT_SELECT} WHERE user_id = $1"))
@@ -399,7 +399,7 @@ impl EventReportStorage {
     }
 
     pub async fn block_user_reports(&self, user_id: &str, blocked_until: i64, reason: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -423,7 +423,7 @@ impl EventReportStorage {
     }
 
     pub async fn unblock_user_reports(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             "UPDATE report_rate_limits SET is_blocked = FALSE, blocked_until_at = NULL, block_reason = NULL, updated_ts = $2 WHERE user_id = $1",
         )

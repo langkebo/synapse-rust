@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
-use chrono::Utc;
 use sqlx::PgPool;
 use synapse_common::ApiError;
 
@@ -22,7 +22,7 @@ impl ServerNotificationStorage {
     ) -> Result<ServerNotification, ApiError> {
         let target_user_ids =
             serde_json::to_value(request.target_user_ids.unwrap_or_default()).unwrap_or(serde_json::json!([]));
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let notification = sqlx::query_as::<_, ServerNotification>(
             r#"
@@ -72,7 +72,7 @@ impl ServerNotificationStorage {
     }
 
     pub async fn list_active_notifications(&self) -> Result<Vec<ServerNotification>, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let notifications = sqlx::query_as::<_, ServerNotification>(
             r#"
@@ -139,7 +139,7 @@ impl ServerNotificationStorage {
         notification_id: i64,
         request: CreateNotificationRequest,
     ) -> Result<ServerNotification, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let target_user_ids =
             serde_json::to_value(request.target_user_ids.unwrap_or_default()).unwrap_or(serde_json::json!([]));
 
@@ -205,7 +205,7 @@ impl ServerNotificationStorage {
     }
 
     pub async fn get_user_notifications(&self, user_id: &str) -> Result<Vec<NotificationWithStatus>, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let notifications = sqlx::query_as::<_, ServerNotification>(
             r#"
@@ -334,7 +334,7 @@ impl ServerNotificationStorage {
             return Err(ApiError::not_found("Notification not found"));
         }
 
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query(
             r#"
             INSERT INTO user_notification_status (user_id, notification_id, is_read, read_ts)
@@ -366,7 +366,7 @@ impl ServerNotificationStorage {
             return Err(ApiError::not_found("Notification not found"));
         }
 
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query(
             r#"
             INSERT INTO user_notification_status (user_id, notification_id, is_dismissed, dismissed_ts)
@@ -386,7 +386,7 @@ impl ServerNotificationStorage {
     }
 
     pub async fn mark_all_as_read(&self, user_id: &str) -> Result<i64, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let notifications = self.get_user_notifications(user_id).await?;
 
         let mut count = 0i64;
@@ -526,7 +526,7 @@ impl ServerNotificationStorage {
     }
 
     pub async fn get_pending_scheduled_notifications(&self) -> Result<Vec<ScheduledNotification>, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let scheduled = sqlx::query_as::<_, ScheduledNotification>(
             r#"
@@ -544,7 +544,7 @@ impl ServerNotificationStorage {
     }
 
     pub async fn mark_scheduled_sent(&self, scheduled_id: i64) -> Result<bool, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query(
             r#"UPDATE scheduled_notifications SET is_sent = TRUE, sent_ts = $1 WHERE id = $2 AND is_sent = FALSE"#,
         )

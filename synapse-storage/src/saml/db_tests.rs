@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 use sqlx::postgres::PgPoolOptions;
 
@@ -221,7 +222,7 @@ async fn test_cleanup_expired_sessions() {
     cleanup_saml_test_data(&pool, &suffix).await;
     ensure_test_user(&pool, &user_id).await;
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     // Insert an already-expired session directly via SQL
     sqlx::query(
@@ -852,7 +853,7 @@ async fn test_update_idp_metadata() {
     };
     storage.create_identity_provider(req).await.expect("create should succeed");
 
-    let valid_until = chrono::Utc::now().timestamp_millis() + 86400000; // 1 day from now
+    let valid_until = current_timestamp_millis() + 86400000; // 1 day from now
     storage
         .update_idp_metadata(&entity_id, "<xml>updated metadata</xml>", Some(valid_until))
         .await

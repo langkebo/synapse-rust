@@ -1,4 +1,5 @@
 use super::*;
+use synapse_common::current_timestamp_millis;
 
 use std::sync::atomic::{AtomicI64, Ordering};
 
@@ -28,7 +29,7 @@ impl OpenIdTokenStoreApi for InMemoryOpenIdTokenStore {
             token: request.token.clone(),
             user_id: request.user_id,
             device_id: request.device_id,
-            created_ts: Utc::now().timestamp_millis(),
+            created_ts: current_timestamp_millis(),
             expires_at: request.expires_at,
             is_valid: true,
         };
@@ -41,7 +42,7 @@ impl OpenIdTokenStoreApi for InMemoryOpenIdTokenStore {
     }
 
     async fn validate_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         Ok(self.tokens.read().await.get(token).filter(|t| t.is_valid && t.expires_at > now).cloned())
     }
 
@@ -69,7 +70,7 @@ impl OpenIdTokenStoreApi for InMemoryOpenIdTokenStore {
     }
 
     async fn cleanup_expired_tokens(&self) -> Result<u64, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut tokens = self.tokens.write().await;
         let before = tokens.len();
         tokens.retain(|_, t| t.expires_at >= now && t.is_valid);

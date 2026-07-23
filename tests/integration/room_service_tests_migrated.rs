@@ -2,6 +2,7 @@
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
 use synapse_federation::event_broadcaster::EventBroadcaster;
@@ -285,7 +286,7 @@ async fn create_test_user(pool: &sqlx::PgPool, user_id: &str, username: &str) {
     )
     .bind(user_id)
     .bind(username)
-    .bind(chrono::Utc::now().timestamp_millis())
+    .bind(current_timestamp_millis())
     .execute(pool)
     .await
     .expect("Failed to create test user");
@@ -641,7 +642,7 @@ async fn test_get_room_messages_supports_sync_prev_batch_token() {
     let config = CreateRoomConfig::default();
     let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap();
-    let base_ts = chrono::Utc::now().timestamp_millis() + 10_000;
+    let base_ts = current_timestamp_millis() + 10_000;
 
     for ts in [base_ts + 1000, base_ts + 2000, base_ts + 3000] {
         room_service
@@ -692,7 +693,7 @@ async fn test_get_room_messages_supports_forward_pagination_from_stream_token() 
     let config = CreateRoomConfig::default();
     let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap();
-    let base_ts = chrono::Utc::now().timestamp_millis() + 10_000;
+    let base_ts = current_timestamp_millis() + 10_000;
 
     for ts in [base_ts + 1000, base_ts + 2000, base_ts + 3000] {
         room_service

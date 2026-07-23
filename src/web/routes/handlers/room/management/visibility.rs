@@ -3,6 +3,7 @@ use crate::map_internal;
 use crate::web::routes::{ensure_room_member_ctx, AuthenticatedUser, OptionalAuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 use crate::web::routes::context::RoomContext;
 
@@ -69,6 +70,6 @@ pub(crate) async fn set_room_visibility(
     Ok(Json(json!({
         "room_id": room_id,
         "visibility": visibility,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }

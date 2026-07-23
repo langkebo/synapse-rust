@@ -3,6 +3,7 @@ use crate::worker::protocol::{ReplicationCommand, ReplicationRow};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use tokio::sync::RwLock;
 use tracing::{debug, warn};
@@ -131,7 +132,7 @@ impl StreamWriterManager {
     }
 
     pub async fn update_position(&self, stream_name: &str, position: i64) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let stream_position = StreamPosition {
             stream_name: stream_name.to_string(),
@@ -240,7 +241,7 @@ impl StreamWriterManager {
     }
 
     pub async fn update_positions_bulk(&self, updates: HashMap<String, i64>) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         {
             let mut positions = self.positions.write().await;

@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct UserPrivacySettings {
@@ -32,7 +33,7 @@ pub struct CreatePrivacySettingsParams {
 
 impl Default for UserPrivacySettings {
     fn default() -> Self {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         Self {
             id: 0,
             user_id: String::new(),
@@ -125,7 +126,7 @@ impl PrivacyStorage {
             return Ok(settings);
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let default_settings = UserPrivacySettings::default();
 
         let row = sqlx::query_as::<_, UserPrivacySettings>(
@@ -158,7 +159,7 @@ impl PrivacyStorage {
         user_id: &str,
         update: PrivacySettingsUpdate,
     ) -> Result<UserPrivacySettings, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let current = self.get_or_create_settings(user_id).await?;
 
@@ -382,7 +383,7 @@ mod db_tests {
 
     /// Insert a minimal user row so FK constraints are satisfied.
     async fn ensure_test_user(pool: &sqlx::Pool<Postgres>, user_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
@@ -399,7 +400,7 @@ mod db_tests {
 
     /// Insert a minimal room row so FK constraints on room_memberships are satisfied.
     async fn ensure_test_room(pool: &sqlx::Pool<Postgres>, room_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO rooms (room_id, created_ts)
                VALUES ($1, $2)
@@ -414,7 +415,7 @@ mod db_tests {
 
     /// Insert a room_membership row for the given room and user.
     async fn ensure_room_membership(pool: &sqlx::Pool<Postgres>, room_id: &str, user_id: &str, membership: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO room_memberships (room_id, user_id, membership, joined_ts)
                VALUES ($1, $2, $3, $4)

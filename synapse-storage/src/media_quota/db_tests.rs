@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -26,7 +27,7 @@ async fn ensure_test_user(pool: &PgPool, user_id: &str) {
 }
 
 async fn ensure_server_quota_row(pool: &PgPool) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query(
         "INSERT INTO server_media_quota (id, current_storage_bytes, current_files_count, alert_threshold_percent, updated_ts) VALUES (1, 0, 0, 80, $1) ON CONFLICT (id) DO NOTHING",
     )
@@ -55,7 +56,7 @@ async fn test_get_default_config_found() {
 
     cleanup_test_data(&pool, &suffix).await;
     // Directly insert a default enabled config so get_default_config can find it.
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query(
         "INSERT INTO media_quota_config (config_name, name, max_storage_bytes, max_file_size_bytes, max_files_count, allowed_mime_types, blocked_mime_types, is_default, is_enabled, created_ts) VALUES ($1, $1, 1073741824, 10485760, 1000, '[]'::jsonb, '[]'::jsonb, TRUE, TRUE, $2)",
     )

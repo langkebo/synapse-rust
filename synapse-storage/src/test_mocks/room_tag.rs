@@ -1,4 +1,5 @@
 use super::*;
+use synapse_common::current_timestamp_millis;
 
 pub struct InMemoryRoomTagStore {
     tags: Arc<RwLock<Vec<crate::room_tag::RoomTag>>>,
@@ -40,7 +41,7 @@ impl RoomTagStoreApi for InMemoryRoomTagStore {
             room_id: room_id.to_string(),
             tag: tag.to_string(),
             order,
-            created_ts: chrono::Utc::now().timestamp_millis(),
+            created_ts: current_timestamp_millis(),
         });
         Ok(())
     }

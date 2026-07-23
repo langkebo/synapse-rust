@@ -288,6 +288,7 @@ impl OlmSessionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synapse_common::current_timestamp_millis;
 
     #[test]
     fn test_olm_session_data_creation() {
@@ -336,10 +337,10 @@ mod tests {
 
         assert!(!session_data.is_expired());
 
-        session_data.expires_at = Some(chrono::Utc::now().timestamp_millis() - 1000);
+        session_data.expires_at = Some(current_timestamp_millis() - 1000);
         assert!(session_data.is_expired());
 
-        session_data.expires_at = Some(chrono::Utc::now().timestamp_millis() + 100000);
+        session_data.expires_at = Some(current_timestamp_millis() + 100000);
         assert!(!session_data.is_expired());
     }
 }

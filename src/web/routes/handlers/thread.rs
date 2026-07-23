@@ -9,6 +9,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 use synapse_services::thread_service::{
     CreateReplyRequest, CreateThreadRequest, GetThreadRequest, ListThreadsRequest, MarkReadRequest, SubscribeRequest,
     SubscribedThreadsResponse, ThreadDetailResponse, ThreadListResponse, UnreadThreadsResponse,
@@ -483,7 +484,7 @@ async fn add_reply(
         root_event_id: body.root_event_id,
         content: body.content,
         in_reply_to_event_id: body.in_reply_to_event_id,
-        origin_server_ts: body.origin_server_ts.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+        origin_server_ts: body.origin_server_ts.unwrap_or_else(current_timestamp_millis),
     };
 
     let reply = ctx.thread_service.add_reply(&user_id, request).await?;

@@ -1,6 +1,7 @@
 use serde_json::Value;
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone)]
@@ -28,7 +29,7 @@ impl ToDeviceStorage {
         // Accept either a regular device or a (non-expired) dehydrated device
         // (MSC3814) as a valid recipient — without this, to-device messages
         // addressed to a dehydrated device id are silently dropped.
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query(
             r"
             SELECT 1 AS hit FROM devices
@@ -59,7 +60,7 @@ impl ToDeviceStorage {
         sender_device_id: &str,
         message_id: &str,
     ) -> Result<bool, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let row = sqlx::query(
             r"
             INSERT INTO to_device_transactions (sender_user_id, sender_device_id, message_id, created_ts)
@@ -82,7 +83,7 @@ impl ToDeviceStorage {
     }
 
     pub async fn cleanup_old_transactions(&self, max_age_ms: i64) -> Result<u64, ApiError> {
-        let cutoff = chrono::Utc::now().timestamp_millis() - max_age_ms;
+        let cutoff = current_timestamp_millis() - max_age_ms;
         let result = sqlx::query(
             r"
             DELETE FROM to_device_transactions
@@ -110,7 +111,7 @@ impl ToDeviceStorage {
             return Ok(());
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO to_device_messages (

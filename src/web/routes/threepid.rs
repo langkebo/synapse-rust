@@ -2,6 +2,7 @@ use axum::extract::State;
 use axum::routing::{post, Router};
 use axum::Json;
 use serde::{Deserialize, Serialize};
+use synapse_common::current_timestamp_millis;
 
 use crate::web::routes::context::AuthContext;
 use crate::web::routes::ApiError;
@@ -60,12 +61,12 @@ pub async fn request_token(
 
     let session_id = format!(
         "3pid_{}_{}",
-        chrono::Utc::now().timestamp_millis(),
+        current_timestamp_millis(),
         uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("")
     );
 
     let token: String = generate_token();
-    let now: i64 = chrono::Utc::now().timestamp_millis();
+    let now: i64 = current_timestamp_millis();
     let expires_at: i64 = now + 3_600_000; // 1 hour
 
     let _id: i64 = ctx

@@ -288,6 +288,7 @@ mod db_tests {
     use super::*;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::{Pool, Postgres};
+    use synapse_common::current_timestamp_millis;
 
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = std::env::var("TEST_DATABASE_URL")
@@ -298,7 +299,7 @@ mod db_tests {
     }
 
     async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
@@ -321,7 +322,7 @@ mod db_tests {
         )
         .bind(room_id)
         .bind("@test:localhost")
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool)
         .await
         .expect("failed to create test room");
@@ -349,7 +350,7 @@ mod db_tests {
         ensure_test_room(&pool, &room_id).await;
         cleanup_room_account_data(&pool, &user_id, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let data = serde_json::json!({"key": "value", "num": 42});
 
         storage
@@ -382,7 +383,7 @@ mod db_tests {
         ensure_test_room(&pool, &room_id).await;
         cleanup_room_account_data(&pool, &user_id, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let data = serde_json::json!({"tag": "m.favourite"});
 
         storage.upsert_room_account_data(&user_id, &room_id, "m.tag", &data, now).await.expect("upsert should succeed");
@@ -434,7 +435,7 @@ mod db_tests {
         ensure_test_room(&pool, &room_id).await;
         cleanup_room_account_data(&pool, &user_id, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let data_v1 = serde_json::json!({"version": 1});
         let data_v2 = serde_json::json!({"version": 2, "extra": true});
 
@@ -476,7 +477,7 @@ mod db_tests {
         ensure_test_room(&pool, &room_id).await;
         cleanup_room_account_data(&pool, &user_id, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let data = serde_json::json!({"temp": "will-be-deleted"});
 
         storage
@@ -516,7 +517,7 @@ mod db_tests {
         ensure_test_room(&pool, &room_id).await;
         cleanup_room_account_data(&pool, &user_id, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         storage
             .upsert_room_account_data(&user_id, &room_id, "m.tag", &serde_json::json!({"order": 0.5}), now)
@@ -563,7 +564,7 @@ mod db_tests {
         cleanup_room_account_data(&pool, &user_id, &room_a).await;
         cleanup_room_account_data(&pool, &user_id, &room_b).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         storage
             .upsert_room_account_data(&user_id, &room_a, "m.tag", &serde_json::json!({"order": 0.1}), now)
@@ -612,7 +613,7 @@ mod db_tests {
         ensure_test_room(&pool, &room_id).await;
         cleanup_room_account_data(&pool, &user_id, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let data = serde_json::json!({"name": "round-trip-test", "count": 7});
 
         storage

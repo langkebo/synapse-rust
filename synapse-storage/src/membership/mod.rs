@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_common::crypto::generate_event_id;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct RoomMember {
@@ -58,7 +59,7 @@ impl RoomMemberStorage {
         sender: Option<&str>,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomMember, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let event_id = format!("${}", generate_event_id(&self.server_name));
         let joined_ts = if membership == "join" { Some(now) } else { None };
         // Use explicit sender if provided (e.g. inviter), otherwise default to user_id
@@ -221,7 +222,7 @@ impl RoomMemberStorage {
     }
 
     pub async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             UPDATE room_memberships
@@ -241,7 +242,7 @@ impl RoomMemberStorage {
     }
 
     pub async fn forget_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             UPDATE room_memberships
@@ -1000,7 +1001,7 @@ mod db_tests {
     }
 
     async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) \

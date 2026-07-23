@@ -10,8 +10,8 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
-use chrono::Utc;
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 pub fn create_burn_after_read_router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -191,7 +191,7 @@ pub async fn mark_burn_read(
         return Err(ApiError::bad_request("Burn not enabled for this room".to_string()));
     }
 
-    let delete_ts = Utc::now().timestamp_millis() + burn_after_ms;
+    let delete_ts = current_timestamp_millis() + burn_after_ms;
 
     ctx.burn_after_read
         .schedule_burn(&auth_user.user_id, &room_id, &event_id, burn_after_ms)

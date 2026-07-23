@@ -1,5 +1,6 @@
 use crate::worker::protocol::{ReplicationCommand, ReplicationError, ReplicationProtocol};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
@@ -74,12 +75,12 @@ impl TcpReplicationClient {
     }
 
     pub async fn ping(&mut self) -> Result<i64, ReplicationError> {
-        let start = chrono::Utc::now().timestamp_millis();
+        let start = current_timestamp_millis();
         self.send_command(&ReplicationProtocol::create_ping()).await?;
 
         match timeout(Duration::from_secs(5), self.receive_command()).await {
             Ok(Ok(ReplicationCommand::Pong { timestamp: _, .. })) => {
-                let latency = chrono::Utc::now().timestamp_millis() - start;
+                let latency = current_timestamp_millis() - start;
                 debug!("Ping latency: {}ms", latency);
                 Ok(latency)
             }

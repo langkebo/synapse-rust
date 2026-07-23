@@ -1,9 +1,9 @@
 use async_trait::async_trait;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use tracing::{info, instrument};
 
 fn decode_module_cursor(cursor: &str) -> Option<(&str, i32, &str)> {
@@ -307,7 +307,7 @@ impl ModuleStorage {
 
     #[instrument(skip(self))]
     pub async fn register_module(&self, request: CreateModuleRequest) -> Result<Module, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, Module>(
             r"
@@ -443,7 +443,7 @@ impl ModuleStorage {
         success: bool,
         error: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -470,7 +470,7 @@ impl ModuleStorage {
         &self,
         request: CreateSpamCheckRequest,
     ) -> Result<SpamCheckResult, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let score = request.score.unwrap_or(0);
 
         let row = sqlx::query_as::<_, SpamCheckResult>(
@@ -545,7 +545,7 @@ impl ModuleStorage {
         &self,
         request: CreateThirdPartyRuleRequest,
     ) -> Result<ThirdPartyRuleResult, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, ThirdPartyRuleResult>(
             r"
@@ -594,7 +594,7 @@ impl ModuleStorage {
         &self,
         request: CreateExecutionLogRequest,
     ) -> Result<ModuleExecutionLog, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, ModuleExecutionLog>(
             r"
@@ -646,7 +646,7 @@ impl ModuleStorage {
         &self,
         request: CreateAccountValidityRequest,
     ) -> Result<AccountValidity, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, AccountValidity>(
             r"
@@ -784,7 +784,7 @@ impl ModuleStorage {
         &self,
         request: CreateMediaCallbackRequest,
     ) -> Result<MediaCallback, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, MediaCallback>(
             r"
@@ -833,7 +833,7 @@ impl ModuleStorage {
         &self,
         request: CreateAccountDataCallbackRequest,
     ) -> Result<AccountDataCallback, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, AccountDataCallback>(
             r"

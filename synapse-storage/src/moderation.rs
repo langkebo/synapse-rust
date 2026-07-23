@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ModerationRule {
@@ -155,7 +156,7 @@ impl ModerationStorage {
     }
 
     pub async fn create_rule(&self, params: CreateModerationRuleParams) -> Result<ModerationRule, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let rule_id = format!("mod_{}", uuid::Uuid::new_v4().simple());
 
         sqlx::query_as::<_, ModerationRule>(
@@ -223,7 +224,7 @@ impl ModerationStorage {
         reason: Option<&str>,
         priority: Option<i32>,
     ) -> Result<ModerationRule, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, ModerationRule>(
             r"
@@ -352,7 +353,7 @@ impl ModerationLogStorage {
         action_taken: &str,
         confidence: f32,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -413,7 +414,7 @@ impl ModerationLogStorage {
     }
 
     pub async fn cleanup_old_logs(&self, older_than_days: i32) -> Result<u64, sqlx::Error> {
-        let cutoff_ts = chrono::Utc::now().timestamp_millis() - (older_than_days as i64 * 24 * 3600 * 1000);
+        let cutoff_ts = current_timestamp_millis() - (older_than_days as i64 * 24 * 3600 * 1000);
 
         let result = sqlx::query(
             r"

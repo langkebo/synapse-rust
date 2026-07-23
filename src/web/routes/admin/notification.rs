@@ -1,4 +1,3 @@
-#[cfg(feature = "server-notifications")]
 use crate::common::ApiError;
 #[cfg(feature = "server-notifications")]
 use crate::web::routes::context::AdminContext;
@@ -18,6 +17,8 @@ use axum::{
 use serde::Deserialize;
 #[cfg(feature = "server-notifications")]
 use serde_json::{json, Value};
+#[cfg(feature = "server-notifications")]
+use synapse_common::current_timestamp_millis;
 #[cfg(feature = "server-notifications")]
 use synapse_storage::server_notification::{decode_server_notification_cursor, CreateNotificationRequest};
 
@@ -335,7 +336,7 @@ pub async fn send_server_notice(
     };
 
     let room_id = format!("!server_notice_{}:{}", uuid::Uuid::new_v4(), ctx.server_name);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let server_user = format!("@server:{}", ctx.server_name);
     let message_event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
     let create_event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);

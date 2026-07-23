@@ -2,6 +2,7 @@ use super::*;
 use crate::relations::{
     AggregationResult, CreateRelationParams, EventRelation, RelationQueryParams, RelationsStoreApi,
 };
+use synapse_common::current_timestamp_millis;
 
 /// In-memory relations store for testing [`RelationsService`].
 ///
@@ -25,7 +26,7 @@ impl InMemoryRelationsStore {
 #[async_trait::async_trait]
 impl RelationsStoreApi for InMemoryRelationsStore {
     async fn create_relation(&self, params: CreateRelationParams) -> Result<EventRelation, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut next = self.next_id.write().await;
         let id = *next;
         *next += 1;

@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use synapse_common::current_timestamp_millis;
 use synapse_services::database_initializer::{DatabaseInitMode, DatabaseInitService};
 use tokio::sync::OnceCell;
 use tokio::sync::{Mutex as TokioMutex, RwLock as TokioRwLock, Semaphore};
@@ -539,7 +540,7 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 
 fn mark_template_schema_ready(schema_name: &str) -> Result<(), String> {
     let marker_path = template_ready_marker_path(schema_name);
-    let timestamp = chrono::Utc::now().timestamp_millis().to_string();
+    let timestamp = current_timestamp_millis().to_string();
     std::fs::write(&marker_path, timestamp)
         .map_err(|error| format!("failed to write template ready marker to {:?}: {error}", marker_path))?;
 

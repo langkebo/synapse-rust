@@ -3,6 +3,7 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_services::ServiceContainer;
 use synapse_storage::PresenceStorage;
@@ -31,7 +32,7 @@ async fn setup_test_database() -> Option<Pool<Postgres>> {
 async fn create_test_user(pool: &Pool<Postgres>, user_id: &str) {
     // Extract username from user_id (e.g., "@alice:localhost" -> "alice")
     let username = user_id.trim_start_matches('@').split(':').next().unwrap_or("unknown");
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     // Use the actual schema from master_unified_schema.sql
     sqlx::query(
@@ -51,7 +52,7 @@ async fn create_test_room(pool: &Pool<Postgres>, room_id: &str) {
     // First create the creator user if it doesn't exist
     create_test_user(pool, "@creator:localhost").await;
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     // Use the actual schema from master_unified_schema.sql
     // Required fields: room_id, creator, created_ts, last_activity_ts
@@ -152,7 +153,7 @@ fn test_receipt_insert() {
             create_test_room(&pool, room_id).await;
 
             let event_id = "$ev_read:test";
-            let now = chrono::Utc::now().timestamp_millis();
+            let now = current_timestamp_millis();
             EventStorage::new(&arc_pool, "localhost".to_string())
                 .create_event(CreateEventParams {
                     event_id: event_id.to_string(),

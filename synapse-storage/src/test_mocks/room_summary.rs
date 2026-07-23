@@ -1,4 +1,5 @@
 use super::*;
+use synapse_common::current_timestamp_millis;
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
@@ -31,7 +32,7 @@ impl crate::room_summary::RoomSummaryStoreApi for InMemoryRoomSummaryStore {
         request: crate::room_summary::CreateRoomSummaryRequest,
     ) -> Result<crate::room_summary::RoomSummary, sqlx::Error> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let summary = crate::room_summary::RoomSummary {
             id: Some(id),
             room_id: request.room_id.clone(),
@@ -115,7 +116,7 @@ impl crate::room_summary::RoomSummaryStoreApi for InMemoryRoomSummaryStore {
         if let Some(v) = request.hero_users {
             summary.hero_users = v;
         }
-        summary.updated_ts = Some(chrono::Utc::now().timestamp_millis());
+        summary.updated_ts = Some(current_timestamp_millis());
         Ok(summary.clone())
     }
 
@@ -127,7 +128,7 @@ impl crate::room_summary::RoomSummaryStoreApi for InMemoryRoomSummaryStore {
         let mut summaries = self.summaries.write().await;
         let summary = summaries.get_mut(room_id).ok_or_else(|| sqlx::Error::RowNotFound)?;
         summary.canonical_alias = canonical_alias.map(|s| s.to_string());
-        summary.updated_ts = Some(chrono::Utc::now().timestamp_millis());
+        summary.updated_ts = Some(current_timestamp_millis());
         Ok(summary.clone())
     }
 
@@ -201,7 +202,7 @@ impl crate::room_summary::RoomSummaryStoreApi for InMemoryRoomSummaryStore {
         request: crate::room_summary::CreateSummaryMemberRequest,
     ) -> Result<crate::room_summary::RoomSummaryMember, sqlx::Error> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let member = crate::room_summary::RoomSummaryMember {
             id,
             room_id: request.room_id.clone(),
@@ -224,7 +225,7 @@ impl crate::room_summary::RoomSummaryStoreApi for InMemoryRoomSummaryStore {
         members: Vec<crate::room_summary::CreateSummaryMemberRequest>,
     ) -> Result<usize, sqlx::Error> {
         let count = members.len();
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut store = self.members.write().await;
         for m in members {
             let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -271,7 +272,7 @@ impl crate::room_summary::RoomSummaryStoreApi for InMemoryRoomSummaryStore {
         if let Some(v) = request.last_active_ts {
             member.last_active_ts = Some(v);
         }
-        member.updated_ts = chrono::Utc::now().timestamp_millis();
+        member.updated_ts = current_timestamp_millis();
         Ok(member.clone())
     }
 
@@ -297,7 +298,7 @@ impl crate::room_summary::RoomSummaryStoreApi for InMemoryRoomSummaryStore {
         content: serde_json::Value,
     ) -> Result<crate::room_summary::RoomSummaryState, sqlx::Error> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let state = crate::room_summary::RoomSummaryState {
             id,
             room_id: room_id.to_string(),
@@ -320,7 +321,7 @@ impl crate::room_summary::RoomSummaryStoreApi for InMemoryRoomSummaryStore {
         entries: &[crate::room_summary::RoomSummaryStateEntry],
     ) -> Result<u64, sqlx::Error> {
         let count = entries.len() as u64;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut states = self.states.write().await;
         for entry in entries {
             let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -367,7 +368,7 @@ impl crate::room_summary::RoomSummaryStoreApi for InMemoryRoomSummaryStore {
         storage_size: i64,
     ) -> Result<crate::room_summary::RoomSummaryStats, sqlx::Error> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let stats = crate::room_summary::RoomSummaryStats {
             id,
             room_id: room_id.to_string(),
@@ -391,7 +392,7 @@ impl crate::room_summary::RoomSummaryStoreApi for InMemoryRoomSummaryStore {
         priority: i32,
     ) -> Result<(), sqlx::Error> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         self.queue.write().await.push(crate::room_summary::RoomSummaryUpdateQueueItem {
             id,
             room_id: room_id.to_string(),
@@ -422,7 +423,7 @@ impl crate::room_summary::RoomSummaryStoreApi for InMemoryRoomSummaryStore {
     async fn mark_update_processed(&self, id: i64) -> Result<(), sqlx::Error> {
         if let Some(item) = self.queue.write().await.iter_mut().find(|q| q.id == id) {
             item.status = "processed".to_string();
-            item.processed_ts = Some(chrono::Utc::now().timestamp_millis());
+            item.processed_ts = Some(current_timestamp_millis());
         }
         Ok(())
     }
@@ -443,7 +444,7 @@ impl crate::room_summary::RoomSummaryStoreApi for InMemoryRoomSummaryStore {
             if highlight {
                 s.unread_highlight += 1;
             }
-            s.updated_ts = Some(chrono::Utc::now().timestamp_millis());
+            s.updated_ts = Some(current_timestamp_millis());
         }
         Ok(())
     }
@@ -453,7 +454,7 @@ impl crate::room_summary::RoomSummaryStoreApi for InMemoryRoomSummaryStore {
         if let Some(s) = summaries.get_mut(room_id) {
             s.unread_notifications = 0;
             s.unread_highlight = 0;
-            s.updated_ts = Some(chrono::Utc::now().timestamp_millis());
+            s.updated_ts = Some(current_timestamp_millis());
         }
         Ok(())
     }

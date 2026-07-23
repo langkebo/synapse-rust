@@ -1,4 +1,5 @@
 use super::background_job::BackgroundJob;
+use crate::current_timestamp_millis;
 use std::future::Future;
 #[cfg(test)]
 use std::pin::Pin;
@@ -303,7 +304,7 @@ impl RedisTaskQueue {
                                                     ("original_stream_id", stream_id_val.to_string()),
                                                     ("payload", payload_str.clone()),
                                                     ("error", e.to_string()),
-                                                    ("failed_at", chrono::Utc::now().timestamp_millis().to_string()),
+                                                    ("failed_at", current_timestamp_millis().to_string()),
                                                 ];
                                                 let _: Result<(), _> =
                                                     conn.xadd("mq:tasks:dead_letter", "*", &dead_letter_payload).await;

@@ -26,6 +26,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use synapse_common::current_timestamp_millis;
 
 fn create_room_power_levels_compat_router() -> Router<AppState> {
     Router::new().route("/rooms/{room_id}/state/m.room.power_levels/", get(get_power_levels))
@@ -353,7 +354,7 @@ async fn set_anti_screenshot(
     let action: &str = if payload.enabled { "block_screenshot" } else { "allow_screenshot" };
 
     let event_id: String = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
-    let now_ts: i64 = chrono::Utc::now().timestamp_millis();
+    let now_ts: i64 = current_timestamp_millis();
 
     ctx.room_service
         .messaging()

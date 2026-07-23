@@ -24,6 +24,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 use crate::common::error::{ApiError, ApiResult};
 use synapse_federation::client_api::FederationClientApi;
@@ -64,7 +65,7 @@ pub struct BackfillOutcome {
 /// admin endpoint does **not** use this check — manual triggers always fire
 /// immediately.
 pub async fn check_backfill_cooldown(room_id: &str) -> bool {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let mut map = BACKFILL_COOLDOWN.lock().await;
     if let Some(&last_ts) = map.get(room_id) {
         if now - last_ts < BACKFILL_COOLDOWN_MS {

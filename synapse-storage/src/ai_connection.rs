@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AiConnection {
@@ -114,7 +115,7 @@ impl AiConnectionStorage {
     }
 
     pub async fn update_connection_status(&self, id: &str, is_active: bool) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"
             UPDATE ai_connections

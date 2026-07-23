@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct DehydratedDevice {
@@ -69,13 +70,13 @@ impl DehydratedDeviceStorage {
             ",
         )
         .bind(user_id)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .fetch_optional(&*self.pool)
         .await
     }
 
     pub async fn upsert_for_user(&self, params: UpsertDehydratedDeviceParams) -> Result<DehydratedDevice, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
 
         sqlx::query(
@@ -158,7 +159,7 @@ impl DehydratedDeviceStorage {
     /// deletes the device rows themselves. Returns the number of devices
     /// removed.
     pub async fn sweep_expired(&self) -> Result<u64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
 
         sqlx::query(
@@ -298,7 +299,7 @@ impl DehydratedDeviceStorage {
                     let remaining_with_prefix = otk_obj.keys().filter(|k| k.starts_with(&prefix)).count();
                     sqlx::query("UPDATE dehydrated_devices SET device_data = $1, updated_ts = $2 WHERE id = $3")
                         .bind(&device_data)
-                        .bind(chrono::Utc::now().timestamp_millis())
+                        .bind(current_timestamp_millis())
                         .bind(id)
                         .execute(&mut *tx)
                         .await?;
@@ -435,7 +436,7 @@ mod db_tests {
         .bind(event_type)
         .bind(content)
         .bind(stream_id)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool)
         .await
         .expect("Failed to insert to_device_messages row");
@@ -506,7 +507,7 @@ mod db_tests {
 
         cleanup_user(&pool, &user_id).await;
 
-        let past = chrono::Utc::now().timestamp_millis() - 100_000; // expired
+        let past = current_timestamp_millis() - 100_000; // expired
         let params = UpsertDehydratedDeviceParams {
             user_id: user_id.clone(),
             device_id: "DEV_EXPIRED".to_string(),
@@ -674,7 +675,7 @@ mod db_tests {
 
         cleanup_user(&pool, &user_id).await;
 
-        let future = chrono::Utc::now().timestamp_millis() + 86_400_000; // 1 day in future
+        let future = current_timestamp_millis() + 86_400_000; // 1 day in future
 
         let params = UpsertDehydratedDeviceParams {
             user_id: user_id.clone(),
