@@ -12,3 +12,9 @@ pub use crate::application_service::{
     ApplicationServiceStorage, ApplicationServiceStoreApi, ApplicationServiceTransaction, ApplicationServiceUser,
     NamespaceRule, Namespaces, RegisterApplicationServiceRequest, UpdateApplicationServiceRequest,
 };
+
+// P7.3: module (third-party module / spam checker registry) is an
+// application-service-related storage module — group it under `application::`
+// so it is flat-re-exported via `pub use application::*;` rather than via an
+// explicit flat re-export in lib.rs.
+pub use crate::module::*;

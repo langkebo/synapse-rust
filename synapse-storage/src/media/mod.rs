@@ -17,3 +17,10 @@ pub use crate::media_quota::{
     CreateQuotaConfigRequest, MediaQuotaAlert, MediaQuotaConfig, MediaQuotaStorage, MediaQuotaStoreApi, MediaUsageLog,
     QuotaCheckResult, ServerMediaQuota, SetUserQuotaRequest, UpdateUsageRequest, UserMediaQuota,
 };
+
+// P7.3: url_preview_storage and voice are media-related storage modules —
+// group them under `media::` so they are flat-re-exported via
+// `pub use media::*;` rather than via explicit flat re-exports in lib.rs.
+pub use crate::url_preview_storage::UrlPreviewStoreApi;
+#[cfg(feature = "voice-extended")]
+pub use crate::voice::{VoiceAggregatedStats, VoiceStorage, VoiceStoreApi, VoiceUsageRecord, VoiceUserAggregatedStats};

@@ -16,6 +16,29 @@ pub use crate::thread::{
     ThreadRoot, ThreadStatistics, ThreadStorage, ThreadStoreApi, ThreadSubscription, ThreadSummary, ThreadWithReplies,
 };
 
+// P7.3: relations, retention, room_summary, room_tag, beacon, widget,
+// burn_after_read, and friend_room are room-related storage modules — group
+// them under `room::` so they are flat-re-exported via `pub use room::*;`
+// rather than via explicit flat re-exports in lib.rs.
+#[cfg(feature = "beacons")]
+pub use crate::beacon::{
+    BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStorage, BeaconStoreApi, CreateBeaconInfoParams,
+    CreateBeaconLocationParams,
+};
+#[cfg(feature = "burn-after-read")]
+pub use crate::burn_after_read::*;
+#[cfg(feature = "friends")]
+pub use crate::friend_room::{
+    AddFriendToGroupParams, CreateFriendGroupParams, DirectRoomFallbackLink, DmPartnerRecord, FriendDmLink,
+    FriendRequestRecord, FriendRoomStorage, FriendRoomStoreApi, RemoveFriendFromGroupParams, RenameFriendGroupParams,
+};
+pub use crate::relations::*;
+pub use crate::retention::*;
+pub use crate::room_summary::*;
+pub use crate::room_tag::*;
+#[cfg(feature = "widgets")]
+pub use crate::widget::{CreateWidgetParams, Widget, WidgetPermission, WidgetSession, WidgetStorage, WidgetStoreApi};
+
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;

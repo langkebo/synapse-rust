@@ -21,3 +21,27 @@ pub use crate::user::{
     LockedUser, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserSearchResultWithPresence,
     UserStatsSummary, UserStorage, UserStore,
 };
+
+// P7.3: email_verification, refresh_token, registration_token, saml, cas, and
+// privacy are auth-related storage modules — group them under `auth::` so
+// they are flat-re-exported via `pub use auth::*;` rather than via explicit
+// flat re-exports in lib.rs.
+#[cfg(feature = "cas-sso")]
+pub use crate::cas::{
+    CasProxyGrantingTicket, CasProxyTicket, CasRegisteredService, CasSloSession, CasStorage, CasStoreApi, CasTicket,
+    CasUserAttribute, CreatePgtRequest, CreateProxyTicketRequest, CreateTicketRequest, RegisterServiceRequest,
+    ValidateTicketRequest,
+};
+pub use crate::email_verification::*;
+#[cfg(feature = "privacy-ext")]
+pub use crate::privacy::{
+    CreatePrivacySettingsParams, PrivacySettingsUpdate, PrivacyStorage, PrivacyStoreApi, UserPrivacySettings,
+};
+pub use crate::refresh_token::*;
+pub use crate::registration_token::*;
+#[cfg(feature = "saml-sso")]
+pub use crate::saml::{
+    CreateSamlAuthEventRequest, CreateSamlIdentityProviderRequest, CreateSamlLogoutRequestRequest,
+    CreateSamlSessionRequest, CreateSamlUserMappingRequest, SamlAuthEvent, SamlIdentityProvider, SamlLogoutRequest,
+    SamlSession, SamlStorage, SamlStoreApi, SamlUserMapping,
+};

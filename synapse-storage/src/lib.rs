@@ -89,6 +89,10 @@ pub mod worker;
 // =============================================================================
 // L3 — Feature-gated extension storage modules (off by default in core builds)
 // =============================================================================
+/// AI storage domain group — re-exports AI modules (`ai_connection`,
+/// `openclaw`) under `ai::`. Feature-gated behind `openclaw-routes`.
+#[cfg(feature = "openclaw-routes")]
+pub mod ai;
 #[cfg(feature = "openclaw-routes")]
 pub mod ai_connection;
 #[cfg(feature = "openclaw-routes")]
@@ -113,6 +117,10 @@ pub mod beacon;
 pub mod call_session;
 #[cfg(feature = "voip-tracking")]
 pub mod matrixrtc;
+/// RTC storage domain group — re-exports RTC modules (`call_session`,
+/// `matrixrtc`) under `rtc::`. Feature-gated behind `voip-tracking`.
+#[cfg(feature = "voip-tracking")]
+pub mod rtc;
 
 #[cfg(feature = "widgets")]
 pub mod widget;
@@ -141,11 +149,11 @@ pub use user_store_fake::FakeUserStore;
 #[cfg(test)]
 pub mod test_utils;
 
-// Flat re-exports for modules NOT yet grouped into a domain.
-// Modules grouped into a domain (account, admin, application, auth, e2ee,
-// event, infra, media, moderation, oidc, push, room, space, sync) are
-// re-exported via `pub use <domain>::*;` globs below.
-pub use self::filter::{CreateFilterRequest, Filter, FilterStorage, FilterStoreApi};
+// All storage modules are now grouped into a domain. The domain globs below
+// flat-re-export every grouped module's public types at the crate root for
+// backward compatibility. Domains: account, admin, application, auth, e2ee,
+// event, infra, media, moderation, oidc, push, room, space, sync (always on)
+// plus ai (openclaw-routes) and rtc (voip-tracking) feature-gated groups.
 
 // Domain group globs — backward-compatibility flat re-exports via domain modules.
 // Consumers should prefer the domain path (e.g. `synapse_storage::account::*`)
@@ -153,99 +161,22 @@ pub use self::filter::{CreateFilterRequest, Filter, FilterStorage, FilterStoreAp
 pub use self::room::*;
 pub use account::*; // account domain group (account_data, qr_login, rendezvous)
 pub use admin::*; // admin domain group (admin_federation, admin_media, audit)
-pub use application::*; // application domain group (application_service)
-pub use auth::*; // auth domain group (user, device, token, threepid, captcha, openid_token)
+pub use application::*; // application domain group (application_service, module)
+pub use auth::*; // auth domain group (user, device, token, threepid, captcha, openid_token, email_verification, refresh_token, registration_token; saml, cas, privacy when feature-gated)
 pub use e2ee::*; // e2ee domain group (dehydrated_device, e2ee_audit)
 pub use event::*; // event domain group (event)
-pub use infra::*; // infra domain group (background_update, feature_flags, federation_blacklist, federation_queue, maintenance, monitoring, performance, rate_limit, schema_validator)
-pub use media::*; // media domain group (media, media_quota)
+pub use infra::*; // infra domain group (background_update, feature_flags, federation_blacklist, federation_queue, maintenance, monitoring, performance, rate_limit, schema_validator, worker, pruning, schema_health_check, trigram_ranking; server_notification when feature-gated)
+pub use media::*; // media domain group (media, media_quota, url_preview_storage; voice when feature-gated)
 pub use moderation::*; // moderation domain group (moderation, invite_blocklist)
 pub use oidc::*; // oidc domain group (oauth_client_storage, oidc_session_storage, oidc_user_mapping)
 pub use push::*; // push domain group (push, push_notification)
 pub use space::*; // space domain group (space, sticky_event)
-pub use sync::*; // sync domain group (sliding_sync, search_index)
-
-// Flat re-exports for modules NOT yet grouped into a domain.
-pub use self::presence::{PresenceSnapshot, PresenceStorage};
-pub use self::worker::{
-    AssignTaskRequest, HeartbeatRequest, RdataEvent, RdataPosition, RegisterWorkerRequest, ReplicationPosition,
-    SendCommandRequest, StreamPosition, UpdateConnectionStatsRequest, WorkerCapabilities, WorkerCommand,
-    WorkerCommandRow, WorkerConnection, WorkerEvent, WorkerEventRow, WorkerInfo, WorkerLoadStats,
-    WorkerLoadStatsUpdate, WorkerResponsibilitySummary, WorkerRow, WorkerRuntimeConfig, WorkerStatus, WorkerStorage,
-    WorkerStoreApi, WorkerTaskAssignment, WorkerTopologyEntry, WorkerTopologyPreset, WorkerTopologyPresetInstance,
-    WorkerTopologySummary, WorkerType,
-};
-
-// Storage repository traits (explicit re-exports for service-layer consumption).
-// federation_queue, oauth_client_storage, oidc_session_storage traits are now
-// re-exported via `pub use infra::*;` and `pub use oidc::*;` respectively.
-pub use self::url_preview_storage::UrlPreviewStoreApi;
-
-// Feature-gated re-exports
+pub use sync::*; // sync domain group (sliding_sync, search_index, filter, presence)
+                 // Feature-gated domain groups:
 #[cfg(feature = "openclaw-routes")]
-pub use self::ai_connection::{AiConnection, AiConnectionStorage, AiConnectionStoreApi};
-#[cfg(feature = "openclaw-routes")]
-pub use self::openclaw::{
-    decode_conversation_cursor, decode_generation_cursor, decode_message_cursor, encode_conversation_cursor,
-    encode_generation_cursor, encode_message_cursor, AiChatRole, AiConversation, AiGeneration, AiMessage,
-    ConversationCursor, CreateChatRoleParams, CreateConnectionParams, CreateConversationParams, GenerationCursor,
-    MessageCursor, OpenClawConnection, OpenClawStorage, OpenClawStoreApi, UpdateChatRoleParams, UpdateConnectionParams,
-};
-
-#[cfg(feature = "friends")]
-pub use self::friend_room::{
-    AddFriendToGroupParams, CreateFriendGroupParams, DirectRoomFallbackLink, DmPartnerRecord, FriendDmLink,
-    FriendRequestRecord, FriendRoomStorage, FriendRoomStoreApi, RemoveFriendFromGroupParams, RenameFriendGroupParams,
-};
-
-#[cfg(feature = "saml-sso")]
-pub use self::saml::{
-    CreateSamlAuthEventRequest, CreateSamlIdentityProviderRequest, CreateSamlLogoutRequestRequest,
-    CreateSamlSessionRequest, CreateSamlUserMappingRequest, SamlAuthEvent, SamlIdentityProvider, SamlLogoutRequest,
-    SamlSession, SamlStorage, SamlStoreApi, SamlUserMapping,
-};
-
-#[cfg(feature = "cas-sso")]
-pub use self::cas::{
-    CasProxyGrantingTicket, CasProxyTicket, CasRegisteredService, CasSloSession, CasStorage, CasStoreApi, CasTicket,
-    CasUserAttribute, CreatePgtRequest, CreateProxyTicketRequest, CreateTicketRequest, RegisterServiceRequest,
-    ValidateTicketRequest,
-};
-
-#[cfg(feature = "beacons")]
-pub use self::beacon::{
-    BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStorage, BeaconStoreApi, CreateBeaconInfoParams,
-    CreateBeaconLocationParams,
-};
-
-#[cfg(feature = "voice-extended")]
-pub use self::voice::{VoiceAggregatedStats, VoiceStorage, VoiceStoreApi, VoiceUsageRecord, VoiceUserAggregatedStats};
-
+pub use ai::*; // ai domain group (ai_connection, openclaw)
 #[cfg(feature = "voip-tracking")]
-pub use self::call_session::{
-    CallCandidate, CallSession, CallSessionStorage, CallSessionStoreApi, CreateCallSessionParams,
-};
-#[cfg(feature = "voip-tracking")]
-pub use self::matrixrtc::{
-    CreateMembershipParams, CreateSessionParams, MatrixRTCStorage, MatrixRTCStoreApi, RTCEncryptionKey, RTCMembership,
-    RTCSession, SessionWithMemberships,
-};
-
-#[cfg(feature = "widgets")]
-pub use self::widget::{CreateWidgetParams, Widget, WidgetPermission, WidgetSession, WidgetStorage, WidgetStoreApi};
-
-#[cfg(feature = "server-notifications")]
-pub use self::server_notification::{
-    decode_server_notification_cursor, encode_server_notification_cursor, CreateNotificationRequest,
-    CreateTemplateRequest, NotificationDeliveryLog, NotificationTemplate, NotificationWithStatus,
-    ScheduledNotification, ServerNotification, ServerNotificationCursor, ServerNotificationStorage,
-    ServerNotificationStoreApi, UserNotificationStatus,
-};
-
-#[cfg(feature = "privacy-ext")]
-pub use self::privacy::{
-    CreatePrivacySettingsParams, PrivacySettingsUpdate, PrivacyStorage, PrivacyStoreApi, UserPrivacySettings,
-};
+pub use rtc::*; // rtc domain group (call_session, matrixrtc)
 
 /// 数据库结构体。
 ///

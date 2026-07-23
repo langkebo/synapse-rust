@@ -17,3 +17,9 @@ pub use crate::sliding_sync::{
     SlidingSyncRequest, SlidingSyncResponse, SlidingSyncRoom, SlidingSyncStorage, SlidingSyncStoreApi,
     SlidingSyncToken,
 };
+
+// P7.3: filter and presence are sync-related storage modules — group them
+// under `sync::` so they are flat-re-exported via `pub use sync::*;` rather
+// than via explicit flat re-exports in lib.rs.
+pub use crate::filter::{CreateFilterRequest, Filter, FilterStorage, FilterStoreApi};
+pub use crate::presence::{PresenceSnapshot, PresenceStorage};
