@@ -1,4 +1,5 @@
 use super::*;
+use crate::web::routes::context::RoomContext;
 
 fn decode_public_space_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
     let cursor = cursor?;
@@ -32,25 +33,25 @@ mod cursor_tests {
 }
 
 pub(super) async fn create_space(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<CreateSpaceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_request(&body)?;
     let request: synapse_storage::space::CreateSpaceRequest = body.into_request(auth_user.user_id.clone());
 
-    let space: synapse_storage::space::Space = state.services.rooms.space_service.create_space(request).await?;
+    let space: synapse_storage::space::Space = ctx.space_service.create_space(request).await?;
 
     Ok(created_json_from::<_, SpaceResponse>(SpaceResponse::from(space)))
 }
 
 pub(super) async fn get_space(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Path(space_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(
-        state,
+        ctx,
         space_id,
         auth_user,
         |_state, space: synapse_storage::space::Space, _auth_user| async move {
@@ -61,23 +62,18 @@ pub(super) async fn get_space(
 }
 
 pub(super) async fn get_space_by_room(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Path(room_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(
-        state,
-        room_id,
-        auth_user,
-        |_state, space: synapse_storage::space::Space, _auth_user| async move {
-            Ok(json_from::<_, SpaceResponse>(SpaceResponse::from(space)))
-        },
-    )
+    with_visible_space(ctx, room_id, auth_user, |_state, space: synapse_storage::space::Space, _auth_user| async move {
+        Ok(json_from::<_, SpaceResponse>(SpaceResponse::from(space)))
+    })
     .await
 }
 
 pub(super) async fn update_space(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Path(space_id): Path<String>,
     auth_user: AuthenticatedUser,
     Json(body): Json<UpdateSpaceBody>,
@@ -85,9 +81,9 @@ pub(super) async fn update_space(
     validate_request(&body)?;
     let request: synapse_storage::space::UpdateSpaceRequest = body.into_request();
 
-    with_resolved_space(state, space_id, |state, space: synapse_storage::space::Space| async move {
+    with_resolved_space(ctx, space_id, |ctx, space: synapse_storage::space::Space| async move {
         let space: synapse_storage::space::Space =
-            state.services.rooms.space_service.update_space(&space.space_id, &request, &auth_user.user_id).await?;
+            ctx.space_service.update_space(&space.space_id, &request, &auth_user.user_id).await?;
 
         Ok(json_from::<_, SpaceResponse>(SpaceResponse::from(space)))
     })
@@ -95,12 +91,12 @@ pub(super) async fn update_space(
 }
 
 pub(super) async fn delete_space(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Path(space_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_resolved_space(state, space_id, |state, space: synapse_storage::space::Space| async move {
-        state.services.rooms.space_service.delete_space(&space.space_id, &auth_user.user_id).await?;
+    with_resolved_space(ctx, space_id, |ctx, space: synapse_storage::space::Space| async move {
+        ctx.space_service.delete_space(&space.space_id, &auth_user.user_id).await?;
 
         Ok(StatusCode::NO_CONTENT)
     })
@@ -108,17 +104,16 @@ pub(super) async fn delete_space(
 }
 
 pub(super) async fn get_user_spaces(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let spaces: Vec<synapse_storage::space::Space> =
-        state.services.rooms.space_service.get_user_spaces(&auth_user.user_id).await?;
+    let spaces: Vec<synapse_storage::space::Space> = ctx.space_service.get_user_spaces(&auth_user.user_id).await?;
 
     Ok(json_vec_from::<_, SpaceResponse>(spaces.into_iter().map(SpaceResponse::from).collect()))
 }
 
 pub(super) async fn get_public_spaces(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Query(query): Query<PaginationQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100).clamp(1, 500);
@@ -127,9 +122,7 @@ pub(super) async fn get_public_spaces(
         return Err(ApiError::bad_request("Invalid from cursor".to_string()));
     }
 
-    let spaces: Vec<synapse_storage::space::Space> = state
-        .services
-        .rooms
+    let spaces: Vec<synapse_storage::space::Space> = ctx
         .space_service
         .get_public_spaces(limit, cursor.map(|(created_ts, _)| created_ts), cursor.map(|(_, space_id)| space_id))
         .await?;
@@ -149,25 +142,25 @@ pub(super) async fn get_public_spaces(
 }
 
 pub(super) async fn search_spaces(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Query(query): Query<SearchQuery>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(10).clamp(1, 100);
 
     let spaces: Vec<synapse_storage::space::Space> =
-        state.services.rooms.space_service.search_spaces(&query.query, limit, Some(&auth_user.user_id)).await?;
+        ctx.space_service.search_spaces(&query.query, limit, Some(&auth_user.user_id)).await?;
 
     Ok(json_vec_from::<_, SpaceResponse>(spaces.into_iter().map(SpaceResponse::from).collect()))
 }
 
 pub(super) async fn get_space_statistics(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Query(query): Query<StatisticsQuery>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100).clamp(1, 500);
-    let stats: Vec<serde_json::Value> = state.services.rooms.space_service.get_space_statistics(limit).await?;
+    let stats: Vec<serde_json::Value> = ctx.space_service.get_space_statistics(limit).await?;
     let mut visible_stats: Vec<serde_json::Value> = Vec::new();
 
     for stat in stats {
@@ -175,13 +168,12 @@ pub(super) async fn get_space_statistics(
             continue;
         };
 
-        let space_opt: Option<synapse_storage::space::Space> =
-            state.services.rooms.space_service.get_space(space_id).await?;
+        let space_opt: Option<synapse_storage::space::Space> = ctx.space_service.get_space(space_id).await?;
         let Some(space) = space_opt else {
             continue;
         };
 
-        if can_user_view_space(&state, &space, &auth_user).await? {
+        if can_user_view_space(&ctx, &space, &auth_user).await? {
             visible_stats.push(stat);
         }
     }

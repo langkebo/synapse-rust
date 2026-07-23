@@ -1,7 +1,8 @@
+use async_trait::async_trait;
 use base64::Engine;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct OAuthClient {
@@ -43,6 +44,23 @@ impl OAuthClient {
 #[derive(Clone)]
 pub struct OAuthClientStorage {
     pool: std::sync::Arc<sqlx::PgPool>,
+}
+
+/// Trait abstraction over [`OAuthClientStorage`] for testability.
+#[async_trait]
+pub trait OAuthClientStoreApi: Send + Sync {
+    async fn register_client(&self, client: &OAuthClient) -> Result<(), sqlx::Error>;
+    async fn get_client(&self, client_id: &str) -> Result<Option<OAuthClient>, sqlx::Error>;
+    async fn validate_client(&self, client_id: &str, redirect_uri: &str) -> Result<bool, sqlx::Error>;
+    async fn create_dynamic_client(
+        &self,
+        client_name: Option<&str>,
+        redirect_uris: Vec<String>,
+        grant_types: Vec<String>,
+        response_types: Vec<String>,
+        scope: &str,
+        is_confidential: bool,
+    ) -> Result<OAuthClient, sqlx::Error>;
 }
 
 impl OAuthClientStorage {
@@ -109,7 +127,7 @@ impl OAuthClientStorage {
     ) -> Result<OAuthClient, sqlx::Error> {
         let client_id = uuid::Uuid::new_v4().to_string();
         let client_secret = Self::generate_client_secret();
-        let now_ts = Utc::now().timestamp_millis();
+        let now_ts = current_timestamp_millis();
 
         let redirect_uris_json =
             serde_json::Value::Array(redirect_uris.into_iter().map(serde_json::Value::String).collect());
@@ -139,6 +157,31 @@ impl OAuthClientStorage {
         let mut bytes = [0u8; 32];
         rand::rng().fill_bytes(&mut bytes);
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    }
+}
+
+#[async_trait]
+impl OAuthClientStoreApi for OAuthClientStorage {
+    async fn register_client(&self, client: &OAuthClient) -> Result<(), sqlx::Error> {
+        self.register_client(client).await
+    }
+    async fn get_client(&self, client_id: &str) -> Result<Option<OAuthClient>, sqlx::Error> {
+        self.get_client(client_id).await
+    }
+    async fn validate_client(&self, client_id: &str, redirect_uri: &str) -> Result<bool, sqlx::Error> {
+        self.validate_client(client_id, redirect_uri).await
+    }
+    async fn create_dynamic_client(
+        &self,
+        client_name: Option<&str>,
+        redirect_uris: Vec<String>,
+        grant_types: Vec<String>,
+        response_types: Vec<String>,
+        scope: &str,
+        is_confidential: bool,
+    ) -> Result<OAuthClient, sqlx::Error> {
+        self.create_dynamic_client(client_name, redirect_uris, grant_types, response_types, scope, is_confidential)
+            .await
     }
 }
 
@@ -316,7 +359,7 @@ mod tests {
 
         let storage = OAuthClientStorage::new(&pool);
         let client_id = format!("test-client-{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let client = make_client(client_id.clone(), now);
 
         storage.register_client(&client).await.expect("register_client should succeed");
@@ -347,7 +390,7 @@ mod tests {
 
         let storage = OAuthClientStorage::new(&pool);
         let client_id = format!("test-client-{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let client = OAuthClient {
             client_id: client_id.clone(),
             client_secret: "secret".to_string(),
@@ -385,7 +428,7 @@ mod tests {
 
         let storage = OAuthClientStorage::new(&pool);
         let client_id = format!("test-client-{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let client = make_client(client_id.clone(), now);
 
         storage.register_client(&client).await.expect("register_client should succeed");

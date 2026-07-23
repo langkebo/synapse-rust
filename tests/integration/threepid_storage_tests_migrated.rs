@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_storage::threepid::{CreateThreepidRequest, ThreepidStorage, ThreepidValidationSession, UserThreepid};
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -93,7 +94,7 @@ fn create_storage(pool: &Arc<sqlx::PgPool>) -> ThreepidStorage {
 }
 
 async fn insert_user(pool: &sqlx::PgPool, user_id: &str, username: &str) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING")
         .bind(user_id)
         .bind(username)
@@ -220,7 +221,7 @@ async fn test_add_threepid() {
         medium: "email".to_string(),
         address: format!("add_{suffix}@example.com"),
         verification_token: Some("token_add".to_string()),
-        verification_expires_at: Some(chrono::Utc::now().timestamp_millis() + 3600000),
+        verification_expires_at: Some(current_timestamp_millis() + 3600000),
     };
 
     let threepid = storage.add_threepid(request).await.unwrap();
@@ -484,7 +485,7 @@ async fn test_verify_threepid_success() {
         medium: "email".to_string(),
         address: address.clone(),
         verification_token: Some("verify_token".to_string()),
-        verification_expires_at: Some(chrono::Utc::now().timestamp_millis() + 3600000),
+        verification_expires_at: Some(current_timestamp_millis() + 3600000),
     };
 
     storage.add_threepid(request).await.unwrap();
@@ -530,7 +531,7 @@ async fn test_verify_threepid_by_token_success() {
         medium: "email".to_string(),
         address: address.clone(),
         verification_token: Some(token.clone()),
-        verification_expires_at: Some(chrono::Utc::now().timestamp_millis() + 3600000),
+        verification_expires_at: Some(current_timestamp_millis() + 3600000),
     };
 
     storage.add_threepid(request).await.unwrap();
@@ -561,7 +562,7 @@ async fn test_verify_threepid_by_token_expired() {
         medium: "email".to_string(),
         address: address.clone(),
         verification_token: Some(token.clone()),
-        verification_expires_at: Some(chrono::Utc::now().timestamp_millis() - 1000),
+        verification_expires_at: Some(current_timestamp_millis() - 1000),
     };
 
     storage.add_threepid(request).await.unwrap();
@@ -683,7 +684,7 @@ async fn test_cleanup_expired_verifications() {
         medium: "email".to_string(),
         address: format!("expired_cleanup_{suffix}@example.com"),
         verification_token: Some("expired_token".to_string()),
-        verification_expires_at: Some(chrono::Utc::now().timestamp_millis() - 1000),
+        verification_expires_at: Some(current_timestamp_millis() - 1000),
     };
 
     storage.add_threepid(expired_request).await.unwrap();
@@ -693,7 +694,7 @@ async fn test_cleanup_expired_verifications() {
         medium: "msisdn".to_string(),
         address: format!("+1666{suffix}"),
         verification_token: Some("valid_token".to_string()),
-        verification_expires_at: Some(chrono::Utc::now().timestamp_millis() + 3600000),
+        verification_expires_at: Some(current_timestamp_millis() + 3600000),
     };
 
     storage.add_threepid(valid_request).await.unwrap();
@@ -722,7 +723,7 @@ async fn test_create_validation_session() {
     setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let id = storage
         .create_validation_session(
@@ -747,7 +748,7 @@ async fn test_create_validation_session_without_next_link() {
     setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let id = storage
         .create_validation_session(
@@ -773,7 +774,7 @@ async fn test_create_validation_session_duplicate_session_id() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let session_id = format!("dup_session_{suffix}");
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     storage
         .create_validation_session(
@@ -810,7 +811,7 @@ async fn test_get_validation_session() {
     setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let session_id = format!("get_session_{suffix}");
     let client_secret = format!("secret_{suffix}");
     let token = format!("token_{suffix}");
@@ -854,7 +855,7 @@ async fn test_get_validation_session_already_validated() {
     setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let session_id = format!("validated_session_{suffix}");
     let client_secret = format!("vsecret_{suffix}");
     let token = format!("vtoken_{suffix}");
@@ -885,7 +886,7 @@ async fn test_get_validation_session_expired() {
     setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let session_id = format!("expired_session_{suffix}");
     let client_secret = format!("esecret_{suffix}");
     let token = format!("etoken_{suffix}");
@@ -914,7 +915,7 @@ async fn test_get_validation_session_by_token() {
     setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let token = format!("bytoken_{suffix}");
 
     storage
@@ -953,7 +954,7 @@ async fn test_mark_validation_validated() {
     setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let token = format!("mark_token_{suffix}");
 
     let id = storage
@@ -983,7 +984,7 @@ async fn test_increment_validation_send_attempt() {
     setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let token = format!("incr_token_{suffix}");
 
     let id = storage
@@ -1020,7 +1021,7 @@ async fn test_cleanup_expired_validation_sessions() {
     setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     storage
         .create_validation_session(
@@ -1077,7 +1078,7 @@ async fn test_full_threepid_lifecycle() {
         medium: "email".to_string(),
         address: address.clone(),
         verification_token: Some(token.clone()),
-        verification_expires_at: Some(chrono::Utc::now().timestamp_millis() + 3600000),
+        verification_expires_at: Some(current_timestamp_millis() + 3600000),
     };
 
     let threepid = storage.add_threepid(request).await.unwrap();
@@ -1105,7 +1106,7 @@ async fn test_full_validation_session_lifecycle() {
     setup_test_database(&pool).await;
     let storage = create_storage(&pool);
     let suffix = unique_id();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let session_id = format!("lifecycle_sess_{suffix}");
     let client_secret = format!("lc_secret_{suffix}");
     let token = format!("lc_token_{suffix}");

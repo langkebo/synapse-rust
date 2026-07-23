@@ -26,9 +26,13 @@
 # that calls rand::rng() during panic. Project uses tracing_subscriber
 # not a custom logger, so not exposed. No upstream fix; block new
 # rand::rng() usages and re-evaluate on patch. Review-by 2026-05-15.
+# RUSTSEC-2026-0173 — proc-macro-error2 unmaintained. Transitive via
+# validator_derive → validator → synapse-common. Compile-time proc-macro
+# only; no runtime risk. Long-term: migrate away from validator crate.
 ignore = [
     "RUSTSEC-2023-0071",
     "RUSTSEC-2024-0436",
     "RUSTSEC-2025-0123",
     "RUSTSEC-2026-0097",
+    "RUSTSEC-2026-0173",
 ]

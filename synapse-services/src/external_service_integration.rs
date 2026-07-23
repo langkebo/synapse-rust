@@ -1,10 +1,10 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use chrono::Utc;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::application_service::*;
 use tracing::{debug, info, instrument, warn};
@@ -273,7 +273,7 @@ impl ExternalServiceIntegration {
                 service_id: as_id,
                 service_type: config.service_type.clone(),
                 is_healthy: true,
-                last_check_ts: Utc::now().timestamp_millis(),
+                last_check_ts: current_timestamp_millis(),
                 last_success_ts: None,
                 last_error: None,
                 consecutive_failures: 0,
@@ -543,7 +543,7 @@ impl ExternalServiceIntegration {
     async fn update_health_status(&self, as_id: &str, success: bool, error: Option<String>) {
         let mut status = self.health_status.write().await;
         if let Some(health) = status.get_mut(as_id) {
-            health.last_check_ts = Utc::now().timestamp_millis();
+            health.last_check_ts = current_timestamp_millis();
             if success {
                 health.is_healthy = true;
                 health.last_success_ts = Some(health.last_check_ts);

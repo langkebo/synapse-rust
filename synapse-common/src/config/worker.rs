@@ -131,3 +131,57 @@ pub struct ReplicationHttpConfig {
     pub secret: Option<String>,
     pub secret_path: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_worker_config_default() {
+        let config = WorkerConfig::default();
+        assert!(!config.enabled);
+        assert_eq!(config.instance_name, "master");
+        assert!(config.worker_app.is_none());
+        assert!(config.instance_map.is_empty());
+        assert_eq!(config.lock_max_retry_interval_ms, 5000);
+        assert_eq!(config.lock_max_retries, 3);
+    }
+
+    #[test]
+    fn test_stream_writers_default() {
+        let writers = StreamWriters::default();
+        assert_eq!(writers.events, vec!["master"]);
+        assert_eq!(writers.typing, vec!["master"]);
+        assert_eq!(writers.to_device, vec!["master"]);
+        assert_eq!(writers.account_data, vec!["master"]);
+        assert_eq!(writers.receipts, vec!["master"]);
+        assert_eq!(writers.presence, vec!["master"]);
+        assert_eq!(writers.push_rules, vec!["master"]);
+        assert_eq!(writers.device_lists, vec!["master"]);
+    }
+
+    #[test]
+    fn test_replication_config_default() {
+        let config = ReplicationConfig::default();
+        assert!(!config.enabled);
+        assert!(config.server_name.is_empty());
+        assert!(!config.http.enabled);
+        assert!(config.http.host.is_empty());
+        assert_eq!(config.http.port, 0);
+        assert!(config.http.secret.is_none());
+        assert!(config.http.secret_path.is_none());
+    }
+
+    #[test]
+    fn test_instance_location_config_creation() {
+        let config = InstanceLocationConfig { host: "localhost".to_string(), port: 8080, tls: true };
+        assert_eq!(config.host, "localhost");
+        assert_eq!(config.port, 8080);
+        assert!(config.tls);
+    }
+
+    #[test]
+    fn test_default_true() {
+        assert!(default_true());
+    }
+}

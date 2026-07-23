@@ -1,0 +1,12 @@
+# Minimal dockerignore for fast local builds using pre-compiled binaries
+.git
+**/.git
+**/*.log
+**/.env
+*.md
+tests/
+.DS_Store
+docker/data/
+docker/logs/
+docker/media/
+docker/ssl/

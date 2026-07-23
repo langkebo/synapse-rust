@@ -1,12 +1,13 @@
 use crate::cache::*;
 use crate::common::error::ApiError;
 use crate::common::RateLimitBackend;
-use crate::web::routes::AppState;
+use crate::web::routes::context::CoreContext;
 use crate::web::utils::ip::extract_client_ip;
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderValue, Request};
 use axum::response::{IntoResponse, Response};
 use axum::{body::Body, middleware::Next};
+use std::net::SocketAddr;
 
 fn is_sync_rate_limit_exempt_path(path: &str) -> bool {
     matches!(
@@ -19,9 +20,9 @@ fn is_sync_rate_limit_exempt_path(path: &str) -> bool {
     )
 }
 
-pub async fn rate_limit_middleware(State(state): State<AppState>, request: Request<Body>, next: Next) -> Response {
-    let config = state.services.core.config.rate_limit.clone();
-    let file_config = state.rate_limit_config();
+pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Request<Body>, next: Next) -> Response {
+    let config = ctx.config.rate_limit.clone();
+    let file_config = ctx.rate_limit_config();
 
     let enabled = file_config.as_ref().map_or(config.enabled, |c| c.enabled);
     if !enabled {
@@ -40,7 +41,15 @@ pub async fn rate_limit_middleware(State(state): State<AppState>, request: Reque
     }
 
     let ip_header_priority = file_config.as_ref().map_or(&config.ip_header_priority, |c| &c.ip_header_priority);
-    let ip = extract_client_ip(request.headers(), ip_header_priority).unwrap_or_else(|| "unknown".to_string());
+    let peer_addr = request.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0);
+    let trusted_proxies = file_config.as_ref().map_or(&config.trusted_proxies, |c| &c.trusted_proxies);
+    let trust_forwarded = file_config.as_ref().map_or(config.trust_forwarded, |c| c.trust_forwarded);
+    let ip = if trust_forwarded {
+        extract_client_ip(request.headers(), ip_header_priority, peer_addr, trusted_proxies)
+            .unwrap_or_else(|| "unknown".to_string())
+    } else {
+        peer_addr.map_or_else(|| "unknown".to_string(), |a| a.ip().to_string())
+    };
 
     let (endpoint_id, per_second, burst_size) = match &file_config {
         Some(fc) => {
@@ -53,7 +62,7 @@ pub async fn rate_limit_middleware(State(state): State<AppState>, request: Reque
         }
     };
 
-    let redis_prefix = state.services.core.config.redis.key_prefix.as_str();
+    let redis_prefix = ctx.config.redis.key_prefix.as_str();
     let cache_key = format!("{}{}", redis_prefix, CacheKeyBuilder::ip_rate_limit(&ip, endpoint_id.as_str()));
 
     let fail_open = file_config.as_ref().map_or(config.fail_open_on_error, |c| c.fail_open_on_error);
@@ -61,7 +70,7 @@ pub async fn rate_limit_middleware(State(state): State<AppState>, request: Reque
 
     // Determine the configured backend and whether Redis is actually available.
     let backend = file_config.as_ref().map_or(RateLimitBackend::Auto, |c| c.backend);
-    let redis_available = state.cache.is_redis_enabled();
+    let redis_available = ctx.cache.is_redis_enabled();
 
     // When backend is explicitly "redis" but Redis is not available, reject
     // the request rather than silently falling back to an inconsistent
@@ -77,7 +86,7 @@ pub async fn rate_limit_middleware(State(state): State<AppState>, request: Reque
         return ApiError::rate_limited("").into_response();
     }
 
-    let decision = match state.cache.rate_limit_token_bucket_take(&cache_key, per_second, burst_size).await {
+    let decision = match ctx.cache.rate_limit_token_bucket_take(&cache_key, per_second, burst_size).await {
         Ok(d) => d,
         Err(e) => {
             if fail_open {
@@ -132,11 +141,11 @@ mod tests {
     use crate::common::config::{RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule};
     #[cfg(feature = "test-utils")]
     use crate::web::routes::AppState;
-    use crate::web::utils::ip::extract_client_ip;
     #[cfg(feature = "test-utils")]
     use axum::http::StatusCode;
     #[cfg(feature = "test-utils")]
     use axum::{middleware, routing::get, Router};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     #[cfg(feature = "test-utils")]
     use std::sync::Arc;
     #[cfg(feature = "test-utils")]
@@ -148,18 +157,20 @@ mod tests {
     fn test_extract_client_ip() {
         let mut headers = axum::http::HeaderMap::new();
         let priority = vec!["x-forwarded-for".to_string(), "x-real-ip".to_string()];
+        let peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 12345);
+        let trusted: Vec<String> = vec!["10.0.0.0/8".to_string()];
 
         headers.insert("x-forwarded-for", "1.2.3.4, 5.6.7.8".parse().expect("valid header value"));
-        assert_eq!(extract_client_ip(&headers, &priority), Some("1.2.3.4".to_string()));
+        assert_eq!(extract_client_ip(&headers, &priority, Some(peer), &trusted), Some("1.2.3.4".to_string()));
 
         headers = axum::http::HeaderMap::new();
         headers.insert("x-real-ip", "10.0.0.1".parse().expect("valid header value"));
-        assert_eq!(extract_client_ip(&headers, &priority), Some("10.0.0.1".to_string()));
+        assert_eq!(extract_client_ip(&headers, &priority, Some(peer), &trusted), Some("10.0.0.1".to_string()));
 
         headers = axum::http::HeaderMap::new();
         headers.insert("x-forwarded-for", "1.2.3.4".parse().expect("valid header value"));
         headers.insert("x-real-ip", "10.0.0.1".parse().expect("valid header value"));
-        assert_eq!(extract_client_ip(&headers, &priority), Some("1.2.3.4".to_string()));
+        assert_eq!(extract_client_ip(&headers, &priority, Some(peer), &trusted), Some("1.2.3.4".to_string()));
     }
 
     #[test]
@@ -176,13 +187,15 @@ mod tests {
     fn test_extract_client_ip_forwarded() {
         let mut headers = axum::http::HeaderMap::new();
         let priority = vec!["forwarded".to_string()];
+        let peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 12345);
+        let trusted: Vec<String> = vec!["10.0.0.0/8".to_string()];
 
         headers.insert("forwarded", "for=192.0.2.60;proto=http;by=203.0.113.43".parse().expect("valid header value"));
-        assert_eq!(extract_client_ip(&headers, &priority), Some("192.0.2.60".to_string()));
+        assert_eq!(extract_client_ip(&headers, &priority, Some(peer), &trusted), Some("192.0.2.60".to_string()));
 
         headers = axum::http::HeaderMap::new();
         headers.insert("forwarded", "for=\"[2001:db8:cafe::17]:4711\"".parse().expect("valid header value"));
-        assert_eq!(extract_client_ip(&headers, &priority), Some("2001:db8:cafe::17".to_string()));
+        assert_eq!(extract_client_ip(&headers, &priority, Some(peer), &trusted), Some("2001:db8:cafe::17".to_string()));
     }
 
     #[test]

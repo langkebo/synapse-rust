@@ -311,7 +311,7 @@ pub async fn get_blacklist(
         .map(|row| {
             json!({
                 "server_name": row.server_name,
-                "added_at": row.created_ts,
+                "added_at": row.created_ts.unwrap_or(0),
                 "reason": row.reason
             })
         })

@@ -1,40 +1,23 @@
+use crate::UserService;
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::server_notification::*;
-use synapse_storage::user::{User, UserStore};
 use tracing::{info, instrument};
 
 pub struct ServerNotificationService {
     storage: Arc<dyn ServerNotificationStoreApi>,
-    user_storage: Arc<dyn UserStore>,
+    user_service: Arc<UserService>,
 }
 
 impl ServerNotificationService {
-    pub fn new(storage: Arc<dyn ServerNotificationStoreApi>, user_storage: Arc<dyn UserStore>) -> Self {
-        Self { storage, user_storage }
-    }
-
-    #[instrument(skip(self))]
-    pub async fn get_user_by_identifier(&self, user_id: &str) -> Result<Option<User>, ApiError> {
-        self.user_storage.get_user_by_identifier(user_id).await.map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })
-    }
-
-    #[instrument(skip(self))]
-    pub async fn ensure_user_exists(&self, user_id: &str) -> Result<(), ApiError> {
-        if self.get_user_by_identifier(user_id).await?.is_none() {
-            return Err(ApiError::not_found("User not found".to_string()));
-        }
-
-        Ok(())
+    pub fn new(storage: Arc<dyn ServerNotificationStoreApi>, user_service: Arc<UserService>) -> Self {
+        Self { storage, user_service }
     }
 
     #[instrument(skip(self))]
     pub async fn ensure_target_users_exist(&self, user_ids: &[String]) -> Result<(), ApiError> {
         for user_id in user_ids {
-            self.ensure_user_exists(user_id).await?;
+            self.user_service.ensure_user_exists(user_id).await?;
         }
 
         Ok(())

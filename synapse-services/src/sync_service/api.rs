@@ -1,7 +1,9 @@
 use super::types::*;
 use super::SyncService;
 use crate::map_internal;
+use synapse_common::current_timestamp_millis;
 use synapse_common::*;
+use synapse_storage::event::SinceFilter;
 
 use serde_json::json;
 
@@ -23,19 +25,15 @@ impl SyncService {
             return Err(ApiError::forbidden("You are not a member of this room".to_string()));
         }
 
-        let events = self
-            .event_storage
-            .get_room_events(room_id, limit)
-            .await
-            .map_err(map_internal!("Failed to get messages"))?;
+        let events =
+            self.event_reader.get_room_events(room_id, limit).await.map_err(map_internal!("Failed to get messages"))?;
 
         let event_list: Vec<serde_json::Value> =
             events.iter().map(|e| Self::event_to_json(e, SyncEventFormat::Client)).collect();
 
-        let end_token = events.last().map_or_else(
-            || format!("t{}", chrono::Utc::now().timestamp_millis()),
-            |e| format!("t{}", e.origin_server_ts),
-        );
+        let end_token = events
+            .last()
+            .map_or_else(|| format!("t{}", current_timestamp_millis()), |e| format!("t{}", e.origin_server_ts));
 
         Ok(json!({
             "chunk": event_list,
@@ -62,11 +60,8 @@ impl SyncService {
             })
             .collect();
 
-        let next_batch = if room_list.len() as i64 >= limit {
-            Some(format!("p{}", chrono::Utc::now().timestamp_millis()))
-        } else {
-            None
-        };
+        let next_batch =
+            if room_list.len() as i64 >= limit { Some(format!("p{}", current_timestamp_millis())) } else { None };
 
         let mut response = json!({
             "chunk": room_list,
@@ -92,8 +87,8 @@ impl SyncService {
 
         let limit = 100i64;
         let events = self
-            .event_storage
-            .get_room_events_since_batch(&room_ids, since_ts, limit)
+            .event_reader
+            .get_room_events_batch_since(&room_ids, SinceFilter::OriginServerTs(since_ts), limit)
             .await
             .map_err(map_internal!("Failed to get events"))?;
 
@@ -104,7 +99,7 @@ impl SyncService {
             }
         }
 
-        let end_token = format!("s{}", chrono::Utc::now().timestamp_millis());
+        let end_token = format!("s{}", current_timestamp_millis());
 
         Ok(json!({
             "start": from,

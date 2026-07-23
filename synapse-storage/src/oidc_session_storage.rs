@@ -6,6 +6,7 @@
 //! - Refresh Token（内置 OIDC）
 //! - 同意会话（MSC3861）
 
+use async_trait::async_trait;
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
 use tracing::instrument;
@@ -61,6 +62,23 @@ pub struct OidcConsentSession {
 }
 
 // ============ 存储层 ============
+
+/// Trait abstraction over [`OidcSessionStorage`] for testability.
+#[async_trait]
+pub trait OidcSessionStoreApi: Send + Sync {
+    async fn save_auth_session(&self, session: &OidcAuthSession) -> Result<(), sqlx::Error>;
+    async fn get_and_delete_auth_session(&self, session_key: &str) -> Result<Option<OidcAuthSession>, sqlx::Error>;
+    async fn save_refresh_token(&self, token: &OidcRefreshToken) -> Result<(), sqlx::Error>;
+    async fn get_refresh_token(&self, token_hash: &str) -> Result<Option<OidcRefreshToken>, sqlx::Error>;
+    async fn revoke_refresh_token(&self, token_hash: &str, now_ts: i64) -> Result<bool, sqlx::Error>;
+    async fn revoke_user_refresh_tokens(&self, user_id: &str, now_ts: i64) -> Result<u64, sqlx::Error>;
+    async fn save_consent_session(&self, session: &OidcConsentSession) -> Result<(), sqlx::Error>;
+    async fn get_and_delete_consent_session(&self, session_id: &str)
+        -> Result<Option<OidcConsentSession>, sqlx::Error>;
+    async fn get_consent_session(&self, session_id: &str) -> Result<Option<OidcConsentSession>, sqlx::Error>;
+    async fn delete_consent_session(&self, session_id: &str) -> Result<(), sqlx::Error>;
+    async fn cleanup_expired_sessions(&self, now_ts: i64) -> Result<u64, sqlx::Error>;
+}
 
 #[derive(Clone)]
 pub struct OidcSessionStorage {
@@ -329,9 +347,50 @@ impl OidcSessionStorage {
     }
 }
 
+#[async_trait]
+impl OidcSessionStoreApi for OidcSessionStorage {
+    async fn save_auth_session(&self, session: &OidcAuthSession) -> Result<(), sqlx::Error> {
+        self.save_auth_session(session).await
+    }
+    async fn get_and_delete_auth_session(&self, session_key: &str) -> Result<Option<OidcAuthSession>, sqlx::Error> {
+        self.get_and_delete_auth_session(session_key).await
+    }
+    async fn save_refresh_token(&self, token: &OidcRefreshToken) -> Result<(), sqlx::Error> {
+        self.save_refresh_token(token).await
+    }
+    async fn get_refresh_token(&self, token_hash: &str) -> Result<Option<OidcRefreshToken>, sqlx::Error> {
+        self.get_refresh_token(token_hash).await
+    }
+    async fn revoke_refresh_token(&self, token_hash: &str, now_ts: i64) -> Result<bool, sqlx::Error> {
+        self.revoke_refresh_token(token_hash, now_ts).await
+    }
+    async fn revoke_user_refresh_tokens(&self, user_id: &str, now_ts: i64) -> Result<u64, sqlx::Error> {
+        self.revoke_user_refresh_tokens(user_id, now_ts).await
+    }
+    async fn save_consent_session(&self, session: &OidcConsentSession) -> Result<(), sqlx::Error> {
+        self.save_consent_session(session).await
+    }
+    async fn get_and_delete_consent_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<OidcConsentSession>, sqlx::Error> {
+        self.get_and_delete_consent_session(session_id).await
+    }
+    async fn get_consent_session(&self, session_id: &str) -> Result<Option<OidcConsentSession>, sqlx::Error> {
+        self.get_consent_session(session_id).await
+    }
+    async fn delete_consent_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_consent_session(session_id).await
+    }
+    async fn cleanup_expired_sessions(&self, now_ts: i64) -> Result<u64, sqlx::Error> {
+        self.cleanup_expired_sessions(now_ts).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synapse_common::current_timestamp_millis;
 
     fn sample_auth_session() -> OidcAuthSession {
         OidcAuthSession {
@@ -608,7 +667,7 @@ mod tests {
 
         let storage = OidcSessionStorage::new(&pool);
         let session_key = format!("pkce_state_{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + 3_600_000;
         let session = make_auth_session(session_key.clone(), now, expires_at);
 
@@ -649,7 +708,7 @@ mod tests {
 
         let storage = OidcSessionStorage::new(&pool);
         let session_key = format!("pkce_state_{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let session = make_auth_session(session_key.clone(), now, now + 3_600_000);
 
         storage.save_auth_session(&session).await.expect("save_auth_session should succeed");
@@ -691,7 +750,7 @@ mod tests {
         setup_oidc_session_db(&pool).await;
 
         let storage = OidcSessionStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let past_ts = now - 3_600_000;
         let future_ts = now + 3_600_000;
 
@@ -790,7 +849,7 @@ mod tests {
 
         let storage = OidcSessionStorage::new(&pool);
         let token_hash = format!("hash_{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let future_ts = now + 3_600_000;
         let token = make_refresh_token(token_hash.clone(), now, Some(future_ts));
 
@@ -824,7 +883,7 @@ mod tests {
 
         let storage = OidcSessionStorage::new(&pool);
         let token_hash = format!("hash_{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let token = make_refresh_token(token_hash.clone(), now, Some(now + 3_600_000));
 
         storage.save_refresh_token(&token).await.expect("save_refresh_token should succeed");
@@ -861,7 +920,7 @@ mod tests {
         setup_oidc_session_db(&pool).await;
 
         let storage = OidcSessionStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let future_ts = now + 3_600_000;
         let user_id = format!("@user_{}:server", uuid::Uuid::new_v4());
 
@@ -918,7 +977,7 @@ mod tests {
 
         let storage = OidcSessionStorage::new(&pool);
         let session_id = format!("consent_{}", uuid::Uuid::new_v4());
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let future_ts = now + 3_600_000;
         let session = make_consent_session(session_id.clone(), now, future_ts);
 

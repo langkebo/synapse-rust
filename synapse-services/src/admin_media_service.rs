@@ -1,19 +1,20 @@
+use crate::UserService;
 use std::sync::Arc;
 use synapse_common::ApiError;
+use synapse_storage::AdminMediaStoreApi;
 pub use synapse_storage::{
     decode_media_cursor, encode_media_cursor, AdminMediaInfo, AdminMediaPage, AdminMediaQuotaSummary, MediaCursor,
 };
-use synapse_storage::{AdminMediaStoreApi, UserStore};
 use tracing::instrument;
 
 pub struct AdminMediaService {
     storage: Arc<dyn AdminMediaStoreApi>,
-    user_storage: Arc<dyn UserStore>,
+    user_service: Arc<UserService>,
 }
 
 impl AdminMediaService {
-    pub fn new(storage: Arc<dyn AdminMediaStoreApi>, user_storage: Arc<dyn UserStore>) -> Self {
-        Self { storage, user_storage }
+    pub fn new(storage: Arc<dyn AdminMediaStoreApi>, user_service: Arc<UserService>) -> Self {
+        Self { storage, user_service }
     }
 
     #[instrument(skip(self))]
@@ -42,27 +43,14 @@ impl AdminMediaService {
 
     #[instrument(skip(self))]
     pub async fn get_user_media(&self, identifier: &str) -> Result<(String, Vec<AdminMediaInfo>), ApiError> {
-        let user = self
-            .user_storage
-            .get_user_by_identifier(identifier)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-            .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
-
+        let user = self.user_service.get_user_or_not_found(identifier).await?;
         let media = self.storage.get_user_media(&user.user_id).await?;
-
         Ok((user.user_id, media))
     }
 
     #[instrument(skip(self))]
     pub async fn delete_user_media(&self, identifier: &str) -> Result<u64, ApiError> {
-        let user = self
-            .user_storage
-            .get_user_by_identifier(identifier)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-            .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
-
+        let user = self.user_service.get_user_or_not_found(identifier).await?;
         self.storage.delete_user_media(&user.user_id).await
     }
 }
@@ -74,7 +62,9 @@ mod tests {
 
     fn test_service() -> (AdminMediaService, Arc<InMemoryAdminMediaStore>) {
         let store = Arc::new(InMemoryAdminMediaStore::new());
-        let svc = AdminMediaService::new(store.clone(), shared_fake_user_store());
+        let user_store = shared_fake_user_store();
+        let user_service = Arc::new(crate::UserService::new(user_store.clone()));
+        let svc = AdminMediaService::new(store.clone(), user_service);
         (svc, store)
     }
 
@@ -91,8 +81,6 @@ mod tests {
         }
     }
 
-    // ── delete_media ────────────────────────────────────────────────
-
     #[tokio::test]
     async fn delete_media_removes_existing() {
         let (svc, store) = test_service();
@@ -107,8 +95,6 @@ mod tests {
         let err = svc.delete_media("nonexistent").await.unwrap_err();
         assert!(err.to_string().contains("not found"));
     }
-
-    // ── get_media_info ──────────────────────────────────────────────
 
     #[tokio::test]
     async fn get_media_info_returns_media() {
@@ -125,8 +111,6 @@ mod tests {
         assert!(svc.get_media_info("nonexistent").await.unwrap().is_none());
     }
 
-    // ── get_all_media ───────────────────────────────────────────────
-
     #[tokio::test]
     async fn get_all_media_returns_results() {
         let (svc, store) = test_service();
@@ -135,8 +119,6 @@ mod tests {
         let page = svc.get_all_media(100, None).await.unwrap();
         assert_eq!(page.media.len(), 2);
     }
-
-    // ── get_media_quota ─────────────────────────────────────────────
 
     #[tokio::test]
     async fn get_media_quota_returns_summary() {
@@ -158,16 +140,12 @@ mod tests {
         assert_eq!(quota.total_size, 0);
     }
 
-    // ── get_user_media ──────────────────────────────────────────────
-
     #[tokio::test]
     async fn get_user_media_user_not_found() {
         let (svc, _store) = test_service();
         let err = svc.get_user_media("@unknown:example.com").await.unwrap_err();
         assert!(err.to_string().contains("not found"));
     }
-
-    // ── delete_user_media ───────────────────────────────────────────
 
     #[tokio::test]
     async fn delete_user_media_user_not_found() {

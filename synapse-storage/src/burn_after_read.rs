@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use chrono::Utc;
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, FromRow)]
 pub struct BurnSettingsRow {
@@ -116,7 +116,7 @@ impl BurnAfterReadStorage {
         is_enabled: bool,
         burn_after_ms: i64,
     ) -> Result<BurnSettingsRow, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, BurnSettingsRow>(
             r"
@@ -147,7 +147,7 @@ impl BurnAfterReadStorage {
         event_id: &str,
         delete_ts: i64,
     ) -> Result<BurnPendingRow, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, BurnPendingRow>(
             r"
@@ -284,7 +284,7 @@ impl BurnAfterReadStorage {
     }
 
     pub async fn set_user_default(&self, user_id: &str, default_burn_ms: i64) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -579,7 +579,7 @@ mod db_tests {
 
         cleanup_burn_pending(&pool, &user_id, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let delete_ts = now + 60_000;
         let event_id = format!("$event_pending_{suffix}");
 
@@ -616,7 +616,7 @@ mod db_tests {
 
         cleanup_burn_pending(&pool, &user_id, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let delete_ts = now + 60_000;
         storage.schedule_burn(&user_id, &room_id, &event_id, delete_ts).await.expect("schedule_burn should succeed");
 
@@ -640,7 +640,7 @@ mod db_tests {
 
         cleanup_burn_pending(&pool, &user_id, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         // Past: should be expired now
         let past_ts = now - 60_000;
@@ -684,7 +684,7 @@ mod db_tests {
 
         cleanup_burn_pending(&pool, &user_id, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let delete_ts = now + 60_000;
         let scheduled = storage
             .schedule_burn(&user_id, &room_id, &event_id, delete_ts)
@@ -717,7 +717,7 @@ mod db_tests {
         cleanup_burn_log(&pool, &user_id).await;
         cleanup_burn_pending(&pool, &user_id, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         // Log a burned event
         storage.log_burned_event(&user_id, &room_id, &event_id, now).await.expect("log_burned_event should succeed");
@@ -807,7 +807,7 @@ mod db_tests {
         assert!(settings.is_enabled);
 
         // Step 3: Schedule a burn for the event
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let delete_ts = now + 30_000;
         let scheduled = storage
             .schedule_burn(&user_id, &room_id, &event_id, delete_ts)
@@ -823,7 +823,7 @@ mod db_tests {
         storage.mark_burn_processed(scheduled.id).await.expect("mark_burn_processed should succeed");
 
         // Step 6: Log the burned event
-        let burned_ts = chrono::Utc::now().timestamp_millis();
+        let burned_ts = current_timestamp_millis();
         storage
             .log_burned_event(&user_id, &room_id, &event_id, burned_ts)
             .await
@@ -851,7 +851,7 @@ mod db_tests {
 
         cleanup_burn_pending(&pool, &user_id, &room_id).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         // Schedule 3 burns: 2 expired, 1 not yet
         for i in 0..3 {

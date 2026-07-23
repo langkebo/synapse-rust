@@ -6,6 +6,7 @@ mod e2e_tests {
     use serde_json::json;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Duration;
+    use synapse_common::current_timestamp_millis;
     use tokio::runtime::Runtime;
 
     fn base_url() -> String {
@@ -15,7 +16,7 @@ mod e2e_tests {
     fn unique_username(prefix: &str) -> String {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        format!("{}_{}_{}_{}", prefix, std::process::id(), chrono::Utc::now().timestamp_millis(), n)
+        format!("{}_{}_{}_{}", prefix, std::process::id(), current_timestamp_millis(), n)
     }
 
     fn require_e2e_enabled() -> bool {
@@ -169,7 +170,7 @@ mod e2e_tests {
                 "{}/_matrix/client/r0/rooms/{}/send/m.room.message/{}",
                 base_url(),
                 room_id,
-                chrono::Utc::now().timestamp_millis()
+                current_timestamp_millis()
             ))
             .header("Authorization", format!("Bearer {access_token}"))
             .json(&json!({
@@ -253,7 +254,7 @@ mod e2e_tests {
                 base_url(),
                 room_id,
                 event_id,
-                chrono::Utc::now().timestamp_millis()
+                current_timestamp_millis()
             ))
             .header("Authorization", format!("Bearer {access_token}"))
             .json(&json!({"reason": "Delete message"}))

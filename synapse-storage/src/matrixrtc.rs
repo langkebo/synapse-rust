@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RTCSession {
@@ -145,7 +146,7 @@ impl MatrixRTCStorage {
     }
 
     pub async fn create_session(&self, params: CreateSessionParams) -> Result<RTCSession, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, RTCSession>(
             r#"
@@ -198,7 +199,7 @@ impl MatrixRTCStorage {
     }
 
     pub async fn end_session(&self, room_id: &str, session_id: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r#"
@@ -217,7 +218,7 @@ impl MatrixRTCStorage {
     }
 
     pub async fn create_membership(&self, params: CreateMembershipParams) -> Result<RTCMembership, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + 3600 * 1000;
 
         sqlx::query_as::<_, RTCMembership>(
@@ -259,7 +260,7 @@ impl MatrixRTCStorage {
         room_id: &str,
         session_id: &str,
     ) -> Result<Vec<RTCMembership>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, RTCMembership>(
             r#"
@@ -304,7 +305,7 @@ impl MatrixRTCStorage {
         user_id: &str,
         device_id: &str,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r#"
@@ -325,7 +326,7 @@ impl MatrixRTCStorage {
     }
 
     pub async fn cleanup_expired_memberships(&self) -> Result<u64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query(
             r#"
@@ -350,7 +351,7 @@ impl MatrixRTCStorage {
         sender_user_id: &str,
         sender_device_id: &str,
     ) -> Result<RTCEncryptionKey, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + 24 * 3600 * 1000;
 
         sqlx::query_as::<_, RTCEncryptionKey>(
@@ -384,7 +385,7 @@ impl MatrixRTCStorage {
         room_id: &str,
         session_id: &str,
     ) -> Result<Vec<RTCEncryptionKey>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, RTCEncryptionKey>(
             r#"
@@ -1118,7 +1119,7 @@ mod db_tests {
             .unwrap();
 
         // Directly insert a membership with an already-expired expires_at
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let past_expiry = now - 10_000; // 10 seconds in the past
         sqlx::query(
             r#"

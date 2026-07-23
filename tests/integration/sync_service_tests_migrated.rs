@@ -3,6 +3,7 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_rust::common::config::PerformanceConfig;
 use synapse_rust::common::metrics::MetricsCollector;
@@ -15,16 +16,18 @@ use synapse_rust::e2ee::to_device::ToDeviceStorage;
 use synapse_services::room_service::{CreateRoomConfig, RoomService};
 use synapse_services::room_summary_service::RoomSummaryService;
 use synapse_services::sync_service::SyncService;
+use synapse_services::UserService;
 use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::{CreateEventParams, EventStorage};
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::relations::RelationsStorage;
 use synapse_storage::room::RoomStorage;
 use synapse_storage::room_summary::RoomSummaryStorage;
+use synapse_storage::sticky_event::StickyEventStorage;
 use synapse_storage::user::UserStorage;
 use synapse_storage::user::UserStore;
 use synapse_storage::PresenceStorage;
-use synapse_storage::{AccountDataStorage, CreateFilterRequest, FilterStorage, RoomAccountDataStorage};
+use synapse_storage::{AccountDataStorage, CreateFilterRequest, FilterStorage, FilterStoreApi, RoomAccountDataStorage};
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
@@ -317,7 +320,7 @@ async fn create_test_user(pool: &Pool<Postgres>, user_id: &str, username: &str) 
     )
     .bind(user_id)
     .bind(username)
-    .bind(chrono::Utc::now().timestamp_millis())
+    .bind(current_timestamp_millis())
     .execute(pool)
     .await
     .expect("Failed to create test user");
@@ -333,16 +336,19 @@ fn create_room_service(
     let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
     let room_summary_service =
         Arc::new(RoomSummaryService::new(room_summary_storage, event_storage.clone(), Some(member_storage.clone())));
+    let cache = Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
 
     RoomService::new(synapse_services::room_service::RoomServiceConfig {
         room_storage,
         member_storage,
-        event_storage,
+        event_reader: Some(event_storage.clone()),
+        event_writer: Some(event_storage),
         room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
+        user_service: Arc::new(UserService::new(user_storage.clone())),
         user_storage,
-        auth_service: Arc::new(synapse_services::auth::AuthService::new(
+        room_auth: Arc::new(synapse_services::auth::AuthService::new(
             pool,
-            Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default())),
+            cache.clone(),
             Arc::new(synapse_rust::common::metrics::MetricsCollector::new()),
             &synapse_rust::common::config::SecurityConfig::default(),
             "localhost",
@@ -357,6 +363,9 @@ fn create_room_service(
         key_rotation_manager: None,
         federation_client: None,
         beacon_service: None,
+        sticky_event_storage: Arc::new(StickyEventStorage::new(pool.clone())),
+        cache,
+        key_rotation_storage: None,
     })
 }
 
@@ -387,15 +396,16 @@ async fn test_sync_success() {
         member_storage,
         event_storage,
         room_storage,
-        RoomAccountDataStorage::new(&pool),
+        Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
+        Arc::new(DeviceKeyStorage::new(&pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     // Create a room and send a message
@@ -444,15 +454,16 @@ async fn test_incremental_sync_does_not_replay_old_timeline() {
         member_storage,
         event_storage,
         room_storage,
-        RoomAccountDataStorage::new(&pool),
+        Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
+        Arc::new(DeviceKeyStorage::new(&pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     let config = CreateRoomConfig { name: Some("Incremental Room".to_string()), ..Default::default() };
@@ -490,15 +501,16 @@ async fn test_sync_offline_presence_overwrites_previous_presence_state() {
         member_storage,
         event_storage,
         room_storage,
-        RoomAccountDataStorage::new(&pool),
+        Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
+        Arc::new(DeviceKeyStorage::new(&pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     sync_service.sync("@alice:localhost", None, 0, false, "online", None, None).await.unwrap();
@@ -527,15 +539,16 @@ async fn test_sync_presence_events_reflect_persisted_presence_state() {
         member_storage,
         event_storage,
         room_storage,
-        RoomAccountDataStorage::new(&pool),
+        Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
+        Arc::new(DeviceKeyStorage::new(&pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     let response = sync_service.sync("@alice:localhost", None, 0, false, "unavailable", None, None).await.unwrap();
@@ -569,15 +582,16 @@ async fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state()
         member_storage,
         event_storage,
         room_storage,
-        RoomAccountDataStorage::new(&pool),
+        Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
+        Arc::new(DeviceKeyStorage::new(&pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -673,15 +687,16 @@ async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
         member_storage,
         event_storage.clone(),
         room_storage,
-        RoomAccountDataStorage::new(&pool),
+        Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
+        Arc::new(DeviceKeyStorage::new(&pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -711,7 +726,7 @@ async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
         .unwrap();
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
 
-    let topic_ts = chrono::Utc::now().timestamp_millis() + 1_000;
+    let topic_ts = current_timestamp_millis() + 1_000;
     event_storage
         .create_event(
             CreateEventParams {
@@ -791,15 +806,16 @@ async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite
         member_storage,
         event_storage.clone(),
         room_storage,
-        RoomAccountDataStorage::new(&pool),
+        Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
+        Arc::new(DeviceKeyStorage::new(&pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -825,7 +841,7 @@ async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite
         .unwrap();
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
 
-    let topic_ts = chrono::Utc::now().timestamp_millis() + 1_000;
+    let topic_ts = current_timestamp_millis() + 1_000;
     event_storage
         .create_event(
             CreateEventParams {
@@ -902,15 +918,16 @@ async fn test_sync_timeline_limit_preserves_chronological_order_without_false_li
         member_storage,
         event_storage,
         room_storage,
-        RoomAccountDataStorage::new(&pool),
+        Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
+        Arc::new(DeviceKeyStorage::new(&pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -988,15 +1005,16 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
         member_storage,
         event_storage.clone(),
         room_storage,
-        RoomAccountDataStorage::new(&pool),
+        Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
+        Arc::new(DeviceKeyStorage::new(&pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -1013,7 +1031,7 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
 
     room_service.membership.join_room(&room_id, "@bob:localhost").await.unwrap();
 
-    let base_ts = chrono::Utc::now().timestamp_millis();
+    let base_ts = current_timestamp_millis();
     event_storage
         .create_event(
             CreateEventParams {
@@ -1166,15 +1184,16 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
         member_storage.clone(),
         event_storage.clone(),
         room_storage.clone(),
-        RoomAccountDataStorage::new(&pool),
+        Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
+        Arc::new(DeviceKeyStorage::new(&pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     let device_storage = DeviceStorage::new(&pool);
@@ -1192,7 +1211,7 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
 
     room_service.membership.join_room(&room_id, "@bob:localhost").await.unwrap();
 
-    let base_ts = chrono::Utc::now().timestamp_millis();
+    let base_ts = current_timestamp_millis();
     event_storage
         .create_event(
             CreateEventParams {
@@ -1276,15 +1295,16 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
         member_storage,
         event_storage.clone(),
         room_storage,
-        RoomAccountDataStorage::new(&pool),
+        Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
+        Arc::new(DeviceKeyStorage::new(&pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     room_service
@@ -1344,15 +1364,16 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
         member_storage.clone(),
         event_storage.clone(),
         room_storage.clone(),
-        RoomAccountDataStorage::new(&pool),
+        Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
+        Arc::new(DeviceKeyStorage::new(&pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -1369,7 +1390,7 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
 
     room_service.membership.join_room(&room_id, "@bob:localhost").await.unwrap();
 
-    let base_ts = chrono::Utc::now().timestamp_millis();
+    let base_ts = current_timestamp_millis();
     event_storage
         .create_event(
             CreateEventParams {
@@ -1435,15 +1456,16 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
         member_storage,
         event_storage,
         room_storage,
-        RoomAccountDataStorage::new(&pool),
+        Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
+        Arc::new(DeviceKeyStorage::new(&pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     room_service
@@ -1484,7 +1506,7 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
     let event_storage = Arc::new(EventStorage::new(&pool, "localhost".to_string()));
     let room_storage = Arc::new(RoomStorage::new(&pool));
     let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(&pool, canonical_cache));
-    let filter_storage = FilterStorage::new(&pool);
+    let filter_storage: Arc<dyn FilterStoreApi> = Arc::new(FilterStorage::new(&pool));
 
     filter_storage
         .create_filter(CreateFilterRequest {
@@ -1514,15 +1536,16 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
         member_storage.clone(),
         event_storage.clone(),
         room_storage.clone(),
-        RoomAccountDataStorage::new(&pool),
+        Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
+        Arc::new(DeviceKeyStorage::new(&pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -1539,7 +1562,7 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
 
     room_service.membership.join_room(&room_id, "@bob:localhost").await.unwrap();
 
-    let base_ts = chrono::Utc::now().timestamp_millis();
+    let base_ts = current_timestamp_millis();
     event_storage
         .create_event(
             CreateEventParams {
@@ -1595,15 +1618,16 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
         member_storage,
         event_storage,
         room_storage,
-        RoomAccountDataStorage::new(&pool),
+        Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
+        Arc::new(DeviceKeyStorage::new(&pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     room_service

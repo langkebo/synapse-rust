@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 pub struct KeyRotationService {
@@ -273,6 +274,7 @@ pub trait KeyRotationStorageApi: Send + Sync {
     async fn get_rotation_config(&self, key: &str) -> Result<Option<String>, ApiError>;
     async fn get_last_rotation_for_key(&self, user_id: &str, key_id: &str) -> Result<Option<i64>, ApiError>;
     async fn get_max_rotation_ts(&self, user_id: &str) -> Result<i64, ApiError>;
+    async fn mark_key_rotation_needed(&self, room_id: &str, leaving_user_id: &str) -> Result<(), ApiError>;
 }
 
 #[derive(Clone)]
@@ -337,7 +339,7 @@ impl KeyRotationStorage {
     }
 
     pub async fn record_key_share(&self, room_id: &str, session_id: &str, share_reason: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO megolm_key_shares (room_id, session_id, share_reason, shared_at)
@@ -360,7 +362,7 @@ impl KeyRotationStorage {
     }
 
     pub async fn mark_rotated(&self, user_id: &str, room_id: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO key_rotation_state (user_id, room_id, rotation_count, last_rotation_ts)
@@ -414,7 +416,7 @@ impl KeyRotationStorage {
     }
 
     pub async fn get_rotation_status(&self, user_id: &str) -> Result<RotationStatus, ApiError> {
-        let seven_days_ago_ms = chrono::Utc::now().timestamp_millis() - 7 * 24 * 3600 * 1000;
+        let seven_days_ago_ms = current_timestamp_millis() - 7 * 24 * 3600 * 1000;
         let row = sqlx::query(
             "SELECT
              COUNT(*) as total_sessions,
@@ -461,28 +463,6 @@ impl KeyRotationStorage {
         })?;
 
         Ok(rows.into_iter().map(|r| r.0).collect())
-    }
-
-    pub async fn mark_key_rotation_needed(&self, room_id: &str, leaving_user_id: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
-            r"
-            INSERT INTO key_rotation_pending (room_id, reason, triggered_by_user_id, created_ts)
-            VALUES ($1, 'member_left', $2, $3)
-            ON CONFLICT (room_id, triggered_by_user_id) DO UPDATE SET created_ts = $3
-            ",
-        )
-        .bind(room_id)
-        .bind(leaving_user_id)
-        .bind(now)
-        .execute(&*self.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
-
-        Ok(())
     }
 
     pub async fn get_rooms_needing_key_rotation(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
@@ -681,5 +661,27 @@ impl KeyRotationStorageApi for KeyRotationStorage {
 
     async fn get_max_rotation_ts(&self, user_id: &str) -> Result<i64, ApiError> {
         self.get_max_rotation_ts(user_id).await
+    }
+
+    async fn mark_key_rotation_needed(&self, room_id: &str, leaving_user_id: &str) -> Result<(), ApiError> {
+        let now = current_timestamp_millis();
+        sqlx::query(
+            r"
+            INSERT INTO key_rotation_pending (room_id, reason, triggered_by_user_id, created_ts)
+            VALUES ($1, 'member_left', $2, $3)
+            ON CONFLICT (room_id, triggered_by_user_id) DO UPDATE SET created_ts = $3
+            ",
+        )
+        .bind(room_id)
+        .bind(leaving_user_id)
+        .bind(now)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
+
+        Ok(())
     }
 }

@@ -1,5 +1,6 @@
 use regex::Regex;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use synapse_storage::federation_blacklist::*;
 use tracing::info;
@@ -106,7 +107,7 @@ impl FederationBlacklistService {
 
         if let Some(entry) = entry {
             if let Some(expires_at) = entry.expires_at {
-                let now = chrono::Utc::now().timestamp_millis();
+                let now = current_timestamp_millis();
                 if expires_at < now {
                     return Ok(CheckResult {
                         is_blocked: false,

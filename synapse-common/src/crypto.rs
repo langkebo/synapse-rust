@@ -1,3 +1,4 @@
+use crate::current_timestamp_millis;
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
@@ -132,7 +133,7 @@ pub fn generate_room_id(server_name: &str) -> String {
 }
 
 pub fn generate_event_id(server_name: &str) -> String {
-    let timestamp = chrono::Utc::now().timestamp_millis();
+    let timestamp = current_timestamp_millis();
     let mut bytes = [0u8; 18];
     rand::rng().fill_bytes(&mut bytes);
     format!("${}${}:{}", timestamp, URL_SAFE_NO_PAD.encode(bytes), server_name)
@@ -657,5 +658,132 @@ mod tests {
     fn encode_hex_empty() {
         let result = encode_hex([]);
         assert!(result.is_empty());
+    }
+
+    // ── secure_compare ────────────────────────────────────────────────
+
+    #[test]
+    fn test_secure_compare_equal() {
+        assert!(secure_compare("abc123", "abc123"));
+    }
+
+    #[test]
+    fn test_secure_compare_different() {
+        assert!(!secure_compare("abc123", "xyz789"));
+    }
+
+    #[test]
+    fn test_secure_compare_different_lengths() {
+        assert!(!secure_compare("short", "longer string"));
+    }
+
+    #[test]
+    fn test_secure_compare_empty() {
+        assert!(secure_compare("", ""));
+    }
+
+    #[test]
+    fn test_secure_compare_one_empty() {
+        assert!(!secure_compare("", "non-empty"));
+        assert!(!secure_compare("non-empty", ""));
+    }
+
+    #[test]
+    fn test_secure_compare_prefix_does_not_match() {
+        assert!(!secure_compare("abc", "abcdef"));
+        assert!(!secure_compare("abcdef", "abc"));
+    }
+
+    #[test]
+    fn test_secure_compare_case_sensitive() {
+        assert!(!secure_compare("ABC", "abc"));
+    }
+
+    // ── secure_compare_bytes ──────────────────────────────────────────
+
+    #[test]
+    fn test_secure_compare_bytes_equal() {
+        assert!(secure_compare_bytes(b"abc123", b"abc123"));
+    }
+
+    #[test]
+    fn test_secure_compare_bytes_different() {
+        assert!(!secure_compare_bytes(b"abc123", b"xyz789"));
+    }
+
+    #[test]
+    fn test_secure_compare_bytes_different_lengths() {
+        assert!(!secure_compare_bytes(b"short", b"longer string"));
+    }
+
+    #[test]
+    fn test_secure_compare_bytes_empty() {
+        assert!(secure_compare_bytes(b"", b""));
+    }
+
+    #[test]
+    fn test_secure_compare_bytes_one_empty() {
+        assert!(!secure_compare_bytes(b"", b"non-empty"));
+        assert!(!secure_compare_bytes(b"non-empty", b""));
+    }
+
+    #[test]
+    fn test_secure_compare_bytes_binary_data() {
+        let a = [0x00u8, 0xFF, 0xAB, 0x12];
+        let b = [0x00u8, 0xFF, 0xAB, 0x12];
+        assert!(secure_compare_bytes(&a, &b));
+        let c = [0x00u8, 0xFF, 0xAB, 0x13];
+        assert!(!secure_compare_bytes(&a, &c));
+    }
+
+    #[test]
+    fn test_secure_compare_bytes_leading_null_bytes() {
+        assert!(secure_compare_bytes(b"\x00\x00abc", b"\x00\x00abc"));
+        assert!(!secure_compare_bytes(b"\x00\x00abc", b"\x00\x00xyz"));
+    }
+
+    // ── verify_token_hash ─────────────────────────────────────────────
+
+    #[test]
+    fn test_verify_token_hash_current() {
+        let token = "syt_test_token_abc123";
+        let hash = hash_token(token);
+        assert!(verify_token_hash(token, &hash));
+    }
+
+    #[test]
+    fn test_verify_token_hash_legacy_fallback() {
+        let token = "syt_test_token_legacy";
+        let legacy_hash = hash_token_legacy(token);
+        assert!(verify_token_hash(token, &legacy_hash));
+    }
+
+    #[test]
+    fn test_verify_token_hash_wrong_token() {
+        let token = "valid_token";
+        let wrong = "wrong_token";
+        let hash = hash_token(token);
+        assert!(!verify_token_hash(wrong, &hash));
+    }
+
+    #[test]
+    fn test_verify_token_hash_empty_token() {
+        let token = "";
+        let hash = hash_token(token);
+        assert!(verify_token_hash(token, &hash));
+    }
+
+    #[test]
+    fn test_verify_token_hash_empty_hash() {
+        let token = "some_token";
+        assert!(!verify_token_hash(token, ""));
+    }
+
+    #[test]
+    fn test_verify_token_hash_consistency() {
+        let token = "consistent_test_token";
+        let hash = hash_token(token);
+        assert!(verify_token_hash(token, &hash));
+        assert!(verify_token_hash(token, &hash));
     }
 }

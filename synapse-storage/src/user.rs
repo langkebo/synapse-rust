@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::constants::USER_PROFILE_CACHE_TTL;
+use synapse_common::current_timestamp_millis;
 use tracing;
 
 use crate::trigram_ranking::TrigramRanking;
@@ -32,7 +33,7 @@ pub struct User {
     pub avatar_url: Option<String>,
     pub email: Option<String>,
     pub phone: Option<String>,
-    pub generation: i64,
+    pub generation: Option<i64>,
     pub consent_version: Option<String>,
     pub appservice_id: Option<String>,
     pub user_type: Option<String>,
@@ -278,7 +279,7 @@ impl UserStorage {
         is_admin: bool,
     ) -> Result<User, sqlx::Error> {
         tracing::info!(user_id = %user_id, username = %username, is_admin = is_admin, "Creating user");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let generation = now;
         sqlx::query_as::<_, User>(
             r"
@@ -310,7 +311,7 @@ impl UserStorage {
         is_admin: bool,
     ) -> Result<User, sqlx::Error> {
         tracing::info!(user_id = %user_id, username = %username, is_admin = is_admin, "Creating user in transaction");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let generation = now;
         sqlx::query_as::<_, User>(
             r"
@@ -502,7 +503,7 @@ impl UserStorage {
 
     /// Count daily active users (users with a device seen in the last 24h).
     pub async fn get_daily_active_users(&self) -> Result<i64, sqlx::Error> {
-        let cutoff = chrono::Utc::now().timestamp_millis() - 24 * 60 * 60 * 1000;
+        let cutoff = current_timestamp_millis() - 24 * 60 * 60 * 1000;
         sqlx::query_scalar::<_, i64>(
             r"
             SELECT COUNT(DISTINCT user_id) FROM devices
@@ -516,7 +517,7 @@ impl UserStorage {
 
     /// Count monthly active users (users with a device seen in the last 30d).
     pub async fn get_monthly_active_users(&self) -> Result<i64, sqlx::Error> {
-        let cutoff = chrono::Utc::now().timestamp_millis() - 30 * 24 * 60 * 60 * 1000;
+        let cutoff = current_timestamp_millis() - 30 * 24 * 60 * 60 * 1000;
         sqlx::query_scalar::<_, i64>(
             r"
             SELECT COUNT(DISTINCT user_id) FROM devices
@@ -531,7 +532,7 @@ impl UserStorage {
     /// Count R30 users: users active today who were also active 30 days ago.
     /// This is a simplified retention metric matching Synapse's r30_users.
     pub async fn get_r30_users(&self) -> Result<i64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let thirty_days_ago = now - 30 * 24 * 60 * 60 * 1000;
         let thirty_one_days_ago = now - 31 * 24 * 60 * 60 * 1000;
         sqlx::query_scalar::<_, i64>(
@@ -608,7 +609,7 @@ impl UserStorage {
 
     pub async fn update_password(&self, user_id: &str, password_hash: &str) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Updating user password");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"UPDATE users SET password_hash = $1, password_changed_ts = $2, is_password_change_required = FALSE, must_change_password = FALSE WHERE user_id = $3"
         )
@@ -695,7 +696,7 @@ impl UserStorage {
         content: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
         let content_str = serde_json::to_string(content).unwrap_or_default();
-        let now: i64 = chrono::Utc::now().timestamp();
+        let now: i64 = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO user_account_data (user_id, event_type, content, created_ts)
@@ -739,7 +740,7 @@ impl UserStorage {
         data_type: &str,
         content: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
@@ -1344,7 +1345,7 @@ impl UserStorage {
         username: &str,
         password_hash: &str,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             UPDATE users
@@ -1636,7 +1637,7 @@ mod tests {
             avatar_url: Some("mxc://example.com/avatar".to_string()),
             email: Some("alice@example.com".to_string()),
             phone: None,
-            generation: 1,
+            generation: Some(1),
             consent_version: Some("1.0".to_string()),
             appservice_id: None,
             user_type: None,
@@ -1655,7 +1656,7 @@ mod tests {
         assert!(user.is_admin);
         assert!(!user.is_guest);
         assert_eq!(user.displayname.as_deref(), Some("Alice"));
-        assert_eq!(user.generation, 1);
+        assert_eq!(user.generation, Some(1));
     }
 
     #[test]
@@ -1674,7 +1675,7 @@ mod tests {
             avatar_url: None,
             email: None,
             phone: None,
-            generation: 0,
+            generation: Some(0),
             consent_version: None,
             appservice_id: None,
             user_type: None,
@@ -1710,7 +1711,7 @@ mod tests {
             avatar_url: None,
             email: None,
             phone: None,
-            generation: 0,
+            generation: Some(0),
             consent_version: None,
             appservice_id: None,
             user_type: Some("support".to_string()),
@@ -2142,7 +2143,7 @@ mod db_tests {
         storage.create_user(&user_id, "lockuser", None, false).await.unwrap();
         assert!(!storage.is_user_locked(&user_id).await.unwrap());
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         storage.lock_user(&user_id, Some("test_reason"), "system", now).await.expect("lock should succeed");
         assert!(storage.is_user_locked(&user_id).await.unwrap());
 
@@ -2150,7 +2151,7 @@ mod db_tests {
         assert!(locked.is_some());
         assert_eq!(locked.unwrap().reason.unwrap(), "test_reason");
 
-        storage.unlock_user(&user_id, chrono::Utc::now().timestamp_millis()).await.expect("unlock should succeed");
+        storage.unlock_user(&user_id, current_timestamp_millis()).await.expect("unlock should succeed");
         assert!(!storage.is_user_locked(&user_id).await.unwrap());
 
         let _ = storage.delete_user(&user_id).await;
@@ -2789,7 +2790,7 @@ mod db_tests {
         let _ = storage.delete_user(&user_id).await;
         storage.create_user(&user_id, "lklistuser", None, false).await.unwrap();
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         storage.lock_user(&user_id, Some("audit"), "system", now).await.unwrap();
 
         // Page 1 (limit large enough) should include our locked user.

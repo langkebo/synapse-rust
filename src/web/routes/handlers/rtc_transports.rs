@@ -3,9 +3,9 @@
 //! Provides ICE server transport information (STUN/TURN) for MatrixRTC calls
 //! as specified in MSC4403, wrapped in an MSC4143 response envelope.
 
+use crate::web::routes::context::RoomContext;
 use crate::web::routes::ApiError;
 use crate::web::routes::AuthenticatedUser;
-use crate::web::AppState;
 use axum::{extract::State, Json};
 use serde_json::json;
 
@@ -14,10 +14,10 @@ use serde_json::json;
 /// based on our VoIP/TURN/STUN configuration so clients can use them for
 /// MatrixRTC calls even without a dedicated SFU.
 pub async fn get_rtc_transports(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let voip_service = &state.services.extensions.rtc_domain_service.infra;
+    let voip_service = &ctx.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
         return Ok(Json(json!({ "transports": [] })));

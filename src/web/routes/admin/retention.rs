@@ -94,7 +94,7 @@ pub async fn get_room_retention_policy(
     State(ctx): State<AdminContext>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = ctx.room_service.state.room_exists(&room_id).await?;
+    let room_exists = ctx.room_service.state().room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -125,7 +125,7 @@ pub async fn set_room_retention_policy(
     Path(room_id): Path<String>,
     Json(body): Json<RetentionPolicyRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -155,7 +155,7 @@ pub async fn run_retention(
 ) -> Result<Json<Value>, ApiError> {
     match body.room_id {
         Some(room_id) => {
-            if !ctx.room_service.state.room_exists(&room_id).await? {
+            if !ctx.room_service.state().room_exists(&room_id).await? {
                 return Err(ApiError::not_found("Room not found".to_string()));
             }
 

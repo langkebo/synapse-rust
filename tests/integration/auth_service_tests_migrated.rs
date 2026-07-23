@@ -3,6 +3,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::SecurityConfig;
@@ -118,8 +119,8 @@ async fn test_password_migration_on_login() {
     .bind(&username)
     .bind(&legacy_hash)
     .bind(false)
-    .bind(chrono::Utc::now().timestamp_millis())
-    .bind(chrono::Utc::now().timestamp_millis())
+    .bind(current_timestamp_millis())
+    .bind(current_timestamp_millis())
     .execute(&*pool)
     .await
     .expect("Failed to create user with legacy hash");
@@ -186,8 +187,8 @@ async fn test_password_migration_preserves_login_ability() {
     .bind(&username)
     .bind(&legacy_hash)
     .bind(false)
-    .bind(chrono::Utc::now().timestamp_millis())
-    .bind(chrono::Utc::now().timestamp_millis())
+    .bind(current_timestamp_millis())
+    .bind(current_timestamp_millis())
     .execute(&*pool)
     .await
     .expect("Failed to create user with legacy hash");

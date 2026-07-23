@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use synapse_common::current_timestamp_millis;
     use synapse_services::ServiceContainer;
     use synapse_storage::registration_token::*;
 
@@ -10,7 +11,7 @@ mod tests {
             token_type: Some("single_use".to_string()),
             description: Some("Test token".to_string()),
             max_uses: Some(1),
-            expires_at: Some(chrono::Utc::now().timestamp_millis() + 86_400_000),
+            expires_at: Some(current_timestamp_millis() + 86_400_000),
             created_by: Some("@admin:example.com".to_string()),
             allowed_email_domains: Some(vec!["example.com".to_string()]),
             allowed_user_ids: None,
@@ -37,7 +38,7 @@ mod tests {
             expires_at: Some(1234567890),
             created_by: Some("@admin:example.com".to_string()),
             created_ts: 1234560_000,
-            updated_ts: 1234567000,
+            updated_ts: Some(1234567000),
             last_used_ts: Some(1234567000),
             allowed_email_domains: Some(vec!["example.com".to_string()]),
             allowed_user_ids: None,
@@ -57,7 +58,7 @@ mod tests {
     fn test_registration_token_usage_struct() {
         let usage = RegistrationTokenUsage {
             id: 1,
-            token_id: 100,
+            token_id: Some(100),
             token: "TOKEN123".to_string(),
             user_id: "@user:example.com".to_string(),
             username: Some("testuser".to_string()),
@@ -69,7 +70,7 @@ mod tests {
             error_message: None,
         };
 
-        assert_eq!(usage.token_id, 100);
+        assert_eq!(usage.token_id, Some(100));
         assert!(usage.success);
     }
 

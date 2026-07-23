@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiResult;
 
 /// 打字用户信息
@@ -105,7 +106,7 @@ impl TypingService {
             user_id: user_id.to_string(),
             room_id: room_id.to_string(),
             timeout_ms,
-            started_ts: chrono::Utc::now().timestamp_millis(),
+            started_ts: current_timestamp_millis(),
         };
 
         // 读取当前房间的打字状态，更新或添加用户
@@ -148,7 +149,7 @@ impl TypingService {
     }
 
     pub async fn get_typing_users(&self, room_id: &str) -> ApiResult<HashMap<String, u64>> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let key = room_typing_key(room_id);
 
         let mut state: RoomTypingState = match self.cache.get::<RoomTypingState>(&key).await {
@@ -181,7 +182,7 @@ impl TypingService {
     }
 
     pub async fn get_typing_users_batch(&self, room_ids: &[String]) -> ApiResult<HashMap<String, Vec<String>>> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut result: HashMap<String, Vec<String>> = HashMap::with_capacity(room_ids.len());
 
         for room_id in room_ids {
@@ -220,7 +221,7 @@ impl TypingService {
     }
 
     pub async fn get_user_typing(&self, room_id: &str, user_id: &str) -> ApiResult<Option<u64>> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let key = room_typing_key(room_id);
 
         let state: RoomTypingState = match self.cache.get::<RoomTypingState>(&key).await {

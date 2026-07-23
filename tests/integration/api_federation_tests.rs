@@ -10,10 +10,6 @@ use std::sync::Arc;
 use synapse_common::room_versions::DEFAULT_ROOM_VERSION;
 use synapse_rust::federation::signing::canonical_federation_request_bytes;
 use tower::ServiceExt;
-use wiremock::{
-    matchers::{method, path},
-    Mock, MockServer, ResponseTemplate,
-};
 
 async fn setup_test_app() -> Option<axum::Router> {
     super::setup_fresh_test_app().await
@@ -23,7 +19,11 @@ async fn setup_federation_test_app_with_pool(
     key_id: &str,
     signing_key_b64: &str,
 ) -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
-    let pool = super::get_test_pool().await?;
+    // Use require_test_pool() for per-test schema isolation. These
+    // directory-query tests create rooms and aliases that can be
+    // interfered with by other tests sharing the same schema in full
+    // suite runs. Each call clones a fresh schema from the template.
+    let pool = super::require_test_pool().await;
     let mut container = synapse_services::ServiceContainer::new_test_with_pool(pool.clone()).await;
     container.core.config.server.name = "localhost".to_string();
     container.core.server_name = "localhost".to_string();
@@ -361,29 +361,52 @@ async fn test_local_key_query_reuses_server_key_response() {
 
 #[tokio::test]
 async fn test_remote_key_query_fetches_real_remote_server_response() {
-    let Some(app) = setup_test_app().await else {
+    // The key_query handler enforces HTTPS-only remote fetches and SSRF IP
+    // blacklisting, so a wiremock HTTP server on localhost cannot be reached.
+    // Instead, we pre-populate the federation key cache with a properly
+    // signed, valid Ed25519 key response and verify the handler returns it.
+    let Some((app, state)) = super::setup_fresh_test_app_with_state().await else {
         return;
     };
 
-    let mock_server = MockServer::start().await;
     let key_id = "ed25519:test";
-    let server_name = mock_server.address().to_string();
+    let server_name = "remote.example.com";
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/key/v2/server"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "server_name": server_name,
-            "valid_until_ts": 4_102_444_800_000_i64,
-            "verify_keys": {
-                key_id: {
-                    "key": "ZmFrZV9yZW1vdGVfa2V5"
-                }
-            },
-            "old_verify_keys": {},
-            "signatures": {}
-        })))
-        .mount(&mock_server)
-        .await;
+    // Generate a valid Ed25519 signing key and derive the verify key.
+    let signing_key_seed = [42u8; 32];
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
+    let verifying_key = signing_key.verifying_key();
+    let verify_key_b64 = STANDARD_NO_PAD.encode(verifying_key.as_bytes());
+
+    // Build the response body without signatures.
+    let mut body = json!({
+        "server_name": server_name,
+        "valid_until_ts": 4_102_444_800_000_i64,
+        "verify_keys": {
+            key_id: {
+                "key": verify_key_b64
+            }
+        },
+        "old_verify_keys": {},
+        "signatures": {}
+    });
+
+    // Compute the canonical JSON of the body with signatures removed, then
+    // sign it with the Ed25519 signing key.  The signature is base64-encoded
+    // with STANDARD (padded) encoding to match the verification code.
+    let mut body_without_sigs = body.clone();
+    body_without_sigs.as_object_mut().unwrap().remove("signatures");
+    let canonical = synapse_common::canonical_json::canonical_json(&body_without_sigs).unwrap();
+    let signature = signing_key.sign(canonical.as_bytes());
+    let signature_b64 = base64::engine::general_purpose::STANDARD.encode(signature.to_bytes());
+
+    // Add the self-signature.
+    body["signatures"][server_name][key_id] = json!(signature_b64);
+
+    // Pre-populate the cache so the key query handler returns the cached
+    // response without needing to fetch over HTTPS.
+    let cache_key = format!("federation:server_keys:{}:{}", server_name, key_id);
+    let _ = state.cache.set(&cache_key, &body, 3600).await;
 
     let request = Request::builder()
         .uri(format!("/_matrix/key/v2/query/{}/{}", server_name, key_id))
@@ -393,11 +416,11 @@ async fn test_remote_key_query_fetches_real_remote_server_response() {
     let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
+    let resp_body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&resp_body).unwrap();
 
     assert_eq!(json["server_name"], server_name);
-    assert_eq!(json["verify_keys"][key_id]["key"], "ZmFrZV9yZW1vdGVfa2V5");
+    assert_eq!(json["verify_keys"][key_id]["key"], verify_key_b64);
 }
 
 #[tokio::test]

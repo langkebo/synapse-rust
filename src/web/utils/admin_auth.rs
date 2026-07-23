@@ -8,6 +8,7 @@ use serde_json::json;
 use sha1::Sha1;
 use std::time::{SystemTime, UNIX_EPOCH};
 use synapse_common::crypto::secure_compare;
+use synapse_services::UserService;
 use synapse_storage::audit::CreateAuditEventRequest;
 use synapse_storage::user::User;
 
@@ -25,8 +26,8 @@ pub(crate) struct AuthorizedAdmin {
 /// references instead of `&AppState`. Used by typed-context `FromRequestParts`
 /// implementations.
 pub(crate) async fn authorize_admin_from_services(
-    auth_service: &(dyn synapse_services::auth::Auth + Send + Sync),
-    user_storage: &(dyn synapse_storage::UserStore + Send + Sync),
+    auth_service: &(dyn synapse_services::auth::TokenAuth + Send + Sync),
+    user_service: &UserService,
     security: &synapse_common::config::SecurityConfig,
     admin_audit_service: Option<&synapse_services::AdminAuditService>,
     headers: &HeaderMap,
@@ -41,10 +42,9 @@ pub(crate) async fn authorize_admin_from_services(
         return Err(ApiError::forbidden("Admin access required".to_string()));
     }
 
-    let user = user_storage
-        .get_user_by_id(&user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to load admin user", &e))?
+    let user = user_service
+        .get_user(&user_id)
+        .await?
         .ok_or_else(|| ApiError::unauthorized("Admin user not found".to_string()))?;
 
     if !user.is_admin {
@@ -116,7 +116,7 @@ pub(crate) async fn authorize_admin_request(
 ) -> Result<AuthorizedAdmin, ApiError> {
     let access_token = super::auth::bearer_token(headers)?;
     let (user_id, device_id, is_admin, _, _): (String, Option<String>, bool, bool, bool) =
-        state.services.core.auth_service.validate_token(&access_token).await?;
+        state.services.core.token_auth.validate_token(&access_token).await?;
 
     if !is_admin {
         return Err(ApiError::forbidden("Admin access required".to_string()));
@@ -125,10 +125,9 @@ pub(crate) async fn authorize_admin_request(
     let user = state
         .services
         .account
-        .user_storage
-        .get_user_by_id(&user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to load admin user", &e))?
+        .user_service
+        .get_user(&user_id)
+        .await?
         .ok_or_else(|| ApiError::unauthorized("Admin user not found".to_string()))?;
 
     if !user.is_admin {
@@ -204,23 +203,27 @@ fn normalize_admin_path(path: &str) -> String {
     path.to_string()
 }
 
-pub(crate) async fn enforce_admin_login_mfa(
-    state: &AppState,
+/// Variant that works with individual service references instead of &AppState.
+pub(crate) async fn enforce_admin_login_mfa_svc(
+    security: &SecurityConfig,
+    user_service: &UserService,
     username: &str,
     mfa_code: Option<&str>,
 ) -> Result<(), ApiError> {
-    if !state.services.core.config.security.admin_mfa_required {
+    enforce_admin_login_mfa_impl(security, user_service, username, mfa_code).await
+}
+
+async fn enforce_admin_login_mfa_impl(
+    security: &SecurityConfig,
+    user_service: &UserService,
+    username: &str,
+    mfa_code: Option<&str>,
+) -> Result<(), ApiError> {
+    if !security.admin_mfa_required {
         return Ok(());
     }
 
-    let Some(user) = state
-        .services
-        .account
-        .user_storage
-        .get_user_by_identifier(username)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to load user for admin MFA", &e))?
-    else {
+    let Some(user) = user_service.get_user_by_identifier(username).await? else {
         return Ok(());
     };
 
@@ -233,7 +236,7 @@ pub(crate) async fn enforce_admin_login_mfa(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ApiError::forbidden("Admin login requires MFA code".to_string()))?;
 
-    verify_totp_code(&state.services.core.config.security, mfa_code, Some(&user))
+    verify_totp_code(security, mfa_code, Some(&user))
 }
 
 pub(crate) fn normalize_admin_role(user_type: Option<&str>) -> String {

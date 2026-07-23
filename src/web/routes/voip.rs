@@ -1,13 +1,16 @@
 use crate::common::error::ApiError;
+use crate::web::routes::context::RoomContext;
 #[cfg(feature = "voip-tracking")]
 use crate::web::routes::response_helpers::empty_json;
+use crate::web::routes::AuthenticatedUser;
 #[cfg(feature = "voip-tracking")]
-use crate::web::routes::{ensure_room_member, validate_room_id};
-use crate::web::routes::{AppState, AuthenticatedUser};
+use crate::web::routes::{ensure_room_member_ctx, validate_room_id};
 #[cfg(feature = "voip-tracking")]
 use axum::extract::Path;
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "voip-tracking")]
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnServerResponse {
@@ -25,10 +28,10 @@ pub struct VoipConfigResponse {
 
 #[allow(clippy::unused_async)]
 pub async fn get_turn_server(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<TurnServerResponse>, ApiError> {
-    let voip_service = &state.services.extensions.rtc_domain_service.infra;
+    let voip_service = &ctx.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
         return Ok(Json(TurnServerResponse {
@@ -51,10 +54,10 @@ pub async fn get_turn_server(
 
 #[allow(clippy::unused_async)]
 pub async fn get_voip_config(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<VoipConfigResponse>, ApiError> {
-    let voip_service = &state.services.extensions.rtc_domain_service.infra;
+    let voip_service = &ctx.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
         return Ok(Json(VoipConfigResponse { turn_servers: None, stun_servers: None }));
@@ -80,8 +83,8 @@ pub async fn get_voip_config(
 }
 
 #[allow(clippy::unused_async)]
-pub async fn get_turn_credentials_guest(State(state): State<AppState>) -> Result<Json<TurnServerResponse>, ApiError> {
-    let voip_service = &state.services.extensions.rtc_domain_service.infra;
+pub async fn get_turn_credentials_guest(State(ctx): State<RoomContext>) -> Result<Json<TurnServerResponse>, ApiError> {
+    let voip_service = &ctx.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
         return Err(ApiError::not_found("VoIP/TURN service is not configured"));
@@ -165,44 +168,36 @@ use synapse_services::rtc::call::{CallAnswerEvent, CallCandidatesEvent, CallHang
 
 #[cfg(feature = "voip-tracking")]
 async fn ensure_call_room_member(
-    state: &AppState,
+    ctx: &RoomContext,
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
     validate_room_id(room_id)?;
-    ensure_room_member(state, auth_user, room_id, "You must be a member of this room to access call state").await
+    ensure_room_member_ctx(ctx, auth_user, room_id, "You must be a member of this room to access call ctx").await
 }
 
 /// Call invite event
 #[cfg(feature = "voip-tracking")]
 #[axum::debug_handler]
 pub async fn call_invite(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, _txn_id)): Path<(String, String)>,
     Json(content): Json<CallInviteEvent>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    ensure_call_room_member(&state, &auth_user, &room_id).await?;
+    ensure_call_room_member(&ctx, &auth_user, &room_id).await?;
 
-    let _session = state
-        .services
-        .extensions
-        .rtc_domain_service
-        .call
-        .handle_invite(&room_id, &auth_user.user_id, content.clone())
-        .await?;
+    let _session = ctx.rtc_domain_service.call.handle_invite(&room_id, &auth_user.user_id, content.clone()).await?;
 
-    let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
-    let now = chrono::Utc::now().timestamp_millis();
+    let event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
+    let now = current_timestamp_millis();
     let content_value = serde_json::to_value(content).unwrap_or_default();
 
     // create_event with tx=None already dispatches to appservices internally,
     // so we don't need a separate dispatch_appservice_event call here.
-    let _ = state
-        .services
-        .rooms
+    let _ = ctx
         .room_service
-        .messaging
+        .messaging()
         .create_event(
             synapse_storage::event::CreateEventParams {
                 event_id: event_id.clone(),
@@ -227,14 +222,14 @@ pub async fn call_invite(
 #[cfg(feature = "voip-tracking")]
 #[axum::debug_handler]
 pub async fn call_candidates(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, _txn_id)): Path<(String, String)>,
     Json(content): Json<CallCandidatesEvent>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    ensure_call_room_member(&state, &auth_user, &room_id).await?;
+    ensure_call_room_member(&ctx, &auth_user, &room_id).await?;
 
-    state.services.extensions.rtc_domain_service.call.handle_candidates(&room_id, &auth_user.user_id, content).await?;
+    ctx.rtc_domain_service.call.handle_candidates(&room_id, &auth_user.user_id, content).await?;
 
     Ok(empty_json())
 }
@@ -243,32 +238,24 @@ pub async fn call_candidates(
 #[cfg(feature = "voip-tracking")]
 #[axum::debug_handler]
 pub async fn call_answer(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, _txn_id)): Path<(String, String)>,
     Json(content): Json<CallAnswerEvent>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    ensure_call_room_member(&state, &auth_user, &room_id).await?;
+    ensure_call_room_member(&ctx, &auth_user, &room_id).await?;
 
-    let _session = state
-        .services
-        .extensions
-        .rtc_domain_service
-        .call
-        .handle_answer(&room_id, &auth_user.user_id, content.clone())
-        .await?;
+    let _session = ctx.rtc_domain_service.call.handle_answer(&room_id, &auth_user.user_id, content.clone()).await?;
 
-    let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
-    let now = chrono::Utc::now().timestamp_millis();
+    let event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
+    let now = current_timestamp_millis();
     let content_value = serde_json::to_value(content).unwrap_or_default();
 
     // create_event with tx=None already dispatches to appservices internally,
     // so we don't need a separate dispatch_appservice_event call here.
-    let _ = state
-        .services
-        .rooms
+    let _ = ctx
         .room_service
-        .messaging
+        .messaging()
         .create_event(
             synapse_storage::event::CreateEventParams {
                 event_id: event_id.clone(),
@@ -293,14 +280,14 @@ pub async fn call_answer(
 #[cfg(feature = "voip-tracking")]
 #[axum::debug_handler]
 pub async fn call_hangup(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, _txn_id)): Path<(String, String)>,
     Json(content): Json<CallHangupEvent>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    ensure_call_room_member(&state, &auth_user, &room_id).await?;
+    ensure_call_room_member(&ctx, &auth_user, &room_id).await?;
 
-    state.services.extensions.rtc_domain_service.call.handle_hangup(&room_id, &auth_user.user_id, content).await?;
+    ctx.rtc_domain_service.call.handle_hangup(&room_id, &auth_user.user_id, content).await?;
 
     Ok(empty_json())
 }
@@ -309,22 +296,20 @@ pub async fn call_hangup(
 #[cfg(feature = "voip-tracking")]
 #[axum::debug_handler]
 pub async fn get_call_session(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, call_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    ensure_call_room_member(&state, &auth_user, &room_id).await?;
+    ensure_call_room_member(&ctx, &auth_user, &room_id).await?;
 
-    let session = state
-        .services
-        .extensions
+    let session = ctx
         .rtc_domain_service
         .call
         .get_session(&call_id, &room_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Call session not found"))?;
 
-    let candidates = state.services.extensions.rtc_domain_service.call.get_candidates(&call_id, &room_id).await?;
+    let candidates = ctx.rtc_domain_service.call.get_candidates(&call_id, &room_id).await?;
 
     Ok(Json(serde_json::json!({
         "call_id": session.call_id,

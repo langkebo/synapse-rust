@@ -155,7 +155,7 @@ BEGIN
     END IF;
 END $$;
 
-INSERT INTO schema_migrations (version, name, success, description, applied_ts)
+INSERT INTO schema_migrations (version, name, is_success, description, applied_ts)
 VALUES (
     '20260515000006',
     'consolidated_constraint_governance_v7',

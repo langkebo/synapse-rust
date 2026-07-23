@@ -17,6 +17,7 @@ mod api_feature_flags_tests;
 mod api_federation_join_key_fetch_priority_tests;
 mod api_federation_key_fetch_limits_tests;
 mod api_federation_tests;
+mod api_federation_transaction_tests;
 mod api_input_validation_tests;
 mod api_invite_blocklist_routes_tests;
 mod api_key_backup_route_table_tests;
@@ -45,6 +46,8 @@ mod api_widget_tests;
 mod api_worker_replication_auth_tests;
 mod cache_tests;
 mod cleanup_tests;
+#[path = "../common/mod.rs"]
+mod common;
 mod concurrency_tests;
 mod database_integrity_tests;
 mod federation_error_tests;
@@ -66,6 +69,7 @@ mod feature_flags_storage_tests_migrated;
 mod federation_blacklist_storage_tests_migrated;
 mod filter_storage_tests_migrated;
 mod friend_room_storage_tests_migrated;
+mod key_backup_recovery_tests;
 mod key_backup_storage_tests_migrated;
 mod megolm_dual_write_storage_tests_migrated;
 mod membership_storage_tests_migrated;
@@ -86,6 +90,7 @@ mod user_storage_tests_migrated;
 
 // Service tests migrated from tests/unit/
 mod admin_registration_service_tests_migrated;
+mod auth_service_coverage_tests;
 mod auth_service_tests_migrated;
 mod captcha_tests_migrated;
 mod exception_tests_migrated;
@@ -98,6 +103,7 @@ mod registration_service_tests_migrated;
 mod relations_service_tests_migrated;
 mod room_service_tests_migrated;
 mod sliding_sync_service_tests_migrated;
+mod sync_handlers_coverage_tests;
 mod sync_service_tests_migrated;
 mod to_device_sync_tests_migrated;
 mod uia_service_tests_migrated;
@@ -107,13 +113,26 @@ mod db_schema_smoke_tests_migrated;
 mod schema_contract_p0_tests_migrated;
 mod schema_contract_room_summary_queue_driver_tests_migrated;
 
+mod nullable_decode_tests;
+
 #[cfg(test)]
 mod coverage_tests;
 
 use std::sync::Arc;
+use std::sync::Once;
 use std::time::{Duration, Instant};
 
 static TEST_POOL: tokio::sync::OnceCell<Option<Arc<sqlx::PgPool>>> = tokio::sync::OnceCell::const_new();
+static TRACING_INIT: Once = Once::new();
+
+fn init_tracing() {
+    TRACING_INIT.call_once(|| {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_target(false)
+            .try_init();
+    });
+}
 
 pub fn with_local_connect_info(mut request: hyper::Request<axum::body::Body>) -> hyper::Request<axum::body::Body> {
     use axum::extract::ConnectInfo;
@@ -161,6 +180,7 @@ fn describe_integration_test_setup(mode: &str, elapsed: Duration) -> String {
 }
 
 pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
+    init_tracing();
     TEST_POOL
         .get_or_init(|| async {
             let use_isolated = std::env::var("TEST_ISOLATED_SCHEMAS")
@@ -232,10 +252,20 @@ fn should_fallback_to_isolated_pool(error: &str) -> bool {
         || error.contains("template schema initialization")
 }
 
+/// Returns an isolated schema pool for each call, bypassing the shared
+/// `TEST_POOL` OnceCell cache.
+///
+/// Previously this returned the shared `TEST_POOL`, which caused two problems:
+/// 1. PoolTimedOut: `#[tokio::test]` creates isolated runtimes; sqlx pool
+///    connections from other runtimes become isolated (project memory known issue).
+/// 2. Data interference: parallel tests shared the same schema and data.
+///
+/// Now each call returns a fresh schema cloned from the template (fast —
+/// ~100x faster than re-running migrations), providing per-test isolation.
 pub async fn require_test_pool() -> Arc<sqlx::PgPool> {
-    get_test_pool().await.unwrap_or_else(|| {
+    synapse_rust::test_utils::prepare_shared_test_pool().await.unwrap_or_else(|error| {
         panic!(
-            "Integration test requires database setup. For local runs, start PostgreSQL and apply migrations first; in CI this must already succeed."
+            "Integration test requires database setup. For local runs, start PostgreSQL and apply migrations first; in CI this must already succeed. Error: {error}"
         )
     })
 }
@@ -317,9 +347,13 @@ pub async fn setup_test_app_with_pool(
 // OnceCell-cached DEFAULT_APP that causes parallel test data interference.
 
 /// Per-test isolated context: owns a fresh app + state + pool, each backed by
-/// a unique schema cloned from the template. Dropping the context closes the
-/// pool; schema orphaning is acceptable (PostgreSQL reclaims via namespace +
-/// PID naming in `next_test_schema_name`).
+/// a unique schema cloned from the template. Dropping the context returns the
+/// schema to the pool (TRUNCATEd) for reuse by subsequent tests — this is the
+/// P0 optimization that makes integration tests 15-20x faster.
+///
+/// For tests that modify schema structure (DROP TABLE, ALTER, etc.), use
+/// `TestContext::new_isolated()` instead, which runs full migrations and does
+/// NOT return the schema to the pool.
 ///
 /// Usage:
 /// ```ignore
@@ -334,33 +368,45 @@ pub struct TestContext {
     pub app: axum::Router,
     pub state: synapse_rust::web::routes::state::AppState,
     pub pool: Arc<sqlx::PgPool>,
+    // Holds the LeasedSchema; on Drop, the schema is TRUNCATEd and returned to
+    // the pool by cleanup running on CLEANUP_RUNTIME. None for isolated path.
+    _lease: Option<synapse_rust::test_utils::LeasedSchema>,
 }
 
 impl TestContext {
-    /// Create a new isolated context using the shared template clone path
-    /// (fast — ~100x faster than re-running migrations).
+    /// Create a new isolated context using the schema pool (fast — reuses
+    /// TRUNCATEd schemas from previous tests, ~15-20x faster than cloning).
     pub async fn new() -> Option<Self> {
         Self::build(false).await
     }
 
     /// Create a new isolated context using the isolated migration path (slow,
     /// runs all migrations from scratch). Use for tests that modify schema.
+    /// The schema is NOT returned to the pool.
     pub async fn new_isolated() -> Option<Self> {
         Self::build(true).await
     }
 
     async fn build(isolated: bool) -> Option<Self> {
-        let pool = if isolated {
-            synapse_rust::test_utils::prepare_isolated_test_pool().await.ok()?
+        init_tracing();
+        let (pool, lease) = if isolated {
+            // Isolated path: run full migrations, no pooling
+            let pool = synapse_rust::test_utils::prepare_isolated_test_pool().await.ok()?;
+            (pool, None)
         } else {
-            synapse_rust::test_utils::prepare_shared_test_pool().await.ok()?
+            // Pooled path: acquire from schema pool (fast) or clone (first N tests)
+            let lease = synapse_rust::test_utils::acquire_pooled_schema().await.ok()?;
+            let pool = lease.pool.clone();
+            (pool, Some(lease))
         };
+
         let cache = Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
         let container =
             synapse_services::ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
+
         let state = synapse_rust::web::routes::state::AppState::new(container, cache);
         let app = synapse_rust::web::create_router(state.clone());
-        Some(Self { app, state, pool })
+        Some(Self { app, state, pool, _lease: lease })
     }
 }
 

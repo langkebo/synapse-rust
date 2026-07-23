@@ -63,7 +63,7 @@ impl LifecycleService {
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to update room name", &e))?;
             }
-            self.event_storage
+            self.event_writer
                 .create_event(
                     CreateEventParams {
                         event_id: generate_event_id(&self.server_name),
@@ -93,7 +93,7 @@ impl LifecycleService {
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to update room topic", &e))?;
             }
-            self.event_storage
+            self.event_writer
                 .create_event(
                     CreateEventParams {
                         event_id: generate_event_id(&self.server_name),
@@ -145,7 +145,7 @@ impl LifecycleService {
                         .add_member(room_id, invitee, "invite", None, None, Some(sender_user_id), Some(&mut **t))
                         .await
                         .map_err(|e| ApiError::internal_with_log("Failed to invite user", &e))?;
-                    self.event_storage
+                    self.event_writer
                         .create_event(
                             CreateEventParams {
                                 event_id: generate_event_id(&self.server_name),
@@ -176,7 +176,7 @@ impl LifecycleService {
                         .add_member(room_id, invitee, "invite", None, None, Some(sender_user_id), None)
                         .await
                         .map_err(|e| ApiError::internal_with_log("Failed to invite user", &e))?;
-                    self.event_storage
+                    self.event_writer
                         .create_event(
                             CreateEventParams {
                                 event_id: generate_event_id(&self.server_name),

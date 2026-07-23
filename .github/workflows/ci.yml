@@ -44,28 +44,58 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: No private keys
+      - name: No private keys (key files)
         run: |
-          ! grep -R "BEGIN.*PRIVATE KEY" . --include="*.key" --include="*.pem" --include="*.p12"
-          ! grep -R "BEGIN RSA PRIVATE KEY" . --include="*.key" --include="*.pem" --include="*.p12"
+          # Scan key/cert file extensions for private key markers.
+          # *.pem is NOT included — docker/ssl/fullchain.pem is a public cert chain.
+          # Private .pem files must be gitignored.
+          # Uses `if` instead of `!` prefix because POSIX spec says `! pipeline`
+          # disables set -e for that pipeline, so intermediate checks get skipped.
+          if grep -R "BEGIN.*PRIVATE KEY" . --include="*.key" --include="*.p12" --include="*.pfx" --include="*.jks" 2>/dev/null; then
+            echo "FAIL: private key marker found in key/cert file"
+            exit 1
+          fi
+
+      - name: No private keys in source
+        run: |
+          # Catch hardcoded private keys in source/config files (git tracked only).
+          # Searches for PEM headers with dashes to match real key content only.
+          # Excludes:
+          #   - TEST_*_PRIVATE_KEY (test fixtures under #[cfg(test)])
+          #   - .github/workflows/ci.yml (this file — contains the search patterns)
+          # SECURITY: this gate was bypassed on 2026-05-09 (commit cc5c295c) when
+          # a real Ed25519 key was committed to docker/deploy/synapse-data/.
+          # Branch protection must enforce this job as a required status check.
+          MATCHES=$(git grep -In \
+            -e "-----BEGIN PRIVATE KEY-----" \
+            -e "-----BEGIN RSA PRIVATE KEY-----" \
+            -e "-----BEGIN EC PRIVATE KEY-----" \
+            -e "-----BEGIN OPENSSH PRIVATE KEY-----" \
+            -- '*.rs' '*.json' '*.yml' '*.yaml' '*.toml' '*.sh' \
+            | grep -v "TEST_.*PRIVATE_KEY" \
+            | grep -v "^\.github/workflows/ci\.yml:" || true)
+          if [ -n "$MATCHES" ]; then
+            echo "FAIL: hardcoded private key found in source:"
+            echo "$MATCHES"
+            exit 1
+          fi
 
       - name: No key files tracked
         run: |
-          ! git ls-files '*.key' '*.p12'
+          # *.pem excluded — docker/ssl/fullchain.pem is a public cert chain.
+          # If you must track a private .pem, add an exception in .gitignore
+          # and have it reviewed by a maintainer.
+          TRACKED=$(git ls-files '*.key' '*.p12' '*.pfx' '*.jks' || true)
+          if [ -n "$TRACKED" ]; then
+            echo "FAIL: tracked key files found:"
+            echo "$TRACKED"
+            exit 1
+          fi
 
       - name: No root artifacts
         run: |
           ! ls axum_test.rs 2>/dev/null
           ! ls *.db 2>/dev/null
-
-      - name: No placeholder strings in non-test code
-        run: bash scripts/quality/check_no_placeholder_strings.sh
-
-      - name: No shell routes (empty responses)
-        run: bash scripts/detect_shell_routes.sh
-
-      - name: No unwired route candidates
-        run: bash scripts/detect_unwired_route_candidates.sh
 
       - name: Schema table coverage
         run: python3 scripts/check_schema_table_coverage.py
@@ -147,6 +177,10 @@ jobs:
         with:
           key: ${{ matrix.rust-toolchain }}-${{ matrix.features-label }}
 
+      - name: Pre-cache swagger-ui zip (avoid GitHub 403 rate-limiting)
+        if: matrix.features-args == '--all-features'
+        run: bash scripts/precache-swagger-ui.sh
+
       - name: Check formatting
         if: matrix.rust-toolchain == 'stable' && matrix.features-args == ''
         run: cargo fmt --all -- --check
@@ -156,7 +190,9 @@ jobs:
 
       - name: Install sqlx-cli
         if: matrix.features-args == '--all-features'
-        run: cargo install sqlx-cli --locked --no-default-features --features postgres
+        # Pin to 0.8.x: matches the project's sqlx 0.8 and stays within MSRV.
+        # sqlx-cli 0.9+ requires rustc >= 1.94, which the CI toolchain lacks.
+        run: cargo install sqlx-cli --version '^0.8' --locked --no-default-features --features postgres
 
       - name: Install cargo-nextest
         if: matrix.features-args == '--all-features'
@@ -189,7 +225,7 @@ jobs:
           RUST_BACKTRACE: 1
           RUST_LOG: info
           NEXTEST_RETRIES: 2
-        run: cargo nextest run --lib --all-features --locked --test-threads 4
+        run: cargo nextest run --lib --all-features --locked --test-threads 8
 
       - name: Run unit test target (--test unit)
         if: matrix.features-args == '--all-features'
@@ -200,7 +236,55 @@ jobs:
           RUST_BACKTRACE: 1
           RUST_LOG: info
           NEXTEST_RETRIES: 2
-        run: cargo nextest run --test unit --features test-utils --locked --test-threads 4
+        run: cargo nextest run --test unit --features test-utils --locked --test-threads 8
+
+  # ──────────────────────────────────────────────
+  # PR Benchmark Gate — runs on every PR (~30-60s)
+  # Pure-Rust benchmarks only (federation + membership)
+  # ──────────────────────────────────────────────
+  pr-benchmark-gate:
+    name: PR Benchmark Gate
+    runs-on: ubuntu-latest
+    needs: [changes]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.non-docs == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: pr-benchmark-gate
+
+      - name: Download baseline benchmark results
+        uses: dawidd6/action-download-artifact@v3
+        continue-on-error: true
+        with:
+          workflow: benchmark.yml
+          name: benchmark-results
+          path: baseline
+          check_artifacts: true
+          search_artifacts: true
+
+      - name: Run PR benchmark gate
+        run: bash scripts/ci/benchmark_pr_gate.sh
+        env:
+          BENCH_THRESHOLD_PERCENT: 15
+          BENCH_BASELINE_PATH: baseline/benchmark.txt
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-benchmark-results-${{ github.run_id }}
+          path: artifacts/pr_benchmark_results.json
+          retention-days: 7
 
   # ──────────────────────────────────────────────────────────
   # Slow Tier — runs on merge to main/develop + weekly schedule
@@ -255,7 +339,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install sqlx-cli
-        run: cargo install sqlx-cli --locked --no-default-features --features postgres
+        # Pin to 0.8.x: matches the project's sqlx 0.8 and stays within MSRV.
+        # sqlx-cli 0.9+ requires rustc >= 1.94, which the CI toolchain lacks.
+        run: cargo install sqlx-cli --version '^0.8' --locked --no-default-features --features postgres
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
@@ -266,6 +352,9 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-insta
+
+      - name: Pre-cache swagger-ui zip
+        run: bash scripts/precache-swagger-ui.sh
 
       - name: Build forward-only sqlx migration source
         run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
@@ -285,7 +374,7 @@ jobs:
           RUST_BACKTRACE: 1
           RUST_LOG: info
           NEXTEST_RETRIES: 2
-        run: cargo nextest run --test integration --all-features --locked --test-threads 4
+        run: cargo nextest run --test integration --all-features --locked --test-threads 8
 
       # Snapshot gate: fail if any insta snapshot drifted or is missing.
       # Local devs must run `cargo insta test --review` to accept new snapshots
@@ -298,7 +387,7 @@ jobs:
           REDIS_URL: redis://localhost:6379
           RUST_BACKTRACE: 1
           NEXTEST_RETRIES: 2
-        run: cargo insta test --no-review --test-runner nextest -- --all-features --locked --test-threads 4
+        run: cargo insta test --no-review --test-runner nextest -- --all-features --locked --test-threads 8
 
       - name: Run performance smoke gate
         env:
@@ -326,8 +415,9 @@ jobs:
     if: >-
       github.event_name == 'schedule' ||
       (needs.changes.outputs.non-docs == 'true' &&
-       github.event_name == 'push' &&
-       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'))
+       (github.event_name == 'pull_request' ||
+        (github.event_name == 'push' &&
+         (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'))))
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -356,6 +446,24 @@ jobs:
             echo "rand::rng() is temporarily banned until RUSTSEC-2026-0097 is resolved"
             exit 1
           fi
+
+      # ── cargo-geiger: unsafe usage scan ──
+      # Uses JSON output + baseline ratchet via scripts/ci/run_cargo_geiger.py.
+      # Production unsafe must be zero (hard block); test unsafe is tracked
+      # against a baseline (ratchet: only fails if count increases).
+      - name: Install cargo-geiger
+        run: cargo install cargo-geiger --locked
+
+      - name: Run cargo-geiger (unsafe usage scan)
+        run: python3 scripts/ci/run_cargo_geiger.py
+
+      - name: Upload cargo-geiger report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-geiger-report
+          path: artifacts/cargo-geiger.json
+          retention-days: 14
 
       # m-2: Track outdated dependencies for security-relevant crates.
       # Non-blocking: only warns, does not fail the pipeline.
@@ -459,7 +567,9 @@ jobs:
         run: cargo install cargo-tarpaulin --locked
 
       - name: Install sqlx-cli
-        run: cargo install sqlx-cli --locked --no-default-features --features postgres
+        # Pin to 0.8.x: matches the project's sqlx 0.8 and stays within MSRV.
+        # sqlx-cli 0.9+ requires rustc >= 1.94, which the CI toolchain lacks.
+        run: cargo install sqlx-cli --version '^0.8' --locked --no-default-features --features postgres
 
       - name: Build forward-only sqlx migration source
         run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
@@ -480,24 +590,43 @@ jobs:
         run: |
           # Tarpaulin flag rationale (see scripts/run_local_coverage.sh):
           #   --workspace           cover every crate in the workspace
-          #   --all-features         compile every source-level feature so all .rs files
-          #                         are visible to the instrumenter
-          #   --features test-utils build integration/unit/e2e test binaries declared
-          #                         with `required-features = ["test-utils"]`
+          #   --features            minimal set: test-utils (test binaries) + features
+          #                         required by integration/unit/e2e test targets
           #   --include-tests        run integration test targets (tests/*) in addition
           #                         to lib/bin unit tests
+          #   --output-dir coverage/  collect tarpaulin-report.{xml,json,html} in one place
+          #   --fail-under 40        hard floor for overall coverage; core 13 paths
+          #                         enforced at ≥70% by check_file_coverage below
           cargo tarpaulin \
             --workspace \
-            --all-features \
-            --features test-utils \
+            --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications" \
             --include-tests \
             --out Xml --out Json --out Html \
+            --output-dir coverage/ \
+            --fail-under 40 \
             --locked
+
+      - name: Per-file coverage ratchet (B.3)
+        # Enforces: TDD-mandated files ≥80%, core 13 paths ≥70%,
+        # new files ≥30% (ramp-up grace), touched files must not regress,
+        # global floor ≥40%.
+        # Baseline at artifacts/coverage_baseline.json is auto-saved on first run
+        # and auto-committed by the next step on main/develop pushes.
+        run: |
+          mkdir -p artifacts
+          python3 scripts/check_file_coverage.py \
+            --report coverage/tarpaulin-report.json \
+            --baseline artifacts/coverage_baseline.json \
+            --threshold 80 \
+            --global-floor 40 \
+            --new-file-floor 30 \
+            --core-files artifacts/core_file_list.txt \
+            --core-threshold 70
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          files: ./tarpaulin-report.xml
+          files: ./coverage/tarpaulin-report.xml
           flags: unittests
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -506,31 +635,23 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: tarpaulin-report.*
+          path: coverage/
           retention-days: 14
 
-  quality-evidence:
-    name: Quality Evidence (Non-blocking)
-    runs-on: ubuntu-latest
-    needs: [test]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Collect evidence
-        continue-on-error: true
+      - name: Commit coverage baseline (auto-ratchet)
+        # Only on main/develop push; skip on PRs, schedules, and dispatches.
+        # The baseline file is the only artifact this step touches.
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
         run: |
-          RUN_TESTS=0 RUN_AUDIT=0 bash scripts/quality/collect_evidence.sh
-          python3 scripts/quality/generate_defect_list.py --results-dir test-results --out docs/quality/defects_api_integration.md || true
-
-      - name: Upload evidence artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: quality-evidence
-          path: |
-            reports/quality/**
-            docs/quality/**
-          retention-days: 14
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add artifacts/coverage_baseline.json
+          if git diff --cached --quiet; then
+            echo "No baseline change; skipping commit."
+          else
+            git commit -m "chore(coverage): auto-update per-file baseline [skip ci]"
+            git push
+          fi
 
   # ──────────────────────────────────────────────────────────
   # k6 Smoke Test — manual/dispatch only

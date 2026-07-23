@@ -41,6 +41,12 @@ pub struct RateLimitConfig {
     /// 同步接口的资源隔离限流（initial vs incremental）
     #[serde(default)]
     pub sync: SyncRateLimitConfig,
+    /// CIDR strings for trusted reverse proxies (e.g. "10.0.0.0/8", "127.0.0.1/32").
+    #[serde(default)]
+    pub trusted_proxies: Vec<String>,
+    /// Whether to trust forwarded headers at all.
+    #[serde(default)]
+    pub trust_forwarded: bool,
 }
 
 fn default_rate_limit_enabled() -> bool {
@@ -130,6 +136,69 @@ impl Default for RateLimitConfig {
             endpoint_aliases: HashMap::new(),
             fail_open_on_error: default_rate_limit_fail_open(),
             sync: SyncRateLimitConfig::default(),
+            trusted_proxies: Vec::new(),
+            trust_forwarded: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rate_limit_rule_default() {
+        let rule = RateLimitRule::default();
+        assert_eq!(rule.per_second, 10);
+        assert_eq!(rule.burst_size, 20);
+    }
+
+    #[test]
+    fn test_rate_limit_config_default() {
+        let config = RateLimitConfig::default();
+        assert!(config.enabled);
+        assert_eq!(config.default.per_second, 10);
+        assert_eq!(config.default.burst_size, 20);
+        assert!(config.include_headers);
+        assert!(!config.fail_open_on_error);
+        assert!(config.endpoints.is_empty());
+        assert!(config.exempt_path_prefixes.is_empty());
+        assert!(config.endpoint_aliases.is_empty());
+        assert!(config.trusted_proxies.is_empty());
+        assert!(!config.trust_forwarded);
+    }
+
+    #[test]
+    fn test_rate_limit_config_ip_headers() {
+        let config = RateLimitConfig::default();
+        assert_eq!(config.ip_header_priority.len(), 3);
+        assert!(config.ip_header_priority.contains(&"x-forwarded-for".to_string()));
+        assert!(config.ip_header_priority.contains(&"x-real-ip".to_string()));
+        assert!(config.ip_header_priority.contains(&"forwarded".to_string()));
+    }
+
+    #[test]
+    fn test_rate_limit_config_exempt_paths() {
+        let config = RateLimitConfig::default();
+        assert_eq!(config.exempt_paths.len(), 3);
+        assert!(config.exempt_paths.contains(&"/".to_string()));
+        assert!(config.exempt_paths.contains(&"/_matrix/client/versions".to_string()));
+        assert!(config.exempt_paths.contains(&"/_matrix/client/v3/versions".to_string()));
+    }
+
+    #[test]
+    fn test_sync_rate_limit_config_default() {
+        let sync = SyncRateLimitConfig::default();
+        assert!(!sync.enabled);
+        assert_eq!(sync.initial.per_second, 10);
+        assert_eq!(sync.initial.burst_size, 20);
+        assert_eq!(sync.incremental.per_second, 10);
+        assert_eq!(sync.incremental.burst_size, 20);
+    }
+
+    #[test]
+    fn test_rate_limit_match_type_default() {
+        let match_type = RateLimitMatchType::default();
+        assert!(matches!(match_type, RateLimitMatchType::Exact));
     }
 }

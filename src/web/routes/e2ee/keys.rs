@@ -1,3 +1,4 @@
+use crate::web::routes::context::DeviceContext;
 use crate::web::routes::response_helpers::filter_users_with_shared_rooms;
 use crate::web::routes::{AppState, AuthenticatedUser, MatrixJson};
 use crate::ApiError;
@@ -124,7 +125,7 @@ pub fn e2ee_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
 
 #[axum::debug_handler]
 async fn upload_keys(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     path_device_id: Option<Path<String>>,
     MatrixJson(body): MatrixJson<Value>,
@@ -194,7 +195,7 @@ async fn upload_keys(
         fallback_keys: body.get("fallback_keys").cloned(),
     };
 
-    let response = state.services.e2ee.device_keys_service.upload_keys(request, &auth_user.user_id, &device_id).await?;
+    let response = ctx.device_keys_service.upload_keys(request, &auth_user.user_id, &device_id).await?;
 
     Ok(Json(serde_json::json!({
         "one_time_key_counts": response.one_time_key_counts
@@ -203,7 +204,7 @@ async fn upload_keys(
 
 #[axum::debug_handler]
 async fn query_keys(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -215,18 +216,15 @@ async fn query_keys(
     let requested_users: Vec<String> =
         device_keys_raw.as_object().map(|map| map.keys().cloned().collect()).unwrap_or_default();
 
-    let allowed_users = filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
+    let allowed_users = filter_users_with_shared_rooms(&ctx.room_service, &auth_user.user_id, &requested_users).await;
 
     let device_keys = if requested_users.is_empty() {
-        let mut shared =
-            state
-                .services
-                .rooms
-                .room_service
-                .membership
-                .get_shared_room_users(&auth_user.user_id)
-                .await
-                .map_err(|e| crate::error::ApiError::internal_with_log("Failed to load shared room users", &e))?;
+        let mut shared = ctx
+            .room_service
+            .membership()
+            .get_shared_room_users(&auth_user.user_id)
+            .await
+            .map_err(|e| crate::error::ApiError::internal_with_log("Failed to load shared room users", &e))?;
         shared.push(auth_user.user_id.clone());
         let map: serde_json::Map<String, Value> = shared.into_iter().map(|uid| (uid, serde_json::json!([]))).collect();
         serde_json::Value::Object(map)
@@ -244,7 +242,7 @@ async fn query_keys(
 
     request.device_keys = device_keys;
 
-    let response = state.services.e2ee.device_keys_service.query_keys(request).await?;
+    let response = ctx.device_keys_service.query_keys(request).await?;
 
     // Outbound federation: for remote users (whose server_name differs from
     // ours), query their home server via `FederationClient::query_keys` and
@@ -253,7 +251,7 @@ async fn query_keys(
     // establish Olm sessions with them.
     //
     // Reference: element-hq/synapse `synapse/handlers/e2e_keys.py::E2eKeysHandler.query_devices`
-    let local_server = &state.services.core.server_name;
+    let local_server = &ctx.server_name;
     let mut merged_device_keys = response.device_keys.clone();
     let mut merged_master_keys = response.master_keys.clone();
     let mut merged_self_signing_keys = response.self_signing_keys.clone();
@@ -278,7 +276,7 @@ async fn query_keys(
         }
 
         // Query each remote server in parallel.
-        let federation_client = &state.services.federation.federation_client;
+        let federation_client = &ctx.federation_client;
         let mut tasks = Vec::new();
         for (server, user_ids) in by_server {
             let mut device_keys_query = serde_json::Map::new();
@@ -350,7 +348,7 @@ async fn query_keys(
         let user_ids: Vec<String> = device_keys_obj.keys().cloned().collect();
         if !user_ids.is_empty() {
             let batch_result =
-                state.services.e2ee.cross_signing_service.get_verified_devices_batch(&user_ids).await.map_err(|e| {
+                ctx.cross_signing_service.get_verified_devices_batch(&user_ids).await.map_err(|e| {
                     crate::error::ApiError::internal_with_log("Failed to load verified devices batch", &e)
                 })?;
 
@@ -388,7 +386,7 @@ async fn query_keys(
 
 #[axum::debug_handler]
 async fn claim_keys(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
@@ -397,7 +395,7 @@ async fn claim_keys(
 
     let requested_users =
         request.one_time_keys.as_object().map(|map| map.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
-    let allowed_users = filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
+    let allowed_users = filter_users_with_shared_rooms(&ctx.room_service, &auth_user.user_id, &requested_users).await;
 
     // Clone the original request before it's consumed, so we can identify
     // remote users with unclaimed devices after the local claim.
@@ -421,7 +419,7 @@ async fn claim_keys(
         })));
     }
 
-    let response = state.services.e2ee.device_keys_service.claim_keys(request).await?;
+    let response = ctx.device_keys_service.claim_keys(request).await?;
 
     let mut merged_one_time_keys = response.one_time_keys.clone();
     let mut failures = if let serde_json::Value::Object(failures_map) = response.failures.clone() {
@@ -436,7 +434,7 @@ async fn claim_keys(
     // new Olm sessions with remote users.
     //
     // Reference: element-hq/synapse `synapse/handlers/e2e_keys.py::E2eKeysHandler.claim_one_time_keys`
-    let local_server = &state.services.core.server_name;
+    let local_server = &ctx.server_name;
 
     // Build per-server claim requests for remote users with unclaimed devices.
     let mut remote_claims_by_server: std::collections::HashMap<String, serde_json::Map<String, Value>> =
@@ -469,7 +467,7 @@ async fn claim_keys(
     }
 
     if !remote_claims_by_server.is_empty() {
-        let federation_client = &state.services.federation.federation_client;
+        let federation_client = &ctx.federation_client;
         let mut tasks = Vec::new();
         for (server, server_claims) in remote_claims_by_server {
             let claim_request = serde_json::json!({ "one_time_keys": server_claims });
@@ -545,28 +543,27 @@ async fn claim_keys(
 
 #[axum::debug_handler]
 async fn key_changes(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     let from = params.get("from").and_then(|v| v.as_str()).and_then(parse_stream_id).unwrap_or(0);
     let to = params.get("to").and_then(|v| v.as_str()).and_then(parse_stream_id);
 
-    let max_stream_id = state.services.account.account_device_list_service.get_max_stream_id().await?;
+    let max_stream_id = ctx.account_device_list_service.get_max_stream_id().await?;
 
     let to = to.unwrap_or(max_stream_id);
 
     let changed: Vec<String> =
-        state.services.account.account_device_list_service.get_changed_user_ids(from, to, &auth_user.user_id).await?;
-    let changed = filter_users_with_shared_rooms(&state, &auth_user.user_id, &changed)
+        ctx.account_device_list_service.get_changed_user_ids(from, to, &auth_user.user_id).await?;
+    let changed = filter_users_with_shared_rooms(&ctx.room_service, &auth_user.user_id, &changed)
         .await
         .into_iter()
         .filter(|user_id| user_id != &auth_user.user_id)
         .collect::<Vec<_>>();
 
-    let left =
-        state.services.account.account_device_list_service.get_left_user_ids(from, to, &auth_user.user_id).await?;
-    let left = filter_users_with_shared_rooms(&state, &auth_user.user_id, &left)
+    let left = ctx.account_device_list_service.get_left_user_ids(from, to, &auth_user.user_id).await?;
+    let left = filter_users_with_shared_rooms(&ctx.room_service, &auth_user.user_id, &left)
         .await
         .into_iter()
         .filter(|user_id| user_id != &auth_user.user_id)

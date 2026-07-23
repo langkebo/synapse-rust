@@ -1,7 +1,23 @@
 [profile.ci]
 fail-fast = false
 retries = 2
+# P1: raised from 8 → 12. PostgreSQL max_connections=100 supports 12 tests
+# * ~5 conns each = 60. SHARED_CLONE_SEMAPHORE raised to match in test_utils.rs.
+test-threads = 12
 flaky-result = "fail"
+# P1: slow-timeout — mark tests exceeding 60s as slow, terminate after 120s.
+# After P0 schema pooling, most tests finish in 2-3s; 60s is a generous threshold.
+slow-timeout = { period = "60s", terminate-after = 2 }
+# P1: leak-timeout — detect resource leaks (unclosed connections/pools) faster.
+leak-timeout = "500ms"
+
+[profile.ci.junit]
+path = "artifacts/nextest-junit.xml"
+
+# P1: Test grouping considered and rejected — non-DB tests are only 6.6%
+# (86/1304: cache_tests, regex_cache_tests, coverage_tests, nullable_decode_tests).
+# Adding cargo-test-group dev-dependency + marking 86 tests is not worth the
+# complexity. Parallelism tuning (test-threads=12) already captures most gains.
 
 # P4-3: TDD profile for fast Red-Green-Refactor cycles.
 # Usage: cargo nextest run -p <crate> <test_name> -P tdd
@@ -12,3 +28,20 @@ flaky-result = "fail"
 fail-fast = true
 retries = 0
 flaky-result = "fail"
+# P1: same slow-timeout for TDD cycles
+slow-timeout = { period = "30s", terminate-after = 1 }
+
+# Dev profile for zero-flags test runs (with nextest 0.9.140).
+# Usage: cargo nt --lib          (lib tests with test-utils)
+#        cargo nt --test unit    (unit test target)
+#        cargo nt --test integration  (needs DB)
+#
+# NOTE: nextest 0.9.140 does NOT support 'features' in profile config;
+#       the 'features = "test-utils"' line is silently ignored with a warning.
+#       Use the 'cargo nt' alias instead:
+#         cargo nt = nextest run --profile test --features test-utils
+[profile.test]
+fail-fast = true
+retries = 0
+# P1: dev profile uses higher parallelism for local iteration speed
+test-threads = 12

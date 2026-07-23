@@ -2,6 +2,7 @@ use super::models::*;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 /// Internal query struct that mirrors the `device_keys` table column types
@@ -58,50 +59,63 @@ pub struct DeviceKeyStorage {
     pub pool: Arc<PgPool>,
 }
 
+/// Trait abstraction over [`DeviceKeyStorage`] for testability.
+///
+/// Excludes `new` (constructor) and `create_tables` (DDL) — mock
+/// implementations do not need database lifecycle management.
+#[async_trait::async_trait]
+pub trait DeviceKeyStoreApi: Send + Sync {
+    async fn record_device_list_change_best_effort(&self, user_id: &str, device_id: Option<&str>, change_type: &str);
+    async fn create_device_key(&self, key: &DeviceKey) -> Result<(), ApiError>;
+    async fn create_fallback_key(&self, key: &DeviceKey) -> Result<(), ApiError>;
+    async fn delete_fallback_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError>;
+    async fn get_unused_fallback_key_types(&self, user_id: &str, device_id: &str) -> Result<Vec<String>, ApiError>;
+    async fn get_device_key(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        algorithm: &str,
+    ) -> Result<Option<DeviceKey>, ApiError>;
+    async fn get_device_keys(&self, user_id: &str, device_ids: &[String]) -> Result<Vec<DeviceKey>, ApiError>;
+    async fn get_all_device_keys(&self, user_id: &str) -> Result<Vec<DeviceKey>, ApiError>;
+    async fn get_all_device_keys_batch(&self, user_ids: &[String])
+        -> Result<HashMap<String, Vec<DeviceKey>>, ApiError>;
+    async fn delete_device_key(&self, user_id: &str, device_id: &str, algorithm: &str) -> Result<(), ApiError>;
+    async fn get_device_count(&self, user_id: &str) -> Result<i64, ApiError>;
+    async fn get_device_counts_batch(&self, user_ids: &[String]) -> Result<HashMap<String, i64>, sqlx::Error>;
+    async fn delete_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError>;
+    async fn get_one_time_keys_count(&self, user_id: &str, device_id: &str) -> Result<i64, ApiError>;
+    async fn get_one_time_keys_count_by_algorithm(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<std::collections::HashMap<String, i64>, ApiError>;
+    async fn claim_one_time_key(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        algorithm: &str,
+    ) -> Result<Option<DeviceKey>, ApiError>;
+    async fn get_key_changes(&self, from_ts: i64, to_ts: i64) -> Result<Vec<String>, ApiError>;
+    async fn get_key_changes_with_left(
+        &self,
+        from_ts: i64,
+        to_ts: i64,
+        current_user_id: &str,
+    ) -> Result<(Vec<String>, Vec<String>), ApiError>;
+    async fn store_signature(
+        &self,
+        target_user_id: &str,
+        target_key_id: &str,
+        signing_user_id: &str,
+        signing_key_id: &str,
+        signature: &str,
+    ) -> Result<(), ApiError>;
+}
+
 impl DeviceKeyStorage {
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
-    }
-
-    pub async fn record_device_list_change_best_effort(
-        &self,
-        user_id: &str,
-        device_id: Option<&str>,
-        change_type: &str,
-    ) {
-        let now = chrono::Utc::now().timestamp_millis();
-        let row = sqlx::query(
-            r"
-            INSERT INTO device_lists_stream (user_id, device_id, created_ts)
-            VALUES ($1, $2, $3)
-            RETURNING stream_id
-            ",
-        )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(now)
-        .fetch_one(&*self.pool)
-        .await;
-
-        let Ok(row) = row else {
-            return;
-        };
-
-        let stream_id: i64 = row.get("stream_id");
-
-        let _ = sqlx::query(
-            r"
-            INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
-            VALUES ($1, $2, $3, $4, $5)
-            ",
-        )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(change_type)
-        .bind(stream_id)
-        .bind(now)
-        .execute(&*self.pool)
-        .await;
     }
 
     pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
@@ -158,9 +172,48 @@ impl DeviceKeyStorage {
 
         Ok(())
     }
+}
 
-    pub async fn create_device_key(&self, key: &DeviceKey) -> Result<(), ApiError> {
-        let now_ms = chrono::Utc::now().timestamp_millis();
+#[async_trait::async_trait]
+impl DeviceKeyStoreApi for DeviceKeyStorage {
+    async fn record_device_list_change_best_effort(&self, user_id: &str, device_id: Option<&str>, change_type: &str) {
+        let now = current_timestamp_millis();
+        let row = sqlx::query(
+            r"
+            INSERT INTO device_lists_stream (user_id, device_id, created_ts)
+            VALUES ($1, $2, $3)
+            RETURNING stream_id
+            ",
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await;
+
+        let Ok(row) = row else {
+            return;
+        };
+
+        let stream_id: i64 = row.get("stream_id");
+
+        let _ = sqlx::query(
+            r"
+            INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
+            VALUES ($1, $2, $3, $4, $5)
+            ",
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(change_type)
+        .bind(stream_id)
+        .bind(now)
+        .execute(&*self.pool)
+        .await;
+    }
+
+    async fn create_device_key(&self, key: &DeviceKey) -> Result<(), ApiError> {
+        let now_ms = current_timestamp_millis();
         let key_data = serde_json::json!({
             "algorithm": key.algorithm,
             "key_id": key.key_id,
@@ -202,8 +255,8 @@ impl DeviceKeyStorage {
         Ok(())
     }
 
-    pub async fn create_fallback_key(&self, key: &DeviceKey) -> Result<(), ApiError> {
-        let now_ms = chrono::Utc::now().timestamp_millis();
+    async fn create_fallback_key(&self, key: &DeviceKey) -> Result<(), ApiError> {
+        let now_ms = current_timestamp_millis();
         let key_data = serde_json::json!({
             "algorithm": key.algorithm,
             "key_id": key.key_id,
@@ -246,7 +299,7 @@ impl DeviceKeyStorage {
         Ok(())
     }
 
-    pub async fn delete_fallback_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
+    async fn delete_fallback_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
             DELETE FROM device_keys
@@ -265,7 +318,7 @@ impl DeviceKeyStorage {
         Ok(())
     }
 
-    pub async fn get_unused_fallback_key_types(&self, user_id: &str, device_id: &str) -> Result<Vec<String>, ApiError> {
+    async fn get_unused_fallback_key_types(&self, user_id: &str, device_id: &str) -> Result<Vec<String>, ApiError> {
         let rows = sqlx::query(
             r"
             SELECT DISTINCT algorithm
@@ -295,7 +348,7 @@ impl DeviceKeyStorage {
             .collect())
     }
 
-    pub async fn get_device_key(
+    async fn get_device_key(
         &self,
         user_id: &str,
         device_id: &str,
@@ -333,7 +386,7 @@ impl DeviceKeyStorage {
         Ok(row.map(DeviceKeyRow::into_device_key))
     }
 
-    pub async fn get_device_keys(&self, user_id: &str, device_ids: &[String]) -> Result<Vec<DeviceKey>, ApiError> {
+    async fn get_device_keys(&self, user_id: &str, device_ids: &[String]) -> Result<Vec<DeviceKey>, ApiError> {
         let rows: Vec<DeviceKeyRow> = sqlx::query_as::<_, DeviceKeyRow>(
             r"
             SELECT
@@ -364,7 +417,7 @@ impl DeviceKeyStorage {
         Ok(rows.into_iter().map(DeviceKeyRow::into_device_key).collect())
     }
 
-    pub async fn get_all_device_keys(&self, user_id: &str) -> Result<Vec<DeviceKey>, ApiError> {
+    async fn get_all_device_keys(&self, user_id: &str) -> Result<Vec<DeviceKey>, ApiError> {
         let rows: Vec<DeviceKeyRow> = sqlx::query_as::<_, DeviceKeyRow>(
             r"
             SELECT
@@ -395,7 +448,7 @@ impl DeviceKeyStorage {
         Ok(rows.into_iter().map(DeviceKeyRow::into_device_key).collect())
     }
 
-    pub async fn get_all_device_keys_batch(
+    async fn get_all_device_keys_batch(
         &self,
         user_ids: &[String],
     ) -> Result<HashMap<String, Vec<DeviceKey>>, ApiError> {
@@ -439,7 +492,7 @@ impl DeviceKeyStorage {
         Ok(result)
     }
 
-    pub async fn delete_device_key(&self, user_id: &str, device_id: &str, algorithm: &str) -> Result<(), ApiError> {
+    async fn delete_device_key(&self, user_id: &str, device_id: &str, algorithm: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
             DELETE FROM device_keys
@@ -459,7 +512,7 @@ impl DeviceKeyStorage {
         Ok(())
     }
 
-    pub async fn get_device_count(&self, user_id: &str) -> Result<i64, ApiError> {
+    async fn get_device_count(&self, user_id: &str) -> Result<i64, ApiError> {
         let count: i64 = sqlx::query_scalar::<_, i64>(
             r"
             SELECT COUNT(DISTINCT device_id)
@@ -478,7 +531,7 @@ impl DeviceKeyStorage {
         Ok(count)
     }
 
-    pub async fn get_device_counts_batch(&self, user_ids: &[String]) -> Result<HashMap<String, i64>, sqlx::Error> {
+    async fn get_device_counts_batch(&self, user_ids: &[String]) -> Result<HashMap<String, i64>, sqlx::Error> {
         if user_ids.is_empty() {
             return Ok(HashMap::new());
         }
@@ -504,7 +557,7 @@ impl DeviceKeyStorage {
         Ok(counts)
     }
 
-    pub async fn delete_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
+    async fn delete_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
             DELETE FROM device_keys
@@ -523,7 +576,7 @@ impl DeviceKeyStorage {
         Ok(())
     }
 
-    pub async fn get_one_time_keys_count(&self, user_id: &str, device_id: &str) -> Result<i64, ApiError> {
+    async fn get_one_time_keys_count(&self, user_id: &str, device_id: &str) -> Result<i64, ApiError> {
         let count: i64 = sqlx::query_scalar::<_, i64>(
             r"
             SELECT COUNT(*)
@@ -543,7 +596,7 @@ impl DeviceKeyStorage {
         Ok(count)
     }
 
-    pub async fn get_one_time_keys_count_by_algorithm(
+    async fn get_one_time_keys_count_by_algorithm(
         &self,
         user_id: &str,
         device_id: &str,
@@ -584,7 +637,7 @@ impl DeviceKeyStorage {
         Ok(counts)
     }
 
-    pub async fn claim_one_time_key(
+    async fn claim_one_time_key(
         &self,
         user_id: &str,
         device_id: &str,
@@ -684,7 +737,7 @@ impl DeviceKeyStorage {
         Ok(fallback_row.map(DeviceKeyRow::into_device_key))
     }
 
-    pub async fn get_key_changes(&self, from_ts: i64, to_ts: i64) -> Result<Vec<String>, ApiError> {
+    async fn get_key_changes(&self, from_ts: i64, to_ts: i64) -> Result<Vec<String>, ApiError> {
         let rows = sqlx::query(
             r"
             SELECT DISTINCT user_id
@@ -704,7 +757,7 @@ impl DeviceKeyStorage {
         Ok(rows.into_iter().map(|row| row.get::<String, _>("user_id")).collect())
     }
 
-    pub async fn get_key_changes_with_left(
+    async fn get_key_changes_with_left(
         &self,
         from_ts: i64,
         to_ts: i64,
@@ -761,7 +814,7 @@ impl DeviceKeyStorage {
         Ok((changed, left))
     }
 
-    pub async fn store_signature(
+    async fn store_signature(
         &self,
         target_user_id: &str,
         target_key_id: &str,
@@ -769,7 +822,7 @@ impl DeviceKeyStorage {
         signing_key_id: &str,
         signature: &str,
     ) -> Result<(), ApiError> {
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -802,6 +855,7 @@ impl DeviceKeyStorage {
 mod tests {
     use super::*;
     use serde_json::json;
+    use synapse_common::current_timestamp_utc;
 
     fn create_test_device_key() -> DeviceKey {
         DeviceKey {
@@ -817,8 +871,8 @@ mod tests {
                     "ed25519:DEVICE_ABC": "signature_base64_string"
                 }
             }),
-            created_ts: chrono::Utc::now(),
-            updated_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         }
     }
 
@@ -846,8 +900,8 @@ mod tests {
             key_id: "KEY123".to_string(),
             public_key: "public_key".to_string(),
             signatures: json!({}),
-            created_ts: chrono::Utc::now(),
-            updated_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         };
 
         assert!(key.display_name.is_none());
@@ -877,8 +931,8 @@ mod tests {
             key_id: "KEY_EMPTY".to_string(),
             public_key: "public_key".to_string(),
             signatures: json!({}),
-            created_ts: chrono::Utc::now(),
-            updated_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         };
 
         assert!(key.signatures.is_object());
@@ -959,8 +1013,8 @@ mod tests {
                     "ed25519:DEVICE_ABC": "alice_cross_signature"
                 }
             }),
-            created_ts: chrono::Utc::now(),
-            updated_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         };
 
         let sig_obj = multi_sig_key.signatures.as_object().unwrap();
@@ -971,7 +1025,7 @@ mod tests {
 
     #[test]
     fn test_device_key_timestamps() {
-        let now = chrono::Utc::now();
+        let now = current_timestamp_utc();
         let earlier = now - chrono::Duration::hours(1);
 
         let key = DeviceKey {
@@ -1006,8 +1060,8 @@ mod tests {
                     "ed25519:DEVICE_SPECIAL": "特殊签名"
                 }
             }),
-            created_ts: chrono::Utc::now(),
-            updated_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         };
 
         assert!(key.user_id.contains('-'));
@@ -1030,8 +1084,8 @@ mod tests {
                 key_id: format!("KEY_{idx}"),
                 public_key: "test_key".to_string(),
                 signatures: json!({}),
-                created_ts: chrono::Utc::now(),
-                updated_ts: chrono::Utc::now(),
+                created_ts: current_timestamp_utc(),
+                updated_ts: current_timestamp_utc(),
             };
 
             assert_eq!(key.algorithm, *algo);

@@ -1,3 +1,5 @@
+use crate::auth::{CredentialAuth, TokenAuth};
+use crate::UserService;
 use crate::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::Utc;
@@ -14,9 +16,13 @@ type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Clone)]
 pub struct AdminRegistrationService {
-    auth_service: Arc<dyn Auth>,
+    token_auth: Arc<dyn TokenAuth>,
+    credential_auth: Arc<dyn CredentialAuth>,
+    server_name: String,
     config: AdminRegistrationConfig,
     user_storage: Arc<dyn UserStore>,
+    #[allow(dead_code)]
+    user_service: Arc<UserService>,
     cache: Arc<CacheManager>,
     metrics: Arc<MetricsCollector>,
 }
@@ -48,58 +54,18 @@ pub struct AdminRegisterResponse {
 }
 
 impl AdminRegistrationService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        auth_service: Arc<dyn Auth>,
+        token_auth: Arc<dyn TokenAuth>,
+        credential_auth: Arc<dyn CredentialAuth>,
+        server_name: String,
         config: AdminRegistrationConfig,
         user_storage: Arc<dyn UserStore>,
+        user_service: Arc<UserService>,
         cache: Arc<CacheManager>,
         metrics: Arc<MetricsCollector>,
     ) -> Self {
-        Self { auth_service, config, user_storage, cache, metrics }
-    }
-
-    pub fn start_nonce_cleanup_task(self: Arc<Self>) {
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
-            loop {
-                interval.tick().await;
-                if let Err(e) = self.cleanup_expired_nonces() {
-                    ::tracing::error!(
-                        error = %e,
-                        nonce_timeout_seconds = self.config.nonce_timeout_seconds,
-                        cleanup_interval_secs = 300_u64,
-                        "Failed to cleanup expired nonces"
-                    );
-                }
-            }
-        });
-    }
-
-    fn cleanup_expired_nonces(&self) -> Result<(), String> {
-        let cutoff_ts = Utc::now().timestamp() - (self.config.nonce_timeout_seconds as i64 * 2);
-
-        let keys = self.cache.get_keys_with_prefix("admin:register:nonce:");
-
-        let mut cleaned = 0u64;
-        for key in keys {
-            if let Some(ts_str) = self.cache.get_local_raw(&key) {
-                if let Ok(ts) = ts_str.parse::<i64>() {
-                    if ts < cutoff_ts {
-                        self.cache.remove_local(&key);
-                        cleaned += 1;
-                    }
-                }
-            }
-        }
-
-        if cleaned > 0 {
-            ::tracing::debug!("Cleaned up {} expired admin registration nonces from local cache", cleaned);
-            if let Some(counter) = self.metrics.get_counter("admin_nonce_cleanup_total") {
-                counter.inc_by(cleaned);
-            }
-        }
-
-        Ok(())
+        Self { token_auth, credential_auth, server_name, config, user_storage, user_service, cache, metrics }
     }
 
     #[::tracing::instrument(skip(self))]
@@ -144,7 +110,7 @@ impl AdminRegistrationService {
         let displayname = request.displayname.as_deref();
 
         let (user, access_token, refresh_token, device_id) =
-            self.auth_service.register(&request.username, &request.password, admin, displayname).await?;
+            self.credential_auth.register(&request.username, &request.password, admin, displayname).await?;
 
         if let Some(user_type) = request.user_type.as_deref() {
             self.user_storage
@@ -171,10 +137,10 @@ impl AdminRegistrationService {
         Ok(AdminRegisterResponse {
             access_token,
             refresh_token,
-            expires_in: self.auth_service.token_expiry(),
+            expires_in: self.token_auth.token_expiry(),
             device_id,
             user_id: user.user_id(),
-            home_server: self.auth_service.server_name().to_string(),
+            home_server: self.server_name.clone(),
         })
     }
 
@@ -265,5 +231,34 @@ mod tests {
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("token123"));
         assert!(json.contains("@admin:example.com"));
+    }
+
+    #[test]
+    fn test_admin_register_request_without_admin_field() {
+        let json = r#"{
+            "nonce": "test_nonce",
+            "username": "admin",
+            "password": "secret",
+            "mac": "abcd1234"
+        }"#;
+        let request: AdminRegisterRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.nonce, "test_nonce");
+        assert_eq!(request.admin, None);
+    }
+
+    #[test]
+    fn test_admin_register_request_with_user_type() {
+        let json = r#"{
+            "nonce": "test_nonce",
+            "username": "admin",
+            "password": "secret",
+            "admin": true,
+            "user_type": "bot",
+            "displayname": "Admin User",
+            "mac": "abcd1234"
+        }"#;
+        let request: AdminRegisterRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.user_type, Some("bot".to_string()));
+        assert_eq!(request.displayname, Some("Admin User".to_string()));
     }
 }

@@ -5,6 +5,7 @@ use hmac::{Hmac, Mac};
 use rand::RngCore;
 use sha2::Sha256;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use x25519_dalek::{PublicKey, StaticSecret};
 
@@ -104,7 +105,7 @@ impl VerificationService {
         to_device: Option<String>,
     ) -> Result<SasData, ApiError> {
         let transaction_id = generate_transaction_id();
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let request = VerificationRequest {
             transaction_id: transaction_id.clone(),
@@ -317,7 +318,7 @@ impl VerificationService {
         scanner_device: &str,
         scanner_user_id: &str,
     ) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let request = VerificationRequest {
             transaction_id: qr_data.transaction_id.clone(),

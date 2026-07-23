@@ -10,10 +10,11 @@
 //! With the [`FederationClientApi`] trait extracted (FED-1..3), production
 //! code accepts `Arc<dyn FederationClientApi>` and tests inject
 //! `MockFederationClient`. This is the same seam pattern used for storage
-//! traits (EventStoreApi, RoomStoreApi, etc.).
+//! traits (EventReader/EventWriter, RoomStoreApi, etc.).
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use tokio::sync::RwLock;
 
 use crate::client::{
@@ -433,17 +434,17 @@ impl KeyRotationManagerApi for InMemoryKeyRotationManager {
     }
 
     async fn rotate_keys(&self, _requested_key_id: Option<String>) -> Result<(), ApiError> {
-        let key_id = format!("ed25519:{}", chrono::Utc::now().timestamp_millis());
+        let key_id = format!("ed25519:{}", current_timestamp_millis());
         let new_key = SigningKey {
             server_name: "test.example.com".into(),
             key_id,
             secret_key: "test-secret".into(),
             public_key: "test-public".into(),
-            created_ts: chrono::Utc::now().timestamp_millis(),
-            expires_at: chrono::Utc::now().timestamp_millis() + 7 * 24 * 3600 * 1000,
+            created_ts: current_timestamp_millis(),
+            expires_at: current_timestamp_millis() + 7 * 24 * 3600 * 1000,
             key_json: serde_json::json!({"public_key": "test-public"}),
-            ts_added_ms: chrono::Utc::now().timestamp_millis(),
-            ts_valid_until_ms: chrono::Utc::now().timestamp_millis() + 7 * 24 * 3600 * 1000,
+            ts_added_ms: current_timestamp_millis(),
+            ts_valid_until_ms: current_timestamp_millis() + 7 * 24 * 3600 * 1000,
         };
         *self.current_key.write().await = Some(new_key);
         Ok(())

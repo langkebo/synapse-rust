@@ -7,7 +7,7 @@ use super::service::LifecycleService;
 impl LifecycleService {
     pub async fn get_tombstone_event(&self, room_id: &str) -> ApiResult<Option<serde_json::Value>> {
         let state_events = self
-            .event_storage
+            .event_reader
             .get_state_events(room_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get state events", &e))?;
@@ -43,7 +43,7 @@ impl LifecycleService {
             return Err(ApiError::forbidden("Only room creator can migrate content".to_string()));
         }
 
-        self.room_storage
+        self.event_reader
             .copy_room_state(source_room_id, target_room_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to copy room state", &e))?;

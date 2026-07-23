@@ -2,11 +2,20 @@ pub mod chunked_upload;
 
 pub use chunked_upload::{ChunkedUploadService, CompleteUploadRequest};
 
-use crate::media_quota_service::MediaQuotaService;
-use crate::media_service::MediaService;
+// Media domain group — re-exports media_service types under `media::`.
+#[allow(deprecated)]
+pub use crate::media_service::{MediaService, ThumbnailConfig, ThumbnailMethod, ThumbnailSettings};
+
+// P7.4 — additional media-domain service re-exports (previously flat in lib.rs).
+pub use crate::content_scanner::*;
+pub use crate::media_quota_service::*;
+#[cfg(feature = "voice-extended")]
+pub use crate::voice_service::{VoiceMessageUploadParams, VoiceService};
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::random_string;
 use synapse_common::ApiError;
 
@@ -39,7 +48,7 @@ pub struct MediaDomainService {
     media_service: MediaService,
     media_quota_service: Arc<MediaQuotaService>,
     chunked_upload_service: Arc<chunked_upload::ChunkedUploadService>,
-    quarantine_change_storage: Option<Arc<synapse_storage::media::QuarantinedMediaChangeStorage>>,
+    quarantine_change_storage: Option<Arc<dyn synapse_storage::media::QuarantinedMediaChangeStoreApi>>,
     cache_invalidation: Option<Arc<synapse_cache::invalidation::CacheInvalidationManager>>,
 }
 
@@ -63,7 +72,7 @@ impl MediaDomainService {
     /// integration for multi-worker deployments.
     pub fn with_quarantine_stream(
         mut self,
-        storage: Arc<synapse_storage::media::QuarantinedMediaChangeStorage>,
+        storage: Arc<dyn synapse_storage::media::QuarantinedMediaChangeStoreApi>,
         cache_invalidation: Option<Arc<synapse_cache::invalidation::CacheInvalidationManager>>,
     ) -> Self {
         self.quarantine_change_storage = Some(storage);
@@ -80,7 +89,7 @@ impl MediaDomainService {
             .as_ref()
             .ok_or_else(|| ApiError::internal("Quarantine stream storage not configured"))?;
 
-        let now_ts = chrono::Utc::now().timestamp_millis();
+        let now_ts = current_timestamp_millis();
 
         // Record the quarantine change in the stream
         let stream_id =
@@ -121,7 +130,7 @@ impl MediaDomainService {
             .as_ref()
             .ok_or_else(|| ApiError::internal("Quarantine stream storage not configured"))?;
 
-        let now_ts = chrono::Utc::now().timestamp_millis();
+        let now_ts = current_timestamp_millis();
 
         // Record the unquarantine change in the stream
         let stream_id =

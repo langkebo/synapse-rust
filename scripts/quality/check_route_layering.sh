@@ -49,17 +49,17 @@ while IFS= read -r -d '' file; do
     file_violations=()
 
     # Pattern A: direct storage import
-    if grep -nE 'use\s+crate::storage' "$file" > /dev/null 2>&1; then
+    if grep -nE 'use\s+crate::storage' "$file" >/dev/null 2>&1; then
         file_violations+=("A: uses crate::storage directly")
     fi
 
     # Pattern B: raw sqlx::query in route handler
-    if grep -nE 'sqlx::query\b|sqlx::query_as\b|sqlx::query_scalar\b|sqlx::query_file\b' "$file" > /dev/null 2>&1; then
+    if grep -nE 'sqlx::query\b|sqlx::query_as\b|sqlx::query_scalar\b|sqlx::query_file\b' "$file" >/dev/null 2>&1; then
         file_violations+=("B: uses sqlx::query* directly")
     fi
 
     # Pattern C: direct pool access
-    if grep -nE '\bPgPool\b|\bPool\s*<\s*Postgres\s*>' "$file" > /dev/null 2>&1; then
+    if grep -nE '\bPgPool\b|\bPool\s*<\s*Postgres\s*>' "$file" >/dev/null 2>&1; then
         file_violations+=("C: references PgPool/Pool<Postgres> directly")
     fi
 

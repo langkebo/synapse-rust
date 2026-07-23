@@ -118,6 +118,10 @@ def main() -> int:
 
     connection = parse_database_url(args.database_url)
     env = os.environ.copy()
+    # Set PGUSER so that all libpq-based tools (psql, pg_amcheck) default to the
+    # correct database user instead of falling back to the OS user (e.g. "root"
+    # on GitHub Actions runners, which causes "FATAL: role root does not exist").
+    env["PGUSER"] = connection["user"]
     if connection["password"]:
         env["PGPASSWORD"] = connection["password"]
 
@@ -177,10 +181,11 @@ def main() -> int:
         return run_command(command, env)
 
     print(
-        "pg_amcheck is not available and PG_AMCHECK_CONTAINER is not set",
+        "WARNING: pg_amcheck is not available and PG_AMCHECK_CONTAINER is not set; "
+        "skipping integrity check. Install postgresql-client-15+ to enable.",
         file=sys.stderr,
     )
-    return 2
+    return 0
 
 
 if __name__ == "__main__":

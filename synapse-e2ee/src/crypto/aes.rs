@@ -995,4 +995,57 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), CryptoError::InvalidNonceLength);
     }
+
+    // =========================================================================
+    // B.3 batch 4/6 — supplemental coverage for production (non-cfg-test) paths.
+    // =========================================================================
+
+    #[test]
+    fn test_encrypt_with_nonce_roundtrip() {
+        // Covers Aes256GcmCipher::encrypt_with_nonce (pub, non-cfg-test).
+        let key = Aes256GcmKey::generate();
+        let plaintext = b"encrypt_with_nonce roundtrip test";
+
+        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&key, plaintext.as_ref()).unwrap();
+        assert!(encrypted.len() > 12);
+
+        let (nonce, ciphertext) = Aes256GcmCipher::split_encrypted_data(&encrypted).unwrap();
+        let decrypted = Aes256GcmCipher::decrypt(&key, &nonce, ciphertext).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_encrypt_with_nonce_empty_plaintext() {
+        let key = Aes256GcmKey::generate();
+        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&key, b"").unwrap();
+        // 12 (nonce) + 0 (ciphertext) + 16 (GCM tag)
+        assert_eq!(encrypted.len(), 28);
+    }
+
+    #[test]
+    fn test_aes256_gcm_nonce_serde_roundtrip() {
+        // Covers Serialize/Deserialize for Aes256GcmNonce (non-cfg-test impls).
+        let nonce = Aes256GcmNonce::from_bytes([0xABu8; 12]).unwrap();
+        let json = serde_json::to_string(&nonce).unwrap();
+        // Base64 of [0xAB; 12] = "q6urq6urq6urq6ur" (16 chars, no padding).
+        assert_eq!(json, r#""q6urq6urq6urq6ur""#);
+
+        let deserialized: Aes256GcmNonce = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.as_bytes(), nonce.as_bytes());
+    }
+
+    #[test]
+    fn test_aes256_gcm_nonce_serde_invalid_base64() {
+        let result: Result<Aes256GcmNonce, _> = serde_json::from_str(r#""!!!not-base64!!!""#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_split_encrypted_data_too_short() {
+        // Covers the error branch in split_encrypted_data (len < 12).
+        let short_data = [0u8; 5];
+        let result = Aes256GcmCipher::split_encrypted_data(&short_data);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), CryptoError::InvalidNonceLength);
+    }
 }

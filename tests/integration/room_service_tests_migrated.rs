@@ -2,6 +2,7 @@
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
 use synapse_federation::event_broadcaster::EventBroadcaster;
@@ -10,12 +11,14 @@ use synapse_rust::common::Validator;
 use synapse_services::application_service::{ApplicationServiceManager, ApplicationServiceScheduler};
 use synapse_services::room_service::{CreateRoomConfig, RoomService};
 use synapse_services::room_summary_service::RoomSummaryService;
+use synapse_services::UserService;
 use synapse_storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
 use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::relations::RelationsStorage;
 use synapse_storage::room::RoomStorage;
 use synapse_storage::room_summary::RoomSummaryStorage;
+use synapse_storage::sticky_event::StickyEventStorage;
 use synapse_storage::user::UserStorage;
 use synapse_storage::CreateEventParams;
 
@@ -283,28 +286,47 @@ async fn create_test_user(pool: &sqlx::PgPool, user_id: &str, username: &str) {
     )
     .bind(user_id)
     .bind(username)
-    .bind(chrono::Utc::now().timestamp_millis())
+    .bind(current_timestamp_millis())
     .execute(pool)
     .await
     .expect("Failed to create test user");
 }
 
 fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> RoomService {
+    build_room_service(pool, cache, None)
+}
+
+fn create_room_service_with_appservice(
+    pool: &Arc<sqlx::PgPool>,
+    cache: Arc<CacheManager>,
+    app_service_manager: Arc<ApplicationServiceManager>,
+) -> RoomService {
+    build_room_service(pool, cache, Some(app_service_manager))
+}
+
+fn build_room_service(
+    pool: &Arc<sqlx::PgPool>,
+    cache: Arc<CacheManager>,
+    app_service_manager: Option<Arc<ApplicationServiceManager>>,
+) -> RoomService {
     let member_storage = Arc::new(RoomMemberStorage::new(pool, "localhost"));
     let event_storage: Arc<synapse_storage::event::EventStorage> =
         Arc::new(EventStorage::new(pool, "localhost".to_string()));
-    let canonical_cache = cache;
+    let canonical_cache = cache.clone();
     let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
     let room_summary_service =
         Arc::new(RoomSummaryService::new(room_summary_storage, event_storage.clone(), Some(member_storage.clone())));
+    let user_storage = Arc::new(UserStorage::new(pool, canonical_cache.clone()));
 
     RoomService::new(synapse_services::room_service::RoomServiceConfig {
         room_storage: Arc::new(RoomStorage::new(pool)),
         member_storage,
-        event_storage,
+        event_reader: Some(event_storage.clone()),
+        event_writer: Some(event_storage),
         room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
-        user_storage: Arc::new(UserStorage::new(pool, canonical_cache.clone())),
-        auth_service: Arc::new(synapse_services::auth::AuthService::new(
+        user_storage: user_storage.clone(),
+        user_service: Arc::new(UserService::new(user_storage)),
+        room_auth: Arc::new(synapse_services::auth::AuthService::new(
             pool,
             canonical_cache,
             Arc::new(synapse_rust::common::metrics::MetricsCollector::new()),
@@ -317,21 +339,19 @@ fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Ro
         task_queue: None,
         relations_storage: Arc::new(RelationsStorage::new(pool)),
         event_broadcaster: Some(Arc::new(EventBroadcaster::new("localhost".to_string()))),
-        app_service_manager: None,
+        app_service_manager,
         key_rotation_manager: None,
         federation_client: None,
         beacon_service: None,
+        sticky_event_storage: Arc::new(StickyEventStorage::new(pool.clone())),
+        cache,
+        key_rotation_storage: None,
     })
 }
 
-async fn attach_test_appservice(
-    pool: &Arc<sqlx::PgPool>,
-    room_service: &RoomService,
-    as_id: &str,
-) -> Arc<ApplicationServiceManager> {
-    attach_test_appservice_with_registration(
+async fn register_test_appservice(pool: &Arc<sqlx::PgPool>, as_id: &str) -> Arc<ApplicationServiceManager> {
+    register_test_appservice_with(
         pool,
-        room_service,
         RegisterApplicationServiceRequest {
             as_id: as_id.to_string(),
             url: "http://localhost:9999".to_string(),
@@ -353,16 +373,12 @@ async fn attach_test_appservice(
     .await
 }
 
-async fn attach_test_appservice_with_registration(
+async fn register_test_appservice_with(
     pool: &Arc<sqlx::PgPool>,
-    room_service: &RoomService,
     request: RegisterApplicationServiceRequest,
 ) -> Arc<ApplicationServiceManager> {
     let manager = create_test_appservice_manager(pool);
-
     manager.register(request).await.expect("Failed to register test application service");
-
-    room_service.set_app_service_manager(manager.clone()).await;
     manager
 }
 
@@ -430,10 +446,10 @@ async fn test_create_room_enqueues_appservice_events_after_commit() {
     create_test_user(&pool, &alice_id, &alice_name).await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let room_service = create_room_service(&pool, cache);
     let as_id = format!("room-create-bridge-{id}");
     let storage = ApplicationServiceStorage::new(&pool);
-    attach_test_appservice(&pool, &room_service, &as_id).await;
+    let manager = register_test_appservice(&pool, &as_id).await;
+    let room_service = create_room_service_with_appservice(&pool, cache, manager);
 
     let room_val = room_service
         .lifecycle
@@ -544,10 +560,10 @@ async fn test_join_room_enqueues_appservice_membership_event() {
     create_test_user(&pool, &bob_id, &bob_name).await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let room_service = create_room_service(&pool, cache);
     let as_id = format!("join-bridge-{id}");
     let storage = ApplicationServiceStorage::new(&pool);
-    attach_test_appservice(&pool, &room_service, &as_id).await;
+    let manager = register_test_appservice(&pool, &as_id).await;
+    let room_service = create_room_service_with_appservice(&pool, cache, manager);
 
     let room_val = room_service
         .lifecycle
@@ -626,7 +642,7 @@ async fn test_get_room_messages_supports_sync_prev_batch_token() {
     let config = CreateRoomConfig::default();
     let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap();
-    let base_ts = chrono::Utc::now().timestamp_millis() + 10_000;
+    let base_ts = current_timestamp_millis() + 10_000;
 
     for ts in [base_ts + 1000, base_ts + 2000, base_ts + 3000] {
         room_service
@@ -677,7 +693,7 @@ async fn test_get_room_messages_supports_forward_pagination_from_stream_token() 
     let config = CreateRoomConfig::default();
     let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap();
-    let base_ts = chrono::Utc::now().timestamp_millis() + 10_000;
+    let base_ts = current_timestamp_millis() + 10_000;
 
     for ts in [base_ts + 1000, base_ts + 2000, base_ts + 3000] {
         room_service
@@ -755,10 +771,10 @@ async fn test_invite_user_enqueues_appservice_membership_event() {
     create_test_user(&pool, &bob_id, &bob_name).await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let room_service = create_room_service(&pool, cache);
     let as_id = format!("invite-bridge-{id}");
     let storage = ApplicationServiceStorage::new(&pool);
-    attach_test_appservice(&pool, &room_service, &as_id).await;
+    let manager = register_test_appservice(&pool, &as_id).await;
+    let room_service = create_room_service_with_appservice(&pool, cache, manager);
 
     let room_val = room_service
         .lifecycle
@@ -815,6 +831,74 @@ async fn test_ban_user_success() {
     let member = member_storage.get_member(room_id, &bob_id).await.unwrap().unwrap();
     assert_eq!(member.membership, "ban");
     assert_eq!(member.banned_by, Some(alice_id));
+}
+
+/// AUDIT-2026-07 S5 缺口3: inviting a currently-banned user must be rejected by
+/// the membership-transition rulebook (previously allowed).
+#[tokio::test]
+async fn test_invite_banned_user_is_rejected() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    let bob_id = format!("@bob_{id}:localhost");
+    create_test_user(&pool, &alice_id, &format!("alice_{id}")).await;
+    create_test_user(&pool, &bob_id, &format!("bob_{id}")).await;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = create_room_service(&pool, cache.clone());
+    let room_val = room_service.lifecycle.create_room(&alice_id, CreateRoomConfig::default()).await.unwrap();
+    let room_id = room_val["room_id"].as_str().unwrap();
+
+    room_service.membership.ban_user(room_id, &bob_id, &alice_id, Some("spam")).await.expect("ban should succeed");
+
+    let result = room_service.membership.invite_user(room_id, &alice_id, &bob_id).await;
+    assert!(result.is_err(), "inviting a banned user must be rejected, got: {result:?}");
+}
+
+/// AUDIT-2026-07 S5 缺口4: kicking a user who is not currently in the room
+/// (never joined) must be rejected (previously a silent no-op success).
+#[tokio::test]
+async fn test_kick_non_member_is_rejected() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    let bob_id = format!("@bob_{id}:localhost");
+    create_test_user(&pool, &alice_id, &format!("alice_{id}")).await;
+    create_test_user(&pool, &bob_id, &format!("bob_{id}")).await;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = create_room_service(&pool, cache.clone());
+    let room_val = room_service.lifecycle.create_room(&alice_id, CreateRoomConfig::default()).await.unwrap();
+    let room_id = room_val["room_id"].as_str().unwrap();
+
+    let result = room_service.membership.kick_user(room_id, &bob_id, &alice_id, Some("bye")).await;
+    assert!(result.is_err(), "kicking a non-member must be rejected, got: {result:?}");
+}
+
+/// AUDIT-2026-07 S5 缺口4: unbanning a user who is not currently banned must be
+/// rejected (previously a silent no-op success).
+#[tokio::test]
+async fn test_unban_non_banned_user_is_rejected() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    let bob_id = format!("@bob_{id}:localhost");
+    create_test_user(&pool, &alice_id, &format!("alice_{id}")).await;
+    create_test_user(&pool, &bob_id, &format!("bob_{id}")).await;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = create_room_service(&pool, cache.clone());
+    let room_val = room_service.lifecycle.create_room(&alice_id, CreateRoomConfig::default()).await.unwrap();
+    let room_id = room_val["room_id"].as_str().unwrap();
+
+    let result = room_service.membership.unban_user(room_id, &bob_id, &alice_id).await;
+    assert!(result.is_err(), "unbanning a non-banned user must be rejected, got: {result:?}");
 }
 
 #[tokio::test]
@@ -877,10 +961,10 @@ async fn test_upgrade_room_enqueues_tombstone_and_replacement_create_events() {
     create_test_user(&pool, &alice_id, &alice_name).await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let room_service = create_room_service(&pool, cache);
     let as_id = format!("upgrade-bridge-{id}");
     let storage = ApplicationServiceStorage::new(&pool);
-    attach_test_appservice(&pool, &room_service, &as_id).await;
+    let manager = register_test_appservice(&pool, &as_id).await;
+    let room_service = create_room_service_with_appservice(&pool, cache, manager);
 
     let room_val = room_service
         .lifecycle
@@ -1002,7 +1086,7 @@ async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
     create_test_user(&pool, &alice_id, &alice_name).await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let room_service = create_room_service(&pool, cache);
+    let room_service = create_room_service(&pool, cache.clone());
     let room_val = room_service
         .lifecycle
         .create_room(&alice_id, CreateRoomConfig::default())
@@ -1012,9 +1096,8 @@ async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
 
     let mock_server = MockServer::start().await;
     let bridge_as_id = format!("bridge-e2e-{id}");
-    let manager = attach_test_appservice_with_registration(
+    let manager = register_test_appservice_with(
         &pool,
-        &room_service,
         RegisterApplicationServiceRequest {
             as_id: bridge_as_id.clone(),
             url: mock_server.uri(),
@@ -1034,13 +1117,14 @@ async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
         },
     )
     .await;
+    let bridge_room_service = create_room_service_with_appservice(&pool, cache, manager.clone());
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&mock_server).await;
 
     let content = json!({
         "msgtype": "m.text",
         "body": format!("bridge-e2e-body-{id}")
     });
-    let send_result = room_service
+    let send_result = bridge_room_service
         .messaging
         .send_message(&room_id, &alice_id, "m.room.message", &content)
         .await
@@ -1077,17 +1161,28 @@ async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
     assert_eq!(bridge_event["content"]["body"], format!("bridge-e2e-body-{id}"));
     assert!(bridge_event["queue_event_id"].as_str().is_some());
 
-    let pending_transactions = ApplicationServiceStorage::new(&pool)
-        .get_pending_transactions(&bridge_as_id)
-        .await
-        .expect("pending transactions should load");
-    assert!(pending_transactions.is_empty(), "successful bridge delivery should complete transaction");
-
-    let pending_events = ApplicationServiceStorage::new(&pool)
-        .get_pending_events(&bridge_as_id, 10)
-        .await
-        .expect("pending events should load");
-    assert!(pending_events.is_empty(), "successful bridge delivery should mark queue events processed");
+    // Transaction completion and queue-event marking are asynchronous steps
+    // in the appservice sender. Under parallel-test pressure the second step
+    // can lag behind the first (transaction cleared but events not yet marked
+    // processed), so retry briefly until both clear.
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let pending_transactions = ApplicationServiceStorage::new(&pool)
+                .get_pending_transactions(&bridge_as_id)
+                .await
+                .expect("pending transactions should load");
+            let pending_events = ApplicationServiceStorage::new(&pool)
+                .get_pending_events(&bridge_as_id, 10)
+                .await
+                .expect("pending events should load");
+            if pending_transactions.is_empty() && pending_events.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("successful bridge delivery should complete transaction and mark queue events processed within 3s");
 
     let delivery_status = manager
         .get_state(&bridge_as_id, "delivery_status")
@@ -1112,7 +1207,7 @@ async fn test_bridge_e2e_membership_events_deliver_real_room_member_payloads() {
     create_test_user(&pool, &bob_id, &bob_name).await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let room_service = create_room_service(&pool, cache);
+    let room_service = create_room_service(&pool, cache.clone());
     let room_val = room_service
         .lifecycle
         .create_room(&alice_id, CreateRoomConfig::default())
@@ -1124,9 +1219,8 @@ async fn test_bridge_e2e_membership_events_deliver_real_room_member_payloads() {
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&mock_server).await;
 
     let bridge_as_id = format!("bridge-membership-e2e-{id}");
-    let manager = attach_test_appservice_with_registration(
+    let manager = register_test_appservice_with(
         &pool,
-        &room_service,
         RegisterApplicationServiceRequest {
             as_id: bridge_as_id.clone(),
             url: mock_server.uri(),
@@ -1146,9 +1240,10 @@ async fn test_bridge_e2e_membership_events_deliver_real_room_member_payloads() {
         },
     )
     .await;
+    let bridge_room_service = create_room_service_with_appservice(&pool, cache, manager.clone());
 
-    room_service.membership.invite_user(&room_id, &alice_id, &bob_id).await.expect("invite_user should succeed");
-    room_service.membership.join_room(&room_id, &bob_id).await.expect("join_room should succeed");
+    bridge_room_service.membership.invite_user(&room_id, &alice_id, &bob_id).await.expect("invite_user should succeed");
+    bridge_room_service.membership.join_room(&room_id, &bob_id).await.expect("join_room should succeed");
 
     let dispatched =
         manager.process_pending_for_service(&bridge_as_id, 16).await.expect("membership delivery should succeed");
@@ -1216,7 +1311,11 @@ async fn test_appservice_background_sender_flushes_pending_queue() {
             description: Some("background sender bridge".to_string()),
             is_rate_limited: Some(false),
             protocols: None,
-            namespaces: None,
+            namespaces: Some(json!({
+                "users": [{"exclusive": false, "regex": "@.*:localhost"}],
+                "aliases": [],
+                "rooms": [{"exclusive": false, "regex": "!.*:localhost"}]
+            })),
             api_key: None,
             config: None,
         })
@@ -1305,7 +1404,11 @@ async fn test_appservice_fatal_delivery_failures_disable_service_and_persist_sta
             description: Some("failing bridge".to_string()),
             is_rate_limited: Some(false),
             protocols: None,
-            namespaces: None,
+            namespaces: Some(json!({
+                "users": [{"exclusive": false, "regex": "@.*:localhost"}],
+                "aliases": [],
+                "rooms": [{"exclusive": false, "regex": "!.*:localhost"}]
+            })),
             api_key: None,
             config: None,
         })

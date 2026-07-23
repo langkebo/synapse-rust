@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PasswordPolicy {
@@ -93,7 +94,7 @@ impl PasswordPolicy {
 
         match password_changed_ts {
             Some(changed_at) => {
-                let now = chrono::Utc::now().timestamp_millis();
+                let now = current_timestamp_millis();
                 let max_age_ms = (self.max_age_days as i64) * 24 * 60 * 60 * 1000;
                 now > changed_at + max_age_ms
             }
@@ -105,13 +106,13 @@ impl PasswordPolicy {
         if self.max_age_days == 0 {
             return 0;
         }
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let max_age_ms = (self.max_age_days as i64) * 24 * 60 * 60 * 1000;
         now + max_age_ms
     }
 
     pub fn calculate_lockout_until(&self) -> i64 {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let lockout_ms = (self.lockout_duration_minutes as i64) * 60 * 1000;
         now + lockout_ms
     }
@@ -192,7 +193,7 @@ mod tests {
     fn test_password_expiry() {
         let policy = PasswordPolicy { max_age_days: 90, ..Default::default() };
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let ninety_one_days_ago = now - (91 * 24 * 60 * 60 * 1000);
 
         assert!(policy.is_password_expired(Some(ninety_one_days_ago)));

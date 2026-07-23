@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::Postgres;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::*;
 use synapse_storage::{EventStorage, RoomStorage};
 
@@ -503,7 +504,7 @@ impl SearchService {
             event_type: event_type.to_string(),
             message_type: message_type.map(|s| s.to_string()),
             origin_server_ts,
-            index_ts: chrono::Utc::now().timestamp_millis(),
+            index_ts: current_timestamp_millis(),
             keys: Self::extract_keys(content),
         };
 

@@ -10,7 +10,7 @@ use synapse_services::ServiceContainer;
 use tower::ServiceExt;
 
 async fn setup_test_app_with_replication_secret() -> Option<(axum::Router, String, String)> {
-    let pool = super::get_test_pool().await?;
+    let pool = super::require_test_pool().await;
     let mut container = ServiceContainer::new_test_with_pool(pool).await;
     container.core.config.worker.enabled = true;
     container.core.config.worker.replication.http.enabled = true;
@@ -100,9 +100,7 @@ async fn test_worker_endpoints_require_replication_secret_when_enabled() {
 
 #[tokio::test]
 async fn test_worker_endpoints_do_not_require_replication_secret_when_disabled() {
-    let Some(pool) = super::get_test_pool().await else {
-        return;
-    };
+    let pool = super::require_test_pool().await;
     let mut container = ServiceContainer::new_test_with_pool(pool).await;
     container.core.config.worker.enabled = true;
     container.core.config.worker.replication.http.enabled = false;

@@ -7,6 +7,7 @@ use super::super::service::CreateRoomConfig;
 use super::super::utils::validate_room_alias_input;
 use super::service::LifecycleService;
 use serde_json::json;
+use synapse_common::current_timestamp_millis;
 use synapse_common::room_versions::{resolve_room_version, DEFAULT_ROOM_VERSION};
 use synapse_common::{generate_event_id, generate_room_id, ApiError, ApiResult};
 use synapse_storage::CreateEventParams;
@@ -62,7 +63,7 @@ impl LifecycleService {
             return Err(ApiError::internal_with_log("Failed to create room", &e));
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut create_content = json!({
             "creator": user_id,
             "room_version": room_version,
@@ -81,7 +82,7 @@ impl LifecycleService {
             create_content["type"] = json!(room_type);
         }
         let result = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -121,7 +122,7 @@ impl LifecycleService {
         }
 
         let result = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -172,7 +173,7 @@ impl LifecycleService {
             }
         }
         let result = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -193,7 +194,7 @@ impl LifecycleService {
         }
 
         let result = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -221,7 +222,7 @@ impl LifecycleService {
             }
         });
         let result = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -243,7 +244,7 @@ impl LifecycleService {
 
         let guest_access = if is_public { "can_join" } else { "forbidden" };
         let result = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -304,7 +305,7 @@ impl LifecycleService {
                 }
 
                 let result = self
-                    .event_storage
+                    .event_writer
                     .create_event(
                         CreateEventParams {
                             event_id: generate_event_id(&self.server_name),
@@ -343,7 +344,7 @@ impl LifecycleService {
             if !has_encryption_in_initial_state {
                 let encryption_ts = config.initial_state.as_ref().map_or(now + 9, |s| now + 9 + s.len() as i64);
                 let result = self
-                    .event_storage
+                    .event_writer
                     .create_event(
                         CreateEventParams {
                             event_id: generate_event_id(&self.server_name),
@@ -375,7 +376,7 @@ impl LifecycleService {
         if is_trusted_private {
             let privacy_content = json!({ "action": "block_screenshot" });
             let result = self
-                .event_storage
+                .event_writer
                 .create_event(
                     CreateEventParams {
                         event_id: generate_event_id(&self.server_name),
@@ -432,6 +433,16 @@ impl LifecycleService {
         }
 
         let room_alias = self.format_room_alias(config.room_alias_name.as_deref());
+
+        // Invalidate room-state cache after room creation writes initial state.
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+
+        // After the transaction commits, enqueue the initial state events for
+        // any matching application services.  Events created inside the
+        // transaction bypass the messaging layer's appservice dispatch, so we
+        // replay them here.
+        self.dispatch_appservice_events_for_room(&room_id).await;
+
         Ok(Self::build_room_response(&room_id, room_alias.as_deref()))
     }
 
@@ -459,6 +470,53 @@ impl LifecycleService {
             "room_id": room_id,
             "room_alias": room_alias
         })
+    }
+
+    /// After `create_room` commits its transaction, replay the room's
+    /// initial state events to any matching application services.
+    ///
+    /// Events created inside the transaction bypass the messaging layer's
+    /// appservice dispatch (which only fires when no transaction is
+    /// supplied).  This method queries the committed state events and
+    /// enqueues each one so bridges receive the full room creation payload.
+    async fn dispatch_appservice_events_for_room(&self, room_id: &str) {
+        let Some(app_service_manager) = &self.app_service_manager else {
+            return;
+        };
+
+        let state_events = match self.event_reader.get_state_events(room_id).await {
+            Ok(events) => events,
+            Err(error) => {
+                ::tracing::warn!(
+                    error = %error,
+                    room_id = %room_id,
+                    "Failed to load state events for appservice dispatch after room creation"
+                );
+                return;
+            }
+        };
+
+        for event in state_events {
+            if let Err(error) = app_service_manager
+                .enqueue_matching_event(
+                    &event.event_id,
+                    &event.room_id,
+                    event.event_type.as_deref().unwrap_or(""),
+                    &event.sender,
+                    &event.content,
+                    event.state_key.as_deref(),
+                )
+                .await
+            {
+                ::tracing::warn!(
+                    error = %error,
+                    event_id = %event.event_id,
+                    room_id = %event.room_id,
+                    event_type = ?event.event_type,
+                    "Failed to enqueue application service event after room creation"
+                );
+            }
+        }
     }
 }
 

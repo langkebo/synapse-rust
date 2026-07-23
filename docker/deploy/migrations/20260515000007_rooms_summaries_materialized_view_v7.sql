@@ -168,7 +168,7 @@ END $$;
 -- ============================================================================
 -- Migration record
 -- ============================================================================
-INSERT INTO schema_migrations (version, name, success, description, applied_ts)
+INSERT INTO schema_migrations (version, name, is_success, description, applied_ts)
 VALUES (
     '20260515000007',
     'rooms_summaries_materialized_view_v7',

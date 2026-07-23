@@ -7,6 +7,7 @@ use crate::web::routes::context::RoomContext;
 use crate::web::routes::{validate_room_id, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 #[cfg(feature = "beacons")]
 use synapse_storage::beacon::CreateBeaconInfoParams;
 use synapse_storage::event::CreateEventParams;
@@ -18,7 +19,7 @@ pub(crate) async fn get_room_state(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let room_exists = ctx.room_service.state.room_exists(&room_id).await?;
+    let room_exists = ctx.room_service.state().room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
@@ -26,7 +27,7 @@ pub(crate) async fn get_room_state(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let state_events = ctx.room_service.messaging.get_state_events(&room_id).await?;
+    let state_events = ctx.room_service.messaging().get_state_events(&room_id).await?;
 
     Ok(Json(json!({
         "events": state_events
@@ -40,7 +41,7 @@ pub(crate) async fn get_state_by_type(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let room_exists = ctx.room_service.state.room_exists(&room_id).await?;
+    let room_exists = ctx.room_service.state().room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
@@ -50,7 +51,7 @@ pub(crate) async fn get_state_by_type(
 
     let final_event_type = normalize_room_event_type(&event_type);
 
-    let events = ctx.room_service.messaging.get_state_events_by_type(&room_id, &final_event_type).await?;
+    let events = ctx.room_service.messaging().get_state_events_by_type(&room_id, &final_event_type).await?;
 
     let event_with_empty_key =
         events.iter().find(|e| e.get("state_key").and_then(|v| v.as_str()) == Some("") || e.get("state_key").is_none());
@@ -77,7 +78,7 @@ pub(crate) async fn get_state_event(
 
     let final_event_type = normalize_room_event_type(&event_type);
 
-    let events = ctx.room_service.messaging.get_state_events_by_type(&room_id, &final_event_type).await?;
+    let events = ctx.room_service.messaging().get_state_events_by_type(&room_id, &final_event_type).await?;
 
     let event = events
         .iter()
@@ -102,7 +103,7 @@ pub(crate) async fn send_state_event(
     let content = body;
 
     let new_event_id = crate::common::crypto::generate_event_id(&ctx.server_name);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
     ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
@@ -186,7 +187,7 @@ pub(crate) async fn send_state_event(
 
     let state_event = ctx
         .room_service
-        .messaging
+        .messaging()
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -224,7 +225,7 @@ pub(crate) async fn put_state_event(
     validate_room_id(&room_id)?;
 
     let new_event_id = crate::common::crypto::generate_event_id(&ctx.server_name);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
     ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
@@ -293,7 +294,7 @@ pub(crate) async fn put_state_event(
 
     let event = ctx
         .room_service
-        .messaging
+        .messaging()
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -333,7 +334,7 @@ pub(crate) async fn get_state_event_empty_key(
 
     let final_event_type = normalize_room_event_type(&event_type);
 
-    let events = ctx.room_service.messaging.get_state_events_by_type(&room_id, &final_event_type).await?;
+    let events = ctx.room_service.messaging().get_state_events_by_type(&room_id, &final_event_type).await?;
 
     let event = events
         .iter()
@@ -352,7 +353,7 @@ pub(crate) async fn get_power_levels(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let events = ctx.room_service.messaging.get_state_events_by_type(&room_id, "m.room.power_levels").await?;
+    let events = ctx.room_service.messaging().get_state_events_by_type(&room_id, "m.room.power_levels").await?;
 
     let event = events
         .iter()
@@ -373,14 +374,14 @@ pub(crate) async fn put_state_event_empty_key(
     validate_room_id(&room_id)?;
 
     let new_event_id = crate::common::crypto::generate_event_id(&ctx.server_name);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
     ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
 
     let event = ctx
         .room_service
-        .messaging
+        .messaging()
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -413,14 +414,14 @@ pub(crate) async fn put_state_event_no_key(
     validate_room_id(&room_id)?;
 
     let new_event_id = crate::common::crypto::generate_event_id(&ctx.server_name);
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
     ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
 
     let event = ctx
         .room_service
-        .messaging
+        .messaging()
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -453,7 +454,7 @@ pub(crate) async fn get_room_permissions(
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let power_levels_events =
-        ctx.room_service.messaging.get_state_events_by_type(&room_id, "m.room.power_levels").await?;
+        ctx.room_service.messaging().get_state_events_by_type(&room_id, "m.room.power_levels").await?;
 
     let pl_content = power_levels_events
         .iter()
@@ -461,7 +462,8 @@ pub(crate) async fn get_room_permissions(
         .and_then(|e| e.get("content").cloned())
         .unwrap_or(json!({}));
 
-    let join_rules_events = ctx.room_service.messaging.get_state_events_by_type(&room_id, "m.room.join_rules").await?;
+    let join_rules_events =
+        ctx.room_service.messaging().get_state_events_by_type(&room_id, "m.room.join_rules").await?;
 
     let join_rule = join_rules_events
         .iter()

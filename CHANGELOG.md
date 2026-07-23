@@ -13,59 +13,107 @@
 
 | 版本 | 发布日期 | 性质 | 主要内容 |
 |------|----------|------|----------|
-| [Unreleased](#unreleased) | TBD | 进行中 | C-5 Phase 3/4 vodozemac 互操作矩阵 + 清理自研路径 |
+| [v6.2.0](#v620---2026-07-22) | 2026-07-22 | 重构 | 架构优化 Round 2（收口）：test_utils 类型修复 / clippy expect-used 门禁 / 1291 文件 trait 迁移 |
+| [v6.1.0](#v610---2026-07-14) | 2026-07-14 | 重构+安全 | 架构优化 Round 2：Auth trait 分层 / EventStore 读写分离 / 安全加固 / Bench+Snapshot |
+| [v6.0.5](#v605---2026-07-09) | 2026-07-09 | 重构 | 架构优化 Round 2：trait 提取 / glob re-export 收敛 / 中间件迁移 / storage 拆分 |
 | [v10.0.0](#v10000---2026-06-12) | 2026-06-12 | 🚧 **当前基线** | P0/P1 全部修复 / v10 迁移基线 / clippy 门禁修复 / 文档同步 / P2 #7 L1 unwrap 治理 |
 | [v8.0.0](#v8000---2026-06-06) | 2026-06-06 | 历史 | P0 全部修复 / v8 迁移基线 / E2EE vodozemac 收敛 Phase 1+2 / Step 10-12 工程门禁 |
 | [v7.x](#v7x---2026-05-28-前) | 2026-05-28 前 | 历史 | 旧 `Cargo.toml` 版本基线，包含 v7 迁移文件（已被 v8 收敛） |
 
 ---
 
-## [Unreleased]
+## [v6.2.0] - 2026-07-22
 
-> 此节列出已合入主分支但尚未发布的变更。
-> 下一个版本号会基于此节归并。
+> 架构优化 Round 2（收口）：test_utils 类型修复 / clippy expect-used 门禁 /
+> TestContext schema pool 集成 / lib + unit 测试全绿 (1362 tests)
+
+### Fixed（修复）
+- test_utils `get_template_schema_name` 返回类型 mismatch（`?` 解包后缺少 `Ok(...)` wrapper）
+- clippy `expect_used` 门禁：test schema cleanup runtime 添加 `#[allow(clippy::expect_used)]`
+- Integration `TestContext` 接入 `LeasedSchema` schema pool（TRUNCATE 复用替代 DROP 重建）
+
+### Changed（变更）
+- Cargo.toml 版本号 6.1.0 → 6.2.0
+- CI 测试命令统一：lib 用 `--all-features`，unit 用 `--features test-utils`
+
+---
+
+## [v6.1.0] - 2026-07-14
+
+> 架构优化 Round 2（续）：Auth trait 分层 / EventStore 读写分离 / UserService 便利层 /
+> 存储 trait 迁移 / god-file 拆分 / 安全 fail-closed 加固 / Bench + Snapshot 补齐
 
 ### Added（新增）
-- **C-5 Phase 3（E2EE 互操作）**：本地 vodozemac 互操作测试矩阵 19 个 case
-  （Olm 账户/会话/线路编码 + Megolm 共享/monotonicity/前向保密 + pickle 兼容
-  + `m.room_key` to-device payload + 算法拒绝），见
-  [`src/e2ee/vodozemac_interop_tests.rs`](./src/e2ee/vodozemac_interop_tests.rs)。
-  全部需 `E2EE_INTEROP=1` 显式启用。
-- **Step 10（工程门禁）**：`scripts/ci/supply_chain_gate.sh` 接入 CI 主流程，
-  阻断 `cargo-deny` + `cargo-audit` 任意违规。
-- **Step 12（文档治理）**：[`docs/INDEX.md`](./docs/INDEX.md) 文档导航中枢，
-  区分 `archive/` 与现行，纳入 PR 门禁。
-- 审计可观测性：Megolm 互操作 metrics 7 个 + 记录方法 3 个
-  （`megolm_vodozemac_pickle_persist_total` 等）。
+- **MembershipTransition 状态机**：`synapse_common::membership_transition::is_legal(from, to, ctx)`
+  纯函数表，集中定义所有合法的成员资格转换；联邦入站 m.room.member 事件经此校验
+- **Membership Benchmark**：14 个成员资格转换 case（7 fail-closed + 7 allowed/idempotent）
+- **Seed Script**：`scripts/seed_bench_data.sh` 性能测试数据播种（用户/房间/设备密钥）
+- **联邦 Send_Transaction 集成测试**：5 个 case 覆盖签名认证/PUD验证/签名PDU处理
+- **Login + Sync Snapshot 测试**：鉴权成功响应 shape 锁定（insta），动态字段自动 redact
+- **CanonicalEvent newtype**：缓存规范 JSON 字节，避免联邦签名验证重复序列化
+- **Auth trait 分层**：`TokenAuth`（9 方法）、`CredentialAuth`（10 方法）、`RoomAuth`（10 方法）
+- **EventReader / EventWriter traits**：读写分离，35 读方法 + 11 写方法
+- **UserService 便利层**：封装 UserStore，减少重复调用
+- **InMemory mocks**：6 个存储模块的 mock 实现，支持单元测试
 
-### Changed
-- **C-5 Phase 4 协议层包装边界进一步冻结**（2026-06-11）：
-  - 在 `src/e2ee/crypto/` 与 `synapse-e2ee/src/crypto/` 两棵树中同步完成接口可见性收窄
-  - `aes.rs`：删除桥接方法 `Aes256GcmKey::as_bytes`、`Aes256GcmNonce::as_bytes`、`Aes256GcmCipher::new`；将 `Aes256GcmNonce::{generate, from_bytes}` 与 `Aes256GcmCipher::{encrypt, decrypt}` 收为模块私有；新增 `Aes256GcmCipher::split_encrypted_data` 私有辅助方法聚合测试逻辑
-  - `ed25519.rs`：新增 `Ed25519PublicKey::verify` 公开方法，封装签名验证；将 `Ed25519PublicKey::from_bytes` 收为模块私有，并继续删除 `Ed25519PublicKey::as_bytes` 与 `Ed25519KeyPair::verify` 测试桥接
-  - 移除 `src/e2ee/mod.rs` 与 `synapse-e2ee/src/lib.rs` 的顶层 re-export，减少公开暴露面
-  - 将 `src/e2ee/crypto/mod.rs` 与 `synapse-e2ee/src/crypto/mod.rs` 的子模块收为私有
-  - 同步更新上层调用点 `signed_json.rs`，并移除对 `ed25519_dalek::{Verifier, VerifyingKey}` 的直接依赖
-- **C-5 Phase 3 跨端验收入口整理**（2026-06-11）：
-  - `scripts/test/run_sdk_verification_real_backend.sh` 新增 `SKIP_SDK_TEST=1` 与 `SDK_INTEROP_ARTIFACT_DIR`，可仅启动 live backend 并自动落基础证据
-  - `docs/synapse-rust/E2EE_VODOZEMAC_MIGRATION.md` 新增 Android/iOS 手动验收入口、Element Web 叠加方式、`artifacts/e2ee-interop/mobile/<run-id>/` 结果记录规范，以及 I-1 ~ I-8 的逐项执行 checklist
-- E2EE 评估口径：审查报告 P0 项 4 状态从「🚧 Phase 1+2 ✅ / Phase 3 进行中 / Phase 4 待 Phase 3 收尾」更新为「🚧 Phase 1+2 ✅ / Phase 3 浏览器验证 ✅ / Phase 4 协议层边界基本冻结」。
-- `ServiceContainer` 状态口径：核心字段数 35 → 48（实际，比 2.2 报告多 13）。
-- `config/mod.rs` 行数：4081 → 4056（聚合文件，已拆 18 子模块）。
+### Changed（变更）
+- **Auth 调用点迁移**：所有 web 层调用从旧 `Auth` trait 迁移到 `TokenAuth`/`CredentialAuth`/`RoomAuth`
+- **EventStore 消费者迁移**：读写分离为 `EventReader`/`EventWriter`，消除只读路径的写权限
+- **UserService 迁移**：12 个 service 从直接 `UserStore` 访问迁移到 `UserService`
+- **存储 → 服务层路由**：`context.rs` 移除已弃用的 `user_storage`/`room_storage` 字段
+- **God-file 拆分**：application_service / sliding_sync / friend_room / registration_token / openclaw / saml / cas / event_report / server_notification / media_quota 等模块从单文件拆为子模块
+- **Glob re-export 收敛**：根 crate + synapse-storage + synapse-common 的 glob re-export 替换为显式导出
+- **中间件类型化上下文**：federation / admin / core 中间件迁移到具体 `State<T>` 类型
 
-### Fixed
-- 文档偏差：审查报告原 `Step 10 ❌ 未开始 0%` 与代码现状不符
-  （`deny.toml` / `cargo-audit.toml` / `mutation-testing.yml` / `.tarpaulin.toml`
-  均已就位）→ 已修正为 `✅ 已完成 95%`。
+### Fixed（修复）
+- **P1 Token 校验 fail-closed**：`account_compat.rs` 区分 DB 错误（500）与认证失败（匿名降级）
+- **P2 错误日志加固**：federation auth 密钥获取、widget 权限检查、transaction PDU 校验等 `.ok()` 吞没点添加诊断日志
+- **P2 可见性 fail-closed**：`search.rs` 用户搜索可见性查询失败时默认隐藏（`unwrap_or(false)`）
+- **C-5 Phase 4 协议层边界冻结**：AES/Ed25519 接口可见性收窄，减少公开暴露面
 
 ### Security
-- 无新增。
+- 联邦端点对"存在但未授权"与"不存在"统一返回 404（防存在性泄漏）
+- 成员资格状态机拒绝非法转换（banned re-join、invite-of-banned、self-ban、knock 非法房间）
+- Token 刷新并发安全：区分并发刷新重试与重放攻击（M2/OPT-026）
+- Health check 仅信任 `/health`，不再 fallback `/versions`（防 DB 故障掩盖）
 
-### Deprecated
-- 无新增。
+---
 
-### Removed
-- 无新增（C-5 Phase 4 当前以边界冻结与跨端验收为主，自研 crypto/olm 的进一步删除需待跨端矩阵全绿后再评估）。
+## [v6.0.5] - 2026-07-09
+
+> 架构优化 Round 2：纯重构，无行为变更。197 个文件，净增约 1,700 行。
+
+### Changed（变更）
+
+#### C2 — Service Trait 提取（11 个 service）
+- `AdminUserService`、`AdminFederationService`、`ClientPushService`、`AccountDataService`、
+  `DehydratedDeviceService` 等 11 个 service 的存储依赖从 `Arc<ConcreteType>` 迁移到
+  `Arc<dyn StoreApi>`，支持 mock 注入和单元测试
+- 新增 6 个存储模块的 `InMemory` mock 实现，用于测试
+
+#### Phase 2 — Glob Re-export 收敛
+- `synapse-common` 和 `synapse-storage` 的 glob re-export 缩小为显式导出列表
+- 根 crate 的 glob re-export 替换为显式导出
+
+#### Phase 3 — 中间件类型化上下文迁移
+- 新增 `CoreContext`、`AdminContext`、`FederationContext` 三个类型化上下文
+- 认证、shadow-ban、CSRF、限流中间件从 `AppState` 迁移到 `State<CoreContext>`
+- admin 认证中间件迁移到 `State<AdminContext>`
+- federation 限流中间件迁移到 `State<FederationContext>`
+- replication HTTP 认证中间件迁移到 `State<CoreContext>`
+
+#### Storage God-File 拆分
+- `room_summary.rs`（1,827 行）拆分为 7 个子模块
+- `worker.rs`（1,200+ 行）拆分为 5 个子模块
+- `space.rs`（800+ 行）拆分为 4 个子模块
+- `test_mocks.rs` 拆分为按域组织的子模块
+
+#### Room 服务重构
+- 线性化 DAG 构造流程，消除 post-construction setter
+- 统一 room events 批量镜像方法签名（`SinceFilter`）
+
+### Removed（移除）
+- 无新增。
 
 ---
 

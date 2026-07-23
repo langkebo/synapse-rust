@@ -49,7 +49,7 @@ jobs:
 
     - name: Install sqlx-cli and cargo-tarpaulin
       run: |
-        cargo install sqlx-cli --locked --no-default-features --features postgres
+        cargo install sqlx-cli --version '^0.8' --locked --no-default-features --features postgres
         cargo install cargo-tarpaulin --locked
 
     - name: Build forward-only sqlx migration source
@@ -63,19 +63,13 @@ jobs:
       run: |
         # Tarpaulin flag rationale (see scripts/run_local_coverage.sh):
         #   --workspace           cover every crate in the workspace
-        #   --all-features         compile every source-level feature so all .rs files
-        #                         are visible to the instrumenter
-        #   --features test-utils build integration/unit/e2e test binaries declared
-        #                         with `required-features = ["test-utils"]`
+        #   --features            minimal set: test-utils (test binaries) + features
+        #                         required by integration/unit/e2e test targets
         #   --include-tests        run integration test targets (tests/*) in addition
         #                         to lib/bin unit tests
-        #   --fail-under is intentionally omitted (current floor is 70% via
-        #   .tarpaulin.toml `range`; per-file thresholds enforced by
-        #   scripts/check_file_coverage.py in ci.yml coverage job)
         cargo tarpaulin \
           --workspace \
-          --all-features \
-          --features test-utils \
+          --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications" \
           --include-tests \
           --out Lcov \
           --output-dir coverage/ \

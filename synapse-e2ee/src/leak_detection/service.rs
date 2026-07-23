@@ -1,10 +1,11 @@
 // Session Leak Detection Service
 // E2EE Phase 2: Detect potential session key leaks
 
+use synapse_common::current_timestamp_millis;
 use crate::megolm::MegolmSession;
-use synapse_common::ApiError;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use synapse_common::ApiError;
 
 pub struct LeakDetectionService {
     storage: Arc<LeakDetectionStorage>,
@@ -68,7 +69,7 @@ impl LeakDetectionService {
                     "room_id": session.room_id,
                     "user_id": session.sender_key,
                 })),
-                created_ts: chrono::Utc::now().timestamp_millis(),
+                created_ts: current_timestamp_millis(),
                 is_acknowledged: false,
                 acknowledged_by: None,
                 acknowledged_at: None,
@@ -89,7 +90,7 @@ impl LeakDetectionService {
                     "room_id": session.room_id,
                     "user_id": session.sender_key,
                 })),
-                created_ts: chrono::Utc::now().timestamp_millis(),
+                created_ts: current_timestamp_millis(),
                 is_acknowledged: false,
                 acknowledged_by: None,
                 acknowledged_at: None,
@@ -110,7 +111,7 @@ impl LeakDetectionService {
                     "room_id": session.room_id,
                     "user_id": session.sender_key,
                 })),
-                created_ts: chrono::Utc::now().timestamp_millis(),
+                created_ts: current_timestamp_millis(),
                 is_acknowledged: false,
                 acknowledged_by: None,
                 acknowledged_at: None,
@@ -118,9 +119,15 @@ impl LeakDetectionService {
         }
 
         // Determine risk level
-        let risk_level = if alerts.iter().any(|a| a.details.as_ref().and_then(|d| d.get("severity")).and_then(|v| v.as_str()) == Some("high")) {
+        let risk_level = if alerts
+            .iter()
+            .any(|a| a.details.as_ref().and_then(|d| d.get("severity")).and_then(|v| v.as_str()) == Some("high"))
+        {
             "high"
-        } else if alerts.iter().any(|a| a.details.as_ref().and_then(|d| d.get("severity")).and_then(|v| v.as_str()) == Some("medium")) {
+        } else if alerts
+            .iter()
+            .any(|a| a.details.as_ref().and_then(|d| d.get("severity")).and_then(|v| v.as_str()) == Some("medium"))
+        {
             "medium"
         } else {
             "low"
@@ -224,7 +231,7 @@ impl LeakDetectionStorage {
     }
 
     pub async fn acknowledge_alert(&self, alert_id: i64, acknowledged_by: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             "UPDATE leak_alerts
              SET is_acknowledged = true, acknowledged_by = $2, acknowledged_at = $3

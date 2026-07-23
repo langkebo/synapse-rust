@@ -3,6 +3,7 @@ use chrono::Utc;
 use sqlx::PgPool;
 use std::str::FromStr;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 /// Internal row struct for `megolm_sessions` (matches DB column types exactly,
@@ -459,7 +460,7 @@ impl MegolmSessionStorage {
     ///
     /// Returns the number of sessions deleted.
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
-        let now_ms = Utc::now().timestamp_millis();
+        let now_ms = current_timestamp_millis();
 
         let result = sqlx::query(
             r"

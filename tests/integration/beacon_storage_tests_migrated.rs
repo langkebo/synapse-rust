@@ -2,6 +2,7 @@
 use sqlx::{Pool, Postgres};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_storage::beacon::{BeaconStorage, CreateBeaconInfoParams, CreateBeaconLocationParams};
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -90,7 +91,7 @@ fn create_storage(pool: &Arc<Pool<Postgres>>) -> BeaconStorage {
 }
 
 fn make_beacon_info_params(suffix: u64) -> CreateBeaconInfoParams {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     CreateBeaconInfoParams {
         room_id: format!("!beacon_room_{suffix}:localhost"),
         event_id: format!("$beacon_info_{suffix}"),
@@ -105,7 +106,7 @@ fn make_beacon_info_params(suffix: u64) -> CreateBeaconInfoParams {
 }
 
 fn make_beacon_location_params(suffix: u64, beacon_info_id: &str) -> CreateBeaconLocationParams {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     CreateBeaconLocationParams {
         room_id: format!("!beacon_room_{suffix}:localhost"),
         event_id: format!("$beacon_loc_{suffix}"),
@@ -148,7 +149,7 @@ async fn test_create_beacon_info_zero_timeout() {
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let params = CreateBeaconInfoParams {
         room_id: format!("!zero_room_{suffix}:localhost"),
         event_id: format!("$zero_info_{suffix}"),
@@ -174,7 +175,7 @@ async fn test_create_beacon_info_not_live() {
 
     let storage = create_storage(&pool);
     let suffix = unique_id();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let params = CreateBeaconInfoParams {
         room_id: format!("!notlive_room_{suffix}:localhost"),
         event_id: format!("$notlive_info_{suffix}"),
@@ -232,7 +233,7 @@ async fn test_get_beacon_info_by_state_key() {
     let suffix = unique_id();
     let state_key = format!("@state_user_{suffix}:localhost");
     let room_id = format!("!state_room_{suffix}:localhost");
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let params1 = CreateBeaconInfoParams {
         room_id: room_id.clone(),
@@ -284,7 +285,7 @@ async fn test_get_active_beacons() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!active_room_{suffix}:localhost");
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let live_params = CreateBeaconInfoParams {
         room_id: room_id.clone(),
@@ -337,7 +338,7 @@ async fn test_deactivate_beacons_by_state_key() {
     let suffix = unique_id();
     let room_id = format!("!deact_room_{suffix}:localhost");
     let state_key = format!("@deact_user_{suffix}:localhost");
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let params1 = CreateBeaconInfoParams {
         room_id: room_id.clone(),
@@ -494,7 +495,7 @@ async fn test_create_beacon_location_zero_timestamp() {
     let info_params = make_beacon_info_params(suffix);
     let beacon_info = storage.create_beacon_info(info_params).await.unwrap();
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let loc_params = CreateBeaconLocationParams {
         room_id: format!("!zero_loc_room_{suffix}:localhost"),
         event_id: format!("$zero_loc_{suffix}"),
@@ -523,7 +524,7 @@ async fn test_get_beacon_locations() {
     let info_params = make_beacon_info_params(suffix);
     let beacon_info = storage.create_beacon_info(info_params).await.unwrap();
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     for i in 0..3 {
         let loc_params = CreateBeaconLocationParams {
             room_id: format!("!loc_room_{suffix}:localhost"),
@@ -555,7 +556,7 @@ async fn test_get_beacon_locations_with_limit() {
     let info_params = make_beacon_info_params(suffix);
     let beacon_info = storage.create_beacon_info(info_params).await.unwrap();
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     for i in 0..5 {
         let loc_params = CreateBeaconLocationParams {
             room_id: format!("!limit_room_{suffix}:localhost"),
@@ -597,7 +598,7 @@ async fn test_get_latest_location() {
     let info_params = make_beacon_info_params(suffix);
     let beacon_info = storage.create_beacon_info(info_params).await.unwrap();
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     for i in 0..3 {
         let loc_params = CreateBeaconLocationParams {
             room_id: format!("!latest_room_{suffix}:localhost"),
@@ -647,11 +648,11 @@ async fn test_count_locations_in_room_since() {
         timeout: 3_600_000,
         is_live: true,
         asset_type: "m.self".to_string(),
-        created_ts: chrono::Utc::now().timestamp_millis(),
+        created_ts: current_timestamp_millis(),
     };
     let beacon_info = storage.create_beacon_info(info_params).await.unwrap();
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     for i in 0..3 {
         let loc_params = CreateBeaconLocationParams {
             room_id: room_id.clone(),
@@ -694,11 +695,11 @@ async fn test_count_locations_in_room_by_sender_since() {
         timeout: 3_600_000,
         is_live: true,
         asset_type: "m.self".to_string(),
-        created_ts: chrono::Utc::now().timestamp_millis(),
+        created_ts: current_timestamp_millis(),
     };
     let beacon_info = storage.create_beacon_info(info_params).await.unwrap();
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let loc1 = CreateBeaconLocationParams {
         room_id: room_id.clone(),
         event_id: format!("$sender_loc_1_{suffix}"),
@@ -742,7 +743,7 @@ async fn test_get_joined_member_count() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!member_count_room_{suffix}:localhost");
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     sqlx::query("INSERT INTO room_memberships (room_id, user_id, membership, joined_ts) VALUES ($1, $2, 'join', $3)")
         .bind(&room_id)
@@ -798,7 +799,7 @@ async fn test_get_beacon_with_locations() {
     let event_id = info_params.event_id.clone();
     let beacon_info = storage.create_beacon_info(info_params).await.unwrap();
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     for i in 0..2 {
         let loc_params = CreateBeaconLocationParams {
             room_id: room_id.clone(),
@@ -840,7 +841,7 @@ async fn test_cleanup_expired_beacons() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!cleanup_room_{suffix}:localhost");
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let expired_params = CreateBeaconInfoParams {
         room_id: room_id.clone(),
@@ -901,7 +902,7 @@ async fn test_get_room_beacons_include_expired() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!room_beacons_room_{suffix}:localhost");
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let params1 = CreateBeaconInfoParams {
         room_id: room_id.clone(),
@@ -941,7 +942,7 @@ async fn test_get_room_beacons_exclude_expired() {
     let storage = create_storage(&pool);
     let suffix = unique_id();
     let room_id = format!("!exclude_room_{suffix}:localhost");
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let valid_params = CreateBeaconInfoParams {
         room_id: room_id.clone(),
@@ -1088,10 +1089,7 @@ fn test_beacon_info_with_locations_structure() {
         created_ts: 1234567890000,
     }];
 
-    let with_locs = synapse_storage::beacon::BeaconInfoWithLocations {
-        beacon_info: beacon_info.clone(),
-        locations: locations.clone(),
-    };
+    let with_locs = synapse_storage::beacon::BeaconInfoWithLocations { beacon_info, locations };
 
     assert_eq!(with_locs.beacon_info.event_id, "$event1");
     assert_eq!(with_locs.locations.len(), 1);
@@ -1117,7 +1115,7 @@ async fn test_full_beacon_lifecycle() {
     let suffix = unique_id();
     let room_id = format!("!lifecycle_room_{suffix}:localhost");
     let state_key = format!("@lifecycle_user_{suffix}:localhost");
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let params = CreateBeaconInfoParams {
         room_id: room_id.clone(),

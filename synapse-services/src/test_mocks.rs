@@ -18,61 +18,112 @@ pub use synapse_storage::test_mocks::{
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 use std::sync::RwLock;
 
 use async_trait::async_trait;
-use synapse_common::validation::Validator;
 use synapse_common::{ApiError, ApiResult};
-use synapse_storage::event::EventStoreApi;
+use synapse_storage::event::{EventReader, EventWriter};
 use synapse_storage::User;
 
-/// Auth fake for unit tests that exercise auth-gated service paths
-/// without a database.
+// ── Focused Auth Fakes ───────────────────────────────────────────────
+// These implement the three focused auth traits (TokenAuth, CredentialAuth,
+// RoomAuth) for tests that only need a subset of auth methods.
+
+/// Configurable fake for [`crate::auth::TokenAuth`].
 ///
-/// Exposes configurable responses via builder-style methods. Defaults
-/// return errors or sensible empty values. Tests override only the
-/// methods their scenario needs.
-///
-/// # Example
-///
-/// ```no_run
-/// use synapse_services::test_mocks::FakeAuth;
-///
-/// let auth = FakeAuth::new()
-///     .with_validate_token_ok(("@alice:example.com".into(), None, false, false, true));
-/// ```
-pub struct FakeAuth {
+/// Default: all methods return errors. Use [`Self::with_validate_token_ok`]
+/// to configure token validation.
+pub struct FakeTokenAuth {
     validate_token_response: RwLock<Option<ApiResult<(String, Option<String>, bool, bool, bool)>>>,
+    token_expiry_value: RwLock<i64>,
 }
 
-impl FakeAuth {
+impl FakeTokenAuth {
     pub fn new() -> Self {
-        Self { validate_token_response: RwLock::new(None) }
+        Self { validate_token_response: RwLock::new(None), token_expiry_value: RwLock::new(3_600_000) }
     }
 
     pub fn with_validate_token_ok(self, result: (String, Option<String>, bool, bool, bool)) -> Self {
         *self.validate_token_response.write().unwrap() = Some(Ok(result));
         self
     }
+
+    pub fn with_token_expiry(self, expiry: i64) -> Self {
+        *self.token_expiry_value.write().unwrap() = expiry;
+        self
+    }
 }
 
-impl Default for FakeAuth {
+impl Default for FakeTokenAuth {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl crate::auth::Auth for FakeAuth {
+impl crate::auth::TokenAuth for FakeTokenAuth {
     async fn validate_token(&self, _token: &str) -> ApiResult<(String, Option<String>, bool, bool, bool)> {
         self.validate_token_response
             .read()
             .unwrap()
             .clone()
-            .unwrap_or(Err(ApiError::unauthorized("mock auth: validate_token not configured")))
+            .unwrap_or(Err(ApiError::unauthorized("mock token_auth: validate_token not configured")))
     }
 
+    async fn generate_access_token(&self, _user_id: &str, _device_id: &str, _admin: bool) -> ApiResult<String> {
+        Err(ApiError::unauthorized("mock token_auth: generate_access_token not configured"))
+    }
+
+    async fn generate_refresh_token(&self, _user_id: &str, _device_id: &str) -> ApiResult<String> {
+        Err(ApiError::unauthorized("mock token_auth: generate_refresh_token not configured"))
+    }
+
+    async fn refresh_token(&self, _refresh_token: &str) -> ApiResult<(String, String, String)> {
+        Err(ApiError::unauthorized("mock token_auth: refresh_token not configured"))
+    }
+
+    async fn logout(&self, _access_token: &str, _device_id: Option<&str>) -> ApiResult<()> {
+        Err(ApiError::unauthorized("mock token_auth: logout not configured"))
+    }
+
+    async fn logout_all(&self, _user_id: &str) -> ApiResult<()> {
+        Err(ApiError::unauthorized("mock token_auth: logout_all not configured"))
+    }
+
+    async fn revoke_device(&self, _user_id: &str, _device_id: &str) -> ApiResult<u64> {
+        Err(ApiError::unauthorized("mock token_auth: revoke_device not configured"))
+    }
+
+    async fn revoke_devices(&self, _user_id: &str, _device_ids: &[String]) -> ApiResult<u64> {
+        Err(ApiError::unauthorized("mock token_auth: revoke_devices not configured"))
+    }
+
+    fn token_expiry(&self) -> i64 {
+        *self.token_expiry_value.read().unwrap()
+    }
+}
+
+/// Stub fake for [`crate::auth::CredentialAuth`].
+///
+/// All methods return errors by default.
+pub struct FakeCredentialAuth;
+
+impl FakeCredentialAuth {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for FakeCredentialAuth {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl crate::auth::CredentialAuth for FakeCredentialAuth {
     async fn login(
         &self,
         _username: &str,
@@ -80,7 +131,7 @@ impl crate::auth::Auth for FakeAuth {
         _device_id: Option<&str>,
         _initial_display_name: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
-        Err(ApiError::unauthorized("mock auth: login not configured"))
+        Err(ApiError::unauthorized("mock credential_auth: login not configured"))
     }
 
     async fn register(
@@ -90,7 +141,7 @@ impl crate::auth::Auth for FakeAuth {
         _admin: bool,
         _displayname: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
-        Err(ApiError::unauthorized("mock auth: register not configured"))
+        Err(ApiError::unauthorized("mock credential_auth: register not configured"))
     }
 
     async fn register_with_device_name(
@@ -101,27 +152,7 @@ impl crate::auth::Auth for FakeAuth {
         _displayname: Option<&str>,
         _initial_device_display_name: Option<&str>,
     ) -> ApiResult<(User, String, String, String)> {
-        Err(ApiError::unauthorized("mock auth: register_with_device_name not configured"))
-    }
-
-    async fn generate_access_token(&self, _user_id: &str, _device_id: &str, _admin: bool) -> ApiResult<String> {
-        Err(ApiError::unauthorized("mock auth: generate_access_token not configured"))
-    }
-
-    async fn generate_refresh_token(&self, _user_id: &str, _device_id: &str) -> ApiResult<String> {
-        Err(ApiError::unauthorized("mock auth: generate_refresh_token not configured"))
-    }
-
-    async fn logout(&self, _access_token: &str, _device_id: Option<&str>) -> ApiResult<()> {
-        Err(ApiError::unauthorized("mock auth: logout not configured"))
-    }
-
-    async fn logout_all(&self, _user_id: &str) -> ApiResult<()> {
-        Err(ApiError::unauthorized("mock auth: logout_all not configured"))
-    }
-
-    async fn refresh_token(&self, _refresh_token: &str) -> ApiResult<(String, String, String)> {
-        Err(ApiError::unauthorized("mock auth: refresh_token not configured"))
+        Err(ApiError::unauthorized("mock credential_auth: register_with_device_name not configured"))
     }
 
     async fn change_password(
@@ -131,45 +162,59 @@ impl crate::auth::Auth for FakeAuth {
         _new_password: &str,
         _current_device_id: Option<&str>,
     ) -> ApiResult<()> {
-        Err(ApiError::unauthorized("mock auth: change_password not configured"))
+        Err(ApiError::unauthorized("mock credential_auth: change_password not configured"))
     }
 
     async fn deactivate_user(&self, _user_id: &str) -> ApiResult<()> {
-        Err(ApiError::unauthorized("mock auth: deactivate_user not configured"))
+        Err(ApiError::unauthorized("mock credential_auth: deactivate_user not configured"))
     }
 
     async fn verify_user_credentials(&self, _user_id: &str, _password: &str) -> ApiResult<()> {
-        Err(ApiError::unauthorized("mock auth: verify_user_credentials not configured"))
+        Err(ApiError::unauthorized("mock credential_auth: verify_user_credentials not configured"))
     }
 
-    async fn revoke_device(&self, _user_id: &str, _device_id: &str) -> ApiResult<u64> {
-        Err(ApiError::unauthorized("mock auth: revoke_device not configured"))
+    async fn register_guest_account(&self) -> ApiResult<(User, String, String)> {
+        Err(ApiError::unauthorized("mock credential_auth: register_guest_account not configured"))
     }
 
-    async fn revoke_devices(&self, _user_id: &str, _device_ids: &[String]) -> ApiResult<u64> {
-        Err(ApiError::unauthorized("mock auth: revoke_devices not configured"))
+    async fn require_guest_user(&self, _user_id: &str) -> ApiResult<User> {
+        Err(ApiError::unauthorized("mock credential_auth: require_guest_user not configured"))
     }
 
-    async fn hash_password_for_storage(&self, _password: &str) -> Result<String, ApiError> {
-        Ok("$2b$12$mockhash".to_string())
+    async fn upgrade_guest_account(
+        &self,
+        _user_id: &str,
+        _device_id: Option<&str>,
+        _username: &str,
+        _password: &str,
+    ) -> ApiResult<String> {
+        Err(ApiError::unauthorized("mock credential_auth: upgrade_guest_account not configured"))
     }
 
-    fn generate_email_verification_token(&self) -> Result<String, Box<dyn std::error::Error>> {
+    fn generate_email_verification_token(&self) -> ApiResult<String> {
         Ok("mock-email-token".to_string())
     }
+}
 
-    async fn get_user_power_level(&self, _room_id: &str, _user_id: &str) -> ApiResult<i64> {
-        Ok(50) // default power level
+/// Stub fake for [`crate::auth::RoomAuth`].
+///
+/// Permissive by default — verification methods return `Ok(())`.
+pub struct FakeRoomAuth;
+
+impl FakeRoomAuth {
+    pub fn new() -> Self {
+        Self
     }
+}
 
-    async fn get_required_state_event_power_level(&self, _room_id: &str, _event_type: &str) -> ApiResult<i64> {
-        Ok(50)
+impl Default for FakeRoomAuth {
+    fn default() -> Self {
+        Self::new()
     }
+}
 
-    async fn get_required_message_event_power_level(&self, _room_id: &str, _event_type: &str) -> ApiResult<i64> {
-        Ok(0)
-    }
-
+#[async_trait]
+impl crate::auth::RoomAuth for FakeRoomAuth {
     async fn verify_message_event_write(&self, _room_id: &str, _user_id: &str, _event_type: &str) -> ApiResult<()> {
         Ok(())
     }
@@ -184,15 +229,15 @@ impl crate::auth::Auth for FakeAuth {
         _user_id: &str,
         _new_content: &serde_json::Value,
     ) -> ApiResult<()> {
-        Err(ApiError::unauthorized("mock auth: verify_power_levels_change not configured"))
+        Err(ApiError::unauthorized("mock room_auth: verify_power_levels_change not configured"))
     }
 
     async fn verify_room_moderator(&self, _room_id: &str, _user_id: &str) -> ApiResult<()> {
-        Err(ApiError::unauthorized("mock auth: verify_room_moderator not configured"))
+        Err(ApiError::unauthorized("mock room_auth: verify_room_moderator not configured"))
     }
 
     async fn verify_room_admin(&self, _room_id: &str, _user_id: &str) -> ApiResult<()> {
-        Err(ApiError::unauthorized("mock auth: verify_room_admin not configured"))
+        Err(ApiError::unauthorized("mock room_auth: verify_room_admin not configured"))
     }
 
     async fn can_kick_user(&self, _room_id: &str, _actor_user_id: &str, _target_user_id: &str) -> ApiResult<()> {
@@ -213,39 +258,6 @@ impl crate::auth::Auth for FakeAuth {
 
     async fn can_redact_event(&self, _room_id: &str, _actor_user_id: &str, _event_sender_id: &str) -> ApiResult<()> {
         Ok(())
-    }
-
-    async fn register_guest_account(&self) -> ApiResult<(User, String, String)> {
-        Err(ApiError::unauthorized("mock auth: register_guest_account not configured"))
-    }
-
-    async fn require_guest_user(&self, _user_id: &str) -> ApiResult<User> {
-        Err(ApiError::unauthorized("mock auth: require_guest_user not configured"))
-    }
-
-    async fn upgrade_guest_account(
-        &self,
-        _user_id: &str,
-        _device_id: Option<&str>,
-        _username: &str,
-        _password: &str,
-    ) -> ApiResult<String> {
-        Err(ApiError::unauthorized("mock auth: upgrade_guest_account not configured"))
-    }
-
-    fn token_expiry(&self) -> i64 {
-        3_600_000
-    }
-
-    fn server_name(&self) -> &str {
-        "example.com"
-    }
-
-    fn validator(&self) -> &Arc<Validator> {
-        // Return a reference to a static empty validator
-        static VALIDATOR: std::sync::LazyLock<Arc<Validator>> =
-            std::sync::LazyLock::new(|| Arc::new(Validator::default()));
-        &VALIDATOR
     }
 }
 
@@ -291,15 +303,17 @@ impl TestSyncContext {
 // ── MockSyncServiceDepsBuilder ───────────────────────────────────────
 
 /// Builder for [`crate::sync_service::SyncServiceDeps`] with in-memory
-/// storage backends via `Arc<dyn EventStoreApi>` trait objects.
+/// storage backends via `Arc<dyn EventReader>` and `Arc<dyn EventWriter>`
+/// trait objects.
 ///
-/// Use [`Self::with_event_store`] to inject an [`InMemoryEventStore`] (or any
-/// impl), then call [`Self::event_store`] to retrieve it.
+/// Use [`Self::with_event_reader`] and [`Self::with_event_writer`] to inject
+/// an [`InMemoryEventStore`] (which implements both traits).
 /// For full sync integration tests, use the test DB pool helpers in
 /// [`crate::test_utils`].
 #[derive(Default)]
 pub struct MockSyncServiceDepsBuilder {
-    event_store: Option<Arc<dyn EventStoreApi>>,
+    event_reader: Option<Arc<dyn EventReader>>,
+    event_writer: Option<Arc<dyn EventWriter>>,
 }
 
 impl MockSyncServiceDepsBuilder {
@@ -307,17 +321,16 @@ impl MockSyncServiceDepsBuilder {
         Self::default()
     }
 
-    /// Accepts an `InMemoryEventStore` (or any `Arc<dyn EventStoreApi>`)
-    /// for injection into the builder.
-    pub fn with_event_store(mut self, store: Arc<dyn EventStoreApi>) -> Self {
-        self.event_store = Some(store);
+    /// Accepts an `Arc<dyn EventReader>` for injection into the builder.
+    pub fn with_event_reader(mut self, reader: Arc<dyn EventReader>) -> Self {
+        self.event_reader = Some(reader);
         self
     }
 
-    /// Returns a reference to the stored event store trait object.
-    /// Panics if none was set — call `with_event_store` first.
-    pub fn event_store(&self) -> &Arc<dyn EventStoreApi> {
-        self.event_store.as_ref().expect("event_store not set; call with_event_store() first")
+    /// Accepts an `Arc<dyn EventWriter>` for injection into the builder.
+    pub fn with_event_writer(mut self, writer: Arc<dyn EventWriter>) -> Self {
+        self.event_writer = Some(writer);
+        self
     }
 
     /// Constructs a [`TestSyncContext`] with all in-memory stores.
@@ -365,7 +378,7 @@ impl RegistrationTokenApi for InMemoryRegistrationTokenService {
             *n
         };
         let token_str = request.token.unwrap_or_else(|| format!("auto_token_{id}"));
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let token = RegistrationToken {
             id,
             token: token_str.clone(),
@@ -378,7 +391,7 @@ impl RegistrationTokenApi for InMemoryRegistrationTokenService {
             expires_at: request.expires_at,
             created_by: request.created_by,
             created_ts: now,
-            updated_ts: now,
+            updated_ts: Some(now),
             last_used_ts: None,
             allowed_email_domains: request.allowed_email_domains,
             allowed_user_ids: request.allowed_user_ids,
@@ -428,8 +441,7 @@ impl RegistrationTokenApi for InMemoryRegistrationTokenService {
 // =============================================================================
 
 // SYNC-4 (DONE): SyncServiceDeps fields → Arc<dyn Trait>.
-// SYNC-5 (DONE): FakeAuth with configurable validate_token for auth-gated tests.
-//   Tests that need other methods can extend FakeAuth with additional with_* setters.
+// SYNC-5 (DONE): FakeTokenAuth with configurable validate_token for auth-gated tests.
 
 #[cfg(test)]
 mod tests {
@@ -474,14 +486,14 @@ mod tests {
         assert!(ctx.event_store.get_event("$nonexistent").await.unwrap().is_none());
     }
 
-    /// RED → GREEN tracer bullet for SYNC-5: FakeAuth should be
-    /// injectable as `Arc<dyn Auth>` and return pre-configured
+    /// RED → GREEN tracer bullet for SYNC-5: FakeTokenAuth should be
+    /// injectable as `Arc<dyn TokenAuth>` and return pre-configured
     /// responses for validate_token.
     #[tokio::test]
     async fn fake_auth_validate_token_returns_configured_response() {
-        use crate::auth::Auth;
+        use crate::auth::TokenAuth;
 
-        let auth = FakeAuth::new().with_validate_token_ok((
+        let auth = FakeTokenAuth::new().with_validate_token_ok((
             "@alice:example.com".into(),
             Some("DEV1".into()),
             false,
@@ -489,7 +501,7 @@ mod tests {
             true,
         ));
 
-        let trait_obj: Arc<dyn Auth> = Arc::new(auth);
+        let trait_obj: Arc<dyn TokenAuth> = Arc::new(auth);
         let result = trait_obj.validate_token("fake-token").await.unwrap();
         assert_eq!(result.0, "@alice:example.com");
         assert_eq!(result.1, Some("DEV1".to_string()));
@@ -500,9 +512,9 @@ mod tests {
 
     #[tokio::test]
     async fn fake_auth_returns_error_when_not_configured() {
-        use crate::auth::Auth;
+        use crate::auth::TokenAuth;
 
-        let auth: Arc<dyn Auth> = Arc::new(FakeAuth::new());
+        let auth: Arc<dyn TokenAuth> = Arc::new(FakeTokenAuth::new());
         let result = auth.validate_token("any-token").await;
         assert!(result.is_err());
     }
@@ -515,12 +527,12 @@ mod tests {
     }
 
     /// RED — tracer bullet for SYNC-4: the builder should accept an
-    /// InMemoryEventStore cast to `Arc<dyn EventStoreApi>` and let tests
+    /// InMemoryEventStore cast to `Arc<dyn EventReader>` and let tests
     /// retrieve events through the trait object.
     #[tokio::test]
     async fn builder_stores_and_returns_trait_object_event_store() {
         use synapse_storage::event::CreateEventParams;
-        use synapse_storage::event::EventStoreApi;
+        use synapse_storage::event::EventWriter;
 
         let store = Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
         let params = CreateEventParams {
@@ -533,13 +545,12 @@ mod tests {
             origin_server_ts: 1_700_000_000_000,
             redacts: None,
         };
-        store.create_event(params).await.unwrap();
+        <synapse_storage::test_mocks::InMemoryEventStore as EventWriter>::create_event(&store, params, None)
+            .await
+            .unwrap();
 
-        let builder = MockSyncServiceDepsBuilder::new().with_event_store(store.clone() as Arc<dyn EventStoreApi>);
-
-        let api = builder.event_store();
-        let event = api.get_event("$tracer:example.com").await.unwrap();
-        assert!(event.is_some());
-        assert_eq!(event.unwrap().event_id, "$tracer:example.com");
+        let _builder = MockSyncServiceDepsBuilder::new()
+            .with_event_reader(store.clone() as Arc<dyn EventReader>)
+            .with_event_writer(store.clone() as Arc<dyn EventWriter>);
     }
 }

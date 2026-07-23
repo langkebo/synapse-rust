@@ -195,16 +195,13 @@ impl AuditEventStorage {
     }
 
     pub async fn delete_events_before(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
-            r"
-            DELETE FROM audit_events
-            WHERE created_ts < $1
-            ",
-        )
-        .bind(cutoff_ts)
-        .execute(&*self.pool)
-        .await?;
-
+        // Wrap in a transaction so that set_config (is_local=true) applies to
+        // the DELETE statement and bypasses the append-only trigger guard.
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("SELECT set_config('synapse.allow_audit_delete', 'true', true)").execute(&mut *tx).await?;
+        let result =
+            sqlx::query("DELETE FROM audit_events WHERE created_ts < $1").bind(cutoff_ts).execute(&mut *tx).await?;
+        tx.commit().await?;
         Ok(result.rows_affected())
     }
 }
@@ -292,5 +289,64 @@ mod cursor_tests {
         assert_eq!(decode_audit_event_cursor(None), None);
         assert_eq!(decode_audit_event_cursor(Some("bad")), None);
         assert_eq!(decode_audit_event_cursor(Some("123|")), None);
+    }
+}
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+    use synapse_common::current_timestamp_millis;
+    use uuid::Uuid;
+
+    async fn test_pool() -> Arc<PgPool> {
+        let db_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    fn sample_request(event_id: &str) -> CreateAuditEventRequest {
+        CreateAuditEventRequest {
+            actor_id: format!("@user:test_{}", Uuid::new_v4()),
+            action: "delete_test".to_string(),
+            resource_type: "event".to_string(),
+            resource_id: event_id.to_string(),
+            result: "success".to_string(),
+            request_id: Uuid::new_v4().to_string(),
+            details: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_delete_events_before_bypasses_append_only_guard() {
+        let pool = test_pool().await;
+        let storage = AuditEventStorage::new(&pool);
+
+        let event_id = Uuid::new_v4().to_string();
+        let ts = current_timestamp_millis();
+
+        // Insert a test event
+        let event = storage
+            .create_event(&event_id, ts - 10_000, &sample_request(&event_id))
+            .await
+            .expect("create_event should succeed");
+
+        assert_eq!(event.event_id, event_id);
+
+        // delete_events_before must bypass the append-only trigger by setting
+        // synapse.allow_audit_delete within its transaction.
+        let deleted = storage
+            .delete_events_before(ts)
+            .await
+            .expect("delete_events_before should succeed (bypasses trigger guard)");
+
+        // At least the one event we just inserted should be deleted.
+        assert!(deleted >= 1, "should have deleted at least the test event");
+
+        // Verify the event is gone
+        let found = storage.get_event(&event_id).await.expect("get_event should succeed");
+        assert!(found.is_none(), "deleted event should not be found");
     }
 }

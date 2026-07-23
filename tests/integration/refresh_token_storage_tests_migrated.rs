@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_storage::refresh_token::{CreateRefreshTokenRequest, RefreshTokenStorage};
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -17,7 +18,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
             password_hash TEXT,
             is_admin BOOLEAN DEFAULT FALSE,
             is_guest BOOLEAN DEFAULT FALSE,
-            creation_ts BIGINT NOT NULL,
+            created_ts BIGINT NOT NULL,
             deactivated BOOLEAN DEFAULT FALSE,
             displayname TEXT,
             avatar_url TEXT
@@ -150,15 +151,15 @@ async fn test_create_and_get_token() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
     let token = storage.create_token(request).await.unwrap();
 
@@ -189,15 +190,15 @@ async fn test_get_token_by_id() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
     let token = storage.create_token(request).await.unwrap();
 
@@ -228,15 +229,15 @@ async fn test_get_user_tokens() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     for i in 0..3 {
         let req = CreateRefreshTokenRequest {
@@ -267,16 +268,16 @@ async fn test_get_active_tokens_excludes_revoked_and_expired() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
-    let past_ts = chrono::Utc::now().timestamp_millis() - 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
+    let past_ts = current_timestamp_millis() - 3_600_000;
 
     let active_req = CreateRefreshTokenRequest {
         token_hash: format!("active_{suffix}"),
@@ -333,15 +334,15 @@ async fn test_revoke_token() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
     let token = storage.create_token(request).await.unwrap();
     assert!(!token.is_revoked);
@@ -362,15 +363,15 @@ async fn test_revoke_token_by_id() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
     let token = storage.create_token(request).await.unwrap();
 
@@ -390,15 +391,15 @@ async fn test_revoke_all_user_tokens() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     for i in 0..3 {
         let req = CreateRefreshTokenRequest {
@@ -432,15 +433,15 @@ async fn test_revoke_all_user_tokens_skips_already_revoked() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     let req1 = CreateRefreshTokenRequest {
         token_hash: format!("hash_{suffix}_0"),
@@ -482,15 +483,15 @@ async fn test_update_token_usage() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
     let token = storage.create_token(request).await.unwrap();
     assert_eq!(token.use_count, 0);
@@ -519,15 +520,15 @@ async fn test_delete_token() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
     storage.create_token(request).await.unwrap();
 
@@ -549,15 +550,15 @@ async fn test_delete_user_tokens() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     for i in 0..3 {
         let req = CreateRefreshTokenRequest {
@@ -590,7 +591,7 @@ async fn test_add_to_blacklist_and_is_blacklisted() {
     let suffix = unique_id();
     let token_hash = format!("blacklisted_{suffix}");
     let user_id = format!("@rt_user_{suffix}:localhost");
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     let blacklisted = storage.is_blacklisted(&token_hash).await.unwrap();
     assert!(!blacklisted);
@@ -610,7 +611,7 @@ async fn test_is_blacklisted_returns_false_for_expired_entry() {
     let suffix = unique_id();
     let token_hash = format!("expired_bl_{suffix}");
     let user_id = format!("@rt_user_{suffix}:localhost");
-    let past_ts = chrono::Utc::now().timestamp_millis() - 3_600_000;
+    let past_ts = current_timestamp_millis() - 3_600_000;
 
     storage.add_to_blacklist(&token_hash, "refresh", &user_id, past_ts, None).await.unwrap();
 
@@ -627,7 +628,7 @@ async fn test_add_to_blacklist_idempotent() {
     let suffix = unique_id();
     let token_hash = format!("idempotent_{suffix}");
     let user_id = format!("@rt_user_{suffix}:localhost");
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     storage.add_to_blacklist(&token_hash, "refresh", &user_id, future_ts, None).await.unwrap();
 
@@ -646,16 +647,16 @@ async fn test_cleanup_expired_tokens() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let past_ts = chrono::Utc::now().timestamp_millis() - 3_600_000;
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let past_ts = current_timestamp_millis() - 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     let expired_req = CreateRefreshTokenRequest {
         token_hash: format!("expired_{suffix}"),
@@ -698,8 +699,8 @@ async fn test_cleanup_blacklist() {
 
     let storage = RefreshTokenStorage::new(&pool);
     let suffix = unique_id();
-    let past_ts = chrono::Utc::now().timestamp_millis() - 3_600_000;
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let past_ts = current_timestamp_millis() - 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     storage
         .add_to_blacklist(&format!("expired_bl_{suffix}"), "refresh", "@user:localhost", past_ts, None)
@@ -727,15 +728,15 @@ async fn test_revoke_token_cas() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
     storage.create_token(request).await.unwrap();
 
@@ -759,10 +760,10 @@ async fn test_create_and_get_family() {
     let user_id = format!("@rt_user_{suffix}:localhost");
     let family_id = format!("family_{suffix}");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
@@ -794,10 +795,10 @@ async fn test_mark_family_compromised() {
     let user_id = format!("@rt_user_{suffix}:localhost");
     let family_id = format!("family_{suffix}");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
@@ -821,10 +822,10 @@ async fn test_record_rotation_and_get_rotations() {
     let user_id = format!("@rt_user_{suffix}:localhost");
     let family_id = format!("family_{suffix}");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
@@ -854,15 +855,15 @@ async fn test_record_usage() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
     let token = storage.create_token(request).await.unwrap();
 
@@ -889,15 +890,15 @@ async fn test_revoke_device_tokens() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     let req_a = CreateRefreshTokenRequest {
         token_hash: format!("hash_{suffix}_a"),

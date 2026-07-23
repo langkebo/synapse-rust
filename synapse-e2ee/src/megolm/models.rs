@@ -85,6 +85,7 @@ pub struct RoomKeyDistributionData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synapse_common::current_timestamp_utc;
 
     #[test]
     fn test_megolm_session_creation() {
@@ -96,8 +97,8 @@ mod tests {
             session_key: "session_key456".to_string(),
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 0,
-            created_ts: chrono::Utc::now(),
-            last_used_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            last_used_ts: current_timestamp_utc(),
             expires_at: None,
             pickle_format: PickleFormat::Legacy,
             vodozemac_pickle: None,
@@ -112,7 +113,7 @@ mod tests {
 
     #[test]
     fn test_megolm_session_with_expiry() {
-        let expires = chrono::Utc::now() + chrono::Duration::hours(24);
+        let expires = current_timestamp_utc() + chrono::Duration::hours(24);
         let session = MegolmSession {
             id: uuid::Uuid::new_v4(),
             session_id: "session123".to_string(),
@@ -121,15 +122,15 @@ mod tests {
             session_key: "session_key456".to_string(),
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 100,
-            created_ts: chrono::Utc::now(),
-            last_used_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            last_used_ts: current_timestamp_utc(),
             expires_at: Some(expires),
             pickle_format: PickleFormat::Dual,
             vodozemac_pickle: Some("base64_pickle".to_string()),
         };
 
         assert!(session.expires_at.is_some());
-        assert!(session.expires_at.unwrap() > chrono::Utc::now());
+        assert!(session.expires_at.unwrap() > current_timestamp_utc());
         assert_eq!(session.pickle_format, PickleFormat::Dual);
         assert!(session.vodozemac_pickle.is_some());
     }
@@ -165,8 +166,8 @@ mod tests {
             session_key: "session_key".to_string(),
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 0,
-            created_ts: chrono::Utc::now(),
-            last_used_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            last_used_ts: current_timestamp_utc(),
             expires_at: None,
             pickle_format: PickleFormat::Legacy,
             vodozemac_pickle: None,
@@ -212,8 +213,8 @@ mod tests {
                 session_key: "key".to_string(),
                 algorithm: algo.to_string(),
                 message_index: 0,
-                created_ts: chrono::Utc::now(),
-                last_used_ts: chrono::Utc::now(),
+                created_ts: current_timestamp_utc(),
+                last_used_ts: current_timestamp_utc(),
                 expires_at: None,
                 pickle_format: PickleFormat::Legacy,
                 vodozemac_pickle: None,
@@ -233,8 +234,8 @@ mod tests {
             session_key: "session_key".to_string(),
             algorithm: "m.megolm.v1.aes-sha2".to_string(),
             message_index: 50,
-            created_ts: chrono::Utc::now(),
-            last_used_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            last_used_ts: current_timestamp_utc(),
             expires_at: None,
             pickle_format: PickleFormat::Vodozemac,
             vodozemac_pickle: Some("abc123".to_string()),

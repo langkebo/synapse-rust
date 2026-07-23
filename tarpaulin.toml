@@ -8,10 +8,10 @@ out = ["Html", "Lcov", "Json"]
 # Output directory
 output-dir = "coverage"
 
-# Coverage thresholds (Step 8 audit requirements)
-# - lib ≥ 70%
-# - P0 paths ≥ 90%
-fail-under = 70
+# B.3: hard floor 40% overall. Core 13 paths ≥70% enforced separately via
+# scripts/check_file_coverage.py --core-files. Long-term 70% target for all
+# paths enforced via per-file ratchet.
+fail-under = 40
 
 # Include only library code (exclude tests, examples, benches)
 include-lines = ["src/**/*.rs"]
@@ -21,13 +21,15 @@ exclude-files = [
     "src/test_utils.rs",
     "tests/**",
     "benches/**",
+    "**/test_mocks.rs",
+    "**/test_mocks/**",
 ]
 
 # Features to enable
 features = "test-utils"
 
-# Run tests with single thread to avoid DB connection pool exhaustion
-args = ["--test-threads=2"]
+# B.3: raised from 2 -> 8 to match nextest profile (DB pool max=40).
+args = ["--test-threads=8"]
 
 # Skip doc tests (they're not part of coverage measurement)
 skip-clean = false

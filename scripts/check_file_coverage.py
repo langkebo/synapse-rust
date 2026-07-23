@@ -46,8 +46,7 @@ def save_baseline(path: pathlib.Path, files: Dict[str, float]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "files": [
-            {"path": p, "line_pct": round(v, 2)}
-            for p, v in sorted(files.items())
+            {"path": p, "line_pct": round(v, 2)} for p, v in sorted(files.items())
         ]
     }
     with open(path, "w") as f:
@@ -61,6 +60,22 @@ def load_tdd_files(path: Optional[pathlib.Path]) -> set:
         return set()
     with open(path) as f:
         return {line.strip() for line in f if line.strip() and not line.startswith("#")}
+
+
+def load_core_prefixes(path: Optional[pathlib.Path]) -> List[str]:
+    """Load list of core path prefixes (one per line, supports dir/ prefix matching)."""
+    if path is None or not path.exists():
+        return []
+    with open(path) as f:
+        return [line.strip() for line in f if line.strip() and not line.startswith("#")]
+
+
+def _matches_core_prefix(path: str, core_prefixes: List[str]) -> bool:
+    """Check if a path matches any core prefix (directory or file prefix)."""
+    for prefix in core_prefixes:
+        if path.startswith(prefix):
+            return True
+    return False
 
 
 def parse_tarpaulin_json(report_path: pathlib.Path) -> Dict[str, float]:
@@ -103,11 +118,11 @@ def _normalize_path(p: str) -> str:
     for marker in ["/src/", "src/"]:
         idx = p.find(marker)
         if idx != -1:
-            return p[idx + len(marker):]
+            return p[idx + len(marker) :]
     try:
         rel = str(pathlib.Path(p).relative_to(ROOT))
         if rel.startswith("src/"):
-            return rel[len("src/"):]
+            return rel[len("src/") :]
         return rel
     except ValueError:
         return p
@@ -143,11 +158,17 @@ def check_file_coverage(
     global_threshold: float,
     tdd_threshold: float,
     new_file_threshold: float,
+    core_prefixes: List[str],
+    core_threshold: float,
     report_path: pathlib.Path,
 ) -> int:
-    """Enforce per-file coverage thresholds.  Returns exit code."""
+    """Enforce per-file coverage thresholds.  Returns exit code.
+
+    Priority (highest wins): TDD > core > new/touched baseline.
+    """
     failures: List[str] = []
     warnings: List[str] = []
+    core_failures: List[str] = []
     all_paths = sorted(set(current.keys()) | set(baseline.keys()))
 
     for path in all_paths:
@@ -155,15 +176,18 @@ def check_file_coverage(
         prev = baseline.get(path)
 
         if cur is None:
-            # File was measured before but not in this run (deleted / renamed).
             continue
 
         is_tdd = path in tdd_files
+        is_core = not is_tdd and _matches_core_prefix(path, core_prefixes)
         is_new = prev is None
 
         if is_tdd:
             floor = tdd_threshold
             tag = "TDD"
+        elif is_core:
+            floor = core_threshold
+            tag = "CORE"
         elif is_new:
             floor = new_file_threshold
             tag = "NEW"
@@ -173,13 +197,18 @@ def check_file_coverage(
 
         if cur < floor:
             delta = cur - (prev or 0.0)
-            failures.append(
+            msg = (
                 f"[{tag}] {path}: {cur:.1f}% < {floor:.0f}% "
                 f"(was {prev:.1f}%, delta={delta:+.1f}%)"
             )
+            if is_core:
+                core_failures.append(msg)
+            else:
+                failures.append(msg)
         elif is_new and cur < global_threshold:
             warnings.append(
-                f"[{tag}] {path}: {cur:.1f}% (below global {global_threshold:.0f}% but above new-file ramp-up {new_file_threshold:.0f}%)"
+                f"[{tag}] {path}: {cur:.1f}% (below global {global_threshold:.0f}% "
+                f"but above new-file ramp-up {new_file_threshold:.0f}%)"
             )
 
     if warnings:
@@ -188,13 +217,22 @@ def check_file_coverage(
             print(f"  {w}")
         print()
 
+    if core_failures:
+        print(f"=== Core-path coverage failures ({len(core_failures)} files) ===")
+        for f in core_failures:
+            print(f"  {f}")
+        print()
+
     if failures:
         print(f"=== Coverage failures ({len(failures)} files) ===")
         for f in failures:
             print(f"  {f}")
         print()
+
+    if failures or core_failures:
         print(
             f"Thresholds: TDD ≥{tdd_threshold:.0f}%, "
+            f"core ≥{core_threshold:.0f}%, "
             f"new files ≥{new_file_threshold:.0f}%, "
             f"touched must not regress below baseline, "
             f"global floor ≥{global_threshold:.0f}%"
@@ -203,8 +241,8 @@ def check_file_coverage(
 
     print(
         f"All {len(current)} source files meet coverage thresholds "
-        f"(TDD≥{tdd_threshold:.0f}%, new≥{new_file_threshold:.0f}%, "
-        f"global≥{global_threshold:.0f}%)."
+        f"(TDD≥{tdd_threshold:.0f}%, core≥{core_threshold:.0f}%, "
+        f"new≥{new_file_threshold:.0f}%, global≥{global_threshold:.0f}%)."
     )
     return 0
 
@@ -214,32 +252,58 @@ def main() -> int:
         description="Enforce per-file coverage thresholds from a tarpaulin JSON report."
     )
     parser.add_argument(
-        "--report", required=True, type=pathlib.Path,
-        help="Path to tarpaulin JSON report."
+        "--report",
+        required=True,
+        type=pathlib.Path,
+        help="Path to tarpaulin JSON report.",
     )
     parser.add_argument(
-        "--baseline", required=True, type=pathlib.Path,
-        help="Path to prior coverage baseline JSON (created if missing)."
+        "--baseline",
+        required=True,
+        type=pathlib.Path,
+        help="Path to prior coverage baseline JSON (created if missing).",
     )
     parser.add_argument(
-        "--threshold", type=float, default=80.0,
-        help="TDD-mandated file line-coverage floor (default: 80)."
+        "--threshold",
+        type=float,
+        default=80.0,
+        help="TDD-mandated file line-coverage floor (default: 80).",
     )
     parser.add_argument(
-        "--tdd-files", type=pathlib.Path, default=None,
-        help="File listing TDD-mandated paths (one per line, relative to src/)."
+        "--tdd-files",
+        type=pathlib.Path,
+        default=None,
+        help="File listing TDD-mandated paths (one per line, relative to src/).",
     )
     parser.add_argument(
-        "--global-floor", type=float, default=70.0,
-        help="Global coverage floor for all src files (default: 70)."
+        "--global-floor",
+        type=float,
+        default=70.0,
+        help="Global coverage floor for all src files (default: 70).",
     )
     parser.add_argument(
-        "--new-file-floor", type=float, default=60.0,
-        help="Ramp-up coverage floor for files without a baseline (default: 60)."
+        "--new-file-floor",
+        type=float,
+        default=60.0,
+        help="Ramp-up coverage floor for files without a baseline (default: 60).",
     )
     parser.add_argument(
-        "--save-baseline", type=pathlib.Path, default=None,
-        help="Path to write the updated baseline snapshot (default: overwrite --baseline)."
+        "--core-files",
+        type=pathlib.Path,
+        default=None,
+        help="File listing core security paths (one prefix per line, matched by prefix).",
+    )
+    parser.add_argument(
+        "--core-threshold",
+        type=float,
+        default=70.0,
+        help="Core-path coverage floor (default: 70).",
+    )
+    parser.add_argument(
+        "--save-baseline",
+        type=pathlib.Path,
+        default=None,
+        help="Path to write the updated baseline snapshot (default: overwrite --baseline).",
     )
     args = parser.parse_args()
 
@@ -250,6 +314,7 @@ def main() -> int:
     current = parse_tarpaulin_json(args.report)
     baseline = load_baseline(args.baseline)
     tdd_files = load_tdd_files(args.tdd_files)
+    core_prefixes = load_core_prefixes(args.core_files)
 
     if not current:
         print("No source-file coverage data found in report.", file=sys.stderr)
@@ -262,6 +327,8 @@ def main() -> int:
         global_threshold=args.global_floor,
         tdd_threshold=args.threshold,
         new_file_threshold=args.new_file_floor,
+        core_prefixes=core_prefixes,
+        core_threshold=args.core_threshold,
         report_path=args.report,
     )
 

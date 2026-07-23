@@ -1,3 +1,7 @@
+// ROUND2-ISSUE-1: test code may use unwrap/expect/unwrap_err/panic per Rust testing idiom.
+// Production lib code is still held to the strict clippy lint config in [lints.clippy].
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::unwrap_err_used, clippy::panic))]
+
 pub mod backup;
 pub mod cross_signing;
 pub mod crypto;
@@ -11,6 +15,7 @@ pub mod secure_backup;
 pub mod signature;
 pub mod signed_json;
 pub mod ssss;
+#[cfg(any(test, feature = "test-utils"))]
 pub mod test_mocks;
 pub mod to_device;
 pub mod vodozemac_megolm;

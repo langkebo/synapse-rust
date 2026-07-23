@@ -86,7 +86,7 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
 
         async move {
             let token = token_result?;
-            let result = state.services.core.auth_service.validate_token(&token).await;
+            let result = state.services.core.token_auth.validate_token(&token).await;
             match result {
                 Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
                     audit_user_action(
@@ -144,7 +144,7 @@ impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
 
         async move {
             match token_result {
-                Ok(token) => match state.services.core.auth_service.validate_token(&token).await {
+                Ok(token) => match state.services.core.token_auth.validate_token(&token).await {
                     Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
                         user_id: Some(user_id),
                         device_id,
@@ -199,7 +199,7 @@ impl FromRequestParts<RoomContext> for AuthenticatedUser {
 
         async move {
             let token = token_result?;
-            let result = state.auth_service.validate_token(&token).await;
+            let result = state.token_auth.validate_token(&token).await;
             match result {
                 Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
                     if let Some(ref audit_svc) = state.admin_audit_service {
@@ -230,7 +230,7 @@ impl FromRequestParts<E2eeRoomContext> for AuthenticatedUser {
 
         async move {
             let token = token_result?;
-            let result = state.auth_service.validate_token(&token).await;
+            let result = state.token_auth.validate_token(&token).await;
             match result {
                 Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
                     if let Some(ref audit_svc) = state.admin_audit_service {
@@ -262,7 +262,7 @@ impl FromRequestParts<SyncContext> for AuthenticatedUser {
         async move {
             let token = token_result?;
             let (user_id, device_id, is_admin, is_shadow_banned, is_guest) =
-                state.auth_service.validate_token(&token).await?;
+                state.token_auth.validate_token(&token).await?;
 
             if let Some(ref audit_svc) = state.admin_audit_service {
                 audit_user_action(audit_svc, &user_id, &method, &path, &headers, is_admin).await;
@@ -290,7 +290,7 @@ impl FromRequestParts<DeviceContext> for AuthenticatedUser {
         async move {
             let token = token_result?;
             let (user_id, device_id, is_admin, is_shadow_banned, is_guest) =
-                state.auth_service.validate_token(&token).await?;
+                state.token_auth.validate_token(&token).await?;
 
             if let Some(ref audit_svc) = state.admin_audit_service {
                 audit_user_action(audit_svc, &user_id, &method, &path, &headers, is_admin).await;
@@ -318,7 +318,7 @@ impl FromRequestParts<AuthContext> for AuthenticatedUser {
         async move {
             let token = token_result?;
             let (user_id, device_id, is_admin, is_shadow_banned, is_guest) =
-                state.auth_service.validate_token(&token).await?;
+                state.token_auth.validate_token(&token).await?;
 
             if let Some(ref audit_svc) = state.admin_audit_service {
                 audit_user_action(audit_svc, &user_id, &method, &path, &headers, is_admin).await;
@@ -343,7 +343,7 @@ impl FromRequestParts<RoomContext> for OptionalAuthenticatedUser {
 
         async move {
             match token_result {
-                Ok(token) => match state.auth_service.validate_token(&token).await {
+                Ok(token) => match state.token_auth.validate_token(&token).await {
                     Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
                         user_id: Some(user_id),
                         device_id,
@@ -387,7 +387,7 @@ impl FromRequestParts<SyncContext> for OptionalAuthenticatedUser {
 
         async move {
             match token_result {
-                Ok(token) => match state.auth_service.validate_token(&token).await {
+                Ok(token) => match state.token_auth.validate_token(&token).await {
                     Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
                         user_id: Some(user_id),
                         device_id,
@@ -431,7 +431,7 @@ impl FromRequestParts<DeviceContext> for OptionalAuthenticatedUser {
 
         async move {
             match token_result {
-                Ok(token) => match state.auth_service.validate_token(&token).await {
+                Ok(token) => match state.token_auth.validate_token(&token).await {
                     Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
                         user_id: Some(user_id),
                         device_id,
@@ -475,7 +475,7 @@ impl FromRequestParts<AuthContext> for OptionalAuthenticatedUser {
 
         async move {
             match token_result {
-                Ok(token) => match state.auth_service.validate_token(&token).await {
+                Ok(token) => match state.token_auth.validate_token(&token).await {
                     Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
                         user_id: Some(user_id),
                         device_id,
@@ -524,7 +524,7 @@ impl FromRequestParts<AdminContext> for AuthenticatedUser {
         async move {
             let token = token_result?;
             let (user_id, device_id, is_admin, is_shadow_banned, is_guest) =
-                state.auth_service.validate_token(&token).await?;
+                state.token_auth.validate_token(&token).await?;
 
             audit_user_action(&state.admin_audit_service, &user_id, &method, &path, &headers, is_admin).await;
 
@@ -550,7 +550,7 @@ impl FromRequestParts<FederationContext> for AuthenticatedUser {
         async move {
             let token = token_result?;
             let (user_id, device_id, is_admin, is_shadow_banned, is_guest) =
-                state.auth_service.validate_token(&token).await?;
+                state.token_auth.validate_token(&token).await?;
 
             if let Some(ref audit_svc) = state.admin_audit_service {
                 audit_user_action(audit_svc, &user_id, &method, &path, &headers, is_admin).await;
@@ -578,7 +578,7 @@ impl FromRequestParts<MediaContext> for AuthenticatedUser {
         async move {
             let token = token_result?;
             let (user_id, device_id, is_admin, is_shadow_banned, is_guest) =
-                state.auth_service.validate_token(&token).await?;
+                state.token_auth.validate_token(&token).await?;
 
             if let Some(ref audit_svc) = state.admin_audit_service {
                 audit_user_action(audit_svc, &user_id, &method, &path, &headers, is_admin).await;
@@ -603,7 +603,7 @@ impl FromRequestParts<AdminContext> for OptionalAuthenticatedUser {
 
         async move {
             match token_result {
-                Ok(token) => match state.auth_service.validate_token(&token).await {
+                Ok(token) => match state.token_auth.validate_token(&token).await {
                     Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
                         user_id: Some(user_id),
                         device_id,
@@ -647,7 +647,7 @@ impl FromRequestParts<FederationContext> for OptionalAuthenticatedUser {
 
         async move {
             match token_result {
-                Ok(token) => match state.auth_service.validate_token(&token).await {
+                Ok(token) => match state.token_auth.validate_token(&token).await {
                     Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
                         user_id: Some(user_id),
                         device_id,
@@ -691,7 +691,7 @@ impl FromRequestParts<MediaContext> for OptionalAuthenticatedUser {
 
         async move {
             match token_result {
-                Ok(token) => match state.auth_service.validate_token(&token).await {
+                Ok(token) => match state.token_auth.validate_token(&token).await {
                     Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
                         user_id: Some(user_id),
                         device_id,
@@ -737,8 +737,8 @@ impl FromRequestParts<AdminContext> for AdminUser {
 
         async move {
             let admin = authorize_admin_from_services(
-                state.auth_service.as_ref(),
-                state.user_storage.as_ref(),
+                state.token_auth.as_ref(),
+                state.user_service.as_ref(),
                 &state.config.security,
                 Some(state.admin_audit_service.as_ref()),
                 &headers,
@@ -770,8 +770,8 @@ impl FromRequestParts<FederationContext> for AdminUser {
 
         async move {
             let admin = authorize_admin_from_services(
-                state.auth_service.as_ref(),
-                state.user_storage.as_ref(),
+                state.token_auth.as_ref(),
+                state.user_service.as_ref(),
                 &state.config.security,
                 state.admin_audit_service.as_deref(),
                 &headers,
@@ -803,8 +803,8 @@ impl FromRequestParts<MediaContext> for AdminUser {
 
         async move {
             let admin = authorize_admin_from_services(
-                state.auth_service.as_ref(),
-                state.user_storage.as_ref(),
+                state.token_auth.as_ref(),
+                state.user_service.as_ref(),
                 &state.config.security,
                 state.admin_audit_service.as_deref(),
                 &headers,

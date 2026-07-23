@@ -1,19 +1,20 @@
 use crate::common::*;
 use crate::web::middleware::FederationRequestAuth;
+use crate::web::routes::context::FederationContext;
 use crate::web::routes::validate_room_alias;
-use crate::web::routes::AppState;
 use axum::extract::{Extension, Json, Path, Query, RawQuery, State};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 pub(super) async fn get_room_auth(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
-    let auth_events = state.services.rooms.room_service.messaging.get_state_event_records(&room_id).await?;
+    let auth_events = ctx.room_service.messaging().get_state_event_records(&room_id).await?;
 
     let auth_chain: Vec<Value> = auth_events
         .into_iter()
@@ -43,12 +44,12 @@ pub(super) async fn get_room_auth(
 }
 
 pub(super) async fn get_missing_events(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
     let earliest_events: Vec<String> = body
         .get("earliest_events")
@@ -71,11 +72,9 @@ pub(super) async fn get_missing_events(
     // This is the spec-compliant response to `/get_missing_events`: the
     // requester already has `earliest_events` and `latest_events`, and wants
     // the events that connect them.
-    let events = state
-        .services
-        .rooms
+    let events = ctx
         .room_service
-        .messaging
+        .messaging()
         .get_missing_events_between(&room_id, &earliest_events, &latest_events, limit)
         .await?;
 
@@ -85,20 +84,15 @@ pub(super) async fn get_missing_events(
 }
 
 pub(super) async fn get_event_auth(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
-    let event = get_room_event_in_room(&state, &room_id, &event_id).await?;
-    let auth_events = state
-        .services
-        .rooms
-        .room_service
-        .messaging
-        .get_state_events_at_or_before(&room_id, event.origin_server_ts)
-        .await?;
+    let event = get_room_event_in_room(&ctx, &room_id, &event_id).await?;
+    let auth_events =
+        ctx.room_service.messaging().get_state_events_at_or_before(&room_id, event.origin_server_ts).await?;
 
     let auth_chain: Vec<Value> = auth_events
         .into_iter()
@@ -120,69 +114,69 @@ pub(super) async fn get_event_auth(
 }
 
 pub(super) async fn get_event(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(event_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let event = state.services.rooms.room_service.messaging.get_event_record(&event_id).await?;
+    let event = ctx.room_service.messaging().get_event_record(&event_id).await?;
 
     match event {
         Some(e) => {
-            super::validate_federation_origin_in_room(&state, &e.room_id, &auth.origin).await?;
-            Ok(Json(build_federation_event_response(&state.services.core.server_name, &e)))
+            super::validate_federation_origin_can_observe_room(&ctx, &e.room_id, &auth.origin).await?;
+            Ok(Json(build_federation_event_response(&ctx.server_name, &e)))
         }
         None => Err(ApiError::not_found("Event not found".to_string())),
     }
 }
 
 pub(super) async fn get_room_event(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
-    let event = state.services.rooms.room_service.messaging.get_event_record(&event_id).await?;
+    let event = ctx.room_service.messaging().get_event_record(&event_id).await?;
 
     match event {
         Some(e) => {
             if e.room_id != room_id {
                 return Err(ApiError::bad_request("Event does not belong to this room".to_string()));
             }
-            Ok(Json(build_federation_event_response(&state.services.core.server_name, &e)))
+            Ok(Json(build_federation_event_response(&ctx.server_name, &e)))
         }
         None => Err(ApiError::not_found("Event not found".to_string())),
     }
 }
 
 pub(super) async fn get_state(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
     Query(query): Query<FederationStateAtEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_can_observe_room(&state, &room_id, &auth.origin).await?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
-    let mut events = load_federation_state_events(&state, &room_id, query.event_id.as_deref()).await?;
-    let (pdus, auth_chain) = build_federation_state_payload(&state.services.core.server_name, &mut events);
+    let mut events = load_federation_state_events(&ctx, &room_id, query.event_id.as_deref()).await?;
+    let (pdus, auth_chain) = build_federation_state_payload(&ctx.server_name, &mut events);
 
     Ok(Json(json!({
         "room_id": room_id,
-        "origin": state.services.core.server_name,
+        "origin": ctx.server_name,
         "pdus": pdus,
         "auth_chain": auth_chain
     })))
 }
 
 pub(super) async fn get_state_ids(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
     Query(query): Query<FederationStateAtEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_can_observe_room(&state, &room_id, &auth.origin).await?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
-    let mut events = load_federation_state_events(&state, &room_id, query.event_id.as_deref()).await?;
+    let mut events = load_federation_state_events(&ctx, &room_id, query.event_id.as_deref()).await?;
     sort_state_events_stably(&mut events);
 
     let pdu_ids: Vec<String> = events.iter().map(|event| event.event_id.clone()).collect();
@@ -196,7 +190,7 @@ pub(super) async fn get_state_ids(
 
     Ok(Json(json!({
         "room_id": room_id,
-        "origin": state.services.core.server_name,
+        "origin": ctx.server_name,
         "pdu_ids": pdu_ids,
         "auth_chain_ids": auth_chain_ids
     })))
@@ -204,20 +198,20 @@ pub(super) async fn get_state_ids(
 
 #[axum::debug_handler]
 pub(super) async fn room_directory_query(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room = state.services.rooms.room_service.state.get_room_record(&room_id).await?;
+    let room = ctx.room_service.state().get_room_record(&room_id).await?;
 
     if let Some(room) = room {
         if !room.is_public {
-            super::validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
+            super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
         }
 
         return Ok(Json(json!({
             "room_id": room.room_id,
-            "servers": [state.services.core.server_name]
+            "servers": [ctx.server_name]
         })));
     }
 
@@ -249,27 +243,27 @@ pub(super) struct FederationHierarchyQueryParams {
 
 #[axum::debug_handler]
 pub(super) async fn profile_query(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Query(params): Query<FederationProfileQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = params.user_id.ok_or_else(|| ApiError::bad_request("Missing user_id query parameter".to_string()))?;
 
-    build_profile_query_response(&state, &auth.origin, &user_id, params.field.as_deref()).await
+    build_profile_query_response(&ctx, &auth.origin, &user_id, params.field.as_deref()).await
 }
 
 #[axum::debug_handler]
 pub(super) async fn profile_query_legacy(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(user_id): Path<String>,
     Query(params): Query<FederationProfileFieldQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    build_profile_query_response(&state, &auth.origin, &user_id, params.field.as_deref()).await
+    build_profile_query_response(&ctx, &auth.origin, &user_id, params.field.as_deref()).await
 }
 
 async fn build_profile_query_response(
-    state: &AppState,
+    ctx: &FederationContext,
     origin: &str,
     user_id: &str,
     field: Option<&str>,
@@ -280,13 +274,13 @@ async fn build_profile_query_response(
         ));
     }
 
-    if !super::user_matches_origin(user_id, &state.services.core.server_name) {
+    if !super::user_matches_origin(user_id, &ctx.server_name) {
         return Err(ApiError::not_found("User is not hosted on this server".to_string()));
     }
 
-    let profile = state.services.core.registration_service.get_profile(user_id).await?;
+    let profile = ctx.registration_service.get_profile(user_id).await?;
 
-    super::validate_federation_origin_shares_user_room(state, user_id, origin).await?;
+    super::validate_federation_origin_shares_user_room(ctx, user_id, origin).await?;
 
     let displayname = profile.get("displayname").cloned().unwrap_or(Value::Null);
     let avatar_url = profile.get("avatar_url").cloned().unwrap_or(Value::Null);
@@ -311,15 +305,15 @@ async fn build_profile_query_response(
 }
 
 pub(super) async fn get_public_rooms(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(10).min(1000);
     let _since = params.get("since").cloned();
 
-    let rooms = state.services.rooms.room_service.state.get_public_rooms_paginated(limit, None, None).await?;
+    let rooms = ctx.room_service.state().get_public_rooms_paginated(limit, None, None).await?;
 
-    let total = state.services.rooms.room_service.state.count_public_rooms().await?;
+    let total = ctx.room_service.state().count_public_rooms().await?;
 
     let mut room_list = Vec::new();
     for room in rooms {
@@ -342,14 +336,14 @@ pub(super) async fn get_public_rooms(
 }
 
 pub(super) async fn post_public_rooms(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Query(_params): Query<Value>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(20).min(1000);
-    let rooms = state.services.rooms.room_service.state.get_public_rooms_paginated(limit, None, None).await?;
+    let rooms = ctx.room_service.state().get_public_rooms_paginated(limit, None, None).await?;
 
-    let total = state.services.rooms.room_service.state.count_public_rooms().await?;
+    let total = ctx.room_service.state().count_public_rooms().await?;
 
     let mut room_list = Vec::new();
     for room in rooms {
@@ -371,7 +365,7 @@ pub(super) async fn post_public_rooms(
 }
 
 pub(super) async fn query_directory(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -384,46 +378,52 @@ pub(super) async fn query_directory(
     let Some((_, alias_server_name)) = room_alias[1..].rsplit_once(':') else {
         return Err(ApiError::bad_request("Invalid room alias format".to_string()));
     };
-    if alias_server_name != state.services.core.server_name {
+    if alias_server_name != ctx.server_name {
         return Err(ApiError::not_found("Room alias is not hosted on this server".to_string()));
     }
 
-    let room_id = state.services.rooms.room_service.state.get_room_by_alias(room_alias).await?;
+    let room_id = ctx.room_service.state().get_room_by_alias(room_alias).await?;
     let room_id = room_id.ok_or_else(|| {
         ApiError::not_found(format!(
             "Room alias not found: {room_alias}. Create the alias before querying the federation directory."
         ))
     })?;
-    let room = state
-        .services
-        .rooms
+    let room = ctx
         .room_service
-        .state
+        .state()
         .get_room_record(&room_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     if !room.is_public {
-        super::validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
+        super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     }
 
     Ok(Json(json!({
         "room_id": room_id,
-        "servers": [state.services.core.server_name.clone()]
+        "servers": [ctx.server_name.clone()]
     })))
 }
 
-pub(super) async fn query_destination(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+pub(super) async fn query_destination(State(ctx): State<FederationContext>) -> Result<Json<Value>, ApiError> {
+    let mut room_versions = federation_room_versions_capability();
+    if let Some(obj) = room_versions.as_object_mut() {
+        obj.insert("default".to_string(), json!(DEFAULT_ROOM_VERSION));
+    }
     Ok(Json(json!({
-        "server_name": state.services.core.server_name,
-        "destination": state.services.core.server_name,
+        "server_name": ctx.server_name,
+        "destination": ctx.server_name,
         "retry_last_ts": 0,
-        "retry_interval_ms": 0
+        "retry_interval_ms": 0,
+        "capabilities": {
+            "m.change_password": crate::web::routes::handlers::versions::change_password_capability_enabled(&ctx.config),
+            "m.room_versions": room_versions
+        }
     })))
 }
 
 pub(super) async fn timestamp_to_event(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
     Query(params): Query<Value>,
@@ -432,7 +432,7 @@ pub(super) async fn timestamp_to_event(
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
 
-    super::validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
     let timestamp = match params.get("ts") {
         Some(v) => {
@@ -447,16 +447,14 @@ pub(super) async fn timestamp_to_event(
         None => return Err(ApiError::bad_request("Missing 'ts' parameter")),
     };
 
-    let _room = state
-        .services
-        .rooms
+    let _room = ctx
         .room_service
-        .state
+        .state()
         .get_room_record(&room_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Room not found"))?;
 
-    let event = state.services.rooms.room_service.messaging.find_event_by_timestamp(&room_id, timestamp, true).await?;
+    let event = ctx.room_service.messaging().find_event_by_timestamp(&room_id, timestamp, true).await?;
 
     if let Some(evt) = event {
         let (event_id, ts) = evt;
@@ -473,7 +471,7 @@ pub(super) async fn timestamp_to_event(
 }
 
 pub(super) async fn get_room_hierarchy(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
     Query(params): Query<FederationHierarchyQueryParams>,
@@ -482,30 +480,21 @@ pub(super) async fn get_room_hierarchy(
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
 
-    let room = state
-        .services
-        .rooms
+    let room = ctx
         .room_service
-        .state
+        .state()
         .get_room_record(&room_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Room not found"))?;
 
     if !room.is_public {
-        super::validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
+        super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     }
 
-    let space = state
-        .services
-        .rooms
-        .space_service
-        .get_space_by_room(&room_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Space not found"))?;
+    let space =
+        ctx.space_service.get_space_by_room(&room_id).await?.ok_or_else(|| ApiError::not_found("Space not found"))?;
 
-    let hierarchy = state
-        .services
-        .rooms
+    let hierarchy = ctx
         .space_service
         .get_space_hierarchy_v1(
             &space.space_id,
@@ -524,12 +513,12 @@ pub(super) async fn get_room_hierarchy(
 }
 
 pub(super) async fn backfill(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
     RawQuery(raw_query): RawQuery,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_can_observe_room(&state, &room_id, &auth.origin).await?;
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
     let (v, limit) = parse_backfill_query(raw_query)?;
 
@@ -537,7 +526,7 @@ pub(super) async fn backfill(
 
     let mut backfill_before_ts = i64::MAX;
     for event_id in &v {
-        match get_room_event_in_room(&state, &room_id, event_id).await {
+        match get_room_event_in_room(&ctx, &room_id, event_id).await {
             Ok(event) => {
                 backfill_before_ts = backfill_before_ts.min(event.origin_server_ts);
             }
@@ -549,39 +538,35 @@ pub(super) async fn backfill(
 
     if backfill_before_ts == i64::MAX {
         let recent_events =
-            state.services.rooms.room_service.messaging.get_room_events_paginated_admin(&room_id, None, 1, "b").await?;
+            ctx.room_service.messaging().get_room_events_paginated_admin(&room_id, None, 1, "b").await?;
         if let Some(latest) = recent_events.first() {
             backfill_before_ts = latest.origin_server_ts;
         } else {
-            backfill_before_ts = chrono::Utc::now().timestamp_millis();
+            backfill_before_ts = current_timestamp_millis();
         }
     }
 
-    let mut events = state
-        .services
-        .rooms
+    let mut events = ctx
         .room_service
-        .messaging
+        .messaging()
         .get_room_events_paginated_admin(&room_id, Some(backfill_before_ts), limit, "b")
         .await?;
     sort_room_events_stably(&mut events);
 
     let mut auth_events =
-        state.services.rooms.room_service.messaging.get_state_events_at_or_before(&room_id, backfill_before_ts).await?;
-    let (_, auth_chain) = build_federation_state_payload(&state.services.core.server_name, &mut auth_events);
+        ctx.room_service.messaging().get_state_events_at_or_before(&room_id, backfill_before_ts).await?;
+    let (_, auth_chain) = build_federation_state_payload(&ctx.server_name, &mut auth_events);
 
-    let mut pdus: Vec<Value> = events
-        .into_iter()
-        .map(|event| serialize_room_event_minimal(&state.services.core.server_name, &event))
-        .collect();
+    let mut pdus: Vec<Value> =
+        events.into_iter().map(|event| serialize_room_event_minimal(&ctx.server_name, &event)).collect();
 
     topological_sort(&mut pdus);
 
     ::tracing::debug!("Backfill returning {} sorted PDUs", pdus.len());
 
     Ok(Json(json!({
-        "origin": state.services.core.server_name,
-        "origin_server_ts": chrono::Utc::now().timestamp_millis(),
+        "origin": ctx.server_name,
+        "origin_server_ts": current_timestamp_millis(),
         "pdus": pdus,
         "auth_chain": auth_chain
     })))
@@ -595,7 +580,7 @@ fn build_federation_event_response(server_name: &str, event: &synapse_storage::e
 
     json!({
         "origin": server_name,
-        "origin_server_ts": chrono::Utc::now().timestamp_millis(),
+        "origin_server_ts": current_timestamp_millis(),
         "pdus": [{
             "event_id": event.event_id,
             "type": event.event_type,
@@ -682,32 +667,26 @@ pub(super) struct FederationStateAtEventQuery {
 }
 
 async fn get_room_event_in_room(
-    state: &AppState,
+    ctx: &FederationContext,
     room_id: &str,
     event_id: &str,
 ) -> Result<synapse_storage::event::RoomEvent, ApiError> {
-    let event = state.services.rooms.room_service.messaging.get_event_record_in_room(room_id, event_id).await?;
+    let event = ctx.room_service.messaging().get_event_record_in_room(room_id, event_id).await?;
 
     Ok(event)
 }
 
 async fn load_federation_state_events(
-    state: &AppState,
+    ctx: &FederationContext,
     room_id: &str,
     event_id: Option<&str>,
 ) -> Result<Vec<synapse_storage::event::StateEvent>, ApiError> {
     match event_id {
         Some(event_id) => {
-            let event = get_room_event_in_room(state, room_id, event_id).await?;
-            state
-                .services
-                .rooms
-                .room_service
-                .messaging
-                .get_state_events_at_or_before(room_id, event.origin_server_ts)
-                .await
+            let event = get_room_event_in_room(ctx, room_id, event_id).await?;
+            ctx.room_service.messaging().get_state_events_at_or_before(room_id, event.origin_server_ts).await
         }
-        None => state.services.rooms.room_service.messaging.get_state_event_records(room_id).await,
+        None => ctx.room_service.messaging().get_state_event_records(room_id).await,
     }
 }
 

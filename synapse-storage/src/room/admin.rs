@@ -1,5 +1,6 @@
 use super::models::*;
 use serde_json::json;
+use synapse_common::current_timestamp_millis;
 use tracing;
 
 use synapse_common::room_versions::DEFAULT_ROOM_VERSION;
@@ -33,7 +34,7 @@ impl RoomStorage {
     pub async fn cleanup_abnormal_data(&self, min_age_ms: Option<i64>) -> Result<serde_json::Value, sqlx::Error> {
         tracing::info!(min_age_ms = min_age_ms, "Starting abnormal data cleanup");
         let min_age = min_age_ms.unwrap_or(24 * 60 * 60 * 1000);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let cutoff = now - min_age;
 
         let mut results = serde_json::Map::new();
@@ -233,7 +234,7 @@ impl RoomStorage {
             ",
         )
         .bind(room_ids)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(&*self.pool)
         .await?;
 
@@ -255,7 +256,7 @@ impl RoomStorage {
             ",
         )
         .bind(room_ids)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(&*self.pool)
         .await?;
 
@@ -319,7 +320,7 @@ impl RoomStorage {
 
         let active_rooms: i64 =
             sqlx::query_scalar("SELECT COUNT(DISTINCT room_id) FROM events WHERE origin_server_ts > $1")
-                .bind(chrono::Utc::now().timestamp_millis() - 7 * 24 * 60 * 60 * 1000)
+                .bind(current_timestamp_millis() - 7 * 24 * 60 * 60 * 1000)
                 .fetch_one(&*self.pool)
                 .await?;
 
@@ -415,7 +416,7 @@ impl RoomStorage {
             return Ok(false);
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"INSERT INTO room_directory (room_id, is_public, added_ts) VALUES ($1, true, $2) ON CONFLICT (room_id) DO UPDATE SET is_public = true",
         )
@@ -803,7 +804,7 @@ mod db_tests {
     }
 
     async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, history_visibility, created_ts, last_activity_ts)
                VALUES ($1, '@test:example.com', 'invite', '10', false, 'joined', $2, $2)
@@ -852,7 +853,7 @@ mod db_tests {
         let _ = storage.delete_room(&room_id).await;
         ensure_test_room(&pool, &room_id).await;
 
-        let blocked_at = chrono::Utc::now().timestamp_millis();
+        let blocked_at = current_timestamp_millis();
         storage
             .block_room(&room_id, blocked_at, "@admin:example.com", Some("spam"))
             .await
@@ -893,7 +894,7 @@ mod db_tests {
         let _ = storage.delete_room(&room_id).await;
         ensure_test_room(&pool, &room_id).await;
 
-        let blocked_at = chrono::Utc::now().timestamp_millis();
+        let blocked_at = current_timestamp_millis();
         storage.block_room(&room_id, blocked_at, "@admin:example.com", None).await.expect("block should succeed");
 
         storage.unblock_room(&room_id).await.expect("unblock should succeed");

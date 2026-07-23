@@ -1,4 +1,5 @@
 use super::models::*;
+use synapse_common::current_timestamp_millis;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 
@@ -122,7 +123,7 @@ impl WebhookNotifier {
     ) {
         self.notify(WebhookEvent {
             event_type: WebhookEventType::UserLogin,
-            timestamp: chrono::Utc::now().timestamp_millis(),
+            timestamp: current_timestamp_millis(),
             payload: WebhookPayload {
                 user_id: user_id.to_string(),
                 device_id: device_id.map(String::from),
@@ -139,7 +140,7 @@ impl WebhookNotifier {
     pub async fn notify_logout(&self, user_id: &str, device_id: Option<&str>) {
         self.notify(WebhookEvent {
             event_type: WebhookEventType::UserLogout,
-            timestamp: chrono::Utc::now().timestamp_millis(),
+            timestamp: current_timestamp_millis(),
             payload: WebhookPayload {
                 user_id: user_id.to_string(),
                 device_id: device_id.map(String::from),
@@ -156,7 +157,7 @@ impl WebhookNotifier {
     pub async fn notify_failed_login(&self, user_id: &str, ip: &str, reason: &str) {
         self.notify(WebhookEvent {
             event_type: WebhookEventType::UserFailedLogin,
-            timestamp: chrono::Utc::now().timestamp_millis(),
+            timestamp: current_timestamp_millis(),
             payload: WebhookPayload {
                 user_id: user_id.to_string(),
                 device_id: None,

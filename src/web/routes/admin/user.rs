@@ -11,6 +11,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 use synapse_services::admin_user_service::{decode_user_cursor, encode_user_cursor, AdminUserCursor};
 use synapse_storage::user::User as AdminUserRecord;
 use validator::Validate;
@@ -178,7 +179,7 @@ pub struct CreateUpdateUserRequest {
 }
 
 async fn resolve_user(ctx: &AdminContext, identifier: &str) -> Result<AdminUserRecord, ApiError> {
-    ctx.admin_user_service.get_user_or_not_found(identifier).await
+    ctx.user_service.get_user_or_not_found(identifier).await
 }
 
 // Moved to admin/mod.rs
@@ -251,7 +252,7 @@ async fn get_user(
     State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = ctx.admin_user_service.get_user_by_identifier(&user_id).await?;
+    let user = ctx.user_service.get_user_by_identifier(&user_id).await?;
 
     match user {
         Some(u) => Ok(Json(json!({
@@ -403,7 +404,7 @@ pub async fn deactivate_user(
         action = "admin.deactivate_user",
         admin_user_id = %admin.user_id,
         target_user_id = %user.user_id,
-        timestamp_ms = chrono::Utc::now().timestamp_millis(),
+        timestamp_ms = current_timestamp_millis(),
         "Admin deactivate user operation"
     );
 
@@ -413,7 +414,7 @@ pub async fn deactivate_user(
         "Admin deactivating user"
     );
 
-    ctx.auth_service.deactivate_user(&user.user_id).await.map_err(|e| {
+    ctx.credential_auth.deactivate_user(&user.user_id).await.map_err(|e| {
         tracing::error!(
             admin_user = %admin.user_id,
             target_user = %user.user_id,
@@ -458,7 +459,7 @@ pub async fn reset_user_password(
     Path(user_id): Path<String>,
     Json(body): Json<ResetPasswordBody>,
 ) -> Result<Json<Value>, ApiError> {
-    ctx.auth_service.validator().validate_password(&body.new_password)?;
+    ctx.validator.validate_password(&body.new_password)?;
 
     let user = resolve_user(&ctx, &user_id).await?;
 
@@ -467,7 +468,7 @@ pub async fn reset_user_password(
         action = "admin.reset_password",
         admin_user_id = %admin.user_id,
         target_user_id = %user.user_id,
-        timestamp_ms = chrono::Utc::now().timestamp_millis(),
+        timestamp_ms = current_timestamp_millis(),
         "Admin reset user password operation"
     );
 
@@ -534,7 +535,7 @@ pub async fn delete_user_device_admin(
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
-    let rows = ctx.auth_service.revoke_device(&user.user_id, &device_id).await?;
+    let rows = ctx.token_auth.revoke_device(&user.user_id, &device_id).await?;
 
     if rows == 0 {
         return Err(ApiError::not_found("Device not found".to_string()));
@@ -578,7 +579,7 @@ pub async fn login_as_user(
     State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = ctx.admin_user_service.get_user_or_not_found(&user_id).await?;
+    let user = ctx.user_service.get_user_or_not_found(&user_id).await?;
 
     if user.is_deactivated {
         return Err(ApiError::bad_request("User is deactivated".to_string()));
@@ -588,7 +589,7 @@ pub async fn login_as_user(
     let is_admin = user.is_admin;
 
     let token = ctx
-        .auth_service
+        .token_auth
         .generate_access_token(&user.user_id, &device_id, is_admin)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to generate token", &e))?;
@@ -613,7 +614,7 @@ pub async fn logout_user_devices(
     // 通过 auth_service 走完整的会话撤销链：access token 黑名单、
     // refresh token 全量吊销、设备清理、logout_all 标记 —
     // 直接 DELETE FROM devices 会留下可继续换发新 access token 的 refresh token。
-    ctx.auth_service.logout_all(&user.user_id).await?;
+    ctx.token_auth.logout_all(&user.user_id).await?;
 
     Ok(Json(json!({
         "devices_deleted": device_count
@@ -885,7 +886,7 @@ pub async fn invalidate_user_sessions(
     let canonical_user_id = user.user_id;
     let sessions_removed = ctx.admin_user_service.get_user_device_count(&canonical_user_id).await?;
 
-    ctx.auth_service.logout_all(&canonical_user_id).await?;
+    ctx.token_auth.logout_all(&canonical_user_id).await?;
 
     Ok(Json(json!({
         "invalidated": true,

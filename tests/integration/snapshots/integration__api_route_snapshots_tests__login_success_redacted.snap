@@ -1,0 +1,17 @@
+---
+source: tests/integration/api_route_snapshots_tests.rs
+assertion_line: 279
+expression: body
+---
+{
+  "access_token": "[redacted_access_token]",
+  "device_id": "[redacted_device_id]",
+  "expires_in": 3600,
+  "refresh_token": "[redacted_refresh_token]",
+  "user_id": "@[redacted_user]:localhost",
+  "well_known": {
+    "m.homeserver": {
+      "base_url": "http://localhost:8008"
+    }
+  }
+}

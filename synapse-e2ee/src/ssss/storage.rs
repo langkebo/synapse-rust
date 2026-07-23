@@ -1,5 +1,6 @@
 use super::models::{SecretStorageKey, StoredSecret};
 use sqlx::PgPool;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 /// Internal row representation for `e2ee_secret_storage_keys`.
@@ -183,7 +184,7 @@ impl SecretStorage {
     }
 
     pub async fn store_secret(&self, user_id: &str, secret: &StoredSecret) -> Result<(), ApiError> {
-        let now_ts = chrono::Utc::now().timestamp_millis();
+        let now_ts = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO e2ee_stored_secrets

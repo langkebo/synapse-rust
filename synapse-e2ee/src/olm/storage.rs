@@ -1,6 +1,7 @@
 use super::models::{OlmAccountData, OlmSessionData};
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 /// Internal row struct for `olm_sessions` (matches DB column types exactly,
@@ -106,7 +107,7 @@ impl OlmStorage {
     }
 
     pub async fn save_account(&self, account: &OlmAccountData) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -366,7 +367,7 @@ impl OlmStorage {
     }
 
     pub async fn delete_expired_sessions(&self) -> Result<u64, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query(
             r"
@@ -386,7 +387,7 @@ impl OlmStorage {
     }
 
     pub async fn update_session_last_used(&self, session_id: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"

@@ -1,4 +1,5 @@
 mod api;
+mod api_trait;
 mod data_fetch;
 mod event_fetch;
 mod filter;
@@ -9,6 +10,7 @@ mod response;
 #[cfg(test)]
 mod tests;
 mod types;
+pub use api_trait::SyncServiceApi;
 pub use types::{
     BuildRoomSyncRequest, BuildRoomSyncValueRequest, BuildSyncResponseRequest, FetchEventsRequest, IncrementalUpdate,
     LazyLoadMembersRequest, LazyLoadedMembersCacheKey, RoomFilter, RoomSyncCounts, RoomSyncState,
@@ -21,28 +23,29 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
+use synapse_common::current_timestamp_millis;
 use synapse_common::*;
-use synapse_e2ee::device_keys::DeviceKeyStorage;
+use synapse_e2ee::device_keys::DeviceKeyStoreApi;
 use synapse_e2ee::key_rotation::KeyRotationStorage;
-use synapse_storage::room_account_data::RoomAccountDataStorage;
 use synapse_storage::UserRoomMembership;
 use tokio::sync::RwLock;
 
 pub struct SyncService {
     pub(crate) presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     pub(crate) member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
-    pub(crate) event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
+    pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub(crate) room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
-    pub(crate) room_account_data_storage: RoomAccountDataStorage,
+    pub(crate) room_account_data_storage: Arc<dyn synapse_storage::room_account_data::RoomAccountDataStoreApi>,
     pub(crate) account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
-    pub(crate) filter_storage: FilterStorage,
+    pub(crate) filter_storage: Arc<dyn synapse_storage::filter::FilterStoreApi>,
     pub(crate) device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
-    pub(crate) device_key_storage: DeviceKeyStorage,
+    pub(crate) device_key_storage: Arc<dyn DeviceKeyStoreApi>,
     pub(crate) key_rotation_storage: KeyRotationStorage,
     pub(crate) to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
     pub(crate) lazy_loaded_members_cache: Arc<RwLock<HashMap<LazyLoadedMembersCacheKey, HashSet<String>>>>,
     pub(crate) metrics: Arc<MetricsCollector>,
     pub(crate) performance: synapse_common::config::PerformanceConfig,
+    pub(crate) cache: Arc<synapse_cache::CacheManager>,
 }
 
 /// Maximum number of (user, device, room) entries kept in the in-memory
@@ -59,7 +62,7 @@ impl SyncService {
         Self {
             presence_storage: deps.presence_storage,
             member_storage: deps.member_storage,
-            event_storage: deps.event_storage,
+            event_reader: deps.event_reader,
             room_storage: deps.room_storage,
             room_account_data_storage: deps.room_account_data_storage,
             account_data_storage: deps.account_data_storage,
@@ -71,6 +74,7 @@ impl SyncService {
             lazy_loaded_members_cache: Arc::new(RwLock::new(HashMap::new())),
             metrics: deps.metrics,
             performance: deps.performance,
+            cache: deps.cache,
         }
     }
 
@@ -80,20 +84,21 @@ impl SyncService {
         member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
         event_storage: Arc<synapse_storage::event::EventStorage>,
         room_storage: Arc<synapse_storage::room::RoomStorage>,
-        room_account_data_storage: RoomAccountDataStorage,
+        room_account_data_storage: Arc<dyn synapse_storage::room_account_data::RoomAccountDataStoreApi>,
         account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
-        filter_storage: FilterStorage,
+        filter_storage: Arc<dyn synapse_storage::filter::FilterStoreApi>,
         device_storage: Arc<synapse_storage::device::DeviceStorage>,
-        device_key_storage: DeviceKeyStorage,
+        device_key_storage: Arc<dyn DeviceKeyStoreApi>,
         key_rotation_storage: KeyRotationStorage,
         to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
         metrics: Arc<MetricsCollector>,
         performance: synapse_common::config::PerformanceConfig,
+        cache: Arc<synapse_cache::CacheManager>,
     ) -> Self {
         Self::from_deps(SyncServiceDeps {
             presence_storage,
             member_storage,
-            event_storage,
+            event_reader: event_storage.clone(),
             room_storage,
             room_account_data_storage,
             account_data_storage,
@@ -104,6 +109,7 @@ impl SyncService {
             to_device_storage,
             metrics,
             performance,
+            cache,
         })
     }
 
@@ -435,7 +441,7 @@ impl SyncService {
                 (Some(ts), Some(token)) => ts.max(token.stream_id),
                 (Some(ts), None) => ts,
                 (None, Some(token)) => token.stream_id,
-                (None, None) => chrono::Utc::now().timestamp_millis(),
+                (None, None) => current_timestamp_millis(),
             }
         }
     }

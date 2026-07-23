@@ -3,6 +3,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RendezvousSession {
@@ -131,7 +132,7 @@ impl RendezvousStorage {
         &self,
         params: CreateRendezvousSessionParams,
     ) -> Result<RendezvousSession, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let session_id = uuid::Uuid::new_v4().simple().to_string();
         let key = Self::generate_key();
         let expires_at = now + params.expires_in_ms.unwrap_or(5 * 60 * 1000);
@@ -156,7 +157,7 @@ impl RendezvousStorage {
     }
 
     pub async fn get_session(&self, session_id: &str) -> Result<Option<RendezvousSession>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, RendezvousSession>(
             r"
@@ -237,7 +238,7 @@ impl RendezvousStorage {
     }
 
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query(
             r"
@@ -358,7 +359,7 @@ impl RendezvousMessageStorage {
         direction: &str,
         message: &RendezvousMessage,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"

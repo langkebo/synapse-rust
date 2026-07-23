@@ -12,6 +12,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
+use synapse_common::current_timestamp_millis;
 use synapse_services::worker::topology_validator::{
     current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
 };
@@ -403,6 +404,7 @@ impl SynapseServer {
         let mut shutdown_rx5 = shutdown_tx.subscribe();
         let mut shutdown_rx6 = shutdown_tx.subscribe();
         let mut shutdown_rx7 = shutdown_tx.subscribe();
+        let mut shutdown_rx_drain_gate = shutdown_tx.subscribe();
 
         if run_global_maintenance {
             let bg_service = self.app_state.services.admin.modules.background_update_service.clone();
@@ -432,14 +434,14 @@ impl SynapseServer {
                             if media_cleanup_counter >= 60 {
                                 media_cleanup_counter = 0;
                                 if remote_media_lifetime > 0 {
-                                    let cutoff_ts = chrono::Utc::now().timestamp_millis()
+                                    let cutoff_ts = current_timestamp_millis()
                                         - (remote_media_lifetime as i64 * 1000);
                                     if let Err(e) = media_service.purge_media_cache(cutoff_ts).await {
                                         ::tracing::warn!("Remote media cleanup failed: {}", e);
                                     }
                                 }
                                 if local_media_lifetime > 0 {
-                                    let cutoff_ts = chrono::Utc::now().timestamp_millis()
+                                    let cutoff_ts = current_timestamp_millis()
                                         - (local_media_lifetime as i64 * 1000);
                                     if let Err(e) = media_service.purge_media_cache(cutoff_ts).await {
                                         ::tracing::warn!("Local media cleanup failed: {}", e);
@@ -640,8 +642,9 @@ impl SynapseServer {
 
         // Spawn signal handler for graceful shutdown (ctrl_c / SIGTERM).
         let shutdown_tx_signal = shutdown_tx.clone();
+        let shutdown_token = self.app_state.services.shutdown_token.clone();
         let worker_instance = std::env::var("WORKER_INSTANCE_NAME").unwrap_or_else(|_| "master".to_string());
-        let start_ts = chrono::Utc::now().timestamp_millis();
+        let start_ts = current_timestamp_millis();
         tokio::spawn(async move {
             let sig = tokio::select! {
                 _ = signal::ctrl_c() => "SIGINT",
@@ -657,7 +660,7 @@ impl SynapseServer {
                     None::<&str>
                 } => sig.unwrap_or("SIGTERM"),
             };
-            let uptime_secs = (chrono::Utc::now().timestamp_millis() - start_ts) / 1000;
+            let uptime_secs = (current_timestamp_millis() - start_ts) / 1000;
             ::tracing::warn!(
                 target: "shutdown",
                 signal = %sig,
@@ -666,7 +669,13 @@ impl SynapseServer {
                 "Shutdown signal received — draining listeners"
             );
             let _ = shutdown_tx_signal.send(());
+            shutdown_token.cancel();
         });
+
+        // Wait for a shutdown signal before entering the drain phase.
+        // Without this gate, the drain timeout fires immediately and kills
+        // the server even when no SIGTERM/SIGINT has been received.
+        shutdown_rx_drain_gate.recv().await.ok();
 
         // Wait for all listeners to drain, with a hard 30s cap to prevent
         // long-polling endpoints (e.g. /sync with 90s+ timeout) from blocking
@@ -961,7 +970,7 @@ mod tests {
         let healthy_event_server = MockServer::start().await;
         Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&healthy_event_server).await;
 
-        let scenario_id = chrono::Utc::now().timestamp_millis();
+        let scenario_id = current_timestamp_millis();
         let failing_as_id = format!("prometheus-recovery-failing-{scenario_id}");
         let healthy_txn_as_id = format!("prometheus-recovery-txn-{scenario_id}");
         let healthy_event_as_id = format!("prometheus-recovery-event-{scenario_id}");

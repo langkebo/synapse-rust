@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use serde_json::json;
+use synapse_common::current_timestamp_millis;
 
 fn validate_password_change_request(auth_type: &str, has_password: bool, user_matches: bool) -> Result<(), String> {
     match auth_type {
@@ -121,7 +122,7 @@ fn test_revoked_refresh_token_rejected() {
 
 #[test]
 fn test_expired_refresh_token_rejected() {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let token_data = json!({
         "is_revoked": false,
         "expires_at": now - 3_600_000
@@ -267,7 +268,7 @@ fn test_event_delete_only_by_admin() {
 
 #[test]
 fn test_refresh_token_expiry_boundary() {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let expired_token = json!({
         "is_revoked": false,
@@ -294,7 +295,7 @@ fn test_refresh_token_expiry_boundary() {
 
 #[test]
 fn test_revoked_token_always_rejected() {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let revoked_token = json!({
         "is_revoked": true,

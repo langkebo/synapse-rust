@@ -7,6 +7,27 @@ use tracing::{error, info, warn};
 use synapse_cache::CacheManager;
 use synapse_common::error::{ApiError, ApiResult};
 
+/// Trait abstraction over [`McpProxyService`] for testability.
+///
+/// Exposes the MCP operations consumed by `MatrixAiConnectionService` so
+/// that the AI-connection layer can be unit-tested without spinning up a
+/// real MCP HTTP endpoint.
+#[async_trait::async_trait]
+pub trait McpProxyServiceApi: Send + Sync {
+    /// 发现 TrendRadar/OpenClaw 等支持的工具列表
+    async fn list_tools(&self, mcp_url: &str) -> Result<Value, ApiError>;
+
+    /// 调用 MCP 的具体工具（如获取热榜、搜索新闻）
+    async fn call_tool(
+        &self,
+        mcp_url: &str,
+        tool_name: &str,
+        arguments: Value,
+        provider: &str,
+        user_id: &str,
+    ) -> Result<Value, ApiError>;
+}
+
 /// MCP 请求代理服务
 #[derive(Clone)]
 pub struct McpProxyService {
@@ -220,5 +241,24 @@ impl McpProxyService {
             Ok(resp) => resp.status().is_success(),
             Err(_) => false,
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl McpProxyServiceApi for McpProxyService {
+    async fn list_tools(&self, mcp_url: &str) -> Result<Value, ApiError> {
+        // Delegate to the inherent method (kept for direct callers).
+        McpProxyService::list_tools(self, mcp_url).await
+    }
+
+    async fn call_tool(
+        &self,
+        mcp_url: &str,
+        tool_name: &str,
+        arguments: Value,
+        provider: &str,
+        user_id: &str,
+    ) -> Result<Value, ApiError> {
+        McpProxyService::call_tool(self, mcp_url, tool_name, arguments, provider, user_id).await
     }
 }

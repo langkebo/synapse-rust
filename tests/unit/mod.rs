@@ -61,3 +61,11 @@ mod coverage_tests;
 
 #[cfg(test)]
 mod worker_coverage_tests;
+
+mod benchmark_pr_gate_tests;
+mod prelude_module_tests;
+mod room_domain_refactor_tests;
+mod services_remaining_domains_refactor_tests;
+mod services_sync_domain_refactor_tests;
+mod storage_admin_domain_refactor_tests;
+mod storage_remaining_domains_refactor_tests;

@@ -5,7 +5,7 @@ use ed25519_dalek::ed25519::Error;
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// Matrix protocol uses unpadded base64 for keys; some clients still emit
 /// padded variants. Accept both on decode.
@@ -46,7 +46,7 @@ impl Ed25519PublicKey {
     }
 }
 
-#[derive(Debug, Zeroize)]
+#[derive(Debug, Zeroize, ZeroizeOnDrop)]
 struct Ed25519SecretKey {
     bytes: [u8; 32],
 }
@@ -225,5 +225,12 @@ mod tests {
         let key_pair1 = Ed25519KeyPair::generate();
         let key_pair2 = Ed25519KeyPair::generate();
         assert_ne!(key_pair1.public_key().bytes, key_pair2.public_key().bytes);
+    }
+
+    #[test]
+    fn secret_key_zeroizes_on_drop() {
+        // Type-level assertion: ZeroizeOnDrop must be implemented
+        fn assert_zeroize_on_drop<T: ZeroizeOnDrop>() {}
+        assert_zeroize_on_drop::<Ed25519SecretKey>();
     }
 }

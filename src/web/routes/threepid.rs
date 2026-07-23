@@ -2,15 +2,17 @@ use axum::extract::State;
 use axum::routing::{post, Router};
 use axum::Json;
 use serde::{Deserialize, Serialize};
+use synapse_common::current_timestamp_millis;
 
-use crate::web::routes::{ApiError, AppState};
+use crate::web::routes::context::AuthContext;
+use crate::web::routes::ApiError;
 
 fn generate_token() -> String {
     let chars: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".chars().collect();
     (0..12).map(|_| chars[rand::Rng::random_range(&mut rand::rng(), 0..chars.len())]).collect()
 }
 
-pub fn create_threepid_router() -> Router<AppState> {
+pub fn create_threepid_router() -> Router<AuthContext> {
     Router::new().route("/requestToken", post(request_token)).route("/submitToken", post(submit_token))
 }
 
@@ -44,7 +46,7 @@ pub struct SubmitTokenResponse {
 }
 
 pub async fn request_token(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     Json(req): Json<RequestTokenRequest>,
 ) -> Result<Json<RequestTokenResponse>, ApiError> {
     let email = req.email.trim().to_lowercase();
@@ -59,17 +61,15 @@ pub async fn request_token(
 
     let session_id = format!(
         "3pid_{}_{}",
-        chrono::Utc::now().timestamp_millis(),
+        current_timestamp_millis(),
         uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("")
     );
 
     let token: String = generate_token();
-    let now: i64 = chrono::Utc::now().timestamp_millis();
+    let now: i64 = current_timestamp_millis();
     let expires_at: i64 = now + 3_600_000; // 1 hour
 
-    let _id: i64 = state
-        .services
-        .account
+    let _id: i64 = ctx
         .threepid_storage
         .create_validation_session(
             &session_id,
@@ -94,26 +94,21 @@ pub async fn request_token(
 }
 
 pub async fn submit_token(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     Json(req): Json<SubmitTokenRequest>,
 ) -> Result<Json<SubmitTokenResponse>, ApiError> {
     if req.sid.is_empty() || req.client_secret.is_empty() || req.token.is_empty() {
         return Err(ApiError::bad_request("sid, client_secret, and token are required"));
     }
 
-    let session: synapse_storage::threepid::ThreepidValidationSession = state
-        .services
-        .account
+    let session: synapse_storage::threepid::ThreepidValidationSession = ctx
         .threepid_storage
         .get_validation_session(&req.sid, &req.client_secret, &req.token)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?
         .ok_or_else(|| ApiError::bad_request("Invalid or expired validation token"))?;
 
-    state
-        .services
-        .account
-        .threepid_storage
+    ctx.threepid_storage
         .mark_validation_validated(session.id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to mark session validated", &e))?;

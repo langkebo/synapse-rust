@@ -2,6 +2,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 use synapse_services::admin_audit_service::AdminAuditService;
 use synapse_services::cache::{CacheConfig, CacheManager};
@@ -485,7 +486,7 @@ async fn test_create_flag_expired_expiration() {
     setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
-    let past_ts = chrono::Utc::now().timestamp_millis() - 10000;
+    let past_ts = current_timestamp_millis() - 10000;
     let request = CreateFeatureFlagRequest {
         flag_key: format!("test-expired-{uid}"),
         target_scope: "global".to_string(),
@@ -507,7 +508,7 @@ async fn test_create_flag_future_expiration_ok() {
     setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3600000;
+    let future_ts = current_timestamp_millis() + 3600000;
     let flag_key = format!("test-future-exp-{uid}");
     let request = CreateFeatureFlagRequest {
         flag_key: flag_key.clone(),
@@ -742,7 +743,7 @@ async fn test_update_flag_expired_expiration() {
     let uid = unique_id();
     let flag_key = format!("test-upd-exp-{uid}");
     service.create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global")).await.unwrap();
-    let past_ts = chrono::Utc::now().timestamp_millis() - 10000;
+    let past_ts = current_timestamp_millis() - 10000;
     let request = UpdateFeatureFlagRequest { expires_at: Some(past_ts), ..Default::default() };
     let result = service.update_flag("@admin:test", "req-2", &flag_key, request).await;
     assert!(result.is_err());
@@ -818,7 +819,7 @@ async fn test_update_flag_multiple_fields() {
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-multi-{uid}");
-    let future_ts = chrono::Utc::now().timestamp_millis() + 7200000;
+    let future_ts = current_timestamp_millis() + 7200000;
     service.create_flag("@admin:test", "req-1", make_create_request(&flag_key, "global")).await.unwrap();
     let request = UpdateFeatureFlagRequest {
         rollout_percent: Some(100),

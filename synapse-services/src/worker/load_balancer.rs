@@ -227,9 +227,10 @@ impl WorkerLoadBalancer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synapse_common::current_timestamp_millis;
 
     fn create_test_worker(id: &str, worker_type: &str) -> WorkerInfo {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         WorkerInfo {
             id: 0,
             worker_id: id.to_string(),

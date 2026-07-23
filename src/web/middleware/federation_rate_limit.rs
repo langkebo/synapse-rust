@@ -10,7 +10,7 @@
 
 use crate::cache::CacheKeyBuilder;
 use crate::common::ApiError;
-use crate::web::routes::AppState;
+use crate::web::routes::context::FederationContext;
 use axum::extract::State;
 use axum::http::Request;
 use axum::response::{IntoResponse, Response};
@@ -19,11 +19,11 @@ use axum::{body::Body, middleware::Next};
 use super::federation_auth::FederationRequestAuth;
 
 pub async fn federation_rate_limit_middleware(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     request: Request<Body>,
     next: Next,
 ) -> Response {
-    let config = &state.services.core.config.federation.rate_limit;
+    let config = &ctx.config.federation.rate_limit;
     if !config.enabled {
         return next.run(request).await;
     }
@@ -42,18 +42,18 @@ pub async fn federation_rate_limit_middleware(
     // rather than rate-limiting per exact path.
     let endpoint_bucket = federation_endpoint_bucket(path);
 
-    let redis_prefix = state.services.core.config.redis.key_prefix.as_str();
+    let redis_prefix = ctx.config.redis.key_prefix.as_str();
     let cache_key =
         format!("{}{}", redis_prefix, CacheKeyBuilder::federation_origin_rate_limit(origin, endpoint_bucket));
 
-    let decision =
-        match state.cache.rate_limit_token_bucket_take(&cache_key, config.per_second, config.burst_size).await {
-            Ok(d) => d,
-            Err(e) => {
-                tracing::warn!("Federation rate limiter error, allowing request: {}", e);
-                return next.run(request).await;
-            }
-        };
+    let decision = match ctx.cache.rate_limit_token_bucket_take(&cache_key, config.per_second, config.burst_size).await
+    {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!("Federation rate limiter error, allowing request: {}", e);
+            return next.run(request).await;
+        }
+    };
 
     if !decision.allowed {
         let retry_after_ms = decision.retry_after_seconds.saturating_mul(1000);

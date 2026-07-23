@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct VoiceUsageRecord {
@@ -88,7 +89,7 @@ impl VoiceStorage {
         duration_ms: i32,
         size_bytes: i64,
     ) -> Result<i64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let row: (i64,) = sqlx::query_as(
             r#"
             INSERT INTO voice_usage_stats (user_id, room_id, media_id, content_type, duration_ms, size_bytes, created_ts)
@@ -336,8 +337,9 @@ mod db_tests {
     /// Insert a minimal room row so foreign-key constraints are satisfied
     /// when other tables reference rooms. Not needed for `voice_usage_stats`
     /// (which has no FK to rooms), but provided as a standard helper.
+    #[allow(dead_code)]
     async fn ensure_test_room(pool: &PgPool, room_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO rooms (room_id, created_ts)
                VALUES ($1, $2)
@@ -354,8 +356,9 @@ mod db_tests {
     /// when other tables reference events. Not needed for `voice_usage_stats`
     /// (which has no FK to events and no event_id column), but provided as a
     /// standard helper.
+    #[allow(dead_code)]
     async fn ensure_test_event(pool: &PgPool, event_id: &str, room_id: &str, sender: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         ensure_test_room(pool, room_id).await;
         sqlx::query(
             r#"INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts)

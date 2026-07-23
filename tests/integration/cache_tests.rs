@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod cache_integration_tests {
+    use synapse_common::current_timestamp_millis;
     use synapse_rust::cache::{
         CacheConfig, CacheInvalidationConfig, CacheInvalidationMessage, CacheManager, InvalidationType,
         CACHE_INVALIDATION_CHANNEL, DEFAULT_LOCAL_CACHE_TTL_SECS, DEFAULT_REDIS_CACHE_TTL_SECS,
@@ -360,10 +361,10 @@ mod cache_integration_tests {
 
     #[test]
     fn test_invalidation_message_timestamp() {
-        let before = chrono::Utc::now().timestamp_millis();
+        let before = current_timestamp_millis();
         let msg =
             CacheInvalidationMessage::new("test_key".to_string(), InvalidationType::Key, "instance-1".to_string());
-        let after = chrono::Utc::now().timestamp_millis();
+        let after = current_timestamp_millis();
 
         assert!(msg.timestamp >= before);
         assert!(msg.timestamp <= after);

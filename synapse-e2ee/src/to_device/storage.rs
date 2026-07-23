@@ -1,6 +1,7 @@
 use serde_json::Value;
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone)]
@@ -28,7 +29,7 @@ impl ToDeviceStorage {
         // Accept either a regular device or a (non-expired) dehydrated device
         // (MSC3814) as a valid recipient — without this, to-device messages
         // addressed to a dehydrated device id are silently dropped.
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query(
             r"
             SELECT 1 AS hit FROM devices
@@ -53,61 +54,36 @@ impl ToDeviceStorage {
         Ok(result.is_some())
     }
 
-    pub async fn is_duplicate_transaction(
-        &self,
-        sender_user_id: &str,
-        sender_device_id: &str,
-        message_id: &str,
-    ) -> Result<bool, ApiError> {
-        let result = sqlx::query(
-            r"
-            SELECT 1 FROM to_device_transactions
-            WHERE sender_user_id = $1 AND sender_device_id = $2 AND message_id = $3
-            ",
-        )
-        .bind(sender_user_id)
-        .bind(sender_device_id)
-        .bind(message_id)
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
-
-        Ok(result.is_some())
-    }
-
     pub async fn record_transaction(
         &self,
         sender_user_id: &str,
         sender_device_id: &str,
         message_id: &str,
-    ) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
+    ) -> Result<bool, ApiError> {
+        let now = current_timestamp_millis();
+        let row = sqlx::query(
             r"
             INSERT INTO to_device_transactions (sender_user_id, sender_device_id, message_id, created_ts)
             VALUES ($1, $2, $3, $4)
-            ON CONFLICT DO NOTHING
+            ON CONFLICT (sender_user_id, sender_device_id, message_id) DO NOTHING
+            RETURNING id
             ",
         )
         .bind(sender_user_id)
         .bind(sender_device_id)
         .bind(message_id)
         .bind(now)
-        .execute(&*self.pool)
+        .fetch_optional(&*self.pool)
         .await
         .map_err(|e| {
             tracing::error!("Database error: {e}");
             ApiError::database("A database error occurred".to_string())
         })?;
-
-        Ok(())
+        Ok(row.is_some())
     }
 
     pub async fn cleanup_old_transactions(&self, max_age_ms: i64) -> Result<u64, ApiError> {
-        let cutoff = chrono::Utc::now().timestamp_millis() - max_age_ms;
+        let cutoff = current_timestamp_millis() - max_age_ms;
         let result = sqlx::query(
             r"
             DELETE FROM to_device_transactions
@@ -135,7 +111,7 @@ impl ToDeviceStorage {
             return Ok(());
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO to_device_messages (

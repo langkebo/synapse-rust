@@ -97,7 +97,7 @@ log "初始化 PostgreSQL 数据目录"
 "$INIT_BIN" -D "$PGDATA" --auth=trust --username="$POSTGRES_USER" >/dev/null
 
 # 配置 listen & 数据目录
-cat >> "$PGDATA/postgresql.conf" <<EOF
+cat >>"$PGDATA/postgresql.conf" <<EOF
 port = $POSTGRES_PORT
 listen_addresses = '127.0.0.1'
 unix_socket_directories = '$PGDATA'

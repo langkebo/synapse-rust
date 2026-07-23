@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThirdPartyId {
@@ -99,7 +100,7 @@ pub struct HashLookupResponse {
 
 impl ThirdPartyId {
     pub fn new(address: &str, medium: &str, user_id: &str) -> Self {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         Self {
             address: address.to_string(),
             medium: medium.to_string(),

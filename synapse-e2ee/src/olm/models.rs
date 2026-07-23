@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OlmAccountInfo {
@@ -78,7 +79,7 @@ impl OlmSessionData {
         receiver_key: String,
         serialized_state: String,
     ) -> Self {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         Self {
             session_id,
             user_id,
@@ -94,7 +95,7 @@ impl OlmSessionData {
     }
 
     pub fn touch(&mut self) {
-        self.last_used_ts = chrono::Utc::now().timestamp_millis();
+        self.last_used_ts = current_timestamp_millis();
     }
 
     pub fn increment_message_index(&mut self) {
@@ -103,7 +104,7 @@ impl OlmSessionData {
 
     pub fn is_expired(&self) -> bool {
         if let Some(expires_at) = self.expires_at {
-            let now = chrono::Utc::now().timestamp_millis();
+            let now = current_timestamp_millis();
             return now > expires_at;
         }
         false

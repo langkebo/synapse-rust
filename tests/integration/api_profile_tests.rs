@@ -4,6 +4,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_rust::cache::CacheManager;
 use tower::ServiceExt;
 
@@ -53,7 +54,7 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
 }
 
 async fn set_profile_visibility_private(pool: &sqlx::PgPool, user_id: &str) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     sqlx::query(
         r#"
@@ -563,8 +564,9 @@ async fn test_user_directory_search_and_list_respect_profile_visibility() {
         ))
         .unwrap();
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), search_request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    assert_eq!(status, StatusCode::OK, "search failed: {}", String::from_utf8_lossy(&body));
     let json: Value = serde_json::from_slice(&body).unwrap();
     let results = json["results"].as_array().unwrap();
     assert!(results.iter().all(|entry| entry["user_id"] != alice_id));
@@ -597,8 +599,8 @@ async fn test_client_search_users_respects_profile_visibility() {
         return;
     };
 
-    let (alice_token, alice_id) = register_user(&app, &format!("search_hidden_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, bob_id) = register_user(&app, &format!("search_hidden_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, alice_id) = register_user(&app, &format!("alice_pvtest_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_id) = register_user(&app, &format!("bob_pvtest_{}", rand::random::<u32>())).await;
 
     let set_displayname = Request::builder()
         .method("PUT")

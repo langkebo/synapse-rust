@@ -3,6 +3,7 @@ use super::SyncService;
 use crate::map_internal;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use synapse_common::current_timestamp_millis;
 use synapse_common::*;
 use synapse_storage::event::SinceFilter;
 
@@ -64,7 +65,7 @@ impl SyncService {
         event_format: SyncEventFormat,
     ) -> ApiResult<HashMap<String, Vec<Value>>> {
         let state_events = self
-            .event_storage
+            .event_reader
             .get_state_events_batch(room_ids)
             .await
             .map_err(map_internal!("Failed to get room state events"))?;
@@ -93,12 +94,12 @@ impl SyncService {
         }
 
         let delta_state_by_room = if let Some(stream_ord) = params.since_stream_ordering {
-            self.event_storage
+            self.event_reader
                 .get_state_events_since_batch(room_ids, SinceFilter::StreamOrdering(stream_ord))
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to get room state events", &e))?
         } else {
-            self.event_storage
+            self.event_reader
                 .get_state_events_since_batch(room_ids, SinceFilter::OriginServerTs(params.since_ts))
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to get room state events", &e))?
@@ -124,7 +125,7 @@ impl SyncService {
         let full_state_for_newly_visible = if newly_visible_rooms.is_empty() {
             HashMap::new()
         } else {
-            self.event_storage
+            self.event_reader
                 .get_state_events_batch(&newly_visible_rooms)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to get full state for newly visible rooms", &e))?
@@ -146,7 +147,7 @@ impl SyncService {
         }
 
         let current_member_state_by_room = self
-            .event_storage
+            .event_reader
             .get_state_events_by_type_batch(room_ids, "m.room.member")
             .await
             .map_err(map_internal!("Failed to get room state events"))?;
@@ -196,7 +197,7 @@ impl SyncService {
             return Ok(Vec::new());
         };
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let last_active_ago = if presence == "offline" { None } else { last_active_ts.map(|ts| (now - ts).max(0)) };
         let currently_active = if presence == "online" {
             Some(last_active_ts.is_some_and(|ts| (now - ts) <= 5 * 60 * 1000))
@@ -221,6 +222,14 @@ impl SyncService {
     }
 
     pub(crate) async fn get_account_data_events(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+        // Cache-through: account data changes infrequently, so a 600 s TTL
+        // with write-through invalidation is safe (OPT-015-b, audit 04 §5).
+        const ACCOUNT_DATA_CACHE_TTL_SECS: u64 = 600;
+        let cache_key = format!("account_data:{user_id}");
+        if let Ok(Some(cached)) = self.cache.get::<Vec<serde_json::Value>>(&cache_key).await {
+            return Ok(cached);
+        }
+
         let rows = self
             .account_data_storage
             .list_account_data(user_id)
@@ -274,6 +283,8 @@ impl SyncService {
             }));
         }
 
+        let _ = self.cache.set(&cache_key, &events, ACCOUNT_DATA_CACHE_TTL_SECS).await;
+
         Ok(events)
     }
 
@@ -305,11 +316,24 @@ impl SyncService {
             .await
             .map_err(map_internal!("Failed to get device lists"))?;
         let left = self.get_device_list_left_users_for_sync(user_id, since).await?;
-        let max_stream_id = self
-            .device_storage
-            .get_max_device_list_stream_id()
-            .await
-            .map_err(map_internal!("Failed to get device list stream position"))?;
+
+        // Cache the GLOBAL (not per-user) device-list max stream id on the /sync
+        // hot path with a short 5s TTL and no invalidation: staleness is bounded
+        // because the next sync (≤5s later) re-reads it (OPT-015-c, audit 04 §5).
+        const DEVICE_LIST_MAX_STREAM_CACHE_KEY: &str = "device_list_max_stream_id";
+        const DEVICE_LIST_MAX_STREAM_TTL_SECS: u64 = 5;
+        let max_stream_id: i64 = match self.cache.get::<i64>(DEVICE_LIST_MAX_STREAM_CACHE_KEY).await {
+            Ok(Some(v)) => v,
+            _ => {
+                let v = self
+                    .device_storage
+                    .get_max_device_list_stream_id()
+                    .await
+                    .map_err(map_internal!("Failed to get device list stream position"))?;
+                let _ = self.cache.set(DEVICE_LIST_MAX_STREAM_CACHE_KEY, v, DEVICE_LIST_MAX_STREAM_TTL_SECS).await;
+                v
+            }
+        };
 
         Ok((
             json!({
@@ -345,8 +369,13 @@ impl SyncService {
         let filter =
             synapse_storage::EventQueryFilter { types: Some(vec!["m.room.member".to_string()]), ..Default::default() };
         let membership_events_by_room = self
-            .event_storage
-            .get_room_events_since_stream_batch_filtered(&room_ids, since_token.stream_id, 1000, &filter)
+            .event_reader
+            .get_room_events_batch_since_filtered(
+                &room_ids,
+                SinceFilter::StreamOrdering(since_token.stream_id),
+                1000,
+                &filter,
+            )
             .await
             .map_err(map_internal!("Failed to get membership delta for device list left users"))?;
 
@@ -461,10 +490,10 @@ impl SyncService {
         room_id: &str,
         _user_id: &str,
     ) -> ApiResult<Vec<serde_json::Value>> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let limit = self.sync_ephemeral_limit();
         let rows = self
-            .event_storage
+            .event_reader
             .get_ephemeral_events(room_id, now, limit)
             .await
             .map_err(map_internal!("Failed to get ephemeral events"))?;
@@ -495,9 +524,9 @@ impl SyncService {
             return Ok(result);
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let rows = self
-            .event_storage
+            .event_reader
             .get_ephemeral_events_batch(room_ids, now, limit)
             .await
             .map_err(map_internal!("Failed to get room ephemeral events"))?;
@@ -573,7 +602,7 @@ impl SyncService {
 
     pub(crate) async fn get_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)> {
         let counts = self
-            .room_storage
+            .event_reader
             .get_unread_counts(room_id, user_id)
             .await
             .map_err(map_internal!("Failed to get unread counts"))?;
@@ -592,7 +621,7 @@ impl SyncService {
         }
 
         let rows = self
-            .room_storage
+            .event_reader
             .get_unread_counts_batch(room_ids, user_id)
             .await
             .map_err(map_internal!("Failed to get unread counts"))?;
@@ -602,5 +631,335 @@ impl SyncService {
         }
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sync_service::types::SyncServiceDeps;
+    use std::collections::HashSet;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use synapse_storage::account_data::AccountDataStoreApi;
+    use synapse_storage::device::{Device, DeviceListStoreApi};
+    use synapse_storage::test_mocks::InMemoryDeviceListStore;
+
+    /// [`AccountDataStoreApi`] test double that counts how many times
+    /// `list_account_data` is called, delegating every method to an inner
+    /// [`InMemoryAccountDataStore`]. Used to prove OPT-015-b caches
+    /// account data so two `/sync` calls hit storage only once.
+    #[derive(Debug)]
+    struct CountingAccountDataStore {
+        inner: synapse_storage::test_mocks::InMemoryAccountDataStore,
+        list_calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl synapse_storage::account_data::AccountDataStoreApi for CountingAccountDataStore {
+        async fn list_account_data(
+            &self,
+            user_id: &str,
+        ) -> Result<Vec<synapse_storage::account_data::AccountDataRecord>, ApiError> {
+            self.list_calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.list_account_data(user_id).await
+        }
+
+        async fn get_account_data_content(
+            &self,
+            user_id: &str,
+            data_type: &str,
+        ) -> Result<Option<serde_json::Value>, ApiError> {
+            self.inner.get_account_data_content(user_id, data_type).await
+        }
+
+        async fn delete_account_data(&self, user_id: &str, data_type: &str) -> Result<bool, ApiError> {
+            self.inner.delete_account_data(user_id, data_type).await
+        }
+
+        async fn upsert_account_data(
+            &self,
+            user_id: &str,
+            data_type: &str,
+            content: serde_json::Value,
+        ) -> Result<(), ApiError> {
+            self.inner.upsert_account_data(user_id, data_type, content).await
+        }
+    }
+
+    /// Builds a [`SyncService`] over in-memory account-data and member stores
+    /// plus a lazy pool for other storages, plus an in-memory cache.
+    fn sync_service_with_account_data_store(
+        account_data_store: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
+    ) -> SyncService {
+        let pool: Arc<sqlx::PgPool> = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost/synapse")
+                .expect("lazy pool"),
+        );
+        let cache = Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default()));
+
+        // Use in-memory member store so get_joined_rooms works without a real DB.
+        let member_store: Arc<dyn synapse_storage::membership::MemberStoreApi> =
+            Arc::new(synapse_storage::test_mocks::InMemoryMemberStore::new());
+
+        SyncService::from_deps(SyncServiceDeps {
+            presence_storage: Arc::new(synapse_storage::presence::PresenceStorage::new(pool.clone(), cache.clone())),
+            member_storage: member_store,
+            event_reader: Arc::new(synapse_storage::event::EventStorage::new(&pool, "localhost".to_string())),
+            room_storage: Arc::new(synapse_storage::room::RoomStorage::new(&pool)),
+            room_account_data_storage: Arc::new(synapse_storage::room_account_data::RoomAccountDataStorage::new(&pool)),
+            account_data_storage: account_data_store,
+            filter_storage: Arc::new(synapse_storage::filter::FilterStorage::new(&pool)),
+            device_storage: Arc::new(synapse_storage::test_mocks::InMemoryDeviceListStore::new()),
+            device_key_storage: Arc::new(synapse_e2ee::device_keys::DeviceKeyStorage::new(&pool))
+                as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
+            key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage::new(pool.clone()),
+            to_device_storage: synapse_e2ee::to_device::ToDeviceStorage::new(&pool),
+            metrics: Arc::new(synapse_common::MetricsCollector::new()),
+            performance: synapse_common::config::PerformanceConfig::default(),
+            cache,
+        })
+    }
+
+    #[tokio::test]
+    async fn account_data_events_are_cached_after_first_read() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let inner = synapse_storage::test_mocks::InMemoryAccountDataStore::new();
+
+        // Seed one account-data row so the output is non-empty.
+        inner
+            .upsert_account_data(
+                "@alice:localhost",
+                "m.direct",
+                serde_json::json!({"@bob:localhost": ["!room1:localhost"]}),
+            )
+            .await
+            .expect("seed account data");
+
+        let account_data_store: Arc<dyn synapse_storage::account_data::AccountDataStoreApi> =
+            Arc::new(CountingAccountDataStore { inner, list_calls: calls.clone() });
+
+        let sync = sync_service_with_account_data_store(account_data_store);
+
+        let first = sync.get_account_data_events("@alice:localhost").await.expect("first call");
+        let second = sync.get_account_data_events("@alice:localhost").await.expect("second call");
+
+        assert_eq!(first, second, "both calls must return the same account data");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "account data must be read from storage exactly once across two syncs",
+        );
+    }
+
+    /// [`DeviceListStoreApi`] test double that counts how many times the GLOBAL
+    /// device-list max stream id is read, delegating every other method to an
+    /// inner [`InMemoryDeviceListStore`]. Used to prove OPT-015-c caches the
+    /// max stream id so two `/sync` calls hit storage only once.
+    struct CountingDeviceListStore {
+        inner: InMemoryDeviceListStore,
+        max_stream_id_calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl DeviceListStoreApi for CountingDeviceListStore {
+        async fn get_max_device_list_stream_id(&self) -> Result<i64, sqlx::Error> {
+            self.max_stream_id_calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.get_max_device_list_stream_id().await
+        }
+
+        async fn insert_device_list_change(
+            &self,
+            user_id: &str,
+            device_id: Option<&str>,
+            change_type: &str,
+            stream_id: i64,
+        ) -> Result<(), sqlx::Error> {
+            self.inner.insert_device_list_change(user_id, device_id, change_type, stream_id).await
+        }
+
+        async fn create_device(
+            &self,
+            device_id: &str,
+            user_id: &str,
+            display_name: Option<&str>,
+        ) -> Result<Device, sqlx::Error> {
+            self.inner.create_device(device_id, user_id, display_name).await
+        }
+
+        async fn delete_device(&self, device_id: &str) -> Result<(), sqlx::Error> {
+            self.inner.delete_device(device_id).await
+        }
+
+        async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error> {
+            self.inner.get_user_devices(user_id).await
+        }
+
+        async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
+            self.inner.get_device(device_id).await
+        }
+
+        async fn update_user_device_display_name(
+            &self,
+            user_id: &str,
+            device_id: &str,
+            display_name: &str,
+        ) -> Result<u64, sqlx::Error> {
+            self.inner.update_user_device_display_name(user_id, device_id, display_name).await
+        }
+
+        async fn get_max_device_list_stream_id_for_user(&self, user_id: &str) -> Result<i64, sqlx::Error> {
+            self.inner.get_max_device_list_stream_id_for_user(user_id).await
+        }
+
+        async fn get_device_list_changed_users(
+            &self,
+            from: i64,
+            to: i64,
+            requester_id: &str,
+        ) -> Result<Vec<String>, sqlx::Error> {
+            self.inner.get_device_list_changed_users(from, to, requester_id).await
+        }
+
+        async fn get_device_list_left_users(
+            &self,
+            from: i64,
+            to: i64,
+            requester_id: &str,
+        ) -> Result<Vec<String>, sqlx::Error> {
+            self.inner.get_device_list_left_users(from, to, requester_id).await
+        }
+
+        async fn get_users_devices_batch(&self, users: &[String]) -> Result<HashMap<String, Vec<Device>>, sqlx::Error> {
+            self.inner.get_users_devices_batch(users).await
+        }
+
+        async fn get_device_list_changes(
+            &self,
+            since: i64,
+            to: i64,
+            users: &[String],
+        ) -> Result<Vec<(String, Option<String>, String, i64)>, sqlx::Error> {
+            self.inner.get_device_list_changes(since, to, users).await
+        }
+
+        async fn get_devices_by_user_device_pairs(
+            &self,
+            user_ids: &[&str],
+            device_ids: &[&str],
+        ) -> Result<Vec<(String, String, Option<String>, Option<i64>)>, sqlx::Error> {
+            self.inner.get_devices_by_user_device_pairs(user_ids, device_ids).await
+        }
+
+        async fn filter_existing_users(&self, users: &[String]) -> Result<Vec<String>, sqlx::Error> {
+            self.inner.filter_existing_users(users).await
+        }
+
+        async fn has_device_list_updates_since(&self, since_stream_id: i64) -> Result<bool, sqlx::Error> {
+            self.inner.has_device_list_updates_since(since_stream_id).await
+        }
+
+        async fn get_device_lists_since_with_shared_rooms(
+            &self,
+            since_stream_id: i64,
+            exclude_user_id: &str,
+        ) -> Result<(Vec<String>, Vec<String>), sqlx::Error> {
+            self.inner.get_device_lists_since_with_shared_rooms(since_stream_id, exclude_user_id).await
+        }
+
+        async fn get_lazy_loaded_members(
+            &self,
+            user_id: &str,
+            device_id: &str,
+            room_id: &str,
+        ) -> Result<HashSet<String>, sqlx::Error> {
+            self.inner.get_lazy_loaded_members(user_id, device_id, room_id).await
+        }
+
+        async fn upsert_lazy_loaded_members(
+            &self,
+            user_id: &str,
+            device_id: &str,
+            room_id: &str,
+            member_user_ids: &HashSet<String>,
+        ) -> Result<u64, sqlx::Error> {
+            self.inner.upsert_lazy_loaded_members(user_id, device_id, room_id, member_user_ids).await
+        }
+
+        async fn delete_user_devices_batch(&self, user_id: &str, device_ids: &[String]) -> Result<u64, sqlx::Error> {
+            self.inner.delete_user_devices_batch(user_id, device_ids).await
+        }
+
+        async fn get_device_by_id(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
+            self.inner.get_device_by_id(device_id).await
+        }
+
+        async fn delete_device_returning_count(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error> {
+            self.inner.delete_device_returning_count(user_id, device_id).await
+        }
+
+        async fn delete_all_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
+            self.inner.delete_all_devices(user_id).await
+        }
+
+        async fn get_device_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {
+            self.inner.get_device_count(user_id).await
+        }
+    }
+
+    /// Builds a [`SyncService`] over a lazily-connected pool (never queried in
+    /// this test because `since` is `None`) plus an in-memory cache and the
+    /// supplied counting device store. Mirrors the helper in `filter.rs`.
+    fn sync_service_with_device_store(device_store: Arc<dyn DeviceListStoreApi>) -> SyncService {
+        let pool: Arc<sqlx::PgPool> = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost/synapse")
+                .expect("lazy pool"),
+        );
+        let cache = Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default()));
+
+        SyncService::from_deps(SyncServiceDeps {
+            presence_storage: Arc::new(synapse_storage::presence::PresenceStorage::new(pool.clone(), cache.clone())),
+            member_storage: Arc::new(synapse_storage::membership::RoomMemberStorage::new(&pool, "localhost")),
+            event_reader: Arc::new(synapse_storage::event::EventStorage::new(&pool, "localhost".to_string())),
+            room_storage: Arc::new(synapse_storage::room::RoomStorage::new(&pool)),
+            room_account_data_storage: Arc::new(synapse_storage::room_account_data::RoomAccountDataStorage::new(&pool)),
+            account_data_storage: Arc::new(synapse_storage::account_data::AccountDataStorage::new(&pool)),
+            filter_storage: Arc::new(synapse_storage::filter::FilterStorage::new(&pool)),
+            device_storage: device_store,
+            device_key_storage: Arc::new(synapse_e2ee::device_keys::DeviceKeyStorage::new(&pool))
+                as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
+            key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage::new(pool.clone()),
+            to_device_storage: synapse_e2ee::to_device::ToDeviceStorage::new(&pool),
+            metrics: Arc::new(synapse_common::MetricsCollector::new()),
+            performance: synapse_common::config::PerformanceConfig::default(),
+            cache,
+        })
+    }
+
+    #[tokio::test]
+    async fn device_list_max_stream_id_is_cached_after_first_read() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let inner = InMemoryDeviceListStore::new();
+        // Bump the in-memory stream position so the cached value is non-zero.
+        inner.create_device("DEV1", "@bob:localhost", None).await.expect("seed device");
+
+        let device_store: Arc<dyn DeviceListStoreApi> =
+            Arc::new(CountingDeviceListStore { inner, max_stream_id_calls: calls.clone() });
+
+        let sync = sync_service_with_device_store(device_store);
+
+        // `since = None` keeps the left-user path from touching other storages,
+        // so only the device store is exercised on the lazy pool.
+        let (_first, first_max) = sync.get_device_lists("@alice:localhost", &None).await.expect("first call");
+        let (_second, second_max) = sync.get_device_lists("@alice:localhost", &None).await.expect("second call");
+
+        assert_eq!(first_max, second_max, "both calls must return the same max stream id");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "the global device-list max stream id must be read from storage exactly once across two syncs",
+        );
     }
 }

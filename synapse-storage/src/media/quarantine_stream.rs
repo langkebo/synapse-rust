@@ -1,7 +1,39 @@
 use crate::media::models::QuarantinedMediaChange;
+use async_trait::async_trait;
 use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::ApiError;
+
+/// Store API for quarantined media change tracking.
+///
+/// Provides methods to record quarantine/unquarantine changes and query
+/// incremental changes for stream replication between workers.
+#[async_trait]
+pub trait QuarantinedMediaChangeStoreApi: Send + Sync {
+    async fn record_media_quarantine_change(
+        &self,
+        media_id: &str,
+        server_name: &str,
+        change_type: &str,
+        changed_by: &str,
+        now_ts: i64,
+    ) -> Result<i64, ApiError>;
+
+    async fn get_quarantined_media_changes(
+        &self,
+        since_stream_id: i64,
+        limit: i64,
+    ) -> Result<Vec<QuarantinedMediaChange>, ApiError>;
+
+    async fn set_media_quarantine_status(
+        &self,
+        media_id: &str,
+        server_name: &str,
+        quarantine_status: &str,
+    ) -> Result<bool, ApiError>;
+
+    async fn get_current_stream_id(&self) -> Result<i64, ApiError>;
+}
 
 /// Storage layer for the `quarantined_media_changes` stream table.
 ///
@@ -101,6 +133,41 @@ impl QuarantinedMediaChangeStorage {
             .map_err(|e| ApiError::internal_with_log("Failed to get current quarantine stream id", &e))?;
 
         Ok(stream_id.unwrap_or(0))
+    }
+}
+
+#[async_trait]
+impl QuarantinedMediaChangeStoreApi for QuarantinedMediaChangeStorage {
+    async fn record_media_quarantine_change(
+        &self,
+        media_id: &str,
+        server_name: &str,
+        change_type: &str,
+        changed_by: &str,
+        now_ts: i64,
+    ) -> Result<i64, ApiError> {
+        self.record_media_quarantine_change(media_id, server_name, change_type, changed_by, now_ts).await
+    }
+
+    async fn get_quarantined_media_changes(
+        &self,
+        since_stream_id: i64,
+        limit: i64,
+    ) -> Result<Vec<QuarantinedMediaChange>, ApiError> {
+        self.get_quarantined_media_changes(since_stream_id, limit).await
+    }
+
+    async fn set_media_quarantine_status(
+        &self,
+        media_id: &str,
+        server_name: &str,
+        quarantine_status: &str,
+    ) -> Result<bool, ApiError> {
+        self.set_media_quarantine_status(media_id, server_name, quarantine_status).await
+    }
+
+    async fn get_current_stream_id(&self) -> Result<i64, ApiError> {
+        self.get_current_stream_id().await
     }
 }
 

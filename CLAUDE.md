@@ -11,19 +11,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Format check: `cargo fmt --all -- --check`
 - Clippy: `SQLX_OFFLINE=true cargo clippy --all-features --locked -- -D warnings`
 - Doc tests: `cargo test --doc --locked`
-- Full test suite: `cargo test --all-features --locked -- --test-threads=4`
-- CI-equivalent Rust test entrypoint: `TEST_THREADS=4 TEST_RETRIES=2 bash scripts/run_ci_tests.sh`
-- If `cargo-nextest` is installed, `scripts/run_ci_tests.sh` uses it automatically; otherwise it falls back to `cargo test` with retries.
 
 - Enable local git hooks: `git config core.hooksPath .githooks` (pre-commit: cargo audit advisory, pre-push: cargo deny advisories blocking)
 
-### Running specific tests
-- Unit test target: `cargo test --test unit`
-- Integration test target: `cargo test --test integration`
-- E2E target: `cargo test --test e2e`
-- Performance manual target: `cargo test --features performance-tests --test performance_manual -- --nocapture`
-- Run one named test: `cargo test --test integration <test_name> -- --exact --nocapture`
-- Run one unit test from the unit target: `cargo test --test unit <test_name> -- --exact --nocapture`
+### Running tests
+
+- **Full suite (all lib + unit tests, no DB):**
+  `cargo nt --lib --test unit`
+- **Lib tests only:** `cargo nt --lib`
+- **Unit test target only:** `cargo nt --test unit`
+- **Single named test:**
+  `cargo nt --test unit <test_name>`
+- **Integration tests (requires PostgreSQL):**
+  `cargo nt --features privacy-ext,voice-extended,voip-tracking,beacons,server-notifications --test integration`
+- **Single named integration test:** `cargo nt --test integration <test_name>`
+- **Full CI suite:** `bash scripts/run_ci_tests.sh`
+- **Clippy:** `SQLX_OFFLINE=true cargo clippy --all-features --locked -- -D warnings`
+- **E2E tests:** `cargo nextest run --test e2e`
+- **Performance manual tests:** `cargo nextest run --features performance-tests --test performance_manual -- --nocapture`
+
+**Why the `test` nextest profile is required:** Lib tests in `synapse-services` import
+`test_mocks` modules from sibling crates (`synapse-storage`, `synapse-e2ee`,
+`synapse-federation`). These modules are gated on
+`#[cfg(any(test, feature = "test-utils"))]`. Rust's `#[cfg(test)]` does NOT
+propagate to dependency crates — so without `--features test-utils`, the
+`test_mocks` modules are missing at compile time and you get 119 E0432/E0433
+errors.
+
+The `test` nextest profile injects `test-utils` automatically. `cargo nt` is
+an alias for `cargo nextest run --profile test --features test-utils`.
 
 ### Benchmarks and coverage
 - API benchmark compile/run path: `cargo bench --bench performance_api_benchmarks --no-run`
@@ -119,6 +135,27 @@ Key routing rules:
 - Resume context → invoke /context-restore
 - Author a backlog-ready spec/issue → invoke /spec
 - TDD/test-first development → invoke /tdd-rust
+
+## gstack
+Use /browse from gstack for all web browsing. Never use mcp__claude-in-chrome__* tools.
+Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review,
+/design-consultation, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse,
+/qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /retro,
+/investigate, /document-release, /codex, /cso, /autoplan, /careful, /freeze, /guard,
+/unfreeze, /gstack-upgrade
+
+## superpowers
+Available commands: /superpowers:brainstorm, /superpowers:write-plan, /superpowers:execute-plan.
+Skills auto-activate on context: brainstorming, writing-plans, executing-plans,
+test-driven-development, systematic-debugging, subagent-driven-development,
+verification-before-completion, using-git-worktrees, finishing-a-development-branch,
+requesting-code-review, receiving-code-review, dispatching-parallel-agents.
+
+## audit workspace convention
+All review reports go to docs/audit/NN_<name>.md (NN = 01..13).
+Audit branch naming: optimization/audit-YYYY-MM.
+Baseline files: docs/audit/00_test_baseline.log, docs/audit/00_clippy_baseline.log,
+docs/audit/05_performance_baseline.log, docs/audit/11_performance_after.log.
 
 ## TDD Workflow
 

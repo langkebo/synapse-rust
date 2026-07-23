@@ -4,6 +4,7 @@ use crate::map_internal;
 use crate::*;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
+use synapse_common::current_timestamp_millis;
 use synapse_common::*;
 use synapse_storage::event::SinceFilter;
 
@@ -34,24 +35,24 @@ impl SyncService {
             .map(|t| t.stream_id);
         let (changed_members_by_room, state_change_ts_by_room) = if is_incremental {
             let state_ts_result = if let Some(stream_ord) = since_stream_ordering {
-                self.event_storage
+                self.event_reader
                     .get_state_change_timestamps_batch(room_ids, SinceFilter::StreamOrdering(stream_ord))
                     .await
                     .map_err(ApiError::from)?
             } else {
-                self.event_storage
+                self.event_reader
                     .get_state_change_timestamps_batch(room_ids, SinceFilter::OriginServerTs(since_ts))
                     .await
                     .map_err(ApiError::from)?
             };
             if lazy_load_members {
                 let changed_members = if let Some(stream_ord) = since_stream_ordering {
-                    self.event_storage
+                    self.event_reader
                         .get_membership_state_keys_since_batch(room_ids, SinceFilter::StreamOrdering(stream_ord))
                         .await
                         .map_err(ApiError::from)?
                 } else {
-                    self.event_storage
+                    self.event_reader
                         .get_membership_state_keys_since_batch(room_ids, SinceFilter::OriginServerTs(since_ts))
                         .await
                         .map_err(ApiError::from)?
@@ -295,7 +296,7 @@ impl SyncService {
             async {
                 let lazy_load_members = Self::room_filter_requests_lazy_members(room_filter);
                 if is_incremental && lazy_load_members {
-                    self.event_storage
+                    self.event_reader
                         .get_membership_state_keys_since_batch(
                             &[room_id.to_string()],
                             SinceFilter::OriginServerTs(since_ts),
@@ -364,52 +365,16 @@ impl SyncService {
     }
 
     pub(crate) fn event_to_json(event: &RoomEvent, event_format: SyncEventFormat) -> Value {
-        let now = chrono::Utc::now().timestamp_millis();
-        let age = now.saturating_sub(event.origin_server_ts);
-
-        let mut obj = json!({
-            "type": event.event_type,
-            "content": event.content,
-            "sender": event.user_id,
-            "origin_server_ts": event.origin_server_ts,
-            "event_id": event.event_id,
-            "room_id": event.room_id,
-            "unsigned": {
-                "age": age
-            }
-        });
-
-        if let Some(ref state_key) = event.state_key {
-            obj["state_key"] = json!(state_key);
-        }
-
+        let mut obj = crate::sync_helpers::room_event_to_json(event);
         if event_format == SyncEventFormat::Federation {
             obj["depth"] = json!(event.depth);
             obj["origin"] = json!(event.origin);
         }
-
         obj
     }
 
     pub(crate) fn state_event_to_json(event: &StateEvent, event_format: SyncEventFormat) -> Value {
-        let now = chrono::Utc::now().timestamp_millis();
-        let sender = event.user_id.as_deref().unwrap_or(&event.sender);
-        let age = now.saturating_sub(event.origin_server_ts);
-        let event_type = event.event_type.as_deref().unwrap_or("m.room.message");
-        let mut obj = json!({
-            "type": event_type,
-            "content": event.content,
-            "sender": sender,
-            "origin_server_ts": event.origin_server_ts,
-            "event_id": event.event_id,
-            "room_id": event.room_id,
-            "unsigned": {
-                "age": age
-            }
-        });
-        if let Some(ref state_key) = event.state_key {
-            obj["state_key"] = json!(state_key);
-        }
+        let mut obj = crate::sync_helpers::state_event_to_json(event);
         if event_format == SyncEventFormat::Federation {
             obj["depth"] = json!(event.depth);
             obj["origin"] = json!(event.origin);
@@ -433,10 +398,9 @@ impl SyncService {
             .iter()
             .map(|event| Self::filter_event_fields(Self::event_to_json(event, event_format), event_fields))
             .collect();
-        let prev_batch = events.first().map_or_else(
-            || format!("t{}", chrono::Utc::now().timestamp_millis()),
-            |event| format!("t{}", event.origin_server_ts),
-        );
+        let prev_batch = events
+            .first()
+            .map_or_else(|| format!("t{}", current_timestamp_millis()), |event| format!("t{}", event.origin_server_ts));
 
         json!({
             "state": {

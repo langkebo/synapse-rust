@@ -1,6 +1,6 @@
 use super::{extract_origin_candidate, is_origin_allowed, is_safe_http_method, same_origin};
 use crate::common::error::ApiError;
-use crate::web::routes::AppState;
+use crate::web::routes::context::CoreContext;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, Request};
 use axum::response::{IntoResponse, Response};
@@ -19,12 +19,22 @@ impl CsrfTokenManager {
         Self { secret, token_ttl: std::time::Duration::from_secs(ADMIN_TOKEN_TTL_SECS) }
     }
 
-    pub fn generate_token(&self, session_id: &str) -> String {
-        let issued_at =
-            SystemTime::now().duration_since(UNIX_EPOCH).map(|duration| duration.as_secs()).unwrap_or_default();
+    /// Generate a CSRF token bound to `session_id`.
+    ///
+    /// Returns `None` when the system clock is before `UNIX_EPOCH` (an
+    /// exceptionally rare pathological state). Callers should treat `None` as
+    /// "no token can be issued right now" and skip emitting the header — this
+    /// is the fail-closed behavior: an unissuable token cannot be valid, so
+    /// subsequent unsafe-method requests will be rejected by `validate_token`.
+    pub fn generate_token(&self, session_id: &str) -> Option<String> {
+        let issued_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .map_err(|e| tracing::error!("CSRF token issuance failed: system clock before UNIX_EPOCH: {e}"))
+            .ok()?;
         let payload = format!("{session_id}:{issued_at}");
         let signature = crate::common::crypto::compute_hash(format!("{}{}", payload, self.secret));
-        format!("{payload}:{signature}")
+        Some(format!("{payload}:{signature}"))
     }
 
     pub fn validate_token(&self, token: &str, session_id: &str) -> bool {
@@ -41,7 +51,17 @@ impl CsrfTokenManager {
             Ok(issued_at) => issued_at,
             Err(_) => return false,
         };
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|duration| duration.as_secs()).unwrap_or_default();
+        // Fail-closed: if the system clock is before UNIX_EPOCH we cannot
+        // establish a trustworthy `now`, so reject the token outright rather
+        // than risk treating it as never-expiring (which `unwrap_or_default()`
+        // + `saturating_sub` would do).
+        let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_secs(),
+            Err(e) => {
+                tracing::error!("CSRF token validation failed: system clock before UNIX_EPOCH: {e}");
+                return false;
+            }
+        };
         if now.saturating_sub(issued_at) > self.token_ttl.as_secs() {
             return false;
         }
@@ -72,8 +92,8 @@ fn extract_cookie_session_id_for_csrf(headers: &HeaderMap) -> Option<String> {
     })
 }
 
-pub async fn csrf_middleware(State(state): State<AppState>, request: Request<Body>, next: Next) -> Response {
-    let csrf_manager = CsrfTokenManager::new(state.services.core.config.security.csrf_secret.clone());
+pub async fn csrf_middleware(State(ctx): State<CoreContext>, request: Request<Body>, next: Next) -> Response {
+    let csrf_manager = CsrfTokenManager::new(ctx.config.security.csrf_secret.clone());
     let method = request.method().clone();
     let headers = request.headers().clone();
     let session_id = extract_cookie_session_id_for_csrf(&headers);
@@ -99,8 +119,10 @@ pub async fn csrf_middleware(State(state): State<AppState>, request: Request<Bod
 
     if is_safe_http_method(&method) {
         if let Some(session_id) = session_id {
-            if let Ok(value) = HeaderValue::from_str(&csrf_manager.generate_token(&session_id)) {
-                response.headers_mut().insert("x-csrf-token", value);
+            if let Some(token) = csrf_manager.generate_token(&session_id) {
+                if let Ok(value) = HeaderValue::from_str(&token) {
+                    response.headers_mut().insert("x-csrf-token", value);
+                }
             }
         }
     }
@@ -127,10 +149,20 @@ mod tests {
     #[cfg(feature = "test-utils")]
     use tower::ServiceExt;
 
+    // Serializes the tests that mutate the process-global TRUST_FORWARDED_HEADERS
+    // flag so they never overlap under parallel/shuffled test execution. Lock is
+    // poison-tolerant because these tests assert (and may panic) while holding it.
+    static FORWARDED_TRUST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn lock_forwarded_trust() -> std::sync::MutexGuard<'static, ()> {
+        FORWARDED_TRUST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn test_csrf_token_round_trip() {
         let manager = CsrfTokenManager::new("secret".to_string());
-        let token = manager.generate_token("session-123");
+        let token =
+            manager.generate_token("session-123").expect("system clock should be after unix epoch in test environment");
 
         assert!(manager.validate_token(&token, "session-123"));
         assert!(!manager.validate_token(&token, "other-session"));
@@ -149,6 +181,24 @@ mod tests {
         let token = format!("{}:{}", payload, &signature[..16]);
 
         assert!(!manager.validate_token(&token, "session-123"));
+    }
+
+    /// Regression test for the fail-closed clock-regression BUG.
+    ///
+    /// Previously `generate_token`/`validate_token` used
+    /// `SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default()`,
+    /// which silently returned `0` when the system clock was before
+    /// `UNIX_EPOCH`. Combined with `saturating_sub`, a token issued under a
+    /// broken clock could be treated as never-expiring.
+    ///
+    /// The fix changes `generate_token` to return `Option<String>` (None when
+    /// the clock is broken) and `validate_token` to reject tokens when the
+    /// clock is broken. Under a normal clock, `generate_token` must still
+    /// return `Some`.
+    #[test]
+    fn test_generate_token_returns_some_under_normal_clock() {
+        let manager = CsrfTokenManager::new("secret".to_string());
+        assert!(manager.generate_token("session-123").is_some());
     }
 
     #[test]
@@ -252,7 +302,9 @@ mod tests {
 
         let csrf_manager = CsrfTokenManager::new(services.core.config.security.csrf_secret.clone());
         let session_id = "sid=session-cookie";
-        let csrf_token = csrf_manager.generate_token(session_id);
+        let csrf_token = csrf_manager
+            .generate_token(session_id)
+            .expect("system clock should be after unix epoch in test environment");
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let state = AppState::new(services, cache);
@@ -291,6 +343,9 @@ mod tests {
 
     #[test]
     fn test_same_origin_ignores_forwarded_headers_by_default() {
+        let _guard = lock_forwarded_trust();
+        super::super::set_trust_forwarded_headers(false);
+
         let mut headers = HeaderMap::new();
         headers.insert("x-forwarded-host", "matrix.example.com".parse().expect("valid host header"));
         headers.insert("x-forwarded-proto", "https".parse().expect("valid proto header"));
@@ -300,6 +355,9 @@ mod tests {
 
     #[test]
     fn test_same_origin_uses_host_header_when_forwarded_not_trusted() {
+        let _guard = lock_forwarded_trust();
+        super::super::set_trust_forwarded_headers(false);
+
         let mut headers = HeaderMap::new();
         headers.insert("host", "matrix.example.com".parse().expect("valid host header"));
         headers.insert("x-forwarded-host", "evil.example.com".parse().expect("valid host header"));
@@ -310,6 +368,7 @@ mod tests {
 
     #[test]
     fn test_same_origin_uses_forwarded_host_and_proto_when_trusted() {
+        let _guard = lock_forwarded_trust();
         super::super::set_trust_forwarded_headers(true);
 
         let mut headers = HeaderMap::new();

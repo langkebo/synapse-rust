@@ -2,6 +2,7 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
+use synapse_common::current_timestamp_millis;
 use synapse_common::{generate_event_id, generate_stream_token_from_ts, parse_stream_token};
 use synapse_storage::CreateEventParams;
 
@@ -26,8 +27,8 @@ impl MessagingService {
         }
 
         let event_id = generate_event_id(&self.server_name);
-        let now = chrono::Utc::now().timestamp_millis();
-        let max_ts = self.event_storage.get_max_origin_server_ts_for_room(room_id).await.unwrap_or(0);
+        let now = current_timestamp_millis();
+        let max_ts = self.event_reader.get_max_origin_server_ts_for_room(room_id).await.unwrap_or(0);
         let now = now.max(max_ts + 1);
 
         #[allow(unused_variables)]
@@ -228,7 +229,7 @@ impl MessagingService {
             generate_stream_token_from_ts(Some(from))
         } else {
             let max_ts = self
-                .event_storage
+                .event_reader
                 .get_max_origin_server_ts_for_room(room_id)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to get room stream", &e))?;
@@ -238,7 +239,7 @@ impl MessagingService {
         let from_ts = if from > 0 { parse_stream_token(&start_token).or(Some(from)) } else { None };
 
         let events = self
-            .event_storage
+            .event_reader
             .get_room_events_paginated(room_id, from_ts, limit, normalized_direction)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get messages", &e))?;
@@ -272,9 +273,9 @@ impl MessagingService {
         room_id: &str,
         limit: i64,
     ) -> ApiResult<Vec<serde_json::Value>> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let rows = self
-            .event_storage
+            .event_reader
             .get_ephemeral_events(room_id, now, limit)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get ephemeral events", &e))?;
@@ -305,15 +306,15 @@ impl MessagingService {
         let content = json!({
             "user_ids": typing_user_ids
         });
-        let now = chrono::Utc::now().timestamp_millis();
-        self.event_storage
+        let now = current_timestamp_millis();
+        self.event_writer
             .upsert_ephemeral_event(room_id, user_id, "m.typing", &content, now, now, Some(now + timeout_ms))
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to store typing ephemeral event", &e))
     }
 
     pub async fn clear_typing_ephemeral_event(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
-        self.event_storage
+        self.event_writer
             .delete_ephemeral_event(room_id, "m.typing", user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to clear typing ephemeral event", &e))

@@ -98,6 +98,15 @@ pub struct RateLimitConfigFile {
     pub sync: SyncRateLimitConfigFile,
     #[serde(default = "default_config_reload_interval")]
     pub reload_interval_seconds: u64,
+    /// CIDR strings for trusted reverse proxies (e.g. "10.0.0.0/8", "127.0.0.1/32").
+    /// X-Forwarded-For / X-Real-IP / Forwarded headers are only trusted when the
+    /// direct TCP peer address matches one of these networks.
+    #[serde(default)]
+    pub trusted_proxies: Vec<String>,
+    /// Whether to trust forwarded headers at all. When false (default), the peer
+    /// address is always used regardless of the trusted_proxies list.
+    #[serde(default = "default_trust_forwarded")]
+    pub trust_forwarded: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -116,6 +125,10 @@ fn default_enabled() -> bool {
 
 fn default_include_headers() -> bool {
     true
+}
+
+fn default_trust_forwarded() -> bool {
+    false
 }
 
 fn default_ip_header_priority() -> Vec<String> {
@@ -157,6 +170,8 @@ impl Default for RateLimitConfigFile {
             fail_open_on_error: false,
             sync: SyncRateLimitConfigFile::default(),
             reload_interval_seconds: default_config_reload_interval(),
+            trusted_proxies: Vec::new(),
+            trust_forwarded: default_trust_forwarded(),
         }
     }
 }
@@ -371,6 +386,8 @@ pub struct RateLimitConfigAdapter {
     pub exempt_path_prefixes: Vec<String>,
     pub endpoint_aliases: HashMap<String, String>,
     pub fail_open_on_error: bool,
+    pub trusted_proxies: Vec<String>,
+    pub trust_forwarded: bool,
 }
 
 impl From<RateLimitConfigFile> for RateLimitConfigAdapter {
@@ -399,6 +416,8 @@ impl From<RateLimitConfigFile> for RateLimitConfigAdapter {
             exempt_path_prefixes: config.exempt_path_prefixes,
             endpoint_aliases: config.endpoint_aliases,
             fail_open_on_error: config.fail_open_on_error,
+            trusted_proxies: config.trusted_proxies,
+            trust_forwarded: config.trust_forwarded,
         }
     }
 }

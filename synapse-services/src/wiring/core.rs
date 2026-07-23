@@ -10,12 +10,15 @@ use synapse_common::task_queue::RedisTaskQueue;
 use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_storage::*;
 
-use crate::auth::Auth;
+use crate::auth::{CredentialAuth, RoomAuth, TokenAuth};
 use crate::container::SharedInfra;
+use crate::UserService;
 
 #[derive(Clone)]
 pub struct CoreServices {
-    pub auth_service: Arc<dyn Auth>,
+    pub token_auth: Arc<dyn TokenAuth>,
+    pub credential_auth: Arc<dyn CredentialAuth>,
+    pub room_auth: Arc<dyn RoomAuth>,
     pub registration_service: Arc<crate::registration_service::RegistrationService>,
     pub search_service: Arc<crate::search_service::SearchService>,
     pub media_service: crate::media_service::MediaService,
@@ -25,21 +28,26 @@ pub struct CoreServices {
     pub server_metrics: Arc<ServerMetrics>,
     pub server_name: String,
     pub config: Config,
+    pub validator: Arc<synapse_common::validation::Validator>,
     pub key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage,
     pub event_broadcaster: Arc<EventBroadcaster>,
     pub event_notifier: crate::event_notifier::EventNotifier,
     pub account_data_service: Arc<crate::account_data_service::AccountDataService>,
     pub client_push_service: Arc<crate::client_push_service::ClientPushService>,
+    pub user_service: Arc<UserService>,
 }
 
 impl CoreServices {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         infra: &SharedInfra,
-        auth_service: &Arc<dyn Auth>,
+        validator: &Arc<synapse_common::validation::Validator>,
+        token_auth: &Arc<dyn TokenAuth>,
+        credential_auth: &Arc<dyn CredentialAuth>,
+        room_auth: &Arc<dyn RoomAuth>,
         user_storage: &Arc<dyn UserStore>,
-        rooms: &super::RoomSyncServices,
-        federation: &super::FederationServices,
         server_metrics: &Arc<ServerMetrics>,
+        event_broadcaster: Arc<EventBroadcaster>,
     ) -> Self {
         let search_service = Arc::new(crate::search_service::SearchService::with_postgres(
             &infra.config.search.elasticsearch_url,
@@ -70,45 +78,39 @@ impl CoreServices {
             Some(infra.pool.clone()),
         );
 
+        let user_service = Arc::new(UserService::new(user_storage.clone()));
+
         let registration_service = Arc::new(crate::registration_service::RegistrationService::new(
-            user_storage.clone(),
-            auth_service.clone(),
+            user_service.clone(),
+            token_auth.clone(),
+            credential_auth.clone(),
             infra.metrics.clone(),
             &infra.config.server.name,
             infra.config.server.enable_registration,
             infra.task_queue.clone(),
         ));
 
-        let broadcaster_server_name = infra.config.server.get_server_name().to_string();
-        let broadcaster_federation_client = federation.federation_client.clone();
-        let broadcaster_member_storage = rooms.member_storage.clone();
-        let broadcaster_origin = infra.config.server.get_server_name().to_string();
-        let broadcaster_batch_size = infra.config.federation.event_broadcast_batch_size;
-        let event_broadcaster = {
-            let broadcaster = EventBroadcaster::new(broadcaster_server_name)
-                .with_client(broadcaster_federation_client)
-                .with_pool(infra.pool.as_ref().clone())
-                .with_membership_storage(broadcaster_member_storage);
-            broadcaster.start_batch_sender(broadcaster_origin, broadcaster_batch_size, 100).await;
-            Arc::new(broadcaster)
-        };
-
-        let room_account_data_storage = RoomAccountDataStorage::new(&infra.pool);
+        let room_account_data_storage = Arc::new(RoomAccountDataStorage::new(&infra.pool));
         let account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi> =
             Arc::new(synapse_storage::account_data::AccountDataStorage::new(&infra.pool));
         let account_data_service = Arc::new(crate::account_data_service::AccountDataService::new(
+            infra.cache.clone(),
             account_data_storage.clone(),
             user_storage.clone(),
             room_account_data_storage,
-            FilterStorage::new(&infra.pool),
-            OpenIdTokenStorage::new(&infra.pool),
+            Arc::new(FilterStorage::new(&infra.pool)),
+            Arc::new(OpenIdTokenStorage::new(&infra.pool)),
         ));
 
+        let push_storage: Arc<dyn synapse_storage::push::PushStoreApi> =
+            Arc::new(synapse_storage::push::PushStorage::new(infra.pool.clone()));
         let client_push_service =
-            Arc::new(crate::client_push_service::ClientPushService::new(account_data_storage, infra.pool.clone()));
+            Arc::new(crate::client_push_service::ClientPushService::new(account_data_storage, push_storage));
 
         Self {
-            auth_service: auth_service.clone(),
+            token_auth: token_auth.clone(),
+            credential_auth: credential_auth.clone(),
+            room_auth: room_auth.clone(),
             registration_service,
             search_service,
             media_service,
@@ -118,11 +120,13 @@ impl CoreServices {
             server_metrics: server_metrics.clone(),
             server_name: infra.config.server.name.clone(),
             config: infra.config.clone(),
+            validator: validator.clone(),
             key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage::new(infra.pool.clone()),
             event_broadcaster,
             event_notifier: crate::event_notifier::EventNotifier::new(),
             account_data_service,
             client_push_service,
+            user_service,
         }
     }
 }

@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::PresenceState;
 use synapse_storage::presence::PresenceStorage;
@@ -96,7 +97,7 @@ async fn setup_test_database() -> Option<(Arc<sqlx::PgPool>, PresenceStorage)> {
 }
 
 async fn insert_test_user(pool: &sqlx::PgPool, user_id: &str) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query(
         r#"
         INSERT INTO users (user_id, username, created_ts)

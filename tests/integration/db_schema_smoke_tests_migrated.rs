@@ -22,27 +22,23 @@ fn unique_id() -> u64 {
 }
 
 async fn assert_table_exists(pool: &sqlx::PgPool, table_name: &str) {
+    // Use unqualified name so to_regclass resolves via search_path (test_XXX, public).
+    // Hardcoding "public." would fail because tables live in the per-test test_XXX schema.
     let regclass: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)::text")
-        .bind(format!("public.{table_name}"))
+        .bind(table_name)
         .fetch_one(pool)
         .await
         .expect("Failed to query table existence");
-    assert!(
-        regclass.as_deref() == Some(table_name) || regclass.as_deref() == Some(format!("public.{table_name}").as_str()),
-        "Expected table '{table_name}' to exist, got: {regclass:?}"
-    );
+    assert!(regclass.is_some(), "Expected table '{table_name}' to exist, got: None");
 }
 
 async fn assert_view_exists(pool: &sqlx::PgPool, view_name: &str) {
     let regclass: Option<String> = sqlx::query_scalar("SELECT to_regclass($1)::text")
-        .bind(format!("public.{view_name}"))
+        .bind(view_name)
         .fetch_one(pool)
         .await
         .expect("Failed to query view existence");
-    assert!(
-        regclass.as_deref() == Some(view_name) || regclass.as_deref() == Some(format!("public.{view_name}").as_str()),
-        "Expected view '{view_name}' to exist, got: {regclass:?}"
-    );
+    assert!(regclass.is_some(), "Expected view '{view_name}' to exist, got: None");
 }
 
 async fn seed_room(pool: &sqlx::PgPool, suffix: u64, prefix: &str) -> (String, String) {
@@ -201,8 +197,8 @@ async fn test_space_schema_smoke_roundtrip() {
         .expect("Failed to load space summary")
         .expect("Space summary should exist");
     assert_eq!(summary.space_id, space_id);
-    assert_eq!(summary.children_count, 1);
-    assert_eq!(summary.member_count, 2);
+    assert_eq!(summary.children_count, Some(1));
+    assert_eq!(summary.member_count, Some(2));
 
     sqlx::query(
         "INSERT INTO space_statistics (space_id, name, is_public, child_room_count, member_count, created_ts, updated_ts) VALUES ($1, $2, $3, $4, $5, $6, $7)

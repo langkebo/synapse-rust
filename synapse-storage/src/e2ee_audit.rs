@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,7 +176,7 @@ impl E2eeAuditStorage {
     }
 
     pub async fn cleanup_old_logs(&self, days_to_keep: i64) -> Result<u64, ApiError> {
-        let cutoff_ts = chrono::Utc::now().timestamp_millis() - (days_to_keep * 24 * 60 * 60 * 1000);
+        let cutoff_ts = current_timestamp_millis() - (days_to_keep * 24 * 60 * 60 * 1000);
         let result = sqlx::query("DELETE FROM e2ee_audit_log WHERE created_ts < $1")
             .bind(cutoff_ts)
             .execute(&*self.pool)
@@ -242,7 +243,7 @@ mod db_tests {
             room_id: Some("!test_room:example.com".to_string()),
             details: Some(serde_json::json!({"method": "m.room.encryption"})),
             ip_address: Some("127.0.0.1".to_string()),
-            timestamp: chrono::Utc::now().timestamp_millis(),
+            timestamp: current_timestamp_millis(),
         }
     }
 
@@ -252,7 +253,7 @@ mod db_tests {
         let storage = E2eeAuditStorage::new(&pool);
         let user_id = format!("@roundtrip_{}:example.com", uuid::Uuid::new_v4());
 
-        let event_ts = chrono::Utc::now().timestamp_millis() - 3600000; // 1 hour ago (recent, safe from cleanup)
+        let event_ts = current_timestamp_millis() - 3600000; // 1 hour ago (recent, safe from cleanup)
 
         let event = KeyEvent {
             user_id: user_id.clone(),
@@ -351,7 +352,7 @@ mod db_tests {
         // Insert events with known timestamps in ascending order (oldest first).
         // Since results are ORDER BY created_ts DESC, the first page will
         // return the most recent (highest ts) entries.
-        let base_ts = chrono::Utc::now().timestamp_millis();
+        let base_ts = current_timestamp_millis();
         for i in 0..5 {
             let mut event = make_test_event(&user_id, "query_keys", &format!("DEV_PAGED_{}", i));
             event.timestamp = base_ts + i * 1000;
@@ -445,7 +446,7 @@ mod db_tests {
         let storage = E2eeAuditStorage::new(&pool);
         let user_id = format!("@cleanup_{}:example.com", uuid::Uuid::new_v4());
 
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = current_timestamp_millis();
         let one_day_ms: i64 = 24 * 60 * 60 * 1000;
 
         // Count pre-existing events for this user (should be 0).
@@ -480,7 +481,7 @@ mod db_tests {
         let storage = E2eeAuditStorage::new(&pool);
         let user_id = format!("@batch_{}:example.com", uuid::Uuid::new_v4());
 
-        let base_ts = chrono::Utc::now().timestamp_millis();
+        let base_ts = current_timestamp_millis();
         let mut timestamps: Vec<i64> = Vec::new();
 
         // Insert events with staggered timestamps

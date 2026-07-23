@@ -273,7 +273,7 @@
 
 - 禁止在 `docs/` 顶层直接放报告文件（必须进子目录）
 - 禁止在 `docs/synapse-rust/` 放 SDK/数据库/质量类文档
-- 禁止在仓库根放散落 `.md`（除 `README.md` / `AGENTS.md` / `CLAUDE.md` / `TESTING.md` / `CHECKLIST.md`）
+- 禁止在仓库根放散落 `.md`（除 `README.md` / `AGENTS.md` / `CLAUDE.md` / `CONTRIBUTING.md` / `CHANGELOG.md` / `TESTING.md` / `CHECKLIST.md` / `CONTEXT.md`）
 - 禁止修改 `docs/archive/` 中的任何文件
 
 ---

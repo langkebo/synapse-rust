@@ -5,10 +5,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use synapse_common::config::PerformanceConfig;
 use synapse_common::*;
-use synapse_e2ee::device_keys::DeviceKeyStorage;
+use synapse_e2ee::device_keys::DeviceKeyStoreApi;
 use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_e2ee::to_device::ToDeviceStorage;
-use synapse_storage::room_account_data::RoomAccountDataStorage;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncToken {
@@ -110,17 +109,18 @@ pub struct RoomSyncCounts {
 pub struct SyncServiceDeps {
     pub presence_storage: std::sync::Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     pub member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
-    pub event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
+    pub event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
-    pub room_account_data_storage: RoomAccountDataStorage,
+    pub room_account_data_storage: Arc<dyn synapse_storage::room_account_data::RoomAccountDataStoreApi>,
     pub account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
-    pub filter_storage: FilterStorage,
+    pub filter_storage: Arc<dyn synapse_storage::filter::FilterStoreApi>,
     pub device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
-    pub device_key_storage: DeviceKeyStorage,
+    pub device_key_storage: Arc<dyn DeviceKeyStoreApi>,
     pub key_rotation_storage: KeyRotationStorage,
     pub to_device_storage: ToDeviceStorage,
     pub metrics: Arc<MetricsCollector>,
     pub performance: PerformanceConfig,
+    pub cache: Arc<synapse_cache::CacheManager>,
 }
 
 pub struct SyncServiceRequest<'a> {

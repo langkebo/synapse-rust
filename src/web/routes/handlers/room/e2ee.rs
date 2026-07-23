@@ -120,7 +120,7 @@ pub(crate) async fn get_room_keys(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -144,7 +144,7 @@ pub(crate) async fn get_room_key_count(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -167,7 +167,7 @@ pub(crate) async fn claim_room_keys(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -199,7 +199,7 @@ pub(crate) async fn get_room_keys_version(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -217,7 +217,7 @@ pub(crate) async fn forward_room_keys(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 

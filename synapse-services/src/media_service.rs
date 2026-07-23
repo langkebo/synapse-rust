@@ -1,4 +1,5 @@
 use synapse_common::background_job::BackgroundJob;
+use synapse_common::current_timestamp_millis;
 use synapse_common::media_link_signer::MediaLinkSigner;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_common::*;
@@ -270,7 +271,7 @@ impl MediaService {
         );
 
         if let Some(storage) = &self.admin_media_storage {
-            let now = chrono::Utc::now().timestamp_millis();
+            let now = current_timestamp_millis();
             if let Err(e) = storage
                 .upsert_media_metadata(
                     media_id,
@@ -316,7 +317,8 @@ impl MediaService {
         .to_mxc_url();
 
         Ok(serde_json::json!({
-            "content_uri": media_url
+            "content_uri": media_url,
+            "media_id": media_id
         }))
     }
 

@@ -7,6 +7,7 @@ use crate::burn_after_read_service::BurnAfterReadService;
 use synapse_storage::UserStore;
 
 use crate::container::SharedInfra;
+use crate::UserService;
 
 #[derive(Clone)]
 pub struct ExtensionServices {
@@ -39,6 +40,7 @@ pub struct ExtensionServices {
     pub translation_service: Arc<crate::translation_service::TranslationService>,
     pub uia_service: Arc<crate::uia_service::UiaService>,
     pub user_lock_service: Arc<crate::user_lock_service::UserLockService>,
+    pub user_service: Arc<UserService>,
 }
 
 /// Dependency bundle for [`ExtensionServices::new`].
@@ -46,12 +48,13 @@ pub struct ExtensionServicesDeps<'a> {
     pub infra: &'a SharedInfra,
     pub rooms: &'a super::RoomSyncServices,
     pub user_storage: &'a Arc<dyn UserStore>,
-    pub threepid_storage: &'a synapse_storage::ThreepidStorage,
+    pub threepid_storage: Arc<dyn synapse_storage::ThreepidStoreApi>,
     pub presence_storage: &'a Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     pub federation: &'a super::FederationServices,
     pub media_service: &'a crate::media_service::MediaService,
     pub media_domain_service: &'a Arc<crate::media::MediaDomainService>,
     pub ui_auth_session_timeout: i64,
+    pub user_service: Arc<UserService>,
 }
 
 impl ExtensionServices {
@@ -66,19 +69,20 @@ impl ExtensionServices {
             media_service,
             media_domain_service,
             ui_auth_session_timeout,
+            user_service,
         } = deps;
 
         #[cfg(feature = "friends")]
         let friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi> =
             Arc::new(synapse_storage::FriendRoomStorage::new(infra.pool.clone()));
         #[cfg(feature = "friends")]
-        let account_data_storage: Arc<synapse_storage::account_data::AccountDataStorage> =
-            Arc::new(synapse_storage::account_data::AccountDataStorage::new(&infra.pool));
+        let account_data_storage = Arc::new(synapse_storage::account_data::AccountDataStorage::new(&infra.pool));
         #[cfg(feature = "friends")]
         let friend_room_service = Arc::new(crate::friend_room_service::FriendRoomService::new(
             friend_storage.clone(),
             rooms.room_service.clone(),
             user_storage.clone(),
+            user_service.clone(),
             presence_storage.clone(),
             account_data_storage,
             infra.cache.clone(),
@@ -132,7 +136,7 @@ impl ExtensionServices {
         #[cfg(feature = "server-notifications")]
         let server_notification_service = Arc::new(crate::server_notification_service::ServerNotificationService::new(
             server_notification_storage.clone(),
-            user_storage.clone(),
+            user_service.clone(),
         ));
 
         #[cfg(feature = "privacy-ext")]
@@ -150,7 +154,7 @@ impl ExtensionServices {
             let burn_storage = Arc::new(synapse_storage::burn_after_read::BurnAfterReadStorage::new(&infra.pool));
             Arc::new(BurnAfterReadService::new(
                 burn_storage,
-                rooms.event_storage.clone(),
+                rooms.event_writer.clone(),
                 infra.config.server.name.clone(),
             ))
         };
@@ -213,6 +217,7 @@ impl ExtensionServices {
             translation_service,
             uia_service,
             user_lock_service,
+            user_service,
         }
     }
 }

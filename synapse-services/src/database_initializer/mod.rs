@@ -4,6 +4,7 @@ pub use models::{initialize_database, DatabaseInitMode, DatabaseInitService, Env
 
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_storage::SchemaValidator;
 use tracing::{debug, error, info, warn};
 
@@ -342,7 +343,7 @@ impl DatabaseInitService {
                 checksum TEXT,
                 applied_ts BIGINT,
                 execution_time_ms BIGINT,
-                success BOOLEAN NOT NULL DEFAULT TRUE,
+                is_success BOOLEAN NOT NULL DEFAULT TRUE,
                 description TEXT,
                 executed_at TIMESTAMPTZ DEFAULT NOW(),
                 CONSTRAINT uq_schema_migrations_version UNIQUE (version)
@@ -379,7 +380,7 @@ impl DatabaseInitService {
         execution_time_ms: i64,
         success: bool,
     ) -> Result<(), sqlx::Error> {
-        let now_ts = chrono::Utc::now().timestamp_millis();
+        let now_ts = current_timestamp_millis();
         sqlx::query(
             r"INSERT INTO schema_migrations (version, checksum, applied_ts, execution_time_ms, is_success)
                VALUES ($1, $2, $3, $4, $5)
@@ -689,5 +690,147 @@ impl DatabaseInitService {
     #[cfg(feature = "runtime-ddl")]
     async fn step_create_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
         self.schema_validator.create_missing_indexes().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils;
+
+    #[tokio::test]
+    async fn test_schema_migrations_table_has_is_success_column() {
+        // Acquire serialized access to test environment
+        let _guard = test_utils::env_lock_async().await;
+
+        // Create pool to isolated empty schema
+        let pool = test_utils::prepare_empty_isolated_test_pool().await.expect("failed to create isolated test pool");
+
+        // Create the table via the actual function under test
+        let init = DatabaseInitService::new(pool.clone());
+        init.ensure_schema_migrations_table().await.expect("failed to create schema_migrations table");
+
+        // Verify: INSERT and SELECT using is_success (the name Rust queries use)
+        sqlx::query("INSERT INTO schema_migrations (version, is_success) VALUES ($1, $2)")
+            .bind("test_version")
+            .bind(true)
+            .execute(&*pool)
+            .await
+            .expect("INSERT with is_success should work");
+
+        let (success,): (bool,) = sqlx::query_as("SELECT is_success FROM schema_migrations WHERE version = $1")
+            .bind("test_version")
+            .fetch_one(&*pool)
+            .await
+            .expect("SELECT with is_success should work");
+
+        assert!(success, "is_success should be true");
+    }
+
+    #[test]
+    fn test_calculate_checksum_is_deterministic() {
+        let checksum1 = DatabaseInitService::calculate_checksum("CREATE TABLE users (id INT);");
+        let checksum2 = DatabaseInitService::calculate_checksum("CREATE TABLE users (id INT);");
+        let checksum3 = DatabaseInitService::calculate_checksum("CREATE TABLE users (id BIGINT);");
+
+        assert_eq!(checksum1, checksum2);
+        assert_ne!(checksum1, checksum3);
+        assert_eq!(checksum1.len(), 16);
+    }
+
+    #[test]
+    fn test_split_sql_statements_simple() {
+        let sql = "CREATE TABLE users (id INT); INSERT INTO users VALUES (1);";
+        let statements = DatabaseInitService::split_sql_statements(sql);
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].contains("CREATE TABLE users"));
+        assert!(statements[1].contains("INSERT INTO users"));
+    }
+
+    #[test]
+    fn test_split_sql_statements_with_single_quotes() {
+        let sql = "INSERT INTO users VALUES ('O''Brien'); SELECT 1;";
+        let statements = DatabaseInitService::split_sql_statements(sql);
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].contains("O''Brien"));
+    }
+
+    #[test]
+    fn test_split_sql_statements_with_line_comments() {
+        let sql = "SELECT 1; -- comment\nSELECT 2;";
+        let statements = DatabaseInitService::split_sql_statements(sql);
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].contains("SELECT 1"));
+        assert!(statements[1].contains("SELECT 2"));
+    }
+
+    #[test]
+    fn test_split_sql_statements_with_block_comments() {
+        let sql = "SELECT 1; /* block comment */ SELECT 2;";
+        let statements = DatabaseInitService::split_sql_statements(sql);
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].contains("SELECT 1"));
+        assert!(statements[1].contains("SELECT 2"));
+    }
+
+    #[test]
+    fn test_split_sql_statements_with_dollar_quoted_string() {
+        let sql = "CREATE FUNCTION foo() RETURNS TEXT AS $$ BEGIN RETURN 'hello'; END; $$ LANGUAGE plpgsql; SELECT 1;";
+        let statements = DatabaseInitService::split_sql_statements(sql);
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].contains("CREATE FUNCTION"));
+        assert!(statements[1].contains("SELECT 1"));
+    }
+
+    #[test]
+    fn test_split_sql_statements_empty_and_whitespace() {
+        let sql = "   ; ; SELECT 1;   ;";
+        let statements = DatabaseInitService::split_sql_statements(sql);
+        assert_eq!(statements.len(), 1);
+        assert!(statements[0].contains("SELECT 1"));
+    }
+
+    #[test]
+    fn test_normalize_migration_sql_replaces_public_schema() {
+        let sql = "SELECT * FROM information_schema.tables WHERE table_schema = 'public';";
+        let normalized = DatabaseInitService::normalize_migration_sql(sql);
+        assert!(normalized.contains("table_schema = current_schema()"));
+        assert!(!normalized.contains("table_schema = 'public'"));
+    }
+
+    #[test]
+    fn test_normalize_migration_sql_replaces_schemaname() {
+        let sql = "SELECT * FROM pg_tables WHERE schemaname = 'public';";
+        let normalized = DatabaseInitService::normalize_migration_sql(sql);
+        assert!(normalized.contains("schemaname = current_schema()"));
+        assert!(!normalized.contains("schemaname = 'public'"));
+    }
+
+    #[test]
+    fn test_find_dollar_tag_end_simple() {
+        let chars: Vec<char> = "$$body$$".chars().collect();
+        let end = DatabaseInitService::find_dollar_tag_end(&chars, 0);
+        assert_eq!(end, Some(1));
+    }
+
+    #[test]
+    fn test_find_dollar_tag_end_with_tag() {
+        let chars: Vec<char> = "$tag$body$tag$".chars().collect();
+        let end = DatabaseInitService::find_dollar_tag_end(&chars, 0);
+        assert_eq!(end, Some(4));
+    }
+
+    #[test]
+    fn test_find_dollar_tag_end_no_end() {
+        let chars: Vec<char> = "$no_end".chars().collect();
+        let end = DatabaseInitService::find_dollar_tag_end(&chars, 0);
+        assert_eq!(end, None);
+    }
+
+    #[test]
+    fn test_find_dollar_tag_end_invalid_char() {
+        let chars: Vec<char> = "$tag space$".chars().collect();
+        let end = DatabaseInitService::find_dollar_tag_end(&chars, 0);
+        assert_eq!(end, None);
     }
 }

@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_storage::{CreateOpenIdTokenRequest, OpenIdToken, OpenIdTokenStorage};
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -17,7 +18,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
             password_hash TEXT,
             is_admin BOOLEAN DEFAULT FALSE,
             is_guest BOOLEAN DEFAULT FALSE,
-            creation_ts BIGINT NOT NULL,
+            created_ts BIGINT NOT NULL,
             deactivated BOOLEAN DEFAULT FALSE,
             displayname TEXT,
             avatar_url TEXT
@@ -116,15 +117,15 @@ async fn test_create_and_get_token() {
     let suffix = unique_id();
     let user_id = format!("@oid_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("oiduser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
     let token = storage.create_token(request).await.unwrap();
 
@@ -153,15 +154,15 @@ async fn test_create_token_with_optional_device_id() {
     let suffix = unique_id();
     let user_id = format!("@oid_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("oiduser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
     let request = CreateOpenIdTokenRequest {
         token: format!("openid_token_{suffix}"),
         user_id: user_id.clone(),
@@ -191,15 +192,15 @@ async fn test_get_token_excludes_invalid() {
     let suffix = unique_id();
     let user_id = format!("@oid_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("oiduser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
     storage.create_token(request).await.unwrap();
 
@@ -218,15 +219,15 @@ async fn test_validate_token_success() {
     let suffix = unique_id();
     let user_id = format!("@oid_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("oiduser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
     storage.create_token(request).await.unwrap();
 
@@ -247,15 +248,15 @@ async fn test_validate_token_returns_none_for_expired() {
     let suffix = unique_id();
     let user_id = format!("@oid_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("oiduser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let past_ts = chrono::Utc::now().timestamp_millis() - 3_600_000;
+    let past_ts = current_timestamp_millis() - 3_600_000;
     let request = make_request(suffix, &user_id, past_ts);
     storage.create_token(request).await.unwrap();
 
@@ -272,15 +273,15 @@ async fn test_validate_token_returns_none_for_revoked() {
     let suffix = unique_id();
     let user_id = format!("@oid_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("oiduser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
     storage.create_token(request).await.unwrap();
 
@@ -299,15 +300,15 @@ async fn test_revoke_token_success() {
     let suffix = unique_id();
     let user_id = format!("@oid_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("oiduser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
     let request = make_request(suffix, &user_id, future_ts);
     let token = storage.create_token(request).await.unwrap();
     assert!(token.is_valid);
@@ -339,15 +340,15 @@ async fn test_revoke_user_tokens() {
     let suffix = unique_id();
     let user_id = format!("@oid_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("oiduser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     for i in 0..3 {
         let req = CreateOpenIdTokenRequest {
@@ -375,15 +376,15 @@ async fn test_revoke_user_tokens_skips_already_revoked() {
     let suffix = unique_id();
     let user_id = format!("@oid_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("oiduser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     let req1 = CreateOpenIdTokenRequest {
         token: format!("openid_token_{suffix}_0"),
@@ -415,16 +416,16 @@ async fn test_cleanup_expired_tokens() {
     let suffix = unique_id();
     let user_id = format!("@oid_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("oiduser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let past_ts = chrono::Utc::now().timestamp_millis() - 3_600_000;
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let past_ts = current_timestamp_millis() - 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     let expired_req = CreateOpenIdTokenRequest {
         token: format!("expired_{suffix}"),
@@ -459,15 +460,15 @@ async fn test_cleanup_also_removes_revoked_tokens() {
     let suffix = unique_id();
     let user_id = format!("@oid_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("oiduser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     let req = CreateOpenIdTokenRequest {
         token: format!("revoked_{suffix}"),
@@ -495,15 +496,15 @@ async fn test_get_tokens_by_user() {
     let suffix = unique_id();
     let user_id = format!("@oid_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("oiduser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
 
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     for i in 0..3 {
         let req = CreateOpenIdTokenRequest {

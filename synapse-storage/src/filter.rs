@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -21,7 +22,7 @@ pub struct CreateFilterRequest {
 }
 
 #[async_trait]
-pub trait FilterStoreApi {
+pub trait FilterStoreApi: Send + Sync {
     async fn create_filter(&self, request: CreateFilterRequest) -> Result<Filter, ApiError>;
     async fn get_filter(&self, user_id: &str, filter_id: &str) -> Result<Option<Filter>, ApiError>;
     async fn get_filters_by_user(&self, user_id: &str) -> Result<Vec<Filter>, ApiError>;
@@ -40,7 +41,7 @@ impl FilterStorage {
     }
 
     pub async fn create_filter(&self, request: CreateFilterRequest) -> Result<Filter, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let filter = sqlx::query_as::<_, Filter>(
             r"

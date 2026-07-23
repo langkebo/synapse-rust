@@ -59,3 +59,84 @@ impl BuiltinOidcConfig {
         self.enabled && !self.issuer.is_empty() && !self.users.is_empty()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_builtin_oidc_config_default() {
+        let config = BuiltinOidcConfig::default();
+        assert!(!config.enabled);
+        assert!(config.issuer.is_empty());
+        assert_eq!(config.client_id, "builtin-oidc-client");
+        assert!(config.allow_redirect_uris.is_empty());
+        assert!(config.allow_client_ids.is_empty());
+        assert!(config.users.is_empty());
+        assert!(config.signing_key_path.is_none());
+    }
+
+    #[test]
+    fn test_builtin_oidc_config_is_enabled_disabled() {
+        let config = BuiltinOidcConfig::default();
+        assert!(!config.is_enabled());
+    }
+
+    #[test]
+    fn test_builtin_oidc_config_is_enabled_no_issuer() {
+        let config = BuiltinOidcConfig { enabled: true, issuer: String::new(), ..Default::default() };
+        assert!(!config.is_enabled());
+    }
+
+    #[test]
+    fn test_builtin_oidc_config_is_enabled_no_users() {
+        let config = BuiltinOidcConfig {
+            enabled: true,
+            issuer: "https://example.com".to_string(),
+            users: vec![],
+            ..Default::default()
+        };
+        assert!(!config.is_enabled());
+    }
+
+    #[test]
+    fn test_builtin_oidc_config_is_enabled_with_users() {
+        let user = BuiltinOidcUser {
+            id: "user1".to_string(),
+            username: "testuser".to_string(),
+            password: None,
+            password_hash: None,
+            email: "test@example.com".to_string(),
+            displayname: None,
+        };
+        let config = BuiltinOidcConfig {
+            enabled: true,
+            issuer: "https://example.com".to_string(),
+            users: vec![user],
+            ..Default::default()
+        };
+        assert!(config.is_enabled());
+    }
+
+    #[test]
+    fn test_builtin_oidc_user_creation() {
+        let user = BuiltinOidcUser {
+            id: "user1".to_string(),
+            username: "testuser".to_string(),
+            password: Some("password123".to_string()),
+            password_hash: None,
+            email: "test@example.com".to_string(),
+            displayname: Some("Test User".to_string()),
+        };
+        assert_eq!(user.id, "user1");
+        assert_eq!(user.username, "testuser");
+        assert_eq!(user.password, Some("password123".to_string()));
+        assert_eq!(user.email, "test@example.com");
+        assert_eq!(user.displayname, Some("Test User".to_string()));
+    }
+
+    #[test]
+    fn test_default_builtin_oidc_client_id() {
+        assert_eq!(default_builtin_oidc_client_id(), "builtin-oidc-client");
+    }
+}

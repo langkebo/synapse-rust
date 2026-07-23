@@ -4,6 +4,7 @@
 use crate::device_trust::models::*;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 pub struct DeviceTrustStorage {
@@ -262,7 +263,7 @@ impl DeviceTrustStorage {
         user_id: &str,
         new_device_id: &str,
     ) -> Result<Option<DeviceVerificationRequest>, ApiError> {
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = current_timestamp_millis();
         let result = sqlx::query_as::<_, SqlxVerificationRequest>(
             r"SELECT
                 id,
@@ -337,7 +338,7 @@ impl DeviceTrustStorage {
 
     /// Clean up expired verification requests
     pub async fn cleanup_expired_requests(&self) -> Result<i64, ApiError> {
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = current_timestamp_millis();
         let result = sqlx::query(
             r"UPDATE device_verification_request
              SET status = 'expired', completed_at = $1
@@ -456,7 +457,7 @@ impl DeviceTrustStorage {
         target_user_id: &str,
         is_trusted: bool,
     ) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"INSERT INTO cross_signing_trust
@@ -471,7 +472,7 @@ impl DeviceTrustStorage {
         .bind(user_id)
         .bind(target_user_id)
         .bind(is_trusted)
-        .bind(if is_trusted { Some(chrono::Utc::now().timestamp_millis()) } else { None })
+        .bind(if is_trusted { Some(current_timestamp_millis()) } else { None })
         .bind(now)
         .bind(now)
         .execute(&*self.pool)

@@ -14,6 +14,10 @@ docker/nginx/ssl/
 !.env.federation-test.example
 docker/.env
 
+# 签名密钥（不应入仓）
+*.key
+signing.key
+
 # 生产配置文件（包含真实密码）
 homeserver.yaml
 homeserver.local.yaml
@@ -85,10 +89,15 @@ register_test_accounts.py
 # gstack 计划文件（自动化工作流生成）
 docs/superpowers/plans/
 
+# 测试工具链依赖（由 npm install 重建，不应入仓）
+tests/element-web-harness/node_modules/
+
 # 代码覆盖率和变异测试产物
 coverage/
 mutants.out/
+benchmark.txt
 *.profraw
+lcov.info
 
 # 测试结果日志（根目录）
 test-results-*.log
@@ -96,3 +105,6 @@ test-results-fixed/
 .DS_Store
 .trae/
 .gstack/
+.claude/worktrees/
+.trae-cn/
+certs/

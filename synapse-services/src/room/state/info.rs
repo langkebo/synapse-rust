@@ -2,6 +2,7 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
+use synapse_common::current_timestamp_millis;
 use synapse_storage::{Room, RoomSearchCursor, RoomSearchOrder};
 
 use super::service::RoomStateService;
@@ -19,7 +20,7 @@ impl RoomStateService {
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
         let encryption_events = self
-            .event_storage
+            .event_reader
             .get_state_events_by_type(room_id, "m.room.encryption")
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get encryption event content", &e))?;
@@ -108,7 +109,7 @@ impl RoomStateService {
     }
 
     pub async fn block_room(&self, room_id: &str, blocked_by: &str, reason: Option<&str>) -> ApiResult<()> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         self.room_storage
             .block_room(room_id, now, blocked_by, reason)
             .await
@@ -218,7 +219,7 @@ impl RoomStateService {
     pub async fn grant_room_admin(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         let event_id = synapse_common::generate_event_id(&self.server_name);
         let sender = format!("@admin:{}", self.server_name);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let power_levels = json!({
             "users": {
                 user_id: 100
@@ -232,14 +233,14 @@ impl RoomStateService {
             "invite": 0
         });
 
-        self.event_storage
+        self.event_writer
             .upsert_power_levels_event(&event_id, room_id, user_id, power_levels, now, &sender)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to grant room admin", &e))
     }
 
     pub async fn purge_history_before(&self, room_id: &str, timestamp: i64) -> ApiResult<u64> {
-        self.event_storage
+        self.event_writer
             .delete_events_before(room_id, timestamp)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to purge history", &e))
@@ -281,7 +282,7 @@ impl RoomStateService {
     }
 
     pub async fn check_room_has_encryption(&self, room_id: &str) -> ApiResult<bool> {
-        self.event_storage
+        self.event_reader
             .check_room_has_encryption(room_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to check room encryption status", &e))

@@ -1,5 +1,6 @@
 use super::models::{KeyRequestInfo, KeyRequestPagination};
 use sqlx::PgPool;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 #[derive(Clone)]
@@ -130,7 +131,7 @@ impl KeyRequestStorage {
     }
 
     pub async fn fulfill_request(&self, request_id: &str, device_id: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -172,7 +173,7 @@ impl KeyRequestStorage {
     }
 
     pub async fn update_request_status(&self, request_id: &str, status: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"

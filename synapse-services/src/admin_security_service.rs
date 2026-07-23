@@ -1,3 +1,4 @@
+use crate::UserService;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::ApiError;
@@ -13,6 +14,8 @@ pub struct UserRateLimit {
 
 pub struct AdminSecurityService {
     user_storage: Arc<dyn UserStore>,
+    #[allow(dead_code)]
+    user_service: Arc<UserService>,
     rate_limit_storage: Arc<dyn RateLimitStoreApi>,
     cache: Arc<CacheManager>,
 }
@@ -20,10 +23,11 @@ pub struct AdminSecurityService {
 impl AdminSecurityService {
     pub fn new(
         user_storage: Arc<dyn UserStore>,
+        user_service: Arc<UserService>,
         rate_limit_storage: Arc<dyn RateLimitStoreApi>,
         cache: Arc<CacheManager>,
     ) -> Self {
-        Self { user_storage, rate_limit_storage, cache }
+        Self { user_storage, user_service, rate_limit_storage, cache }
     }
 
     #[instrument(skip(self))]
@@ -98,7 +102,9 @@ mod tests {
     }
 
     fn test_service() -> AdminSecurityService {
-        AdminSecurityService::new(fake_user_store(), Arc::new(InMemoryRateLimitStore::new()), fake_cache())
+        let user_store = fake_user_store();
+        let user_service = Arc::new(crate::UserService::new(user_store.clone()));
+        AdminSecurityService::new(user_store, user_service, Arc::new(InMemoryRateLimitStore::new()), fake_cache())
     }
 
     #[tokio::test]
@@ -129,5 +135,36 @@ mod tests {
         let limit = svc.get_user_rate_limit("@alice:example.com").await.unwrap();
         assert_eq!(limit.messages_per_second, 5.0);
         assert_eq!(limit.burst_count, 10);
+    }
+
+    #[tokio::test]
+    async fn set_shadow_ban_updates_user() {
+        let svc = test_service();
+        // Initially not shadow banned
+        let user = svc.user_service.get_user_or_not_found("@alice:example.com").await.unwrap();
+        assert!(!user.is_shadow_banned);
+
+        svc.set_shadow_ban("@alice:example.com", true).await.unwrap();
+
+        let updated = svc.user_service.get_user_or_not_found("@alice:example.com").await.unwrap();
+        assert!(updated.is_shadow_banned);
+    }
+
+    #[tokio::test]
+    async fn set_shadow_ban_on_nonexistent_user_returns_not_found() {
+        let svc = test_service();
+        let result = svc.set_shadow_ban("@nonexistent:example.com", true).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn set_shadow_ban_false_removes_ban() {
+        let svc = test_service();
+        svc.set_shadow_ban("@alice:example.com", true).await.unwrap();
+        svc.set_shadow_ban("@alice:example.com", false).await.unwrap();
+
+        let user = svc.user_service.get_user_or_not_found("@alice:example.com").await.unwrap();
+        assert!(!user.is_shadow_banned);
     }
 }

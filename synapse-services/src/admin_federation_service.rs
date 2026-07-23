@@ -1,9 +1,10 @@
 use crate::federation_blacklist_service::{AddBlacklistRequest, FederationBlacklistService};
 use serde::Serialize;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::{
-    admin_federation::{AdminFederationStorage, FederationCacheRecord, FederationDestinationRecord},
+    admin_federation::{AdminFederationStoreApi, FederationCacheRecord, FederationDestinationRecord},
     federation_blacklist::FederationBlacklistStoreApi,
 };
 use tracing::{info, instrument, warn};
@@ -93,14 +94,14 @@ type DestinationListResult = Result<(Vec<DestinationInfo>, i64, Option<Destinati
 type PendingFederationListResult = Result<(Vec<PendingFederationInfo>, i64, Option<PendingFederationCursor>), ApiError>;
 
 pub struct AdminFederationService {
-    storage: AdminFederationStorage,
+    storage: Arc<dyn AdminFederationStoreApi>,
     federation_blacklist_storage: Arc<dyn FederationBlacklistStoreApi>,
     federation_blacklist_service: Arc<FederationBlacklistService>,
 }
 
 impl AdminFederationService {
     pub fn new(
-        storage: AdminFederationStorage,
+        storage: Arc<dyn AdminFederationStoreApi>,
         federation_blacklist_storage: Arc<dyn FederationBlacklistStoreApi>,
         federation_blacklist_service: Arc<FederationBlacklistService>,
     ) -> Self {
@@ -245,7 +246,7 @@ impl AdminFederationService {
         accept: bool,
         admin_user_id: &str,
     ) -> Result<ConfirmFederationResult, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let new_status = if accept { "active" } else { "rejected" };
 
         let existing = self
@@ -432,7 +433,7 @@ impl AdminFederationService {
             Some(None) => Ok(Some("active".to_string())),
             // Server is unknown: register as pending and signal the caller.
             None => {
-                let now = chrono::Utc::now().timestamp_millis();
+                let now = current_timestamp_millis();
                 let _ = self
                     .storage
                     .insert_pending_server(server_name, now)

@@ -1,7 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::Arc;
 use std::sync::{Mutex, OnceLock};
-use synapse_storage::event::{CreateEventParams, EventStorage};
+use synapse_common::current_timestamp_millis;
+use synapse_storage::event::{CreateEventParams, EventStorage, SinceFilter};
 
 fn event_storage_test_guard() -> &'static Mutex<()> {
     static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
@@ -25,7 +26,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
             depth BIGINT,
             stream_ordering BIGSERIAL,
             origin_server_ts BIGINT NOT NULL,
-            processed_ts BIGINT,
+            processed_at BIGINT,
             not_before BIGINT,
             is_redacted BOOLEAN DEFAULT FALSE,
             status TEXT,
@@ -47,7 +48,7 @@ async fn teardown_test_database(pool: &sqlx::PgPool) {
 #[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn test_create_event_success() {
-    let _guard = event_storage_test_guard().lock().unwrap();
+    let _guard = event_storage_test_guard().lock().unwrap_or_else(|e| e.into_inner());
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
@@ -59,7 +60,7 @@ async fn test_create_event_success() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "Hello"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
 
@@ -74,7 +75,7 @@ async fn test_create_event_success() {
 #[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn test_get_room_events_batch_empty() {
-    let _guard = event_storage_test_guard().lock().unwrap();
+    let _guard = event_storage_test_guard().lock().unwrap_or_else(|e| e.into_inner());
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
@@ -89,12 +90,12 @@ async fn test_get_room_events_batch_empty() {
 #[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn test_get_room_events_batch_multiple_rooms() {
-    let _guard = event_storage_test_guard().lock().unwrap();
+    let _guard = event_storage_test_guard().lock().unwrap_or_else(|e| e.into_inner());
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
 
-    let ts = chrono::Utc::now().timestamp_millis();
+    let ts = current_timestamp_millis();
 
     for i in 1..=3 {
         let params = CreateEventParams {
@@ -128,12 +129,12 @@ async fn test_get_room_events_batch_multiple_rooms() {
 #[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn test_get_room_events_since_batch() {
-    let _guard = event_storage_test_guard().lock().unwrap();
+    let _guard = event_storage_test_guard().lock().unwrap_or_else(|e| e.into_inner());
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
 
-    let base_ts = chrono::Utc::now().timestamp_millis();
+    let base_ts = current_timestamp_millis();
     let room_id = "!room_batch:localhost".to_string();
 
     for i in 1..=5 {
@@ -152,7 +153,7 @@ async fn test_get_room_events_since_batch() {
 
     let room_ids = vec![room_id];
 
-    let result = storage.get_room_events_since_batch(&room_ids, base_ts + 2500, 10).await;
+    let result = storage.get_room_events_batch_since(&room_ids, SinceFilter::OriginServerTs(base_ts + 2500), 10).await;
     assert!(result.is_ok());
 
     let events_map = result.unwrap();
@@ -165,12 +166,12 @@ async fn test_get_room_events_since_batch() {
 #[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn test_get_room_events_batch_limit_per_room() {
-    let _guard = event_storage_test_guard().lock().unwrap();
+    let _guard = event_storage_test_guard().lock().unwrap_or_else(|e| e.into_inner());
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
 
-    let base_ts = chrono::Utc::now().timestamp_millis();
+    let base_ts = current_timestamp_millis();
     let room_id = "!room_limit:localhost".to_string();
 
     for i in 1..=10 {
@@ -201,12 +202,12 @@ async fn test_get_room_events_batch_limit_per_room() {
 #[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn test_encrypted_event_origin_decode_handles_null_boundary_and_malformed_values() {
-    let _guard = event_storage_test_guard().lock().unwrap();
+    let _guard = event_storage_test_guard().lock().unwrap_or_else(|e| e.into_inner());
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
     let storage = EventStorage::new(&pool, "localhost".to_string());
     let room_id = "!origin-room:localhost";
-    let base_ts = chrono::Utc::now().timestamp_millis();
+    let base_ts = current_timestamp_millis();
     let cases = [
         ("$origin_null:localhost", None, "self"),
         ("$origin_empty:localhost", Some(""), "self"),
@@ -220,7 +221,7 @@ async fn test_encrypted_event_origin_decode_handles_null_boundary_and_malformed_
             r#"
                 INSERT INTO events (
                     event_id, room_id, user_id, sender, event_type, content,
-                    state_key, depth, origin_server_ts, processed_ts, not_before,
+                    state_key, depth, origin_server_ts, processed_at, not_before,
                     status, reference_image, origin, unsigned
                 )
                 VALUES (

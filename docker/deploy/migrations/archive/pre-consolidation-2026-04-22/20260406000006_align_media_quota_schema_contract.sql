@@ -182,7 +182,7 @@ ALTER TABLE server_media_quota
     ALTER COLUMN current_files_count SET NOT NULL,
     ALTER COLUMN alert_threshold_percent SET NOT NULL;
 
-INSERT INTO schema_migrations (version, name, success, description, applied_ts)
+INSERT INTO schema_migrations (version, name, is_success, description, applied_ts)
 VALUES (
     '20260406000006',
     'align_media_quota_schema_contract',

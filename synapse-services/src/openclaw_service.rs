@@ -1,5 +1,4 @@
 use sha2::{Digest, Sha256};
-use std::net::IpAddr;
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::openclaw::{
@@ -25,16 +24,22 @@ impl OpenClawService {
 
     /// Resolve the API key encryption key from environment / config.
     pub fn resolve_encryption_key(macaroon_secret_key: Option<&str>, security_secret: &str) -> Option<[u8; 32]> {
-        let explicit = std::env::var("API_KEY_ENCRYPTION_KEY").ok();
-        let config_secret = macaroon_secret_key
-            .map(|s| s.to_string())
-            .or_else(|| Some(security_secret.to_string()))
-            .filter(|value| !value.trim().is_empty());
+        let explicit = std::env::var("API_KEY_ENCRYPTION_KEY").ok().filter(|v| !v.trim().is_empty());
 
-        explicit
-            .filter(|value| !value.trim().is_empty())
-            .or(config_secret)
-            .map(|secret| derive_api_key_encryption_key(secret.trim()))
+        // Try macaroon_secret_key first, then fall back to security_secret.
+        // Each must be filtered for emptiness BEFORE the fallback, so that
+        // `Some("")` correctly triggers the `or_else` branch.
+        let config_secret =
+            macaroon_secret_key.map(|s| s.to_string()).filter(|value| !value.trim().is_empty()).or_else(|| {
+                let s = security_secret.to_string();
+                if s.trim().is_empty() {
+                    None
+                } else {
+                    Some(s)
+                }
+            });
+
+        explicit.or(config_secret).map(|secret| derive_api_key_encryption_key(secret.trim()))
     }
 
     // -----------------------------------------------------------------------
@@ -72,40 +77,48 @@ impl OpenClawService {
             return Err(ApiError::bad_request("OpenClaw base_url must use http or https".to_string()));
         }
 
+        // `url.host()` returns the parsed `Host` enum, which correctly handles
+        // IPv6 addresses (unlike `host_str()` which wraps them in `[...]`
+        // brackets that `IpAddr::from_str` cannot parse).
         let host =
-            url.host_str().ok_or_else(|| ApiError::bad_request("OpenClaw base_url must include a host".to_string()))?;
+            url.host().ok_or_else(|| ApiError::bad_request("OpenClaw base_url must include a host".to_string()))?;
 
-        let is_forbidden_host = host.eq_ignore_ascii_case("localhost")
-            || host.eq_ignore_ascii_case("localhost.")
-            || host.ends_with(".localhost");
+        match host {
+            url::Host::Domain(domain) => {
+                let is_forbidden_host = domain.eq_ignore_ascii_case("localhost")
+                    || domain.eq_ignore_ascii_case("localhost.")
+                    || domain.ends_with(".localhost");
 
-        if is_forbidden_host {
-            return Err(ApiError::bad_request("OpenClaw base_url cannot target localhost".to_string()));
-        }
-
-        if let Ok(ip) = host.parse::<IpAddr>() {
-            let forbidden_ip = match ip {
-                IpAddr::V4(ip) => {
-                    ip.is_private()
-                        || ip.is_loopback()
-                        || ip.is_link_local()
-                        || ip.is_broadcast()
-                        || ip.is_multicast()
-                        || ip.is_unspecified()
+                if is_forbidden_host {
+                    return Err(ApiError::bad_request("OpenClaw base_url cannot target localhost".to_string()));
                 }
-                IpAddr::V6(ip) => {
-                    ip.is_loopback()
-                        || ip.is_multicast()
-                        || ip.is_unspecified()
-                        || ip.is_unique_local()
-                        || ip.is_unicast_link_local()
-                }
-            };
+            }
+            url::Host::Ipv4(ip) => {
+                let forbidden = ip.is_private()
+                    || ip.is_loopback()
+                    || ip.is_link_local()
+                    || ip.is_broadcast()
+                    || ip.is_multicast()
+                    || ip.is_unspecified();
 
-            if forbidden_ip {
-                return Err(ApiError::bad_request(
-                    "OpenClaw base_url cannot target local or private IP ranges".to_string(),
-                ));
+                if forbidden {
+                    return Err(ApiError::bad_request(
+                        "OpenClaw base_url cannot target local or private IP ranges".to_string(),
+                    ));
+                }
+            }
+            url::Host::Ipv6(ip) => {
+                let forbidden = ip.is_loopback()
+                    || ip.is_multicast()
+                    || ip.is_unspecified()
+                    || ip.is_unique_local()
+                    || ip.is_unicast_link_local();
+
+                if forbidden {
+                    return Err(ApiError::bad_request(
+                        "OpenClaw base_url cannot target local or private IP ranges".to_string(),
+                    ));
+                }
             }
         }
 
@@ -774,7 +787,7 @@ fn encrypt_api_key(key: &str, encryption_key: &[u8; 32]) -> Result<String, ApiEr
 
 #[cfg(test)]
 mod tests {
-    use super::derive_api_key_encryption_key;
+    use super::*;
 
     #[test]
     fn test_derive_api_key_encryption_key_is_deterministic_and_hashed() {
@@ -785,5 +798,335 @@ mod tests {
         assert_eq!(first, second);
         assert_ne!(first, different);
         assert_ne!(&first[..12], b"short-secret");
+    }
+
+    // -----------------------------------------------------------------------
+    // ensure_user_allowed
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_ensure_user_allowed_when_not_guest() {
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), None);
+        assert!(service.ensure_user_allowed(false).is_ok());
+    }
+
+    #[test]
+    fn test_ensure_user_allowed_when_guest() {
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), None);
+        let result = service.ensure_user_allowed(true);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Guest access"));
+    }
+
+    // -----------------------------------------------------------------------
+    // ensure_resource_owner
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_ensure_resource_owner_when_same_user() {
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), None);
+        assert!(service.ensure_resource_owner("@alice:example.com", "@alice:example.com", "Not found").is_ok());
+    }
+
+    #[test]
+    fn test_ensure_resource_owner_when_different_user() {
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), None);
+        let result = service.ensure_resource_owner("@alice:example.com", "@bob:example.com", "Not found");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Not found"));
+    }
+
+    // -----------------------------------------------------------------------
+    // validate_base_url
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_validate_base_url_accepts_https() {
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), None);
+        assert!(service.validate_base_url("https://api.example.com").is_ok());
+    }
+
+    #[test]
+    fn test_validate_base_url_accepts_http() {
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), None);
+        assert!(service.validate_base_url("http://api.example.com").is_ok());
+    }
+
+    #[test]
+    fn test_validate_base_url_rejects_localhost() {
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), None);
+        let result = service.validate_base_url("https://localhost:8080");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("localhost"));
+    }
+
+    #[test]
+    fn test_validate_base_url_rejects_localhost_subdomain() {
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), None);
+        let result = service.validate_base_url("https://app.localhost");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("localhost"));
+    }
+
+    #[test]
+    fn test_validate_base_url_rejects_private_ip() {
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), None);
+        let result = service.validate_base_url("https://192.168.1.1");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("private"));
+    }
+
+    #[test]
+    fn test_validate_base_url_rejects_loopback_ip() {
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), None);
+        let result = service.validate_base_url("https://127.0.0.1");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("private"));
+    }
+
+    #[test]
+    fn test_validate_base_url_rejects_ftp_scheme() {
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), None);
+        let result = service.validate_base_url("ftp://api.example.com");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("http or https"));
+    }
+
+    #[test]
+    fn test_validate_base_url_rejects_invalid_url() {
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), None);
+        let result = service.validate_base_url("not-a-url");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid"));
+    }
+
+    #[test]
+    fn test_validate_base_url_rejects_ipv6_loopback() {
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), None);
+        let result = service.validate_base_url("https://[::1]");
+        assert!(result.is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // encrypt_optional_api_key
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_encrypt_optional_api_key_with_none() {
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), None);
+        let result = service.encrypt_optional_api_key(None);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_encrypt_optional_api_key_without_encryption_key() {
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), None);
+        let result = service.encrypt_optional_api_key(Some("my-api-key".to_string()));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not configured"));
+    }
+
+    #[test]
+    fn test_encrypt_optional_api_key_with_encryption_key() {
+        let key = derive_api_key_encryption_key("test-secret-12345678901234567890");
+        let service = OpenClawService::new(Arc::new(FakeOpenClawStore), Some(key));
+        let result = service.encrypt_optional_api_key(Some("my-api-key".to_string()));
+        assert!(result.is_ok());
+        let encrypted = result.unwrap();
+        assert!(encrypted.is_some());
+        // Encrypted value should be base64 and different from original
+        let encrypted_str = encrypted.unwrap();
+        assert_ne!(encrypted_str, "my-api-key");
+        // Should be valid base64 (no padding issues)
+        assert!(!encrypted_str.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // resolve_encryption_key
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_resolve_encryption_key_from_macaroon_secret() {
+        let key = OpenClawService::resolve_encryption_key(Some("my-secret-key"), "fallback");
+        assert!(key.is_some());
+        // Same secret should produce same key
+        let key2 = OpenClawService::resolve_encryption_key(Some("my-secret-key"), "fallback");
+        assert_eq!(key.unwrap(), key2.unwrap());
+    }
+
+    #[test]
+    fn test_resolve_encryption_key_from_security_secret() {
+        let key = OpenClawService::resolve_encryption_key(None, "security-secret");
+        assert!(key.is_some());
+    }
+
+    #[test]
+    fn test_resolve_encryption_key_empty_secret_falls_back() {
+        // Empty macaroon_secret falls back to security_secret
+        let key = OpenClawService::resolve_encryption_key(Some(""), "fallback-secret");
+        assert!(key.is_some());
+    }
+
+    // Fake mock storage for tests that need it
+    struct FakeOpenClawStore;
+
+    #[async_trait::async_trait]
+    impl OpenClawStoreApi for FakeOpenClawStore {
+        async fn create_connection(
+            &self,
+            _params: synapse_storage::openclaw::CreateConnectionParams<'_>,
+        ) -> Result<synapse_storage::openclaw::OpenClawConnection, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn get_connection(
+            &self,
+            _id: i64,
+        ) -> Result<Option<synapse_storage::openclaw::OpenClawConnection>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn get_user_connections(
+            &self,
+            _user_id: &str,
+        ) -> Result<Vec<synapse_storage::openclaw::OpenClawConnection>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn get_default_connection(
+            &self,
+            _user_id: &str,
+        ) -> Result<Option<synapse_storage::openclaw::OpenClawConnection>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn update_connection(
+            &self,
+            _params: synapse_storage::openclaw::UpdateConnectionParams<'_>,
+        ) -> Result<synapse_storage::openclaw::OpenClawConnection, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn delete_connection(&self, _id: i64) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn create_conversation(
+            &self,
+            _params: synapse_storage::openclaw::CreateConversationParams<'_>,
+        ) -> Result<synapse_storage::openclaw::AiConversation, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn get_conversation(
+            &self,
+            _id: i64,
+        ) -> Result<Option<synapse_storage::openclaw::AiConversation>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn get_user_conversations(
+            &self,
+            _user_id: &str,
+            _limit: i64,
+            _from: Option<synapse_storage::openclaw::ConversationCursor>,
+        ) -> Result<(Vec<synapse_storage::openclaw::AiConversation>, Option<String>), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn update_conversation(
+            &self,
+            _id: i64,
+            _title: Option<&str>,
+            _system_prompt: Option<&str>,
+            _temperature: Option<f32>,
+            _max_tokens: Option<i32>,
+            _is_pinned: Option<bool>,
+        ) -> Result<synapse_storage::openclaw::AiConversation, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn delete_conversation(&self, _id: i64) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn create_message(
+            &self,
+            _conversation_id: i64,
+            _role: &str,
+            _content: &str,
+            _token_count: Option<i32>,
+            _tool_calls: Option<serde_json::Value>,
+            _tool_call_id: Option<&str>,
+        ) -> Result<synapse_storage::openclaw::AiMessage, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn get_conversation_messages(
+            &self,
+            _conversation_id: i64,
+            _limit: i64,
+            _from: Option<synapse_storage::openclaw::MessageCursor>,
+        ) -> Result<(Vec<synapse_storage::openclaw::AiMessage>, Option<String>), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn get_message(&self, _id: i64) -> Result<Option<synapse_storage::openclaw::AiMessage>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn delete_message(&self, _id: i64) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn create_generation(
+            &self,
+            _user_id: &str,
+            _conversation_id: Option<i64>,
+            _gen_type: &str,
+            _prompt: &str,
+        ) -> Result<synapse_storage::openclaw::AiGeneration, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn update_generation_status(
+            &self,
+            _id: i64,
+            _status: &str,
+            _result_url: Option<&str>,
+            _result_mxc: Option<&str>,
+            _error_message: Option<&str>,
+        ) -> Result<synapse_storage::openclaw::AiGeneration, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn get_generation(
+            &self,
+            _id: i64,
+        ) -> Result<Option<synapse_storage::openclaw::AiGeneration>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn get_user_generations(
+            &self,
+            _user_id: &str,
+            _gen_type: Option<&str>,
+            _limit: i64,
+            _from: Option<synapse_storage::openclaw::GenerationCursor>,
+        ) -> Result<(Vec<synapse_storage::openclaw::AiGeneration>, Option<String>), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn delete_generation(&self, _id: i64) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
+        async fn create_chat_role(
+            &self,
+            _params: synapse_storage::openclaw::CreateChatRoleParams<'_>,
+        ) -> Result<synapse_storage::openclaw::AiChatRole, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn get_chat_role(&self, _id: i64) -> Result<Option<synapse_storage::openclaw::AiChatRole>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn get_user_chat_roles(
+            &self,
+            _user_id: &str,
+        ) -> Result<Vec<synapse_storage::openclaw::AiChatRole>, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn update_chat_role(
+            &self,
+            _params: synapse_storage::openclaw::UpdateChatRoleParams<'_>,
+        ) -> Result<synapse_storage::openclaw::AiChatRole, sqlx::Error> {
+            unimplemented!()
+        }
+        async fn delete_chat_role(&self, _id: i64) -> Result<(), sqlx::Error> {
+            unimplemented!()
+        }
     }
 }

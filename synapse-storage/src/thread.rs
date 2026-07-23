@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ThreadRoot {
@@ -10,7 +11,7 @@ pub struct ThreadRoot {
     pub root_event_id: String,
     pub sender: String,
     pub thread_id: Option<String>,
-    pub reply_count: i64,
+    pub reply_count: Option<i64>,
     pub last_reply_event_id: Option<String>,
     pub last_reply_sender: Option<String>,
     pub last_reply_ts: Option<i64>,
@@ -156,7 +157,7 @@ impl ThreadStorage {
     }
 
     pub async fn create_thread_root(&self, params: CreateThreadRootParams) -> Result<ThreadRoot, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, ThreadRoot>(
             r"
@@ -299,7 +300,7 @@ impl ThreadStorage {
     }
 
     pub async fn create_thread_reply(&self, params: CreateThreadReplyParams) -> Result<ThreadReply, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
 
         let reply = sqlx::query_as::<_, ThreadReply>(
@@ -445,7 +446,7 @@ impl ThreadStorage {
         user_id: &str,
         notification_level: &str,
     ) -> Result<ThreadSubscription, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, ThreadSubscription>(
             r"
@@ -496,7 +497,7 @@ impl ThreadStorage {
         thread_id: &str,
         user_id: &str,
     ) -> Result<ThreadSubscription, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, ThreadSubscription>(
             r"
@@ -568,7 +569,7 @@ impl ThreadStorage {
         event_id: &str,
         origin_server_ts: i64,
     ) -> Result<ThreadReadReceipt, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, ThreadReadReceipt>(
             r"
@@ -620,7 +621,7 @@ impl ThreadStorage {
         thread_id: &str,
         user_id: &str,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -652,7 +653,7 @@ impl ThreadStorage {
         thread_id: Option<&str>,
         is_falling_back: bool,
     ) -> Result<ThreadRelation, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query_as::<_, ThreadRelation>(
             r"
@@ -1008,7 +1009,7 @@ impl ThreadStorage {
     }
 
     pub async fn freeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             UPDATE thread_roots
@@ -1026,7 +1027,7 @@ impl ThreadStorage {
     }
 
     pub async fn unfreeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             UPDATE thread_roots
@@ -1055,7 +1056,7 @@ mod tests {
             root_event_id: "$event1".to_string(),
             sender: "@user:example.com".to_string(),
             thread_id: Some("thread-001".to_string()),
-            reply_count: 0,
+            reply_count: Some(0),
             last_reply_event_id: None,
             last_reply_sender: None,
             last_reply_ts: None,
@@ -1103,7 +1104,7 @@ mod tests {
         assert_eq!(thread.id, 1);
         assert_eq!(thread.room_id, "!test:example.com");
         assert_eq!(thread.sender, "@user:example.com");
-        assert_eq!(thread.reply_count, 0);
+        assert_eq!(thread.reply_count, Some(0));
         assert!(!thread.is_fetched);
     }
 
@@ -1215,7 +1216,7 @@ mod db_tests {
     }
 
     async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING"#,
@@ -1234,7 +1235,7 @@ mod db_tests {
         )
         .bind(room_id)
         .bind("@test:localhost")
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool)
         .await
         .expect("failed to create test room");
@@ -1298,7 +1299,7 @@ mod db_tests {
         assert!(root.id > 0);
         assert_eq!(root.room_id, room_id);
         assert_eq!(root.thread_id, Some(thread_id.clone()));
-        assert_eq!(root.reply_count, 0);
+        assert_eq!(root.reply_count, Some(0));
         assert!(!root.is_fetched);
 
         cleanup_thread_data(&pool, &room_id, &thread_id).await;
@@ -1475,7 +1476,7 @@ mod db_tests {
             .await
             .expect("should create thread root");
 
-        let ts = chrono::Utc::now().timestamp_millis();
+        let ts = current_timestamp_millis();
         let reply = storage
             .create_thread_reply(CreateThreadReplyParams {
                 room_id: room_id.clone(),
@@ -1521,7 +1522,7 @@ mod db_tests {
             .await
             .expect("should create thread root");
 
-        let ts1 = chrono::Utc::now().timestamp_millis();
+        let ts1 = current_timestamp_millis();
         let ts2 = ts1 + 1;
         storage
             .create_thread_reply(CreateThreadReplyParams {
@@ -1593,7 +1594,7 @@ mod db_tests {
                 sender: "@r1:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "reply1"}),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
             })
             .await
             .expect("should create reply1");
@@ -1610,7 +1611,7 @@ mod db_tests {
                 sender: "@r2:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "reply2"}),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
             })
             .await
             .expect("should create reply2");
@@ -1793,7 +1794,7 @@ mod db_tests {
             .await
             .expect("should create thread root");
 
-        let ts = chrono::Utc::now().timestamp_millis();
+        let ts = current_timestamp_millis();
         let receipt = storage
             .update_read_receipt(&room_id, &thread_id, &user_id, "$event_last", ts)
             .await
@@ -1838,7 +1839,7 @@ mod db_tests {
             .expect("should create root");
 
         storage
-            .update_read_receipt(&room_id, &thread_id, &user_id, "$event_123", chrono::Utc::now().timestamp_millis())
+            .update_read_receipt(&room_id, &thread_id, &user_id, "$event_123", current_timestamp_millis())
             .await
             .expect("should update receipt");
 
@@ -1881,7 +1882,7 @@ mod db_tests {
                 sender: "@replier:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "reply"}),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
             })
             .await
             .expect("should create reply");
@@ -1960,7 +1961,7 @@ mod db_tests {
                 sender: "@senderB:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "reply"}),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
             })
             .await
             .expect("should create reply");
@@ -2194,7 +2195,7 @@ mod db_tests {
                 sender: "@replier:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "original"}),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
             })
             .await
             .expect("should create reply");
@@ -2247,7 +2248,7 @@ mod db_tests {
                 sender: "@replier:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "original content"}),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
             })
             .await
             .expect("should create reply");
@@ -2356,7 +2357,7 @@ mod db_tests {
                 sender: "@reply_sender:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "a reply"}),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
             })
             .await
             .expect("should create reply");
@@ -2398,7 +2399,7 @@ mod db_tests {
         ensure_test_room(&pool, &room_id).await;
         cleanup_thread_data(&pool, &room_id, &thread_id).await;
 
-        let ts = chrono::Utc::now().timestamp_millis();
+        let ts = current_timestamp_millis();
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
@@ -2464,7 +2465,7 @@ mod db_tests {
         cleanup_thread_data(&pool, &room_id, &thread_id).await;
 
         // Insert an event with searchable body content
-        let ts = chrono::Utc::now().timestamp_millis();
+        let ts = current_timestamp_millis();
         insert_test_event(&pool, &root_event_id, &room_id, "@sender:localhost", "UniqueSearchableKeyword content", ts)
             .await;
 
@@ -2501,7 +2502,7 @@ mod db_tests {
         ensure_test_room(&pool, &room_id).await;
         cleanup_thread_data(&pool, &room_id, &thread_id).await;
 
-        let ts = chrono::Utc::now().timestamp_millis();
+        let ts = current_timestamp_millis();
         insert_test_event(&pool, &root_event_id, &room_id, "@sender:localhost", "some body text", ts).await;
 
         storage
@@ -2732,7 +2733,7 @@ mod db_tests {
         // The `from` cursor filters by event_id > $3, so use sortable IDs
         let event_a = format!("aaa_reply_{suffix}");
         let event_b = format!("bbb_reply_{suffix}");
-        let ts = chrono::Utc::now().timestamp_millis();
+        let ts = current_timestamp_millis();
         for (i, eid) in [event_a.clone(), event_b.clone()].iter().enumerate() {
             storage
                 .create_thread_reply(CreateThreadReplyParams {

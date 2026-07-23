@@ -5,6 +5,7 @@
 use async_trait::async_trait;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[async_trait]
 pub trait InviteBlocklistStoreApi: Send + Sync {
@@ -31,7 +32,7 @@ impl InviteBlocklistStorage {
 
     /// Set the invite blocklist for a room (users that cannot be invited)
     pub async fn set_invite_blocklist(&self, room_id: &str, user_ids: Vec<String>) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         // Clear existing blocklist
         sqlx::query("DELETE FROM room_invite_blocklist WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
@@ -87,7 +88,7 @@ impl InviteBlocklistStorage {
 
     /// Set the invite allowlist for a room (only these users can be invited)
     pub async fn set_invite_allowlist(&self, room_id: &str, user_ids: Vec<String>) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         // Clear existing allowlist
         sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
@@ -277,7 +278,7 @@ mod db_tests {
     /// Insert a minimal room row so the FK constraint on
     /// room_invite_blocklist/room_invite_allowlist.room_id is satisfied.
     async fn ensure_test_room(pool: &PgPool, room_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO rooms (room_id, created_ts)
                VALUES ($1, $2)

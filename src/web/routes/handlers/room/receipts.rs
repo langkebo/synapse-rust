@@ -7,6 +7,7 @@ use crate::web::routes::{
 };
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 pub(crate) async fn send_receipt(
     State(ctx): State<RoomContext>,
@@ -25,7 +26,7 @@ pub(crate) async fn send_receipt(
     // remote echo has landed in the event store. Synapse tolerates that race; we
     // therefore treat "event not found" as a compatibility no-op while still
     // rejecting receipts that explicitly target an event from another room.
-    if let Some(event) = ctx.room_service.messaging.get_event_record(&event_id).await? {
+    if let Some(event) = ctx.room_service.messaging().get_event_record(&event_id).await? {
         if event.room_id != room_id {
             return Err(ApiError::not_found("Event not found".to_string()));
         }
@@ -34,19 +35,19 @@ pub(crate) async fn send_receipt(
             "room_id": room_id,
             "event_id": event_id,
             "receipt_type": receipt_type,
-            "ts": chrono::Utc::now().timestamp_millis()
+            "ts": current_timestamp_millis()
         })));
     }
 
     let body: Value = if body.trim().is_empty() { json!({}) } else { serde_json::from_str(&body).unwrap_or(json!({})) };
 
-    ctx.room_service.messaging.send_receipt(&room_id, &auth_user.user_id, &event_id, &receipt_type, &body).await?;
+    ctx.room_service.messaging().send_receipt(&room_id, &auth_user.user_id, &event_id, &receipt_type, &body).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
         "event_id": event_id,
         "receipt_type": receipt_type,
-        "ts": chrono::Utc::now().timestamp_millis()
+        "ts": current_timestamp_millis()
     })))
 }
 
@@ -63,7 +64,7 @@ pub(crate) async fn get_receipts(
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
     get_room_event(&ctx, &room_id, &event_id).await?;
 
-    let receipts = ctx.room_service.messaging.get_receipts(&room_id, &receipt_type, &event_id).await?;
+    let receipts = ctx.room_service.messaging().get_receipts(&room_id, &receipt_type, &event_id).await?;
 
     Ok(Json(json!({
         "receipts": receipts
@@ -88,10 +89,10 @@ pub(crate) async fn set_read_markers(
         return Err(ApiError::forbidden("You are not a member of this room".to_string()));
     }
 
-    ctx.room_service.messaging.set_read_markers(&room_id, &auth_user.user_id, &body).await?;
+    ctx.room_service.messaging().set_read_markers(&room_id, &auth_user.user_id, &body).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }

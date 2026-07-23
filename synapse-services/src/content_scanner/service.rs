@@ -1,4 +1,5 @@
 use super::models::*;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use tokio::time::{timeout, Duration};
 
@@ -22,7 +23,7 @@ impl ContentScanner {
                 safe: true,
                 threat_type: None,
                 threat_message: None,
-                scan_timestamp: chrono::Utc::now().timestamp_millis(),
+                scan_timestamp: current_timestamp_millis(),
             });
         }
 
@@ -33,7 +34,7 @@ impl ContentScanner {
                 safe: true,
                 threat_type: None,
                 threat_message: None,
-                scan_timestamp: chrono::Utc::now().timestamp_millis(),
+                scan_timestamp: current_timestamp_millis(),
             }),
         }
     }
@@ -93,7 +94,7 @@ impl ContentScanner {
             safe: is_safe,
             threat_type: if is_safe { None } else { Some("virus".to_string()) },
             threat_message: if is_safe { None } else { Some(response.trim().to_string()) },
-            scan_timestamp: chrono::Utc::now().timestamp_millis(),
+            scan_timestamp: current_timestamp_millis(),
         })
     }
 
@@ -131,7 +132,7 @@ impl ContentScanner {
                 safe: true,
                 threat_type: None,
                 threat_message: Some("Scan service unavailable".to_string()),
-                scan_timestamp: chrono::Utc::now().timestamp_millis(),
+                scan_timestamp: current_timestamp_millis(),
             });
         }
 
@@ -142,7 +143,7 @@ impl ContentScanner {
             safe: scan_response.safe,
             threat_type: scan_response.threat_type,
             threat_message: scan_response.threat_message,
-            scan_timestamp: chrono::Utc::now().timestamp_millis(),
+            scan_timestamp: current_timestamp_millis(),
         })
     }
 

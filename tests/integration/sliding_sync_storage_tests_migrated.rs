@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_storage::sliding_sync::{
     decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomTokenSyncCursor, SlidingSyncFilters,
     SlidingSyncListQuery, SlidingSyncStorage,
@@ -89,7 +90,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
             is_dm BOOLEAN DEFAULT FALSE,
             is_encrypted BOOLEAN DEFAULT FALSE,
             is_tombstoned BOOLEAN DEFAULT FALSE,
-            invited BOOLEAN DEFAULT FALSE,
+            is_invited BOOLEAN DEFAULT FALSE,
             name TEXT,
             avatar TEXT,
             timestamp BIGINT DEFAULT 0,
@@ -388,7 +389,7 @@ async fn test_upsert_room_creates_new() {
 
     assert_eq!(room.user_id, user_id);
     assert_eq!(room.room_id, room_id);
-    assert_eq!(room.bump_stamp, 1000);
+    assert_eq!(room.bump_stamp, Some(1000));
     assert_eq!(room.highlight_count, 2);
     assert_eq!(room.notification_count, 5);
     assert!(room.is_dm);
@@ -448,7 +449,7 @@ async fn test_upsert_room_updates_existing() {
         .await
         .unwrap();
 
-    assert_eq!(updated.bump_stamp, 2000);
+    assert_eq!(updated.bump_stamp, Some(2000));
     assert_eq!(updated.highlight_count, 3);
     assert_eq!(updated.notification_count, 7);
     assert!(updated.is_dm);
@@ -507,7 +508,7 @@ async fn test_upsert_room_bump_stamp_uses_greatest() {
         .await
         .unwrap();
 
-    assert_eq!(updated.bump_stamp, 5000);
+    assert_eq!(updated.bump_stamp, Some(5000));
 }
 
 #[tokio::test]
@@ -719,12 +720,12 @@ async fn test_bump_room_increases_stamp() {
     storage.bump_room(&user_id, "DEV1", &room_id, None, 3000).await.unwrap();
 
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
-    assert_eq!(room.bump_stamp, 3000);
+    assert_eq!(room.bump_stamp, Some(3000));
 
     storage.bump_room(&user_id, "DEV1", &room_id, None, 2000).await.unwrap();
 
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
-    assert_eq!(room.bump_stamp, 3000);
+    assert_eq!(room.bump_stamp, Some(3000));
 }
 
 #[tokio::test]
@@ -1036,7 +1037,7 @@ async fn test_cleanup_expired_tokens() {
 
     let token = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
 
-    let past_expiry = chrono::Utc::now().timestamp_millis() - 1000;
+    let past_expiry = current_timestamp_millis() - 1000;
     sqlx::query("UPDATE sliding_sync_tokens SET expires_at = $1 WHERE id = $2")
         .bind(past_expiry)
         .bind(token.id)

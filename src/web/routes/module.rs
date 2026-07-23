@@ -1,4 +1,5 @@
 use crate::common::error::ApiError;
+use crate::web::routes::context::AdminContext;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -202,7 +203,7 @@ impl From<ThirdPartyRuleResult> for ThirdPartyRuleResultResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AccountValidityResponse {
     pub user_id: String,
-    pub expiration_ts: i64,
+    pub expiration_ts: Option<i64>,
     pub last_check_at: Option<i64>,
     pub renewal_token: Option<String>,
     pub is_valid: bool,
@@ -210,8 +211,8 @@ pub struct AccountValidityResponse {
     pub updated_ts: i64,
 }
 
-async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
-    let user = state.services.account.account_identity_service.get_user_by_identifier(user_id).await?;
+async fn ensure_user_exists(ctx: &AdminContext, user_id: &str) -> Result<(), ApiError> {
+    let user = ctx.account_identity_service.get_user_by_identifier(user_id).await?;
 
     if user.is_none() {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -325,7 +326,7 @@ pub struct SpamCheckQuery {
 }
 
 pub async fn create_module(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Json(body): Json<CreateModuleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -339,34 +340,28 @@ pub async fn create_module(
         config: body.config,
     };
 
-    let module = state.services.admin.modules.module_service.register_module(request).await?;
+    let module = ctx.module_service.register_module(request).await?;
 
     Ok((StatusCode::CREATED, Json(ModuleResponse::from(module))))
 }
 
 pub async fn get_module(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(module_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let module = state
-        .services
-        .admin
-        .modules
-        .module_service
-        .get_module(&module_name)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Module not found"))?;
+    let module =
+        ctx.module_service.get_module(&module_name).await?.ok_or_else(|| ApiError::not_found("Module not found"))?;
 
     Ok(Json(ModuleResponse::from(module)))
 }
 
 pub async fn get_modules_by_type(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(module_type): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let modules = state.services.admin.modules.module_service.get_modules_by_type(&module_type).await?;
+    let modules = ctx.module_service.get_modules_by_type(&module_type).await?;
 
     let responses: Vec<ModuleResponse> = modules.into_iter().map(ModuleResponse::from).collect();
 
@@ -374,13 +369,13 @@ pub async fn get_modules_by_type(
 }
 
 pub async fn get_all_modules(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Query(query): Query<ListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
-    let (modules, next_batch) = state.services.admin.modules.module_service.get_all_modules(limit, query.from).await?;
+    let (modules, next_batch) = ctx.module_service.get_all_modules(limit, query.from).await?;
 
     let responses: Vec<ModuleResponse> = modules.into_iter().map(ModuleResponse::from).collect();
 
@@ -391,39 +386,39 @@ pub async fn get_all_modules(
 }
 
 pub async fn update_module_config(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(module_name): Path<String>,
     Json(body): Json<UpdateModuleConfigBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let module = state.services.admin.modules.module_service.update_module_config(&module_name, body.config).await?;
+    let module = ctx.module_service.update_module_config(&module_name, body.config).await?;
 
     Ok(Json(ModuleResponse::from(module)))
 }
 
 pub async fn enable_module(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(module_name): Path<String>,
     Json(body): Json<EnableModuleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let module = state.services.admin.modules.module_service.enable_module(&module_name, body.is_enabled).await?;
+    let module = ctx.module_service.enable_module(&module_name, body.is_enabled).await?;
 
     Ok(Json(ModuleResponse::from(module)))
 }
 
 pub async fn delete_module(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(module_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.modules.module_service.delete_module(&module_name).await?;
+    ctx.module_service.delete_module(&module_name).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn check_spam(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Json(body): Json<CheckSpamBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -435,13 +430,13 @@ pub async fn check_spam(
         content: body.content,
     };
 
-    let result = state.services.admin.modules.module_service.check_spam(&context).await?;
+    let result = ctx.module_service.check_spam(&context).await?;
 
     Ok(Json(result))
 }
 
 pub async fn check_third_party_rule(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Json(body): Json<CheckThirdPartyRuleBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -454,20 +449,17 @@ pub async fn check_third_party_rule(
         state_events: body.state_events,
     };
 
-    let result = state.services.admin.modules.module_service.check_third_party_rules(&context).await?;
+    let result = ctx.module_service.check_third_party_rules(&context).await?;
 
     Ok(Json(result))
 }
 
 pub async fn get_spam_check_result(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(event_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let result = state
-        .services
-        .admin
-        .modules
+    let result = ctx
         .module_service
         .get_spam_check_result(&event_id)
         .await?
@@ -477,14 +469,14 @@ pub async fn get_spam_check_result(
 }
 
 pub async fn get_spam_check_results_by_sender(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(sender): Path<String>,
     Query(query): Query<SpamCheckQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
 
-    let results = state.services.admin.modules.module_service.get_spam_check_results_by_sender(&sender, limit).await?;
+    let results = ctx.module_service.get_spam_check_results_by_sender(&sender, limit).await?;
 
     let responses: Vec<SpamCheckResultResponse> = results.into_iter().map(SpamCheckResultResponse::from).collect();
 
@@ -492,11 +484,11 @@ pub async fn get_spam_check_results_by_sender(
 }
 
 pub async fn get_third_party_rule_results(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(event_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let results = state.services.admin.modules.module_service.get_third_party_rule_results(&event_id).await?;
+    let results = ctx.module_service.get_third_party_rule_results(&event_id).await?;
 
     let responses: Vec<ThirdPartyRuleResultResponse> =
         results.into_iter().map(ThirdPartyRuleResultResponse::from).collect();
@@ -505,24 +497,24 @@ pub async fn get_third_party_rule_results(
 }
 
 pub async fn get_execution_logs(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(module_name): Path<String>,
     Query(query): Query<SpamCheckQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
 
-    let logs = state.services.admin.modules.module_service.get_execution_logs(&module_name, limit).await?;
+    let logs = ctx.module_service.get_execution_logs(&module_name, limit).await?;
 
     Ok(Json(logs))
 }
 
 pub async fn create_account_validity(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Json(body): Json<CreateAccountValidityBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_user_exists(&state, &body.user_id).await?;
+    ensure_user_exists(&ctx, &body.user_id).await?;
 
     let request = CreateAccountValidityRequest {
         user_id: body.user_id,
@@ -530,20 +522,17 @@ pub async fn create_account_validity(
         is_valid: body.is_valid,
     };
 
-    let validity = state.services.admin.modules.account_validity_service.create_validity(request).await?;
+    let validity = ctx.account_validity_service.create_validity(request).await?;
 
     Ok((StatusCode::CREATED, Json(AccountValidityResponse::from(validity))))
 }
 
 pub async fn get_account_validity(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(user_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let validity = state
-        .services
-        .admin
-        .modules
+    let validity = ctx
         .account_validity_service
         .get_validity(&user_id)
         .await?
@@ -553,30 +542,25 @@ pub async fn get_account_validity(
 }
 
 pub async fn renew_account(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(user_id): Path<String>,
     Json(body): Json<RenewAccountBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    ensure_user_exists(&state, &user_id).await?;
+    ensure_user_exists(&ctx, &user_id).await?;
 
-    if state.services.admin.modules.account_validity_service.get_validity(&user_id).await?.is_none() {
+    if ctx.account_validity_service.get_validity(&user_id).await?.is_none() {
         return Err(ApiError::not_found("Account validity not found"));
     }
 
-    let validity = state
-        .services
-        .admin
-        .modules
-        .account_validity_service
-        .renew_account(&user_id, &body.renewal_token, body.new_expiration_ts)
-        .await?;
+    let validity =
+        ctx.account_validity_service.renew_account(&user_id, &body.renewal_token, body.new_expiration_ts).await?;
 
     Ok(Json(AccountValidityResponse::from(validity)))
 }
 
 pub async fn create_password_auth_provider(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Json(body): Json<CreatePasswordAuthProviderBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -588,10 +572,7 @@ pub async fn create_password_auth_provider(
         priority: body.priority,
     };
 
-    let provider = state
-        .services
-        .admin
-        .modules
+    let provider = ctx
         .module_storage
         .create_password_auth_provider(request)
         .await
@@ -601,13 +582,10 @@ pub async fn create_password_auth_provider(
 }
 
 pub async fn get_password_auth_providers(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let providers = state
-        .services
-        .admin
-        .modules
+    let providers = ctx
         .module_storage
         .get_password_auth_providers()
         .await
@@ -620,7 +598,7 @@ pub async fn get_password_auth_providers(
 }
 
 pub async fn create_media_callback(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Json(body): Json<CreateMediaCallbackBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -635,10 +613,7 @@ pub async fn create_media_callback(
         retry_count: body.retry_count,
     };
 
-    let callback = state
-        .services
-        .admin
-        .modules
+    let callback = ctx
         .module_storage
         .create_media_callback(request)
         .await
@@ -648,14 +623,11 @@ pub async fn create_media_callback(
 }
 
 pub async fn get_media_callbacks(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(callback_type): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let callbacks = state
-        .services
-        .admin
-        .modules
+    let callbacks = ctx
         .module_storage
         .get_media_callbacks(Some(&callback_type))
         .await
@@ -667,13 +639,10 @@ pub async fn get_media_callbacks(
 }
 
 pub async fn get_all_media_callbacks(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let callbacks = state
-        .services
-        .admin
-        .modules
+    let callbacks = ctx
         .module_storage
         .get_media_callbacks(None)
         .await
@@ -685,7 +654,7 @@ pub async fn get_all_media_callbacks(
 }
 
 pub async fn create_account_data_callback(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Json(body): Json<CreateAccountDataCallbackBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -696,10 +665,7 @@ pub async fn create_account_data_callback(
         data_types: body.data_types,
     };
 
-    let callback = state
-        .services
-        .admin
-        .modules
+    let callback = ctx
         .module_storage
         .create_account_data_callback(request)
         .await
@@ -709,13 +675,10 @@ pub async fn create_account_data_callback(
 }
 
 pub async fn get_account_data_callbacks(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let callbacks = state
-        .services
-        .admin
-        .modules
+    let callbacks = ctx
         .module_storage
         .get_account_data_callbacks()
         .await
@@ -752,7 +715,7 @@ pub fn create_module_router(state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/media_callbacks/{callback_type}", get(get_media_callbacks))
         .route("/_synapse/admin/v1/account_data_callbacks", post(create_account_data_callback))
         .route("/_synapse/admin/v1/account_data_callbacks", get(get_account_data_callbacks))
-        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
+        .route_layer(axum::middleware::from_fn_with_state(<crate::web::routes::context::AdminContext as axum::extract::FromRef<crate::web::routes::AppState>>::from_ref(&state), crate::web::middleware::admin_auth_middleware))
         .with_state(state)
 }
 

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_storage::beacon::{
-    BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStorage, CreateBeaconInfoParams,
+    BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStoreApi, CreateBeaconInfoParams,
     CreateBeaconLocationParams,
 };
 
@@ -12,13 +12,13 @@ const BEACON_ROOM_BACKPRESSURE_BUCKET_CAPACITY: u32 = 20;
 const BEACON_ROOM_BACKPRESSURE_REFILL_PER_SEC: u32 = 5;
 
 pub struct BeaconService {
-    storage: BeaconStorage,
+    storage: Arc<dyn BeaconStoreApi>,
     cache: Arc<CacheManager>,
 }
 
 impl BeaconService {
-    pub fn new(pool: Arc<sqlx::Pool<sqlx::Postgres>>, cache: Arc<CacheManager>) -> Self {
-        Self { storage: BeaconStorage::new(pool), cache }
+    pub fn new(storage: Arc<dyn BeaconStoreApi>, cache: Arc<CacheManager>) -> Self {
+        Self { storage, cache }
     }
 
     pub async fn create_beacon(
@@ -323,5 +323,37 @@ mod tests {
     fn test_parse_geo_uri_invalid() {
         assert!(BeaconService::parse_geo_uri("invalid").is_none());
         assert!(BeaconService::parse_geo_uri("geo:invalid").is_none());
+    }
+
+    #[test]
+    fn test_parse_geo_uri_with_negative_coordinates() {
+        let uri = "geo:-51.5008,-0.1247;u=35";
+        let result = BeaconService::parse_geo_uri(uri);
+
+        assert!(result.is_some());
+        let (lat, lon, accuracy) = result.unwrap();
+        assert!((lat - (-51.5008)).abs() < 0.0001);
+        assert!((lon - (-0.1247)).abs() < 0.0001);
+        assert_eq!(accuracy, Some(35.0));
+    }
+
+    #[test]
+    fn test_parse_geo_uri_without_prefix() {
+        assert!(BeaconService::parse_geo_uri("51.5008,0.1247").is_none());
+    }
+
+    #[test]
+    fn test_parse_geo_uri_empty() {
+        assert!(BeaconService::parse_geo_uri("").is_none());
+    }
+
+    #[test]
+    fn test_parse_geo_uri_only_prefix() {
+        assert!(BeaconService::parse_geo_uri("geo:").is_none());
+    }
+
+    #[test]
+    fn test_parse_geo_uri_single_coordinate() {
+        assert!(BeaconService::parse_geo_uri("geo:51.5008").is_none());
     }
 }

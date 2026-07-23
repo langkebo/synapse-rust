@@ -4,6 +4,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use tower::ServiceExt;
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
@@ -82,7 +83,7 @@ async fn put_beacon_info(app: &axum::Router, token: &str, room_id: &str, state_k
                     "timeout": 3_600_000,
                     "live": true
                 },
-                "m.ts": chrono::Utc::now().timestamp_millis(),
+                "m.ts": current_timestamp_millis(),
                 "m.asset": { "type": "m.self" }
             })
             .to_string(),
@@ -190,7 +191,7 @@ async fn send_beacon(app: &axum::Router, token: &str, room_id: &str, beacon_info
                     "uri": "geo:51.5008,0.1247;u=35",
                     "description": "London"
                 },
-                "m.ts": chrono::Utc::now().timestamp_millis(),
+                "m.ts": current_timestamp_millis(),
             })
             .to_string(),
         ))
@@ -405,7 +406,7 @@ async fn test_beacon_info_state_key_must_match_sender() {
                     "timeout": 60_000,
                     "live": true
                 },
-                "m.ts": chrono::Utc::now().timestamp_millis(),
+                "m.ts": current_timestamp_millis(),
                 "m.asset": { "type": "m.self" }
             })
             .to_string(),
@@ -428,11 +429,10 @@ async fn test_beacon_location_rejected_when_beacon_is_not_live() {
     let room_id = create_room(&app, &token).await;
 
     let beacon_info_event_id =
-        put_beacon_info_custom(&app, &token, &room_id, &user_id, false, 60_000, chrono::Utc::now().timestamp_millis())
-            .await;
+        put_beacon_info_custom(&app, &token, &room_id, &user_id, false, 60_000, current_timestamp_millis()).await;
 
     let (status, body) =
-        send_beacon_with_ts(&app, &token, &room_id, &beacon_info_event_id, chrono::Utc::now().timestamp_millis()).await;
+        send_beacon_with_ts(&app, &token, &room_id, &beacon_info_event_id, current_timestamp_millis()).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{:?}", body);
     assert_eq!(body["errcode"], "M_BAD_JSON");
     assert!(body["error"].as_str().unwrap_or_default().contains("not live"));
@@ -449,11 +449,11 @@ async fn test_beacon_location_rejected_when_beacon_has_expired() {
     let user_id = whoami(&app, &token).await;
     let room_id = create_room(&app, &token).await;
 
-    let old_ts = chrono::Utc::now().timestamp_millis() - 10_000;
+    let old_ts = current_timestamp_millis() - 10_000;
     let beacon_info_event_id = put_beacon_info_custom(&app, &token, &room_id, &user_id, true, 1_000, old_ts).await;
 
     let (status, body) =
-        send_beacon_with_ts(&app, &token, &room_id, &beacon_info_event_id, chrono::Utc::now().timestamp_millis()).await;
+        send_beacon_with_ts(&app, &token, &room_id, &beacon_info_event_id, current_timestamp_millis()).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{:?}", body);
     assert_eq!(body["errcode"], "M_BAD_JSON");
     assert!(body["error"].as_str().unwrap_or_default().contains("expired"));
@@ -469,7 +469,7 @@ async fn test_beacon_lifecycle_stop_and_restart_rotates_active_beacon() {
     let token = super::create_test_user(&app).await;
     let user_id = whoami(&app, &token).await;
     let room_id = create_room(&app, &token).await;
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
 
     let beacon_v1 = put_beacon_info_custom(&app, &token, &room_id, &user_id, true, 60_000, now).await;
     let (status_v1, body_v1) = send_beacon_with_ts(&app, &token, &room_id, &beacon_v1, now + 2000).await;
@@ -515,7 +515,7 @@ async fn test_location_behavior_in_e2ee_room_uses_metadata_only() {
     assert_eq!(location_count_after_encrypted, 0);
 
     // Clear m.beacon in the same E2EE room is still processed through metadata checks.
-    let ts = chrono::Utc::now().timestamp_millis();
+    let ts = current_timestamp_millis();
     let (beacon_status, beacon_body) = send_beacon_with_ts(&app, &token, &room_id, &beacon_info_event_id, ts).await;
     assert_eq!(beacon_status, StatusCode::OK, "{:?}", beacon_body);
 }

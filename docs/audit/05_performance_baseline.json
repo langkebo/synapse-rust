@@ -1,0 +1,95 @@
+{
+  "schema_version": "1.0.0",
+  "artifact": "synapse-rust performance baseline",
+  "date": "2026-07-10",
+  "branch": "feat/architecture-optimization-round2",
+  "method": "Index-strategy verification via faithful mirror tables (real index DDL) seeded at production-scale volume, then EXPLAIN (ANALYZE, BUFFERS) on hot-path query shapes. Bench harness compiled. Live HTTP latency NOT captured (see caveats).",
+  "caveats": [
+    "Query timings below are DB-layer planner+execution times on a single warm connection, NOT end-to-end HTTP P50/P95/P99.",
+    "Live latency/QPS/memory require a built+running homeserver on :8008 with BENCH_ADMIN_TOKEN and seeded scenario data; none available this run (server unreachable, live DB near-empty: 8 memberships / 0 device_keys).",
+    "The two cargo bench targets are thin HTTP wrappers that probe /_matrix/client/versions and SKIP when no server is up; they do not self-seed the 8 requested scenarios and hit hardcoded rooms (!test:localhost).",
+    "Mirror tables carry the exact production index definitions but no FK/trigger overhead, so INSERT/write-amplification costs are not represented."
+  ],
+
+  "bench_harness": {
+    "targets": [
+      {"name": "performance_api_benchmarks", "path": "benches/performance_api_benchmarks.rs", "compiles": true, "requires": ["running server @ BENCH_BASE_URL (default localhost:8008)", "BENCH_ADMIN_TOKEN", "pre-seeded rooms/users"], "criterion": {"sample_size": 10, "measurement_time_s": 15, "warm_up_s": 3}},
+      {"name": "performance_federation_benchmarks", "path": "benches/performance_federation_benchmarks.rs", "compiles": true, "requires": ["running server", "peer homeserver for federation shapes"]},
+      {"name": "performance_sliding_sync_benchmarks", "path": "benches/performance_sliding_sync_benchmarks.rs", "compiles": "not-run", "required_features": ["test-utils"]}
+    ],
+    "compile_command": "SQLX_OFFLINE=true cargo bench --bench performance_api_benchmarks --bench performance_federation_benchmarks --no-run",
+    "compile_result": "success (24.77s, both executables produced)"
+  },
+
+  "slo_targets_from_harness": {
+    "source": "benches/performance_api_benchmarks.rs:9-13 (optimization-plan.md Ch.5)",
+    "search_api_p95_ms": 500,
+    "sync_short_poll_p95_ms": 300,
+    "keys_query_p95_ms": 100,
+    "send_message_p95_ms": 250,
+    "note": "Benches emit per-iteration timings and do NOT hard-fail on SLO breach (decoupled from target cluster)."
+  },
+
+  "index_existence": {
+    "verdict": "ALL rule-十二 hot-path indexes physically present",
+    "source": "pg_indexes on live docker synapse DB (251 tables, full v10 schema)",
+    "verified": {
+      "events": ["idx_events_room_time (room_id, origin_server_ts DESC)", "idx_events_room_stream_ordering (room_id, stream_ordering DESC)", "idx_events_sync_covering (room_id, stream_ordering DESC) INCLUDE(event_id,sender,event_type,content,origin_server_ts)", "idx_events_sender_time", "events_fts_idx", "idx_events_content_gin"],
+      "room_memberships": ["idx_room_memberships_room_membership (room_id, membership)", "idx_room_memberships_user_membership (user_id, membership)", "idx_memberships_user_room"],
+      "access_tokens": ["idx_access_tokens_user_revoked (user_id, is_revoked) WHERE is_revoked=false", "idx_access_tokens_token_hash", "idx_access_tokens_valid"],
+      "device_keys": ["idx_device_keys_user_device (user_id, device_id)"],
+      "one_time_keys": ["idx_one_time_keys_user_device (user_id, device_id)", "uq_one_time_keys_user_device_algorithm (user_id,device_id,algorithm,key_id)"],
+      "account_data": ["idx_account_data_user_type (user_id, data_type)", "idx_account_data_content_gin"],
+      "device_lists_stream": ["idx_device_lists_stream_stream_id (stream_id)"]
+    },
+    "note": "presence_subscriptions has only its PK (subscriber_id, target_id) serving as index — matches audit-03 §3 column-drift note (rule text says user_id/observed_user_id)."
+  },
+
+  "explain_verification": {
+    "note": "Mirror tables at volume, ANALYZE'd. exec_ms = EXPLAIN ANALYZE Execution Time (DB layer). All shapes use the intended index; ZERO seq scans.",
+    "dataset": {"events": 120000, "room_memberships": 51000, "device_keys": 30000, "one_time_keys": 40000, "account_data": 50000, "hot_room_members": 1000, "hot_room_events": 60000},
+    "queries": [
+      {"scenario": "1. /sync full members (1000-member room)", "sql_shape": "SELECT user_id,membership FROM room_memberships WHERE room_id=$1 AND membership='join'", "plan": "Index Scan idx_room_memberships_room_membership", "rows": 1000, "exec_ms": 0.114, "buffers": 11, "verdict": "INDEX HIT"},
+      {"scenario": "2. /sync incremental (since=stream_ordering, LIMIT 100)", "sql_shape": "SELECT event_id,sender,event_type,content,origin_server_ts FROM events WHERE room_id=$1 AND stream_ordering>$2 ORDER BY stream_ordering DESC LIMIT 100", "plan": "Index Scan idx_events_room_stream_ordering + Limit", "rows": 100, "exec_ms": 0.041, "buffers": 5, "verdict": "INDEX HIT", "observation": "planner chose narrow idx_events_room_stream_ordering over idx_events_sync_covering; covering index not winning at LIMIT 100 (heap fetch only 3 buffers). Re-evaluate covering index value under larger LIMIT / high concurrency."},
+      {"scenario": "3. /sliding_sync timeline (origin_server_ts DESC, LIMIT 50)", "sql_shape": "SELECT ... FROM events WHERE room_id=$1 ORDER BY origin_server_ts DESC LIMIT 50", "plan": "Index Scan idx_events_room_time", "rows": 50, "exec_ms": 0.046, "buffers": 5, "verdict": "INDEX HIT"},
+      {"scenario": "4. send msg -> latest stream_ordering", "sql_shape": "SELECT max(stream_ordering) FROM events WHERE room_id=$1", "plan": "Index Only Scan idx_events_room_stream_ordering (Heap Fetches: 1)", "rows": 1, "exec_ms": 0.024, "buffers": 4, "verdict": "INDEX-ONLY HIT"},
+      {"scenario": "6. device key query (100 users, user_id=ANY)", "sql_shape": "SELECT user_id,device_id,key_json FROM device_keys WHERE user_id=ANY($1)", "plan": "Index Scan idx_device_keys_user_device", "rows": 100, "exec_ms": 0.447, "buffers": 204, "verdict": "INDEX HIT"},
+      {"scenario": "6b. OTK atomic claim (user+device+algorithm, unused, LIMIT 1)", "sql_shape": "SELECT ... FROM one_time_keys WHERE user_id=$1 AND device_id=$2 AND algorithm=$3 AND used=false LIMIT 1", "plan": "Index Scan idx_one_time_keys_user_device (Filter: NOT used AND algorithm)", "rows": 1, "exec_ms": 0.019, "buffers": 3, "verdict": "INDEX HIT"},
+      {"scenario": "aux. account_data list by user", "sql_shape": "SELECT data_type,content FROM account_data WHERE user_id=$1", "plan": "Index Scan idx_account_data_user_type (prefix)", "rows": 5, "exec_ms": 0.023, "buffers": 7, "verdict": "INDEX HIT (composite prefix)"}
+    ],
+    "scenarios_not_db_measurable_this_run": {
+      "5_join_room_federation": "needs running server + peer homeserver",
+      "7_media_10mb_upload_download": "I/O + storage path, not an index shape; needs running server",
+      "8_federation_server_key_query": "server_keys table lookup, small; needs running server (or seed server_keys)"
+    }
+  },
+
+  "hot_path_cache_inventory": {
+    "source": "docs/audit/04_services_review.md §5",
+    "cached": ["presence (storage built-in)", "lazy-load members (sync_service/lazy_load.rs:14)", "sliding sync window snapshot + E2EE stream pos (filters.rs:89, extensions.rs:211 via cache.set_raw/get_raw)"],
+    "NOT_cached_hot_reads_P1": [
+      "sync_service/filter.rs:24 get_filter (per filter_id)",
+      "sync_service/data_fetch.rs:223 list_account_data (all account data per /sync)",
+      "sync_service/data_fetch.rs:308 get_max_device_list_stream_id (global MAX per /sync)",
+      "sliding_sync_service/state.rs:18 get_state_events(room) (full room state per request)"
+    ],
+    "note": "SyncService has NO shared SharedInfra.cache field (sync_service/mod.rs:45 only a local lazy_loaded_members_cache HashMap). Index hits are fast, but /sync issues these uncached reads every request — caching filter/account_data/max_stream_id/room_state is the highest-leverage optimization (audit-04 P1)."
+  },
+
+  "measured_dimensions": {
+    "db_query_plan_latency": "captured (EXPLAIN ANALYZE)",
+    "index_hit_verification": "captured (0 seq scans)",
+    "db_query_count_per_endpoint": "structural inventory in audit-04 (not runtime-counted)",
+    "http_p50_p95_p99": "NOT captured (no running server)",
+    "qps_throughput": "NOT captured",
+    "memory_footprint": "NOT captured",
+    "cache_hit_rate": "NOT captured (no live traffic)"
+  },
+
+  "next_steps_for_full_latency_baseline": [
+    "Build+run release server against docker DB (DB_PASSWORD=synapse, port 15432->5432).",
+    "Seed scenario data (1000-member room, 100 users w/ device keys, 10MB media) — no seed script exists; write one.",
+    "Register admin, export BENCH_ADMIN_TOKEN + BENCH_BASE_URL, run cargo bench for real P50/P95/P99 + QPS.",
+    "Add pg_stat_statements + per-endpoint query-count assertions to catch N+1 regressions (audit-03 flagged device delete_devices_batch N+1)."
+  ]
+}

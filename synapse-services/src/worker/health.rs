@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
+use synapse_common::current_timestamp_millis;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, info, warn};
 
@@ -75,7 +76,7 @@ impl HealthChecker {
         status.entry(worker_id.to_string()).or_insert_with(|| HealthCheckResult {
             worker_id: worker_id.to_string(),
             status: HealthStatus::Unknown,
-            last_check_ts: chrono::Utc::now().timestamp_millis(),
+            last_check_ts: current_timestamp_millis(),
             ..Default::default()
         });
 
@@ -124,7 +125,7 @@ impl HealthChecker {
         let current = status.entry(worker_id.to_string()).or_default();
         current.worker_id = worker_id.to_string();
         current.latency_ms = latency_ms;
-        current.last_check_ts = chrono::Utc::now().timestamp_millis();
+        current.last_check_ts = current_timestamp_millis();
 
         match check_result {
             Ok(()) => {

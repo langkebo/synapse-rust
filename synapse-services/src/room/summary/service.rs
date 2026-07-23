@@ -10,21 +10,22 @@ pub use crate::storage::room_summary::{
     RoomSummaryStats, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
 };
 use std::sync::Arc;
+use synapse_storage::MemberStoreApi;
 use tracing::{debug, info, instrument};
 
 pub struct RoomSummaryService {
     pub(crate) storage: Arc<dyn RoomSummaryStoreApi>,
-    pub(crate) event_storage: Arc<synapse_storage::event::EventStorage>,
-    pub(crate) member_storage: Option<Arc<synapse_storage::membership::RoomMemberStorage>>,
+    pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
+    pub(crate) member_storage: Option<Arc<dyn MemberStoreApi>>,
 }
 
 impl RoomSummaryService {
     pub fn new(
         storage: Arc<dyn RoomSummaryStoreApi>,
-        event_storage: Arc<synapse_storage::event::EventStorage>,
-        member_storage: Option<Arc<synapse_storage::membership::RoomMemberStorage>>,
+        event_reader: Arc<dyn synapse_storage::event::EventReader>,
+        member_storage: Option<Arc<dyn MemberStoreApi>>,
     ) -> Self {
-        Self { storage, event_storage, member_storage }
+        Self { storage, event_reader, member_storage }
     }
 
     #[instrument(skip(self))]
@@ -269,7 +270,7 @@ impl RoomSummaryService {
 #[cfg(test)]
 mod tests {
     use super::RoomSummaryService;
-    use synapse_storage::room_summary::{CreateRoomSummaryRequest, UpdateRoomSummaryRequest};
+    use synapse_storage::room_summary::CreateRoomSummaryRequest;
 
     #[test]
     fn create_request_to_update_request_copies_all_fields() {
@@ -319,5 +320,46 @@ mod tests {
         // Fields not in CreateRequest should remain at their Default values
         assert!(update.is_encrypted.is_none());
         assert!(update.last_event_id.is_none());
+    }
+
+    #[test]
+    fn create_request_to_update_request_preserves_room_type() {
+        let create = CreateRoomSummaryRequest {
+            room_id: "!r:ex.com".to_string(),
+            room_type: Some("m.space".to_string()),
+            name: Some("Space".to_string()),
+            topic: None,
+            avatar_url: None,
+            canonical_alias: None,
+            join_rule: None,
+            history_visibility: None,
+            guest_access: None,
+            is_direct: None,
+            is_space: Some(true),
+        };
+        let update = RoomSummaryService::create_request_to_update_request(&create);
+        assert_eq!(update.name, Some("Space".to_string()));
+        assert_eq!(update.is_space, Some(true));
+        assert!(update.topic.is_none());
+    }
+
+    #[test]
+    fn create_request_to_update_request_empty_strings_preserved() {
+        let create = CreateRoomSummaryRequest {
+            room_id: "!r:ex.com".to_string(),
+            room_type: None,
+            name: Some("".to_string()),
+            topic: Some("".to_string()),
+            avatar_url: None,
+            canonical_alias: None,
+            join_rule: None,
+            history_visibility: None,
+            guest_access: None,
+            is_direct: None,
+            is_space: None,
+        };
+        let update = RoomSummaryService::create_request_to_update_request(&create);
+        assert_eq!(update.name, Some("".to_string()));
+        assert_eq!(update.topic, Some("".to_string()));
     }
 }

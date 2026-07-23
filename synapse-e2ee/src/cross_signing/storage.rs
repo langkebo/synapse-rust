@@ -2,6 +2,7 @@ use super::models::*;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 /// Internal row struct for `cross_signing_keys` (BIGINT added_ts maps to
@@ -89,7 +90,7 @@ impl CrossSigningStorage {
     }
 
     pub async fn create_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {
-        let added_ts = chrono::Utc::now().timestamp_millis();
+        let added_ts = current_timestamp_millis();
         let key_json_str = key.key_json.as_ref().map(|v| v.to_string()).unwrap_or_default();
 
         sqlx::query(
@@ -249,7 +250,7 @@ impl CrossSigningStorage {
     }
 
     pub async fn update_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {
-        let added_ts = chrono::Utc::now().timestamp_millis();
+        let added_ts = current_timestamp_millis();
         let key_json_str = key.key_json.as_ref().map_or_else(|| key.public_key.clone(), |v| v.to_string());
 
         sqlx::query(
@@ -274,7 +275,7 @@ impl CrossSigningStorage {
     }
 
     pub async fn save_device_key(&self, key: &DeviceKeyInfo) -> Result<(), ApiError> {
-        let added_ts = chrono::Utc::now().timestamp_millis();
+        let added_ts = current_timestamp_millis();
         let key_id = format!("{}:{}", key.algorithm, key.public_key.split(':').next().unwrap_or(&key.public_key));
 
         sqlx::query(
@@ -307,7 +308,7 @@ impl CrossSigningStorage {
     }
 
     pub async fn save_device_signature(&self, sig: &DeviceSignature) -> Result<(), ApiError> {
-        let created_ts = chrono::Utc::now().timestamp_millis();
+        let created_ts = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO device_signatures
@@ -459,7 +460,7 @@ impl CrossSigningStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    use synapse_common::current_timestamp_utc;
 
     fn create_test_cross_signing_key() -> CrossSigningKey {
         CrossSigningKey {
@@ -470,8 +471,8 @@ mod tests {
             usage: vec!["master".to_string()],
             signatures: serde_json::json!({}),
             key_json: None,
-            created_ts: Utc::now(),
-            updated_ts: Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         }
     }
 
@@ -506,8 +507,8 @@ mod tests {
                 usage: vec![key_type.to_string()],
                 signatures: serde_json::json!({}),
                 key_json: None,
-                created_ts: Utc::now(),
-                updated_ts: Utc::now(),
+                created_ts: current_timestamp_utc(),
+                updated_ts: current_timestamp_utc(),
             };
 
             assert_eq!(key.key_type, key_type);
@@ -544,8 +545,8 @@ mod tests {
             usage: vec!["master".to_string()],
             signatures,
             key_json: None,
-            created_ts: Utc::now(),
-            updated_ts: Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         };
 
         assert!(key.signatures.get("@alice:example.com").is_some());
@@ -602,8 +603,8 @@ mod tests {
                 usage: usage.iter().map(|s| s.to_string()).collect(),
                 signatures: serde_json::json!({}),
                 key_json: None,
-                created_ts: Utc::now(),
-                updated_ts: Utc::now(),
+                created_ts: current_timestamp_utc(),
+                updated_ts: current_timestamp_utc(),
             };
 
             assert_eq!(key.usage.len(), usage.len());

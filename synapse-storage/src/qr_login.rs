@@ -5,6 +5,7 @@
 use async_trait::async_trait;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[async_trait]
 pub trait QrLoginStoreApi: Send + Sync {
@@ -37,7 +38,7 @@ impl QrLoginStorage {
         user_id: &str,
         device_id: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         // QR code expires in 5 minutes (300000ms)
         let expires_at = now + 300000;
 
@@ -80,7 +81,7 @@ impl QrLoginStorage {
 
     /// Update QR login transaction status
     pub async fn update_qr_status(&self, transaction_id: &str, status: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r"
@@ -115,7 +116,7 @@ impl QrLoginStorage {
 
     /// Clean up expired transactions
     pub async fn cleanup_expired(&self) -> Result<u64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query(
             r"
             DELETE FROM qr_login_transactions

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::SecurityConfig;
 use synapse_rust::common::metrics::MetricsCollector;
-use synapse_services::auth::AuthService;
+use synapse_services::auth::{AuthService, CredentialAuth, TokenAuth};
 use synapse_services::uia_service::{UiaFlow, UiaService, UiaSession};
 
 fn create_service() -> UiaService {
@@ -11,7 +11,7 @@ fn create_service() -> UiaService {
     UiaService::new(cache, 3600)
 }
 
-fn create_auth_service(pool: &Arc<sqlx::PgPool>) -> Arc<dyn synapse_services::auth::Auth> {
+fn create_auth_service(pool: &Arc<sqlx::PgPool>) -> Arc<AuthService> {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let metrics = Arc::new(MetricsCollector::new());
     let security = SecurityConfig {
@@ -34,7 +34,7 @@ fn create_auth_service(pool: &Arc<sqlx::PgPool>) -> Arc<dyn synapse_services::au
     Arc::new(AuthService::new(pool, cache, metrics, &security, "localhost"))
 }
 
-fn create_lazy_auth_service() -> Arc<dyn synapse_services::auth::Auth> {
+fn create_lazy_auth_service() -> Arc<AuthService> {
     let pool = Arc::new(
         sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse_test")
@@ -209,12 +209,14 @@ fn test_build_uia_response_structure() {
 
 #[tokio::test]
 async fn test_verify_token_stage_missing_token() {
+    use synapse_services::auth::TokenAuth;
     let service = create_service();
     let auth_service = create_lazy_auth_service();
+    let token_auth: Arc<dyn TokenAuth> = auth_service;
     let auth = serde_json::json!({
         "txn_id": "txn123"
     });
-    let result = service.verify_token_stage(&auth, "@user:localhost", &auth_service).await;
+    let result = service.verify_token_stage(&auth, "@user:localhost", &token_auth).await;
     assert!(result.is_err());
     match result.unwrap_err() {
         e if e.is_bad_request() && e.internal_message().contains("Token required") => {}
@@ -226,10 +228,11 @@ async fn test_verify_token_stage_missing_token() {
 async fn test_verify_token_stage_missing_txn_id() {
     let service = create_service();
     let auth_service = create_lazy_auth_service();
+    let token_auth: Arc<dyn TokenAuth> = auth_service;
     let auth = serde_json::json!({
         "token": "sometoken"
     });
-    let result = service.verify_token_stage(&auth, "@user:localhost", &auth_service).await;
+    let result = service.verify_token_stage(&auth, "@user:localhost", &token_auth).await;
     assert!(result.is_err());
     match result.unwrap_err() {
         e if e.is_bad_request() && e.internal_message().contains("Transaction ID required") => {}
@@ -241,11 +244,12 @@ async fn test_verify_token_stage_missing_txn_id() {
 async fn test_verify_token_stage_empty_txn_id() {
     let service = create_service();
     let auth_service = create_lazy_auth_service();
+    let token_auth: Arc<dyn TokenAuth> = auth_service;
     let auth = serde_json::json!({
         "token": "sometoken",
         "txn_id": ""
     });
-    let result = service.verify_token_stage(&auth, "@user:localhost", &auth_service).await;
+    let result = service.verify_token_stage(&auth, "@user:localhost", &token_auth).await;
     assert!(result.is_err());
     match result.unwrap_err() {
         e if e.is_bad_request() && e.internal_message().contains("Transaction ID required") => {}
@@ -257,11 +261,12 @@ async fn test_verify_token_stage_empty_txn_id() {
 async fn test_verify_token_stage_non_string_token_is_rejected() {
     let service = create_service();
     let auth_service = create_lazy_auth_service();
+    let token_auth: Arc<dyn TokenAuth> = auth_service;
     let auth = serde_json::json!({
         "token": 12345,
         "txn_id": "txn123"
     });
-    let result = service.verify_token_stage(&auth, "@user:localhost", &auth_service).await;
+    let result = service.verify_token_stage(&auth, "@user:localhost", &token_auth).await;
     assert!(result.is_err());
     match result.unwrap_err() {
         e if e.is_bad_request() && e.internal_message().contains("Token required") => {}
@@ -574,7 +579,8 @@ async fn test_verify_password_stage_missing_password() {
             "user": "@user:localhost"
         }
     });
-    let result = service.verify_password_stage(&auth, "@user:localhost", &auth_service).await;
+    let credential_auth: Arc<dyn CredentialAuth> = auth_service;
+    let result = service.verify_password_stage(&auth, "@user:localhost", &credential_auth).await;
     assert!(result.is_err());
     match result.unwrap_err() {
         e if e.is_bad_request() && e.internal_message().contains("Password required") => {}
@@ -587,13 +593,14 @@ async fn test_verify_password_stage_user_mismatch_identifier() {
     let pool = crate::require_test_pool().await;
     let service = create_service();
     let auth_service = create_auth_service(&pool);
+    let credential_auth: Arc<dyn CredentialAuth> = auth_service;
     let auth = serde_json::json!({
         "password": "somepassword",
         "identifier": {
             "user": "@different:localhost"
         }
     });
-    let result = service.verify_password_stage(&auth, "@user:localhost", &auth_service).await;
+    let result = service.verify_password_stage(&auth, "@user:localhost", &credential_auth).await;
     assert!(result.is_err());
     match result.unwrap_err() {
         e if e.is_forbidden() && e.internal_message().contains("User mismatch") => {}
@@ -606,11 +613,12 @@ async fn test_verify_password_stage_user_mismatch_legacy_user_field() {
     let pool = crate::require_test_pool().await;
     let service = create_service();
     let auth_service = create_auth_service(&pool);
+    let credential_auth: Arc<dyn CredentialAuth> = auth_service;
     let auth = serde_json::json!({
         "password": "somepassword",
         "user": "@different:localhost"
     });
-    let result = service.verify_password_stage(&auth, "@user:localhost", &auth_service).await;
+    let result = service.verify_password_stage(&auth, "@user:localhost", &credential_auth).await;
     assert!(result.is_err());
     match result.unwrap_err() {
         e if e.is_forbidden() && e.internal_message().contains("User mismatch") => {}

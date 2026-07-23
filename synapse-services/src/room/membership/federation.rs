@@ -18,6 +18,7 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 use synapse_common::generate_event_id;
 use synapse_federation::signing::sign_and_hash_event;
 use synapse_storage::CreateEventParams;
@@ -170,13 +171,13 @@ impl MembershipService {
                 let origin_server_ts = state_event
                     .get("origin_server_ts")
                     .and_then(|v| v.as_i64())
-                    .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+                    .unwrap_or_else(current_timestamp_millis);
 
                 let redacts = state_event.get("redacts").and_then(|v| v.as_str()).map(|s| s.to_string());
 
                 // Best-effort persistence — skip on error to avoid blocking the join.
                 if let Err(e) = self
-                    .event_storage
+                    .event_writer
                     .create_event_with_graph(
                         CreateEventParams {
                             event_id: event_id.to_string(),
@@ -204,6 +205,9 @@ impl MembershipService {
             }
         }
 
+        // Invalidate room-state cache after persisting federated state events.
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+
         // 6. Add the user as a joined member.
         self.member_storage
             .add_member(room_id, user_id, "join", None, None, None, None)
@@ -222,13 +226,11 @@ impl MembershipService {
 
         let join_content = event_template.get("content").cloned().unwrap_or(json!({ "membership": "join" }));
 
-        let join_ts = event_template
-            .get("origin_server_ts")
-            .and_then(|v| v.as_i64())
-            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        let join_ts =
+            event_template.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
 
         if let Err(e) = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: join_event_id,
@@ -245,6 +247,9 @@ impl MembershipService {
             .await
         {
             ::tracing::warn!(error = %e, "Failed to persist join event after federation join");
+        } else {
+            // Invalidate room-state cache after membership state change.
+            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
         }
 
         Ok(())
@@ -322,13 +327,11 @@ impl MembershipService {
 
         let leave_content = event_template.get("content").cloned().unwrap_or(json!({ "membership": "leave" }));
 
-        let leave_ts = event_template
-            .get("origin_server_ts")
-            .and_then(|v| v.as_i64())
-            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        let leave_ts =
+            event_template.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
 
         if let Err(e) = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id,
@@ -345,6 +348,9 @@ impl MembershipService {
             .await
         {
             ::tracing::warn!(error = %e, "Failed to persist leave event after federation leave");
+        } else {
+            // Invalidate room-state cache after membership state change.
+            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
         }
 
         Ok(())
@@ -381,7 +387,7 @@ impl MembershipService {
 
         // 1. Build the invite event.
         let event_id = generate_event_id(&self.server_name);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let mut invite_event = json!({
             "event_id": event_id,
@@ -435,7 +441,7 @@ impl MembershipService {
         let persisted_ts = final_event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(now);
 
         if let Err(e) = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id: persisted_event_id,
@@ -452,6 +458,9 @@ impl MembershipService {
             .await
         {
             ::tracing::warn!(error = %e, "Failed to persist invite event after federation invite");
+        } else {
+            // Invalidate room-state cache after membership state change.
+            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
         }
 
         Ok(())
@@ -505,10 +514,8 @@ impl MembershipService {
 
         let content = signed_event.get("content").cloned().unwrap_or(json!({ "membership": "invite" }));
 
-        let origin_server_ts = signed_event
-            .get("origin_server_ts")
-            .and_then(|v| v.as_i64())
-            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        let origin_server_ts =
+            signed_event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
 
         // Add the invitee as an invited member.
         if let Some(ref invitee_id) = state_key {
@@ -520,7 +527,7 @@ impl MembershipService {
 
         // Persist the event.
         if let Err(e) = self
-            .event_storage
+            .event_writer
             .create_event(
                 CreateEventParams {
                     event_id,
@@ -537,6 +544,9 @@ impl MembershipService {
             .await
         {
             ::tracing::warn!(error = %e, "Failed to persist third-party invite event");
+        } else {
+            // Invalidate room-state cache after membership state change.
+            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
         }
 
         Ok(signed_event)

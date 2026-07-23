@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::web::routes::context::SsoContext;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, Request, State},
@@ -14,12 +15,12 @@ use url::form_urlencoded;
 
 /// CAS 配置检查中间件
 async fn cas_config_check_middleware(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
     // 检查 CAS 服务是否已配置
-    if !state.services.sso.cas_service.is_configured().await {
+    if !ctx.cas_service.is_configured().await {
         tracing::error!("CAS service is not properly configured - database tables may not exist");
         return Err(ApiError::internal(
             "CAS service is not available. Please ensure database migrations have been run.".to_string(),
@@ -114,10 +115,10 @@ impl From<CasRegisteredService> for ServiceResponse {
 }
 
 async fn cas_sso_redirect(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Query(params): Query<SsoRedirectQuery>,
 ) -> Result<axum::response::Response, ApiError> {
-    if state.services.sso.cas_service.is_configured().await {
+    if ctx.cas_service.is_configured().await {
         let redirect_url = if let Some(ref redirect) = params.redirect_after {
             format!("/login?service={}", urlencoding::encode(redirect))
         } else {
@@ -145,22 +146,38 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v3/login/sso/redirect/cas", get(cas_sso_redirect))
         .route_layer(middleware::from_fn_with_state(state.clone(), cas_config_check_middleware));
 
-    let standard_admin_routes = Router::new()
-        .route("/_synapse/admin/v1/cas/services", post(register_service))
-        .route("/_synapse/admin/v1/cas/services", get(list_services))
-        .route("/_synapse/admin/v1/cas/services/{service_id}", delete(delete_service))
-        .route("/_synapse/admin/v1/cas/users/{user_id}/attributes", post(set_user_attribute))
-        .route("/_synapse/admin/v1/cas/users/{user_id}/attributes", get(get_user_attributes))
-        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
-        .route_layer(middleware::from_fn_with_state(state.clone(), cas_config_check_middleware));
-    let legacy_admin_routes = Router::new()
-        .route("/admin/services", post(register_service))
-        .route("/admin/services", get(list_services))
-        .route("/admin/services/{service_id}", delete(delete_service))
-        .route("/admin/users/{user_id}/attributes", post(set_user_attribute))
-        .route("/admin/users/{user_id}/attributes", get(get_user_attributes))
-        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
-        .route_layer(axum::middleware::from_fn(legacy_cas_admin_alias_deprecation_middleware));
+    let standard_admin_routes =
+        Router::new()
+            .route("/_synapse/admin/v1/cas/services", post(register_service))
+            .route("/_synapse/admin/v1/cas/services", get(list_services))
+            .route("/_synapse/admin/v1/cas/services/{service_id}", delete(delete_service))
+            .route("/_synapse/admin/v1/cas/users/{user_id}/attributes", post(set_user_attribute))
+            .route("/_synapse/admin/v1/cas/users/{user_id}/attributes", get(get_user_attributes))
+            .route_layer(
+                axum::middleware::from_fn_with_state(
+                    <crate::web::routes::context::AdminContext as axum::extract::FromRef<
+                        crate::web::routes::AppState,
+                    >>::from_ref(&state),
+                    crate::web::middleware::admin_auth_middleware,
+                ),
+            )
+            .route_layer(middleware::from_fn_with_state(state.clone(), cas_config_check_middleware));
+    let legacy_admin_routes =
+        Router::new()
+            .route("/admin/services", post(register_service))
+            .route("/admin/services", get(list_services))
+            .route("/admin/services/{service_id}", delete(delete_service))
+            .route("/admin/users/{user_id}/attributes", post(set_user_attribute))
+            .route("/admin/users/{user_id}/attributes", get(get_user_attributes))
+            .route_layer(
+                axum::middleware::from_fn_with_state(
+                    <crate::web::routes::context::AdminContext as axum::extract::FromRef<
+                        crate::web::routes::AppState,
+                    >>::from_ref(&state),
+                    crate::web::middleware::admin_auth_middleware,
+                ),
+            )
+            .route_layer(axum::middleware::from_fn(legacy_cas_admin_alias_deprecation_middleware));
 
     public_routes.merge(standard_admin_routes).merge(legacy_admin_routes).with_state(state)
 }
@@ -207,10 +224,10 @@ async fn legacy_cas_admin_alias_deprecation_middleware(request: Request, next: N
 }
 
 async fn login_redirect(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Query(query): Query<ServiceTicketQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let _service = state.services.sso.cas_service.get_service_by_url(&query.service).await?;
+    let _service = ctx.cas_service.get_service_by_url(&query.service).await?;
 
     let encoded_service: String = form_urlencoded::byte_serialize(query.service.as_bytes()).collect();
 
@@ -224,16 +241,13 @@ async fn login_redirect(
 }
 
 async fn service_validate(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Query(query): Query<ValidateQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let result =
-        state.services.sso.cas_service.validate_service_ticket(&query.ticket, &query.service).await.unwrap_or_else(
-            |e| {
-                tracing::warn!("CAS service ticket validation error: {}", e);
-                None
-            },
-        );
+    let result = ctx.cas_service.validate_service_ticket(&query.ticket, &query.service).await.unwrap_or_else(|e| {
+        tracing::warn!("CAS service ticket validation error: {}", e);
+        None
+    });
 
     match result {
         Some(ticket) => {
@@ -245,14 +259,13 @@ async fn service_validate(
 }
 
 async fn proxy_validate(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Query(query): Query<ProxyValidateQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let result =
-        state.services.sso.cas_service.validate_proxy_ticket(&query.ticket, &query.service).await.unwrap_or_else(|e| {
-            tracing::warn!("CAS proxy ticket validation error: {}", e);
-            None
-        });
+    let result = ctx.cas_service.validate_proxy_ticket(&query.ticket, &query.service).await.unwrap_or_else(|e| {
+        tracing::warn!("CAS proxy ticket validation error: {}", e);
+        None
+    });
 
     match result {
         Some(ticket) => {
@@ -273,8 +286,8 @@ async fn proxy_validate(
     }
 }
 
-async fn proxy(State(state): State<AppState>, Query(query): Query<ProxyQuery>) -> Result<impl IntoResponse, ApiError> {
-    let ticket = state.services.sso.cas_service.create_proxy_ticket(&query.pgt, &query.target_service).await?;
+async fn proxy(State(ctx): State<SsoContext>, Query(query): Query<ProxyQuery>) -> Result<impl IntoResponse, ApiError> {
+    let ticket = ctx.cas_service.create_proxy_ticket(&query.pgt, &query.target_service).await?;
 
     let response = CasValidationResponse::Success {
         user: ticket.user_id.clone(),
@@ -286,12 +299,10 @@ async fn proxy(State(state): State<AppState>, Query(query): Query<ProxyQuery>) -
 }
 
 async fn p3_service_validate(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Query(query): Query<P3ServiceValidateQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let response = state
-        .services
-        .sso
+    let response = ctx
         .cas_service
         .validate_service_ticket_v3(
             &query.ticket,
@@ -305,7 +316,7 @@ async fn p3_service_validate(
 }
 
 async fn logout(
-    State(_state): State<AppState>,
+    State(_ctx): State<SsoContext>,
     Query(query): Query<LogoutQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     match query.service {
@@ -325,7 +336,7 @@ async fn logout(
 }
 
 async fn register_service(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     _admin: AdminUser,
     Json(body): Json<RegisterServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -340,23 +351,23 @@ async fn register_service(
         is_single_logout: body.single_logout,
     };
 
-    let service = state.services.sso.cas_service.register_service(request).await?;
+    let service = ctx.cas_service.register_service(request).await?;
 
     Ok((StatusCode::CREATED, Json(ServiceResponse::from(service))))
 }
 
-async fn list_services(State(state): State<AppState>, _admin: AdminUser) -> Result<impl IntoResponse, ApiError> {
-    let services = state.services.sso.cas_service.list_services().await?;
+async fn list_services(State(ctx): State<SsoContext>, _admin: AdminUser) -> Result<impl IntoResponse, ApiError> {
+    let services = ctx.cas_service.list_services().await?;
     let response: Vec<ServiceResponse> = services.into_iter().map(ServiceResponse::from).collect();
     Ok(Json(response))
 }
 
 async fn delete_service(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     _admin: AdminUser,
     Path(service_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let deleted = state.services.sso.cas_service.delete_service(&service_id).await?;
+    let deleted = ctx.cas_service.delete_service(&service_id).await?;
 
     if deleted {
         Ok(StatusCode::NO_CONTENT)
@@ -366,17 +377,12 @@ async fn delete_service(
 }
 
 async fn set_user_attribute(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     _admin: AdminUser,
     Path(user_id): Path<String>,
     Json(body): Json<SetAttributeBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let attr = state
-        .services
-        .sso
-        .cas_service
-        .set_user_attribute(&user_id, &body.attribute_name, &body.attribute_value)
-        .await?;
+    let attr = ctx.cas_service.set_user_attribute(&user_id, &body.attribute_name, &body.attribute_value).await?;
 
     Ok(Json(serde_json::json!({
         "user_id": attr.user_id,
@@ -386,11 +392,11 @@ async fn set_user_attribute(
 }
 
 async fn get_user_attributes(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     _admin: AdminUser,
     Path(user_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let attrs = state.services.sso.cas_service.get_user_attributes(&user_id).await?;
+    let attrs = ctx.cas_service.get_user_attributes(&user_id).await?;
 
     let response: Vec<serde_json::Value> = attrs
         .into_iter()

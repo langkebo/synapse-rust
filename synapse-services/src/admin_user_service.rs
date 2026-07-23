@@ -2,7 +2,8 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::crypto::{hash_password, random_string};
 use synapse_common::error::ApiError;
-use synapse_storage::{DeviceStorage, RoomStorage, User, UserStore};
+use synapse_storage::device::DeviceListStoreApi;
+use synapse_storage::{RoomStoreApi, User, UserStore};
 use tracing::instrument;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,9 +131,10 @@ pub struct BatchUsersResult {
 }
 
 pub struct AdminUserService {
+    user_service: Arc<crate::UserService>,
     user_storage: Arc<dyn UserStore>,
-    device_storage: DeviceStorage,
-    room_storage: RoomStorage,
+    device_storage: Arc<dyn DeviceListStoreApi>,
+    room_storage: Arc<dyn RoomStoreApi>,
     member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
     server_name: String,
 }
@@ -140,26 +142,14 @@ pub struct AdminUserService {
 impl AdminUserService {
     pub fn new(
         _pool: Arc<PgPool>,
+        user_service: Arc<crate::UserService>,
         user_storage: Arc<dyn UserStore>,
-        device_storage: DeviceStorage,
-        room_storage: RoomStorage,
+        device_storage: Arc<dyn DeviceListStoreApi>,
+        room_storage: Arc<dyn RoomStoreApi>,
         member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
         server_name: String,
     ) -> Self {
-        Self { user_storage, device_storage, room_storage, member_storage, server_name }
-    }
-
-    #[instrument(skip(self))]
-    pub async fn get_user_by_identifier(&self, identifier: &str) -> Result<Option<User>, ApiError> {
-        self.user_storage
-            .get_user_by_identifier(identifier)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))
-    }
-
-    #[instrument(skip(self))]
-    pub async fn get_user_or_not_found(&self, identifier: &str) -> Result<User, ApiError> {
-        self.get_user_by_identifier(identifier).await?.ok_or_else(|| ApiError::not_found("User not found".to_string()))
+        Self { user_service, user_storage, device_storage, room_storage, member_storage, server_name }
     }
 
     #[instrument(skip(self))]
@@ -169,14 +159,9 @@ impl AdminUserService {
         created_ts_cursor: Option<i64>,
         user_id_cursor: Option<&str>,
     ) -> Result<AdminLegacyUsersPage, ApiError> {
-        let users = self
-            .user_storage
-            .get_users_paginated(limit, created_ts_cursor, user_id_cursor)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let users = self.user_service.get_users_paginated(limit, created_ts_cursor, user_id_cursor).await?;
 
-        let total =
-            self.user_storage.get_user_count().await.map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let total = self.user_service.get_user_count().await?;
 
         Ok(AdminLegacyUsersPage { users, total })
     }
@@ -202,7 +187,8 @@ impl AdminUserService {
         limit: i64,
         from: Option<&str>,
     ) -> Result<Vec<String>, ApiError> {
-        RoomStorage::get_user_rooms_paginated(&self.room_storage, user_id, limit, from)
+        self.room_storage
+            .get_user_rooms_paginated(user_id, limit, from)
             .await
             .map_err(|e| ApiError::database(format!("A database error occurred: {e}")))
     }
@@ -269,8 +255,7 @@ impl AdminUserService {
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-        let total =
-            self.user_storage.get_user_count().await.map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let total = self.user_service.get_user_count().await?;
 
         let users = rows
             .iter()
@@ -299,11 +284,7 @@ impl AdminUserService {
 
     #[instrument(skip(self))]
     pub async fn get_user_v2(&self, identifier: &str) -> Result<Option<AdminUserDetails>, ApiError> {
-        let user = self
-            .user_storage
-            .get_user_by_identifier(identifier)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let user = self.user_service.get_user_by_identifier(identifier).await?;
 
         let Some(user) = user else {
             return Ok(None);
@@ -341,25 +322,15 @@ impl AdminUserService {
         user_type: Option<&str>,
         password: Option<&str>,
     ) -> Result<(), ApiError> {
-        let existing_user = self
-            .user_storage
-            .get_user_by_identifier(identifier)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let existing_user = self.user_service.get_user_by_identifier(identifier).await?;
 
         if let Some(existing_user) = existing_user {
             if let Some(displayname) = displayname {
-                self.user_storage
-                    .update_displayname(&existing_user.user_id, Some(displayname))
-                    .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to update user displayname", &e))?;
+                self.user_service.update_displayname(&existing_user.user_id, Some(displayname)).await?;
             }
 
             if let Some(avatar_url) = avatar_url {
-                self.user_storage
-                    .update_avatar_url(&existing_user.user_id, Some(avatar_url))
-                    .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to update user avatar", &e))?;
+                self.user_service.update_avatar_url(&existing_user.user_id, Some(avatar_url)).await?;
             }
 
             if let Some(is_admin) = is_admin {
@@ -415,17 +386,11 @@ impl AdminUserService {
             .map_err(|e| ApiError::internal_with_log("Failed to create user", &e))?;
 
         if let Some(displayname) = displayname {
-            self.user_storage
-                .update_displayname(&created.user_id, Some(displayname))
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to update user displayname", &e))?;
+            self.user_service.update_displayname(&created.user_id, Some(displayname)).await?;
         }
 
         if let Some(avatar_url) = avatar_url {
-            self.user_storage
-                .update_avatar_url(&created.user_id, Some(avatar_url))
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to update user avatar", &e))?;
+            self.user_service.update_avatar_url(&created.user_id, Some(avatar_url)).await?;
         }
 
         if is_deactivated.unwrap_or(false) {
@@ -473,12 +438,7 @@ impl AdminUserService {
 
     #[instrument(skip(self))]
     pub async fn get_single_user_stats(&self, identifier: &str) -> Result<AdminSingleUserStats, ApiError> {
-        let user = self
-            .user_storage
-            .get_user_by_identifier(identifier)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-            .ok_or_else(|| ApiError::not_found("User not found"))?;
+        let user = self.user_service.get_user_or_not_found(identifier).await?;
 
         let rooms_joined = self
             .member_storage
@@ -518,10 +478,7 @@ impl AdminUserService {
             match self.user_storage.create_user(&full_user_id, username, Some(&password_hash), *is_admin).await {
                 Ok(created) => {
                     if let Some(displayname) = displayname.as_deref() {
-                        self.user_storage
-                            .update_displayname(&created.user_id, Some(displayname))
-                            .await
-                            .map_err(|e| ApiError::internal_with_log("Failed to update displayname", &e))?;
+                        self.user_service.update_displayname(&created.user_id, Some(displayname)).await?;
                     }
                     succeeded.push(username.clone());
                 }
@@ -561,17 +518,11 @@ impl AdminUserService {
         is_admin: Option<bool>,
     ) -> Result<(), ApiError> {
         if let Some(displayname) = displayname {
-            self.user_storage
-                .update_displayname(user_id, Some(displayname))
-                .await
-                .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+            self.user_service.update_displayname(user_id, Some(displayname)).await?;
         }
 
         if let Some(avatar_url) = avatar_url {
-            self.user_storage
-                .update_avatar_url(user_id, Some(avatar_url))
-                .await
-                .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+            self.user_service.update_avatar_url(user_id, Some(avatar_url)).await?;
         }
 
         if let Some(is_admin) = is_admin {
@@ -587,7 +538,10 @@ impl AdminUserService {
 
 #[cfg(test)]
 mod cursor_tests {
-    use super::{decode_user_cursor, encode_user_cursor, AdminUserCursor};
+    use super::{
+        decode_user_cursor, encode_user_cursor, AdminEvictionFailure, AdminUserCursor, AdminUserDeviceInfo,
+        AdminUserEvictionResult, AdminUserListItem, AdminUserProfile, AdminUserStats, BatchUsersResult,
+    };
 
     #[test]
     fn test_user_cursor_round_trip() {
@@ -605,5 +559,139 @@ mod cursor_tests {
     fn test_user_cursor_rejects_invalid_value() {
         assert_eq!(decode_user_cursor(Some("bad-cursor")), None);
         assert_eq!(decode_user_cursor(Some("123|")), None);
+    }
+
+    #[test]
+    fn test_user_cursor_empty_user_id() {
+        assert_eq!(decode_user_cursor(Some("123|")), None);
+    }
+
+    #[test]
+    fn test_user_cursor_none() {
+        assert_eq!(decode_user_cursor(None), None);
+    }
+
+    #[test]
+    fn test_user_cursor_invalid_timestamp() {
+        assert_eq!(decode_user_cursor(Some("abc|user")), None);
+    }
+
+    #[test]
+    fn test_admin_user_profile_from_user() {
+        let user = synapse_storage::User {
+            user_id: "@alice:example.com".to_string(),
+            username: "alice".to_string(),
+            password_hash: None,
+            is_admin: true,
+            is_guest: false,
+            is_shadow_banned: false,
+            is_deactivated: false,
+            created_ts: 1_700_000_000_000,
+            updated_ts: None,
+            displayname: Some("Alice".to_string()),
+            avatar_url: Some("mxc://example.com/avatar".to_string()),
+            email: None,
+            phone: None,
+            generation: None,
+            consent_version: None,
+            appservice_id: None,
+            user_type: Some("staff".to_string()),
+            invalid_update_at: None,
+            migration_state: None,
+            password_changed_ts: None,
+            is_password_change_required: false,
+            password_expires_at: None,
+            failed_login_attempts: 0,
+            locked_until: None,
+            must_change_password: false,
+        };
+
+        let profile = AdminUserProfile::from(&user);
+        assert_eq!(profile.user_id, "@alice:example.com");
+        assert_eq!(profile.username, "alice");
+        assert!(profile.is_admin);
+        assert!(!profile.is_guest);
+        assert!(!profile.is_deactivated);
+        assert_eq!(profile.created_ts, 1_700_000_000_000);
+        assert_eq!(profile.displayname, Some("Alice".to_string()));
+        assert_eq!(profile.avatar_url, Some("mxc://example.com/avatar".to_string()));
+        assert_eq!(profile.user_type, Some("staff".to_string()));
+    }
+
+    #[test]
+    fn test_admin_user_stats_creation() {
+        let stats = AdminUserStats {
+            total_users: 100,
+            active_users: 80,
+            admin_users: 5,
+            deactivated_users: 2,
+            guest_users: 10,
+            average_rooms_per_user: 3.5,
+        };
+        assert_eq!(stats.total_users, 100);
+        assert_eq!(stats.active_users, 80);
+        assert_eq!(stats.admin_users, 5);
+        assert_eq!(stats.deactivated_users, 2);
+        assert_eq!(stats.guest_users, 10);
+        assert!((stats.average_rooms_per_user - 3.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_batch_users_result_creation() {
+        let result = BatchUsersResult {
+            succeeded: vec!["user1".to_string(), "user2".to_string()],
+            failed: vec!["user3".to_string()],
+        };
+        assert_eq!(result.succeeded.len(), 2);
+        assert_eq!(result.failed.len(), 1);
+        assert!(result.succeeded.contains(&"user1".to_string()));
+        assert!(result.failed.contains(&"user3".to_string()));
+    }
+
+    #[test]
+    fn test_admin_user_eviction_result_creation() {
+        let result = AdminUserEvictionResult {
+            joined_rooms: vec!["!room1:example.com".to_string(), "!room2:example.com".to_string()],
+            failures: vec![AdminEvictionFailure {
+                room_id: "!room3:example.com".to_string(),
+                error: "Permission denied".to_string(),
+            }],
+        };
+        assert_eq!(result.joined_rooms.len(), 2);
+        assert_eq!(result.failures.len(), 1);
+        assert_eq!(result.failures[0].room_id, "!room3:example.com");
+        assert_eq!(result.failures[0].error, "Permission denied");
+    }
+
+    #[test]
+    fn test_admin_user_list_item_creation() {
+        let item = AdminUserListItem {
+            user_id: "@alice:example.com".to_string(),
+            created_ts: 1_700_000_000_000,
+            is_admin: true,
+            is_guest: false,
+            user_type: Some("staff".to_string()),
+            is_deactivated: false,
+            displayname: Some("Alice".to_string()),
+            avatar_url: Some("mxc://example.com/avatar".to_string()),
+        };
+        assert_eq!(item.user_id, "@alice:example.com");
+        assert!(item.is_admin);
+        assert!(!item.is_guest);
+        assert!(!item.is_deactivated);
+    }
+
+    #[test]
+    fn test_admin_user_device_info_creation() {
+        let device = AdminUserDeviceInfo {
+            device_id: "DEVICE123".to_string(),
+            display_name: Some("My Phone".to_string()),
+            last_seen_ts: Some(1_700_000_000_000),
+            last_seen_ip: Some("192.168.1.1".to_string()),
+        };
+        assert_eq!(device.device_id, "DEVICE123");
+        assert_eq!(device.display_name, Some("My Phone".to_string()));
+        assert_eq!(device.last_seen_ts, Some(1_700_000_000_000));
+        assert_eq!(device.last_seen_ip, Some("192.168.1.1".to_string()));
     }
 }

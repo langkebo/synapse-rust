@@ -9,6 +9,7 @@ use rand::RngCore;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::traits::DehydratedDeviceProvider;
 use synapse_common::ApiError;
 #[cfg(test)]
@@ -147,7 +148,7 @@ impl SecretStorageService {
             encrypted_key,
             public_key,
             signatures: serde_json::json!({}),
-            created_ts: chrono::Utc::now().timestamp_millis(),
+            created_ts: current_timestamp_millis(),
         };
 
         self.storage.create_key(&storage_key).await
@@ -179,7 +180,7 @@ impl SecretStorageService {
             encrypted_key,
             public_key,
             signatures,
-            created_ts: chrono::Utc::now().timestamp_millis(),
+            created_ts: current_timestamp_millis(),
         };
 
         self.storage.create_key(&storage_key).await

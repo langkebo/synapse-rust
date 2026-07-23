@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-TEST_THREADS="${TEST_THREADS:-2}"
+# B.3: raised from 2 → 8 (DB pool max=40 + template-schema cloning semaphore
+# both support the extra concurrency; cuts integration-test wall time ~30-40%).
+TEST_THREADS="${TEST_THREADS:-8}"
 TEST_RETRIES="${TEST_RETRIES:-2}"
 NEXTEST_PROFILE_NAME="${NEXTEST_PROFILE_NAME:-ci}"
 RUN_PERF_SMOKE="${RUN_PERF_SMOKE:-0}"
@@ -31,7 +33,10 @@ for arg in "$@"; do
         --lib) RUN_LIB=1 ;;
         --unit) RUN_UNIT=1 ;;
         --integration) RUN_INTEGRATION=1 ;;
-        *) echo "Unknown argument: $arg" >&2; exit 1 ;;
+        *)
+            echo "Unknown argument: $arg" >&2
+            exit 1
+            ;;
     esac
 done
 
@@ -223,10 +228,10 @@ if cargo nextest --version >/dev/null 2>&1; then
 
             # P4-2: Snapshot gate — fail if any insta snapshot drifted or is missing.
             # Local devs run `cargo insta test --review` to accept new snapshots;
-            # CI runs in non-interactive --no-review mode and fails on pending .snap.new.
+            # CI runs in non-interactive --check mode and fails on snapshot drift.
             if cargo insta --version >/dev/null 2>&1; then
-                echo ">>> Running insta snapshot gate (--no-review) ..."
-                if ! cargo insta test --no-review --test-runner nextest -- --all-features --locked --test-threads "$TEST_THREADS"; then
+                echo ">>> Running insta snapshot gate (--check) ..."
+                if ! cargo insta test --check --test-runner nextest -- --all-features --locked --test-threads "$TEST_THREADS"; then
                     echo "❌ Snapshot drift detected. Run locally:"
                     echo "   cargo insta test --review"
                     exit 1
@@ -256,7 +261,7 @@ else
 
             # P4-2: Snapshot gate (cargo test fallback path).
             if cargo insta --version >/dev/null 2>&1; then
-                echo ">>> Running insta snapshot gate (--no-review, cargo test runner) ..."
+                echo ">>> Running insta snapshot gate (INSTA_UPDATE=no, cargo test runner) ..."
                 if ! INSTA_UPDATE=no cargo test --test integration --all-features --locked -- --test-threads="$TEST_THREADS"; then
                     echo "❌ Snapshot drift detected. Run locally: cargo insta test --review"
                     exit 1

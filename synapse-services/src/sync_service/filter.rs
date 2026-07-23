@@ -21,7 +21,22 @@ impl SyncService {
             return Ok(Some(Self::sync_response_filter_from_filter_json(&inline_filter)));
         }
 
-        let stored = self.filter_storage.get_filter(user_id, filter_id).await?;
+        // Sync filters are immutable: a filter id is content-addressed at
+        // creation and never mutated, so we cache the stored filter with a long
+        // TTL and no invalidation. Inline JSON filters (handled above) are never
+        // cached.
+        let cache_key = format!("sync_filter:{user_id}:{filter_id}");
+        let stored: Option<synapse_storage::filter::Filter> =
+            match self.cache.get::<synapse_storage::filter::Filter>(&cache_key).await {
+                Ok(Some(filter)) => Some(filter),
+                _ => {
+                    let fetched = self.filter_storage.get_filter(user_id, filter_id).await?;
+                    if let Some(ref filter) = fetched {
+                        let _ = self.cache.set(&cache_key, filter, 86_400).await;
+                    }
+                    fetched
+                }
+            };
         Ok(stored.as_ref().map(|filter| Self::sync_response_filter_from_filter_json(&filter.content)))
     }
 
@@ -1140,5 +1155,125 @@ mod tests {
             device_list_stream_id: Some(35),
         });
         assert_eq!(SyncService::device_list_since_stream_id(&token), 35);
+    }
+
+    // ── resolve_sync_response_filter caching (OPT-015-a) ────────────────
+
+    /// [`FilterStoreApi`] test double that counts `get_filter` invocations,
+    /// used to prove that stored sync filters are read from Postgres at most
+    /// once and served from the cache thereafter.
+    struct CountingFilterStore {
+        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        filter: synapse_storage::filter::Filter,
+    }
+
+    #[async_trait::async_trait]
+    impl synapse_storage::filter::FilterStoreApi for CountingFilterStore {
+        async fn create_filter(
+            &self,
+            _request: synapse_storage::filter::CreateFilterRequest,
+        ) -> Result<synapse_storage::filter::Filter, synapse_common::error::ApiError> {
+            Ok(self.filter.clone())
+        }
+
+        async fn get_filter(
+            &self,
+            user_id: &str,
+            filter_id: &str,
+        ) -> Result<Option<synapse_storage::filter::Filter>, synapse_common::error::ApiError> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if user_id == self.filter.user_id && filter_id == self.filter.filter_id {
+                Ok(Some(self.filter.clone()))
+            } else {
+                Ok(None)
+            }
+        }
+
+        async fn get_filters_by_user(
+            &self,
+            _user_id: &str,
+        ) -> Result<Vec<synapse_storage::filter::Filter>, synapse_common::error::ApiError> {
+            Ok(vec![])
+        }
+
+        async fn delete_filter(
+            &self,
+            _user_id: &str,
+            _filter_id: &str,
+        ) -> Result<bool, synapse_common::error::ApiError> {
+            Ok(false)
+        }
+
+        async fn delete_filters_by_user(&self, _user_id: &str) -> Result<u64, synapse_common::error::ApiError> {
+            Ok(0)
+        }
+    }
+
+    /// Builds a [`SyncService`] over a lazily-connected pool (never queried by
+    /// `resolve_sync_response_filter`) plus an in-memory cache and the supplied
+    /// filter store. The pool is created with `connect_lazy` so no live
+    /// database is required.
+    fn sync_service_with_filter_store(
+        filter_store: std::sync::Arc<dyn synapse_storage::filter::FilterStoreApi>,
+    ) -> SyncService {
+        use std::sync::Arc;
+
+        let pool: Arc<sqlx::PgPool> = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost/synapse")
+                .expect("lazy pool"),
+        );
+        let cache = Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default()));
+
+        SyncService::from_deps(SyncServiceDeps {
+            presence_storage: Arc::new(synapse_storage::presence::PresenceStorage::new(pool.clone(), cache.clone())),
+            member_storage: Arc::new(synapse_storage::membership::RoomMemberStorage::new(&pool, "localhost")),
+            event_reader: Arc::new(synapse_storage::event::EventStorage::new(&pool, "localhost".to_string())),
+            room_storage: Arc::new(synapse_storage::room::RoomStorage::new(&pool)),
+            room_account_data_storage: Arc::new(synapse_storage::room_account_data::RoomAccountDataStorage::new(&pool)),
+            account_data_storage: Arc::new(synapse_storage::account_data::AccountDataStorage::new(&pool)),
+            filter_storage: filter_store,
+            device_storage: Arc::new(synapse_storage::device::DeviceStorage::new(&pool)),
+            device_key_storage: Arc::new(synapse_e2ee::device_keys::DeviceKeyStorage::new(&pool))
+                as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
+            key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage::new(pool.clone()),
+            to_device_storage: synapse_e2ee::to_device::ToDeviceStorage::new(&pool),
+            metrics: Arc::new(synapse_common::MetricsCollector::new()),
+            performance: synapse_common::config::PerformanceConfig::default(),
+            cache,
+        })
+    }
+
+    #[tokio::test]
+    async fn resolve_sync_filter_is_cached_after_first_read() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let stored = synapse_storage::filter::Filter {
+            id: 1,
+            user_id: "@alice:localhost".to_string(),
+            filter_id: "filterid".to_string(),
+            content: serde_json::json!({"room": {"timeline": {"limit": 10}}}),
+            created_ts: 0,
+        };
+        let filter_store: Arc<dyn synapse_storage::filter::FilterStoreApi> =
+            Arc::new(CountingFilterStore { calls: calls.clone(), filter: stored });
+
+        let sync = sync_service_with_filter_store(filter_store);
+
+        let first = sync.resolve_sync_response_filter("@alice:localhost", Some("filterid")).await.unwrap();
+        let second = sync.resolve_sync_response_filter("@alice:localhost", Some("filterid")).await.unwrap();
+
+        assert!(first.is_some(), "first resolve should return the stored filter");
+        assert!(second.is_some(), "second resolve should return the stored filter");
+
+        // Both resolutions must yield an identical filter shape.
+        let first_json = serde_json::to_value(&first).unwrap();
+        let second_json = serde_json::to_value(&second).unwrap();
+        assert_eq!(first_json, second_json, "cached filter must equal the freshly-read one");
+
+        // Storage is hit exactly once; the second read is served from cache.
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "second resolve must be served from cache, not storage");
     }
 }

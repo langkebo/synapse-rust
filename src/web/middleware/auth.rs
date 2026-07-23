@@ -1,7 +1,7 @@
 use crate::common::ApiError;
 use crate::web::routes::admin::audit::resolve_request_id;
-use crate::web::routes::AppState;
-use crate::web::utils::admin_auth::authorize_admin_request;
+use crate::web::routes::context::{AdminContext, CoreContext};
+use crate::web::utils::admin_auth::authorize_admin_from_services;
 use crate::web::utils::auth::bearer_token;
 use crate::web::utils::ip::extract_client_ip;
 use axum::extract::State;
@@ -16,7 +16,7 @@ pub fn extract_token(headers: &HeaderMap, uri: &str) -> Option<String> {
 }
 
 pub async fn auth_middleware(
-    State(state): State<AppState>,
+    State(ctx): State<CoreContext>,
     request: Request<Body>,
     next: axum::middleware::Next,
 ) -> Response {
@@ -26,7 +26,7 @@ pub async fn auth_middleware(
         None => return ApiError::missing_token().into_response(),
     };
 
-    if let Err(err) = state.services.core.auth_service.validate_token(&token).await {
+    if let Err(err) = ctx.token_auth.validate_token(&token).await {
         return err.into_response();
     }
 
@@ -34,7 +34,7 @@ pub async fn auth_middleware(
 }
 
 pub async fn shadow_ban_middleware(
-    State(state): State<AppState>,
+    State(ctx): State<CoreContext>,
     request: Request<Body>,
     next: axum::middleware::Next,
 ) -> Response {
@@ -56,7 +56,7 @@ pub async fn shadow_ban_middleware(
         None => return next.run(request).await,
     };
 
-    match state.services.core.auth_service.validate_token(&token).await {
+    match ctx.token_auth.validate_token(&token).await {
         Ok((_, _, _, is_shadow_banned, is_guest)) => {
             if is_shadow_banned {
                 ::tracing::warn!(
@@ -123,7 +123,7 @@ fn is_shadow_ban_exempt_path(path: &str) -> bool {
 }
 
 pub async fn admin_auth_middleware(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     request: Request<Body>,
     next: axum::middleware::Next,
 ) -> Response {
@@ -131,26 +131,37 @@ pub async fn admin_auth_middleware(
     let path = request.uri().path().to_string();
     let headers = request.headers().clone();
     let request_id = resolve_request_id(&headers);
-    let client_ip =
-        extract_client_ip(&headers, &["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()]);
+    let client_ip = extract_client_ip(
+        &headers,
+        &["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()],
+        None,
+        &[],
+    );
 
-    let admin = match authorize_admin_request(&headers, &method, &path, &state).await {
+    let admin = match authorize_admin_from_services(
+        ctx.token_auth.as_ref(),
+        ctx.user_service.as_ref(),
+        &ctx.config.security,
+        Some(ctx.admin_audit_service.as_ref()),
+        &headers,
+        &method,
+        &path,
+    )
+    .await
+    {
         Ok(admin) => admin,
         Err(err) => {
             let response = err.into_response();
             let status = response.status().as_u16();
             let (actor_id, device_id, authenticated_admin) = match bearer_token(&headers) {
-                Ok(token) => match state.services.core.auth_service.validate_token(&token).await {
+                Ok(token) => match ctx.token_auth.validate_token(&token).await {
                     Ok((user_id, device_id, is_admin, _, _)) => (user_id, device_id, Some(is_admin)),
                     Err(_) => ("anonymous".to_string(), None, None),
                 },
                 Err(_) => ("anonymous".to_string(), None, None),
             };
 
-            if let Err(error) = state
-                .services
-                .admin
-                .security
+            if let Err(error) = ctx
                 .admin_audit_service
                 .create_event(CreateAuditEventRequest {
                     actor_id,
@@ -184,10 +195,7 @@ pub async fn admin_auth_middleware(
     let mut response = next.run(request).await;
     let result = if response.status().is_success() { "success" } else { "failure" };
 
-    if let Err(error) = state
-        .services
-        .admin
-        .security
+    if let Err(error) = ctx
         .admin_audit_service
         .create_event(CreateAuditEventRequest {
             actor_id: admin.user_id.clone(),

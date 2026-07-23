@@ -5,9 +5,44 @@ pub(crate) mod models;
 pub use api::RoomStoreApi;
 pub use models::*;
 
+// Room domain group — re-exports room-related storage modules under `room::`.
+// Consumers should prefer `synapse_storage::room::RoomMemberStorage` over the
+// flat `synapse_storage::RoomMemberStorage`.
+pub use crate::membership::{MemberStoreApi, RoomMember, RoomMemberStorage, UserRoomMembership};
+pub use crate::room_account_data::{RoomAccountDataRecord, RoomAccountDataStorage, RoomAccountDataStoreApi};
+pub use crate::state_groups::StateGroupStoreApi;
+pub use crate::thread::{
+    CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadReadReceipt, ThreadRelation, ThreadReply,
+    ThreadRoot, ThreadStatistics, ThreadStorage, ThreadStoreApi, ThreadSubscription, ThreadSummary, ThreadWithReplies,
+};
+
+// P7.3: relations, retention, room_summary, room_tag, beacon, widget,
+// burn_after_read, and friend_room are room-related storage modules — group
+// them under `room::` so they are flat-re-exported via `pub use room::*;`
+// rather than via explicit flat re-exports in lib.rs.
+#[cfg(feature = "beacons")]
+pub use crate::beacon::{
+    BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStorage, BeaconStoreApi, CreateBeaconInfoParams,
+    CreateBeaconLocationParams,
+};
+#[cfg(feature = "burn-after-read")]
+pub use crate::burn_after_read::*;
+#[cfg(feature = "friends")]
+pub use crate::friend_room::{
+    AddFriendToGroupParams, CreateFriendGroupParams, DirectRoomFallbackLink, DmPartnerRecord, FriendDmLink,
+    FriendRequestRecord, FriendRoomStorage, FriendRoomStoreApi, RemoveFriendFromGroupParams, RenameFriendGroupParams,
+};
+pub use crate::relations::*;
+pub use crate::retention::*;
+pub use crate::room_summary::*;
+pub use crate::room_tag::*;
+#[cfg(feature = "widgets")]
+pub use crate::widget::{CreateWidgetParams, Widget, WidgetPermission, WidgetSession, WidgetStorage, WidgetStoreApi};
+
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use tracing;
 
 use synapse_common::room_versions::DEFAULT_ROOM_VERSION;
@@ -60,7 +95,7 @@ impl RoomStorage {
         E: sqlx::Executor<'a, Database = Postgres>,
     {
         tracing::info!(room_id = %room_id, creator = %creator, join_rule = %join_rule, is_public = is_public, "Creating room");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, history_visibility, created_ts, last_activity_ts)
@@ -635,7 +670,7 @@ impl RoomStorage {
             ",
         )
         .bind(room_id)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -652,7 +687,7 @@ impl RoomStorage {
             ",
         )
         .bind(room_id)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -692,7 +727,7 @@ impl RoomStorage {
     }
 
     pub async fn set_room_alias(&self, room_id: &str, alias: &str, _created_by: &str) -> Result<(), sqlx::Error> {
-        let creation_ts = chrono::Utc::now().timestamp_millis();
+        let creation_ts = current_timestamp_millis();
         let server_name = alias
             .rsplit_once(':')
             .map(|(_, server_name)| server_name)
@@ -775,31 +810,6 @@ impl RoomStorage {
         Ok(())
     }
 
-    pub async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
-            INSERT INTO room_state_events (room_id, type, state_key, content, sender, origin_server_ts)
-            SELECT $1, event_type, state_key, content, sender, origin_server_ts
-            FROM (
-                SELECT DISTINCT ON (event_type, state_key)
-                    event_type, state_key, content, sender, origin_server_ts
-                FROM events
-                WHERE room_id = $2 AND state_key IS NOT NULL
-                ORDER BY event_type, state_key, origin_server_ts DESC
-            ) sub
-            ON CONFLICT (room_id, type, state_key) DO UPDATE SET
-                content = EXCLUDED.content,
-                sender = EXCLUDED.sender,
-                origin_server_ts = EXCLUDED.origin_server_ts
-            ",
-        )
-        .bind(target_room_id)
-        .bind(source_room_id)
-        .execute(&*self.pool)
-        .await?;
-        Ok(())
-    }
-
     pub async fn get_room_alias(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
         let result: Option<(String,)> = sqlx::query_as(
             r"
@@ -849,7 +859,7 @@ impl RoomStorage {
     }
 
     pub async fn set_room_directory(&self, room_id: &str, is_public: bool) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO room_directory (room_id, is_public, added_ts)
@@ -913,7 +923,7 @@ impl RoomStorage {
     }
 
     pub async fn update_read_marker(&self, room_id: &str, user_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
-        let now: i64 = chrono::Utc::now().timestamp_millis();
+        let now: i64 = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO read_markers (room_id, user_id, event_id, marker_type, created_ts, updated_ts)
@@ -939,7 +949,7 @@ impl RoomStorage {
         event_id: &str,
         marker_type: &str,
     ) -> Result<(), sqlx::Error> {
-        let now: i64 = chrono::Utc::now().timestamp_millis();
+        let now: i64 = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO read_markers (room_id, user_id, event_id, marker_type, created_ts, updated_ts)
@@ -999,108 +1009,6 @@ impl RoomStorage {
         Ok(rows.into_iter().collect())
     }
 
-    pub async fn get_unread_counts(&self, room_id: &str, user_id: &str) -> Result<RoomUnreadCounts, sqlx::Error> {
-        let mention_pattern = format!("%{user_id}%");
-
-        sqlx::query_as::<_, RoomUnreadCounts>(
-            r"
-            WITH last_read AS (
-                SELECT COALESCE(MAX(e.origin_server_ts), 0) AS last_read_ts
-                FROM read_markers rm
-                LEFT JOIN events e ON e.event_id = rm.event_id
-                WHERE rm.room_id = $1 AND rm.user_id = $2
-            )
-            SELECT
-                $1 AS room_id,
-                COALESCE(COUNT(ev.event_id) FILTER (
-                    WHERE COALESCE(ev.user_id, ev.sender) != $2
-                      AND ev.state_key IS NULL
-                      AND ev.origin_server_ts > lr.last_read_ts
-                ), 0) AS notification_count,
-                COALESCE(COUNT(ev.event_id) FILTER (
-                    WHERE COALESCE(ev.user_id, ev.sender) != $2
-                      AND ev.state_key IS NULL
-                      AND ev.origin_server_ts > lr.last_read_ts
-                      AND (
-                        ev.content::text LIKE $3
-                        OR ev.content::text LIKE '%@room%'
-                      )
-                ), 0) AS highlight_count
-            FROM last_read lr
-            LEFT JOIN events ev
-              ON ev.room_id = $1
-             AND COALESCE(ev.user_id, ev.sender) != $2
-             AND ev.state_key IS NULL
-             AND ev.origin_server_ts > lr.last_read_ts
-            GROUP BY lr.last_read_ts
-            ",
-        )
-        .bind(room_id)
-        .bind(user_id)
-        .bind(mention_pattern)
-        .fetch_one(&*self.pool)
-        .await
-    }
-
-    pub async fn get_unread_counts_batch(
-        &self,
-        room_ids: &[String],
-        user_id: &str,
-    ) -> Result<Vec<RoomUnreadCounts>, sqlx::Error> {
-        if room_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let mention_pattern = format!("%{user_id}%");
-        sqlx::query_as::<_, RoomUnreadCounts>(
-            r"
-            WITH target_rooms AS (
-                SELECT UNNEST($2::text[]) AS room_id
-            ),
-            last_reads AS (
-                SELECT tr.room_id, COALESCE(MAX(e.origin_server_ts), 0) AS last_read_ts
-                FROM target_rooms tr
-                LEFT JOIN read_markers rm
-                  ON rm.room_id = tr.room_id
-                 AND rm.user_id = $1
-                LEFT JOIN events e
-                  ON e.event_id = rm.event_id
-                GROUP BY tr.room_id
-            )
-            SELECT
-                tr.room_id,
-                COALESCE(COUNT(ev.event_id) FILTER (
-                    WHERE COALESCE(ev.user_id, ev.sender) != $1
-                      AND ev.state_key IS NULL
-                      AND ev.origin_server_ts > lr.last_read_ts
-                ), 0) AS notification_count,
-                COALESCE(COUNT(ev.event_id) FILTER (
-                    WHERE COALESCE(ev.user_id, ev.sender) != $1
-                      AND ev.state_key IS NULL
-                      AND ev.origin_server_ts > lr.last_read_ts
-                      AND (
-                        ev.content::text LIKE $3
-                        OR ev.content::text LIKE '%@room%'
-                      )
-                ), 0) AS highlight_count
-            FROM target_rooms tr
-            LEFT JOIN last_reads lr
-              ON lr.room_id = tr.room_id
-            LEFT JOIN events ev
-              ON ev.room_id = tr.room_id
-             AND COALESCE(ev.user_id, ev.sender) != $1
-             AND ev.state_key IS NULL
-             AND ev.origin_server_ts > lr.last_read_ts
-            GROUP BY tr.room_id, lr.last_read_ts
-            ",
-        )
-        .bind(user_id)
-        .bind(room_ids)
-        .bind(mention_pattern)
-        .fetch_all(&*self.pool)
-        .await
-    }
-
     pub async fn add_receipt(
         &self,
         user_id: &str,
@@ -1110,7 +1018,7 @@ impl RoomStorage {
         receipt_type: &str,
         data: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
-        let now: i64 = chrono::Utc::now().timestamp_millis();
+        let now: i64 = current_timestamp_millis();
         let receipt_data = if data.is_object() { data.clone() } else { json!({}) };
 
         sqlx::query(
@@ -1254,7 +1162,7 @@ mod db_tests {
 
     #[allow(dead_code)]
     async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str, creator: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, history_visibility, created_ts, last_activity_ts)
                VALUES ($1, $2, 'invite', '10', false, 'joined', $3, $3)

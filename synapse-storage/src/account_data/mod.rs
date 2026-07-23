@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -61,7 +62,7 @@ impl AccountDataStoreApi for AccountDataStorage {
     }
 
     async fn upsert_account_data(&self, user_id: &str, data_type: &str, content: Value) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)

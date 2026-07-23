@@ -3,6 +3,8 @@ use crate::client_api::FederationClientApi;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
+use synapse_storage::membership::MemberStoreApi;
 use tokio::sync::{mpsc, RwLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,7 +44,7 @@ struct TransactionBatch {
 pub struct EventBroadcaster {
     server_name: String,
     federation_client: Option<Arc<dyn FederationClientApi>>,
-    membership_storage: Option<Arc<synapse_storage::membership::RoomMemberStorage>>,
+    membership_storage: Option<Arc<dyn MemberStoreApi>>,
     pending_queue: Arc<RwLock<Vec<PendingTransaction>>>,
     backoff_schedule: Vec<u64>,
     pool: Option<sqlx::PgPool>,
@@ -75,7 +77,7 @@ impl EventBroadcaster {
         self
     }
 
-    pub fn with_membership_storage(mut self, storage: Arc<synapse_storage::membership::RoomMemberStorage>) -> Self {
+    pub fn with_membership_storage(mut self, storage: Arc<dyn MemberStoreApi>) -> Self {
         self.membership_storage = Some(storage);
         self
     }
@@ -84,7 +86,7 @@ impl EventBroadcaster {
         self.federation_client = Some(client);
     }
 
-    pub fn set_membership_storage(&mut self, storage: Arc<synapse_storage::membership::RoomMemberStorage>) {
+    pub fn set_membership_storage(&mut self, storage: Arc<dyn MemberStoreApi>) {
         self.membership_storage = Some(storage);
     }
 
@@ -208,7 +210,7 @@ impl EventBroadcaster {
         .await
         .map_err(|e| FederationBroadcastError::SendFailed(e.to_string()))?;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut queue = self.pending_queue.write().await;
         let count = rows.len();
 
@@ -272,7 +274,7 @@ impl EventBroadcaster {
             None => return Ok(()),
         };
 
-        let txn_id = format!("txn_{}_{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4());
+        let txn_id = format!("txn_{}_{}", current_timestamp_millis(), uuid::Uuid::new_v4());
 
         for destination in &destinations {
             if destination == &self.server_name {
@@ -282,7 +284,7 @@ impl EventBroadcaster {
             let transaction = FederationTransaction {
                 transaction_id: txn_id.clone(),
                 origin: origin.to_string(),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
                 destination: destination.clone(),
                 pdus: vec![event.clone()],
                 edus: vec![],
@@ -323,12 +325,12 @@ impl EventBroadcaster {
             None => return Ok(()),
         };
 
-        let txn_id = format!("edu_{}_{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4());
+        let txn_id = format!("edu_{}_{}", current_timestamp_millis(), uuid::Uuid::new_v4());
 
         let transaction = FederationTransaction {
             transaction_id: txn_id,
             origin: origin.to_string(),
-            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            origin_server_ts: current_timestamp_millis(),
             destination: destination.to_string(),
             pdus: vec![],
             edus: vec![edu.clone()],
@@ -375,12 +377,12 @@ impl EventBroadcaster {
                 continue;
             }
 
-            let txn_id = format!("edu_{}_{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4());
+            let txn_id = format!("edu_{}_{}", current_timestamp_millis(), uuid::Uuid::new_v4());
 
             let transaction = FederationTransaction {
                 transaction_id: txn_id,
                 origin: origin.to_string(),
-                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                origin_server_ts: current_timestamp_millis(),
                 destination: destination.clone(),
                 pdus: vec![],
                 edus: vec![edu.clone()],
@@ -450,7 +452,7 @@ impl EventBroadcaster {
         .bind(event_type)
         .bind(&room_id)
         .bind(&content)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .fetch_one(pool)
         .await
         {
@@ -469,7 +471,7 @@ impl EventBroadcaster {
                     "sent" => {
                         sqlx::query("UPDATE federation_queue SET status = 'sent', sent_at = $2 WHERE id = $1")
                             .bind(db_id)
-                            .bind(chrono::Utc::now().timestamp_millis())
+                            .bind(current_timestamp_millis())
                             .execute(pool)
                             .await
                     }
@@ -496,7 +498,7 @@ impl EventBroadcaster {
 
     async fn enqueue_for_retry(&self, destination: String, transaction: FederationTransaction, retry_count: u32) {
         let delay = self.get_backoff_delay(retry_count);
-        let next_retry_at = chrono::Utc::now().timestamp_millis() + delay as i64;
+        let next_retry_at = current_timestamp_millis() + delay as i64;
 
         let db_id = self.persist_transaction_to_db(&destination, &transaction).await;
 
@@ -519,7 +521,7 @@ impl EventBroadcaster {
             None => return Ok(0),
         };
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut queue = self.pending_queue.write().await;
         let mut retried = 0;
         let max_retries = 7u32;
@@ -618,9 +620,9 @@ async fn send_batch(
     }
 
     let txn = FederationTransaction {
-        transaction_id: format!("batch_{}_{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4()),
+        transaction_id: format!("batch_{}_{}", current_timestamp_millis(), uuid::Uuid::new_v4()),
         origin: batch.origin.clone(),
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         destination: destination.to_string(),
         pdus: batch.pdus.clone(),
         edus: batch.edus.clone(),
@@ -648,7 +650,7 @@ async fn send_batch(
                             destination: destination.to_string(),
                             transaction: txn,
                             retry_count: 0,
-                            next_retry_at: chrono::Utc::now().timestamp_millis() + 5000,
+                            next_retry_at: current_timestamp_millis() + 5000,
                             db_id: None,
                         });
                         return;
@@ -666,7 +668,7 @@ async fn send_batch(
                 .bind(destination)
                 .bind(&event_id)
                 .bind(&content)
-                .bind(chrono::Utc::now().timestamp_millis())
+                .bind(current_timestamp_millis())
                 .fetch_one(pool)
                 .await
                 .ok()
@@ -676,7 +678,7 @@ async fn send_batch(
             };
 
             let delay = if txn.pdus.len() > 1 { 5000u64 } else { 1000u64 };
-            let next_retry_at = chrono::Utc::now().timestamp_millis() + delay as i64;
+            let next_retry_at = current_timestamp_millis() + delay as i64;
 
             let mut queue = retry_queue.write().await;
             queue.push(PendingTransaction {

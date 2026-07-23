@@ -1,22 +1,22 @@
+use crate::web::routes::context::DeviceContext;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     routing::{get, post, put},
     Json, Router,
 };
-use chrono::Utc;
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 pub async fn get_key_rotation_status(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     if !auth_user.is_admin {
         return Err(ApiError::forbidden("Key rotation management requires server admin privileges".to_string()));
     }
 
-    let (status, last_rotation) =
-        state.services.federation.key_rotation_service.get_rotation_status(&auth_user.user_id).await?;
+    let (status, last_rotation) = ctx.key_rotation_service.get_rotation_status(&auth_user.user_id).await?;
 
     Ok(Json(json!({
         "enabled": status.get("rotation_enabled"),
@@ -27,14 +27,14 @@ pub async fn get_key_rotation_status(
 
 /// POST variant of get_key_rotation_status — some clients use POST instead of GET
 pub async fn get_key_rotation_status_post(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    get_key_rotation_status(State(state), auth_user).await
+    get_key_rotation_status(State(ctx), auth_user).await
 }
 
 pub async fn rotate_keys(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -44,7 +44,7 @@ pub async fn rotate_keys(
 
     let requested_key_id = body.get("key_id").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-    match state.services.federation.key_rotation_service.rotate_keys(requested_key_id).await {
+    match ctx.key_rotation_service.rotate_keys(requested_key_id).await {
         Ok(has_new_key) => Ok(Json(json!({
             "success": true,
             "message": "Keys rotated successfully",
@@ -58,7 +58,7 @@ pub async fn rotate_keys(
 }
 
 pub async fn get_rotation_history(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
@@ -66,13 +66,8 @@ pub async fn get_rotation_history(
         return Err(ApiError::forbidden("Key rotation management requires server admin privileges".to_string()));
     }
 
-    let history_rows = state
-        .services
-        .federation
-        .key_rotation_service
-        .get_rotation_history(&auth_user.user_id, &device_id)
-        .await
-        .map_err(|e| {
+    let history_rows =
+        ctx.key_rotation_service.get_rotation_history(&auth_user.user_id, &device_id).await.map_err(|e| {
             tracing::error!("Failed to get rotation history: {e}");
             ApiError::internal("Internal server error".to_string())
         })?;
@@ -94,7 +89,7 @@ pub async fn get_rotation_history(
 }
 
 pub async fn revoke_old_keys(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -110,7 +105,7 @@ pub async fn revoke_old_keys(
         return Err(ApiError::bad_request("key_id is required for key revocation".to_string()));
     }
 
-    match state.services.federation.key_rotation_service.revoke_key(key_id, reason).await {
+    match ctx.key_rotation_service.revoke_key(key_id, reason).await {
         Ok(revoked_count) => Ok(Json(json!({
             "success": true,
             "revoked": revoked_count,
@@ -128,7 +123,7 @@ pub async fn revoke_old_keys(
 }
 
 pub async fn configure_key_rotation(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -146,106 +141,70 @@ pub async fn configure_key_rotation(
     let max_session_age_days = body.get("max_session_age_days").and_then(|v| v.as_i64());
 
     if let Some(enabled_val) = enabled {
-        state.services.federation.key_rotation_service.set_rotation_enabled(enabled_val).await;
+        ctx.key_rotation_service.set_rotation_enabled(enabled_val).await;
     }
 
     if let Some(interval) = interval_ms {
-        state.services.federation.key_rotation_service.set_rotation_interval_ms(interval).await.map_err(|e| {
+        ctx.key_rotation_service.set_rotation_interval_ms(interval).await.map_err(|e| {
             tracing::error!("Failed to persist key rotation interval_ms: {e}");
             ApiError::internal("Internal server error".to_string())
         })?;
     }
 
     if let Some(days) = rotation_interval_days {
-        state
-            .services
-            .federation
-            .key_rotation_service
-            .set_manager_config_value("rotation_interval_days", days)
-            .await
-            .map_err(|e| {
+        ctx.key_rotation_service.set_manager_config_value("rotation_interval_days", days).await.map_err(|e| {
             tracing::error!("Failed to persist rotation_interval_days: {e}");
             ApiError::internal("Internal server error".to_string())
         })?;
     }
 
     if let Some(days) = rotation_threshold_days {
-        state
-            .services
-            .federation
-            .key_rotation_service
-            .set_manager_config_value("rotation_threshold_days", days)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to persist rotation_threshold_days: {e}");
-                ApiError::internal("Internal server error".to_string())
-            })?;
+        ctx.key_rotation_service.set_manager_config_value("rotation_threshold_days", days).await.map_err(|e| {
+            tracing::error!("Failed to persist rotation_threshold_days: {e}");
+            ApiError::internal("Internal server error".to_string())
+        })?;
     }
 
     if let Some(minutes) = grace_period_minutes {
-        state
-            .services
-            .federation
-            .key_rotation_service
-            .set_manager_config_value("grace_period_minutes", minutes)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to persist grace_period_minutes: {e}");
-                ApiError::internal("Internal server error".to_string())
-            })?;
+        ctx.key_rotation_service.set_manager_config_value("grace_period_minutes", minutes).await.map_err(|e| {
+            tracing::error!("Failed to persist grace_period_minutes: {e}");
+            ApiError::internal("Internal server error".to_string())
+        })?;
     }
 
     if olm_rotation_days.is_some() || megolm_rotation_messages.is_some() || max_session_age_days.is_some() {
         if let Some(days) = olm_rotation_days {
-            state
-                .services
-                .federation
-                .key_rotation_service
-                .set_storage_config_value("olm_rotation_days", days)
-                .await
-                .map_err(|e| {
-                    tracing::error!("Failed to persist olm_rotation_days: {e}");
-                    ApiError::internal("Internal server error".to_string())
-                })?;
+            ctx.key_rotation_service.set_storage_config_value("olm_rotation_days", days).await.map_err(|e| {
+                tracing::error!("Failed to persist olm_rotation_days: {e}");
+                ApiError::internal("Internal server error".to_string())
+            })?;
         }
         if let Some(msgs) = megolm_rotation_messages {
-            state
-                .services
-                .federation
-                .key_rotation_service
-                .set_storage_config_value("megolm_rotation_messages", msgs)
-                .await
-                .map_err(|e| {
-                    tracing::error!("Failed to persist megolm_rotation_messages: {e}");
-                    ApiError::internal("Internal server error".to_string())
-                })?;
+            ctx.key_rotation_service.set_storage_config_value("megolm_rotation_messages", msgs).await.map_err(|e| {
+                tracing::error!("Failed to persist megolm_rotation_messages: {e}");
+                ApiError::internal("Internal server error".to_string())
+            })?;
         }
         if let Some(days) = max_session_age_days {
-            state
-                .services
-                .federation
-                .key_rotation_service
-                .set_storage_config_value("max_session_age_days", days)
-                .await
-                .map_err(|e| {
-                    tracing::error!("Failed to persist max_session_age_days: {e}");
-                    ApiError::internal("Internal server error".to_string())
-                })?;
+            ctx.key_rotation_service.set_storage_config_value("max_session_age_days", days).await.map_err(|e| {
+                tracing::error!("Failed to persist max_session_age_days: {e}");
+                ApiError::internal("Internal server error".to_string())
+            })?;
         }
     }
 
-    let (status, _) = state.services.federation.key_rotation_service.get_rotation_status(&auth_user.user_id).await?;
+    let (status, _) = ctx.key_rotation_service.get_rotation_status(&auth_user.user_id).await?;
 
     let persisted_interval_ms: Option<i64> = if interval_ms.is_some() {
         interval_ms
     } else {
-        state.services.federation.key_rotation_service.get_interval_ms().await.ok().flatten()
+        ctx.key_rotation_service.get_interval_ms().await.ok().flatten()
     };
 
     Ok(Json(json!({
         "enabled": status.get("rotation_enabled"),
         "interval_ms": persisted_interval_ms
-            .unwrap_or(state.services.core.config.federation.key_rotation_grace_period_ms as i64),
+            .unwrap_or(ctx.config.federation.key_rotation_grace_period_ms as i64),
         "rotation_interval_days": status.get("rotation_interval_days"),
         "rotation_threshold_days": status.get("rotation_threshold_days"),
         "grace_period_minutes": status.get("grace_period_minutes"),
@@ -254,15 +213,15 @@ pub async fn configure_key_rotation(
 
 /// POST variant of configure_key_rotation
 pub async fn configure_key_rotation_post(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    configure_key_rotation(State(state), auth_user, Json(body)).await
+    configure_key_rotation(State(ctx), auth_user, Json(body)).await
 }
 
 pub async fn check_needs_rotation(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
@@ -274,24 +233,15 @@ pub async fn check_needs_rotation(
     let key_id_filter = params.get("key_id").map(|s| s.as_str());
 
     let last_rotation: Option<i64> = if let Some(key_id) = key_id_filter {
-        state
-            .services
-            .federation
-            .key_rotation_service
-            .get_last_rotation_for_key(&auth_user.user_id, key_id)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to query rotation log by key_id: {e}");
-                ApiError::internal("Internal server error".to_string())
-            })?
+        ctx.key_rotation_service.get_last_rotation_for_key(&auth_user.user_id, key_id).await.map_err(|e| {
+            tracing::error!("Failed to query rotation log by key_id: {e}");
+            ApiError::internal("Internal server error".to_string())
+        })?
     } else {
-        let max_ts =
-            state.services.federation.key_rotation_service.get_max_rotation_ts(&auth_user.user_id).await.map_err(
-                |e| {
-                    tracing::error!("Failed to query rotation log: {e}");
-                    ApiError::internal("Internal server error".to_string())
-                },
-            )?;
+        let max_ts = ctx.key_rotation_service.get_max_rotation_ts(&auth_user.user_id).await.map_err(|e| {
+            tracing::error!("Failed to query rotation log: {e}");
+            ApiError::internal("Internal server error".to_string())
+        })?;
         if max_ts == 0 {
             None
         } else {
@@ -299,8 +249,8 @@ pub async fn check_needs_rotation(
         }
     };
 
-    let now = Utc::now().timestamp_millis();
-    let interval_ms = state.services.core.config.federation.key_rotation_grace_period_ms;
+    let now = current_timestamp_millis();
+    let interval_ms = ctx.config.federation.key_rotation_grace_period_ms;
 
     let needs_rotation = match last_rotation {
         Some(last) => now - last > interval_ms as i64,
@@ -316,11 +266,11 @@ pub async fn check_needs_rotation(
 
 /// POST variant of check_needs_rotation — front-end MatrixEncryptionService uses POST
 pub async fn check_needs_rotation_post(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    check_needs_rotation(State(state), auth_user, axum::extract::Query(params)).await
+    check_needs_rotation(State(ctx), auth_user, axum::extract::Query(params)).await
 }
 
 pub fn create_key_rotation_router(state: AppState) -> Router<AppState> {

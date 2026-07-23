@@ -1,8 +1,8 @@
 // Secure Backup Models
 // E2EE Phase 3: Secure key backup with passphrase
 
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use synapse_common::current_timestamp_millis;
 
 /// Secure backup info
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,7 +109,7 @@ pub struct BackupVersion {
 
 impl SecureBackupInfo {
     pub fn new(user_id: &str, algorithm: &str, auth_data: SecureBackupAuthData) -> Self {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         Self {
             backup_id: uuid::Uuid::new_v4().to_string(),
             user_id: user_id.to_string(),

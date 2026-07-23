@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Widget {
@@ -109,7 +110,7 @@ impl WidgetStorage {
     }
 
     pub async fn create_widget(&self, params: CreateWidgetParams) -> Result<Widget, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, Widget>(
             r#"
@@ -178,7 +179,7 @@ impl WidgetStorage {
         name: Option<&str>,
         data: Option<&serde_json::Value>,
     ) -> Result<Option<Widget>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, Widget>(
             r#"
@@ -209,7 +210,7 @@ impl WidgetStorage {
             "#,
         )
         .bind(widget_id)
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(&*self.pool)
         .await?;
 
@@ -222,7 +223,7 @@ impl WidgetStorage {
         user_id: &str,
         permissions: serde_json::Value,
     ) -> Result<WidgetPermission, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, WidgetPermission>(
             r#"
@@ -297,7 +298,7 @@ impl WidgetStorage {
         device_id: Option<&str>,
         expires_in_ms: Option<i64>,
     ) -> Result<WidgetSession, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = expires_in_ms.map(|ms| now + ms);
 
         let row = sqlx::query_as::<_, WidgetSession>(
@@ -333,7 +334,7 @@ impl WidgetStorage {
     }
 
     pub async fn update_session_activity(&self, session_id: &str) -> Result<bool, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query(
             r#"
@@ -362,7 +363,7 @@ impl WidgetStorage {
     }
 
     pub async fn get_widget_sessions(&self, widget_id: &str) -> Result<Vec<WidgetSession>, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let rows = sqlx::query_as::<_, WidgetSession>(
             r#"
@@ -380,7 +381,7 @@ impl WidgetStorage {
     }
 
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query(
             r#"
@@ -558,7 +559,7 @@ mod db_tests {
     }
 
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
@@ -574,7 +575,7 @@ mod db_tests {
     }
 
     async fn ensure_test_room(pool: &PgPool, room_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO rooms (room_id, created_ts)
                VALUES ($1, $2)
@@ -1135,7 +1136,7 @@ mod db_tests {
         storage.create_session(&valid_sid, &widget_id, &user_id, None, Some(86_400_000)).await.unwrap();
 
         // Manually set the expired session's expires_at to the past
-        let past = chrono::Utc::now().timestamp_millis() - 10_000;
+        let past = current_timestamp_millis() - 10_000;
         sqlx::query("UPDATE widget_sessions SET expires_at = $1 WHERE session_id = $2")
             .bind(past)
             .bind(&expired_sid)

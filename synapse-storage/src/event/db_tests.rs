@@ -1,6 +1,8 @@
 use super::*;
 use sqlx::postgres::PgPoolOptions;
+use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 async fn test_pool() -> Arc<Pool<Postgres>> {
     let db_url = std::env::var("TEST_DATABASE_URL")
@@ -11,7 +13,7 @@ async fn test_pool() -> Arc<Pool<Postgres>> {
 }
 
 async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query(
             r#"INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, history_visibility, created_ts, last_activity_ts)
                VALUES ($1, '@test:example.com', 'invite', '10', false, 'joined', $2, $2)
@@ -25,7 +27,7 @@ async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str) {
 }
 
 async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
     sqlx::query(
         r#"INSERT INTO users (user_id, username, created_ts)
@@ -66,7 +68,7 @@ async fn test_create_event_returns_valid_record() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "hello", "msgtype": "m.text"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
 
@@ -96,7 +98,7 @@ async fn test_get_event_found() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "test"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(params, None).await.unwrap();
@@ -135,7 +137,7 @@ async fn test_get_room_events_returns_list() {
             event_type: "m.room.message".to_string(),
             content: serde_json::json!({"body": format!("msg {}", i)}),
             state_key: None,
-            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            origin_server_ts: current_timestamp_millis(),
             redacts: None,
         };
         storage.create_event(params, None).await.unwrap();
@@ -169,7 +171,7 @@ async fn test_count_room_events() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "count me"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(params, None).await.unwrap();
@@ -215,7 +217,7 @@ async fn test_delete_room_events() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "delete me"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(params, None).await.unwrap();
@@ -258,7 +260,7 @@ async fn test_ephemeral_event_crud() {
         .await
         .expect("add_ephemeral_event should succeed");
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let events = storage.get_ephemeral_events(&room_id, now, 10).await.expect("get_ephemeral_events should succeed");
     assert!(!events.is_empty());
 
@@ -288,7 +290,7 @@ async fn test_report_event() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "bad content"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(params, None).await.unwrap();
@@ -325,7 +327,7 @@ async fn test_redact_event_content() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "to be redacted"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(params, None).await.unwrap();
@@ -356,12 +358,12 @@ async fn test_save_and_get_event_signatures() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "signed"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(params, None).await.unwrap();
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     storage
         .save_event_signature(&event_id, user_id, "DEVICE1", "sig_data", "ed25519:1", "ed25519", now)
         .await
@@ -414,7 +416,7 @@ async fn test_delete_events_before() {
 
     // Delete events before a far-future timestamp — should succeed even if 0 rows
     let _deleted = storage
-        .delete_events_before(&room_id, chrono::Utc::now().timestamp_millis() + 86400000)
+        .delete_events_before(&room_id, current_timestamp_millis() + 86400000)
         .await
         .expect("delete_events_before should succeed");
 
@@ -470,7 +472,7 @@ async fn test_create_event_with_graph_no_prev_events() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "graph"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     let event = storage
@@ -502,7 +504,7 @@ async fn test_create_event_with_graph_with_prev_events() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "parent"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(parent_params, None).await.unwrap();
@@ -515,7 +517,7 @@ async fn test_create_event_with_graph_with_prev_events() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "child"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage
@@ -555,7 +557,7 @@ async fn test_create_event_with_graph_in_transaction() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "tx"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
 
@@ -589,7 +591,7 @@ async fn test_update_event_signatures_and_hashes() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "sign me"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(params, None).await.unwrap();
@@ -635,7 +637,7 @@ async fn test_find_missing_event_ids_partial_existing() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "exists"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(params, None).await.unwrap();
@@ -720,7 +722,7 @@ async fn test_upsert_ephemeral_event_updates_existing() {
     ensure_test_room(&pool, &room_id).await;
     ensure_test_user(&pool, user_id).await;
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     storage
         .upsert_ephemeral_event(&room_id, user_id, "m.typing", &serde_json::json!({"typing": false}), 1, now, None)
         .await
@@ -755,7 +757,7 @@ async fn test_get_ephemeral_events_filters_expired() {
     ensure_test_room(&pool, &room_id).await;
     ensure_test_user(&pool, user_id).await;
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let past_expiry = now - 1000;
     // Insert an expired ephemeral event directly via upsert (expires_at in the past).
     storage
@@ -783,7 +785,7 @@ async fn test_get_ephemeral_events_filters_expired() {
 async fn test_get_ephemeral_events_batch_empty_rooms() {
     let pool = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let result = storage
         .get_ephemeral_events_batch(&[], now, 10)
         .await
@@ -810,7 +812,7 @@ async fn test_get_ephemeral_events_batch_multiple_rooms() {
     }
     ensure_test_user(&pool, user_id).await;
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     storage.add_ephemeral_event(&room1, user_id, "m.typing", &serde_json::json!({"typing": true}), 1).await.unwrap();
     storage.add_ephemeral_event(&room2, user_id, "m.typing", &serde_json::json!({"typing": false}), 2).await.unwrap();
 
@@ -890,7 +892,7 @@ async fn test_get_room_events_paginated_forward_no_from() {
             event_type: "m.room.message".to_string(),
             content: serde_json::json!({"body": format!("m {i}")}),
             state_key: None,
-            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            origin_server_ts: current_timestamp_millis(),
             redacts: None,
         };
         storage.create_event(params, None).await.unwrap();
@@ -1081,7 +1083,7 @@ async fn test_get_room_events_by_type_filters() {
         event_type: et.to_string(),
         content: serde_json::json!({}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage
@@ -1126,7 +1128,7 @@ async fn test_get_sender_events_filters() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "from sender"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(params, None).await.unwrap();
@@ -1159,7 +1161,7 @@ async fn test_update_event_report_score_by_id() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "report me"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(params, None).await.unwrap();
@@ -1199,7 +1201,7 @@ async fn test_update_event_report_score_by_event() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": "report me by event"}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(params, None).await.unwrap();
@@ -1340,7 +1342,7 @@ async fn test_search_room_messages_admin_matches() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": needle.clone()}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(params, None).await.unwrap();
@@ -1410,7 +1412,7 @@ async fn test_get_room_events_paginated_with_filter_no_filter() {
             event_type: "m.room.message".to_string(),
             content: serde_json::json!({"body": format!("f {i}")}),
             state_key: None,
-            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            origin_server_ts: current_timestamp_millis(),
             redacts: None,
         };
         storage.create_event(params, None).await.unwrap();
@@ -1444,7 +1446,7 @@ async fn test_get_room_create_event_found() {
         event_type: "m.room.create".to_string(),
         content: serde_json::json!({"creator": user_id}),
         state_key: Some("".to_string()),
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(params, None).await.unwrap();
@@ -1475,7 +1477,7 @@ async fn test_search_room_postgres_messages_matches() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": term.clone()}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(params, None).await.unwrap();
@@ -1528,7 +1530,7 @@ async fn test_search_joined_room_events_matches() {
         event_type: "m.room.message".to_string(),
         content: serde_json::json!({"body": needle.clone()}),
         state_key: None,
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts: current_timestamp_millis(),
         redacts: None,
     };
     storage.create_event(params, None).await.unwrap();

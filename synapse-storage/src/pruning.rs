@@ -8,6 +8,7 @@
 //! `src/server.rs`).
 
 use sqlx::PgPool;
+use synapse_common::current_timestamp_millis;
 
 /// Default retention period for device list change history (30 days).
 ///
@@ -46,7 +47,7 @@ pub const FEDERATION_QUEUE_RETENTION_DAYS: i64 = 7;
 /// Deletes rows from `device_lists_changes` whose `created_ts` is older
 /// than `retention_days` days. Returns the number of rows deleted.
 pub async fn prune_old_device_list_changes(pool: &PgPool, retention_days: i64) -> Result<u64, sqlx::Error> {
-    let cutoff = chrono::Utc::now().timestamp_millis() - (retention_days * 86400 * 1000);
+    let cutoff = current_timestamp_millis() - (retention_days * 86400 * 1000);
     let result =
         sqlx::query("DELETE FROM device_lists_changes WHERE created_ts < $1").bind(cutoff).execute(pool).await?;
     Ok(result.rows_affected())
@@ -57,7 +58,7 @@ pub async fn prune_old_device_list_changes(pool: &PgPool, retention_days: i64) -
 /// Deletes rows from `presence` where `last_active_ts` is older than
 /// [`PRESENCE_PRUNE_TIMEOUT_MS`]. Returns the number of rows deleted.
 pub async fn prune_expired_presence(pool: &PgPool) -> Result<u64, sqlx::Error> {
-    let cutoff = chrono::Utc::now().timestamp_millis() - PRESENCE_PRUNE_TIMEOUT_MS;
+    let cutoff = current_timestamp_millis() - PRESENCE_PRUNE_TIMEOUT_MS;
     let result = sqlx::query("DELETE FROM presence WHERE last_active_ts < $1").bind(cutoff).execute(pool).await?;
     Ok(result.rows_affected())
 }
@@ -68,7 +69,7 @@ pub async fn prune_expired_presence(pool: &PgPool) -> Result<u64, sqlx::Error> {
 /// or are older than [`ONE_TIME_KEYS_RETENTION_DAYS`] days. Returns the
 /// number of rows deleted.
 pub async fn prune_expired_one_time_keys(pool: &PgPool) -> Result<u64, sqlx::Error> {
-    let cutoff = chrono::Utc::now().timestamp_millis() - (ONE_TIME_KEYS_RETENTION_DAYS * 86400 * 1000);
+    let cutoff = current_timestamp_millis() - (ONE_TIME_KEYS_RETENTION_DAYS * 86400 * 1000);
     let result = sqlx::query("DELETE FROM one_time_keys WHERE is_used = true OR created_ts < $1")
         .bind(cutoff)
         .execute(pool)
@@ -84,7 +85,7 @@ pub async fn prune_expired_one_time_keys(pool: &PgPool) -> Result<u64, sqlx::Err
 ///
 /// Returns the number of rows deleted.
 pub async fn prune_old_to_device_transactions(pool: &PgPool) -> Result<u64, sqlx::Error> {
-    let cutoff = chrono::Utc::now().timestamp_millis() - TO_DEVICE_TRANSACTIONS_RETENTION_MS;
+    let cutoff = current_timestamp_millis() - TO_DEVICE_TRANSACTIONS_RETENTION_MS;
     let result =
         sqlx::query("DELETE FROM to_device_transactions WHERE created_ts < $1").bind(cutoff).execute(pool).await?;
     Ok(result.rows_affected())
@@ -98,7 +99,7 @@ pub async fn prune_old_to_device_transactions(pool: &PgPool) -> Result<u64, sqlx
 ///
 /// Returns the number of rows deleted.
 pub async fn prune_expired_token_blacklist(pool: &PgPool) -> Result<u64, sqlx::Error> {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let result =
         sqlx::query("DELETE FROM token_blacklist WHERE expires_at IS NOT NULL AND expires_at > 0 AND expires_at < $1")
             .bind(now)
@@ -115,7 +116,7 @@ pub async fn prune_expired_token_blacklist(pool: &PgPool) -> Result<u64, sqlx::E
 ///
 /// Returns the number of rows deleted.
 pub async fn prune_old_federation_queue(pool: &PgPool) -> Result<u64, sqlx::Error> {
-    let cutoff = chrono::Utc::now().timestamp_millis() - (FEDERATION_QUEUE_RETENTION_DAYS * 86400 * 1000);
+    let cutoff = current_timestamp_millis() - (FEDERATION_QUEUE_RETENTION_DAYS * 86400 * 1000);
     let result = sqlx::query("DELETE FROM federation_queue WHERE status IN ('sent', 'failed') AND created_ts < $1")
         .bind(cutoff)
         .execute(pool)

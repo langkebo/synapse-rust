@@ -1,3 +1,7 @@
+// ROUND2-ISSUE-1: test code may use unwrap/expect/unwrap_err/panic per Rust testing idiom.
+// Production lib code is still held to the strict clippy lint config in [lints.clippy].
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::unwrap_err_used, clippy::panic))]
+
 pub use synapse_services::auth;
 pub mod cache;
 pub mod common;
@@ -15,27 +19,19 @@ pub mod worker;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_config;
 
-#[allow(ambiguous_glob_reexports)]
-pub use cache::*;
-#[allow(ambiguous_glob_reexports)]
-pub use common::*;
+// Explicit root re-exports (replacing the former per-module wildcard globs).
+// Only the items consumed through the crate root (`synapse_rust::Foo`) are
+// re-exported here; everything else is reached path-qualified
+// (e.g. `synapse_rust::cache::CacheManager`).
+pub use common::{config, error, metrics, ApiError, PresenceState};
 pub use e2ee::backup::KeyBackupService;
 pub use e2ee::device_keys::DeviceKeyService;
 pub use e2ee::megolm::{EncryptedEvent, MegolmSession};
 pub use e2ee::signature::{EventSignature, SignatureService};
-#[allow(ambiguous_glob_reexports)]
-pub use federation::*;
-#[allow(ambiguous_glob_reexports)]
-pub use server::*;
-#[allow(ambiguous_glob_reexports)]
-pub use services::*;
-#[allow(ambiguous_glob_reexports)]
-pub use storage::*;
+pub use server::SynapseServer;
+pub use storage::presence::PresenceStorage;
 pub use synapse_common::{
     impl_api_error, map_bad_request, map_forbidden, map_internal, map_not_found, map_unauthorized,
 };
 pub use synapse_e2ee::cross_signing;
-#[allow(ambiguous_glob_reexports)]
 pub use tasks::{ScheduledTasks, TaskMetricsCollector};
-#[allow(ambiguous_glob_reexports)]
-pub use web::*;

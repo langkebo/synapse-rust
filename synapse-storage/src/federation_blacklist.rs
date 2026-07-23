@@ -1,8 +1,8 @@
 use async_trait::async_trait;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use tracing::info;
 
@@ -33,8 +33,8 @@ pub struct FederationBlacklist {
     pub block_type: String,
     pub reason: Option<String>,
     pub blocked_by: String,
-    pub created_ts: i64,
-    pub updated_ts: i64,
+    pub created_ts: Option<i64>,
+    pub updated_ts: Option<i64>,
     pub expires_at: Option<i64>,
     pub is_enabled: bool,
     pub metadata: serde_json::Value,
@@ -162,7 +162,7 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn add_to_blacklist(&self, request: AddBlacklistRequest) -> Result<FederationBlacklist, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, FederationBlacklist>(
@@ -202,7 +202,7 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn remove_from_blacklist(&self, server_name: &str, performed_by: &str) -> Result<(), ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query!(
             r#"
@@ -235,25 +235,24 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn get_blacklist_entry(&self, server_name: &str) -> Result<Option<FederationBlacklist>, ApiError> {
-        let row = sqlx::query_as!(
-            FederationBlacklist,
+        let row = sqlx::query_as::<_, FederationBlacklist>(
             r#"
             SELECT
-                id AS "id!",
-                server_name AS "server_name!",
-                block_type AS "block_type!",
-                reason AS "reason?",
-                COALESCE(added_by, 'system') AS "blocked_by!",
-                COALESCE(created_ts, added_ts) AS "created_ts!",
-                COALESCE(updated_ts, added_ts) AS "updated_ts!",
-                expires_at AS "expires_at?",
-                is_enabled AS "is_enabled!",
-                metadata AS "metadata!"
+                id,
+                server_name,
+                block_type,
+                reason,
+                COALESCE(added_by, 'system') AS blocked_by,
+                COALESCE(created_ts, added_ts) AS created_ts,
+                COALESCE(updated_ts, added_ts) AS updated_ts,
+                expires_at,
+                is_enabled,
+                metadata
             FROM federation_blacklist
             WHERE server_name = $1
             "#,
-            server_name
         )
+        .bind(server_name)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get blacklist entry", &e))?;
@@ -266,7 +265,7 @@ impl FederationBlacklistStorage {
 
         if let Some(entry) = entry {
             if let Some(expires_at) = entry.expires_at {
-                let now = Utc::now().timestamp_millis();
+                let now = current_timestamp_millis();
                 if expires_at < now {
                     return Ok(false);
                 }
@@ -278,19 +277,18 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn is_server_whitelisted(&self, server_name: &str) -> Result<bool, ApiError> {
-        let row = sqlx::query_as!(
-            FederationBlacklist,
+        let row = sqlx::query_as::<_, FederationBlacklist>(
             r#"
-            SELECT id AS "id!", server_name AS "server_name!", block_type AS "block_type!",
-                   reason AS "reason?", COALESCE(blocked_by, 'system') AS "blocked_by!",
-                   COALESCE(created_ts, added_ts) AS "created_ts!",
-                   COALESCE(updated_ts, added_ts) AS "updated_ts!",
-                   expires_at AS "expires_at?", is_enabled AS "is_enabled!", metadata AS "metadata!"
+            SELECT id, server_name, block_type,
+                   reason, COALESCE(blocked_by, 'system') AS blocked_by,
+                   COALESCE(created_ts, added_ts) AS created_ts,
+                   COALESCE(updated_ts, added_ts) AS updated_ts,
+                   expires_at, is_enabled, metadata
             FROM federation_blacklist
             WHERE server_name = $1 AND block_type = 'whitelist' AND is_enabled = true
             "#,
-            server_name
         )
+        .bind(server_name)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check whitelist", &e))?;
@@ -304,53 +302,52 @@ impl FederationBlacklistStorage {
         from: Option<FederationBlacklistCursor>,
     ) -> Result<(Vec<FederationBlacklist>, Option<String>), ApiError> {
         let rows = if let Some(cursor) = from {
-            sqlx::query_as!(
-                FederationBlacklist,
+            sqlx::query_as::<_, FederationBlacklist>(
                 r#"
                 SELECT
-                    id AS "id!",
-                    server_name AS "server_name!",
-                    block_type AS "block_type!",
-                    reason AS "reason?",
-                    COALESCE(added_by, 'system') AS "blocked_by!",
-                    COALESCE(created_ts, added_ts) AS "created_ts!",
-                    COALESCE(updated_ts, added_ts) AS "updated_ts!",
-                    expires_at AS "expires_at?",
-                    is_enabled AS "is_enabled!",
-                    metadata AS "metadata!"
+                    id,
+                    server_name,
+                    block_type,
+                    reason,
+                    COALESCE(added_by, 'system') AS blocked_by,
+                    COALESCE(created_ts, added_ts) AS created_ts,
+                    COALESCE(updated_ts, added_ts) AS updated_ts,
+                    expires_at,
+                    is_enabled,
+                    metadata
                 FROM federation_blacklist
-                WHERE (added_ts, server_name) < ($1, $2)
+                WHERE (added_ts, server_name) < ($1, $2) AND is_enabled = true
                 ORDER BY added_ts DESC, server_name DESC
                 LIMIT $3
                 "#,
-                cursor.created_ts,
-                cursor.server_name,
-                (limit as i64 + 1)
             )
+            .bind(cursor.created_ts)
+            .bind(&cursor.server_name)
+            .bind(limit as i64 + 1)
             .fetch_all(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get blacklist", &e))?
         } else {
-            sqlx::query_as!(
-                FederationBlacklist,
+            sqlx::query_as::<_, FederationBlacklist>(
                 r#"
                 SELECT
-                    id AS "id!",
-                    server_name AS "server_name!",
-                    block_type AS "block_type!",
-                    reason AS "reason?",
-                    COALESCE(added_by, 'system') AS "blocked_by!",
-                    COALESCE(created_ts, added_ts) AS "created_ts!",
-                    COALESCE(updated_ts, added_ts) AS "updated_ts!",
-                    expires_at AS "expires_at?",
-                    is_enabled AS "is_enabled!",
-                    metadata AS "metadata!"
+                    id,
+                    server_name,
+                    block_type,
+                    reason,
+                    COALESCE(added_by, 'system') AS blocked_by,
+                    COALESCE(created_ts, added_ts) AS created_ts,
+                    COALESCE(updated_ts, added_ts) AS updated_ts,
+                    expires_at,
+                    is_enabled,
+                    metadata
                 FROM federation_blacklist
+                WHERE is_enabled = true
                 ORDER BY added_ts DESC, server_name DESC
                 LIMIT $1
                 "#,
-                (limit as i64 + 1)
             )
+            .bind(limit as i64 + 1)
             .fetch_all(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get blacklist", &e))?
@@ -359,7 +356,7 @@ impl FederationBlacklistStorage {
         let next_batch = if rows.len() > limit as usize {
             rows.get(limit as usize - 1).map(|last| {
                 encode_federation_blacklist_cursor(&FederationBlacklistCursor {
-                    created_ts: last.created_ts,
+                    created_ts: last.created_ts.unwrap_or(0),
                     server_name: last.server_name.clone(),
                 })
             })
@@ -372,7 +369,7 @@ impl FederationBlacklistStorage {
 
     pub async fn create_log(&self, request: CreateLogRequest) -> Result<FederationBlacklistLog, ApiError> {
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, FederationBlacklistLog>(
             r#"
@@ -401,7 +398,7 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn update_access_stats(&self, request: UpdateStatsRequest) -> Result<FederationAccessStats, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, FederationAccessStats>(
             r#"
@@ -457,7 +454,7 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn create_rule(&self, request: CreateRuleRequest) -> Result<FederationBlacklistRule, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as!(
             FederationBlacklistRule,
@@ -499,7 +496,7 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn cleanup_expired_entries(&self) -> Result<u64, ApiError> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query!(
             "UPDATE federation_blacklist SET is_enabled = false WHERE expires_at < $1 AND is_enabled = true",
             now
@@ -611,8 +608,8 @@ mod tests {
             block_type: "server".to_string(),
             reason: Some("Malicious activity".to_string()),
             blocked_by: "@admin:example.com".to_string(),
-            created_ts: 1234567890,
-            updated_ts: 1234567890,
+            created_ts: Some(1234567890),
+            updated_ts: Some(1234567890),
             expires_at: None,
             is_enabled: true,
             metadata: serde_json::json!({}),
@@ -629,8 +626,8 @@ mod tests {
             block_type: "server".to_string(),
             reason: Some("Temporary block".to_string()),
             blocked_by: "@admin:example.com".to_string(),
-            created_ts: 1234567890,
-            updated_ts: 1234567890,
+            created_ts: Some(1234567890),
+            updated_ts: Some(1234567890),
             expires_at: Some(1234567990),
             is_enabled: false,
             metadata: serde_json::json!({}),
@@ -773,7 +770,7 @@ mod db_tests {
         assert_eq!(entry.reason.as_deref(), Some("Testing"));
         assert_eq!(entry.blocked_by, "@admin:test.com");
         assert!(entry.is_enabled);
-        assert!(entry.created_ts > 0);
+        assert!(entry.created_ts.unwrap_or(0) > 0);
 
         cleanup_by_server(&pool, &server_name).await;
     }
@@ -819,7 +816,7 @@ mod db_tests {
         assert_eq!(second.blocked_by, "@admin2:test.com");
         assert_eq!(second.metadata, serde_json::json!({"key": "value"}));
         // updated_ts should reflect the change.
-        assert!(second.updated_ts >= first.updated_ts);
+        assert!(second.updated_ts.unwrap_or(0) >= first.updated_ts.unwrap_or(0));
 
         cleanup_by_server(&pool, &server_name).await;
     }
@@ -965,7 +962,7 @@ mod db_tests {
 
         cleanup_by_server(&pool, &server_name).await;
 
-        let past = Utc::now().timestamp_millis() - 86_400_000; // 1 day ago
+        let past = current_timestamp_millis() - 86_400_000; // 1 day ago
         storage
             .add_to_blacklist(AddBlacklistRequest {
                 server_name: server_name.clone(),
@@ -1384,7 +1381,7 @@ mod db_tests {
         cleanup_by_server(&pool, &server_name_exp).await;
         cleanup_by_server(&pool, &server_name_active).await;
 
-        let past = Utc::now().timestamp_millis() - 86_400_000; // 1 day ago
+        let past = current_timestamp_millis() - 86_400_000; // 1 day ago
         storage
             .add_to_blacklist(AddBlacklistRequest {
                 server_name: server_name_exp.clone(),
@@ -1397,7 +1394,7 @@ mod db_tests {
             .await
             .expect("add expired entry should succeed");
 
-        let future = Utc::now().timestamp_millis() + 86_400_000; // 1 day from now
+        let future = current_timestamp_millis() + 86_400_000; // 1 day from now
         storage
             .add_to_blacklist(AddBlacklistRequest {
                 server_name: server_name_active.clone(),

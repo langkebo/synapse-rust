@@ -176,4 +176,154 @@ mod tests {
         // Should not match because of port
         assert!(!requester_id.ends_with(&format!(":{origin}")));
     }
+
+    // ── B.3 batch 5/6 — real coverage for FriendFederation::on_receive_friend_request ──
+    //
+    // The tests above only exercise plain JSON / string operations. These tests
+    // instantiate `FriendFederation` with an in-memory `FriendRoomProvider`
+    // mock and exercise every branch of `on_receive_friend_request`.
+
+    use super::*;
+    use std::sync::Mutex;
+    use synapse_common::traits::FriendRoomProvider;
+
+    /// Records every call to `handle_incoming_friend_request` and returns a
+    /// pre-configured result. Wrap inner state in `Mutex` so the mock is
+    /// `Sync` (required by `Arc<dyn FriendRoomProvider>`).
+    struct MockFriendRoomProvider {
+        calls: Mutex<Vec<(String, String, serde_json::Value)>>,
+        next_result: Mutex<Result<(), ApiError>>,
+    }
+
+    impl MockFriendRoomProvider {
+        fn new_returning_ok() -> Arc<Self> {
+            Arc::new(Self { calls: Mutex::new(Vec::new()), next_result: Mutex::new(Ok(())) })
+        }
+
+        fn new_returning_err(err: ApiError) -> Arc<Self> {
+            Arc::new(Self { calls: Mutex::new(Vec::new()), next_result: Mutex::new(Err(err)) })
+        }
+
+        fn calls(&self) -> Vec<(String, String, serde_json::Value)> {
+            self.calls.lock().expect("mock mutex poisoned").clone()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl FriendRoomProvider for MockFriendRoomProvider {
+        async fn handle_incoming_friend_request(
+            &self,
+            user_id: &str,
+            requester_id: &str,
+            content: serde_json::Value,
+        ) -> Result<(), ApiError> {
+            self.calls.lock().expect("mock mutex poisoned").push((
+                user_id.to_string(),
+                requester_id.to_string(),
+                content,
+            ));
+            self.next_result.lock().expect("mock mutex poisoned").clone()
+        }
+    }
+
+    #[tokio::test]
+    async fn on_receive_friend_request_empty_origin_returns_forbidden() {
+        let mock = MockFriendRoomProvider::new_returning_ok();
+        let svc = FriendFederation::new(mock.clone());
+        let content = serde_json::json!({
+            "target_user_id": "@alice:example.com",
+            "requester_id": "@bob:remote.com"
+        });
+        let err = svc.on_receive_friend_request("", content).await.unwrap_err();
+        // Should be a 403 forbidden (not bad_request) per the production code.
+        let msg = err.to_string();
+        assert!(msg.contains("origin") || msg.contains("Origin"), "err={msg}");
+        // Mock must NOT have been invoked.
+        assert!(mock.calls().is_empty(), "mock should not be called on origin validation failure");
+    }
+
+    #[tokio::test]
+    async fn on_receive_friend_request_missing_target_user_id_returns_bad_request() {
+        let mock = MockFriendRoomProvider::new_returning_ok();
+        let svc = FriendFederation::new(mock.clone());
+        let content = serde_json::json!({
+            "requester_id": "@bob:remote.com"
+        });
+        let err = svc.on_receive_friend_request("remote.com", content).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("target_user_id"), "err={msg}");
+        assert!(mock.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn on_receive_friend_request_missing_requester_id_returns_bad_request() {
+        let mock = MockFriendRoomProvider::new_returning_ok();
+        let svc = FriendFederation::new(mock.clone());
+        let content = serde_json::json!({
+            "target_user_id": "@alice:example.com"
+        });
+        let err = svc.on_receive_friend_request("remote.com", content).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("requester_id"), "err={msg}");
+        assert!(mock.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn on_receive_friend_request_requester_id_not_matching_origin_returns_forbidden() {
+        let mock = MockFriendRoomProvider::new_returning_ok();
+        let svc = FriendFederation::new(mock.clone());
+        let content = serde_json::json!({
+            "target_user_id": "@alice:example.com",
+            "requester_id": "@bob:other.com"
+        });
+        let err = svc.on_receive_friend_request("remote.com", content).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("origin") || msg.contains("Origin"), "err={msg}");
+        assert!(mock.calls().is_empty(), "mock must not be called when origin mismatch");
+    }
+
+    #[tokio::test]
+    async fn on_receive_friend_request_valid_input_invokes_mock_and_returns_ok() {
+        let mock = MockFriendRoomProvider::new_returning_ok();
+        let svc = FriendFederation::new(mock.clone());
+        let content = serde_json::json!({
+            "target_user_id": "@alice:example.com",
+            "requester_id": "@bob:remote.com",
+            "message": "Hello",
+            "extra": 42
+        });
+        svc.on_receive_friend_request("remote.com", content.clone()).await.unwrap();
+        let calls = mock.calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "@alice:example.com", "user_id should be target_user_id");
+        assert_eq!(calls[0].1, "@bob:remote.com", "requester_id should be passed through");
+        assert_eq!(calls[0].2, content, "full content should be forwarded to provider");
+    }
+
+    #[tokio::test]
+    async fn on_receive_friend_request_provider_error_propagates() {
+        let mock = MockFriendRoomProvider::new_returning_err(ApiError::internal("downstream boom".to_string()));
+        let svc = FriendFederation::new(mock.clone());
+        let content = serde_json::json!({
+            "target_user_id": "@alice:example.com",
+            "requester_id": "@bob:remote.com"
+        });
+        let err = svc.on_receive_friend_request("remote.com", content).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("downstream boom"), "provider error should propagate: {msg}");
+        assert_eq!(mock.calls().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn on_receive_friend_request_target_user_id_on_different_origin_is_ok() {
+        // target_user_id does NOT need to belong to `origin`; only requester_id must.
+        let mock = MockFriendRoomProvider::new_returning_ok();
+        let svc = FriendFederation::new(mock.clone());
+        let content = serde_json::json!({
+            "target_user_id": "@alice:localhost",
+            "requester_id": "@bob:remote.com"
+        });
+        svc.on_receive_friend_request("remote.com", content).await.unwrap();
+        assert_eq!(mock.calls().len(), 1);
+    }
 }

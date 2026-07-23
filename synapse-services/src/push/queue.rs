@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, info, warn};
@@ -39,7 +40,7 @@ impl QueuedNotification {
             priority,
             attempts: 0,
             max_attempts: 3,
-            created_ts: chrono::Utc::now().timestamp_millis(),
+            created_ts: current_timestamp_millis(),
             next_attempt_ts: None,
         }
     }
@@ -51,7 +52,7 @@ impl QueuedNotification {
     pub fn increment_attempt(&mut self) {
         self.attempts += 1;
         let delay_ms = 2u64.pow(self.attempts) * 1000;
-        self.next_attempt_ts = Some(chrono::Utc::now().timestamp_millis() + delay_ms as i64);
+        self.next_attempt_ts = Some(current_timestamp_millis() + delay_ms as i64);
     }
 }
 
@@ -363,5 +364,80 @@ mod tests {
 
         queue.clear().await;
         assert_eq!(queue.get_size().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_push_queue_mark_failed() {
+        let queue = PushQueue::new(QueueConfig::default());
+
+        let notification =
+            QueuedNotification::new("@user:example.com", "DEVICE123", "fcm", "token", serde_json::json!({}), 5);
+        let id = notification.id.clone();
+
+        queue.enqueue(notification).await.unwrap();
+        queue.dequeue_batch().await;
+        queue.mark_failed(&id, false).await;
+
+        let stats = queue.get_stats().await;
+        assert_eq!(stats.total_failed, 1);
+    }
+
+    #[tokio::test]
+    async fn test_push_queue_remove_for_user() {
+        let queue = PushQueue::new(QueueConfig::default());
+
+        for i in 0..3 {
+            let notification = QueuedNotification::new(
+                "@user:example.com",
+                &format!("DEVICE{i}"),
+                "fcm",
+                "token",
+                serde_json::json!({}),
+                5,
+            );
+            queue.enqueue(notification).await.unwrap();
+        }
+
+        let removed = queue.remove_for_user("@user:example.com").await;
+        assert_eq!(removed, 3);
+        assert_eq!(queue.get_size().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_push_queue_prioritize() {
+        let queue = PushQueue::new(QueueConfig::default());
+
+        let notification1 =
+            QueuedNotification::new("@user:example.com", "DEVICE1", "fcm", "token", serde_json::json!({}), 5);
+        let id = notification1.id.clone();
+
+        queue.enqueue(notification1).await.unwrap();
+        let prioritized = queue.prioritize(&id).await;
+        assert!(prioritized);
+    }
+
+    #[tokio::test]
+    async fn test_push_queue_get_pending_count() {
+        let queue = PushQueue::new(QueueConfig::default());
+
+        let notification =
+            QueuedNotification::new("@user:example.com", "DEVICE123", "fcm", "token", serde_json::json!({}), 5);
+
+        queue.enqueue(notification).await.unwrap();
+        queue.dequeue_batch().await;
+
+        let pending_count = queue.get_pending_count().await;
+        assert_eq!(pending_count, 1);
+    }
+
+    #[test]
+    fn test_queued_notification_max_attempts_reached() {
+        let mut notification =
+            QueuedNotification::new("@user:example.com", "DEVICE123", "fcm", "token123", serde_json::json!({}), 5);
+
+        notification.max_attempts = 2;
+        notification.increment_attempt();
+        notification.increment_attempt();
+        assert!(!notification.can_retry());
     }
 }

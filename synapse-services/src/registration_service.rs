@@ -5,9 +5,12 @@ use synapse_common::*;
 
 use std::sync::Arc;
 
+use crate::UserService;
+
 pub struct RegistrationService {
-    user_storage: Arc<dyn synapse_storage::UserStore>,
-    auth_service: Arc<dyn crate::auth::Auth>,
+    user_service: Arc<UserService>,
+    token_auth: Arc<dyn crate::auth::TokenAuth>,
+    credential_auth: Arc<dyn crate::auth::CredentialAuth>,
     metrics: Arc<MetricsCollector>,
     // HP-2 FIX: Make base URL configurable instead of hardcoded
     base_url: String,
@@ -16,9 +19,11 @@ pub struct RegistrationService {
 }
 
 impl RegistrationService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        user_storage: Arc<dyn synapse_storage::UserStore>,
-        auth_service: Arc<dyn crate::auth::Auth>,
+        user_service: Arc<UserService>,
+        token_auth: Arc<dyn crate::auth::TokenAuth>,
+        credential_auth: Arc<dyn crate::auth::CredentialAuth>,
         metrics: Arc<MetricsCollector>,
         server_name: &str,
         enable_registration: bool,
@@ -28,7 +33,7 @@ impl RegistrationService {
         // Default to HTTPS for production, can be overridden via environment variable
         let base_url = std::env::var("HOMESERVER_BASE_URL").unwrap_or_else(|_| format!("https://{server_name}"));
 
-        Self { user_storage, auth_service, metrics, base_url, enable_registration, task_queue }
+        Self { user_service, token_auth, credential_auth, metrics, base_url, enable_registration, task_queue }
     }
 
     #[::tracing::instrument(
@@ -52,7 +57,7 @@ impl RegistrationService {
 
         let start = std::time::Instant::now();
         let result = self
-            .auth_service
+            .credential_auth
             .register_with_device_name(username, password, false, displayname, initial_device_display_name)
             .await;
 
@@ -103,7 +108,7 @@ impl RegistrationService {
         Ok(serde_json::json!({
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "expires_in": self.auth_service.token_expiry(),
+            "expires_in": self.token_auth.token_expiry(),
             "device_id": device_id,
             "user_id": user.user_id(),
             "well_known": {
@@ -130,7 +135,7 @@ impl RegistrationService {
         initial_display_name: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         let start = std::time::Instant::now();
-        let result = self.auth_service.login(username, password, device_id, initial_display_name).await;
+        let result = self.credential_auth.login(username, password, device_id, initial_display_name).await;
 
         let duration = start.elapsed().as_secs_f64();
         if let Some(hist) = self.metrics.get_histogram("login_duration_seconds") {
@@ -152,7 +157,7 @@ impl RegistrationService {
         Ok(serde_json::json!({
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "expires_in": self.auth_service.token_expiry(),
+            "expires_in": self.token_auth.token_expiry(),
             "device_id": device_id,
             "user_id": user.user_id(),
             "well_known": {
@@ -178,76 +183,34 @@ impl RegistrationService {
         new_password: &str,
         current_device_id: Option<&str>,
     ) -> ApiResult<()> {
-        self.auth_service.change_password(user_id, current_password, new_password, current_device_id).await?;
+        self.credential_auth.change_password(user_id, current_password, new_password, current_device_id).await?;
         Ok(())
     }
 
     #[::tracing::instrument(skip_all, fields(user_id = %user_id))]
     pub async fn deactivate_account(&self, user_id: &str) -> ApiResult<()> {
-        self.auth_service.deactivate_user(user_id).await?;
+        self.credential_auth.deactivate_user(user_id).await?;
         Ok(())
     }
 
     #[::tracing::instrument(skip_all, fields(user_id = %user_id))]
     pub async fn get_profile(&self, user_id: &str) -> ApiResult<serde_json::Value> {
-        let user = self
-            .user_storage
-            .get_user_by_id(user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get user", &e))?;
-
-        match user {
-            Some(u) => Ok(serde_json::json!({
-                "user_id": u.user_id,
-                "displayname": u.displayname,
-                "avatar_url": u.avatar_url
-            })),
-            _ => Err(ApiError::not_found("User not found".to_string())),
-        }
+        self.user_service.get_profile(user_id).await
     }
 
     #[::tracing::instrument(skip_all, fields(batch_size = user_ids.len()))]
     pub async fn get_profiles(&self, user_ids: &[String]) -> ApiResult<Vec<serde_json::Value>> {
-        let profiles = self
-            .user_storage
-            .get_user_profiles_batch(user_ids)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get profiles", &e))?;
-
-        Ok(profiles
-            .into_iter()
-            .map(|u| {
-                serde_json::json!({
-                    "user_id": u.user_id,
-                    "displayname": u.displayname,
-                    "avatar_url": u.avatar_url
-                })
-            })
-            .collect())
+        self.user_service.get_profiles_batch(user_ids).await
     }
 
     #[::tracing::instrument(skip_all, fields(user_id = %user_id, displayname_len = displayname.len()))]
     pub async fn set_displayname(&self, user_id: &str, displayname: &str) -> ApiResult<()> {
-        self.user_storage.update_displayname(user_id, Some(displayname)).await.map_err(|e| {
-            if e.to_string().contains("too long") {
-                ApiError::bad_request("Displayname too long (max 255 characters)".to_string())
-            } else {
-                ApiError::internal_with_log("Failed to update displayname", &e)
-            }
-        })?;
-        Ok(())
+        self.user_service.update_displayname(user_id, Some(displayname)).await
     }
 
     #[::tracing::instrument(skip_all, fields(user_id = %user_id, avatar_url_len = avatar_url.len()))]
     pub async fn set_avatar_url(&self, user_id: &str, avatar_url: &str) -> ApiResult<()> {
-        self.user_storage.update_avatar_url(user_id, Some(avatar_url)).await.map_err(|e| {
-            if e.to_string().contains("too long") {
-                ApiError::bad_request("Avatar URL too long (max 255 characters)".to_string())
-            } else {
-                ApiError::internal_with_log("Failed to update avatar", &e)
-            }
-        })?;
-        Ok(())
+        self.user_service.update_avatar_url(user_id, Some(avatar_url)).await
     }
 
     #[::tracing::instrument(
@@ -264,13 +227,7 @@ impl RegistrationService {
         displayname: Option<&str>,
         avatar_url: Option<&str>,
     ) -> ApiResult<()> {
-        if let Some(name) = displayname {
-            self.set_displayname(user_id, name).await?;
-        }
-        if let Some(url) = avatar_url {
-            self.set_avatar_url(user_id, url).await?;
-        }
-        Ok(())
+        self.user_service.update_profile(user_id, displayname, avatar_url).await
     }
 }
 
@@ -283,8 +240,9 @@ mod tests {
     async fn test_registration_service_creation() {
         let services = ServiceContainer::new_test().await;
         let _registration_service = RegistrationService::new(
-            services.account.user_storage.clone(),
-            services.core.auth_service.clone(),
+            services.core.user_service.clone(),
+            services.core.token_auth.clone(),
+            services.core.credential_auth.clone(),
             services.core.metrics.clone(),
             &services.core.server_name,
             services.core.config.server.enable_registration,
@@ -317,8 +275,9 @@ mod tests {
     async fn test_registration_service_disabled() {
         let services = ServiceContainer::new_test().await;
         let registration_service = RegistrationService::new(
-            services.account.user_storage.clone(),
-            services.core.auth_service.clone(),
+            services.core.user_service.clone(),
+            services.core.token_auth.clone(),
+            services.core.credential_auth.clone(),
             services.core.metrics.clone(),
             &services.core.server_name,
             false,
@@ -328,5 +287,63 @@ mod tests {
         let result = registration_service.register_user("test", "pass", None, None).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().is_forbidden());
+    }
+
+    #[test]
+    fn test_login_response_has_well_known() {
+        let response = serde_json::json!({
+            "access_token": "test_token",
+            "refresh_token": "test_refresh",
+            "expires_in": 86400,
+            "device_id": "DEVICE123",
+            "user_id": "@test:example.com",
+            "well_known": {
+                "m.homeserver": {
+                    "base_url": "http://localhost:8008"
+                }
+            }
+        });
+
+        assert!(response.get("well_known").is_some());
+        assert_eq!(response["well_known"]["m.homeserver"]["base_url"], "http://localhost:8008");
+    }
+
+    #[test]
+    fn test_login_response_user_id_format() {
+        let response = serde_json::json!({
+            "access_token": "test_token",
+            "refresh_token": "test_refresh",
+            "expires_in": 86400,
+            "device_id": "DEVICE123",
+            "user_id": "@test:example.com",
+            "well_known": {
+                "m.homeserver": {
+                    "base_url": "http://localhost:8008"
+                }
+            }
+        });
+
+        let user_id = response["user_id"].as_str().unwrap();
+        assert!(user_id.starts_with('@'));
+        assert!(user_id.contains(':'));
+    }
+
+    #[test]
+    fn test_login_response_device_id_present() {
+        let response = serde_json::json!({
+            "access_token": "test_token",
+            "refresh_token": "test_refresh",
+            "expires_in": 86400,
+            "device_id": "DEVICE123",
+            "user_id": "@test:example.com",
+            "well_known": {
+                "m.homeserver": {
+                    "base_url": "http://localhost:8008"
+                }
+            }
+        });
+
+        let device_id = response["device_id"].as_str().unwrap();
+        assert!(!device_id.is_empty());
     }
 }

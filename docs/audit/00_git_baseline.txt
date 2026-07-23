@@ -1,0 +1,41 @@
+=== Git Baseline Snapshot ===
+Timestamp: 2026-07-09T22:25:39Z
+Branch: feat/architecture-optimization-round2
+HEAD: e63ebf3e7d7850ea2e755edcbb994d7a5b854ee5
+HEAD Subject: refactor(storage): split media_quota.rs god-file into submodules
+
+=== Working Tree Status (summary) ===
+ 120 D
+  48 M
+   4 ??
+
+=== Total changed files ===
+     172
+
+=== Untracked files ===
+?? docs/audit/
+?? synapse-services/src/room/api_trait.rs
+?? synapse-services/src/sync_service/api_trait.rs
+?? tests/integration/snapshots/integration__api_route_snapshots_tests__login_flows_v3.snap.new
+
+=== Modified files (sample) ===
+ M CLAUDE.md
+ M src/web/routes/admin/report.rs
+ M src/web/routes/admin/retention.rs
+ M src/web/routes/admin/room/management.rs
+ M src/web/routes/admin/room/mod.rs
+ M src/web/routes/admin/room/spaces.rs
+ M src/web/routes/admin/server.rs
+ M src/web/routes/burn_after_read.rs
+ M src/web/routes/context.rs
+ M src/web/routes/device.rs
+ M src/web/routes/directory.rs
+ M src/web/routes/directory_reporting.rs
+ M src/web/routes/dm.rs
+ M src/web/routes/e2ee/keys.rs
+ M src/web/routes/ephemeral.rs
+ M src/web/routes/federation/events.rs
+ M src/web/routes/federation/keys.rs
+ M src/web/routes/federation/membership.rs
+ M src/web/routes/federation/mod.rs
+ M src/web/routes/federation/transaction.rs

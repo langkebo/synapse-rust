@@ -1,5 +1,5 @@
 use super::models::*;
-use super::storage::DeviceKeyStorage;
+use super::storage::DeviceKeyStoreApi;
 use crate::cross_signing::storage::CrossSigningStorage;
 use crate::crypto::CryptoError;
 use crate::signed_json::verify_device_keys_signature;
@@ -8,19 +8,20 @@ use chrono::Utc;
 use serde_json::Value;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::DehydratedDeviceStorage;
 
 #[derive(Clone)]
 pub struct DeviceKeyService {
-    storage: DeviceKeyStorage,
+    storage: Arc<dyn DeviceKeyStoreApi>,
     cross_signing_storage: Option<Arc<CrossSigningStorage>>,
     dehydrated_device_storage: Option<DehydratedDeviceStorage>,
     cache: Arc<CacheManager>,
 }
 
 impl DeviceKeyService {
-    pub fn new(storage: DeviceKeyStorage, cache: Arc<CacheManager>) -> Self {
+    pub fn new(storage: Arc<dyn DeviceKeyStoreApi>, cache: Arc<CacheManager>) -> Self {
         Self { storage, cross_signing_storage: None, dehydrated_device_storage: None, cache }
     }
 
@@ -560,7 +561,7 @@ impl DeviceKeyService {
         current_user_id: &str,
     ) -> Result<(Vec<String>, Vec<String>), ApiError> {
         let from_ts = from.parse::<i64>().unwrap_or(0);
-        let to_ts = to.parse::<i64>().unwrap_or(Utc::now().timestamp_millis());
+        let to_ts = to.parse::<i64>().unwrap_or(current_timestamp_millis());
 
         self.storage.get_key_changes_with_left(from_ts, to_ts, current_user_id).await
     }
@@ -666,5 +667,85 @@ mod tests {
     #[test]
     fn invalid_user_id_is_not_local() {
         assert!(!is_local_user_id("alice", "example.com"));
+    }
+
+    // ------------------------------------------------------------------
+    // Mock-based tests — verify DeviceKeyService works with InMemoryDeviceKeyStore
+    // (validates the Arc<dyn DeviceKeyStoreApi> trait object injection).
+    // ------------------------------------------------------------------
+
+    use super::{DeviceKeyService, KeyQueryRequest};
+    use crate::device_keys::models::DeviceKey;
+    use crate::test_mocks::InMemoryDeviceKeyStore;
+    use chrono::Utc;
+    use std::sync::Arc;
+    use synapse_cache::{CacheConfig, CacheManager};
+
+    fn make_test_cache() -> Arc<CacheManager> {
+        Arc::new(CacheManager::new(&CacheConfig::default()))
+    }
+
+    fn make_device_key(user_id: &str, device_id: &str, algorithm: &str) -> DeviceKey {
+        let now = Utc::now();
+        DeviceKey {
+            id: 1,
+            user_id: user_id.to_string(),
+            device_id: device_id.to_string(),
+            display_name: None,
+            algorithm: algorithm.to_string(),
+            key_id: format!("{algorithm}:{device_id}"),
+            public_key: format!("pk-{algorithm}-{device_id}"),
+            signatures: serde_json::json!({}),
+            created_ts: now,
+            updated_ts: now,
+        }
+    }
+
+    #[tokio::test]
+    async fn mock_store_roundtrips_device_key_via_service_query() {
+        // Seed the in-memory store with an ed25519 device key for @alice.
+        let store = InMemoryDeviceKeyStore::new();
+        store.seed_key(make_device_key("@alice:example.com", "DEVICE_A", "ed25519")).await;
+
+        // Wire it into DeviceKeyService through the trait object.
+        let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store);
+        let service = DeviceKeyService::new(storage, make_test_cache());
+
+        // Query the key for @alice (no device filter — should return all keys).
+        let request = KeyQueryRequest {
+            timeout: None,
+            device_keys: serde_json::json!({ "@alice:example.com": [] }),
+            token: None,
+        };
+        let response = service.query_keys(request).await.expect("query_keys must succeed with mock store");
+
+        // The response should contain @alice in device_keys.
+        let device_keys_map = response.device_keys.as_object().expect("device_keys should be a JSON object");
+        assert!(
+            device_keys_map.contains_key("@alice:example.com"),
+            "expected @alice:example.com in device_keys response, got: {device_keys_map:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn mock_store_returns_empty_for_unknown_user() {
+        let store = InMemoryDeviceKeyStore::new();
+        let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store);
+        let service = DeviceKeyService::new(storage, make_test_cache());
+
+        let request = KeyQueryRequest {
+            timeout: None,
+            device_keys: serde_json::json!({ "@nobody:example.com": [] }),
+            token: None,
+        };
+        let response = service.query_keys(request).await.expect("query_keys must succeed");
+
+        // @nobody has no keys — the entry should map to an empty object.
+        let device_keys_map = response.device_keys.as_object().expect("device_keys should be object");
+        let alice_entry = device_keys_map
+            .get("@nobody:example.com")
+            .and_then(|v| v.as_object())
+            .expect("entry for queried user should exist (possibly empty)");
+        assert!(alice_entry.is_empty(), "expected empty device_keys for unknown user, got: {alice_entry:?}");
     }
 }

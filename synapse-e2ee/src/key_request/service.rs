@@ -1,6 +1,7 @@
 use crate::key_request::models::{KeyRequestInfo, KeyRequestPagination, KeyShareResponse};
 use crate::key_request::storage::KeyRequestStorage;
 use crate::megolm::MegolmProvider;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,7 +57,7 @@ impl KeyRequestService {
             session_id: session_id.to_string(),
             algorithm: algorithm.to_string(),
             action: action.to_string(),
-            created_ts: chrono::Utc::now().timestamp_millis(),
+            created_ts: current_timestamp_millis(),
             is_fulfilled: false,
             fulfilled_by_device: None,
             fulfilled_ts: None,
@@ -193,7 +194,7 @@ impl KeyRequestService {
     }
 
     pub async fn cleanup_old_requests(&self, max_age_hours: i64) -> Result<u64, ApiError> {
-        let cutoff_ts = chrono::Utc::now().timestamp_millis() - (max_age_hours * 3600 * 1000);
+        let cutoff_ts = current_timestamp_millis() - (max_age_hours * 3600 * 1000);
         self.storage.delete_old_requests(cutoff_ts).await
     }
 }

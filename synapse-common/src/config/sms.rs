@@ -46,3 +46,29 @@ fn default_sms_per_minute() -> u32 {
 fn default_sms_per_hour() -> u32 {
     5
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sms_config_default() {
+        let config = SmsConfig::default();
+        assert!(!config.enabled);
+        assert!(config.provider.is_empty());
+        assert!(config.api_key.is_empty());
+        assert!(config.api_secret.is_empty());
+        assert!(config.endpoint.is_empty());
+        assert!(config.sender_id.is_empty());
+        assert!(config.template_code.is_empty());
+        assert_eq!(config.rate_limit_per_minute, 0);
+        assert_eq!(config.rate_limit_per_hour, 0);
+    }
+
+    #[test]
+    fn test_default_values() {
+        assert_eq!(default_sms_enabled(), false);
+        assert_eq!(default_sms_per_minute(), 1);
+        assert_eq!(default_sms_per_hour(), 5);
+    }
+}

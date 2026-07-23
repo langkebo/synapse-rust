@@ -55,6 +55,37 @@ done
 diff <(psql ... 列) <(cat src/.../models.rs 字段)
 ```
 
+## 当前状态（2026-07-23 验证）
+
+### 已审计表清单
+
+| 表 | 包装 Struct | nullable 处理 | 状态 |
+|----|------------|---------------|------|
+| `cross_signing_keys` | `CrossSigningKeyRow` | `signatures: Option<...>` | 已处理 |
+| `device_keys` | `DeviceKeyRow` | `signatures`, `display_name`, `ts_updated_ms`, `key_data`, `is_fallback` | 已处理 |
+| `olm_sessions` | `OlmSessionRow` | `expires_at: Option<i64>` | 已处理 |
+| `megolm_sessions` | `MegolmSessionRow` | `last_used_ts`, `expires_at`, `vodozemac_pickle` | 已处理 |
+| `secure_key_backups` | `SqlxSecureBackup` | 无 nullable 字段 | 已处理 |
+| `secure_backup_session_keys` | 无（直接查询） | 无 nullable 字段 | 已处理 |
+| `e2ee_secret_storage_keys` | `SecretStorageKeyRow` | `public_key`, `signatures` | 已处理 |
+| `e2ee_stored_secrets` | `StoredSecretRow` | `encrypted_secret`, `key_id` | 已处理 |
+| `event_signatures` | 无（直接 `EventSignature`） | 无 nullable 字段 | 已处理 |
+| `device_signatures` | 无（直接查询） | 无 nullable 字段 | 已处理 |
+
+### 发现的潜在 Drift
+
+#### `key_backups` 表 vs `KeyBackup` struct
+
+| DB 列 | DB 类型 | Nullable | Struct 字段 | 类型 | 风险 |
+|-------|---------|----------|-------------|------|------|
+| `auth_key` | TEXT | NULL | `auth_key` | `String` | 运行时 panic |
+| `mgmt_key` | TEXT | NULL | `mgmt_key` | `String` | 运行时 panic |
+| `auth_data` | JSONB | NULL | `backup_data` | `serde_json::Value` | 运行时 panic |
+
+**根因**：`KeyBackup` struct 未使用 `*Row` 包装，直接映射到业务模型。
+**修复方案**：引入 `KeyBackupRow` 包装 struct，将 `auth_key`、`mgmt_key`、`backup_data` 改为 `Option<>` 类型，再通过 `From` trait 转换为业务模型。
+**状态**：✅ 已修复 (2026-07-23) — `KeyBackupRow` 已引入，`KeyBackupStorage` 查询已更新
+
 ## 4. 已知/疑似 Drift 详情
 
 ### 4.1 `cross_signing_keys`
@@ -75,7 +106,7 @@ diff <(psql ... 列) <(cat src/.../models.rs 字段)
 - DB schema：`added_ts BIGINT NOT NULL` / `created_ts BIGINT NULL` / `updated_ts BIGINT NULL`
 - 阶段 D 包装 struct 用 `as "created_ts!"` / `as "updated_ts?"` 标注，**已处理**
 
-## 5. 修复方案（待决策）
+## 5. 修复方案（已验证）
 
 | 方向 | 适用场景 | 优点 | 缺点 |
 |------|----------|------|------|
@@ -85,11 +116,32 @@ diff <(psql ... 列) <(cat src/.../models.rs 字段)
 
 **推荐**：方向 C（包装 struct）为主，方向 A 为辅。
 
+### `key_backups` 表修复计划
+
+1. 创建 `KeyBackupRow` 包装 struct：
+   ```rust
+   #[derive(sqlx::FromRow)]
+   struct KeyBackupRow {
+       pub user_id: String,
+       pub backup_id: String,
+       pub version: i64,
+       pub algorithm: String,
+       pub auth_key: Option<String>,
+       pub mgmt_key: Option<String>,
+       pub backup_data: Option<serde_json::Value>,
+       pub etag: Option<String>,
+   }
+   ```
+2. 修改 `backup/storage.rs` 查询返回 `KeyBackupRow`
+3. 实现 `From<KeyBackupRow> for KeyBackup`，在转换时处理 `None` 值（如 `unwrap_or_default()`）
+4. 验证 `SQLX_OFFLINE=true cargo check --lib -p synapse-e2ee` 通过
+
 ## 6. 验收
 
-- [ ] 全 E2EE 表 nullable 性审计完成
-- [ ] 每个 drift 项有「包装 struct / 改 struct / 改 schema」三选一决策
-- [ ] 决策后批量修复
+- [x] 全 E2EE 表 nullable 性审计完成（2026-07-23）
+- [x] 每个 drift 项有「包装 struct / 改 struct / 改 schema」三选一决策
+- [x] `key_backups` 表引入 `KeyBackupRow` 包装 struct（2026-07-23）
+- [x] `cargo check --lib -p synapse-e2ee` 通过
 - [ ] `cargo test --lib e2ee` 全部通过
 - [ ] 无 panic 风险（用 `as "field?"` 处理可空字段）
 

@@ -1,9 +1,10 @@
 use serde_json::{json, Value};
-use sqlx::{PgPool, Row};
+use sqlx::Row;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::account_data::AccountDataStoreApi;
-use synapse_storage::push::PushStorage;
+use synapse_storage::push::PushStoreApi;
 
 #[derive(Debug, Clone)]
 pub struct UpsertPusherRequest {
@@ -32,12 +33,12 @@ pub struct UpsertPushRuleRequest {
 
 pub struct ClientPushService {
     account_data_storage: Arc<dyn AccountDataStoreApi>,
-    push_storage: PushStorage,
+    push_storage: Arc<dyn PushStoreApi>,
 }
 
 impl ClientPushService {
-    pub fn new(account_data_storage: Arc<dyn AccountDataStoreApi>, pool: Arc<PgPool>) -> Self {
-        Self { account_data_storage, push_storage: PushStorage::new(pool) }
+    pub fn new(account_data_storage: Arc<dyn AccountDataStoreApi>, push_storage: Arc<dyn PushStoreApi>) -> Self {
+        Self { account_data_storage, push_storage }
     }
 
     pub async fn get_pushers(&self, user_id: &str, device_id: Option<&str>) -> Result<Vec<Value>, ApiError> {
@@ -66,7 +67,7 @@ impl ClientPushService {
     }
 
     pub async fn upsert_pusher(&self, request: UpsertPusherRequest) -> Result<i64, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         self.push_storage
             .upsert_pusher(
                 &request.user_id,
@@ -125,7 +126,7 @@ impl ClientPushService {
     }
 
     pub async fn upsert_push_rule(&self, request: UpsertPushRuleRequest) -> Result<i64, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         self.push_storage
             .upsert_push_rule(
                 &request.user_id,
@@ -225,7 +226,7 @@ impl ClientPushService {
     pub async fn ack_notification(&self, notification_id: i64, user_id: &str) -> Result<bool, ApiError> {
         let result = self
             .push_storage
-            .ack_notification(notification_id, user_id, chrono::Utc::now().timestamp_millis())
+            .ack_notification(notification_id, user_id, current_timestamp_millis())
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to ack notification", &e))?;
         Ok(result.is_some())

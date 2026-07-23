@@ -14,3 +14,9 @@ codegen-units = 4
 
 [profile.dev]
 incremental = true
+
+# Test aliases — zero-thinking test commands.
+# cargo nt --lib          (lib tests with test-utils)
+# cargo nt --test unit    (unit test target)
+[alias]
+nt = "nextest run --profile test --features test-utils"

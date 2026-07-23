@@ -1,8 +1,10 @@
 use super::models::*;
 use super::storage::{BackupKeyInsertParams, BackupKeyStorage, KeyBackupStorage};
-use crate::device_keys::DeviceKeyStorage;
+use crate::device_keys::DeviceKeyStoreApi;
 use crate::signed_json::verify_signed_json;
 use sqlx::Row;
+use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone)]
@@ -21,7 +23,7 @@ pub struct BackupKeyUploadParams {
 pub struct KeyBackupService {
     storage: KeyBackupStorage,
     key_storage: BackupKeyStorage,
-    device_key_storage: Option<DeviceKeyStorage>,
+    device_key_storage: Option<Arc<dyn DeviceKeyStoreApi>>,
 }
 
 impl KeyBackupService {
@@ -29,7 +31,7 @@ impl KeyBackupService {
         Self { storage: storage.clone(), key_storage: BackupKeyStorage::new(&storage.pool), device_key_storage: None }
     }
 
-    pub fn with_device_key_storage(mut self, storage: DeviceKeyStorage) -> Self {
+    pub fn with_device_key_storage(mut self, storage: Arc<dyn DeviceKeyStoreApi>) -> Self {
         self.device_key_storage = Some(storage);
         self
     }
@@ -455,6 +457,21 @@ impl KeyBackupService {
             .await?
             .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
+        // Rollback protection: refuse to recover from a non-current backup
+        // version. Restoring a superseded version could reintroduce keys the
+        // user has since rotated away, or mask a malicious version downgrade.
+        let current = self
+            .storage
+            .get_backup(user_id)
+            .await?
+            .ok_or_else(|| ApiError::not_found("No backup version".to_string()))?;
+        if backup.version != current.version {
+            return Err(ApiError::invalid_param(format!(
+                "Refusing to recover non-current backup version {} (current: {})",
+                backup.version, current.version
+            )));
+        }
+
         let total_keys = self.get_backup_key_count(user_id).await?;
 
         let all_keys = if let Some(ref room_list) = rooms {
@@ -504,7 +521,7 @@ impl KeyBackupService {
             .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
         let total_keys = self.get_backup_key_count(user_id).await?;
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         Ok(RecoveryProgress {
             user_id: user_id.to_string(),

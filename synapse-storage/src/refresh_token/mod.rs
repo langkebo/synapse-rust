@@ -1,8 +1,8 @@
 use async_trait::async_trait;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RefreshToken {
@@ -198,6 +198,15 @@ pub trait RefreshTokenStoreApi: Send + Sync {
     async fn cleanup_blacklist(&self) -> Result<i64, sqlx::Error>;
     async fn get_user_stats(&self, user_id: &str) -> Result<Option<RefreshTokenStats>, sqlx::Error>;
     async fn get_usage_history(&self, user_id: &str, limit: i64) -> Result<Vec<RefreshTokenUsage>, sqlx::Error>;
+
+    async fn revoke_device_tokens(&self, user_id: &str, device_id: &str, reason: &str) -> Result<i64, sqlx::Error>;
+
+    async fn revoke_all_user_tokens_except_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        reason: &str,
+    ) -> Result<i64, sqlx::Error>;
 }
 
 #[derive(Clone)]
@@ -211,7 +220,7 @@ impl RefreshTokenStorage {
     }
 
     pub async fn create_token(&self, request: CreateRefreshTokenRequest) -> Result<RefreshToken, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as!(
             RefreshToken,
@@ -346,7 +355,7 @@ impl RefreshTokenStorage {
     }
 
     pub async fn get_active_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let rows = sqlx::query_as!(
             RefreshToken,
@@ -495,7 +504,7 @@ impl RefreshTokenStorage {
     }
 
     pub async fn update_token_usage(&self, token_hash: &str, access_token_id: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query!(
             r#"
@@ -516,7 +525,7 @@ impl RefreshTokenStorage {
     }
 
     pub async fn record_usage(&self, request: &RecordUsageRequest) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query!(
             r#"
@@ -548,7 +557,7 @@ impl RefreshTokenStorage {
         user_id: &str,
         device_id: Option<&str>,
     ) -> Result<RefreshTokenFamily, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as!(
             RefreshTokenFamily,
@@ -602,7 +611,7 @@ impl RefreshTokenStorage {
     }
 
     pub async fn mark_family_compromised(&self, family_id: &str) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query!(
             r#"
@@ -627,7 +636,7 @@ impl RefreshTokenStorage {
         new_token_hash: &str,
         reason: &str,
     ) -> Result<(), sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query!(
             r#"
@@ -707,7 +716,7 @@ impl RefreshTokenStorage {
     }
 
     pub async fn is_blacklisted(&self, token_hash: &str) -> Result<bool, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query_scalar!(
             r#"
@@ -723,7 +732,7 @@ impl RefreshTokenStorage {
     }
 
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query!(
             r#"
@@ -738,7 +747,7 @@ impl RefreshTokenStorage {
     }
 
     pub async fn cleanup_blacklist(&self) -> Result<i64, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query!(
             r#"
@@ -930,6 +939,19 @@ impl RefreshTokenStoreApi for RefreshTokenStorage {
 
     async fn get_usage_history(&self, user_id: &str, limit: i64) -> Result<Vec<RefreshTokenUsage>, sqlx::Error> {
         self.get_usage_history(user_id, limit).await
+    }
+
+    async fn revoke_device_tokens(&self, user_id: &str, device_id: &str, reason: &str) -> Result<i64, sqlx::Error> {
+        self.revoke_device_tokens(user_id, device_id, reason).await
+    }
+
+    async fn revoke_all_user_tokens_except_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        reason: &str,
+    ) -> Result<i64, sqlx::Error> {
+        self.revoke_all_user_tokens_except_device(user_id, device_id, reason).await
     }
 }
 
@@ -1279,7 +1301,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
         let request = make_create_request(suffix, &user_id, future_ts);
 
         let token = storage.create_token(request).await.expect("Failed to create token");
@@ -1306,7 +1328,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
         let request = make_create_request(suffix, &user_id, future_ts);
 
         let created = storage.create_token(request).await.expect("Failed to create token");
@@ -1332,7 +1354,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
         let request = make_create_request(suffix, &user_id, future_ts);
 
         let created = storage.create_token(request).await.expect("Failed to create token");
@@ -1356,7 +1378,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
 
         for i in 0..3u64 {
             let mut req = make_create_request(suffix * 10 + i, &user_id, future_ts);
@@ -1397,7 +1419,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let future_ts = now + 3_600_000;
         let past_ts = now - 3_600_000;
 
@@ -1433,7 +1455,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
         let request = make_create_request(suffix, &user_id, future_ts);
 
         let token = storage.create_token(request).await.expect("Failed to create token");
@@ -1457,7 +1479,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
         let request = make_create_request(suffix, &user_id, future_ts);
 
         let token = storage.create_token(request).await.expect("Failed to create token");
@@ -1486,7 +1508,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
         let request = make_create_request(suffix, &user_id, future_ts);
 
         let token = storage.create_token(request).await.expect("Failed to create token");
@@ -1508,7 +1530,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
 
         for i in 0..3u64 {
             let mut req = make_create_request(suffix * 10 + i, &user_id, future_ts);
@@ -1535,7 +1557,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
 
         // Create tokens on two different devices
         for device in ["keep_device", "revoke_device"] {
@@ -1572,7 +1594,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
 
         for device in ["device_a", "device_b"] {
             let mut req = make_create_request(suffix, &user_id, future_ts);
@@ -1603,7 +1625,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
         let request = make_create_request(suffix, &user_id, future_ts);
 
         let token = storage.create_token(request).await.expect("Failed to create token");
@@ -1630,7 +1652,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
         let request = make_create_request(suffix, &user_id, future_ts);
 
         let token = storage.create_token(request).await.expect("Failed to create token");
@@ -1747,7 +1769,7 @@ mod tests {
         setup_refresh_token_db(&pool).await;
 
         let storage = RefreshTokenStorage::new(&pool);
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
 
         storage
             .add_to_blacklist("bl_hash_1", "refresh", "@user:localhost", future_ts, Some("compromised"))
@@ -1770,7 +1792,7 @@ mod tests {
         setup_refresh_token_db(&pool).await;
 
         let storage = RefreshTokenStorage::new(&pool);
-        let past_ts = chrono::Utc::now().timestamp_millis() - 3_600_000;
+        let past_ts = current_timestamp_millis() - 3_600_000;
 
         storage
             .add_to_blacklist("expired_bl", "refresh", "@user:localhost", past_ts, Some("old"))
@@ -1790,7 +1812,7 @@ mod tests {
         setup_refresh_token_db(&pool).await;
 
         let storage = RefreshTokenStorage::new(&pool);
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
 
         storage
             .add_to_blacklist("dup_hash", "refresh", "@user:localhost", future_ts, Some("first"))
@@ -1817,7 +1839,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let past_ts = now - 3_600_000;
         let future_ts = now + 3_600_000;
 
@@ -1853,7 +1875,7 @@ mod tests {
         setup_refresh_token_db(&pool).await;
 
         let storage = RefreshTokenStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let past_ts = now - 3_600_000;
         let future_ts = now + 3_600_000;
 
@@ -1884,7 +1906,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let future_ts = now + 3_600_000;
         let past_ts = now - 3_600_000;
 
@@ -1948,7 +1970,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
         let request = make_create_request(suffix, &user_id, future_ts);
 
         let token = storage.create_token(request).await.expect("Failed to create token");
@@ -1972,7 +1994,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
 
         for i in 0..3u64 {
             let mut req = make_create_request(suffix * 10 + i, &user_id, future_ts);
@@ -1998,7 +2020,7 @@ mod tests {
         let storage = RefreshTokenStorage::new(&pool);
         let suffix = rt_unique_suffix();
         let user_id = format!("@user_{suffix}:localhost");
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let future_ts = current_timestamp_millis() + 3_600_000;
         let request = make_create_request(suffix, &user_id, future_ts);
 
         let token = storage.create_token(request).await.expect("Failed to create token");

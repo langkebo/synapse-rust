@@ -1,5 +1,6 @@
 use serde_json::json;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_services::worker::{
     AssignTaskRequest, HealthCheckConfig, HealthChecker, LoadBalanceStrategy, RegisterWorkerRequest,
     WorkerLoadBalancer, WorkerLoadStats, WorkerManager, WorkerStatus, WorkerType,
@@ -260,7 +261,7 @@ async fn test_stopped_heartbeat_requeues_running_tasks_and_removes_worker_from_l
                 pending_tasks: 0,
                 cpu_usage: 0.1,
                 memory_usage: 0.1,
-                last_update_ts: chrono::Utc::now().timestamp_millis(),
+                last_update_ts: current_timestamp_millis(),
             },
         )
         .await;
@@ -273,7 +274,7 @@ async fn test_stopped_heartbeat_requeues_running_tasks_and_removes_worker_from_l
                 pending_tasks: 5,
                 cpu_usage: 0.6,
                 memory_usage: 0.6,
-                last_update_ts: chrono::Utc::now().timestamp_millis(),
+                last_update_ts: current_timestamp_millis(),
             },
         )
         .await;
@@ -369,7 +370,7 @@ async fn test_stopping_heartbeat_drains_inflight_task_but_rejects_new_selection_
                 pending_tasks: 0,
                 cpu_usage: 0.1,
                 memory_usage: 0.1,
-                last_update_ts: chrono::Utc::now().timestamp_millis(),
+                last_update_ts: current_timestamp_millis(),
             },
         )
         .await;
@@ -382,7 +383,7 @@ async fn test_stopping_heartbeat_drains_inflight_task_but_rejects_new_selection_
                 pending_tasks: 5,
                 cpu_usage: 0.6,
                 memory_usage: 0.6,
-                last_update_ts: chrono::Utc::now().timestamp_millis(),
+                last_update_ts: current_timestamp_millis(),
             },
         )
         .await;
@@ -494,7 +495,7 @@ async fn test_error_heartbeat_requeues_running_tasks_and_removes_worker_from_lb_
                 pending_tasks: 0,
                 cpu_usage: 0.1,
                 memory_usage: 0.1,
-                last_update_ts: chrono::Utc::now().timestamp_millis(),
+                last_update_ts: current_timestamp_millis(),
             },
         )
         .await;
@@ -507,7 +508,7 @@ async fn test_error_heartbeat_requeues_running_tasks_and_removes_worker_from_lb_
                 pending_tasks: 5,
                 cpu_usage: 0.6,
                 memory_usage: 0.6,
-                last_update_ts: chrono::Utc::now().timestamp_millis(),
+                last_update_ts: current_timestamp_millis(),
             },
         )
         .await;
@@ -605,7 +606,7 @@ async fn test_select_worker_for_task_falls_back_from_unhealthy_lb_choice_to_heal
                 pending_tasks: 5,
                 cpu_usage: 0.5,
                 memory_usage: 0.5,
-                last_update_ts: chrono::Utc::now().timestamp_millis(),
+                last_update_ts: current_timestamp_millis(),
             },
         )
         .await;
@@ -618,7 +619,7 @@ async fn test_select_worker_for_task_falls_back_from_unhealthy_lb_choice_to_heal
                 pending_tasks: 0,
                 cpu_usage: 0.1,
                 memory_usage: 0.1,
-                last_update_ts: chrono::Utc::now().timestamp_millis(),
+                last_update_ts: current_timestamp_millis(),
             },
         )
         .await;
@@ -687,7 +688,7 @@ async fn test_select_worker_for_task_reselects_recovered_worker_after_health_res
                 pending_tasks: 4,
                 cpu_usage: 0.6,
                 memory_usage: 0.6,
-                last_update_ts: chrono::Utc::now().timestamp_millis(),
+                last_update_ts: current_timestamp_millis(),
             },
         )
         .await;
@@ -700,7 +701,7 @@ async fn test_select_worker_for_task_reselects_recovered_worker_after_health_res
                 pending_tasks: 0,
                 cpu_usage: 0.1,
                 memory_usage: 0.1,
-                last_update_ts: chrono::Utc::now().timestamp_millis(),
+                last_update_ts: current_timestamp_millis(),
             },
         )
         .await;

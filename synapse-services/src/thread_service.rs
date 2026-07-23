@@ -339,7 +339,7 @@ impl ThreadService {
                     latest_sender: root.last_reply_sender.clone(),
                     latest_content: None,
                     latest_origin_server_ts: root.last_reply_ts,
-                    reply_count: root.reply_count as i32,
+                    reply_count: root.reply_count.unwrap_or(0) as i32,
                     participants: root.participants.clone().unwrap_or(serde_json::json!([])),
                     is_frozen: root.is_fetched,
                     created_ts: root.created_ts,
@@ -388,7 +388,7 @@ impl ThreadService {
                     latest_sender: root.last_reply_sender.clone(),
                     latest_content: None,
                     latest_origin_server_ts: root.last_reply_ts,
-                    reply_count: root.reply_count as i32,
+                    reply_count: root.reply_count.unwrap_or(0) as i32,
                     participants: root.participants.clone().unwrap_or(serde_json::json!([])),
                     is_frozen: root.is_fetched,
                     created_ts: root.created_ts,
@@ -670,7 +670,7 @@ mod tests {
             thread_id: Some("$thread:example.com".to_string()),
             root_event_id: "$root:example.com".to_string(),
             sender: "@user:example.com".to_string(),
-            reply_count: 5,
+            reply_count: Some(5),
             last_reply_event_id: Some("$last:example.com".to_string()),
             last_reply_sender: Some("@replier:example.com".to_string()),
             last_reply_ts: Some(1234567890),
@@ -679,7 +679,7 @@ mod tests {
             created_ts: 1234567800,
             updated_ts: Some(1234567890),
         };
-        assert_eq!(root.reply_count, 5);
+        assert_eq!(root.reply_count, Some(5));
         assert!(!root.is_fetched);
     }
 

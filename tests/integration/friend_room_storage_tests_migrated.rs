@@ -2,6 +2,7 @@
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_storage::friend_room::FriendRoomStorage;
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -159,7 +160,7 @@ fn create_storage(pool: &Arc<sqlx::PgPool>) -> FriendRoomStorage {
 }
 
 async fn insert_user(pool: &sqlx::PgPool, user_id: &str, username: &str) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING")
         .bind(user_id)
         .bind(username)
@@ -170,7 +171,7 @@ async fn insert_user(pool: &sqlx::PgPool, user_id: &str, username: &str) {
 }
 
 async fn insert_room(pool: &sqlx::PgPool, room_id: &str) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query("INSERT INTO rooms (room_id, created_ts) VALUES ($1, $2) ON CONFLICT DO NOTHING")
         .bind(room_id)
         .bind(now)
@@ -188,7 +189,7 @@ async fn insert_event(
     state_key: Option<&str>,
     content: &serde_json::Value,
 ) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query(
         r#"
         INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts, state_key, depth)
@@ -1055,7 +1056,7 @@ async fn test_get_shared_rooms() {
     insert_user(&pool, &user_b, &format!("shared_b_{suffix}")).await;
     insert_room(&pool, &shared_room).await;
 
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     sqlx::query("INSERT INTO room_memberships (room_id, user_id, membership, joined_ts) VALUES ($1, $2, 'join', $3)")
         .bind(&shared_room)
         .bind(&user_a)

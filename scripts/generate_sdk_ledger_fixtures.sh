@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_DIR="${ROOT_DIR}/tests/unit/fixtures/ledger_export_sdk"
-TIMESTAMP="${TIMESTAMP:-2026-05-11T00:00:00Z}"
-COMMIT="${COMMIT:-0000000000000000000000000000000000000000}"
+TIMESTAMP="${TIMESTAMP:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+COMMIT="${COMMIT:-$(git -C "${ROOT_DIR}" rev-parse HEAD)}"
 
 mkdir -p "${OUTPUT_DIR}"
 

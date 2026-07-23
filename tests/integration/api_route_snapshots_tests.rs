@@ -205,3 +205,183 @@ async fn snapshot_login_invalid_credentials_error_shape() {
 
     insta::assert_json_snapshot!("login_invalid_credentials_error", body);
 }
+
+// ============================================================================
+// Login success (200) — lock the authenticated response shape with redacted
+// dynamic fields (access_token, refresh_token, device_id, user_id).
+// ============================================================================
+
+#[tokio::test]
+async fn snapshot_login_success_redacted_response_shape() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    // Register a user to get valid credentials for login.
+    let username = format!("snapshot_login_{}", rand::random::<u32>());
+    let register_body = json!({
+        "username": &username,
+        "password": "SnapshotPass123!",
+        "auth": { "type": "m.login.dummy" }
+    });
+    let register_req = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_vec(&register_body).unwrap()))
+        .unwrap();
+    let register_resp =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(register_req)).await.unwrap();
+
+    // If registration fails (e.g. disabled in config), skip this test.
+    if register_resp.status() != StatusCode::OK {
+        return;
+    }
+    let body_bytes = axum::body::to_bytes(register_resp.into_body(), 4096).await.unwrap();
+    let register_json: Value = serde_json::from_slice(&body_bytes).unwrap();
+    let user_id = register_json["user_id"].as_str().unwrap();
+
+    // Login with the registered credentials.
+    let login_body = json!({
+        "type": "m.login.password",
+        "identifier": {"type": "m.id.user", "user": user_id},
+        "password": "SnapshotPass123!"
+    });
+    let login_req = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/login")
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_vec(&login_body).unwrap()))
+        .unwrap();
+    let login_resp =
+        ServiceExt::<Request<Body>>::oneshot(app, super::with_local_connect_info(login_req)).await.unwrap();
+    assert_eq!(login_resp.status(), StatusCode::OK);
+    let body_bytes = axum::body::to_bytes(login_resp.into_body(), 4096).await.unwrap();
+    let mut body: Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    // Redact dynamic fields to keep snapshot stable.
+    if let Some(obj) = body.as_object_mut() {
+        for key in &["access_token", "refresh_token", "device_id"] {
+            if let Some(v) = obj.get_mut(*key) {
+                *v = Value::String(format!("[redacted_{}]", key));
+            }
+        }
+        if let Some(v) = obj.get_mut("expires_in_ms") {
+            *v = Value::Number(serde_json::Number::from(3600000));
+        }
+        if let Some(v) = obj.get_mut("user_id") {
+            if let Some(at_pos) = v.as_str().and_then(|s| s.find(':')) {
+                *v = Value::String(format!("@[redacted_user]:{}", &v.as_str().unwrap()[at_pos + 1..]));
+            }
+        }
+    }
+
+    insta::assert_json_snapshot!("login_success_redacted", body);
+}
+
+// ============================================================================
+// Sync authenticated (200) — lock the initial sync response shape.
+// ============================================================================
+
+#[tokio::test]
+async fn snapshot_sync_authenticated_initial_response_shape() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    // Register a user.
+    let username = format!("snapshot_sync_{}", rand::random::<u32>());
+    let register_body = json!({
+        "username": &username,
+        "password": "SnapshotPass123!",
+        "auth": { "type": "m.login.dummy" }
+    });
+    let register_req = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(serde_json::to_vec(&register_body).unwrap()))
+        .unwrap();
+    let register_resp =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), super::with_local_connect_info(register_req)).await.unwrap();
+
+    if register_resp.status() != StatusCode::OK {
+        return;
+    }
+    let body_bytes = axum::body::to_bytes(register_resp.into_body(), 4096).await.unwrap();
+    let register_json: Value = serde_json::from_slice(&body_bytes).unwrap();
+    let token = register_json["access_token"].as_str().unwrap();
+
+    // Initial sync with timeout=0.
+    let sync_req = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/sync?timeout=0")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let sync_resp = ServiceExt::<Request<Body>>::oneshot(app, super::with_local_connect_info(sync_req)).await.unwrap();
+    assert_eq!(sync_resp.status(), StatusCode::OK);
+    let body_bytes = axum::body::to_bytes(sync_resp.into_body(), 65536).await.unwrap();
+    let mut body: Value = serde_json::from_slice(&body_bytes).unwrap();
+
+    // Redact next_batch token and the test user's ID throughout the response.
+    let user_id_str = register_json["user_id"].as_str().unwrap().to_string();
+    let localpart = user_id_str.strip_prefix('@').and_then(|s| s.split(':').next()).unwrap_or("");
+    if let Some(obj) = body.as_object_mut() {
+        if let Some(v) = obj.get_mut("next_batch") {
+            *v = Value::String("[redacted_next_batch]".into());
+        }
+    }
+    // Recursively replace the user_id and bare localpart in the entire sync
+    // response so the snapshot is stable across test runs.
+    redact_string_in_json(&mut body, &user_id_str, "@[redacted_sync_user]:localhost");
+    redact_string_in_json(&mut body, localpart, "redacted_sync_user");
+    // Redact dynamic timestamps in presence.
+    redact_numeric_fields(&mut body, &["last_active_ago"], 0);
+
+    insta::assert_json_snapshot!("sync_authenticated_initial", body);
+}
+
+/// Recursively replace all occurrences of a string in JSON string values.
+fn redact_string_in_json(value: &mut Value, target: &str, replacement: &str) {
+    match value {
+        Value::String(s) => {
+            *s = s.replace(target, replacement);
+        }
+        Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                redact_string_in_json(v, target, replacement);
+            }
+        }
+        Value::Object(map) => {
+            for (_k, v) in map.iter_mut() {
+                redact_string_in_json(v, target, replacement);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Replace values of named numeric fields with a constant (recursive).
+fn redact_numeric_fields(value: &mut Value, fields: &[&str], replacement: i64) {
+    match value {
+        Value::Object(map) => {
+            for key in fields {
+                if let Some(v) = map.get_mut(*key) {
+                    if v.is_number() {
+                        *v = Value::Number(serde_json::Number::from(replacement));
+                    }
+                }
+            }
+            for (_k, v) in map.iter_mut() {
+                redact_numeric_fields(v, fields, replacement);
+            }
+        }
+        Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                redact_numeric_fields(v, fields, replacement);
+            }
+        }
+        _ => {}
+    }
+}

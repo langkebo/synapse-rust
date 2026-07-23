@@ -4,6 +4,7 @@ use crate::map_internal;
 use crate::*;
 use std::collections::HashMap;
 use synapse_common::*;
+use synapse_storage::event::SinceFilter;
 
 impl SyncService {
     pub(crate) async fn fetch_events(
@@ -32,12 +33,19 @@ impl SyncService {
             if let Some(stream_ord) = since_stream_ordering {
                 let events = match event_filter.as_ref() {
                     Some(filter) => {
-                        self.event_storage
-                            .get_room_events_since_stream_batch_filtered(room_ids, stream_ord, fetch_limit, filter)
+                        self.event_reader
+                            .get_room_events_batch_since_filtered(
+                                room_ids,
+                                SinceFilter::StreamOrdering(stream_ord),
+                                fetch_limit,
+                                filter,
+                            )
                             .await?
                     }
                     None => {
-                        self.event_storage.get_room_events_since_stream_batch(room_ids, stream_ord, fetch_limit).await?
+                        self.event_reader
+                            .get_room_events_batch_since(room_ids, SinceFilter::StreamOrdering(stream_ord), fetch_limit)
+                            .await?
                     }
                 };
 
@@ -48,13 +56,22 @@ impl SyncService {
                     match update {
                         IncrementalUpdate::Events => match event_filter.as_ref() {
                             Some(filter) => self
-                                .event_storage
-                                .get_room_events_since_stream_batch_filtered(room_ids, stream_ord, fetch_limit, filter)
+                                .event_reader
+                                .get_room_events_batch_since_filtered(
+                                    room_ids,
+                                    SinceFilter::StreamOrdering(stream_ord),
+                                    fetch_limit,
+                                    filter,
+                                )
                                 .await
                                 .map_err(Into::into),
                             None => self
-                                .event_storage
-                                .get_room_events_since_stream_batch(room_ids, stream_ord, fetch_limit)
+                                .event_reader
+                                .get_room_events_batch_since(
+                                    room_ids,
+                                    SinceFilter::StreamOrdering(stream_ord),
+                                    fetch_limit,
+                                )
                                 .await
                                 .map_err(Into::into),
                         },
@@ -69,11 +86,20 @@ impl SyncService {
                 let since_ts = Self::event_since_ts(&since_token.map(|t| (*t).clone()));
                 let events = match event_filter.as_ref() {
                     Some(filter) => {
-                        self.event_storage
-                            .get_room_events_since_batch_filtered(room_ids, since_ts, fetch_limit, filter)
+                        self.event_reader
+                            .get_room_events_batch_since_filtered(
+                                room_ids,
+                                SinceFilter::OriginServerTs(since_ts),
+                                fetch_limit,
+                                filter,
+                            )
                             .await?
                     }
-                    None => self.event_storage.get_room_events_since_batch(room_ids, since_ts, fetch_limit).await?,
+                    None => {
+                        self.event_reader
+                            .get_room_events_batch_since(room_ids, SinceFilter::OriginServerTs(since_ts), fetch_limit)
+                            .await?
+                    }
                 };
 
                 if events.values().all(|v| v.is_empty()) && timeout > 0 {
@@ -84,13 +110,22 @@ impl SyncService {
                     match update {
                         IncrementalUpdate::Events => match event_filter.as_ref() {
                             Some(filter) => self
-                                .event_storage
-                                .get_room_events_since_batch_filtered(room_ids, since_ts, fetch_limit, filter)
+                                .event_reader
+                                .get_room_events_batch_since_filtered(
+                                    room_ids,
+                                    SinceFilter::OriginServerTs(since_ts),
+                                    fetch_limit,
+                                    filter,
+                                )
                                 .await
                                 .map_err(Into::into),
                             None => self
-                                .event_storage
-                                .get_room_events_since_batch(room_ids, since_ts, fetch_limit)
+                                .event_reader
+                                .get_room_events_batch_since(
+                                    room_ids,
+                                    SinceFilter::OriginServerTs(since_ts),
+                                    fetch_limit,
+                                )
                                 .await
                                 .map_err(Into::into),
                         },
@@ -105,11 +140,11 @@ impl SyncService {
         } else {
             match event_filter.as_ref() {
                 Some(filter) => self
-                    .event_storage
+                    .event_reader
                     .get_room_events_batch_filtered(room_ids, fetch_limit, filter)
                     .await
                     .map_err(Into::into),
-                None => self.event_storage.get_room_events_batch(room_ids, fetch_limit).await.map_err(Into::into),
+                None => self.event_reader.get_room_events_batch(room_ids, fetch_limit).await.map_err(Into::into),
             }
         }
     }
@@ -158,7 +193,7 @@ impl SyncService {
     }
 
     async fn has_incremental_room_updates(&self, room_ids: &[String], since_ts: i64) -> ApiResult<bool> {
-        self.event_storage
+        self.event_reader
             .has_room_events_since(room_ids, since_ts)
             .await
             .map_err(map_internal!("Failed to poll for events"))

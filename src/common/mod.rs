@@ -1,60 +1,24 @@
-// Direct re-exports from synapse_common (consolidated from 24 single-line facade files)
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::argon2_config::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::collections::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::concurrency::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::constants::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::early_exit::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::event_utils::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::feature_flags::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::key_encryption::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::media_link_signer::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::media_locator::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::nonce_cache::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::password_hash_pool::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::rate_limit_config::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::regex_cache::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::room_versions::*;
+// Single consolidated re-export from synapse_common.
+//
+// All items re-exported at synapse_common's crate root are available here.
+// No glob-ambiguity suppression is needed because synapse-common/src/lib.rs
+// now uses explicit `pub use module::{...}` lists instead of
+// `pub use module::*` globs, eliminating glob-vs-glob ambiguity.
+pub use synapse_common::*;
+
+// Explicit macro re-exports (#[macro_export] macros at synapse_common root).
+// Also covered by the glob above; kept explicit for discoverability.
 pub use synapse_common::{
     impl_api_error, map_bad_request, map_forbidden, map_internal, map_not_found, map_unauthorized,
 };
-// HTML/text sanitizer: ammonia-based whitelist implementation (the only implementation).
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::sanitizer::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::security::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::time::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::tracing::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::traits::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::transaction::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::types::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::xml_parser::*;
 
-// Re-export entire modules from synapse_common
+// Re-export entire modules from synapse_common (for module-path access, e.g.
+// `common::metrics::Counter` in addition to `common::Counter`).
 pub use synapse_common::metrics;
 pub use synapse_common::server_metrics;
 
-// Local genuine modules (non-facade, kept as files)
+// Local genuine modules (non-facade). These shadow the same-named modules
+// that the glob would re-export from synapse_common; local definitions win.
 pub mod config;
 pub mod crypto;
 pub mod error;
@@ -64,31 +28,16 @@ pub mod health;
 pub mod logging;
 pub mod rate_limit;
 
-// Additional re-exports from synapse_common (no local facade existed)
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::background_job::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::task_queue::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::telemetry_config::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::validation::*;
-
-// Re-exports from local genuine modules
-#[allow(ambiguous_glob_reexports)]
-pub use config::*;
-#[allow(ambiguous_glob_reexports)]
-pub use crypto::*;
-#[allow(ambiguous_glob_reexports)]
-pub use error::*;
-#[cfg(any(test, feature = "test-utils"))]
-#[allow(ambiguous_glob_reexports)]
-pub use federation_test_keys::*;
-#[allow(ambiguous_glob_reexports)]
-pub use health::*;
-#[allow(ambiguous_glob_reexports)]
-pub use logging::*;
-#[allow(ambiguous_glob_reexports)]
-pub use metrics::*;
-#[allow(ambiguous_glob_reexports)]
-pub use rate_limit::*;
+// Re-exports of local-only items from genuine modules.
+//
+// Pure-facade modules (config, crypto, federation_test_keys, rate_limit) need
+// no explicit re-export here — their items are covered by `pub use
+// synapse_common::*` above, and the local modules just re-export from
+// synapse_common internally.
+//
+// `logging::init_logging` is re-exported explicitly because the local
+// implementation differs from synapse_common's (adds RequestIdPropagationLayer);
+// the explicit re-export shadows the glob's `synapse_common::init_logging`.
+pub use error::{crypto_error_to_api_error, ed25519_error_to_api_error};
+pub use health::CacheHealthCheck;
+pub use logging::init_logging;

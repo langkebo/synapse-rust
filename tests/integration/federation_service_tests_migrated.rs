@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use base64::Engine;
 use std::sync::atomic::{AtomicU64, Ordering};
+use synapse_common::current_timestamp_millis;
 use synapse_rust::federation::device_sync::DeviceSyncManager;
 use synapse_rust::federation::key_rotation::KeyRotationManager;
 
@@ -55,7 +56,7 @@ async fn test_key_rotation_initialization() {
 
     let id = unique_id();
     let server_name = format!("test{id}.example.com");
-    let manager = KeyRotationManager::new(&pool, &server_name);
+    let manager = KeyRotationManager::new(&pool, &server_name).with_allow_plaintext_signing_keys(true);
 
     let valid_key = generate_valid_test_key();
     let key_id = format!("ed25519:test_{id}");
@@ -79,7 +80,7 @@ async fn test_should_rotate_keys() {
 
     let id = unique_id();
     let server_name = format!("test{id}.example.com");
-    let manager = KeyRotationManager::new(&pool, &server_name);
+    let manager = KeyRotationManager::new(&pool, &server_name).with_allow_plaintext_signing_keys(true);
 
     let should_rotate_before = manager.should_rotate_keys().await;
     assert!(should_rotate_before, "Should rotate when no keys exist");
@@ -92,7 +93,7 @@ async fn test_should_rotate_keys() {
     assert!(current_key.is_some(), "Key should be in memory after initialization");
 
     let key = current_key.unwrap();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let days_until_expiry = (key.expires_at - now) / (24 * 60 * 60 * 1000);
 
     assert!(days_until_expiry >= 6, "Key should have at least 6 days until expiry, got {days_until_expiry} days");
@@ -105,7 +106,7 @@ async fn test_load_or_create_key_recovers_missing_signing_key_table() {
 
     let id = unique_id();
     let server_name = format!("test{id}.example.com");
-    let manager = KeyRotationManager::new(&pool, &server_name);
+    let manager = KeyRotationManager::new(&pool, &server_name).with_allow_plaintext_signing_keys(true);
 
     manager.load_or_create_key().await.expect("Failed to load or create key");
 

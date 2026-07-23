@@ -614,3 +614,14 @@ fn test_generate_email_verification_token_direct() {
     assert_eq!(token2.len(), 32);
     assert_ne!(token1, token2, "Each token should be unique");
 }
+
+#[test]
+fn generate_email_verification_token_returns_api_error() {
+    use crate::auth::CredentialAuth;
+    use crate::test_mocks::FakeCredentialAuth;
+    let auth = FakeCredentialAuth::new();
+    // Type-level assertion: must compile as Result<String, ApiError>
+    let result: Result<String, ApiError> = auth.generate_email_verification_token();
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), "mock-email-token");
+}

@@ -1,17 +1,17 @@
 use super::models::*;
 use super::storage::CrossSigningStorage;
-use crate::device_keys::DeviceKeyStorage;
+use crate::device_keys::DeviceKeyStoreApi;
 use crate::signed_json::verify_signed_json;
-use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use synapse_common::current_timestamp_utc;
 use synapse_common::traits::DehydratedDeviceProvider;
 use synapse_common::ApiError;
 
 #[derive(Clone)]
 pub struct CrossSigningService {
     storage: CrossSigningStorage,
-    device_keys_storage: Option<Arc<DeviceKeyStorage>>,
+    device_keys_storage: Option<Arc<dyn DeviceKeyStoreApi>>,
     dehydrated_device_service: Option<Arc<dyn DehydratedDeviceProvider>>,
 }
 
@@ -50,7 +50,7 @@ impl CrossSigningService {
         Self { storage, device_keys_storage: None, dehydrated_device_service: None }
     }
 
-    pub fn with_device_keys_storage(mut self, storage: Arc<DeviceKeyStorage>) -> Self {
+    pub fn with_device_keys_storage(mut self, storage: Arc<dyn DeviceKeyStoreApi>) -> Self {
         self.device_keys_storage = Some(storage);
         self
     }
@@ -82,8 +82,8 @@ impl CrossSigningService {
             usage: master_usage,
             signatures: upload.master_key["signatures"].clone(),
             key_json: Some(upload.master_key.clone()),
-            created_ts: Utc::now(),
-            updated_ts: Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         };
         self.storage.create_cross_signing_key(&master_key).await?;
 
@@ -105,8 +105,8 @@ impl CrossSigningService {
             usage: self_signing_usage,
             signatures: upload.self_signing_key["signatures"].clone(),
             key_json: Some(upload.self_signing_key.clone()),
-            created_ts: Utc::now(),
-            updated_ts: Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         };
         self.storage.create_cross_signing_key(&self_signing_key).await?;
 
@@ -128,8 +128,8 @@ impl CrossSigningService {
             usage: user_signing_usage,
             signatures: upload.user_signing_key["signatures"].clone(),
             key_json: Some(upload.user_signing_key.clone()),
-            created_ts: Utc::now(),
-            updated_ts: Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         };
         self.storage.create_cross_signing_key(&user_signing_key).await?;
         self.record_cross_signing_change(user_id).await;
@@ -192,7 +192,7 @@ impl CrossSigningService {
             let mut sig_map = signatures;
             sig_map.insert(user_id.to_string(), signature.clone());
             k.signatures = serde_json::Value::Object(sig_map);
-            k.updated_ts = Utc::now();
+            k.updated_ts = current_timestamp_utc();
             self.storage.update_cross_signing_key(&k).await?;
         }
         Ok(())
@@ -286,8 +286,8 @@ impl CrossSigningService {
                 .unwrap_or_default(),
             signatures,
             key_json: Some(key.clone()),
-            created_ts: Utc::now(),
-            updated_ts: Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         };
 
         self.storage.create_cross_signing_key(&cross_signing_key).await?;
@@ -361,7 +361,7 @@ impl CrossSigningService {
                                 target_device_id: "".to_string(),
                                 target_key_id: target_key_id.clone(),
                                 signature: signature.as_str().unwrap_or("").to_string(),
-                                created_ts: Utc::now(),
+                                created_ts: current_timestamp_utc(),
                             };
                             if let Err(e) = self.storage.save_device_signature(&device_sig).await {
                                 fail.insert(
@@ -394,13 +394,13 @@ impl CrossSigningService {
         let sig = self.storage.get_signature(&request.user_id, &request.key_id, &request.signing_key_id).await?;
 
         let Some(_signature_record) = sig else {
-            return Ok(SignatureVerificationResponse { valid: false, verified_at: Utc::now() });
+            return Ok(SignatureVerificationResponse { valid: false, verified_at: current_timestamp_utc() });
         };
 
         let signing_key = self.storage.get_cross_signing_key(&request.user_id, &request.signing_key_id).await?;
 
         let Some(key) = signing_key else {
-            return Ok(SignatureVerificationResponse { valid: false, verified_at: Utc::now() });
+            return Ok(SignatureVerificationResponse { valid: false, verified_at: current_timestamp_utc() });
         };
 
         let valid = verify_signed_json(
@@ -415,7 +415,7 @@ impl CrossSigningService {
         )
         .unwrap_or(false);
 
-        Ok(SignatureVerificationResponse { valid, verified_at: Utc::now() })
+        Ok(SignatureVerificationResponse { valid, verified_at: current_timestamp_utc() })
     }
 
     pub async fn setup_cross_signing(
@@ -499,7 +499,7 @@ impl CrossSigningService {
             target_device_id: device_id.to_string(),
             target_key_id: device_id.to_string(),
             signature: signature.to_string(),
-            created_ts: Utc::now(),
+            created_ts: current_timestamp_utc(),
         };
 
         self.storage.save_device_signature(&device_sig).await
@@ -520,7 +520,7 @@ impl CrossSigningService {
             target_device_id: "".to_string(),
             target_key_id: "".to_string(),
             signature: signature.to_string(),
-            created_ts: Utc::now(),
+            created_ts: current_timestamp_utc(),
         };
 
         self.storage.save_device_signature(&device_sig).await
@@ -589,7 +589,7 @@ impl CrossSigningService {
                 device_id: device_id.to_string(),
                 is_verified: valid,
                 verified_by: if valid { Some("self_signing".to_string()) } else { None },
-                verified_at: if valid { Some(Utc::now()) } else { None },
+                verified_at: if valid { Some(current_timestamp_utc()) } else { None },
             })
         } else {
             Ok(DeviceVerificationStatus {
@@ -634,7 +634,7 @@ impl CrossSigningService {
             has_master_key: has_master,
             has_self_signing_key: has_self_signing,
             has_user_signing_key: has_user_signing,
-            verified_at: if is_verified { Some(Utc::now()) } else { None },
+            verified_at: if is_verified { Some(current_timestamp_utc()) } else { None },
         })
     }
 
@@ -790,7 +790,7 @@ impl CrossSigningService {
             verified_by_master,
             verified_by_self_signing,
             verification_method,
-            verified_at: if is_verified { Some(Utc::now()) } else { None },
+            verified_at: if is_verified { Some(current_timestamp_utc()) } else { None },
         })
     }
 
@@ -988,7 +988,7 @@ impl CrossSigningService {
             verified_by_master,
             verified_by_self_signing,
             verification_method,
-            verified_at: if is_verified { Some(Utc::now()) } else { None },
+            verified_at: if is_verified { Some(current_timestamp_utc()) } else { None },
         }
     }
 }
@@ -1114,8 +1114,8 @@ mod tests {
             usage: vec!["master_key".to_string()],
             signatures: json!({}),
             key_json: None,
-            created_ts: chrono::Utc::now(),
-            updated_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         }
     }
 
@@ -1130,8 +1130,8 @@ mod tests {
             key_json: Some(json!({
                 "keys": {"ed25519:master_key_1": "master_pub_key_base64"}
             })),
-            created_ts: chrono::Utc::now(),
-            updated_ts: chrono::Utc::now(),
+            created_ts: current_timestamp_utc(),
+            updated_ts: current_timestamp_utc(),
         }
     }
 

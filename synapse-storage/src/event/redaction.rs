@@ -2,6 +2,7 @@
 
 use super::models::{EventReport, EventReportId};
 use super::EventStorage;
+use synapse_common::current_timestamp_millis;
 
 impl EventStorage {
     pub async fn report_event(
@@ -13,7 +14,7 @@ impl EventStorage {
         reason: Option<&str>,
         score: i32,
     ) -> Result<i64, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let row = sqlx::query_as::<_, EventReportId>(
             r"
             INSERT INTO event_reports (event_id, room_id, reporter_user_id, reason, score, received_ts)
@@ -96,7 +97,7 @@ impl EventStorage {
         };
 
         let redacted_content = synapse_common::redaction::redact_content(&event_type, &content);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             "UPDATE events SET content = $1, is_redacted = true, redacted_at = $2, redacted_by = $3 WHERE event_id = $4",

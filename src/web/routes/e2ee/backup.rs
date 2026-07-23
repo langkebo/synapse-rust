@@ -1,7 +1,8 @@
 use super::devices::{decode_key_request_cursor, encode_key_request_cursor};
 use crate::e2ee::secure_backup::RestoreSecureBackupRequest;
+use crate::web::routes::context::E2eeRoomContext;
 use crate::web::routes::response_helpers::empty_json;
-use crate::web::routes::{AppState, AuthenticatedUser, MatrixJson};
+use crate::web::routes::{AuthenticatedUser, MatrixJson};
 use crate::ApiError;
 use axum::{
     extract::{Path, Query, State},
@@ -12,10 +13,10 @@ use serde_json::Value;
 
 #[axum::debug_handler]
 pub(crate) async fn get_secure_backup_list(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let backups = state.services.e2ee.secure_backup_service.list_backups(&auth_user.user_id).await?;
+    let backups = ctx.secure_backup_service.list_backups(&auth_user.user_id).await?;
 
     let mut response = serde_json::Map::with_capacity(backups.len());
     for backup in backups {
@@ -36,7 +37,7 @@ pub(crate) async fn get_secure_backup_list(
 
 #[axum::debug_handler]
 pub(crate) async fn create_secure_backup(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -49,7 +50,7 @@ pub(crate) async fn create_secure_backup(
 
     if let Some(passphrase) = passphrase {
         // Passphrase mode: server derives key from passphrase
-        let response = state.services.e2ee.secure_backup_service.create_backup(&auth_user.user_id, passphrase).await?;
+        let response = ctx.secure_backup_service.create_backup(&auth_user.user_id, passphrase).await?;
 
         Ok(Json(serde_json::json!({
             "backup_id": response.backup_id,
@@ -60,12 +61,8 @@ pub(crate) async fn create_secure_backup(
         })))
     } else if let (Some(algorithm), Some(auth_data_val)) = (algorithm, auth_data_val) {
         // Standard mode: client provides algorithm and auth_data
-        let response = state
-            .services
-            .e2ee
-            .secure_backup_service
-            .create_backup_with_data(&auth_user.user_id, algorithm, auth_data_val)
-            .await?;
+        let response =
+            ctx.secure_backup_service.create_backup_with_data(&auth_user.user_id, algorithm, auth_data_val).await?;
 
         Ok(Json(serde_json::json!({
             "backup_id": response.backup_id,
@@ -81,11 +78,11 @@ pub(crate) async fn create_secure_backup(
 
 #[axum::debug_handler]
 pub(crate) async fn get_secure_backup(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(backup_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let response = state.services.e2ee.secure_backup_service.get_backup_info(&auth_user.user_id, &backup_id).await?;
+    let response = ctx.secure_backup_service.get_backup_info(&auth_user.user_id, &backup_id).await?;
 
     match response {
         Some(r) => Ok(Json(serde_json::json!({
@@ -101,7 +98,7 @@ pub(crate) async fn get_secure_backup(
 
 #[axum::debug_handler]
 pub(crate) async fn store_secure_backup_keys(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(backup_id): Path<String>,
     MatrixJson(body): MatrixJson<Value>,
@@ -134,12 +131,8 @@ pub(crate) async fn store_secure_backup_keys(
         })
         .unwrap_or_default();
 
-    let key_count = state
-        .services
-        .e2ee
-        .secure_backup_service
-        .store_session_keys(&auth_user.user_id, &backup_id, passphrase, session_keys)
-        .await?;
+    let key_count =
+        ctx.secure_backup_service.store_session_keys(&auth_user.user_id, &backup_id, passphrase, session_keys).await?;
 
     Ok(Json(serde_json::json!({
         "count": key_count,
@@ -149,17 +142,13 @@ pub(crate) async fn store_secure_backup_keys(
 
 #[axum::debug_handler]
 pub(crate) async fn restore_secure_backup(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(backup_id): Path<String>,
     MatrixJson(body): MatrixJson<RestoreSecureBackupRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let response = state
-        .services
-        .e2ee
-        .secure_backup_service
-        .restore_backup(&auth_user.user_id, &backup_id, &body.passphrase, body.rooms)
-        .await?;
+    let response =
+        ctx.secure_backup_service.restore_backup(&auth_user.user_id, &backup_id, &body.passphrase, body.rooms).await?;
 
     Ok(Json(serde_json::json!({
         "recovered_keys": response.recovered_keys,
@@ -169,7 +158,7 @@ pub(crate) async fn restore_secure_backup(
 
 #[axum::debug_handler]
 pub(crate) async fn verify_secure_backup_passphrase(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(backup_id): Path<String>,
     MatrixJson(body): MatrixJson<Value>,
@@ -179,8 +168,7 @@ pub(crate) async fn verify_secure_backup_passphrase(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("passphrase required".to_string()))?;
 
-    let valid =
-        state.services.e2ee.secure_backup_service.verify_passphrase(&auth_user.user_id, &backup_id, passphrase).await?;
+    let valid = ctx.secure_backup_service.verify_passphrase(&auth_user.user_id, &backup_id, passphrase).await?;
 
     Ok(Json(serde_json::json!({
         "valid": valid
@@ -189,11 +177,11 @@ pub(crate) async fn verify_secure_backup_passphrase(
 
 #[axum::debug_handler]
 pub(crate) async fn delete_secure_backup(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(backup_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.e2ee.secure_backup_service.delete_backup(&auth_user.user_id, &backup_id).await?;
+    ctx.secure_backup_service.delete_backup(&auth_user.user_id, &backup_id).await?;
 
     Ok(empty_json())
 }
@@ -206,14 +194,14 @@ pub(crate) struct AuditPaginationQuery {
 
 #[axum::debug_handler]
 pub(crate) async fn get_key_history(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Query(params): Query<AuditPaginationQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.limit.unwrap_or(100).clamp(1, 1000);
     let cursor = params.from.as_deref().and_then(decode_key_request_cursor);
 
-    let audit_service = synapse_services::e2ee_audit::E2eeAuditService::new(state.services.database_pool());
+    let audit_service = synapse_services::e2ee_audit::E2eeAuditService::new(ctx.pool.clone());
     let history: Vec<synapse_services::e2ee_audit::KeyAuditEntry> = audit_service
         .get_key_history_paginated(
             &auth_user.user_id,

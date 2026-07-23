@@ -4,6 +4,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_rust::cache::CacheManager;
 use tower::ServiceExt;
 
@@ -578,7 +579,7 @@ async fn test_secret_storage_default_key_falls_back_to_internal_ssss() {
     .bind(Vec::<u8>::new())
     .bind("opaque-ciphertext")
     .bind(serde_json::json!({}))
-    .bind(chrono::Utc::now().timestamp_millis())
+    .bind(current_timestamp_millis())
     .execute(&*pool)
     .await
     .expect("failed to seed internal SSSS key");
@@ -627,7 +628,7 @@ async fn test_dehydrated_device_ssss_precondition_accepts_account_data_default_k
     .bind(&user_id)
     .bind("{}")
     .bind(serde_json::json!({}))
-    .bind(chrono::Utc::now().timestamp_millis())
+    .bind(current_timestamp_millis())
     .execute(&*pool)
     .await
     .expect("failed to seed cross-signing master key");

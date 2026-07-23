@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use tracing::info;
 
@@ -225,7 +226,7 @@ impl PushNotificationStorage {
     }
 
     pub async fn register_device(&self, request: RegisterDeviceRequest) -> Result<PushDevice, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
         let row = sqlx::query_as::<_, PushDevice>(
@@ -315,7 +316,7 @@ impl PushNotificationStorage {
     }
 
     pub async fn update_device_last_used(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query("UPDATE push_device SET last_used_at = $1, updated_ts = $1 WHERE user_id = $2 AND device_id = $3")
             .bind(now)
@@ -329,7 +330,7 @@ impl PushNotificationStorage {
     }
 
     pub async fn record_device_error(&self, user_id: &str, device_id: &str, error: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             UPDATE push_device
@@ -349,7 +350,7 @@ impl PushNotificationStorage {
     }
 
     pub async fn create_push_rule(&self, request: CreatePushRuleRequest) -> Result<PushRule, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, PushRule>(
             r"
@@ -422,7 +423,7 @@ impl PushNotificationStorage {
         &self,
         request: QueueNotificationRequest,
     ) -> Result<PushNotificationQueue, ApiError> {
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, PushNotificationQueue>(
             r"
@@ -450,7 +451,7 @@ impl PushNotificationStorage {
     }
 
     pub async fn get_pending_notifications(&self, limit: i32) -> Result<Vec<PushNotificationQueue>, ApiError> {
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = current_timestamp_millis();
 
         let rows = sqlx::query_as::<_, PushNotificationQueue>(
             r"
@@ -474,7 +475,7 @@ impl PushNotificationStorage {
     }
 
     pub async fn mark_notification_sent(&self, id: i64) -> Result<(), ApiError> {
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = current_timestamp_millis();
 
         sqlx::query("UPDATE push_notification_queue SET status = 'sent', sent_at = $1 WHERE id = $2")
             .bind(now_ms)
@@ -487,7 +488,7 @@ impl PushNotificationStorage {
     }
 
     pub async fn mark_notification_failed(&self, id: i64, error: &str, retry: bool) -> Result<(), ApiError> {
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        let now_ms = current_timestamp_millis();
 
         if retry {
             let retry_at = now_ms + 60_000; // 60 seconds from now
@@ -576,7 +577,7 @@ impl PushNotificationStorage {
     }
 
     pub async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError> {
-        let cutoff_ms = chrono::Utc::now().timestamp_millis() - (days as i64 * 86_400_000);
+        let cutoff_ms = current_timestamp_millis() - (days as i64 * 86_400_000);
 
         let result = sqlx::query("DELETE FROM push_notification_log WHERE sent_at < $1")
             .bind(cutoff_ms)
@@ -700,7 +701,7 @@ mod tests {
     use serde_json::json;
 
     fn now_ms() -> i64 {
-        chrono::Utc::now().timestamp_millis()
+        current_timestamp_millis()
     }
 
     #[test]

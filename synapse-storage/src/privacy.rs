@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct UserPrivacySettings {
@@ -13,7 +14,7 @@ pub struct UserPrivacySettings {
     pub presence_visibility: String,
     pub room_membership_visibility: String,
     pub created_ts: i64,
-    pub updated_ts: i64,
+    pub updated_ts: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,7 +33,7 @@ pub struct CreatePrivacySettingsParams {
 
 impl Default for UserPrivacySettings {
     fn default() -> Self {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         Self {
             id: 0,
             user_id: String::new(),
@@ -42,7 +43,7 @@ impl Default for UserPrivacySettings {
             presence_visibility: "contacts".to_string(),
             room_membership_visibility: "contacts".to_string(),
             created_ts: now,
-            updated_ts: now,
+            updated_ts: Some(now),
         }
     }
 }
@@ -125,7 +126,7 @@ impl PrivacyStorage {
             return Ok(settings);
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let default_settings = UserPrivacySettings::default();
 
         let row = sqlx::query_as::<_, UserPrivacySettings>(
@@ -158,7 +159,7 @@ impl PrivacyStorage {
         user_id: &str,
         update: PrivacySettingsUpdate,
     ) -> Result<UserPrivacySettings, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let current = self.get_or_create_settings(user_id).await?;
 
@@ -382,7 +383,7 @@ mod db_tests {
 
     /// Insert a minimal user row so FK constraints are satisfied.
     async fn ensure_test_user(pool: &sqlx::Pool<Postgres>, user_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
@@ -399,7 +400,7 @@ mod db_tests {
 
     /// Insert a minimal room row so FK constraints on room_memberships are satisfied.
     async fn ensure_test_room(pool: &sqlx::Pool<Postgres>, room_id: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO rooms (room_id, created_ts)
                VALUES ($1, $2)
@@ -414,7 +415,7 @@ mod db_tests {
 
     /// Insert a room_membership row for the given room and user.
     async fn ensure_room_membership(pool: &sqlx::Pool<Postgres>, room_id: &str, user_id: &str, membership: &str) {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r#"INSERT INTO room_memberships (room_id, user_id, membership, joined_ts)
                VALUES ($1, $2, $3, $4)
@@ -509,8 +510,8 @@ mod db_tests {
         assert_eq!(settings.presence_visibility, "contacts");
         assert_eq!(settings.room_membership_visibility, "contacts");
         assert!(settings.created_ts > 0);
-        assert!(settings.updated_ts > 0);
-        assert_eq!(settings.created_ts, settings.updated_ts);
+        assert!(settings.updated_ts.unwrap_or(0) > 0);
+        assert_eq!(Some(settings.created_ts), settings.updated_ts);
 
         cleanup_privacy_data(&pool, &suffix).await;
     }

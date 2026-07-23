@@ -5,7 +5,8 @@
 //! Spec: https://spec.matrix.org/v1.8/client-server-api/#relationship-types
 
 use crate::common::error::ApiError;
-use crate::web::routes::room_access::ensure_room_member;
+use crate::web::routes::context::RoomContext;
+use crate::web::routes::room_access::ensure_room_member_ctx;
 use crate::web::routes::validators::{
     validate_event_id as shared_validate_event_id, validate_room_id as shared_validate_room_id,
 };
@@ -17,6 +18,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use synapse_common::current_timestamp_millis;
 
 fn create_relations_core_router() -> Router<AppState> {
     Router::new()
@@ -116,7 +118,7 @@ fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
 /// Get relations for an event without rel_type filter
 /// This returns all relations for an event
 async fn get_relations_by_event(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
     Query(query): Query<RelationsQuery>,
@@ -124,19 +126,15 @@ async fn get_relations_by_event(
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
 
-    ensure_room_member(&state, &auth_user, &room_id, "User is not a member of the room").await?;
+    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "User is not a member of the room").await?;
 
     let limit = query.limit.unwrap_or(50).min(100) as i32;
     let direction = query.direction.clone();
 
     tracing::debug!("Getting all relations for event {} in room {}", event_id, room_id,);
 
-    let response = state
-        .services
-        .rooms
-        .relations_service
-        .get_relations(&room_id, &event_id, None, Some(limit), query.from, direction)
-        .await?;
+    let response =
+        ctx.relations_service.get_relations(&room_id, &event_id, None, Some(limit), query.from, direction).await?;
 
     Ok(Json(RelationsResponse {
         chunk: response.chunk,
@@ -150,7 +148,7 @@ async fn get_relations_by_event(
 /// Get relations for an event
 /// This endpoint is used to fetch all events that relate to a given event
 async fn get_relations(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id, rel_type)): Path<(String, String, String)>,
     Query(query): Query<RelationsQuery>,
@@ -159,7 +157,7 @@ async fn get_relations(
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
 
-    ensure_room_member(&state, &auth_user, &room_id, "User is not a member of the room").await?;
+    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "User is not a member of the room").await?;
 
     // Validate rel_type
     let valid_rel_types = ["m.reference", "m.replace", "m.thread", "m.annotation"];
@@ -176,9 +174,7 @@ async fn get_relations(
 
     tracing::debug!("Getting relations for event {} in room {} with rel_type {}", event_id, room_id, rel_type);
 
-    let response = state
-        .services
-        .rooms
+    let response = ctx
         .relations_service
         .get_relations(&room_id, &event_id, Some(&rel_type), Some(limit), query.from, direction)
         .await?;
@@ -194,7 +190,7 @@ async fn get_relations(
 
 /// Send a relation (annotation/reference/replace)
 async fn send_relation(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id, rel_type, target_event_id)): Path<(String, String, String, String)>,
     Json(body): Json<Value>,
@@ -215,21 +211,18 @@ async fn send_relation(
         )));
     }
 
-    if !state.services.rooms.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     let sender = auth_user.user_id.clone();
-    let origin_server_ts = chrono::Utc::now().timestamp_millis();
+    let origin_server_ts = current_timestamp_millis();
 
     let result_event_id = match rel_type.as_str() {
         "m.annotation" => {
             let key = body.get("key").and_then(|v| v.as_str()).unwrap_or("👍").to_string();
 
-            state
-                .services
-                .rooms
-                .relations_service
+            ctx.relations_service
                 .send_annotation(synapse_services::relations_service::SendAnnotationRequest {
                     room_id: room_id.clone(),
                     relates_to_event_id: target_event_id.clone(),
@@ -243,10 +236,7 @@ async fn send_relation(
         "m.reference" => {
             let content = body.get("content").cloned().unwrap_or(Value::Object(serde_json::Map::new()));
 
-            state
-                .services
-                .rooms
-                .relations_service
+            ctx.relations_service
                 .send_reference(synapse_services::relations_service::SendReferenceRequest {
                     room_id: room_id.clone(),
                     relates_to_event_id: target_event_id.clone(),
@@ -261,10 +251,7 @@ async fn send_relation(
         "m.thread" => {
             let content = body.get("content").cloned().unwrap_or(Value::Object(serde_json::Map::new()));
 
-            state
-                .services
-                .rooms
-                .relations_service
+            ctx.relations_service
                 .send_reference(synapse_services::relations_service::SendReferenceRequest {
                     room_id: room_id.clone(),
                     relates_to_event_id: target_event_id.clone(),
@@ -283,10 +270,7 @@ async fn send_relation(
                 .or_else(|| body.get("m.new_content").cloned())
                 .unwrap_or(Value::Object(serde_json::Map::new()));
 
-            state
-                .services
-                .rooms
-                .relations_service
+            ctx.relations_service
                 .send_replacement(synapse_services::relations_service::SendReplacementRequest {
                     room_id: room_id.clone(),
                     relates_to_event_id: target_event_id.clone(),
@@ -310,14 +294,14 @@ async fn send_relation(
 /// Get aggregations for relations
 /// This endpoint is used to get aggregated data about relations (e.g., reaction counts)
 async fn get_aggregations(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id, rel_type)): Path<(String, String, String)>,
 ) -> Result<Json<synapse_services::relations_service::AggregationResponse>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
 
-    ensure_room_member(&state, &auth_user, &room_id, "User is not a member of the room").await?;
+    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "User is not a member of the room").await?;
 
     if rel_type != "m.annotation" {
         return Err(ApiError::bad_request("Aggregation is only supported for m.annotation rel_type".to_string()));
@@ -325,7 +309,7 @@ async fn get_aggregations(
 
     tracing::debug!("Getting aggregations for event {} in room {}", event_id, room_id);
 
-    let response = state.services.rooms.relations_service.get_aggregations(&room_id, &event_id).await?;
+    let response = ctx.relations_service.get_aggregations(&room_id, &event_id).await?;
 
     Ok(Json(response))
 }

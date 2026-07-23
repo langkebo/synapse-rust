@@ -6,6 +6,7 @@ use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_cache::{CacheKeyBuilder, CacheManager, CacheTtl};
+use synapse_common::current_timestamp_millis;
 use tracing;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -21,7 +22,7 @@ mod tests {
     use super::*;
 
     fn now_ms() -> i64 {
-        chrono::Utc::now().timestamp_millis()
+        current_timestamp_millis()
     }
 
     #[test]
@@ -146,7 +147,7 @@ impl PresenceStorage {
         status_msg: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         tracing::debug!(user_id = %user_id, presence = %presence, "Setting presence");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         sqlx::query(
             r"
             INSERT INTO presence (user_id, presence, status_msg, last_active_ts, created_ts, updated_ts)
@@ -305,7 +306,7 @@ impl PresenceStorage {
 
     pub async fn set_typing(&self, room_id: &str, user_id: &str, typing: bool) -> Result<(), sqlx::Error> {
         if typing {
-            let now = chrono::Utc::now().timestamp_millis();
+            let now = current_timestamp_millis();
             sqlx::query(
                 r"
                 INSERT INTO typing (user_id, room_id, is_typing, last_active_ts)
@@ -335,7 +336,7 @@ impl PresenceStorage {
     }
 
     pub async fn add_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let result = sqlx::query(
             r"
             INSERT INTO presence_subscriptions (subscriber_id, target_id, created_ts)

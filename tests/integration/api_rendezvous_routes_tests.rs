@@ -111,15 +111,24 @@ async fn test_rendezvous_session_requires_session_key_before_binding() {
     assert_eq!(authorized_send_response.status(), StatusCode::OK);
 }
 
+/// NOTE: This test uses `TestContext::new()` directly (not `setup_fresh_test_app_with_pool`)
+/// because the `setup_fresh_test_app_*` helpers destructure the `TestContext` and drop the
+/// `LeasedSchema` lease before returning. Dropping the lease spawns an async TRUNCATE on
+/// `CLEANUP_RUNTIME` that wipes the schema mid-test. This test makes many requests
+/// (including two argon2 password hashes) which takes long enough for the background
+/// TRUNCATE to fire and delete the rendezvous session. Holding the `TestContext` keeps the
+/// lease alive for the whole test.
 #[tokio::test]
 async fn test_rendezvous_bound_user_can_access_without_key_but_other_user_cannot() {
-    let Some(app) = setup_test_app().await else {
+    let Some(ctx) = super::TestContext::new().await else {
         return;
     };
-    let (session_id, session_key) = create_rendezvous_session(&app).await;
-    let owner_token = register_user(&app, "rendezvous_bound_owner").await;
-    let guest_token = register_user(&app, "rendezvous_bound_guest").await;
-    let (admin_token, _) = super::get_admin_token(&app).await;
+    let app = &ctx.app;
+    let (session_id, session_key) = create_rendezvous_session(app).await;
+
+    let owner_token = register_user(app, "rendezvous_bound_owner").await;
+    let guest_token = register_user(app, "rendezvous_bound_guest").await;
+    let (admin_token, _) = super::get_admin_token(app).await;
 
     let connect_request = Request::builder()
         .method("PUT")
@@ -166,7 +175,7 @@ async fn test_rendezvous_bound_user_can_access_without_key_but_other_user_cannot
         .header("Content-Type", "application/json")
         .body(Body::from(json!({ "status": "completed" }).to_string()))
         .unwrap();
-    let complete_response = ServiceExt::<Request<Body>>::oneshot(app, complete_request).await.unwrap();
+    let complete_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), complete_request).await.unwrap();
     assert_eq!(complete_response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(complete_response.into_body(), 2048).await.unwrap();

@@ -257,10 +257,10 @@ run_appservice_gate() {
         BASE_URL="$APPSERVICE_GATE_BASE_URL" \
         PROMETHEUS_URL="$APPSERVICE_GATE_PROMETHEUS_URL" \
         python3 "$ROOT_DIR/scripts/appservice_daily_report.py" \
-            --day "$APPSERVICE_GATE_DAY" \
-            --fail-on "$APPSERVICE_GATE_FAIL_ON" \
-            --output-dir "$APPSERVICE_GATE_OUTPUT_DIR" \
-            --resource-summary "$APPSERVICE_GATE_RESOURCE_SUMMARY"
+        --day "$APPSERVICE_GATE_DAY" \
+        --fail-on "$APPSERVICE_GATE_FAIL_ON" \
+        --output-dir "$APPSERVICE_GATE_OUTPUT_DIR" \
+        --resource-summary "$APPSERVICE_GATE_RESOURCE_SUMMARY"
 }
 
 trap cleanup EXIT

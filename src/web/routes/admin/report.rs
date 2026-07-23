@@ -112,7 +112,7 @@ pub async fn get_room_reports(
     Path(room_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = ctx.room_service.state.room_exists(&room_id).await?;
+    let room_exists = ctx.room_service.state().room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -144,7 +144,7 @@ pub async fn get_room_report(
     State(ctx): State<AdminContext>,
     Path((room_id, report_id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = ctx.room_service.state.room_exists(&room_id).await?;
+    let room_exists = ctx.room_service.state().room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -164,7 +164,7 @@ pub async fn delete_room_report(
     State(ctx): State<AdminContext>,
     Path((room_id, report_id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = ctx.room_service.state.room_exists(&room_id).await?;
+    let room_exists = ctx.room_service.state().room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));

@@ -104,7 +104,7 @@ fn map_admin_register_service_error(error: ApiError) -> Response<Body> {
 
 fn extract_registration_client_ip(headers: &HeaderMap) -> Option<String> {
     let priority = vec!["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()];
-    extract_client_ip(headers, &priority)
+    extract_client_ip(headers, &priority, None, &[])
 }
 
 fn runtime_environment() -> String {
@@ -292,13 +292,10 @@ mod tests {
 
     #[test]
     fn test_admin_registration_environment_blocks_non_production() {
-        unsafe {
-            std::env::set_var("RUST_ENV", "development");
-        }
+        let _guard = crate::test_utils::env_lock();
+        let mut env = crate::test_utils::EnvGuard::new();
+        env.set("RUST_ENV", "development");
         let result = ensure_admin_registration_environment(true);
-        unsafe {
-            std::env::remove_var("RUST_ENV");
-        }
         assert!(result.is_err());
     }
 

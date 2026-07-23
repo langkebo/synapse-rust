@@ -1,8 +1,8 @@
 use async_trait::async_trait;
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 fn decode_background_update_cursor(cursor: &str) -> Option<(i64, &str)> {
     let (created_ts, job_name) = cursor.split_once('|')?;
@@ -45,7 +45,7 @@ pub struct BackgroundUpdate {
     pub progress: serde_json::Value,
     pub total_items: i32,
     pub processed_items: i32,
-    pub created_ts: i64,
+    pub created_ts: Option<i64>,
     pub started_ts: Option<i64>,
     pub completed_ts: Option<i64>,
     pub updated_ts: Option<i64>,
@@ -172,7 +172,7 @@ impl BackgroundUpdateStorage {
     }
 
     pub async fn create_update(&self, request: CreateBackgroundUpdateRequest) -> Result<BackgroundUpdate, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         // Schema column `depends_on` is JSONB (default '[]'), but
         // CreateBackgroundUpdateRequest.depends_on is Vec<String>. Encode the
@@ -240,7 +240,7 @@ impl BackgroundUpdateStorage {
         .await?;
 
         let next_from = if rows.len() as i64 == limit {
-            rows.last().map(|row| encode_background_update_cursor(row.created_ts, &row.job_name))
+            rows.last().map(|row| encode_background_update_cursor(row.created_ts.unwrap_or(0), &row.job_name))
         } else {
             None
         };
@@ -268,7 +268,7 @@ impl BackgroundUpdateStorage {
     }
 
     pub async fn update_status(&self, job_name: &str, status: &str) -> Result<BackgroundUpdate, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let started_ts = if status == "running" { Some(now) } else { None };
 
@@ -302,7 +302,7 @@ impl BackgroundUpdateStorage {
         items_processed: i32,
         total_items: Option<i32>,
     ) -> Result<BackgroundUpdate, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         // Schema column `progress` is JSONB (default '{}'), so wrap the
         // computed percentage as a JSONB value to keep CASE branch types
@@ -333,7 +333,7 @@ impl BackgroundUpdateStorage {
     }
 
     pub async fn set_error(&self, job_name: &str, error_message: &str) -> Result<BackgroundUpdate, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, BackgroundUpdate>(
             r"
@@ -370,7 +370,7 @@ impl BackgroundUpdateStorage {
         locked_by: &str,
         lock_duration_ms: i64,
     ) -> Result<bool, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires = now + lock_duration_ms;
 
         let result = sqlx::query(
@@ -444,7 +444,7 @@ impl BackgroundUpdateStorage {
     }
 
     pub async fn is_locked(&self, job_name: &str) -> Result<bool, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM background_update_locks WHERE lock_name = $1 AND expires_at > $2")
@@ -457,7 +457,7 @@ impl BackgroundUpdateStorage {
     }
 
     pub async fn cleanup_expired_locks(&self) -> Result<i64, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let result = sqlx::query("DELETE FROM background_update_locks WHERE expires_at < $1")
             .bind(now)
@@ -475,7 +475,7 @@ impl BackgroundUpdateStorage {
         error_message: Option<&str>,
         metadata: Option<serde_json::Value>,
     ) -> Result<BackgroundUpdateHistory, sqlx::Error> {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, BackgroundUpdateHistory>(
             r"
@@ -654,7 +654,7 @@ mod tests {
             progress: serde_json::json!(50),
             total_items: 100,
             processed_items: 50,
-            created_ts: 1234567800,
+            created_ts: Some(1234567800),
             started_ts: Some(1234567800),
             completed_ts: None,
             updated_ts: Some(1234567890),
@@ -682,7 +682,7 @@ mod tests {
             progress: serde_json::json!(100),
             total_items: 100,
             processed_items: 100,
-            created_ts: 1234567800,
+            created_ts: Some(1234567800),
             started_ts: Some(1234567800),
             completed_ts: Some(1234567890),
             updated_ts: Some(1234567890),
@@ -924,7 +924,7 @@ mod tests {
         assert_eq!(update.sleep_ms, 200);
         assert_eq!(update.max_retries, 3);
         assert_eq!(update.processed_items, 0);
-        assert!(update.created_ts > 0);
+        assert!(update.created_ts.unwrap_or(0) > 0);
     }
 
     #[tokio::test]
@@ -967,7 +967,7 @@ mod tests {
         setup_background_update_db(&pool).await;
 
         let storage = BackgroundUpdateStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         insert_update_row(&pool, "test_job_1", "pending", now, 100, 0, 0, 3).await;
 
         let found = storage.get_update("test_job_1").await.expect("Failed to get update");
@@ -1035,7 +1035,7 @@ mod tests {
         setup_background_update_db(&pool).await;
 
         let storage = BackgroundUpdateStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         insert_update_row(&pool, "pending_1", "pending", now, 100, 0, 0, 3).await;
         insert_update_row(&pool, "running_1", "running", now, 100, 50, 0, 3).await;
@@ -1060,7 +1060,7 @@ mod tests {
         setup_background_update_db(&pool).await;
 
         let storage = BackgroundUpdateStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         insert_update_row(&pool, "p1", "pending", now, 100, 0, 0, 3).await;
         insert_update_row(&pool, "r1", "running", now, 100, 50, 0, 3).await;
@@ -1083,7 +1083,7 @@ mod tests {
         setup_background_update_db(&pool).await;
 
         let storage = BackgroundUpdateStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         insert_update_row(&pool, "status_job", "pending", now, 100, 0, 0, 3).await;
 
         let updated = storage.update_status("status_job", "running").await.expect("Failed to update status to running");
@@ -1102,7 +1102,7 @@ mod tests {
         setup_background_update_db(&pool).await;
 
         let storage = BackgroundUpdateStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         insert_update_row(&pool, "complete_job", "running", now, 100, 100, 0, 3).await;
 
         let updated =
@@ -1121,7 +1121,7 @@ mod tests {
         setup_background_update_db(&pool).await;
 
         let storage = BackgroundUpdateStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         insert_update_row(&pool, "progress_job", "running", now, 100, 0, 0, 3).await;
 
         let updated = storage.update_progress("progress_job", 25, Some(100)).await.expect("Failed to update progress");
@@ -1145,7 +1145,7 @@ mod tests {
         setup_background_update_db(&pool).await;
 
         let storage = BackgroundUpdateStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         insert_update_row(&pool, "error_job", "running", now, 100, 50, 0, 3).await;
 
         let updated = storage.set_error("error_job", "DB connection lost").await.expect("Failed to set error");
@@ -1164,7 +1164,7 @@ mod tests {
         setup_background_update_db(&pool).await;
 
         let storage = BackgroundUpdateStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         insert_update_row(&pool, "delete_job", "completed", now, 100, 100, 0, 3).await;
 
         storage.delete_update("delete_job").await.expect("Failed to delete update");
@@ -1383,7 +1383,7 @@ mod tests {
         setup_background_update_db(&pool).await;
 
         let storage = BackgroundUpdateStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         // Failed with retry_count 0, max_retries 3 → should be retried
         insert_update_row(&pool, "retryable_job", "failed", now, 100, 50, 0, 3).await;
@@ -1414,7 +1414,7 @@ mod tests {
         setup_background_update_db(&pool).await;
 
         let storage = BackgroundUpdateStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         insert_update_row(&pool, "p1", "pending", now, 100, 0, 0, 3).await;
         insert_update_row(&pool, "p2", "pending", now, 100, 0, 0, 3).await;
@@ -1455,7 +1455,7 @@ mod tests {
         setup_background_update_db(&pool).await;
 
         let storage = BackgroundUpdateStorage::new(&pool);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         sqlx::query(
             r#"INSERT INTO background_update_stats (

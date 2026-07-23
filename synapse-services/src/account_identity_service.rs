@@ -1,14 +1,15 @@
-use crate::auth::Auth;
+use crate::auth::{CredentialAuth, TokenAuth};
 use crate::uia_service::UiaService;
+use crate::UserService;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_common::error::ApiError;
-use synapse_storage::{ThreepidStoreApi, User, UserDirectorySearchResult, UserSearchResult, UserStore, UserThreepid};
+use synapse_storage::{ThreepidStoreApi, User, UserThreepid};
 
 #[derive(Clone)]
 pub struct AccountIdentityService {
-    user_storage: Arc<dyn UserStore>,
+    user_service: Arc<UserService>,
     threepid_storage: Arc<dyn ThreepidStoreApi>,
     #[cfg(feature = "privacy-ext")]
     privacy_storage: Arc<dyn synapse_storage::privacy::PrivacyStoreApi>,
@@ -17,16 +18,16 @@ pub struct AccountIdentityService {
 impl AccountIdentityService {
     #[cfg(feature = "privacy-ext")]
     pub fn new(
-        user_storage: Arc<dyn UserStore>,
+        user_service: Arc<UserService>,
         threepid_storage: Arc<dyn ThreepidStoreApi>,
         privacy_storage: Arc<dyn synapse_storage::privacy::PrivacyStoreApi>,
     ) -> Self {
-        Self { user_storage, threepid_storage, privacy_storage }
+        Self { user_service, threepid_storage, privacy_storage }
     }
 
     #[cfg(not(feature = "privacy-ext"))]
-    pub fn new(user_storage: Arc<dyn UserStore>, threepid_storage: Arc<dyn ThreepidStoreApi>) -> Self {
-        Self { user_storage, threepid_storage }
+    pub fn new(user_service: Arc<UserService>, threepid_storage: Arc<dyn ThreepidStoreApi>) -> Self {
+        Self { user_service, threepid_storage }
     }
 
     #[cfg(feature = "privacy-ext")]
@@ -51,51 +52,35 @@ impl AccountIdentityService {
     }
 
     pub async fn ensure_active_user_exists(&self, user_id: &str) -> Result<(), ApiError> {
-        let user_exists = self.user_storage.user_exists(user_id).await.map_err(|e| {
-            tracing::error!("Failed to check user existence: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
-
+        let user_exists = self.user_service.user_exists(user_id).await?;
         if !user_exists {
             return Err(ApiError::not_found("User not found".to_string()));
         }
-
         Ok(())
     }
 
     pub async fn user_exists(&self, user_id: &str) -> Result<bool, ApiError> {
-        self.user_storage
-            .user_exists(user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check user existence", &e))
+        self.user_service.user_exists(user_id).await
     }
 
     pub async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, ApiError> {
-        self.user_storage
-            .get_user_by_id(user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get user by id", &e))
+        self.user_service.get_user(user_id).await
     }
 
     pub async fn get_user_by_identifier(&self, identifier: &str) -> Result<Option<User>, ApiError> {
-        self.user_storage
-            .get_user_by_identifier(identifier)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get user by identifier", &e))
+        self.user_service.get_user_by_identifier(identifier).await
     }
 
     pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, ApiError> {
-        self.user_storage
-            .get_user_by_username(username)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get user by username", &e))
+        self.user_service.get_user_by_username(username).await
     }
 
-    pub async fn search_users(&self, search_term: &str, limit: i64) -> Result<Vec<UserSearchResult>, ApiError> {
-        self.user_storage
-            .search_users(search_term, limit)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to search users", &e))
+    pub async fn search_users(
+        &self,
+        search_term: &str,
+        limit: i64,
+    ) -> Result<Vec<synapse_storage::UserSearchResult>, ApiError> {
+        self.user_service.search_users(search_term, limit).await
     }
 
     pub async fn get_users_paginated(
@@ -104,14 +89,11 @@ impl AccountIdentityService {
         created_ts_cursor: Option<i64>,
         user_id_cursor: Option<&str>,
     ) -> Result<Vec<User>, ApiError> {
-        self.user_storage
-            .get_users_paginated(limit, created_ts_cursor, user_id_cursor)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to list users", &e))
+        self.user_service.get_users_paginated(limit, created_ts_cursor, user_id_cursor).await
     }
 
     pub async fn get_user_count(&self) -> Result<i64, ApiError> {
-        self.user_storage.get_user_count().await.map_err(|e| ApiError::internal_with_log("Failed to count users", &e))
+        self.user_service.get_user_count().await
     }
 
     #[tracing::instrument(skip(self))]
@@ -120,16 +102,14 @@ impl AccountIdentityService {
         search_term: &str,
         limit: i64,
         exact_only: bool,
-    ) -> Result<Vec<UserDirectorySearchResult>, ApiError> {
-        self.user_storage
-            .search_directory_users(search_term, limit, exact_only)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to search directory users", &e))
+    ) -> Result<Vec<synapse_storage::UserDirectorySearchResult>, ApiError> {
+        self.user_service.search_directory_users(search_term, limit, exact_only).await
     }
 
     #[tracing::instrument(skip(self))]
     pub async fn get_daily_active_users(&self) -> Result<i64, ApiError> {
-        self.user_storage
+        self.user_service
+            .store()
             .get_daily_active_users()
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get daily active users", &e))
@@ -137,7 +117,8 @@ impl AccountIdentityService {
 
     #[tracing::instrument(skip(self))]
     pub async fn get_monthly_active_users(&self) -> Result<i64, ApiError> {
-        self.user_storage
+        self.user_service
+            .store()
             .get_monthly_active_users()
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get monthly active users", &e))
@@ -145,7 +126,11 @@ impl AccountIdentityService {
 
     #[tracing::instrument(skip(self))]
     pub async fn get_r30_users(&self) -> Result<i64, ApiError> {
-        self.user_storage.get_r30_users().await.map_err(|e| ApiError::internal_with_log("Failed to get r30 users", &e))
+        self.user_service
+            .store()
+            .get_r30_users()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get r30 users", &e))
     }
 
     pub async fn resolve_password_reset_user_id_by_email(&self, email: &str, request_id: &str) -> Option<String> {
@@ -184,14 +169,16 @@ impl AccountIdentityService {
         uia_service: &UiaService,
         auth: Option<&Value>,
         user_id: &str,
-        auth_service: &Arc<dyn Auth>,
+        token_auth: &Arc<dyn TokenAuth>,
+        credential_auth: &Arc<dyn CredentialAuth>,
     ) -> Result<(), Value> {
         uia_service
             .require_uia(
                 auth,
                 user_id,
                 UiaService::get_deactivate_account_flows(),
-                auth_service,
+                token_auth,
+                credential_auth,
                 &*self.threepid_storage,
             )
             .await
@@ -202,10 +189,18 @@ impl AccountIdentityService {
         uia_service: &UiaService,
         auth: Option<&Value>,
         user_id: &str,
-        auth_service: &Arc<dyn Auth>,
+        token_auth: &Arc<dyn TokenAuth>,
+        credential_auth: &Arc<dyn CredentialAuth>,
     ) -> Result<(), Value> {
         uia_service
-            .require_uia(auth, user_id, UiaService::get_cross_signing_flows(), auth_service, &*self.threepid_storage)
+            .require_uia(
+                auth,
+                user_id,
+                UiaService::get_cross_signing_flows(),
+                token_auth,
+                credential_auth,
+                &*self.threepid_storage,
+            )
             .await
     }
 
@@ -229,48 +224,36 @@ impl AccountIdentityService {
     }
 
     async fn lookup_user_by_email(&self, email: &str) -> Result<Option<User>, sqlx::Error> {
-        self.user_storage.get_user_by_email(email).await
+        self.user_service.store().get_user_by_email(email).await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synapse_common::current_timestamp_millis;
     use synapse_storage::test_mocks::{shared_fake_user_store, InMemoryThreepidStore};
 
-    #[cfg(feature = "privacy-ext")]
-    fn test_service() -> AccountIdentityService {
-        let pool = sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:15432/synapse_test")
-            .expect("connect_lazy should not perform I/O");
-        let privacy_storage: Arc<dyn synapse_storage::privacy::PrivacyStoreApi> =
-            Arc::new(synapse_storage::privacy::PrivacyStorage::new(std::sync::Arc::new(pool)));
-        AccountIdentityService::new(shared_fake_user_store(), Arc::new(InMemoryThreepidStore::new()), privacy_storage)
-    }
-
-    #[cfg(not(feature = "privacy-ext"))]
-    fn test_service() -> AccountIdentityService {
-        AccountIdentityService::new(shared_fake_user_store(), Arc::new(InMemoryThreepidStore::new()))
-    }
-
-    #[cfg(feature = "privacy-ext")]
-    fn test_service_with_threepid(threepid_store: Arc<InMemoryThreepidStore>) -> AccountIdentityService {
-        let pool = sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:15432/synapse_test")
-            .expect("connect_lazy should not perform I/O");
-        let privacy_storage: Arc<dyn synapse_storage::privacy::PrivacyStoreApi> =
-            Arc::new(synapse_storage::privacy::PrivacyStorage::new(std::sync::Arc::new(pool)));
-        AccountIdentityService::new(shared_fake_user_store(), threepid_store, privacy_storage)
-    }
-
-    #[cfg(not(feature = "privacy-ext"))]
-    fn test_service_with_threepid(threepid_store: Arc<InMemoryThreepidStore>) -> AccountIdentityService {
-        AccountIdentityService::new(shared_fake_user_store(), threepid_store)
+    fn make_service(threepid_store: Arc<InMemoryThreepidStore>) -> AccountIdentityService {
+        let user_store = shared_fake_user_store();
+        let user_service = Arc::new(crate::UserService::new(user_store));
+        #[cfg(feature = "privacy-ext")]
+        {
+            let pool = sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:15432/synapse_test")
+                .expect("connect_lazy should not perform I/O");
+            let privacy_storage: Arc<dyn synapse_storage::privacy::PrivacyStoreApi> =
+                Arc::new(synapse_storage::privacy::PrivacyStorage::new(std::sync::Arc::new(pool)));
+            AccountIdentityService::new(user_service, threepid_store, privacy_storage)
+        }
+        #[cfg(not(feature = "privacy-ext"))]
+        AccountIdentityService::new(user_service, threepid_store)
     }
 
     // ── ensure_active_user_exists ───────────────────────────────────
 
     #[tokio::test]
     async fn ensure_active_user_exists_returns_not_found() {
-        let svc = test_service();
+        let svc = make_service(Arc::new(InMemoryThreepidStore::new()));
         let err = svc.ensure_active_user_exists("@unknown:example.com").await.unwrap_err();
         assert!(err.to_string().contains("not found"));
     }
@@ -279,7 +262,7 @@ mod tests {
 
     #[tokio::test]
     async fn user_exists_returns_false_for_unknown() {
-        let svc = test_service();
+        let svc = make_service(Arc::new(InMemoryThreepidStore::new()));
         assert!(!svc.user_exists("@unknown:example.com").await.unwrap());
     }
 
@@ -287,13 +270,13 @@ mod tests {
 
     #[tokio::test]
     async fn get_user_by_id_returns_none_for_unknown() {
-        let svc = test_service();
+        let svc = make_service(Arc::new(InMemoryThreepidStore::new()));
         assert!(svc.get_user_by_id("@unknown:example.com").await.unwrap().is_none());
     }
 
     #[tokio::test]
     async fn get_user_by_identifier_returns_none_for_unknown() {
-        let svc = test_service();
+        let svc = make_service(Arc::new(InMemoryThreepidStore::new()));
         assert!(svc.get_user_by_identifier("@unknown:example.com").await.unwrap().is_none());
     }
 
@@ -303,14 +286,14 @@ mod tests {
     async fn resolve_password_reset_returns_user_id_when_threepid_found() {
         let store = Arc::new(InMemoryThreepidStore::new());
         store.seed_threepid("@alice:example.com", "email", "alice@example.com").await;
-        let svc = test_service_with_threepid(store);
+        let svc = make_service(store);
         let result = svc.resolve_password_reset_user_id_by_email("alice@example.com", "req-1").await;
         assert_eq!(result, Some("@alice:example.com".to_string()));
     }
 
     #[tokio::test]
     async fn resolve_password_reset_returns_none_when_no_match() {
-        let svc = test_service();
+        let svc = make_service(Arc::new(InMemoryThreepidStore::new()));
         let result = svc.resolve_password_reset_user_id_by_email("unknown@example.com", "req-1").await;
         assert_eq!(result, None);
     }
@@ -319,22 +302,22 @@ mod tests {
 
     #[tokio::test]
     async fn get_user_threepids_returns_empty() {
-        let svc = test_service();
+        let svc = make_service(Arc::new(InMemoryThreepidStore::new()));
         let threepids = svc.get_user_threepids("@alice:example.com").await.unwrap();
         assert!(threepids.is_empty());
     }
 
     #[tokio::test]
     async fn add_verified_threepid_succeeds() {
-        let svc = test_service();
-        let now = chrono::Utc::now().timestamp_millis();
+        let svc = make_service(Arc::new(InMemoryThreepidStore::new()));
+        let now = current_timestamp_millis();
         let result = svc.add_verified_threepid("@alice:example.com", "email", "alice@example.com", now, now).await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn remove_threepid_returns_false_for_missing() {
-        let svc = test_service();
+        let svc = make_service(Arc::new(InMemoryThreepidStore::new()));
         let result = svc.remove_threepid("@alice:example.com", "email", "alice@example.com").await.unwrap();
         assert!(!result);
     }

@@ -6,7 +6,7 @@ use synapse_cache::CacheManager;
 use synapse_federation::friend::FriendFederationClient;
 use synapse_storage::UserStore;
 
-use crate::RoomService;
+use crate::room::RoomServiceApi;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendListRequest {
@@ -188,8 +188,10 @@ pub(crate) fn sort_letter_for(value: &str) -> String {
 
 pub struct FriendRoomService {
     pub(crate) friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
-    pub(crate) room_service: Arc<RoomService>,
+    pub(crate) room_service: Arc<dyn RoomServiceApi>,
     pub(crate) user_storage: Arc<dyn UserStore>,
+    #[allow(dead_code)]
+    pub(crate) user_service: Arc<crate::UserService>,
     pub(crate) presence_storage: std::sync::Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     pub(crate) account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
     pub(crate) cache: Arc<CacheManager>,

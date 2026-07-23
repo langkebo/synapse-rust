@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::web::routes::context::AdminContext;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
@@ -6,6 +7,7 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 pub fn create_server_router(_state: AppState) -> Router<crate::web::routes::AppState> {
     Router::new()
@@ -56,29 +58,29 @@ pub fn admin_server_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
 }
 
 #[axum::debug_handler]
-pub async fn get_admin_info_compat(admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    get_admin_info(admin, State(state)).await
+pub async fn get_admin_info_compat(admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
+    get_admin_info(admin, State(ctx)).await
 }
 
 #[allow(clippy::unused_async)]
-pub async fn get_admin_info(admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+pub async fn get_admin_info(admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     // Only super_admin can access server info
     if admin.role != "super_admin" {
         return Err(ApiError::forbidden("Only super_admin can access server information".to_string()));
     }
 
     Ok(Json(json!({
-        "server_name": state.services.core.server_name,
+        "server_name": ctx.server_name,
         "server_version": env!("CARGO_PKG_VERSION"),
         "implementation": "synapse-rust"
     })))
 }
 
 #[allow(clippy::unused_async)]
-pub async fn get_admin_whoami(admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+pub async fn get_admin_whoami(admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
         "user_id": admin.user_id,
-        "name": format!("@{}:{}", admin.user_id, state.services.core.server_name),
+        "name": format!("@{}:{}", admin.user_id, ctx.server_name),
         "is_admin": admin.role == "super_admin" || admin.role == "admin",
         "role": admin.role
     })))
@@ -87,7 +89,7 @@ pub async fn get_admin_whoami(admin: AdminUser, State(state): State<AppState>) -
 #[allow(clippy::unused_async)]
 pub async fn get_backups(
     _admin: AdminUser,
-    State(_state): State<AppState>,
+    State(_ctx): State<AdminContext>,
     axum::extract::Query(_params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     // Backups are managed by external infrastructure (pg_dump, WAL-G, etc.),
@@ -97,28 +99,26 @@ pub async fn get_backups(
 }
 
 #[allow(clippy::unused_async)]
-pub async fn get_server_version(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+pub async fn get_server_version(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
         "server_version": env!("CARGO_PKG_VERSION"),
         "python_version": "Rust",
-        "server_name": state.services.core.server_name
+        "server_name": ctx.server_name
     })))
 }
 
 #[axum::debug_handler]
 pub async fn purge_media_cache(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let before_ts = body
         .get("before_ts")
         .and_then(|v| v.as_i64())
-        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
+        .unwrap_or_else(|| current_timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
 
-    let deleted = state
-        .services
-        .core
+    let deleted = ctx
         .media_service
         .purge_media_cache(before_ts)
         .await
@@ -132,14 +132,14 @@ pub async fn purge_media_cache(
 #[allow(clippy::unused_async)] // axum handlers must be async even when the await is inside spawn
 pub async fn restart_server(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     // Optional graceful shutdown delay (ms). Defaults to 100ms to let the
     // HTTP response flush before the process exits.
     let delay_ms = body.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(100).min(10_000);
 
-    let shutdown_tx = state
+    let shutdown_tx = ctx
         .shutdown_signal
         .ok_or_else(|| ApiError::internal("Shutdown signal is not wired into AppState; restart is unavailable"))?;
 
@@ -160,19 +160,17 @@ pub async fn restart_server(
 }
 
 #[axum::debug_handler]
-pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let total_users = state.services.account.account_identity_service.get_user_count().await?;
-    let total_rooms = state.services.rooms.room_service.state.get_room_count().await?;
+pub async fn get_statistics(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
+    let total_users = ctx.account_identity_service.get_user_count().await?;
+    let total_rooms = ctx.room_service.state().get_room_count().await?;
 
     // Real active-user metrics based on device last_seen_ts.
-    let daily_active_users =
-        state.services.account.account_identity_service.get_daily_active_users().await.unwrap_or(0);
-    let monthly_active_users =
-        state.services.account.account_identity_service.get_monthly_active_users().await.unwrap_or(0);
-    let r30_users = state.services.account.account_identity_service.get_r30_users().await.unwrap_or(0);
+    let daily_active_users = ctx.account_identity_service.get_daily_active_users().await.unwrap_or(0);
+    let monthly_active_users = ctx.account_identity_service.get_monthly_active_users().await.unwrap_or(0);
+    let r30_users = ctx.account_identity_service.get_r30_users().await.unwrap_or(0);
 
     // Room activity and message-volume metrics.
-    let room_stats = state.services.rooms.room_service.state.get_room_stats_overview().await.unwrap_or_else(|e| {
+    let room_stats = ctx.room_service.state().get_room_stats_overview().await.unwrap_or_else(|e| {
         ::tracing::warn!(error = %e, "Failed to fetch room stats overview for /statistics");
         json!({})
     });
@@ -181,25 +179,25 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
     let total_members = room_stats.get("total_members").and_then(|v| v.as_i64()).unwrap_or(0);
     let encrypted_rooms = room_stats.get("encrypted_rooms").and_then(|v| v.as_i64()).unwrap_or(0);
 
-    let daily_messages = state.services.rooms.room_service.messaging.get_daily_message_count().await.unwrap_or(0);
+    let daily_messages = ctx.room_service.messaging().get_daily_message_count().await.unwrap_or(0);
 
     // Update Prometheus metrics directly using the collector
-    if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_total_users") {
+    if let Some(gauge) = ctx.metrics.get_gauge("synapse_total_users") {
         gauge.set(total_users as f64);
     }
-    if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_total_rooms") {
+    if let Some(gauge) = ctx.metrics.get_gauge("synapse_total_rooms") {
         gauge.set(total_rooms as f64);
     }
-    if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_daily_active_users") {
+    if let Some(gauge) = ctx.metrics.get_gauge("synapse_daily_active_users") {
         gauge.set(daily_active_users as f64);
     }
-    if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_monthly_active_users") {
+    if let Some(gauge) = ctx.metrics.get_gauge("synapse_monthly_active_users") {
         gauge.set(monthly_active_users as f64);
     }
-    if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_total_messages") {
+    if let Some(gauge) = ctx.metrics.get_gauge("synapse_total_messages") {
         gauge.set(total_messages as f64);
     }
-    if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_active_rooms_7d") {
+    if let Some(gauge) = ctx.metrics.get_gauge("synapse_active_rooms_7d") {
         gauge.set(active_rooms as f64);
     }
 
@@ -220,8 +218,8 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
 }
 
 #[axum::debug_handler]
-pub async fn get_status(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let db_ok = state.services.admin.security.admin_server_service.is_database_healthy().await;
+pub async fn get_status(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
+    let db_ok = ctx.admin_server_service.is_database_healthy().await;
 
     Ok(Json(json!({
         "db_ok": db_ok,
@@ -233,18 +231,16 @@ pub async fn get_status(_admin: AdminUser, State(state): State<AppState>) -> Res
 #[axum::debug_handler]
 pub async fn whois(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = state
-        .services
-        .account
+    let user = ctx
         .account_identity_service
         .get_user_by_identifier(&user_id)
         .await?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
-    let devices = state.services.account.account_device_list_service.get_user_devices(&user.user_id).await?;
+    let devices = ctx.account_device_list_service.get_user_devices(&user.user_id).await?;
 
     let connections: Vec<Value> = devices
         .iter()
@@ -267,24 +263,16 @@ pub async fn whois(
 #[axum::debug_handler]
 pub async fn whois_device(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path((user_id, device_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = state
-        .services
-        .account
+    let user = ctx
         .account_identity_service
         .get_user_by_identifier(&user_id)
         .await?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
-    let device = state
-        .services
-        .account
-        .account_device_list_service
-        .get_device(&device_id)
-        .await?
-        .filter(|d| d.user_id == user.user_id);
+    let device = ctx.account_device_list_service.get_device(&device_id).await?.filter(|d| d.user_id == user.user_id);
 
     match device {
         Some(d) => Ok(Json(json!({
@@ -299,8 +287,8 @@ pub async fn whois_device(
 }
 
 #[axum::debug_handler]
-pub async fn get_health(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let db_ok = state.services.admin.security.admin_server_service.is_database_healthy().await;
+pub async fn get_health(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
+    let db_ok = ctx.admin_server_service.is_database_healthy().await;
 
     Ok(Json(json!({
         "status": if db_ok { "ok" } else { "error" },
@@ -309,19 +297,19 @@ pub async fn get_health(_admin: AdminUser, State(state): State<AppState>) -> Res
 }
 
 #[allow(clippy::unused_async)]
-pub async fn get_config(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+pub async fn get_config(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
-        "server_name": state.services.core.config.server.name,
-        "public_baseurl": state.services.core.config.server.public_baseurl,
-        "registration_enabled": state.services.core.config.server.enable_registration,
-        "max_upload_size": state.services.core.config.server.max_upload_size
+        "server_name": ctx.config.server.name,
+        "public_baseurl": ctx.config.server.public_baseurl,
+        "registration_enabled": ctx.config.server.enable_registration,
+        "max_upload_size": ctx.config.server.max_upload_size
     })))
 }
 
 #[axum::debug_handler]
 pub async fn get_experimental_features(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
 ) -> Result<Json<Value>, ApiError> {
     // Bridge the DB-backed FeatureFlagService to Synapse's experimental_features
     // surface. List all flags and expose their effective enabled state.
@@ -332,7 +320,7 @@ pub async fn get_experimental_features(
         cursor_updated_ts: None,
         cursor_flag_key: None,
     };
-    let (flags, total) = state.services.admin.modules.feature_flag_service.list_flags(filters).await?;
+    let (flags, total) = ctx.feature_flag_service.list_flags(filters).await?;
 
     let features: serde_json::Map<String, Value> = flags
         .iter()
@@ -350,7 +338,7 @@ pub async fn get_experimental_features(
 }
 
 #[allow(clippy::unused_async)]
-pub async fn get_jitsi_config(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+pub async fn get_jitsi_config(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     // Jitsi domain is not hardcoded to a third-party service.  Deployments
     // should configure their own Jitsi instance; null domain signals "not
     // configured" to clients.
@@ -360,18 +348,16 @@ pub async fn get_jitsi_config(_admin: AdminUser, State(state): State<AppState>) 
         "jwt_enabled": false,
         "jwt_asap_enabled": false,
         "jwt_auth_type": "none",
-        "server_name": state.services.core.server_name
+        "server_name": ctx.server_name
     })))
 }
 
 #[axum::debug_handler]
 pub async fn get_invite_blocklist_admin(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
 ) -> Result<Json<Value>, ApiError> {
-    let blocklist = state
-        .services
-        .account
+    let blocklist = ctx
         .invite_blocklist_storage
         .get_global_invite_blocklist()
         .await
@@ -385,11 +371,9 @@ pub async fn get_invite_blocklist_admin(
 #[axum::debug_handler]
 pub async fn get_invite_allowlist_admin(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
 ) -> Result<Json<Value>, ApiError> {
-    let allowlist = state
-        .services
-        .account
+    let allowlist = ctx
         .invite_blocklist_storage
         .get_global_invite_allowlist()
         .await

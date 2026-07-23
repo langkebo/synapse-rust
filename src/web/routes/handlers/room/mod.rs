@@ -55,7 +55,7 @@ pub(crate) async fn ensure_room_state_write_access(
 ) -> Result<(), ApiError> {
     ensure_room_member_ctx(ctx, auth_user, room_id, "You must be a member of this room to send state events").await?;
 
-    ctx.auth_service.verify_state_event_write(room_id, &auth_user.user_id, event_type).await?;
+    ctx.room_auth.verify_state_event_write(room_id, &auth_user.user_id, event_type).await?;
 
     Ok(())
 }
@@ -65,7 +65,7 @@ pub(crate) async fn get_room_event(
     room_id: &str,
     event_id: &str,
 ) -> Result<serde_json::Value, ApiError> {
-    ctx.room_service.messaging.get_event(room_id, event_id).await
+    ctx.room_service.messaging().get_event(room_id, event_id).await
 }
 
 #[derive(Debug, Deserialize)]

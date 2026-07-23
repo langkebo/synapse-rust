@@ -3,6 +3,7 @@ use synapse_storage::module::*;
 
 #[cfg(test)]
 mod common {
+    use synapse_common::current_timestamp_millis;
     pub use synapse_services::ServiceContainer;
 }
 
@@ -175,7 +176,7 @@ async fn test_account_validity_creation() {
 
     let request = CreateAccountValidityRequest {
         user_id: "@test_validity:localhost".to_string(),
-        expiration_ts: chrono::Utc::now().timestamp_millis() + 86_400_000,
+        expiration_ts: current_timestamp_millis() + 86_400_000,
         is_valid: Some(true),
     };
 
@@ -197,7 +198,7 @@ async fn test_is_account_valid() {
     let service = &container.account_validity_service;
 
     let user_id = "@test_is_valid:localhost";
-    let expiration_ts = chrono::Utc::now().timestamp_millis() + 86_400_000;
+    let expiration_ts = current_timestamp_millis() + 86_400_000;
 
     let request = CreateAccountValidityRequest { user_id: user_id.to_string(), expiration_ts, is_valid: Some(true) };
 

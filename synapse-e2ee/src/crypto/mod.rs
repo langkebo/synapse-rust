@@ -63,3 +63,60 @@ impl From<CryptoError> for ApiError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_crypto_error_partial_eq_same_variants() {
+        assert_eq!(CryptoError::InvalidBase64, CryptoError::InvalidBase64);
+        assert_eq!(CryptoError::InvalidKeyLength, CryptoError::InvalidKeyLength);
+        assert_eq!(CryptoError::SignatureVerificationFailed, CryptoError::SignatureVerificationFailed);
+        assert_eq!(CryptoError::NonceReuseDetected, CryptoError::NonceReuseDetected);
+        assert_eq!(CryptoError::NonceCounterOverflow, CryptoError::NonceCounterOverflow);
+        assert_eq!(CryptoError::InvalidNonceLength, CryptoError::InvalidNonceLength);
+    }
+
+    #[test]
+    fn test_crypto_error_partial_eq_string_variants() {
+        assert_eq!(CryptoError::EncryptionError("a".into()), CryptoError::EncryptionError("a".into()));
+        assert_ne!(CryptoError::EncryptionError("a".into()), CryptoError::EncryptionError("b".into()));
+        assert_eq!(CryptoError::DecryptionError("x".into()), CryptoError::DecryptionError("x".into()));
+        assert_ne!(CryptoError::DecryptionError("x".into()), CryptoError::DecryptionError("y".into()));
+        assert_eq!(CryptoError::HashError("h".into()), CryptoError::HashError("h".into()));
+        assert_ne!(CryptoError::HashError("h".into()), CryptoError::HashError("i".into()));
+    }
+
+    #[test]
+    fn test_crypto_error_partial_eq_different_variants() {
+        assert_ne!(CryptoError::InvalidBase64, CryptoError::InvalidKeyLength);
+        assert_ne!(CryptoError::EncryptionError("a".into()), CryptoError::DecryptionError("a".into()));
+        assert_ne!(CryptoError::NonceReuseDetected, CryptoError::InvalidNonceLength);
+    }
+
+    #[test]
+    fn test_crypto_error_to_api_error_encryption() {
+        let api_err: ApiError = CryptoError::EncryptionError("enc failure".into()).into();
+        assert!(!api_err.to_string().is_empty());
+    }
+
+    #[test]
+    fn test_crypto_error_to_api_error_decryption() {
+        let api_err: ApiError = CryptoError::DecryptionError("dec failure".into()).into();
+        assert!(!api_err.to_string().is_empty());
+    }
+
+    #[test]
+    fn test_crypto_error_to_api_error_other_variants() {
+        // The catch-all `_` arm covers all non-encryption/decryption variants.
+        let api_err: ApiError = CryptoError::InvalidBase64.into();
+        assert!(!api_err.to_string().is_empty());
+
+        let api_err: ApiError = CryptoError::NonceReuseDetected.into();
+        assert!(!api_err.to_string().is_empty());
+
+        let api_err: ApiError = CryptoError::HashError("h".into()).into();
+        assert!(!api_err.to_string().is_empty());
+    }
+}

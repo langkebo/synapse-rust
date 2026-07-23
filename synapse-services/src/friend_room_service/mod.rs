@@ -8,10 +8,11 @@ pub use models::{
     EnsureDirectRoomResult, FriendListCursor, FriendListEntry, FriendListPage, FriendListRequest,
     FriendRoomCreateRoomConfig, FriendRoomService,
 };
+use synapse_common::current_timestamp_millis;
 
-use crate::RoomService;
 use serde_json::{json, Map, Value};
 
+use crate::UserService;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,8 +30,9 @@ impl FriendRoomService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
-        room_service: Arc<RoomService>,
+        room_service: Arc<dyn crate::room::RoomServiceApi>,
         user_storage: Arc<dyn UserStore>,
+        user_service: Arc<UserService>,
         presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
         account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
         cache: Arc<CacheManager>,
@@ -42,6 +44,7 @@ impl FriendRoomService {
             friend_storage,
             room_service,
             user_storage,
+            user_service,
             presence_storage,
             account_data_storage,
             cache,
@@ -53,8 +56,9 @@ impl FriendRoomService {
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_dependencies(
         friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
-        room_service: Arc<RoomService>,
+        room_service: Arc<dyn crate::room::RoomServiceApi>,
         user_storage: Arc<dyn UserStore>,
+        user_service: Arc<UserService>,
         presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
         account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
         cache: Arc<CacheManager>,
@@ -65,6 +69,7 @@ impl FriendRoomService {
             friend_storage,
             room_service,
             user_storage,
+            user_service,
             presence_storage,
             account_data_storage,
             cache,
@@ -103,7 +108,7 @@ impl FriendRoomService {
             ..Default::default()
         };
 
-        let response = self.room_service.lifecycle.create_room(user_id, config.into()).await?;
+        let response = self.room_service.lifecycle().create_room(user_id, config.into()).await?;
         let room_id = response
             .get("room_id")
             .and_then(|v| v.as_str())
@@ -227,7 +232,7 @@ impl FriendRoomService {
                     "requester": sender_id,
                     "target": receiver_id,
                     "message": message,
-                    "timestamp": chrono::Utc::now().timestamp_millis(),
+                    "timestamp": current_timestamp_millis(),
                     "msgtype": "m.friend_request"
                 });
 
@@ -289,7 +294,7 @@ impl FriendRoomService {
                 let accept_content = json!({
                     "requester": requester_id,
                     "accepter": user_id,
-                    "timestamp": chrono::Utc::now().timestamp_millis(),
+                    "timestamp": current_timestamp_millis(),
                     "msgtype": "m.friend_request.accepted"
                 });
 
@@ -431,7 +436,7 @@ impl FriendRoomService {
             let invite_content = json!({
                 "requester": user_id,
                 "target": friend_id,
-                "timestamp": chrono::Utc::now().timestamp_millis(),
+                "timestamp": current_timestamp_millis(),
                 "msgtype": "m.friend_request"
             });
 
@@ -531,6 +536,10 @@ impl FriendRoomService {
             .upsert_account_data(user_id, "m.direct", Value::Object(direct_map.clone()))
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to save m.direct account data", &e))?;
+
+        // Invalidate the account-data cache for this user so the next /sync
+        // will re-read the fresh m.direct data (OPT-015-b, audit 04 §5).
+        let _ = self.cache.delete(&format!("account_data:{user_id}")).await;
 
         Ok(())
     }
@@ -732,7 +741,7 @@ impl FriendRoomService {
 
         let result = self
             .room_service
-            .lifecycle
+            .lifecycle()
             .create_room(owner_user_id, config.into())
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?;
@@ -769,7 +778,7 @@ impl FriendRoomService {
 
         let response = self
             .room_service
-            .lifecycle
+            .lifecycle()
             .create_room(owner_user_id, config.into())
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?;
@@ -865,7 +874,7 @@ impl FriendRoomService {
             next_batch,
             version,
             cached: false,
-            generated_ts: chrono::Utc::now().timestamp_millis(),
+            generated_ts: current_timestamp_millis(),
         };
 
         if let Err(e) = self.cache.set(&cache_key, page.clone(), FRIEND_LIST_CACHE_TTL_SECS).await {
@@ -900,7 +909,7 @@ impl FriendRoomService {
             return Ok(0);
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut updated_lists = 0usize;
 
         for link in links {
@@ -982,9 +991,9 @@ impl FriendRoomService {
         state_key: &str,
         content: serde_json::Value,
     ) -> ApiResult<()> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         self.room_service
-            .messaging
+            .messaging()
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -1043,11 +1052,11 @@ impl FriendRoomService {
                     "user_id": friend_id,
                     "since": chrono::Utc::now().timestamp(),
                     "status": "normal",
-                    "added_at": chrono::Utc::now().timestamp_millis(),
+                    "added_at": current_timestamp_millis(),
                     "dm_room_id": dm_room_id,
                     "dm_room_active": dm_room_id.is_some(),
                     "dm_room_state": if dm_room_id.is_some() { "active" } else { "none" },
-                    "dm_room_updated_ts": chrono::Utc::now().timestamp_millis()
+                    "dm_room_updated_ts": current_timestamp_millis()
                 }));
             }
         } else if action == "remove" {
@@ -1087,7 +1096,7 @@ impl FriendRoomService {
             .map_err(|e| ApiError::database_with_log("Database error", &e))?
             .unwrap_or_else(|| json!({ "friends": [], "version": 1 }));
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let mut touched = false;
 
         if let Some(friends) = content.get_mut("friends").and_then(|value| value.as_array_mut()) {
@@ -1340,7 +1349,7 @@ mod tests {
     async fn register_test_user(container: &ServiceContainer, username: &str, display_name: &str) -> String {
         let (user, _, _, _) = container
             .core
-            .auth_service
+            .credential_auth
             .register(username, "Test@123", false, Some(display_name))
             .await
             .expect("register test user");

@@ -112,7 +112,7 @@ WHERE updated_ts IS NULL;
 CREATE INDEX IF NOT EXISTS idx_report_rate_limits_user
 ON report_rate_limits(user_id);
 
-INSERT INTO schema_migrations (version, name, success, description, applied_ts)
+INSERT INTO schema_migrations (version, name, is_success, description, applied_ts)
 VALUES (
     '20260413000001',
     'align_report_rate_limits_schema_contract',

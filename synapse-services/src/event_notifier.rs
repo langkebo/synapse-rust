@@ -1,11 +1,10 @@
 use crate::event_broadcaster_trait::{BroadcastError, EventBroadcaster};
 use dashmap::DashMap;
 use deadpool_redis::Pool;
-use redis::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Notify;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 const EVENT_NOTIFY_CHANNEL: &str = "synapse:events:notify";
 
@@ -136,37 +135,6 @@ impl EventNotifier {
         self.publish_redis(EventNotifyKind::User, user_id);
     }
 
-    /// Start a background task that subscribes to the Redis event notification
-    /// channel and forwards remote notifications to local notifiers.
-    pub fn start_redis_subscriber(&self) {
-        let Some(redis_url) = self.redis_url.clone() else {
-            return;
-        };
-
-        let room_notifiers = self.room_notifiers.clone();
-        let user_notifiers = self.user_notifiers.clone();
-        let instance_id = self.instance_id.clone();
-
-        info!(channel = %EVENT_NOTIFY_CHANNEL, instance_id = %instance_id, "Starting event notifier Redis subscriber");
-
-        tokio::spawn(async move {
-            loop {
-                if let Err(e) =
-                    Self::subscribe_and_listen(&redis_url, &room_notifiers, &user_notifiers, &instance_id).await
-                {
-                    warn!(
-                        error = %e,
-                        channel = %EVENT_NOTIFY_CHANNEL,
-                        instance_id = %instance_id,
-                        retry_delay_secs = 1_u64,
-                        "Event notifier Redis subscriber error, reconnecting"
-                    );
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                }
-            }
-        });
-    }
-
     fn get_or_create_room_notify(&self, room_id: &str) -> Arc<Notify> {
         self.room_notifiers.entry(room_id.to_string()).or_insert_with(|| Arc::new(Notify::new())).value().clone()
     }
@@ -212,50 +180,6 @@ impl EventNotifier {
                 }
             }
         });
-    }
-
-    async fn subscribe_and_listen(
-        redis_url: &str,
-        room_notifiers: &Arc<DashMap<String, Arc<Notify>>>,
-        user_notifiers: &Arc<DashMap<String, Arc<Notify>>>,
-        instance_id: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use futures::StreamExt;
-
-        let client = Client::open(redis_url)?;
-        let mut pubsub = client.get_async_pubsub().await?;
-
-        pubsub.subscribe(EVENT_NOTIFY_CHANNEL).await?;
-        let mut message_stream = pubsub.on_message();
-
-        while let Some(msg) = message_stream.next().await {
-            let payload: Vec<u8> = msg.get_payload()?;
-            match serde_json::from_slice::<EventNotifyMessage>(&payload) {
-                Ok(notify_msg) => {
-                    if notify_msg.sender_instance == instance_id {
-                        continue;
-                    }
-
-                    match notify_msg.kind {
-                        EventNotifyKind::Room => {
-                            if let Some(notify) = room_notifiers.get(&notify_msg.key) {
-                                notify.notify_waiters();
-                            }
-                        }
-                        EventNotifyKind::User => {
-                            if let Some(notify) = user_notifiers.get(&notify_msg.key) {
-                                notify.notify_waiters();
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    debug!(error = %e, "Failed to decode event notify message");
-                }
-            }
-        }
-
-        Ok(())
     }
 }
 

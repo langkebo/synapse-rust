@@ -3,6 +3,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 use tower::ServiceExt;
 
 /// 测试房间管理完整生命周期：创建 → 查询 → 删除 → 验证删除
@@ -223,7 +224,7 @@ async fn test_admin_room_history_purge() {
         .body(Body::from(
             json!({
                 "delete_local_events": true,
-                "purge_up_to_ts": (chrono::Utc::now().timestamp_millis() - 1000) // 1秒前
+                "purge_up_to_ts": (current_timestamp_millis() - 1000) // 1秒前
             })
             .to_string(),
         ))
@@ -259,7 +260,7 @@ async fn test_admin_purge_history_requires_existing_room() {
         .body(Body::from(
             json!({
                 "delete_local_events": true,
-                "purge_up_to_ts": chrono::Utc::now().timestamp_millis()
+                "purge_up_to_ts": current_timestamp_millis()
             })
             .to_string(),
         ))

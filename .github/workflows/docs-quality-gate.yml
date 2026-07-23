@@ -22,40 +22,47 @@ jobs:
       - name: Install markdownlint
         run: npm i -g markdownlint-cli
 
-      - name: markdownlint - DB Reports
-        run: markdownlint -c .markdownlint.json docs/db/DIAGNOSIS_REPORT.md
-
-      - name: markdownlint - Top-level Implementation Docs
+      - name: Discover active markdown files
+        id: docs
         run: |
-          markdownlint -c .markdownlint.json \
-            OPTIMIZATION.md \
-            docs/OPTIMIZATION_PLAN.md \
-            docs/API-TEST-OPTIMIZATION-PLAN.md \
-            docs/db/MIGRATION_GOVERNANCE.md \
-            docs/CHANGELOG-DB.md \
-            docs/ROLLBACK_RUNBOOK.md
+          # Collect root-level *.md and docs/*.md excluding all archive/ directories
+          files=$(find . -maxdepth 1 -name "*.md" -type f | sort)
+          docs_files=$(find docs -name "*.md" -type f -not -path "*/archive/*" 2>/dev/null | sort)
+          all_files="$files"$'\n'"$docs_files"
+          # Filter out empty lines and format as space-separated for shell steps
+          active=$(echo "$all_files" | grep -v '^$' | tr '\n' ' ')
+          echo "files=$active" >> "$GITHUB_OUTPUT"
+          echo "Active docs: $active"
+
+      - name: markdownlint - Active Docs
+        run: |
+          files="${{ steps.docs.outputs.files }}"
+          if [ -z "$(echo "$files" | tr -d ' ')" ]; then
+            echo "No markdown files to lint"
+            exit 0
+          fi
+          markdownlint -c .markdownlint.json $files
 
       - name: Install aspell
         run: |
           sudo apt-get update
           sudo apt-get install -y aspell aspell-en
 
-      - name: aspell - DB Reports
+      - name: aspell - Active Docs
         run: |
-          bash scripts/check_doc_spelling.sh docs/db/DIAGNOSIS_REPORT.md
+          files="${{ steps.docs.outputs.files }}"
+          if [ -z "$(echo "$files" | tr -d ' ')" ]; then
+            echo "No markdown files to spell-check"
+            exit 0
+          fi
+          for f in $files; do
+            echo "--- Checking $f ---"
+            bash scripts/check_doc_spelling.sh "$f" || {
+              echo "::warning::Spelling issues in $f"
+            }
+          done
 
-      - name: lychee - DB Reports
+      - name: lychee - Active Docs
         uses: lycheeverse/lychee-action@v1.10.0
         with:
-          args: --base . --exclude-loopback docs/db/DIAGNOSIS_REPORT.md
-
-      - name: lychee - Top-level Implementation Docs
-        uses: lycheeverse/lychee-action@v1.10.0
-        with:
-          args: --base . --exclude-loopback \
-            OPTIMIZATION.md \
-            docs/OPTIMIZATION_PLAN.md \
-            docs/API-TEST-OPTIMIZATION-PLAN.md \
-            docs/db/MIGRATION_GOVERNANCE.md \
-            docs/CHANGELOG-DB.md \
-            docs/ROLLBACK_RUNBOOK.md
+          args: --base . --exclude-loopback ${{ steps.docs.outputs.files }}

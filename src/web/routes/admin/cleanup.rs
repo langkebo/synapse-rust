@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::web::routes::context::AdminContext;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{extract::State, routing::post, Json, Router};
 use serde_json::{json, Value};
@@ -27,7 +28,7 @@ pub fn admin_cleanup_route_manifest() -> Vec<crate::web::routes::route_ledger::R
 #[axum::debug_handler]
 pub async fn cleanup_all(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let min_age_ms = body.get("min_age_ms").and_then(|v| v.as_i64());
@@ -35,46 +36,33 @@ pub async fn cleanup_all(
     let mut results = serde_json::Map::new();
 
     // 1. Cleanup rooms and orphans
-    let room_results = state
-        .services
-        .rooms
-        .room_storage
-        .cleanup_abnormal_data(min_age_ms)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Room cleanup failed", &e))?;
+    let room_results = ctx.room_service.state().cleanup_abnormal_data(min_age_ms).await?;
     results.insert("rooms".to_string(), room_results);
 
     // 2. Cleanup tokens
     let mut token_results = serde_json::Map::new();
 
-    let access_tokens = state
-        .services
-        .account
+    let access_tokens = ctx
         .token_storage
         .cleanup_expired_tokens()
         .await
         .map_err(|e| ApiError::internal_with_log("Access token cleanup failed", &e))?;
     token_results.insert("access_tokens_deleted".to_string(), json!(access_tokens));
 
-    let refresh_tokens = state.services.admin.user.refresh_token_service.cleanup_expired_tokens().await?;
+    let refresh_tokens = ctx.refresh_token_service.cleanup_expired_tokens().await?;
     token_results.insert("refresh_tokens_deleted".to_string(), json!(refresh_tokens));
 
-    let reg_tokens = state.services.admin.user.registration_token_service.cleanup_expired_tokens().await?;
+    let reg_tokens = ctx.registration_token_service.cleanup_expired_tokens().await?;
     token_results.insert("registration_tokens_deleted".to_string(), json!(reg_tokens));
 
-    let qr_txns = state
-        .services
-        .account
+    let qr_txns = ctx
         .qr_login_storage
         .cleanup_expired()
         .await
         .map_err(|e| ApiError::internal_with_log("QR login cleanup failed", &e))?;
     token_results.insert("qr_transactions_deleted".to_string(), json!(qr_txns));
 
-    let email_tokens = state
-        .services
-        .admin
-        .user
+    let email_tokens = ctx
         .email_verification_storage
         .cleanup_expired_tokens()
         .await
@@ -89,34 +77,26 @@ pub async fn cleanup_all(
 #[axum::debug_handler]
 pub async fn cleanup_rooms(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let min_age_ms = body.get("min_age_ms").and_then(|v| v.as_i64());
-    let results = state
-        .services
-        .rooms
-        .room_storage
-        .cleanup_abnormal_data(min_age_ms)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Room cleanup failed", &e))?;
+    let results = ctx.room_service.state().cleanup_abnormal_data(min_age_ms).await?;
     Ok(Json(results))
 }
 
 #[axum::debug_handler]
-pub async fn cleanup_tokens(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+pub async fn cleanup_tokens(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     let mut token_results = serde_json::Map::new();
 
-    let access_tokens = state
-        .services
-        .account
+    let access_tokens = ctx
         .token_storage
         .cleanup_expired_tokens()
         .await
         .map_err(|e| ApiError::internal_with_log("Access token cleanup failed", &e))?;
     token_results.insert("access_tokens_deleted".to_string(), json!(access_tokens));
 
-    let refresh_tokens = state.services.admin.user.refresh_token_service.cleanup_expired_tokens().await?;
+    let refresh_tokens = ctx.refresh_token_service.cleanup_expired_tokens().await?;
     token_results.insert("refresh_tokens_deleted".to_string(), json!(refresh_tokens));
 
     Ok(Json(Value::Object(token_results)))

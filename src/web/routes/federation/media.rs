@@ -1,13 +1,13 @@
 use crate::common::*;
-use crate::web::routes::AppState;
+use crate::web::routes::context::FederationContext;
 use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
 };
 use serde_json::Value;
 
-fn validate_federation_media_server_name(state: &AppState, server_name: &str) -> Result<(), ApiError> {
-    if server_name != state.services.core.server_name {
+fn validate_federation_media_server_name(ctx: &FederationContext, server_name: &str) -> Result<(), ApiError> {
+    if server_name != ctx.server_name {
         return Err(ApiError::not_found("Media is not hosted on this server".to_string()));
     }
 
@@ -28,16 +28,16 @@ fn parse_federation_query_i64(params: &Value, key: &str, default: i64) -> Result
 }
 
 pub(super) async fn media_download(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    validate_federation_media_server_name(&state, &server_name)?;
+    validate_federation_media_server_name(&ctx, &server_name)?;
 
     if media_id.is_empty() {
         return Err(ApiError::bad_request("Missing media_id"));
     }
 
-    let content = state.services.core.media_service.download_media(&server_name, &media_id).await?;
+    let content = ctx.media_service.download_media(&server_name, &media_id).await?;
     let content_type = federation_guess_content_type(&media_id, &content).to_string();
     let headers = federation_media_response_headers(content_type, content.len());
 
@@ -45,11 +45,11 @@ pub(super) async fn media_download(
 }
 
 pub(super) async fn media_thumbnail(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
-    validate_federation_media_server_name(&state, &server_name)?;
+    validate_federation_media_server_name(&ctx, &server_name)?;
 
     let width = parse_federation_query_i64(&params, "width", 100)?;
     let height = parse_federation_query_i64(&params, "height", 100)?;
@@ -66,12 +66,7 @@ pub(super) async fn media_thumbnail(
         )));
     }
 
-    let content = state
-        .services
-        .core
-        .media_service
-        .get_thumbnail(&server_name, &media_id, width as u32, height as u32, method)
-        .await?;
+    let content = ctx.media_service.get_thumbnail(&server_name, &media_id, width as u32, height as u32, method).await?;
     let content_type = federation_guess_content_type(&media_id, &content).to_string();
     let headers = federation_media_response_headers(content_type, content.len());
 

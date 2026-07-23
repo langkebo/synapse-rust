@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use synapse_cache::{FederationSignatureCache, KeyRotationEvent};
+use synapse_common::current_timestamp_millis;
 use synapse_common::key_encryption::{decrypt_key, encrypt_key, is_encrypted};
 use synapse_common::ApiError;
 use tokio::sync::RwLock;
@@ -37,7 +38,7 @@ impl Default for FederationRotationConfig {
 }
 
 fn new_key_id() -> String {
-    let ts = Utc::now().timestamp_millis();
+    let ts = current_timestamp_millis();
     let rand: u32 = rand::random();
     format!("ed25519:{ts:x}_{rand:08x}")
 }
@@ -93,6 +94,7 @@ pub struct KeyRotationManager {
     signing_keys_table_ready: Arc<AtomicBool>,
     signing_key_path: Option<String>,
     master_key: Option<Vec<u8>>,
+    allow_plaintext_signing_keys: bool,
     rotation_config: Arc<RwLock<FederationRotationConfig>>,
     signature_cache: Arc<ParkingLotRwLock<Option<Arc<FederationSignatureCache>>>>,
 }
@@ -128,8 +130,41 @@ impl KeyRotationManager {
             signing_keys_table_ready: Arc::new(AtomicBool::new(false)),
             signing_key_path,
             master_key,
+            allow_plaintext_signing_keys: false,
             rotation_config: Arc::new(RwLock::new(FederationRotationConfig::default())),
             signature_cache: Arc::new(ParkingLotRwLock::new(None)),
+        }
+    }
+
+    /// Opt in to persisting federation signing keys in plaintext when no master
+    /// key is configured. Defaults to `false` (secure): without a master key or
+    /// this opt-in, key persistence is refused.
+    pub fn with_allow_plaintext_signing_keys(mut self, allow: bool) -> Self {
+        self.allow_plaintext_signing_keys = allow;
+        self
+    }
+
+    /// Resolve how a signing secret key is stored at rest.
+    /// - master key present -> encrypt.
+    /// - no master key + explicit opt-in -> plaintext (with a warning).
+    /// - no master key + no opt-in -> refuse (security: no plaintext federation signing key at rest).
+    fn resolve_stored_secret_key(
+        master_key: &Option<Vec<u8>>,
+        allow_plaintext: bool,
+        secret_key: &str,
+    ) -> Result<String, ApiError> {
+        match master_key {
+            Some(mk) => encrypt_key(secret_key, mk)
+                .map_err(|e| ApiError::internal(format!("Failed to encrypt signing key: {e}"))),
+            None if allow_plaintext => {
+                tracing::warn!(
+                    "Storing federation signing key in plaintext (explicitly allowed) - configure signing_key_master_key for encryption at rest"
+                );
+                Ok(secret_key.to_string())
+            }
+            None => Err(ApiError::internal(
+                "Refusing to persist federation signing key without a master key. Set federation.signing_key_master_key to encrypt at rest, or explicitly allow plaintext.".to_string(),
+            )),
         }
     }
 
@@ -138,19 +173,18 @@ impl KeyRotationManager {
             return Ok(());
         }
 
-        let table_exists: bool = sqlx::query_scalar!(
+        let table_exists: bool = sqlx::query_scalar::<_, bool>(
             r"
             SELECT EXISTS (
                 SELECT 1
                 FROM information_schema.tables
-                WHERE table_schema = 'public'
+                WHERE table_schema = current_schema()
                   AND table_name = 'federation_signing_keys'
             )
             ",
         )
         .fetch_one(&*self.pool)
-        .await?
-        .unwrap_or(false);
+        .await?;
 
         if !table_exists {
             sqlx::query(
@@ -173,19 +207,18 @@ impl KeyRotationManager {
             .await?;
         }
 
-        let server_created_index_exists: bool = sqlx::query_scalar!(
+        let server_created_index_exists: bool = sqlx::query_scalar::<_, bool>(
             r"
             SELECT EXISTS (
                 SELECT 1
                 FROM pg_indexes
-                WHERE schemaname = 'public'
+                WHERE schemaname = current_schema()
                   AND indexname = 'idx_federation_signing_keys_server_created'
             )
             ",
         )
         .fetch_one(&*self.pool)
-        .await?
-        .unwrap_or(false);
+        .await?;
 
         if !server_created_index_exists {
             sqlx::query(
@@ -198,19 +231,18 @@ impl KeyRotationManager {
             .await?;
         }
 
-        let key_id_index_exists: bool = sqlx::query_scalar!(
+        let key_id_index_exists: bool = sqlx::query_scalar::<_, bool>(
             r"
             SELECT EXISTS (
                 SELECT 1
                 FROM pg_indexes
-                WHERE schemaname = 'public'
+                WHERE schemaname = current_schema()
                   AND indexname = 'idx_federation_signing_keys_key_id'
             )
             ",
         )
         .fetch_one(&*self.pool)
-        .await?
-        .unwrap_or(false);
+        .await?;
 
         if !key_id_index_exists {
             sqlx::query(
@@ -356,7 +388,7 @@ impl KeyRotationManager {
             LIMIT 1
             "#,
             &self.server_name,
-            Utc::now().timestamp_millis()
+            current_timestamp_millis()
         )
         .fetch_optional(&*self.pool)
         .await;
@@ -426,7 +458,7 @@ impl KeyRotationManager {
     pub async fn initialize(&self, secret_key: &str, key_id: &str) -> Result<(), ApiError> {
         self.ensure_signing_keys_table().await?;
 
-        let created_ts = Utc::now().timestamp_millis();
+        let created_ts = current_timestamp_millis();
         let interval_days = self.rotation_config.read().await.rotation_interval_days;
         let expires_at = (Utc::now() + Duration::days(interval_days)).timestamp_millis();
 
@@ -448,16 +480,8 @@ impl KeyRotationManager {
 
         *self.current_key.write().await = Some(signing_key.clone());
 
-        let stored_secret_key = match &self.master_key {
-            Some(mk) => encrypt_key(secret_key, mk)
-                .map_err(|e| ApiError::internal(format!("Failed to encrypt signing key: {e}")))?,
-            None => {
-                tracing::warn!(
-                    "Storing federation signing key in plaintext - configure signing_key_master_key for encryption"
-                );
-                secret_key.to_string()
-            }
-        };
+        let stored_secret_key =
+            Self::resolve_stored_secret_key(&self.master_key, self.allow_plaintext_signing_keys, secret_key)?;
 
         let key_json = json!({
             "public_key": signing_key.public_key
@@ -498,7 +522,7 @@ impl KeyRotationManager {
 
     pub async fn should_rotate_keys(&self) -> bool {
         if let Some(key) = &*self.current_key.read().await {
-            let now = Utc::now().timestamp_millis();
+            let now = current_timestamp_millis();
             let threshold_days = self.rotation_config.read().await.rotation_threshold_days;
             let rotation_threshold = Duration::days(threshold_days).num_milliseconds();
             key.expires_at.saturating_sub(now) <= rotation_threshold
@@ -596,7 +620,7 @@ impl KeyRotationManager {
     }
 
     async fn is_within_grace_period(&self, key: &SigningKey) -> bool {
-        let now = Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let grace_minutes = self.rotation_config.read().await.grace_period_minutes;
         let grace_end = key.expires_at + Duration::minutes(grace_minutes).num_milliseconds();
         now <= grace_end
@@ -646,7 +670,7 @@ impl KeyRotationManager {
         match key_record {
             Some(record) => {
                 let expires_at = record.expires_at;
-                let now = Utc::now().timestamp_millis();
+                let now = current_timestamp_millis();
 
                 if expires_at > 0 {
                     let grace_minutes = self.rotation_config.read().await.grace_period_minutes;
@@ -750,7 +774,7 @@ impl KeyRotationManager {
         key_id: &str,
         reason: Option<&str>,
     ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         let key_json_update = if let Some(r) = reason {
             serde_json::json!({
@@ -866,6 +890,22 @@ mod tests {
         let secret_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing_key.as_bytes());
         let public_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(verifying_key.as_bytes());
         (secret_b64, public_b64)
+    }
+
+    #[test]
+    fn refuses_plaintext_persistence_without_master_key() {
+        // No master key, no opt-in -> refuse.
+        let err = KeyRotationManager::resolve_stored_secret_key(&None, false, "deadbeef").unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("master key"), "err was: {err}");
+
+        // Explicit opt-in -> plaintext allowed (returns the key verbatim).
+        let ok = KeyRotationManager::resolve_stored_secret_key(&None, true, "deadbeef").unwrap();
+        assert_eq!(ok, "deadbeef");
+
+        // With a master key -> encrypted (not equal to the plaintext input).
+        let mk = vec![0u8; 32];
+        let enc = KeyRotationManager::resolve_stored_secret_key(&Some(mk), false, "deadbeef").unwrap();
+        assert_ne!(enc, "deadbeef");
     }
 
     #[test]

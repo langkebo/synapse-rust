@@ -1,13 +1,15 @@
 mod account;
+pub mod credential_auth;
 mod login;
 pub mod password_policy;
 mod power_levels;
 mod register;
+pub mod room_auth;
 mod session;
 #[cfg(test)]
 mod tests;
 mod token;
-pub mod r#trait;
+pub mod token_auth;
 
 use rand::RngCore;
 use std::sync::Arc;
@@ -18,10 +20,14 @@ use synapse_common::validation::Validator;
 use synapse_common::{ApiError, ApiResult};
 use synapse_storage::*;
 
-pub use r#trait::Auth;
+pub use credential_auth::CredentialAuth;
+pub use room_auth::RoomAuth;
+pub use token_auth::TokenAuth;
 
 pub use password_policy::{PasswordPolicy, PasswordPolicyService, PasswordValidationResult};
 pub use synapse_common::claims::{Claims, ClaimsBuilder};
+
+use crate::UserService;
 
 const TOKEN_CACHE_TTL_SECS: u64 = 300; // 5 min - must be short to respect revocation
 const USER_ACTIVE_CACHE_TTL_SECS: u64 = 60;
@@ -31,12 +37,13 @@ const DEFAULT_POWER_LEVEL: i64 = 50;
 #[derive(Clone)]
 pub struct AuthService {
     pub user_storage: Arc<dyn UserStore>,
-    pub device_storage: Arc<synapse_storage::device::DeviceStorage>,
+    pub user_service: Arc<UserService>,
+    pub device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
     pub token_storage: AccessTokenStorage,
-    pub refresh_token_storage: Arc<synapse_storage::refresh_token::RefreshTokenStorage>,
+    pub refresh_token_storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi>,
     pub room_storage: RoomStorage,
-    pub member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
-    pub event_storage: Arc<synapse_storage::event::EventStorage>,
+    pub member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
+    pub event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub cache: Arc<CacheManager>,
     pub metrics: Arc<MetricsCollector>,
     pub validator: Arc<Validator>,
@@ -72,14 +79,16 @@ impl AuthService {
         access_token_lifetime: i64,
     ) -> Self {
         let server_name_for_storage = server_name.to_string();
+        let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
         Self {
-            user_storage: Arc::new(UserStorage::new(pool, cache.clone())),
+            user_service: Arc::new(UserService::new(user_storage.clone())),
+            user_storage,
             device_storage: Arc::new(DeviceStorage::new(pool)),
             token_storage: AccessTokenStorage::new(pool),
             refresh_token_storage: Arc::new(synapse_storage::refresh_token::RefreshTokenStorage::new(pool)),
             room_storage: RoomStorage::new(pool),
             member_storage: Arc::new(RoomMemberStorage::new(pool, &server_name_for_storage)),
-            event_storage: Arc::new(EventStorage::new(pool, server_name_for_storage.clone())),
+            event_reader: Arc::new(EventStorage::new(pool, server_name_for_storage.clone())),
             cache,
             metrics,
             validator: Arc::new(Validator::default()),
@@ -108,16 +117,127 @@ fn auth_generate_token(length: usize) -> String {
     token
 }
 
-// ── Auth trait delegation impl ────────────────────────────────────────
+// ── Guest account inherent methods ──────────────────────────────────
+// Extracted as inherent methods so both Auth and CredentialAuth trait
+// impls can delegate without ambiguity.
+
+impl AuthService {
+    async fn register_guest_account(&self) -> ApiResult<(User, String, String)> {
+        let guest_num = rand::random::<u64>();
+        let username = format!("guest_{guest_num}");
+        let user_id = format!("@{}:{}", username, self.server_name);
+        let device_id = format!("guest_device_{guest_num}");
+
+        let user = self.user_storage.create_user(&user_id, &username, None, false).await.map_err(|e| {
+            if e.to_string().contains("duplicate key") || e.to_string().contains("unique constraint") {
+                ApiError::user_in_use("Username already exists".to_string())
+            } else {
+                ApiError::internal_with_log("Failed to create guest user", &e)
+            }
+        })?;
+
+        self.user_storage
+            .set_guest_status(&user.user_id, true)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to mark guest user", &e))?;
+
+        self.device_storage
+            .create_device(&device_id, &user.user_id, Some("Guest Device"))
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
+
+        let access_token = self
+            .generate_access_token(&user.user_id, &device_id, false)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to generate guest token", &e))?;
+
+        Ok((user, device_id, access_token))
+    }
+
+    async fn require_guest_user(&self, user_id: &str) -> ApiResult<User> {
+        let user = self.user_service.get_user_or_not_found(user_id).await?;
+
+        if !user.is_guest {
+            return Err(ApiError::forbidden("User is not a guest".to_string()));
+        }
+
+        Ok(user)
+    }
+
+    async fn upgrade_guest_account(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        username: &str,
+        password: &str,
+    ) -> ApiResult<String> {
+        self.validator.validate_username(username)?;
+        self.validator.validate_password(password)?;
+
+        let guest_user = self.require_guest_user(user_id).await?;
+        let existing = self.user_service.get_user_by_username(username).await?;
+
+        if existing.as_ref().is_some_and(|user| user.user_id != user_id) {
+            return Err(ApiError::conflict("Username already exists".to_string()));
+        }
+
+        let password_hash = self.hash_password_for_storage(password).await?;
+        self.user_storage
+            .upgrade_guest_account(&guest_user.user_id, username, &password_hash)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to upgrade account", &e))?;
+
+        self.generate_access_token(&guest_user.user_id, device_id.unwrap_or(""), false)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to generate token", &e))
+    }
+}
+
+// ── TokenAuth trait delegation ────────────────────────────────────────
 
 #[async_trait::async_trait]
-impl Auth for AuthService {
-    // ── Token / session ──────────────────────────────────────────────
-
+impl crate::auth::TokenAuth for AuthService {
     async fn validate_token(&self, token: &str) -> ApiResult<(String, Option<String>, bool, bool, bool)> {
         self.validate_token(token).await
     }
 
+    async fn generate_access_token(&self, user_id: &str, device_id: &str, admin: bool) -> ApiResult<String> {
+        self.generate_access_token(user_id, device_id, admin).await
+    }
+
+    async fn generate_refresh_token(&self, user_id: &str, device_id: &str) -> ApiResult<String> {
+        self.generate_refresh_token(user_id, device_id).await
+    }
+
+    async fn refresh_token(&self, refresh_token: &str) -> ApiResult<(String, String, String)> {
+        self.refresh_token(refresh_token).await
+    }
+
+    async fn logout(&self, access_token: &str, device_id: Option<&str>) -> ApiResult<()> {
+        self.logout(access_token, device_id).await
+    }
+
+    async fn logout_all(&self, user_id: &str) -> ApiResult<()> {
+        self.logout_all(user_id).await
+    }
+
+    async fn revoke_device(&self, user_id: &str, device_id: &str) -> ApiResult<u64> {
+        self.revoke_device(user_id, device_id).await
+    }
+
+    async fn revoke_devices(&self, user_id: &str, device_ids: &[String]) -> ApiResult<u64> {
+        self.revoke_devices(user_id, device_ids).await
+    }
+
+    fn token_expiry(&self) -> i64 {
+        self.token_expiry
+    }
+}
+
+// ── CredentialAuth trait delegation ───────────────────────────────────
+
+#[async_trait::async_trait]
+impl crate::auth::CredentialAuth for AuthService {
     async fn login(
         &self,
         username: &str,
@@ -149,28 +269,6 @@ impl Auth for AuthService {
         self.register_with_device_name(username, password, admin, displayname, initial_device_display_name).await
     }
 
-    async fn generate_access_token(&self, user_id: &str, device_id: &str, admin: bool) -> ApiResult<String> {
-        self.generate_access_token(user_id, device_id, admin).await
-    }
-
-    async fn generate_refresh_token(&self, user_id: &str, device_id: &str) -> ApiResult<String> {
-        self.generate_refresh_token(user_id, device_id).await
-    }
-
-    async fn logout(&self, access_token: &str, device_id: Option<&str>) -> ApiResult<()> {
-        self.logout(access_token, device_id).await
-    }
-
-    async fn logout_all(&self, user_id: &str) -> ApiResult<()> {
-        self.logout_all(user_id).await
-    }
-
-    async fn refresh_token(&self, refresh_token: &str) -> ApiResult<(String, String, String)> {
-        self.refresh_token(refresh_token).await
-    }
-
-    // ── Account ──────────────────────────────────────────────────────
-
     async fn change_password(
         &self,
         user_id: &str,
@@ -189,36 +287,33 @@ impl Auth for AuthService {
         self.verify_user_credentials(user_id, password).await
     }
 
-    async fn revoke_device(&self, user_id: &str, device_id: &str) -> ApiResult<u64> {
-        self.revoke_device(user_id, device_id).await
+    async fn register_guest_account(&self) -> ApiResult<(User, String, String)> {
+        self.register_guest_account().await
     }
 
-    async fn revoke_devices(&self, user_id: &str, device_ids: &[String]) -> ApiResult<u64> {
-        self.revoke_devices(user_id, device_ids).await
+    async fn require_guest_user(&self, user_id: &str) -> ApiResult<User> {
+        self.require_guest_user(user_id).await
     }
 
-    async fn hash_password_for_storage(&self, password: &str) -> Result<String, ApiError> {
-        self.hash_password_for_storage(password).await
+    async fn upgrade_guest_account(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        username: &str,
+        password: &str,
+    ) -> ApiResult<String> {
+        self.upgrade_guest_account(user_id, device_id, username, password).await
     }
 
-    fn generate_email_verification_token(&self) -> Result<String, Box<dyn std::error::Error>> {
+    fn generate_email_verification_token(&self) -> ApiResult<String> {
         self.generate_email_verification_token()
     }
+}
 
-    // ── Power levels ─────────────────────────────────────────────────
+// ── RoomAuth trait delegation ─────────────────────────────────────────
 
-    async fn get_user_power_level(&self, room_id: &str, user_id: &str) -> ApiResult<i64> {
-        self.get_user_power_level(room_id, user_id).await
-    }
-
-    async fn get_required_state_event_power_level(&self, room_id: &str, event_type: &str) -> ApiResult<i64> {
-        self.get_required_state_event_power_level(room_id, event_type).await
-    }
-
-    async fn get_required_message_event_power_level(&self, room_id: &str, event_type: &str) -> ApiResult<i64> {
-        self.get_required_message_event_power_level(room_id, event_type).await
-    }
-
+#[async_trait::async_trait]
+impl crate::auth::RoomAuth for AuthService {
     async fn verify_message_event_write(&self, room_id: &str, user_id: &str, event_type: &str) -> ApiResult<()> {
         self.verify_message_event_write(room_id, user_id, event_type).await
     }
@@ -262,100 +357,5 @@ impl Auth for AuthService {
 
     async fn can_redact_event(&self, room_id: &str, actor_user_id: &str, event_sender_id: &str) -> ApiResult<()> {
         self.can_redact_event(room_id, actor_user_id, event_sender_id).await
-    }
-
-    // ── Guest accounts ───────────────────────────────────────────────
-
-    async fn register_guest_account(&self) -> ApiResult<(User, String, String)> {
-        let guest_num = rand::random::<u64>();
-        let username = format!("guest_{guest_num}");
-        let user_id = format!("@{}:{}", username, self.server_name);
-        let device_id = format!("guest_device_{guest_num}");
-
-        let user = self.user_storage.create_user(&user_id, &username, None, false).await.map_err(|e| {
-            if e.to_string().contains("duplicate key") || e.to_string().contains("unique constraint") {
-                ApiError::user_in_use("Username already exists".to_string())
-            } else {
-                ApiError::internal_with_log("Failed to create guest user", &e)
-            }
-        })?;
-
-        self.user_storage
-            .set_guest_status(&user.user_id, true)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to mark guest user", &e))?;
-
-        self.device_storage
-            .create_device(&device_id, &user.user_id, Some("Guest Device"))
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
-
-        let access_token = self
-            .generate_access_token(&user.user_id, &device_id, false)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to generate guest token", &e))?;
-
-        Ok((user, device_id, access_token))
-    }
-
-    async fn require_guest_user(&self, user_id: &str) -> ApiResult<User> {
-        let user = self
-            .user_storage
-            .get_user_by_id(user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get user", &e))?
-            .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
-
-        if !user.is_guest {
-            return Err(ApiError::forbidden("User is not a guest".to_string()));
-        }
-
-        Ok(user)
-    }
-
-    async fn upgrade_guest_account(
-        &self,
-        user_id: &str,
-        device_id: Option<&str>,
-        username: &str,
-        password: &str,
-    ) -> ApiResult<String> {
-        self.validator.validate_username(username)?;
-        self.validator.validate_password(password)?;
-
-        let guest_user = self.require_guest_user(user_id).await?;
-        let existing = self
-            .user_storage
-            .get_user_by_username(username)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check username", &e))?;
-
-        if existing.as_ref().is_some_and(|user| user.user_id != user_id) {
-            return Err(ApiError::conflict("Username already exists".to_string()));
-        }
-
-        let password_hash = self.hash_password_for_storage(password).await?;
-        self.user_storage
-            .upgrade_guest_account(&guest_user.user_id, username, &password_hash)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to upgrade account", &e))?;
-
-        self.generate_access_token(&guest_user.user_id, device_id.unwrap_or(""), false)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to generate token", &e))
-    }
-
-    // ── Configuration accessors ──────────────────────────────────────
-
-    fn token_expiry(&self) -> i64 {
-        self.token_expiry
-    }
-
-    fn server_name(&self) -> &str {
-        &self.server_name
-    }
-
-    fn validator(&self) -> &Arc<Validator> {
-        &self.validator
     }
 }

@@ -1,5 +1,6 @@
 use reqwest::StatusCode;
 use serde_json::json;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::application_service::*;
 use tracing::{error, info, warn};
@@ -86,7 +87,7 @@ impl ApplicationServiceManager {
                 ApiError::internal_with_log("Failed to get pending application service transactions", &e)
             })?;
         if let Some(transaction) = pending_transactions.first() {
-            let now = chrono::Utc::now().timestamp_millis();
+            let now = current_timestamp_millis();
             if !Self::is_transaction_ready_to_retry(transaction, now) {
                 return Ok(0);
             }
@@ -200,7 +201,7 @@ impl ApplicationServiceManager {
         let source_event_ids: Vec<String> =
             pending_events.iter().map(|pe| Self::source_event_id(&pe.event_id)).collect();
 
-        let source_events = self.event_storage.get_events_map(&source_event_ids).await.map_err(|e| {
+        let source_events = self.event_reader.get_events_map(&source_event_ids).await.map_err(|e| {
             ApiError::internal_with_log("Failed to load source room events for application service", &e)
         })?;
 
@@ -248,7 +249,7 @@ impl ApplicationServiceManager {
     ) -> Result<serde_json::Value, ApiError> {
         let source_event_id = Self::source_event_id(&pending_event.event_id);
         let source_event =
-            self.event_storage.get_event(&source_event_id).await.map_err(|e| {
+            self.event_reader.get_event(&source_event_id).await.map_err(|e| {
                 ApiError::internal_with_log("Failed to load source room event for application service", &e)
             })?;
 
@@ -305,7 +306,13 @@ impl ApplicationServiceManager {
                 }
             };
 
-        self.record_delivery_failure(&service.as_id, failure_reason, failure_kind, failed_transaction.sent_ts).await;
+        self.record_delivery_failure(
+            &service.as_id,
+            failure_reason,
+            failure_kind,
+            failed_transaction.sent_ts.unwrap_or(0),
+        )
+        .await;
 
         if Self::should_disable_service(failure_kind, failed_transaction.retry_count) {
             self.disable_service_for_delivery_failure(service, &failed_transaction, failure_reason, failure_kind).await;
@@ -377,7 +384,7 @@ impl ApplicationServiceManager {
     }
 
     pub(super) fn is_transaction_ready_to_retry(transaction: &ApplicationServiceTransaction, now_ts: i64) -> bool {
-        now_ts.saturating_sub(transaction.sent_ts) >= Self::retry_backoff_ms(transaction.retry_count)
+        now_ts.saturating_sub(transaction.sent_ts.unwrap_or(0)) >= Self::retry_backoff_ms(transaction.retry_count)
     }
 
     pub(super) fn retry_backoff_ms(retry_count: i32) -> i64 {
@@ -593,7 +600,7 @@ mod tests {
             transaction_id: None,
             events: json!([]),
             retry_count,
-            sent_ts,
+            sent_ts: Some(sent_ts),
             completed_ts: None,
             last_error: None,
         }

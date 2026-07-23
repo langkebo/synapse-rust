@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_rust::cache::{CacheConfig, CacheManager};
@@ -100,7 +101,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
             is_dm BOOLEAN DEFAULT FALSE,
             is_encrypted BOOLEAN DEFAULT FALSE,
             is_tombstoned BOOLEAN DEFAULT FALSE,
-            invited BOOLEAN DEFAULT FALSE,
+            is_invited BOOLEAN DEFAULT FALSE,
             name TEXT,
             avatar TEXT,
             timestamp BIGINT DEFAULT 0,
@@ -321,7 +322,7 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
         storage,
         cache,
         event_storage,
-        DeviceKeyStorage::new(pool),
+        Arc::new(DeviceKeyStorage::new(pool)) as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         typing_service,
         presence_storage,
         member_storage,
@@ -526,7 +527,7 @@ async fn test_update_room_state() {
     let storage = SlidingSyncStorage::new(pool.clone());
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
 
-    assert_eq!(room.bump_stamp, 1000);
+    assert_eq!(room.bump_stamp, Some(1000));
     assert_eq!(room.highlight_count, 2);
     assert_eq!(room.notification_count, 5);
     assert!(room.is_dm);
@@ -549,12 +550,12 @@ async fn test_bump_room() {
 
     let storage = SlidingSyncStorage::new(pool.clone());
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
-    assert_eq!(room.bump_stamp, 3000);
+    assert_eq!(room.bump_stamp, Some(3000));
 
     service.bump_room(&user_id, "DEV1", &room_id, None, 2000).await.unwrap();
 
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
-    assert_eq!(room.bump_stamp, 3000);
+    assert_eq!(room.bump_stamp, Some(3000));
 }
 
 #[tokio::test]
@@ -605,7 +606,7 @@ async fn test_cleanup_expired_tokens() {
     let storage = SlidingSyncStorage::new(pool.clone());
     let token = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
 
-    let past_expiry = chrono::Utc::now().timestamp_millis() - 1000;
+    let past_expiry = current_timestamp_millis() - 1000;
     sqlx::query("UPDATE sliding_sync_tokens SET expires_at = $1 WHERE id = $2")
         .bind(past_expiry)
         .bind(token.id)
@@ -1083,7 +1084,7 @@ async fn test_update_room_state_preserves_higher_bump_stamp() {
 
     let storage = SlidingSyncStorage::new(pool.clone());
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
-    assert_eq!(room.bump_stamp, 5000);
+    assert_eq!(room.bump_stamp, Some(5000));
 }
 
 #[tokio::test]

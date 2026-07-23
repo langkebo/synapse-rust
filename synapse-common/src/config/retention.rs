@@ -122,3 +122,44 @@ impl Default for RetentionConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_retention_config_default() {
+        let config = RetentionConfig::default();
+        assert!(!config.enabled);
+        assert!(config.default_policy.is_none());
+        assert!(config.allowed_lifetime_min.is_none());
+        assert!(config.allowed_lifetime_max.is_none());
+        assert!(config.lifecycle_cleanup_enabled);
+        assert_eq!(config.lifecycle_cleanup_interval_secs, 300);
+        assert_eq!(config.cleanup_batch_size, 100);
+        assert_eq!(config.audit_retention_days, 90);
+        assert_eq!(config.queue_retention_days, 30);
+    }
+
+    #[test]
+    fn test_retention_purge_job_default() {
+        let jobs = default_retention_purge_jobs();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].interval, 86400);
+        assert_eq!(jobs[0].batch_size, 100);
+    }
+
+    #[test]
+    fn test_retention_policy_creation() {
+        let policy = RetentionPolicy { min_lifetime: Some(3600), max_lifetime: Some(86400) };
+        assert_eq!(policy.min_lifetime, Some(3600));
+        assert_eq!(policy.max_lifetime, Some(86400));
+    }
+
+    #[test]
+    fn test_retention_purge_job_creation() {
+        let job = RetentionPurgeJob { interval: 3600, batch_size: 50 };
+        assert_eq!(job.interval, 3600);
+        assert_eq!(job.batch_size, 50);
+    }
+}

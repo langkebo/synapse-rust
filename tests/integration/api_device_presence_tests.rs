@@ -5,6 +5,7 @@ use axum::{
 use futures::future::join_all;
 use serde_json::{json, Value};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::PresenceState;
 use synapse_storage::PresenceStorage;
@@ -629,7 +630,7 @@ async fn test_presence_routes_remain_stable_under_concurrency() {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let presence = PresenceStorage::new(pool.clone(), cache.clone());
     let suffix = rand::random::<u32>();
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let mut user_ids = Vec::new();
 
     for index in 0..24 {

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::refresh_token::*;
 use tracing::{info, instrument, warn};
@@ -86,7 +87,7 @@ impl RefreshTokenService {
             return Err(ApiError::unauthorized("Token has been revoked"));
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         if let Some(expires_at) = token_record.expires_at {
             if expires_at < now {
                 return Err(ApiError::unauthorized("Token has expired"));
@@ -167,11 +168,38 @@ impl RefreshTokenService {
             .map_err(|e| ApiError::internal_with_log("Failed to revoke old token", &e))?;
 
         if !revoked {
+            // CAS failed — token was already revoked. Distinguish between:
+            //   1. Concurrent retry (revoked_reason == "Rotated"): a legitimate
+            //      parallel refresh or network retry. Do NOT nuke the family.
+            //   2. Actual replay attack (revoked_reason is null or different):
+            //      revoke the entire family as before.
+            let current_token = self
+                .storage
+                .get_token(&old_token_hash)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to re-read token after CAS miss", &e))?;
+
+            if let Some(ref t) = current_token {
+                if t.revoked_reason.as_deref() == Some("Rotated") {
+                    // Benign race: another refresh already rotated this token.
+                    warn!(
+                        user_id = %old_token.user_id,
+                        family_id = %family_id,
+                        device_id = ?old_token.device_id,
+                        "Token already rotated by a concurrent refresh; returning benign error"
+                    );
+                    return Err(ApiError::unauthorized(
+                        "Refresh token has already been used. Please use the new token.",
+                    ));
+                }
+            }
+
+            // Genuine replay or unknown state — revoke the family.
             warn!(
                 user_id = %old_token.user_id,
                 family_id = %family_id,
                 device_id = ?old_token.device_id,
-                "Token rotation race condition detected: token already revoked"
+                "Token reuse detected (CAS miss with non-Rotated reason); revoking family"
             );
 
             self.storage
@@ -195,7 +223,7 @@ impl RefreshTokenService {
                 device_id: old_token.device_id.clone(),
                 access_token_id: Some(new_access_token_id.to_string()),
                 scope: old_token.scope.clone(),
-                expires_at: chrono::Utc::now().timestamp_millis() + self.default_expiry_ms,
+                expires_at: current_timestamp_millis() + self.default_expiry_ms,
                 client_info: old_token.client_info.clone(),
                 ip_address: ip_address.map(|s| s.to_string()),
                 user_agent: user_agent.map(|s| s.to_string()),
@@ -475,7 +503,7 @@ mod tests {
     #[tokio::test]
     async fn create_token_returns_token_with_correct_fields() {
         let svc = test_service();
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let token_hash = RefreshTokenService::hash_token("raw-token-1");
         let request = make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS);
 
@@ -493,7 +521,7 @@ mod tests {
         let svc = test_service();
         let raw = "valid-raw-token-abc";
         let token_hash = RefreshTokenService::hash_token(raw);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
 
         let token = svc.validate_token(raw).await.unwrap();
@@ -507,7 +535,7 @@ mod tests {
         let svc = test_service();
         let raw = "to-be-revoked";
         let token_hash = RefreshTokenService::hash_token(raw);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
 
         svc.revoke_token(raw, "user logged out").await.unwrap();
@@ -530,7 +558,7 @@ mod tests {
     async fn validate_token_blacklisted_returns_unauthorized() {
         let svc = test_service();
         let raw = "blacklisted-token";
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         // Blacklist the token first, then attempt validation — should be rejected
         // even though no token record exists.
@@ -549,7 +577,7 @@ mod tests {
         let raw = "expired-token";
         let token_hash = RefreshTokenService::hash_token(raw);
         // Create a token with an expiry in the past.
-        let past = chrono::Utc::now().timestamp_millis() - 1000;
+        let past = current_timestamp_millis() - 1000;
         svc.create_token(make_request(&token_hash, "@alice:example.com", past)).await.unwrap();
 
         let result = svc.validate_token(raw).await;
@@ -562,7 +590,7 @@ mod tests {
         let svc = test_service();
         let raw = "revoke-me";
         let token_hash = RefreshTokenService::hash_token(raw);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
 
         svc.revoke_token(raw, "rotation").await.unwrap();
@@ -577,7 +605,7 @@ mod tests {
     async fn revoke_token_by_id_marks_token_revoked() {
         let svc = test_service();
         let token_hash = RefreshTokenService::hash_token("revoke-by-id");
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let token =
             svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
 
@@ -591,7 +619,7 @@ mod tests {
     #[tokio::test]
     async fn revoke_all_user_tokens_returns_revoked_count() {
         let svc = test_service();
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let user = "@bulk:example.com";
 
         for i in 0..3 {
@@ -615,7 +643,7 @@ mod tests {
     #[tokio::test]
     async fn get_user_tokens_returns_all_tokens_for_user() {
         let svc = test_service();
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let user = "@alice:example.com";
 
         for i in 0..3 {
@@ -631,7 +659,7 @@ mod tests {
     #[tokio::test]
     async fn get_active_tokens_excludes_revoked_and_expired() {
         let svc = test_service();
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let user = "@alice:example.com";
 
         // Active token.
@@ -657,7 +685,7 @@ mod tests {
         let svc = test_service();
         let raw = "delete-me";
         let token_hash = RefreshTokenService::hash_token(raw);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
 
         svc.delete_token(raw).await.unwrap();
@@ -669,7 +697,7 @@ mod tests {
     #[tokio::test]
     async fn cleanup_expired_tokens_removes_only_expired_non_revoked() {
         let svc = test_service();
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let user = "@alice:example.com";
 
         // Expired, non-revoked — should be cleaned up.
@@ -697,7 +725,7 @@ mod tests {
         let svc = test_service();
         let raw = "rotate-me";
         let token_hash = RefreshTokenService::hash_token(raw);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let old_token =
             svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
 
@@ -728,7 +756,7 @@ mod tests {
         let svc = test_service();
         let raw = "already-revoked";
         let token_hash = RefreshTokenService::hash_token(raw);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
         svc.revoke_token(raw, "prior_logout").await.unwrap();
 
@@ -756,7 +784,7 @@ mod tests {
         let svc = test_service();
         let raw = "will-be-blacklisted";
         let token_hash = RefreshTokenService::hash_token(raw);
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
 
         // Create a valid token first.
         svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();

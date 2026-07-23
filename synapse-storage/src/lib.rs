@@ -1,3 +1,7 @@
+// ROUND2-ISSUE-1: test code may use unwrap/expect/unwrap_err per Rust testing idiom.
+// Production lib code is still held to the strict clippy lint config in [lints.clippy].
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::unwrap_err_used))]
+
 use deadpool_redis::Pool as RedisPool;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
@@ -6,14 +10,24 @@ use tokio::sync::RwLock;
 // =============================================================================
 // L0 — Core Matrix storage modules (always compiled, required for core-private-chat)
 // =============================================================================
+/// Account storage domain group — re-exports account modules under `account::`.
+pub mod account;
 pub mod account_data;
+/// Admin storage domain group — re-exports admin modules under `admin::`.
+pub mod admin;
 pub mod admin_federation;
 pub mod admin_media;
+/// Application service storage domain group — re-exports application modules under `application::`.
+pub mod application;
 pub mod application_service;
 pub mod audit;
+/// Auth storage domain group — re-exports auth modules under `auth::`.
+pub mod auth;
 pub mod background_update;
 pub mod dehydrated_device;
 pub mod device;
+/// E2EE storage domain group — re-exports e2ee modules under `e2ee::`.
+pub mod e2ee;
 pub mod e2ee_audit;
 pub mod email_verification;
 pub mod event;
@@ -22,6 +36,8 @@ pub mod feature_flags;
 pub mod federation_blacklist;
 pub mod federation_queue;
 pub mod filter;
+/// Infrastructure storage domain group — re-exports infra modules under `infra::`.
+pub mod infra;
 pub mod invite_blocklist;
 pub mod maintenance;
 pub mod media;
@@ -30,8 +46,12 @@ pub mod membership;
 pub mod moderation;
 pub mod module;
 pub mod monitoring;
+/// OIDC storage domain group — re-exports oidc modules under `oidc::`.
+pub mod oidc;
 pub mod openid_token;
 pub mod performance;
+/// Backward-compatibility prelude — glob-import point for domain-grouped types.
+pub mod prelude;
 pub mod presence;
 pub mod pruning;
 pub mod push;
@@ -54,6 +74,9 @@ pub mod sliding_sync;
 pub mod space;
 pub mod state_groups;
 pub mod sticky_event;
+/// Sync storage domain group — re-exports sync modules under `sync::`.
+pub mod sync;
+#[cfg(any(test, feature = "test-utils"))]
 pub mod test_mocks;
 pub mod thread;
 pub mod threepid;
@@ -66,6 +89,10 @@ pub mod worker;
 // =============================================================================
 // L3 — Feature-gated extension storage modules (off by default in core builds)
 // =============================================================================
+/// AI storage domain group — re-exports AI modules (`ai_connection`,
+/// `openclaw`) under `ai::`. Feature-gated behind `openclaw-routes`.
+#[cfg(feature = "openclaw-routes")]
+pub mod ai;
 #[cfg(feature = "openclaw-routes")]
 pub mod ai_connection;
 #[cfg(feature = "openclaw-routes")]
@@ -90,6 +117,10 @@ pub mod beacon;
 pub mod call_session;
 #[cfg(feature = "voip-tracking")]
 pub mod matrixrtc;
+/// RTC storage domain group — re-exports RTC modules (`call_session`,
+/// `matrixrtc`) under `rtc::`. Feature-gated behind `voip-tracking`.
+#[cfg(feature = "voip-tracking")]
+pub mod rtc;
 
 #[cfg(feature = "widgets")]
 pub mod widget;
@@ -111,93 +142,41 @@ pub mod oidc_session_storage;
 pub mod oidc_user_mapping;
 pub mod url_preview_storage;
 
-pub use self::threepid::UserThreepid;
-pub use self::user::*;
+// auth domain types (user, device, token, threepid, captcha, openid_token) are
+// re-exported via `pub use auth::*;` below.
 pub use user_store_fake::FakeUserStore;
 
 #[cfg(test)]
 pub mod test_utils;
 
-pub use self::account_data::*;
-pub use self::admin_federation::*;
-pub use self::admin_media::*;
-pub use self::application_service::*;
-pub use self::audit::*;
-pub use self::background_update::*;
-pub use self::captcha::*;
-pub use self::dehydrated_device::*;
-pub use self::device::*;
-pub use self::e2ee_audit::*;
-pub use self::event::*;
-pub use self::feature_flags::*;
-pub use self::federation_blacklist::*;
-pub use self::filter::*;
-pub use self::invite_blocklist::*;
-pub use self::maintenance::*;
-pub use self::media_quota::*;
-pub use self::membership::*;
-pub use self::moderation::*;
-pub use self::monitoring::{
-    ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor, DuplicateEntry,
-    ForeignKeyViolation, NullConstraintViolation, OrphanedRecord, PerformanceMetrics,
-};
-pub use self::oidc_user_mapping::*;
-pub use self::openid_token::*;
-pub use self::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
-pub use self::presence::{PresenceSnapshot, PresenceStorage};
-pub use self::push::*;
-pub use self::push_notification::*;
-pub use self::qr_login::*;
-pub use self::rate_limit::*;
-pub use self::rendezvous::*;
+// All storage modules are now grouped into a domain. The domain globs below
+// flat-re-export every grouped module's public types at the crate root for
+// backward compatibility. Domains: account, admin, application, auth, e2ee,
+// event, infra, media, moderation, oidc, push, room, space, sync (always on)
+// plus ai (openclaw-routes) and rtc (voip-tracking) feature-gated groups.
+
+// Domain group globs — backward-compatibility flat re-exports via domain modules.
+// Consumers should prefer the domain path (e.g. `synapse_storage::account::*`)
+// but these globs keep the legacy root-level paths working.
 pub use self::room::*;
-pub use self::room_account_data::*;
-pub use self::schema_validator::*;
-pub use self::search_index::*;
-pub use self::sliding_sync::*;
-pub use self::space::*;
-pub use self::sticky_event::*;
-pub use self::thread::*;
-pub use self::threepid::*;
-pub use self::token::*;
-pub use self::worker::*;
-
-// Storage repository traits (explicit re-exports for service-layer consumption)
-
-// Feature-gated re-exports
+pub use account::*; // account domain group (account_data, qr_login, rendezvous)
+pub use admin::*; // admin domain group (admin_federation, admin_media, audit)
+pub use application::*; // application domain group (application_service, module)
+pub use auth::*; // auth domain group (user, device, token, threepid, captcha, openid_token, email_verification, refresh_token, registration_token; saml, cas, privacy when feature-gated)
+pub use e2ee::*; // e2ee domain group (dehydrated_device, e2ee_audit)
+pub use event::*; // event domain group (event)
+pub use infra::*; // infra domain group (background_update, feature_flags, federation_blacklist, federation_queue, maintenance, monitoring, performance, rate_limit, schema_validator, worker, pruning, schema_health_check, trigram_ranking; server_notification when feature-gated)
+pub use media::*; // media domain group (media, media_quota, url_preview_storage; voice when feature-gated)
+pub use moderation::*; // moderation domain group (moderation, invite_blocklist)
+pub use oidc::*; // oidc domain group (oauth_client_storage, oidc_session_storage, oidc_user_mapping)
+pub use push::*; // push domain group (push, push_notification)
+pub use space::*; // space domain group (space, sticky_event)
+pub use sync::*; // sync domain group (sliding_sync, search_index, filter, presence)
+                 // Feature-gated domain groups:
 #[cfg(feature = "openclaw-routes")]
-pub use self::ai_connection::*;
-#[cfg(feature = "openclaw-routes")]
-pub use self::openclaw::*;
-
-#[cfg(feature = "friends")]
-pub use self::friend_room::*;
-
-#[cfg(feature = "saml-sso")]
-pub use self::saml::*;
-
-#[cfg(feature = "cas-sso")]
-pub use self::cas::*;
-
-#[cfg(feature = "beacons")]
-pub use self::beacon::*;
-
-#[cfg(feature = "voice-extended")]
-pub use self::voice::*;
-
+pub use ai::*; // ai domain group (ai_connection, openclaw)
 #[cfg(feature = "voip-tracking")]
-pub use self::call_session::*;
-#[cfg(feature = "voip-tracking")]
-pub use self::matrixrtc::*;
-
-#[cfg(feature = "widgets")]
-pub use self::widget::*;
-
-#[cfg(feature = "server-notifications")]
-pub use self::server_notification::*;
-
-#[cfg(feature = "privacy-ext")]
-pub use self::privacy::*;
+pub use rtc::*; // rtc domain group (call_session, matrixrtc)
 
 /// 数据库结构体。
 ///
@@ -205,7 +184,7 @@ pub use self::privacy::*;
 /// 提供数据库连接管理、健康检查、性能监控等功能。
 pub struct Database {
     /// PostgreSQL 连接池
-    pub pool: Pool<Postgres>,
+    pub(crate) pool: Pool<Postgres>,
     /// 数据库监控器
     pub monitor: Arc<RwLock<DatabaseMonitor>>,
 }
@@ -289,7 +268,7 @@ mod tests {
             is_shadow_banned: false,
             created_ts: 1234567890,
             updated_ts: None,
-            generation: 1,
+            generation: Some(1),
             consent_version: None,
             appservice_id: None,
             user_type: None,

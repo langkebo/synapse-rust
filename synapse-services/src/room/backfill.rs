@@ -24,6 +24,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 
 use crate::common::error::{ApiError, ApiResult};
 use synapse_federation::client_api::FederationClientApi;
@@ -64,7 +65,7 @@ pub struct BackfillOutcome {
 /// admin endpoint does **not** use this check — manual triggers always fire
 /// immediately.
 pub async fn check_backfill_cooldown(room_id: &str) -> bool {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     let mut map = BACKFILL_COOLDOWN.lock().await;
     if let Some(&last_ts) = map.get(room_id) {
         if now - last_ts < BACKFILL_COOLDOWN_MS {
@@ -109,7 +110,7 @@ impl RoomService {
         // 2. Seed event IDs — the most recent events we already have.  The
         //    remote server walks backwards from these.
         let seed_event_ids = self
-            .event_storage
+            .event_reader
             .get_latest_event_ids_in_room(room_id, 20)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to load seed event IDs for backfill", &e))?;
@@ -181,7 +182,7 @@ impl RoomService {
                 };
 
                 // Skip if already present locally.
-                let already_present = self.event_storage.get_event(event_id).await.ok().flatten().is_some();
+                let already_present = self.event_reader.get_event(event_id).await.ok().flatten().is_some();
                 if already_present {
                     continue;
                 }

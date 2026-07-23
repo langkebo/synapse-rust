@@ -1,5 +1,6 @@
 use super::models::*;
 use serde_json::json;
+use synapse_common::current_timestamp_millis;
 use synapse_common::{ApiError, ApiResult};
 
 impl FriendRoomService {
@@ -92,7 +93,7 @@ impl FriendRoomService {
             for friend in friends.iter_mut() {
                 if friend.get("user_id").and_then(|u| u.as_str()) == Some(friend_id) {
                     friend["status"] = json!(status);
-                    friend["status_updated_ts"] = json!(chrono::Utc::now().timestamp_millis());
+                    friend["status_updated_ts"] = json!(current_timestamp_millis());
                     break;
                 }
             }
@@ -127,7 +128,7 @@ impl FriendRoomService {
             for friend in friends.iter_mut() {
                 if friend.get("user_id").and_then(|u| u.as_str()) == Some(friend_id) {
                     friend["displayname"] = json!(displayname);
-                    friend["displayname_updated_ts"] = json!(chrono::Utc::now().timestamp_millis());
+                    friend["displayname_updated_ts"] = json!(current_timestamp_millis());
                     break;
                 }
             }
@@ -258,13 +259,13 @@ impl FriendRoomService {
     /// 创建好友分组
     pub async fn create_friend_group(&self, user_id: &str, name: &str) -> ApiResult<serde_json::Value> {
         let friend_room = self.create_friend_list_room(user_id).await?;
-        let group_id = format!("group_{}_{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4());
+        let group_id = format!("group_{}_{}", current_timestamp_millis(), uuid::Uuid::new_v4());
 
         let group = json!({
             "id": group_id,
             "name": name,
             "members": [],
-            "created_at": chrono::Utc::now().timestamp_millis()
+            "created_at": current_timestamp_millis()
         });
 
         let mut groups = self

@@ -1,3 +1,7 @@
+// ROUND2-ISSUE-1: test code may use unwrap/expect/unwrap_err per Rust testing idiom.
+// Production lib code is still held to the strict clippy lint config in [lints.clippy].
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::unwrap_err_used))]
+
 pub mod client;
 pub mod client_api;
 pub mod device_sync;
@@ -11,6 +15,7 @@ pub mod memory_tracker;
 pub mod server_acl;
 pub mod signing;
 pub mod state_resolution;
+#[cfg(any(test, feature = "test-utils"))]
 pub mod test_mocks;
 
 pub use client::FederationClient;

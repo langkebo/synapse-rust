@@ -1,5 +1,6 @@
 use super::AuthService;
 use chrono::Utc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::*;
 
 impl AuthService {
@@ -146,7 +147,7 @@ impl AuthService {
         }
 
         if let Some(expires_at) = t.expires_at {
-            if expires_at < Utc::now().timestamp_millis() {
+            if expires_at < current_timestamp_millis() {
                 return Err(ApiError::unauthorized("Refresh token expired".to_string()));
             }
         }

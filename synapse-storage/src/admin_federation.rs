@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
+#[cfg(test)]
+use synapse_common::current_timestamp_millis;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct FederationDestinationRecord {
@@ -412,7 +414,7 @@ mod db_tests {
 
         cleanup_server_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         for i in 0..3 {
             insert_test_server(&pool, &format!("test-count-{}-{}.com", i, suffix), "active", now).await;
         }
@@ -433,7 +435,7 @@ mod db_tests {
 
         cleanup_server_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let servers: Vec<String> = (0..5).map(|i| format!("test-list-{:02}-{}.com", i, suffix)).collect();
         for s in &servers {
             insert_test_server(&pool, s, "active", now).await;
@@ -483,7 +485,7 @@ mod db_tests {
 
         cleanup_server_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         insert_test_server(&pool, &server_name, "active", now).await;
 
         let dest = storage
@@ -520,7 +522,7 @@ mod db_tests {
 
         cleanup_server_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         // Insert with failure data.
         sqlx::query(
             "INSERT INTO federation_servers (server_name, status, updated_ts, last_failed_connect_at, failure_count) \
@@ -572,7 +574,7 @@ mod db_tests {
 
         cleanup_server_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         insert_test_server(&pool, &server_name, "active", now).await;
 
         let affected = storage.delete_destination(&server_name).await.expect("delete_destination should succeed");
@@ -608,7 +610,7 @@ mod db_tests {
 
         cleanup_server_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         insert_test_server(&pool, &server_name, "active", now).await;
 
         let exists = storage.destination_exists(&server_name).await.expect("destination_exists should succeed");
@@ -641,7 +643,7 @@ mod db_tests {
 
         cleanup_queue_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         // Insert rows into federation_queue for this destination.
         sqlx::query(
             "INSERT INTO federation_queue (destination, event_id, event_type, room_id, content, created_ts) \
@@ -713,7 +715,7 @@ mod db_tests {
 
         cleanup_server_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         insert_test_server(&pool, &server_name, "rejected", now).await;
 
         let status = storage.get_destination_status(&server_name).await.expect("get_destination_status should succeed");
@@ -760,7 +762,7 @@ mod db_tests {
 
         cleanup_server_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         insert_test_server(&pool, &server_name, "pending", now).await;
 
         let status = storage
@@ -783,7 +785,7 @@ mod db_tests {
 
         cleanup_server_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let affected =
             storage.insert_pending_server(&server_name, now).await.expect("insert_pending_server should succeed");
         assert_eq!(affected, 1, "should insert 1 row");
@@ -811,7 +813,7 @@ mod db_tests {
 
         cleanup_server_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let first =
             storage.insert_pending_server(&server_name, now).await.expect("first insert_pending_server should succeed");
         assert_eq!(first, 1);
@@ -845,7 +847,7 @@ mod db_tests {
 
         cleanup_server_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         insert_test_server(&pool, &server_name, "pending", now).await;
 
         let new_ts = now + 5000;
@@ -874,7 +876,7 @@ mod db_tests {
         let suffix = Uuid::new_v4();
         let server_name = format!("test-update-nonexist-{}.com", suffix);
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let affected = storage
             .update_destination_status(&server_name, "active", now)
             .await
@@ -892,7 +894,7 @@ mod db_tests {
 
         cleanup_server_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         // Insert pending servers with staggered updated_ts.
         let servers: Vec<String> = (0..5).map(|i| format!("test-pending-list-{:02}-{}.com", i, suffix)).collect();
         for (i, s) in servers.iter().enumerate() {
@@ -972,7 +974,7 @@ mod db_tests {
 
         cleanup_server_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         // Insert some pending servers.
         for i in 0..2 {
             sqlx::query("INSERT INTO federation_servers (server_name, status, updated_ts) VALUES ($1, 'pending', $2)")
@@ -1002,7 +1004,7 @@ mod db_tests {
 
         cleanup_cache_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         // Insert two cache entries.
         sqlx::query("INSERT INTO federation_cache (key, value, expiry_ts, created_ts) VALUES ($1, $2, $3, $4)")
             .bind(format!("test-cache-a-{}", suffix))
@@ -1071,7 +1073,7 @@ mod db_tests {
 
         cleanup_cache_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let key = format!("test-cache-del-{}", suffix);
         sqlx::query("INSERT INTO federation_cache (key, value, expiry_ts, created_ts) VALUES ($1, $2, $3, $4)")
             .bind(&key)
@@ -1120,7 +1122,7 @@ mod db_tests {
 
         cleanup_cache_prefix(&pool, &prefix).await;
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         for i in 0..2 {
             sqlx::query("INSERT INTO federation_cache (key, value, expiry_ts, created_ts) VALUES ($1, $2, $3, $4)")
                 .bind(format!("test-cache-clear-{}-{}", i, suffix))

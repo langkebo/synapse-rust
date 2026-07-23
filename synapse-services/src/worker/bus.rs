@@ -2,6 +2,7 @@ use crate::worker::protocol::ReplicationCommand;
 use redis::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tracing::{debug, info, warn};
@@ -216,7 +217,7 @@ impl WorkerBus {
                     let bus_message = BusMessage {
                         channel: msg.get_channel_name().to_string(),
                         sender: instance_name.clone(),
-                        timestamp: chrono::Utc::now().timestamp_millis(),
+                        timestamp: current_timestamp_millis(),
                         payload,
                     };
 
@@ -280,7 +281,7 @@ impl WorkerBus {
         let bus_message = BusMessage {
             channel: channel.to_string(),
             sender: self.instance_name.clone(),
-            timestamp: chrono::Utc::now().timestamp_millis(),
+            timestamp: current_timestamp_millis(),
             payload: message.to_vec(),
         };
 

@@ -1,140 +1,12 @@
 use crate::worker::protocol::{ReplicationCommand, ReplicationError, ReplicationProtocol};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::{TcpListener, TcpStream},
-    sync::mpsc::{self, Receiver, Sender},
+    net::TcpStream,
     time::{timeout, Duration},
 };
-use tracing::{debug, error, info, warn};
-
-pub struct TcpReplicationServer {
-    listener: TcpListener,
-    server_name: String,
-    command_tx: Sender<ReplicationCommand>,
-    command_rx: Option<Receiver<ReplicationCommand>>,
-}
-
-impl TcpReplicationServer {
-    pub async fn bind(addr: &str, server_name: String) -> Result<Self, std::io::Error> {
-        let listener = TcpListener::bind(addr).await?;
-        let (command_tx, command_rx) = mpsc::channel(100);
-
-        info!(listen_addr = %addr, server_name = %server_name, "TCP replication server listening");
-
-        Ok(Self { listener, server_name, command_tx, command_rx: Some(command_rx) })
-    }
-
-    pub fn get_command_receiver(&mut self) -> Option<Receiver<ReplicationCommand>> {
-        self.command_rx.take()
-    }
-
-    pub async fn run(&self) -> Result<(), std::io::Error> {
-        let shared_secret = std::env::var("REPLICATION_SHARED_SECRET").map_err(|_| {
-            std::io::Error::other(
-                "REPLICATION_SHARED_SECRET not set - refusing to start unauthenticated replication listener",
-            )
-        })?;
-
-        loop {
-            let (stream, addr) = self.listener.accept().await?;
-            info!(remote_addr = %addr, server_name = %self.server_name, "New replication connection");
-
-            let protocol = ReplicationProtocol::new();
-            let server_name = self.server_name.clone();
-            let command_tx = self.command_tx.clone();
-            let secret = shared_secret.clone();
-
-            tokio::spawn(async move {
-                if let Err(e) = Self::handle_connection(stream, protocol, server_name, command_tx, &secret).await {
-                    error!(error = %e, remote_addr = %addr, "Connection error from replication peer");
-                }
-            });
-        }
-    }
-
-    async fn handle_connection(
-        stream: TcpStream,
-        protocol: ReplicationProtocol,
-        server_name: String,
-        command_tx: Sender<ReplicationCommand>,
-        shared_secret: &str,
-    ) -> Result<(), ReplicationError> {
-        let (reader, mut writer) = stream.into_split();
-        let mut reader = BufReader::new(reader);
-        let mut line = String::new();
-
-        if !shared_secret.is_empty() {
-            writer.write_all(b"AUTH_REQUIRED\n").await.map_err(|e| ReplicationError::IoError(e.to_string()))?;
-
-            line.clear();
-            let bytes_read = reader.read_line(&mut line).await.map_err(|e| ReplicationError::IoError(e.to_string()))?;
-
-            if bytes_read == 0 {
-                return Err(ReplicationError::ConnectionClosed);
-            }
-
-            let auth_line = line.trim();
-            if !auth_line.starts_with("AUTH ") {
-                tracing::warn!(server_name = %server_name, "Replication connection rejected: no AUTH command received");
-                return Err(ReplicationError::IoError("Authentication required".to_string()));
-            }
-
-            let provided_secret = auth_line.strip_prefix("AUTH ").unwrap_or("");
-            use sha2::{Digest, Sha256};
-            let mut hasher = Sha256::new();
-            hasher.update(provided_secret.as_bytes());
-            let provided_hash = synapse_common::crypto::encode_hex(hasher.finalize());
-
-            let mut expected_hasher = Sha256::new();
-            expected_hasher.update(shared_secret.as_bytes());
-            let expected_hash = synapse_common::crypto::encode_hex(expected_hasher.finalize());
-
-            if !synapse_common::crypto::secure_compare(&provided_hash, &expected_hash) {
-                tracing::warn!(server_name = %server_name, "Replication connection rejected: invalid authentication");
-                return Err(ReplicationError::IoError("Authentication failed".to_string()));
-            }
-
-            writer.write_all(b"AUTH_OK\n").await.map_err(|e| ReplicationError::IoError(e.to_string()))?;
-        }
-
-        writer
-            .write_all(protocol.encode_command(&ReplicationProtocol::create_pong(&server_name)).as_slice())
-            .await
-            .map_err(|e| ReplicationError::IoError(e.to_string()))?;
-
-        loop {
-            line.clear();
-            let bytes_read = reader.read_line(&mut line).await.map_err(|e| ReplicationError::IoError(e.to_string()))?;
-
-            if bytes_read == 0 {
-                info!(server_name = %server_name, "Connection closed by client");
-                return Err(ReplicationError::ConnectionClosed);
-            }
-
-            let command = protocol.decode_command(line.as_bytes())?;
-            debug!("Received command: {:?}", command);
-
-            match &command {
-                ReplicationCommand::Ping { timestamp } => {
-                    let pong = ReplicationCommand::Pong { timestamp: *timestamp, server_name: server_name.clone() };
-                    writer
-                        .write_all(protocol.encode_command(&pong).as_slice())
-                        .await
-                        .map_err(|e| ReplicationError::IoError(e.to_string()))?;
-                }
-                ReplicationCommand::Name { name } => {
-                    info!(worker_name = %name, server_name = %server_name, "Worker identified");
-                }
-                _ => {
-                    if let Err(e) = command_tx.send(command).await {
-                        warn!(error = %e, server_name = %server_name, "Failed to send command to channel");
-                    }
-                }
-            }
-        }
-    }
-}
+use tracing::{debug, info};
 
 pub struct TcpReplicationClient {
     stream: Option<TcpStream>,
@@ -203,12 +75,12 @@ impl TcpReplicationClient {
     }
 
     pub async fn ping(&mut self) -> Result<i64, ReplicationError> {
-        let start = chrono::Utc::now().timestamp_millis();
+        let start = current_timestamp_millis();
         self.send_command(&ReplicationProtocol::create_ping()).await?;
 
         match timeout(Duration::from_secs(5), self.receive_command()).await {
             Ok(Ok(ReplicationCommand::Pong { timestamp: _, .. })) => {
-                let latency = chrono::Utc::now().timestamp_millis() - start;
+                let latency = current_timestamp_millis() - start;
                 debug!("Ping latency: {}ms", latency);
                 Ok(latency)
             }
@@ -313,5 +185,59 @@ mod tests {
         let cloned = protocol.clone();
         let cmd = ReplicationProtocol::create_ping();
         assert_eq!(protocol.encode_command(&cmd), cloned.encode_command(&cmd));
+    }
+
+    #[test]
+    fn test_replication_connection_new() {
+        let conn = ReplicationConnection::new("worker1".to_string());
+        assert_eq!(conn.worker_name, "worker1");
+    }
+
+    #[tokio::test]
+    async fn test_replication_client_disconnect_when_not_connected() {
+        let mut client = TcpReplicationClient::new("worker1".to_string());
+        assert!(!client.is_connected());
+        client.disconnect().await;
+        assert!(!client.is_connected());
+    }
+
+    #[tokio::test]
+    async fn test_replication_connection_disconnect_when_not_connected() {
+        let conn = ReplicationConnection::new("worker1".to_string());
+        conn.disconnect().await;
+        assert!(!conn.is_connected().await);
+    }
+
+    #[test]
+    fn test_replication_protocol_create_ping() {
+        let ping = ReplicationProtocol::create_ping();
+        match ping {
+            ReplicationCommand::Ping { timestamp } => assert!(timestamp > 0),
+            _ => panic!("Expected Ping command"),
+        }
+    }
+
+    #[test]
+    fn test_replication_protocol_create_sync() {
+        let sync = ReplicationProtocol::create_sync("stream1", 42);
+        match sync {
+            ReplicationCommand::Sync { stream_name, position } => {
+                assert_eq!(stream_name, "stream1");
+                assert_eq!(position, 42);
+            }
+            _ => panic!("Expected Sync command"),
+        }
+    }
+
+    #[test]
+    fn test_replication_protocol_create_position() {
+        let pos = ReplicationProtocol::create_position("stream1", 100);
+        match pos {
+            ReplicationCommand::Position { stream_name, position } => {
+                assert_eq!(stream_name, "stream1");
+                assert_eq!(position, 100);
+            }
+            _ => panic!("Expected Position command"),
+        }
     }
 }

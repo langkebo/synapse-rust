@@ -1,3 +1,7 @@
+// ROUND2-ISSUE-1: test code may use unwrap/expect/unwrap_err per Rust testing idiom.
+// Production lib code is still held to the strict clippy lint config in [lints.clippy].
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::unwrap_err_used))]
+
 use deadpool_redis::{Config, Pool, PoolConfig, Runtime};
 use moka::sync::Cache;
 use serde::{Deserialize, Serialize};

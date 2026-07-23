@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::web::routes::context::FriendContext;
 use crate::web::routes::{
     account_compat::can_view_profile_for_requester_batch, validate_user_id, AppState, AuthenticatedUser,
 };
@@ -12,6 +13,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use synapse_common::current_timestamp_millis;
 
 const DEFAULT_FRIEND_LIST_LIMIT: usize = 20;
 
@@ -391,7 +393,7 @@ pub enum FriendRequestStatus {
 }
 
 async fn get_friends(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Query(params): Query<FriendListQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
@@ -407,9 +409,7 @@ async fn get_friends(
     if params.from.is_some() && cursor.is_none() && legacy_offset.is_none() {
         return Err(ApiError::bad_request("Invalid friend list pagination cursor"));
     }
-    let page = state
-        .services
-        .extensions
+    let page = ctx
         .friend_room_service
         .get_friends_page(
             &auth_user.user_id,
@@ -440,7 +440,7 @@ async fn get_friends(
 }
 
 async fn search_friend_directory(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Query(query): Query<FriendSearchQuery>,
     body: Option<Json<Value>>,
@@ -460,22 +460,19 @@ async fn search_friend_directory(
         .and_then(|Json(b)| b.get("limit").and_then(|v| v.as_i64()))
         .unwrap_or_else(|| query.limit.unwrap_or(DEFAULT_FRIEND_LIST_LIMIT) as i64) as usize;
     let rate_limit_key = format!("ratelimit:friend-search:{}", auth_user.user_id);
-    let decision = state.cache.rate_limit_token_bucket_take(&rate_limit_key, 2, 20).await?;
+    let decision = ctx.cache.rate_limit_token_bucket_take(&rate_limit_key, 2, 20).await?;
     if !decision.allowed {
         return Err(ApiError::rate_limited("Too many friend search requests"));
     }
 
-    let mut results: Vec<synapse_storage::user::UserDirectorySearchResult> = state
-        .services
-        .account
-        .account_identity_service
-        .search_directory_users(&search_term, search_limit as i64, exact_only)
-        .await?;
+    let mut results: Vec<synapse_storage::user::UserDirectorySearchResult> =
+        ctx.account_identity_service.search_directory_users(&search_term, search_limit as i64, exact_only).await?;
 
     let target_user_ids: Vec<String> =
         results.iter().filter(|r| r.user_id != auth_user.user_id).map(|r| r.user_id.clone()).collect();
     let visibility: std::collections::HashMap<String, bool> =
-        can_view_profile_for_requester_batch(&state, Some(&auth_user.user_id), &target_user_ids).await?;
+        can_view_profile_for_requester_batch(&ctx.account_identity_service, Some(&auth_user.user_id), &target_user_ids)
+            .await?;
 
     let mut visible = Vec::new();
     for result in results.drain(..) {
@@ -517,7 +514,7 @@ async fn search_friend_directory(
 }
 
 async fn send_friend_request(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Json(body): Json<AddFriendRequest>,
@@ -529,9 +526,7 @@ async fn send_friend_request(
     }
 
     let request_id = resolve_request_id(&headers);
-    let request_id_val: i64 = state
-        .services
-        .extensions
+    let request_id_val: i64 = ctx
         .friend_room_service
         .send_friend_request(&request_id, &auth_user.user_id, &body.user_id, body.message.as_deref())
         .await?;
@@ -544,7 +539,7 @@ async fn send_friend_request(
 }
 
 async fn accept_friend_request(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(requester_id): Path<String>,
@@ -552,12 +547,8 @@ async fn accept_friend_request(
     validate_user_id(&requester_id)?;
 
     let request_id = resolve_request_id(&headers);
-    let room_id: String = state
-        .services
-        .extensions
-        .friend_room_service
-        .accept_friend_request(&request_id, &auth_user.user_id, &requester_id)
-        .await?;
+    let room_id: String =
+        ctx.friend_room_service.accept_friend_request(&request_id, &auth_user.user_id, &requester_id).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -566,7 +557,7 @@ async fn accept_friend_request(
 }
 
 async fn reject_friend_request(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(requester_id): Path<String>,
@@ -574,18 +565,13 @@ async fn reject_friend_request(
     validate_user_id(&requester_id)?;
 
     let request_id = resolve_request_id(&headers);
-    state
-        .services
-        .extensions
-        .friend_room_service
-        .reject_friend_request(&request_id, &auth_user.user_id, &requester_id)
-        .await?;
+    ctx.friend_room_service.reject_friend_request(&request_id, &auth_user.user_id, &requester_id).await?;
 
     Ok(Json(json!({ "status": "rejected" })))
 }
 
 async fn cancel_friend_request(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(target_id): Path<String>,
@@ -593,54 +579,47 @@ async fn cancel_friend_request(
     validate_user_id(&target_id)?;
 
     let request_id = resolve_request_id(&headers);
-    state
-        .services
-        .extensions
-        .friend_room_service
-        .cancel_friend_request(&request_id, &auth_user.user_id, &target_id)
-        .await?;
+    ctx.friend_room_service.cancel_friend_request(&request_id, &auth_user.user_id, &target_id).await?;
 
     Ok(Json(json!({ "status": "cancelled" })))
 }
 
 async fn get_incoming_requests(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let requests: Vec<serde_json::Value> =
-        state.services.extensions.friend_room_service.get_incoming_requests(&auth_user.user_id).await?;
+    let requests: Vec<serde_json::Value> = ctx.friend_room_service.get_incoming_requests(&auth_user.user_id).await?;
 
     Ok(Json(json!({ "requests": requests })))
 }
 
 async fn get_outgoing_requests(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let requests: Vec<serde_json::Value> =
-        state.services.extensions.friend_room_service.get_outgoing_requests(&auth_user.user_id).await?;
+    let requests: Vec<serde_json::Value> = ctx.friend_room_service.get_outgoing_requests(&auth_user.user_id).await?;
 
     Ok(Json(json!({ "requests": requests })))
 }
 
 async fn remove_friend(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(friend_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
 
-    state.services.extensions.friend_room_service.remove_friend(&auth_user.user_id, &friend_id).await?;
+    ctx.friend_room_service.remove_friend(&auth_user.user_id, &friend_id).await?;
 
     Ok(Json(json!({
         "removed": true,
         "user_id": friend_id,
-        "removed_ts": chrono::Utc::now().timestamp_millis()
+        "removed_ts": current_timestamp_millis()
     })))
 }
 
 async fn update_friend_note(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(friend_id): Path<String>,
     Json(body): Json<UpdateNoteRequest>,
@@ -651,22 +630,17 @@ async fn update_friend_note(
         return Err(ApiError::bad_request("Note exceeds maximum length of 1000 characters".to_string()));
     }
 
-    state
-        .services
-        .extensions
-        .friend_room_service
-        .update_friend_note(&auth_user.user_id, &friend_id, &body.note)
-        .await?;
+    ctx.friend_room_service.update_friend_note(&auth_user.user_id, &friend_id, &body.note).await?;
 
     Ok(Json(json!({
         "user_id": friend_id,
         "note": body.note,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }
 
 async fn update_friend_status(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(friend_id): Path<String>,
     Json(body): Json<UpdateStatusRequest>,
@@ -678,36 +652,31 @@ async fn update_friend_status(
         return Err(ApiError::bad_request(format!("Invalid status. Valid values: {}", valid_statuses.join(", "))));
     }
 
-    state
-        .services
-        .extensions
-        .friend_room_service
-        .update_friend_status(&auth_user.user_id, &friend_id, &body.status)
-        .await?;
+    ctx.friend_room_service.update_friend_status(&auth_user.user_id, &friend_id, &body.status).await?;
 
     Ok(Json(json!({
         "user_id": friend_id,
         "status": body.status,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }
 
 async fn get_friend_info(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(friend_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
 
     let info: Option<serde_json::Value> =
-        state.services.extensions.friend_room_service.get_friend_info(&auth_user.user_id, &friend_id).await?;
+        ctx.friend_room_service.get_friend_info(&auth_user.user_id, &friend_id).await?;
     let info: serde_json::Value = info.ok_or_else(|| ApiError::not_found(format!("Friend {friend_id} not found")))?;
 
     Ok(Json(info))
 }
 
 async fn update_friend_displayname(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(friend_id): Path<String>,
     Json(body): Json<UpdateDisplaynameRequest>,
@@ -718,26 +687,20 @@ async fn update_friend_displayname(
         return Err(ApiError::bad_request("Display name must be between 1 and 256 characters".to_string()));
     }
 
-    state
-        .services
-        .extensions
-        .friend_room_service
-        .update_friend_displayname(&auth_user.user_id, &friend_id, &body.display_name)
-        .await?;
+    ctx.friend_room_service.update_friend_displayname(&auth_user.user_id, &friend_id, &body.display_name).await?;
 
     Ok(Json(json!({
         "user_id": friend_id,
         "displayname": body.display_name,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }
 
 async fn get_received_requests(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<axum::response::Response, ApiError> {
-    let requests: Vec<serde_json::Value> =
-        state.services.extensions.friend_room_service.get_incoming_requests(&auth_user.user_id).await?;
+    let requests: Vec<serde_json::Value> = ctx.friend_room_service.get_incoming_requests(&auth_user.user_id).await?;
 
     let body: Json<Value> = Json(json!({ "requests": requests }));
     let mut response: axum::response::Response = body.into_response();
@@ -759,27 +722,25 @@ async fn get_received_requests(
 }
 
 async fn get_friend_status(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(friend_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
 
-    let status: serde_json::Value =
-        state.services.extensions.friend_room_service.get_friend_status(&auth_user.user_id, &friend_id).await?;
+    let status: serde_json::Value = ctx.friend_room_service.get_friend_status(&auth_user.user_id, &friend_id).await?;
 
     Ok(Json(status))
 }
 
 async fn check_friendship(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(target_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&target_id)?;
 
-    let is_friend: bool =
-        state.services.extensions.friend_room_service.check_friendship(&auth_user.user_id, &target_id).await?;
+    let is_friend: bool = ctx.friend_room_service.check_friendship(&auth_user.user_id, &target_id).await?;
 
     Ok(Json(json!({
         "user_id": target_id,
@@ -794,12 +755,12 @@ pub struct FriendSuggestionsQuery {
 }
 
 async fn get_friend_suggestions(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Query(query): Query<FriendSuggestionsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let suggestions: Vec<serde_json::Value> =
-        state.services.extensions.friend_room_service.get_friend_suggestions(&auth_user.user_id, query.limit).await?;
+        ctx.friend_room_service.get_friend_suggestions(&auth_user.user_id, query.limit).await?;
 
     Ok(Json(json!({
         "suggestions": suggestions
@@ -819,11 +780,10 @@ pub struct RenameGroupRequest {
 }
 
 async fn get_friend_groups(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let groups: Vec<serde_json::Value> =
-        state.services.extensions.friend_room_service.get_friend_groups(&auth_user.user_id).await?;
+    let groups: Vec<serde_json::Value> = ctx.friend_room_service.get_friend_groups(&auth_user.user_id).await?;
 
     Ok(Json(json!({
         "groups": groups
@@ -831,7 +791,7 @@ async fn get_friend_groups(
 }
 
 async fn create_friend_group(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<CreateGroupRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -839,28 +799,27 @@ async fn create_friend_group(
         return Err(ApiError::bad_request("Group name must be between 1 and 50 characters".to_string()));
     }
 
-    let group: serde_json::Value =
-        state.services.extensions.friend_room_service.create_friend_group(&auth_user.user_id, &body.name).await?;
+    let group: serde_json::Value = ctx.friend_room_service.create_friend_group(&auth_user.user_id, &body.name).await?;
 
     Ok(Json(group))
 }
 
 async fn delete_friend_group(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(group_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.extensions.friend_room_service.delete_friend_group(&auth_user.user_id, &group_id).await?;
+    ctx.friend_room_service.delete_friend_group(&auth_user.user_id, &group_id).await?;
 
     Ok(Json(json!({
         "deleted": true,
         "group_id": group_id,
-        "deleted_ts": chrono::Utc::now().timestamp_millis()
+        "deleted_ts": current_timestamp_millis()
     })))
 }
 
 async fn rename_friend_group(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(group_id): Path<String>,
     Json(body): Json<RenameGroupRequest>,
@@ -869,64 +828,54 @@ async fn rename_friend_group(
         return Err(ApiError::bad_request("Group name must be between 1 and 50 characters".to_string()));
     }
 
-    state
-        .services
-        .extensions
-        .friend_room_service
-        .rename_friend_group(&auth_user.user_id, &group_id, &body.name)
-        .await?;
+    ctx.friend_room_service.rename_friend_group(&auth_user.user_id, &group_id, &body.name).await?;
 
     Ok(Json(json!({
         "group_id": group_id,
         "name": body.name,
-        "updated_ts": chrono::Utc::now().timestamp_millis()
+        "updated_ts": current_timestamp_millis()
     })))
 }
 
 async fn add_friend_to_group(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path((group_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
-    state.services.extensions.friend_room_service.add_friend_to_group(&auth_user.user_id, &group_id, &user_id).await?;
+    ctx.friend_room_service.add_friend_to_group(&auth_user.user_id, &group_id, &user_id).await?;
 
     Ok(Json(json!({
         "group_id": group_id,
         "user_id": user_id,
-        "added_ts": chrono::Utc::now().timestamp_millis()
+        "added_ts": current_timestamp_millis()
     })))
 }
 
 async fn remove_friend_from_group(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path((group_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
-    state
-        .services
-        .extensions
-        .friend_room_service
-        .remove_friend_from_group(&auth_user.user_id, &group_id, &user_id)
-        .await?;
+    ctx.friend_room_service.remove_friend_from_group(&auth_user.user_id, &group_id, &user_id).await?;
 
     Ok(Json(json!({
         "group_id": group_id,
         "user_id": user_id,
-        "removed_ts": chrono::Utc::now().timestamp_millis()
+        "removed_ts": current_timestamp_millis()
     })))
 }
 
 async fn get_friends_in_group(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(group_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let friends: Vec<serde_json::Value> =
-        state.services.extensions.friend_room_service.get_friends_in_group(&auth_user.user_id, &group_id).await?;
+        ctx.friend_room_service.get_friends_in_group(&auth_user.user_id, &group_id).await?;
 
     Ok(Json(json!({
         "friends": friends
@@ -934,14 +883,14 @@ async fn get_friends_in_group(
 }
 
 async fn get_groups_for_user(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
     let groups: Vec<serde_json::Value> =
-        state.services.extensions.friend_room_service.get_groups_for_user(&auth_user.user_id, &user_id).await?;
+        ctx.friend_room_service.get_groups_for_user(&auth_user.user_id, &user_id).await?;
 
     Ok(Json(json!({
         "groups": groups
@@ -949,13 +898,12 @@ async fn get_groups_for_user(
 }
 
 async fn get_friend_dm(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    let room_id: Option<String> =
-        state.services.extensions.friend_room_service.get_existing_dm_room_id(&auth_user.user_id, &user_id).await?;
+    let room_id: Option<String> = ctx.friend_room_service.get_existing_dm_room_id(&auth_user.user_id, &user_id).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -964,7 +912,7 @@ async fn get_friend_dm(
 }
 
 async fn create_friend_dm(
-    State(state): State<AppState>,
+    State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
@@ -987,9 +935,7 @@ async fn create_friend_dm(
         power_level_content_override: None,
     };
 
-    let result: synapse_services::friend_room_service::EnsureDirectRoomResult = state
-        .services
-        .extensions
+    let result: synapse_services::friend_room_service::EnsureDirectRoomResult = ctx
         .friend_room_service
         .ensure_direct_room(&auth_user.user_id, &user_id, config, Some(&auth_user.user_id))
         .await?;

@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_storage::token::AccessTokenStorage;
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -17,7 +18,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
             password_hash TEXT,
             is_admin BOOLEAN DEFAULT FALSE,
             is_guest BOOLEAN DEFAULT FALSE,
-            creation_ts BIGINT NOT NULL,
+            created_ts BIGINT NOT NULL,
             deactivated BOOLEAN DEFAULT FALSE,
             displayname TEXT,
             avatar_url TEXT
@@ -69,10 +70,10 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 }
 
 async fn insert_test_user(pool: &Arc<sqlx::PgPool>, user_id: &str, suffix: u64) {
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(user_id)
         .bind(format!("atuser{suffix}"))
-        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(current_timestamp_millis())
         .execute(pool.as_ref())
         .await
         .unwrap();
@@ -90,7 +91,7 @@ async fn test_create_token_with_device() {
 
     let token_str = format!("syt_token_{suffix}");
     let device_id = format!("DEVICE_{suffix}");
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     let token = storage.create_token(&token_str, &user_id, Some(&device_id), Some(future_ts)).await.unwrap();
 
@@ -584,7 +585,7 @@ async fn test_cleanup_expired_blacklist_entries() {
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@at_user_{suffix}:localhost");
-    let past_ts = chrono::Utc::now().timestamp_millis() - 3_600_000;
+    let past_ts = current_timestamp_millis() - 3_600_000;
 
     sqlx::query(
         r#"
@@ -611,7 +612,7 @@ async fn test_cleanup_expired_blacklist_keeps_valid_entries() {
     let storage = AccessTokenStorage::new(&pool);
     let suffix = unique_id();
     let user_id = format!("@at_user_{suffix}:localhost");
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     sqlx::query(
         r#"
@@ -640,8 +641,8 @@ async fn test_cleanup_expired_tokens() {
     let user_id = format!("@at_user_{suffix}:localhost");
     insert_test_user(&pool, &user_id, suffix).await;
 
-    let past_ts = chrono::Utc::now().timestamp_millis() - 3_600_000;
-    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let past_ts = current_timestamp_millis() - 3_600_000;
+    let future_ts = current_timestamp_millis() + 3_600_000;
 
     let expired_token = format!("syt_expired_{suffix}");
     let active_token = format!("syt_active_{suffix}");

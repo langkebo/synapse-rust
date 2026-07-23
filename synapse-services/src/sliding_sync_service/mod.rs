@@ -3,9 +3,10 @@ use std::sync::Arc;
 use std::time::Instant;
 use synapse_cache::CacheManager;
 use synapse_common::config::PerformanceConfig;
+use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use synapse_common::metrics::MetricsCollector;
-use synapse_e2ee::device_keys::DeviceKeyStorage;
+use synapse_e2ee::device_keys::DeviceKeyStoreApi;
 use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse, SlidingSyncStoreApi};
 
@@ -34,8 +35,8 @@ const SLIDING_SYNC_SLOW_REQUESTS_COUNTER: &str = "sliding_sync_slow_requests_tot
 pub struct SlidingSyncService {
     storage: Arc<dyn SlidingSyncStoreApi>,
     cache: Arc<CacheManager>,
-    event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
-    device_key_storage: DeviceKeyStorage,
+    event_reader: Arc<dyn synapse_storage::event::EventReader>,
+    device_key_storage: Arc<dyn DeviceKeyStoreApi>,
     typing_service: Arc<crate::typing_service::TypingService>,
     presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
@@ -76,8 +77,8 @@ impl SlidingSyncService {
     pub fn new(
         storage: Arc<dyn SlidingSyncStoreApi>,
         cache: Arc<CacheManager>,
-        event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
-        device_key_storage: DeviceKeyStorage,
+        event_reader: Arc<dyn synapse_storage::event::EventReader>,
+        device_key_storage: Arc<dyn DeviceKeyStoreApi>,
         typing_service: Arc<crate::typing_service::TypingService>,
         presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
         member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
@@ -93,7 +94,7 @@ impl SlidingSyncService {
         Self {
             storage,
             cache,
-            event_storage,
+            event_reader,
             device_key_storage,
             typing_service,
             presence_storage,
@@ -211,7 +212,7 @@ impl SlidingSyncService {
         self.gc_expired_connections(user_id, device_id).await;
 
         // Touch the connection in the LRU tracker (records last access time).
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let tracker_key = Self::connection_tracker_key(user_id, device_id, conn_id);
         self.connection_tracker.insert(tracker_key, now);
 

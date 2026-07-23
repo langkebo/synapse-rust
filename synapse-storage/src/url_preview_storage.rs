@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
 
@@ -13,7 +14,15 @@ pub struct UrlPreviewCache {
     pub og_site_name: Option<String>,
     pub og_type: Option<String>,
     pub created_ts: i64,
-    pub expires_ts: i64,
+    pub expires_at: i64,
+}
+
+/// Trait abstraction over [`UrlPreviewStorage`] for testability.
+#[async_trait]
+pub trait UrlPreviewStoreApi: Send + Sync {
+    async fn get_cached_preview(&self, url: &str, now_ts: i64) -> Result<Option<UrlPreviewCache>, sqlx::Error>;
+    async fn save_preview(&self, preview: &UrlPreviewCache) -> Result<(), sqlx::Error>;
+    async fn cleanup_expired_previews(&self, now_ts: i64) -> Result<u64, sqlx::Error>;
 }
 
 #[derive(Debug, Clone)]
@@ -31,9 +40,9 @@ impl UrlPreviewStorage {
             r#"
             SELECT url, title, description, og_title, og_image,
                    og_image_width, og_image_height, og_site_name, og_type,
-                   created_ts, expires_ts
+                   created_ts, expires_at
             FROM url_preview_cache
-            WHERE url = $1 AND expires_ts > $2
+            WHERE url = $1 AND expires_at > $2
             "#,
         )
         .bind(url)
@@ -48,7 +57,7 @@ impl UrlPreviewStorage {
             INSERT INTO url_preview_cache (
                 url, title, description, og_title, og_image,
                 og_image_width, og_image_height, og_site_name, og_type,
-                created_ts, expires_ts
+                created_ts, expires_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (url) DO UPDATE SET
@@ -61,7 +70,7 @@ impl UrlPreviewStorage {
                 og_site_name = EXCLUDED.og_site_name,
                 og_type = EXCLUDED.og_type,
                 created_ts = EXCLUDED.created_ts,
-                expires_ts = EXCLUDED.expires_ts
+                expires_at = EXCLUDED.expires_at
             "#,
         )
         .bind(&preview.url)
@@ -74,7 +83,7 @@ impl UrlPreviewStorage {
         .bind(&preview.og_site_name)
         .bind(&preview.og_type)
         .bind(preview.created_ts)
-        .bind(preview.expires_ts)
+        .bind(preview.expires_at)
         .execute(self.pool.as_ref())
         .await?;
         Ok(())
@@ -84,13 +93,26 @@ impl UrlPreviewStorage {
         let result = sqlx::query(
             r#"
             DELETE FROM url_preview_cache
-            WHERE expires_ts <= $1
+            WHERE expires_at <= $1
             "#,
         )
         .bind(now_ts)
         .execute(self.pool.as_ref())
         .await?;
         Ok(result.rows_affected())
+    }
+}
+
+#[async_trait]
+impl UrlPreviewStoreApi for UrlPreviewStorage {
+    async fn get_cached_preview(&self, url: &str, now_ts: i64) -> Result<Option<UrlPreviewCache>, sqlx::Error> {
+        self.get_cached_preview(url, now_ts).await
+    }
+    async fn save_preview(&self, preview: &UrlPreviewCache) -> Result<(), sqlx::Error> {
+        self.save_preview(preview).await
+    }
+    async fn cleanup_expired_previews(&self, now_ts: i64) -> Result<u64, sqlx::Error> {
+        self.cleanup_expired_previews(now_ts).await
     }
 }
 
@@ -110,7 +132,7 @@ mod tests {
             og_site_name: Some("Example Site".to_string()),
             og_type: Some("website".to_string()),
             created_ts: 1700000000000,
-            expires_ts: 1700003600000,
+            expires_at: 1700003600000,
         }
     }
 
@@ -127,7 +149,7 @@ mod tests {
         assert_eq!(preview.og_site_name.as_deref(), Some("Example Site"));
         assert_eq!(preview.og_type.as_deref(), Some("website"));
         assert_eq!(preview.created_ts, 1700000000000);
-        assert_eq!(preview.expires_ts, 1700003600000);
+        assert_eq!(preview.expires_at, 1700003600000);
     }
 
     #[test]
@@ -152,7 +174,7 @@ mod tests {
             og_site_name: None,
             og_type: None,
             created_ts: 1700000000000,
-            expires_ts: 1700003600000,
+            expires_at: 1700003600000,
         };
         assert!(preview.title.is_none());
         assert!(preview.description.is_none());
@@ -162,11 +184,11 @@ mod tests {
     #[test]
     fn test_url_preview_expiry_check() {
         let preview = sample_preview();
-        // expires_ts = 1700003600000
+        // expires_at = 1700003600000
         // Before expiry
-        assert!(1700000000000 < preview.expires_ts);
+        assert!(1700000000000 < preview.expires_at);
         // After expiry
-        assert!(1700004000000 > preview.expires_ts);
+        assert!(1700004000000 > preview.expires_at);
     }
 }
 
@@ -193,7 +215,7 @@ mod db_tests {
             .await;
     }
 
-    fn make_preview(url: &str, created_ts: i64, expires_ts: i64) -> UrlPreviewCache {
+    fn make_preview(url: &str, created_ts: i64, expires_at: i64) -> UrlPreviewCache {
         UrlPreviewCache {
             url: url.to_string(),
             title: Some("Test Title".to_string()),
@@ -205,7 +227,7 @@ mod db_tests {
             og_site_name: Some("Example".to_string()),
             og_type: Some("article".to_string()),
             created_ts,
-            expires_ts,
+            expires_at,
         }
     }
 
@@ -227,7 +249,7 @@ mod db_tests {
         // Save
         storage.save_preview(&preview).await.expect("save_preview should succeed");
 
-        // Retrieve with a timestamp between created_ts and expires_ts
+        // Retrieve with a timestamp between created_ts and expires_at
         let found = storage
             .get_cached_preview(&url, BASE_TS + 1000)
             .await
@@ -244,7 +266,7 @@ mod db_tests {
         assert_eq!(found.og_site_name.as_deref(), Some("Example"));
         assert_eq!(found.og_type.as_deref(), Some("article"));
         assert_eq!(found.created_ts, BASE_TS);
-        assert_eq!(found.expires_ts, BASE_TS + ONE_HOUR_MS);
+        assert_eq!(found.expires_at, BASE_TS + ONE_HOUR_MS);
 
         cleanup_by_prefix(&pool, &prefix).await;
     }
@@ -273,11 +295,11 @@ mod db_tests {
 
         cleanup_by_prefix(&pool, &prefix).await;
 
-        // Save a preview with expires_ts in the past relative to our lookup time
+        // Save a preview with expires_at in the past relative to our lookup time
         let preview = make_preview(&url, BASE_TS, BASE_TS + ONE_HOUR_MS);
         storage.save_preview(&preview).await.expect("save_preview should succeed");
 
-        // Query with now_ts after expires_ts — should return None
+        // Query with now_ts after expires_at — should return None
         let found = storage
             .get_cached_preview(&url, BASE_TS + ONE_HOUR_MS + 1)
             .await
@@ -314,7 +336,7 @@ mod db_tests {
             og_site_name: None,
             og_type: None,
             created_ts: BASE_TS + 5000,
-            expires_ts: BASE_TS + 2 * ONE_HOUR_MS,
+            expires_at: BASE_TS + 2 * ONE_HOUR_MS,
         };
         storage.save_preview(&preview2).await.expect("second save (upsert) should succeed");
 
@@ -330,7 +352,7 @@ mod db_tests {
         assert_eq!(found.og_title.as_deref(), Some("Updated OG"));
         assert!(found.og_image.is_none(), "og_image should be updated to None");
         assert_eq!(found.created_ts, BASE_TS + 5000);
-        assert_eq!(found.expires_ts, BASE_TS + 2 * ONE_HOUR_MS);
+        assert_eq!(found.expires_at, BASE_TS + 2 * ONE_HOUR_MS);
 
         // Verify only one row exists for this URL
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*)::bigint FROM url_preview_cache WHERE url = $1")
@@ -361,7 +383,7 @@ mod db_tests {
         storage.save_preview(&alive).await.expect("alive save should succeed");
 
         // Preview that expires at cutoff boundary (exclusive for get, inclusive for cleanup)
-        // expires_ts = cleanup_ts means it IS expired for cleanup purposes
+        // expires_at = cleanup_ts means it IS expired for cleanup purposes
         let dead1 = make_preview(&url_dead1, BASE_TS, BASE_TS + ONE_HOUR_MS);
         storage.save_preview(&dead1).await.expect("dead1 save should succeed");
 
@@ -370,9 +392,9 @@ mod db_tests {
         storage.save_preview(&dead2).await.expect("dead2 save should succeed");
 
         // Cleanup with cutoff at BASE_TS + ONE_HOUR_MS
-        // dead1 has expires_ts = BASE_TS + ONE_HOUR_MS (<= cutoff, gets deleted)
-        // dead2 has expires_ts = BASE_TS - ONE_HOUR_MS (< cutoff, gets deleted)
-        // alive has expires_ts = BASE_TS + 10 * ONE_HOUR_MS (> cutoff, stays)
+        // dead1 has expires_at = BASE_TS + ONE_HOUR_MS (<= cutoff, gets deleted)
+        // dead2 has expires_at = BASE_TS - ONE_HOUR_MS (< cutoff, gets deleted)
+        // alive has expires_at = BASE_TS + 10 * ONE_HOUR_MS (> cutoff, stays)
         let deleted = storage.cleanup_expired_previews(BASE_TS + ONE_HOUR_MS).await.expect("cleanup should succeed");
         assert!(deleted >= 2, "should delete at least 2 expired previews");
 
@@ -413,7 +435,7 @@ mod db_tests {
             og_site_name: None,
             og_type: None,
             created_ts: BASE_TS,
-            expires_ts: BASE_TS + ONE_HOUR_MS,
+            expires_at: BASE_TS + ONE_HOUR_MS,
         };
         storage.save_preview(&minimal).await.expect("save should succeed");
 
@@ -433,7 +455,7 @@ mod db_tests {
         assert!(found.og_site_name.is_none());
         assert!(found.og_type.is_none());
         assert_eq!(found.created_ts, BASE_TS);
-        assert_eq!(found.expires_ts, BASE_TS + ONE_HOUR_MS);
+        assert_eq!(found.expires_at, BASE_TS + ONE_HOUR_MS);
 
         cleanup_by_prefix(&pool, &prefix).await;
     }

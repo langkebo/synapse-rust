@@ -1,6 +1,7 @@
 use crate::common::{ApiError, PresenceState, MAX_MESSAGE_LENGTH};
+use crate::web::routes::context::RoomContext;
 use crate::web::routes::response_helpers::filter_users_with_shared_rooms;
-use crate::web::routes::{validate_user_id, AppState, AuthenticatedUser};
+use crate::web::routes::{validate_user_id, AuthenticatedUser};
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, State},
@@ -8,12 +9,13 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::collections::HashSet;
+use synapse_common::current_timestamp_millis;
 
 /// 把 `last_active_ts`（绝对时间戳，ms）换算为：
 /// - `last_active_ago`：距离现在的毫秒数（presence != offline 时有意义）
 /// - `currently_active`：是否在近 5 分钟内有活动（presence 为 online 时才可能 true）
 fn derive_activity(presence: &PresenceState, last_active_ts: Option<i64>) -> (Option<i64>, Option<bool>) {
-    let now = chrono::Utc::now().timestamp_millis();
+    let now = current_timestamp_millis();
     presence.derive_activity(last_active_ts, now)
 }
 
@@ -26,7 +28,7 @@ fn ensure_presence_access(auth_user: &AuthenticatedUser, target_user_id: &str) -
 }
 
 async fn ensure_presence_access_or_shared_room(
-    state: &AppState,
+    ctx: &RoomContext,
     auth_user: &AuthenticatedUser,
     target_user_id: &str,
 ) -> Result<(), ApiError> {
@@ -34,8 +36,7 @@ async fn ensure_presence_access_or_shared_room(
         return Ok(());
     }
 
-    let shared =
-        state.services.rooms.room_service.membership.share_common_room(&auth_user.user_id, target_user_id).await?;
+    let shared = ctx.room_service.membership().share_common_room(&auth_user.user_id, target_user_id).await?;
 
     if !shared {
         return Err(ApiError::forbidden("Access denied".to_string()));
@@ -44,23 +45,23 @@ async fn ensure_presence_access_or_shared_room(
     Ok(())
 }
 
-async fn filter_visible_presence_targets(state: &AppState, current_user_id: &str, targets: &[String]) -> Vec<String> {
-    let allowed = filter_users_with_shared_rooms(state, current_user_id, targets).await;
+async fn filter_visible_presence_targets(ctx: &RoomContext, current_user_id: &str, targets: &[String]) -> Vec<String> {
+    let allowed = filter_users_with_shared_rooms(&ctx.room_service, current_user_id, targets).await;
 
     targets.iter().filter(|target_id| allowed.contains(*target_id)).cloned().collect()
 }
 
 pub(crate) async fn get_presence(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    ensure_presence_access_or_shared_room(&state, &auth_user, &user_id).await?;
+    ensure_presence_access_or_shared_room(&ctx, &auth_user, &user_id).await?;
 
-    state.services.account.account_identity_service.ensure_active_user_exists(&user_id).await?;
+    ctx.account_identity_service.ensure_active_user_exists(&user_id).await?;
 
-    let presence = state.services.account.presence_service.get_presence_with_meta(&user_id).await?;
+    let presence = ctx.presence_service.get_presence_with_meta(&user_id).await?;
 
     match presence {
         Some((presence_state, status_msg, last_active_ts)) => {
@@ -83,7 +84,7 @@ pub(crate) async fn get_presence(
 }
 
 pub(crate) async fn set_presence(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
     Json(body): Json<Value>,
@@ -113,13 +114,13 @@ pub(crate) async fn set_presence(
         }
     }
 
-    state.services.account.presence_service.set_presence(&user_id, presence_state.as_str(), status_msg).await?;
+    ctx.presence_service.set_presence(&user_id, presence_state.as_str(), status_msg).await?;
 
     Ok(Json(json!({})))
 }
 
 pub(crate) async fn presence_list(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
@@ -136,10 +137,10 @@ pub(crate) async fn presence_list(
             }
         }
 
-        let visible_targets = filter_visible_presence_targets(&state, user_id, &requested_targets).await;
+        let visible_targets = filter_visible_presence_targets(&ctx, user_id, &requested_targets).await;
 
         for target_id in visible_targets {
-            if let Err(e) = state.services.account.presence_service.add_subscription(user_id, &target_id).await {
+            if let Err(e) = ctx.presence_service.add_subscription(user_id, &target_id).await {
                 ::tracing::warn!(
                     request_id = %request_id,
                     user_id = %user_id,
@@ -156,7 +157,7 @@ pub(crate) async fn presence_list(
             if let Some(target_id) = target.as_str() {
                 validate_user_id(target_id)?;
 
-                if let Err(e) = state.services.account.presence_service.remove_subscription(user_id, target_id).await {
+                if let Err(e) = ctx.presence_service.remove_subscription(user_id, target_id).await {
                     ::tracing::warn!(
                         request_id = %request_id,
                         user_id = %user_id,
@@ -169,10 +170,10 @@ pub(crate) async fn presence_list(
         }
     }
 
-    let subscriptions = state.services.account.presence_service.get_subscriptions(user_id).await?;
-    let subscriptions = filter_visible_presence_targets(&state, user_id, &subscriptions).await;
+    let subscriptions = ctx.presence_service.get_subscriptions(user_id).await?;
+    let subscriptions = filter_visible_presence_targets(&ctx, user_id, &subscriptions).await;
 
-    let presence_batch = state.services.account.presence_service.get_presence_batch_with_meta(&subscriptions).await?;
+    let presence_batch = ctx.presence_service.get_presence_batch_with_meta(&subscriptions).await?;
 
     let mut presences = Vec::new();
 
@@ -210,15 +211,15 @@ pub(crate) async fn presence_list(
 }
 
 pub(crate) async fn get_presence_list_no_path(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    let subscriptions = state.services.account.presence_service.get_subscriptions(user_id).await?;
-    let subscriptions = filter_visible_presence_targets(&state, user_id, &subscriptions).await;
+    let subscriptions = ctx.presence_service.get_subscriptions(user_id).await?;
+    let subscriptions = filter_visible_presence_targets(&ctx, user_id, &subscriptions).await;
 
-    let presence_batch = state.services.account.presence_service.get_presence_batch_with_meta(&subscriptions).await?;
+    let presence_batch = ctx.presence_service.get_presence_batch_with_meta(&subscriptions).await?;
 
     let mut presences = Vec::new();
 
@@ -255,17 +256,17 @@ pub(crate) async fn get_presence_list_no_path(
 }
 
 pub(crate) async fn get_presence_list(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     ensure_presence_access(&auth_user, &user_id)?;
 
-    let subscriptions = state.services.account.presence_service.get_subscriptions(&user_id).await?;
-    let subscriptions = filter_visible_presence_targets(&state, &user_id, &subscriptions).await;
+    let subscriptions = ctx.presence_service.get_subscriptions(&user_id).await?;
+    let subscriptions = filter_visible_presence_targets(&ctx, &user_id, &subscriptions).await;
 
-    let presence_batch = state.services.account.presence_service.get_presence_batch_with_meta(&subscriptions).await?;
+    let presence_batch = ctx.presence_service.get_presence_batch_with_meta(&subscriptions).await?;
 
     let mut presences = Vec::new();
 

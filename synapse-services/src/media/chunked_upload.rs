@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::media::{ChunkedUploadStorage, CreateChunkedUploadRequest, StoreUploadChunkRequest};
 use tracing::{debug, info};
@@ -39,7 +40,7 @@ impl ChunkedUploadService {
         total_chunks: i32,
     ) -> Result<String, ApiError> {
         let upload_id = Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let expires_at = now + (self.upload_expiry_seconds * 1000);
 
         self.storage
@@ -103,7 +104,7 @@ impl ChunkedUploadService {
             return Err(ApiError::bad_request(format!("Upload is in {} state", progress.status)));
         }
 
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         let chunk_size = request.chunk_data.len() as i64;
 
         self.storage
@@ -173,7 +174,7 @@ impl ChunkedUploadService {
     }
 
     pub async fn mark_upload_finalized(&self, upload_id: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
+        let now = current_timestamp_millis();
         self.storage.finalize_upload(upload_id, now).await?;
 
         info!(upload_id = %upload_id, "Finalized chunked upload and cleaned chunks");

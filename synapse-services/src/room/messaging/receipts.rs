@@ -2,6 +2,7 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
+use synapse_common::current_timestamp_millis;
 use synapse_storage::Receipt;
 
 use super::service::MessagingService;
@@ -20,7 +21,7 @@ impl MessagingService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to store receipt", &e))?;
 
-        let now_ts = chrono::Utc::now().timestamp_millis();
+        let now_ts = current_timestamp_millis();
         let mut receipt_entry = body.as_object().cloned().unwrap_or_default();
         receipt_entry.insert("ts".to_string(), json!(now_ts));
         let receipt_content = json!({
@@ -31,12 +32,12 @@ impl MessagingService {
             }
         });
 
-        self.event_storage
+        self.event_writer
             .add_ephemeral_event(room_id, user_id, "m.receipt", &receipt_content, now_ts)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to store ephemeral receipt", &e))?;
 
-        if let Some(event_broadcaster) = self.event_broadcaster.read().await.clone() {
+        if let Some(event_broadcaster) = &self.event_broadcaster {
             let receipt_edu = json!({
                 "edu_type": "m.receipt",
                 "room_id": room_id,
