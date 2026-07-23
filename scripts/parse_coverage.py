@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Parse tarpaulin JSON report and print coverage summary."""
+
 import json
 import sys
 from collections import defaultdict
@@ -19,14 +20,17 @@ print()
 
 files = data.get("files", [])
 
+
 def get_path(e):
     p = e.get("path", "")
     if isinstance(p, list):
         return "/".join(p)
     return str(p)
 
+
 def is_test_file(path):
     return "/tests/" in path or path.endswith("_test.rs") or "/test_" in path
+
 
 # Split into source vs test files
 src_files = []
@@ -44,8 +48,12 @@ test_covered = sum(e.get("covered", 0) for e in test_files)
 test_coverable = sum(e.get("coverable", 0) for e in test_files)
 
 print(f"=== Source vs Test ===")
-print(f"  Source: {src_covered}/{src_coverable} = {src_covered/max(src_coverable,1):.2%}  ({len(src_files)} files)")
-print(f"  Test:   {test_covered}/{test_coverable} = {test_covered/max(test_coverable,1):.2%}  ({len(test_files)} files)")
+print(
+    f"  Source: {src_covered}/{src_coverable} = {src_covered / max(src_coverable, 1):.2%}  ({len(src_files)} files)"
+)
+print(
+    f"  Test:   {test_covered}/{test_coverable} = {test_covered / max(test_coverable, 1):.2%}  ({len(test_files)} files)"
+)
 print()
 
 # Group by crate
@@ -69,14 +77,20 @@ for e in files:
     crate_stats[crate]["files"] += 1
 
 print("=== Coverage by crate ===")
-for crate, stats in sorted(crate_stats.items(), key=lambda x: x[1]["coverable"], reverse=True):
+for crate, stats in sorted(
+    crate_stats.items(), key=lambda x: x[1]["coverable"], reverse=True
+):
     cr = stats["covered"] / max(stats["coverable"], 1)
-    print(f"  {crate:40s} {stats['covered']:6d}/{stats['coverable']:6d} = {cr:6.1%}  ({stats['files']} files)")
+    print(
+        f"  {crate:40s} {stats['covered']:6d}/{stats['coverable']:6d} = {cr:6.1%}  ({stats['files']} files)"
+    )
 
 print()
 print("=== Lowest 20 source files (coverable >= 30) ===")
 eligible = [e for e in src_files if e.get("coverable", 0) >= 30]
-for e in sorted(eligible, key=lambda x: x.get("covered", 0) / max(x.get("coverable", 1), 1))[:20]:
+for e in sorted(
+    eligible, key=lambda x: x.get("covered", 0) / max(x.get("coverable", 1), 1)
+)[:20]:
     path = get_path(e)
     fc = e.get("covered", 0)
     fcb = e.get("coverable", 0)
@@ -87,7 +101,9 @@ for e in sorted(eligible, key=lambda x: x.get("covered", 0) / max(x.get("coverab
 
 print()
 print("=== Highest 10 source files (coverable >= 30) ===")
-for e in sorted(eligible, key=lambda x: x.get("covered", 0) / max(x.get("coverable", 1), 1))[-10:]:
+for e in sorted(
+    eligible, key=lambda x: x.get("covered", 0) / max(x.get("coverable", 1), 1)
+)[-10:]:
     path = get_path(e)
     fc = e.get("covered", 0)
     fcb = e.get("coverable", 0)

@@ -31,30 +31,30 @@
    ```python
    import hmac
    import hashlib
-   
+
    shared_secret = "test_shared_secret"
    nonce = "EvLl3H2_TaayB4kiG1rowvdokrG4qusJ-jXc1xnr5PmDUSgb3OURPUyRHDeY34PFKj9ps3CAsbgNhyRN5dDPkQ"
    username = "admin"
    password = "Wzc9890951!"
    admin = True
    user_type = None
-   
+
    # 构建消息
-   message = nonce.encode('utf-8')
-   message += b'\x00'
-   message += username.encode('utf-8')
-   message += b'\x00'
-   message += password.encode('utf-8')
-   message += b'\x00'
-   message += b'admin\x00\x00\x00' if admin else b'notadmin'
-   
+   message = nonce.encode("utf-8")
+   message += b"\x00"
+   message += username.encode("utf-8")
+   message += b"\x00"
+   message += password.encode("utf-8")
+   message += b"\x00"
+   message += b"admin\x00\x00\x00" if admin else b"notadmin"
+
    # 只有当user_type存在时才添加
    if user_type:
-       message += b'\x00'
-       message += user_type.encode('utf-8')
-   
+       message += b"\x00"
+       message += user_type.encode("utf-8")
+
    # 计算HMAC
-   key = shared_secret.encode('utf-8')
+   key = shared_secret.encode("utf-8")
    mac = hmac.new(key, message, hashlib.sha256)
    mac_hex = mac.hexdigest()
    ```

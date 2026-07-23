@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Inspect tarpaulin JSON structure."""
+
 import json
 
 with open("coverage/tarpaulin-report.json") as f:
