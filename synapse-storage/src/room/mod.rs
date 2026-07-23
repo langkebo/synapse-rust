@@ -5,6 +5,17 @@ pub(crate) mod models;
 pub use api::RoomStoreApi;
 pub use models::*;
 
+// Room domain group — re-exports room-related storage modules under `room::`.
+// Consumers should prefer `synapse_storage::room::RoomMemberStorage` over the
+// flat `synapse_storage::RoomMemberStorage`.
+pub use crate::membership::{MemberStoreApi, RoomMember, RoomMemberStorage, UserRoomMembership};
+pub use crate::room_account_data::{RoomAccountDataRecord, RoomAccountDataStorage, RoomAccountDataStoreApi};
+pub use crate::state_groups::StateGroupStoreApi;
+pub use crate::thread::{
+    CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadReadReceipt, ThreadRelation, ThreadReply,
+    ThreadRoot, ThreadStatistics, ThreadStorage, ThreadStoreApi, ThreadSubscription, ThreadSummary, ThreadWithReplies,
+};
+
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;

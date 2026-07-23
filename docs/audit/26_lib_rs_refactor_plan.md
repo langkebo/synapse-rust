@@ -158,7 +158,7 @@
 | **P0** ✅ | admin 域分组（services） | 低 | `admin.rs`（已完成） |
 | **P1** ✅ | admin 域分组（storage） | 低 | 新建 `storage/admin/mod.rs`（已完成 ed81210f） |
 | **P2** ✅ | e2ee 域分组（storage） | 低 | 新建 `storage/e2ee/mod.rs`（已完成 35ea9b51） |
-| **P3** ⏭️ | room 域分组（storage） | 中 | 新建 `storage/room/mod.rs`（跳过：room/mod.rs 1800+ 行风险过高） |
+| **P3** ✅ | room 域分组（storage） | 中 | 扩展 `storage/room/mod.rs`（已完成） |
 | **P4** ✅ | auth 域分组（storage） | 中 | 新建 `storage/auth/mod.rs`（已完成 162741dd） |
 | **P5** ✅ | sync 域分组（services） | 中 | 新建 `services/sync/mod.rs`（已完成 a2dd9a2c） |
 | **P6** ✅ | prelude 模块 | 低 | 新建 `prelude.rs`（已完成） |

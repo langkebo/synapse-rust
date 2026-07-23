@@ -161,13 +161,13 @@ pub use self::media_quota::{
     CreateQuotaConfigRequest, MediaQuotaAlert, MediaQuotaConfig, MediaQuotaStorage, MediaQuotaStoreApi, MediaUsageLog,
     QuotaCheckResult, ServerMediaQuota, SetUserQuotaRequest, UpdateUsageRequest, UserMediaQuota,
 };
+pub use self::room::*;
 pub use admin::*; // admin domain group (backward-compat flat re-export)
 pub use auth::*; // auth domain group (backward-compat flat re-export)
-pub use e2ee::*; // e2ee domain group (backward-compat flat re-export)
+pub use e2ee::*; // e2ee domain group (backward-compat flat re-export) // room domain group (backward-compat flat re-export)
 
 // Quarantine stream storage
 pub use self::media::quarantine_stream::QuarantinedMediaChangeStoreApi;
-pub use self::membership::{MemberStoreApi, RoomMember, RoomMemberStorage, UserRoomMembership};
 pub use self::moderation::{
     ContentScanResult, ContentType, CreateModerationRuleParams, MatchedRule, ModerationAction, ModerationLog,
     ModerationLogStorage, ModerationLogStoreApi, ModerationRule, ModerationRuleType, ModerationStorage,
@@ -193,11 +193,6 @@ pub use self::rendezvous::{
     RendezvousLoginUser, RendezvousMessage, RendezvousMessageStorage, RendezvousMessageStoreApi, RendezvousSession,
     RendezvousStorage, RendezvousStoreApi, RendezvousTransport, StoredRendezvousMessage,
 };
-pub use self::room::{
-    decode_room_search_cursor, encode_room_search_cursor, Receipt, Room, RoomEncryptionStatus, RoomSearchCursor,
-    RoomSearchOrder, RoomStorage, RoomStoreApi, RoomUnreadCounts, DEFAULT_HISTORY_VISIBILITY, DEFAULT_JOIN_RULE,
-};
-pub use self::room_account_data::{RoomAccountDataRecord, RoomAccountDataStorage, RoomAccountDataStoreApi};
 pub use self::schema_validator::{SchemaValidationResult, SchemaValidator, TableSchemaInfo};
 pub use self::search_index::{
     SearchIndexCursor, SearchIndexEntry, SearchIndexStats, SearchIndexStorage, SearchIndexStoreApi, SearchQuery,
@@ -215,10 +210,6 @@ pub use self::space::{
     SpaceStoreApi, SpaceSummary, UpdateSpaceRequest,
 };
 pub use self::sticky_event::{StickyEvent, StickyEventStorage, StickyEventStoreApi};
-pub use self::thread::{
-    CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadReadReceipt, ThreadRelation, ThreadReply,
-    ThreadRoot, ThreadStatistics, ThreadStorage, ThreadStoreApi, ThreadSubscription, ThreadSummary, ThreadWithReplies,
-};
 pub use self::worker::{
     AssignTaskRequest, HeartbeatRequest, RdataEvent, RdataPosition, RegisterWorkerRequest, ReplicationPosition,
     SendCommandRequest, StreamPosition, UpdateConnectionStatsRequest, WorkerCapabilities, WorkerCommand,
@@ -232,7 +223,6 @@ pub use self::worker::{
 pub use self::federation_queue::FederationQueueStoreApi;
 pub use self::oauth_client_storage::OAuthClientStoreApi;
 pub use self::oidc_session_storage::OidcSessionStoreApi;
-pub use self::state_groups::StateGroupStoreApi;
 pub use self::url_preview_storage::UrlPreviewStoreApi;
 
 // Feature-gated re-exports
