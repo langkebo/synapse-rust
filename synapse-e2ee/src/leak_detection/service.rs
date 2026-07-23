@@ -1,11 +1,11 @@
 // Session Leak Detection Service
 // E2EE Phase 2: Detect potential session key leaks
 
-use synapse_common::current_timestamp_millis;
 use crate::megolm::MegolmSession;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use synapse_common::ApiError;
+use synapse_common::current_timestamp_millis;
 
 pub struct LeakDetectionService {
     storage: Arc<LeakDetectionStorage>,
