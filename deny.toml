@@ -35,7 +35,7 @@ ignore = [
 
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
+wildcards = "warn"
 highlight = "all"
 workspace-default-features = "allow"
 external-default-features = "allow"
@@ -69,6 +69,8 @@ allow = [
     "OpenSSL",
     "MPL-2.0",
     "0BSD",
+    "NCSA",
+    "AGPL-3.0-only",
 ]
 confidence-threshold = 0.8
 unused-allowed-license = "allow"

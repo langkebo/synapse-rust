@@ -252,8 +252,12 @@ impl AdminServices {
             Arc::new(crate::worker::WorkerManager::new(worker_storage.clone(), config.server.name.clone()));
 
         let admin_media_storage = Arc::new(AdminMediaStorage::new(pool));
-        let admin_media_service =
-            Arc::new(crate::admin_media_service::AdminMediaService::new(admin_media_storage, user_service.clone()));
+        let quarantine_change_storage = Arc::new(QuarantinedMediaChangeStorage::new(pool));
+        let admin_media_service = Arc::new(crate::admin_media_service::AdminMediaService::new(
+            admin_media_storage,
+            quarantine_change_storage,
+            user_service.clone(),
+        ));
         let rate_limit_storage = Arc::new(RateLimitStorage::new(pool));
         let admin_security_service = Arc::new(crate::admin_security_service::AdminSecurityService::new(
             user_storage.clone(),

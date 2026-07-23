@@ -5,6 +5,7 @@ edition = "2021"
 rust-version = "1.93.0"
 authors = ["Synapse Rust Team"]
 description = "Federation protocol implementation for Synapse Rust"
+license = "AGPL-3.0-only"
 
 [lints.clippy]
 unwrap_used = "deny"

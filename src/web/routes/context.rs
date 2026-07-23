@@ -71,6 +71,7 @@ pub struct RoomContext {
     pub push_notification_service: Arc<synapse_services::push_notification_service::PushNotificationService>,
     pub event_broadcaster: Arc<synapse_federation::EventBroadcaster>,
     pub cross_signing_service: synapse_e2ee::cross_signing::CrossSigningService,
+    #[cfg(feature = "friends")]
     pub friend_room_service: Arc<synapse_services::friend_room_service::models::FriendRoomService>,
     pub metrics: Arc<synapse_common::metrics::MetricsCollector>,
     #[cfg(feature = "beacons")]
@@ -115,6 +116,7 @@ impl FromRef<AppState> for RoomContext {
             push_notification_service: state.services.admin.modules.push_notification_service.clone(),
             event_broadcaster: state.services.core.event_broadcaster.clone(),
             cross_signing_service: state.services.e2ee.cross_signing_service.clone(),
+            #[cfg(feature = "friends")]
             friend_room_service: state.services.extensions.friend_room_service.clone(),
             metrics: state.services.core.metrics.clone(),
             #[cfg(feature = "beacons")]
@@ -688,6 +690,7 @@ impl FromRef<AppState> for SsoContext {
 
 // ── FriendContext ─────────────────────────────────────────────────────────
 
+#[cfg(feature = "friends")]
 #[derive(Clone)]
 pub struct FriendContext {
     pub friend_room_service: Arc<synapse_services::friend_room_service::models::FriendRoomService>,
@@ -705,6 +708,7 @@ pub struct FriendContext {
     pub federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
 }
 
+#[cfg(feature = "friends")]
 impl FromRef<AppState> for FriendContext {
     fn from_ref(state: &AppState) -> Self {
         Self {

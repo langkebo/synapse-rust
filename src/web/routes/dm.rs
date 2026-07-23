@@ -11,7 +11,10 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use synapse_common::current_timestamp_millis;
+#[cfg(feature = "friends")]
 use synapse_services::friend_room_service::FriendRoomCreateRoomConfig;
+#[cfg(not(feature = "friends"))]
+use synapse_services::CreateRoomConfig;
 use validator::Validate;
 
 #[derive(Debug, Deserialize, Validate)]

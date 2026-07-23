@@ -329,6 +329,29 @@ async fn init_template_schema(database_url: &str, template_name: &str) -> Result
     .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
     .map_err(|error| format!("failed to connect admin pool: {error}"))?;
 
+    // Cross-process advisory lock: prevents concurrent init_template_schema
+    // calls from racing when nextest uses process-per-test. The lock key is
+    // a fixed hash of "synapse_test_template_init" — same across processes.
+    // Without this, two processes can simultaneously DROP/CREATE the template
+    // and public schemas, causing "duplicate key value violates unique
+    // constraint pg_namespace_nspname_index" errors.
+    let template_lock_key: i64 = 8723419; // fixed key for template init
+    let lock_start = std::time::Instant::now();
+    loop {
+        let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+            .bind(template_lock_key)
+            .fetch_one(&admin_pool)
+            .await
+            .map_err(|e| format!("failed to acquire template init advisory lock: {e}"))?;
+        if locked {
+            break;
+        }
+        if lock_start.elapsed() > std::time::Duration::from_secs(120) {
+            return Err("timed out waiting for template init advisory lock (another process may be stuck)".to_string());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+
     // Drop if leftover from a previous crash
     let _ = sqlx::query(&format!("DROP SCHEMA IF EXISTS {template_name} CASCADE")).execute(&admin_pool).await;
 
@@ -340,7 +363,7 @@ async fn init_template_schema(database_url: &str, template_name: &str) -> Result
     // We use DROP SCHEMA CASCADE (single operation) instead of per-table DROP
     // to avoid "out of shared memory" when hundreds of leftover tables exist.
     let _ = sqlx::query("DROP SCHEMA IF EXISTS public CASCADE").execute(&admin_pool).await;
-    let _ = sqlx::query("CREATE SCHEMA public").execute(&admin_pool).await;
+    let _ = sqlx::query("CREATE SCHEMA IF NOT EXISTS public").execute(&admin_pool).await;
 
     sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS {template_name}"))
         .execute(&admin_pool)
@@ -408,6 +431,11 @@ async fn init_template_schema(database_url: &str, template_name: &str) -> Result
 
     // Close the template pool — we only need it for initialization
     pool.close().await;
+
+    // Release the cross-process advisory lock. On error paths, the lock is
+    // released automatically when admin_pool (max_connections=1) is dropped
+    // and its connection is closed.
+    let _ = sqlx::query("SELECT pg_advisory_unlock($1)").bind(template_lock_key).execute(&admin_pool).await;
 
     Ok(())
 }
@@ -599,6 +627,10 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
             v_attempts INTEGER;
             v_created INTEGER;
         BEGIN
+            -- Drop any leftover schema with the same name to avoid duplicate key
+            -- errors on CREATE SCHEMA (can happen with clock collisions or
+            -- cross-process races when nextest uses process-per-test).
+            EXECUTE format('DROP SCHEMA IF EXISTS %I CASCADE', '{schema_name}');
             EXECUTE format('CREATE SCHEMA %I', '{schema_name}');
             FOR r IN
                 SELECT tablename FROM pg_tables WHERE schemaname = '{template_name}' ORDER BY tablename

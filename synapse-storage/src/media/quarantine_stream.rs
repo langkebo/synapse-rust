@@ -25,6 +25,17 @@ pub trait QuarantinedMediaChangeStoreApi: Send + Sync {
         limit: i64,
     ) -> Result<Vec<QuarantinedMediaChange>, ApiError>;
 
+    /// Query quarantine changes filtered by `media_id`, for the
+    /// `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes` admin
+    /// endpoint. Returns changes with `stream_id > since_stream_id`, ordered
+    /// ascending, capped by `limit`.
+    async fn get_changes_by_media(
+        &self,
+        media_id: &str,
+        since_stream_id: i64,
+        limit: i64,
+    ) -> Result<Vec<QuarantinedMediaChange>, ApiError>;
+
     async fn set_media_quarantine_status(
         &self,
         media_id: &str,
@@ -101,6 +112,34 @@ impl QuarantinedMediaChangeStorage {
         Ok(changes)
     }
 
+    /// Get quarantine changes for a specific media_id since the given
+    /// stream_id. Backs the `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes`
+    /// admin endpoint.
+    pub async fn get_changes_by_media(
+        &self,
+        media_id: &str,
+        since_stream_id: i64,
+        limit: i64,
+    ) -> Result<Vec<QuarantinedMediaChange>, ApiError> {
+        let changes = sqlx::query_as::<_, QuarantinedMediaChange>(
+            r#"
+            SELECT stream_id, media_id, server_name, change_type, changed_by, created_ts
+            FROM quarantined_media_changes
+            WHERE media_id = $1 AND stream_id > $2
+            ORDER BY stream_id ASC
+            LIMIT $3
+            "#,
+        )
+        .bind(media_id)
+        .bind(since_stream_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get quarantined media changes by media_id", &e))?;
+
+        Ok(changes)
+    }
+
     /// Update the quarantine_status column on media_metadata.
     pub async fn set_media_quarantine_status(
         &self,
@@ -155,6 +194,15 @@ impl QuarantinedMediaChangeStoreApi for QuarantinedMediaChangeStorage {
         limit: i64,
     ) -> Result<Vec<QuarantinedMediaChange>, ApiError> {
         self.get_quarantined_media_changes(since_stream_id, limit).await
+    }
+
+    async fn get_changes_by_media(
+        &self,
+        media_id: &str,
+        since_stream_id: i64,
+        limit: i64,
+    ) -> Result<Vec<QuarantinedMediaChange>, ApiError> {
+        self.get_changes_by_media(media_id, since_stream_id, limit).await
     }
 
     async fn set_media_quarantine_status(

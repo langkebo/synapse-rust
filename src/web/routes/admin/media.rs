@@ -153,13 +153,31 @@ pub async fn delete_user_media(
     Ok(Json(json!({ "deleted": deleted })))
 }
 
-#[allow(clippy::unused_async)]
+#[axum::debug_handler]
 pub async fn get_media_quarantine_changes(
     _admin: AdminUser,
-    State(_ctx): State<AdminContext>,
-    Path(_media_id): Path<String>,
+    State(ctx): State<AdminContext>,
+    Path(media_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    // No dedicated quarantine change history table exists yet; return an empty
-    // list to match Synapse behaviour for media with no recorded changes.
-    Ok(Json(json!({ "changes": [], "total": 0 })))
+    let since = params.get("since").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);
+    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
+
+    let changes = ctx.admin_media_service.get_media_quarantine_changes(&media_id, since, limit).await?;
+
+    let changes_json: Vec<Value> = changes
+        .iter()
+        .map(|c| {
+            json!({
+                "stream_id": c.stream_id,
+                "media_id": c.media_id,
+                "server_name": c.server_name,
+                "change_type": c.change_type,
+                "changed_by": c.changed_by,
+                "created_ts": c.created_ts
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({ "changes": changes_json, "total": changes_json.len() })))
 }
