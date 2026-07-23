@@ -162,7 +162,13 @@
 | **P4** ✅ | auth 域分组（storage） | 中 | 新建 `storage/auth/mod.rs`（已完成 162741dd） |
 | **P5** ✅ | sync 域分组（services） | 中 | 新建 `services/sync/mod.rs`（已完成 a2dd9a2c） |
 | **P6** ✅ | prelude 模块 | 低 | 新建 `prelude.rs`（已完成） |
-| **P7** | 移除 lib.rs 扁平 re-export | 高 | 需更新所有消费者 import |
+| **P7** ✅ | 移除 lib.rs 扁平 re-export | 高 | 域 glob 保持向后兼容, 无需迁移消费者 |
+| **P7.1** ✅ | storage 10 域分组 | 中 | 扩展 6 域 + 新建 4 域 (commit 917b7360) |
+| **P7.2** ✅ | services 7 域分组 | 中 | 扩展 4 域 + 新建 3 域 (commit 4d4af1e5) |
+| **P7.3** ✅ | storage 剩余扁平 re-export 移除 | 高 | 扩展 6 域 + 新建 ai/rtc 域 (commit e96ea035) |
+| **P7.4** ✅ | services 剩余扁平 re-export 移除 | 高 | 扩展 7 域 + 新建 application 域 (commit ad18d014) |
+| **P7.5** ✅ | 主 crate 门面简化 | 低 | 移除显式类型 re-export, 添加域 re-export (commit e962af87) |
+| **P7.6** ✅ | prelude 覆盖所有域 | 低 | storage 15 域, services 10 域 (commit f8d8de7b) |
 
 ### 3.2 每个阶段的标准操作
 
@@ -432,4 +438,17 @@ synapse_storage::
 ### 7.3 已完成进度
 
 - ✅ P0：services admin 域分组（`admin.rs`，commit `95a582e2`）
-- ⬜ P1-P7：待实施
+- ✅ P1：storage admin 域分组（commit `ed81210f`）
+- ✅ P2：storage e2ee 域分组（commit `35ea9b51`）
+- ✅ P3：storage room 域分组（commit `5c467c59`）
+- ✅ P4：storage auth 域分组（commit `162741dd`）
+- ✅ P5：services sync 域分组（commit `a2dd9a2c`）
+- ✅ P6：prelude 模块（commit `c7614fab`）
+- ✅ P7.1：storage 10 域分组（commit `917b7360`）
+- ✅ P7.2：services 7 域分组（commit `4d4af1e5`）
+- ✅ P7.3：storage 剩余扁平 re-export 移除（commit `e96ea035`）
+- ✅ P7.4：services 剩余扁平 re-export 移除（commit `ad18d014`）
+- ✅ P7.5：主 crate 门面简化（commit `e962af87`）
+- ✅ P7.6：prelude 覆盖所有域（commit `f8d8de7b`）
+
+**全部完成！** lib.rs 重构计划 P0-P7.6 全部实施完毕。
