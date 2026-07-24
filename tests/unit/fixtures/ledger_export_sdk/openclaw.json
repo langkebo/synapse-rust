@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
-  "generated_at": "2026-05-02T00:00:00Z",
-  "synapse_rust_commit": "0000000000000000000000000000000000000000",
+  "generated_at": "2026-07-24T09:12:01Z",
+  "synapse_rust_commit": "52743253bdca3fa83ea774744e15c917ae07bbfd",
   "state_profile": "openclaw",
   "profile_flags": {
     "oidc_enabled": false,
@@ -9,7 +9,7 @@
     "saml_enabled": false,
     "openclaw_enabled": true
   },
-  "entry_count": 1336,
+  "entry_count": 1338,
   "entries": [
     {
       "method": "GET",
@@ -8667,6 +8667,18 @@
       "method": "POST",
       "path": "/_synapse/admin/v1/password_auth_providers",
       "registered_by": "module",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/policy/check",
+      "registered_by": "admin::policy",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/policy/status",
+      "registered_by": "admin::policy",
       "path_params": []
     },
     {
