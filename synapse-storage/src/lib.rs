@@ -25,6 +25,7 @@ pub mod audit;
 pub mod auth;
 pub mod background_update;
 pub mod dehydrated_device;
+pub mod delayed_events;
 pub mod device;
 /// E2EE storage domain group — re-exports e2ee modules under `e2ee::`.
 pub mod e2ee;

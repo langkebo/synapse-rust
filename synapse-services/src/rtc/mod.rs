@@ -23,6 +23,8 @@
 //! 保留在 `services/voice_service.rs`。
 
 pub mod infra;
+#[cfg(feature = "voip-tracking")]
+pub mod member_event;
 pub mod metrics;
 
 #[cfg(feature = "voip-tracking")]

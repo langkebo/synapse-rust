@@ -154,6 +154,18 @@ fn test_purge_history_options() {
     assert!(options.get("purge_up_to_ts").is_some());
 }
 
+// Test 13b: Purge history dry-run option
+#[test]
+fn test_purge_history_dry_run_option() {
+    let options = json!({
+        "room_id": "!room:localhost",
+        "purge_up_to_ts": 1700000000000_i64,
+        "dry_run": true
+    });
+
+    assert_eq!(options.get("dry_run").and_then(|v| v.as_bool()), Some(true));
+}
+
 // Test 14: Shutdown room options
 #[test]
 fn test_shutdown_room_options() {

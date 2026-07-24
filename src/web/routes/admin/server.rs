@@ -168,6 +168,12 @@ pub async fn get_statistics(_admin: AdminUser, State(ctx): State<AdminContext>) 
     let daily_active_users = ctx.account_identity_service.get_daily_active_users().await.unwrap_or(0);
     let monthly_active_users = ctx.account_identity_service.get_monthly_active_users().await.unwrap_or(0);
     let r30_users = ctx.account_identity_service.get_r30_users().await.unwrap_or(0);
+    // Synapse admin statistics: users that are not deactivated.
+    let non_deactivated_user_count = ctx.account_identity_service.get_non_deactivated_user_count().await.unwrap_or(0);
+    // Breakdown by Application Service (AS). Local users (appservice_id=NULL)
+    // are grouped under the empty string key "".
+    let non_deactivated_user_count_by_app_service =
+        ctx.account_identity_service.get_non_deactivated_user_count_by_app_service().await.unwrap_or_default();
 
     // Room activity and message-volume metrics.
     let room_stats = ctx.room_service.state().get_room_stats_overview().await.unwrap_or_else(|e| {
@@ -203,6 +209,8 @@ pub async fn get_statistics(_admin: AdminUser, State(ctx): State<AdminContext>) 
 
     Ok(Json(json!({
         "total_users": total_users,
+        "non_deactivated_user_count": non_deactivated_user_count,
+        "non_deactivated_user_count_by_app_service": non_deactivated_user_count_by_app_service,
         "total_rooms": total_rooms,
         "daily_active_users": daily_active_users,
         "monthly_active_users": monthly_active_users,

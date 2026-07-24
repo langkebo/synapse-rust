@@ -5,9 +5,123 @@ use axum::{
     http::HeaderMap,
 };
 use serde_json::Value;
+use std::collections::HashMap;
 use synapse_services::room::service::CreateRoomConfig;
 
 use crate::web::routes::context::RoomContext;
+
+/// Parsed result of the `invite` field: user IDs and per-user reasons.
+type ParsedInvites = (Vec<String>, HashMap<String, String>);
+
+/// Parse the `invite` field of `POST /createRoom`.
+///
+/// Per MSC4491, each entry may be either:
+/// - a string user ID (`"@alice:example.com"`), or
+/// - an object with `user_id` (required) and `reason` (optional) fields.
+///
+/// Returns `(user_ids, reasons)` where `reasons` maps user_id → reason for
+/// entries that included a non-empty reason.
+pub(crate) fn parse_invite_entries(invite_value: &Value) -> Result<ParsedInvites, ApiError> {
+    let invites =
+        invite_value.as_array().ok_or_else(|| ApiError::invalid_param("invite must be an array".to_string()))?;
+
+    let mut user_ids = Vec::with_capacity(invites.len());
+    let mut reasons = HashMap::new();
+
+    for entry in invites {
+        match entry {
+            Value::String(s) => {
+                user_ids.push(s.clone());
+            }
+            Value::Object(obj) => {
+                let user_id = obj
+                    .get("user_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| ApiError::invalid_param("invite object must contain 'user_id'".to_string()))?;
+                user_ids.push(user_id.to_string());
+                if let Some(reason) = obj.get("reason").and_then(|v| v.as_str()) {
+                    if !reason.is_empty() {
+                        reasons.insert(user_id.to_string(), reason.to_string());
+                    }
+                }
+            }
+            _ => {
+                return Err(ApiError::invalid_param(
+                    "invite entries must be strings or objects with 'user_id'".to_string(),
+                ));
+            }
+        }
+    }
+
+    Ok((user_ids, reasons))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_invite_entries_accepts_plain_strings() {
+        let value = json!(["@alice:example.com", "@bob:example.com"]);
+        let (user_ids, reasons) = parse_invite_entries(&value).unwrap();
+        assert_eq!(user_ids, vec!["@alice:example.com", "@bob:example.com"]);
+        assert!(reasons.is_empty());
+    }
+
+    #[test]
+    fn parse_invite_entries_accepts_objects_with_reason() {
+        let value = json!([
+            {"user_id": "@alice:example.com", "reason": "Welcome to the team!"},
+            {"user_id": "@bob:example.com"}
+        ]);
+        let (user_ids, reasons) = parse_invite_entries(&value).unwrap();
+        assert_eq!(user_ids, vec!["@alice:example.com", "@bob:example.com"]);
+        assert_eq!(
+            reasons.get("@alice:example.com"),
+            Some(&"Welcome to the team!".to_string()),
+            "reason should be captured for alice"
+        );
+        assert!(!reasons.contains_key("@bob:example.com"), "no reason should be captured for bob");
+    }
+
+    #[test]
+    fn parse_invite_entries_accepts_mixed_string_and_object_entries() {
+        let value = json!([
+            "@alice:example.com",
+            {"user_id": "@bob:example.com", "reason": "Project kick-off"}
+        ]);
+        let (user_ids, reasons) = parse_invite_entries(&value).unwrap();
+        assert_eq!(user_ids, vec!["@alice:example.com", "@bob:example.com"]);
+        assert_eq!(reasons.get("@bob:example.com"), Some(&"Project kick-off".to_string()));
+    }
+
+    #[test]
+    fn parse_invite_entries_ignores_empty_reason() {
+        let value = json!([{"user_id": "@alice:example.com", "reason": ""}]);
+        let (user_ids, reasons) = parse_invite_entries(&value).unwrap();
+        assert_eq!(user_ids, vec!["@alice:example.com"]);
+        assert!(reasons.is_empty(), "empty reason should not be stored");
+    }
+
+    #[test]
+    fn parse_invite_entries_rejects_non_array() {
+        let value = json!("@alice:example.com");
+        assert!(parse_invite_entries(&value).is_err());
+    }
+
+    #[test]
+    fn parse_invite_entries_rejects_object_without_user_id() {
+        let value = json!([{"reason": "missing user_id"}]);
+        assert!(parse_invite_entries(&value).is_err());
+    }
+
+    #[test]
+    fn parse_invite_entries_rejects_non_string_non_object_entry() {
+        let value = json!([123]);
+        assert!(parse_invite_entries(&value).is_err());
+    }
+}
 
 pub(crate) async fn create_private_room(
     State(ctx): State<RoomContext>,
@@ -59,28 +173,16 @@ pub(crate) async fn create_room(
         }
     }
 
-    let invite = match body.get("invite") {
+    let (invite, invite_reasons) = match body.get("invite") {
         Some(value) => {
-            let Some(invites) = value.as_array() else {
-                return Err(ApiError::invalid_param("invite must be an array".to_string()));
-            };
-            let mut invitees = Vec::with_capacity(invites.len());
-            for invitee in invites {
-                let Some(user_id) = invitee.as_str() else {
-                    return Err(ApiError::invalid_param("invite entries must be strings".to_string()));
-                };
-                invitees.push(user_id.to_string());
+            let (user_ids, reasons) = parse_invite_entries(value)?;
+            if user_ids.len() > 100 {
+                return Err(ApiError::bad_request("Too many invites (max 100)".to_string()));
             }
-            Some(invitees)
+            (Some(user_ids), if reasons.is_empty() { None } else { Some(reasons) })
         }
-        None => None,
+        None => (None, None),
     };
-
-    if let Some(ref inv) = invite {
-        if inv.len() > 100 {
-            return Err(ApiError::bad_request("Too many invites (max 100)".to_string()));
-        }
-    }
 
     let preset = body.get("preset").and_then(|v| v.as_str());
 
@@ -106,6 +208,7 @@ pub(crate) async fn create_room(
         name: name.map(|s| s.to_string()),
         topic: topic.map(|s| s.to_string()),
         invite_list: invite,
+        invite_reasons,
         preset: preset.map(|s| s.to_string()),
         room_type: room_type.map(|s| s.to_string()),
         is_direct,

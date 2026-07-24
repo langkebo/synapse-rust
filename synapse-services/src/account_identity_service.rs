@@ -96,6 +96,14 @@ impl AccountIdentityService {
         self.user_service.get_user_count().await
     }
 
+    pub async fn get_non_deactivated_user_count(&self) -> Result<i64, ApiError> {
+        self.user_service.get_non_deactivated_user_count().await
+    }
+
+    pub async fn get_non_deactivated_user_count_by_app_service(&self) -> Result<HashMap<String, i64>, ApiError> {
+        self.user_service.get_non_deactivated_user_count_by_app_service().await
+    }
+
     #[tracing::instrument(skip(self))]
     pub async fn search_directory_users(
         &self,
@@ -256,6 +264,80 @@ mod tests {
         let svc = make_service(Arc::new(InMemoryThreepidStore::new()));
         let err = svc.ensure_active_user_exists("@unknown:example.com").await.unwrap_err();
         assert!(err.to_string().contains("not found"));
+    }
+
+    // ── get_non_deactivated_user_count ──────────────────────────────
+
+    #[tokio::test]
+    async fn get_non_deactivated_user_count_returns_seeded_active_count() {
+        let svc = make_service(Arc::new(InMemoryThreepidStore::new()));
+        // shared_fake_user_store seeds @alice:example.com as non-deactivated.
+        let count = svc.get_non_deactivated_user_count().await.expect("count should succeed");
+        assert_eq!(count, 1, "default seeded store has one non-deactivated user");
+    }
+
+    // ── get_non_deactivated_user_count_by_app_service ──────────────
+
+    #[tokio::test]
+    async fn get_non_deactivated_user_count_by_app_service_groups_correctly() {
+        let user_store = shared_fake_user_store();
+        // Seed additional users with appservice_ids.
+        // shared_fake_user_store seeds @alice:example.com (appservice_id=None, active).
+        user_store.seed_user(make_as_user("@bob:example.com", false, Some("as1"))).await;
+        user_store.seed_user(make_as_user("@carol:example.com", true, Some("as1"))).await;
+        user_store.seed_user(make_as_user("@dave:example.com", false, Some("as2"))).await;
+
+        let user_service = Arc::new(crate::UserService::new(user_store));
+        #[cfg(feature = "privacy-ext")]
+        let svc = {
+            let pool = sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:15432/synapse_test")
+                .expect("connect_lazy should not perform I/O");
+            let privacy_storage: Arc<dyn synapse_storage::privacy::PrivacyStoreApi> =
+                Arc::new(synapse_storage::privacy::PrivacyStorage::new(std::sync::Arc::new(pool)));
+            AccountIdentityService::new(user_service, Arc::new(InMemoryThreepidStore::new()), privacy_storage)
+        };
+        #[cfg(not(feature = "privacy-ext"))]
+        let svc = AccountIdentityService::new(user_service, Arc::new(InMemoryThreepidStore::new()));
+
+        let counts =
+            svc.get_non_deactivated_user_count_by_app_service().await.expect("count by app service should succeed");
+
+        // Local (alice) under empty string key; as1 has bob (carol deactivated); as2 has dave.
+        assert_eq!(counts.get("").copied(), Some(1), "local: alice");
+        assert_eq!(counts.get("as1").copied(), Some(1), "as1: bob (carol deactivated)");
+        assert_eq!(counts.get("as2").copied(), Some(1), "as2: dave");
+    }
+
+    fn make_as_user(user_id: &str, is_deactivated: bool, appservice_id: Option<&str>) -> User {
+        let mut user = User {
+            user_id: user_id.to_string(),
+            username: user_id.trim_start_matches('@').to_string(),
+            password_hash: None,
+            is_admin: false,
+            is_guest: false,
+            is_shadow_banned: false,
+            is_deactivated,
+            created_ts: 0,
+            updated_ts: None,
+            displayname: None,
+            avatar_url: None,
+            email: None,
+            phone: None,
+            generation: None,
+            consent_version: None,
+            appservice_id: None,
+            user_type: None,
+            invalid_update_at: None,
+            migration_state: None,
+            password_changed_ts: None,
+            is_password_change_required: false,
+            password_expires_at: None,
+            failed_login_attempts: 0,
+            locked_until: None,
+            must_change_password: false,
+        };
+        user.appservice_id = appservice_id.map(|s| s.to_string());
+        user
     }
 
     // ── user_exists ─────────────────────────────────────────────────

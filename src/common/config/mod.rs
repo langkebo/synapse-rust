@@ -7,6 +7,7 @@ pub use synapse_common::config::experimental::*;
 pub use synapse_common::config::federation::*;
 pub use synapse_common::config::identity::*;
 pub use synapse_common::config::logging::*;
+pub use synapse_common::config::mas::*;
 pub use synapse_common::config::performance::*;
 pub use synapse_common::config::policy_server::*;
 pub use synapse_common::config::push::*;

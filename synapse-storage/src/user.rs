@@ -173,6 +173,18 @@ pub trait UserStore: Send + Sync {
 
     async fn get_user_count(&self) -> Result<i64, sqlx::Error>;
 
+    /// Count users that are NOT deactivated.
+    /// Mirrors Synapse's `non_deactivated_user_count` admin statistic.
+    async fn count_non_deactivated_users(&self) -> Result<i64, sqlx::Error>;
+
+    /// Count non-deactivated users grouped by `appservice_id`.
+    ///
+    /// Returns a map from appservice_id to the count of non-deactivated
+    /// users registered under that Application Service. Users with
+    /// `appservice_id IS NULL` (local users) are grouped under the empty
+    /// string key `""`. Groups with zero non-deactivated users are omitted.
+    async fn count_non_deactivated_users_by_app_service(&self) -> Result<HashMap<String, i64>, sqlx::Error>;
+
     async fn get_daily_active_users(&self) -> Result<i64, sqlx::Error>;
 
     async fn get_monthly_active_users(&self) -> Result<i64, sqlx::Error>;
@@ -499,6 +511,44 @@ impl UserStorage {
         .fetch_one(&*self.pool)
         .await?;
         row.try_get::<i64, _>("count")
+    }
+
+    /// Count users that are NOT deactivated.
+    /// Mirrors Synapse's `non_deactivated_user_count` admin statistic.
+    pub async fn count_non_deactivated_users(&self) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar::<_, i64>(
+            r"
+            SELECT COALESCE(COUNT(*), 0) FROM users WHERE COALESCE(is_deactivated, FALSE) = FALSE
+            ",
+        )
+        .fetch_one(&*self.pool)
+        .await
+    }
+
+    /// Count non-deactivated users grouped by `appservice_id`.
+    ///
+    /// Users with `appservice_id IS NULL` are grouped under the empty
+    /// string key `""`. Only groups with at least one non-deactivated
+    /// user are returned (SQL GROUP BY naturally omits empty groups).
+    pub async fn count_non_deactivated_users_by_app_service(&self) -> Result<HashMap<String, i64>, sqlx::Error> {
+        let rows = sqlx::query(
+            r"
+            SELECT COALESCE(appservice_id, '') AS appservice_id, COUNT(*) AS count
+            FROM users
+            WHERE COALESCE(is_deactivated, FALSE) = FALSE
+            GROUP BY appservice_id
+            ",
+        )
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut map = HashMap::with_capacity(rows.len());
+        for row in rows {
+            let appservice_id: String = row.try_get("appservice_id")?;
+            let count: i64 = row.try_get("count")?;
+            map.insert(appservice_id, count);
+        }
+        Ok(map)
     }
 
     /// Count daily active users (users with a device seen in the last 24h).
@@ -1452,6 +1502,14 @@ impl UserStore for UserStorage {
 
     async fn get_user_count(&self) -> Result<i64, sqlx::Error> {
         self.get_user_count().await
+    }
+
+    async fn count_non_deactivated_users(&self) -> Result<i64, sqlx::Error> {
+        self.count_non_deactivated_users().await
+    }
+
+    async fn count_non_deactivated_users_by_app_service(&self) -> Result<HashMap<String, i64>, sqlx::Error> {
+        self.count_non_deactivated_users_by_app_service().await
     }
 
     async fn get_daily_active_users(&self) -> Result<i64, sqlx::Error> {

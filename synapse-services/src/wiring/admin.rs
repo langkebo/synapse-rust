@@ -58,6 +58,8 @@ pub struct AdminModuleServices {
     pub feature_flag_service: Arc<crate::feature_flag_service::FeatureFlagService>,
     pub event_report_storage: Arc<dyn synapse_storage::event_report::EventReportStoreApi>,
     pub event_report_service: Arc<crate::event_report_service::EventReportService>,
+    /// MSC4140 — Cancellable delayed events storage.
+    pub delayed_event_storage: Arc<dyn synapse_storage::delayed_events::DelayedEventStorageApi>,
     pub background_update_storage: Arc<dyn synapse_storage::background_update::BackgroundUpdateStoreApi>,
     pub background_update_service: Arc<crate::background_update_service::BackgroundUpdateService>,
     pub module_storage: Arc<dyn synapse_storage::module::ModuleStoreApi>,
@@ -71,6 +73,8 @@ pub struct AdminModuleServices {
     pub app_service_event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub app_service_manager: Arc<crate::application_service::ApplicationServiceManager>,
     pub app_service_scheduler: Arc<crate::application_service::ApplicationServiceScheduler>,
+    /// MSC4284 — Policy server service for room/user/content moderation.
+    pub policy_service: Arc<crate::policy_service::PolicyService>,
     #[cfg(feature = "external-services")]
     pub external_service_integration: Arc<crate::external_service_integration::ExternalServiceIntegration>,
     pub rendezvous_storage: Arc<dyn synapse_storage::rendezvous::RendezvousStoreApi>,
@@ -135,6 +139,9 @@ impl AdminServices {
         let event_report_service =
             Arc::new(crate::event_report_service::EventReportService::new(event_report_storage.clone()));
 
+        // MSC4140 — Cancellable delayed events storage.
+        let delayed_event_storage: Arc<dyn synapse_storage::delayed_events::DelayedEventStorageApi> =
+            Arc::new(synapse_storage::delayed_events::DelayedEventStorage::new(pool.clone()));
         let background_update_storage: Arc<dyn synapse_storage::background_update::BackgroundUpdateStoreApi> =
             Arc::new(synapse_storage::background_update::BackgroundUpdateStorage::new(pool));
         let background_update_service = Arc::new(
@@ -313,6 +320,7 @@ impl AdminServices {
                 feature_flag_service,
                 event_report_storage,
                 event_report_service,
+                delayed_event_storage,
                 background_update_storage,
                 background_update_service,
                 module_storage,
@@ -326,6 +334,7 @@ impl AdminServices {
                 app_service_event_reader,
                 app_service_manager,
                 app_service_scheduler,
+                policy_service: Arc::new(crate::policy_service::PolicyService::new(config.policy_server.clone())),
                 #[cfg(feature = "external-services")]
                 external_service_integration,
                 rendezvous_storage,

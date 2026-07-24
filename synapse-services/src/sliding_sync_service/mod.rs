@@ -24,6 +24,14 @@ const CONNECTION_TTL_MS: i64 = 30 * 60 * 1000;
 /// Maximum number of tracked connections (LRU capacity cap).
 const MAX_TRACKED_CONNECTIONS: u64 = 10_000;
 
+/// MSC4186: TTL for txn_id idempotency cache. Retries within this window
+/// receive the cached response. Matches Synapse's default of 5 minutes.
+const TXN_ID_CACHE_TTL_MS: u64 = 5 * 60 * 1000;
+
+/// MSC4186: Maximum number of cached txn_id responses per service instance.
+/// Bounds memory usage under retry storms; LRU eviction applies beyond this.
+const MAX_TXN_ID_CACHE_ENTRIES: u64 = 10_000;
+
 /// Histogram name used to track sliding sync response latency (ms).
 const SLIDING_SYNC_LATENCY_HISTOGRAM: &str = "sliding_sync_request_duration_ms";
 
@@ -44,6 +52,12 @@ pub struct SlidingSyncService {
     to_device_storage: ToDeviceStorage,
     /// Tracks last-access timestamp per (user_id, device_id, conn_id) for LRU + TTL GC.
     connection_tracker: Arc<moka::sync::Cache<String, i64>>,
+    /// MSC4186: txn_id idempotency cache. When a request carries a `txn_id`,
+    /// the server caches the response keyed by `(user_id, device_id, txn_id)`
+    /// and returns the cached body for subsequent retries with the same
+    /// `txn_id`. Bounded by `MAX_TXN_ID_CACHE_ENTRIES` with a TTL of
+    /// `TXN_ID_CACHE_TTL_MS` to prevent unbounded growth and stale entries.
+    txn_id_cache: Arc<moka::future::Cache<String, SlidingSyncResponse>>,
     /// Metrics collector used to record sync latency histograms and slow
     /// request counters. Acts as the performance rollback gate for
     /// sliding sync (see Synapse v1.153.0rc3 revert lesson).
@@ -91,6 +105,10 @@ impl SlidingSyncService {
             .max_capacity(MAX_TRACKED_CONNECTIONS)
             .time_to_idle(std::time::Duration::from_millis(CONNECTION_TTL_MS as u64))
             .build();
+        let txn_id_cache = moka::future::Cache::builder()
+            .max_capacity(MAX_TXN_ID_CACHE_ENTRIES)
+            .time_to_live(std::time::Duration::from_millis(TXN_ID_CACHE_TTL_MS))
+            .build();
         Self {
             storage,
             cache,
@@ -102,6 +120,7 @@ impl SlidingSyncService {
             device_storage,
             to_device_storage,
             connection_tracker: Arc::new(connection_tracker),
+            txn_id_cache: Arc::new(txn_id_cache),
             metrics,
             latency_threshold_ms: performance.sliding_sync_latency_threshold_ms,
         }
@@ -137,13 +156,58 @@ impl SlidingSyncService {
         let started = Instant::now();
         let conn_id_for_metrics = request.conn_id.clone();
         let is_initial = request.pos.is_none();
+        let txn_id = request.txn_id.clone();
+
+        // MSC4186 §6.1: txn_id idempotency. When a request carries a `txn_id`,
+        // return the cached response for retries with the same `txn_id`. This
+        // must happen BEFORE sync_inner to avoid redundant work and to ensure
+        // retry-safety when the original response was lost in transit.
+        if let Some(txn_id) = &txn_id {
+            let cache_key = Self::txn_id_cache_key(user_id, device_id, txn_id);
+            if let Some(cached) = self.txn_id_cache.get(&cache_key).await {
+                tracing::debug!(
+                    user_id = %user_id,
+                    device_id = %device_id,
+                    txn_id = %txn_id,
+                    "MSC4186 txn_id cache hit — returning cached sliding sync response"
+                );
+                // Record latency for the cache-hit path too, so metrics reflect
+                // the real response time clients observe (sub-millisecond).
+                let total_ms = started.elapsed().as_secs_f64() * 1000.0;
+                self.record_sync_latency_metrics(
+                    user_id,
+                    device_id,
+                    conn_id_for_metrics.as_deref(),
+                    total_ms,
+                    is_initial,
+                );
+                return Ok(cached);
+            }
+        }
 
         let result = self.sync_inner(user_id, device_id, request).await;
+
+        // MSC4186: on success, cache the response under txn_id so retries
+        // receive the same body. Errors are NOT cached — a failed request
+        // must be retried and may succeed on the next attempt.
+        if let Some(txn_id) = &txn_id {
+            if let Ok(ref response) = result {
+                let cache_key = Self::txn_id_cache_key(user_id, device_id, txn_id);
+                self.txn_id_cache.insert(cache_key, response.clone()).await;
+            }
+        }
 
         let total_ms = started.elapsed().as_secs_f64() * 1000.0;
         self.record_sync_latency_metrics(user_id, device_id, conn_id_for_metrics.as_deref(), total_ms, is_initial);
 
         result
+    }
+
+    /// MSC4186: Builds the txn_id cache key from `(user_id, device_id, txn_id)`.
+    /// The key is namespaced to avoid collisions with other caches and to
+    /// isolate responses per user+device, preventing cross-user leakage.
+    fn txn_id_cache_key(user_id: &str, device_id: &str, txn_id: &str) -> String {
+        format!("msc4186:txn_id:{user_id}:{device_id}:{txn_id}")
     }
 
     /// Records sliding sync latency into the metrics histogram and emits a

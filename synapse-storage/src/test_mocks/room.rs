@@ -324,6 +324,18 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         Ok(())
     }
 
+    async fn update_read_marker_monotonic(
+        &self,
+        _room_id: &str,
+        _user_id: &str,
+        _event_id: &str,
+        _marker_type: &str,
+        _allow_backward: bool,
+    ) -> Result<bool, sqlx::Error> {
+        // Read markers are not modeled in InMemoryRoomStore; pretend updated.
+        Ok(true)
+    }
+
     // ── Extended room queries (in-memory implementations) ──
 
     async fn get_rooms_batch(&self, room_ids: &[String]) -> Result<Vec<crate::room::Room>, sqlx::Error> {

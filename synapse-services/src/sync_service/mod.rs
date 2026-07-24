@@ -403,8 +403,11 @@ impl SyncService {
         memberships
             .iter()
             .map(|membership| {
-                let section =
-                    if membership.membership == "leave" { SyncRoomSection::Leave } else { SyncRoomSection::Join };
+                let section = match membership.membership.as_str() {
+                    "leave" => SyncRoomSection::Leave,
+                    "invite" => SyncRoomSection::Invite,
+                    _ => SyncRoomSection::Join,
+                };
                 (membership.room_id.clone(), section)
             })
             .collect()

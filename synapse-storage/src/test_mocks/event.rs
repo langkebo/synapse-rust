@@ -974,13 +974,20 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
         Ok(())
     }
 
-    async fn delete_events_before(&self, room_id: &str, timestamp: i64) -> Result<u64, sqlx::Error> {
+    async fn delete_events_before(&self, room_id: &str, timestamp: i64, dry_run: bool) -> Result<u64, sqlx::Error> {
         let mut events = self.events.write().await;
-        let before = events.len() as u64;
-        events.retain(|_, e| {
-            !(e.room_id == room_id && e.origin_server_ts < timestamp && e.event_type != "m.room.create")
-        });
-        Ok(before - events.len() as u64)
+        let matching: Vec<String> = events
+            .iter()
+            .filter(|(_, e)| e.room_id == room_id && e.origin_server_ts < timestamp && e.event_type != "m.room.create")
+            .map(|(id, _)| id.clone())
+            .collect();
+        let count = matching.len() as u64;
+        if !dry_run {
+            for id in &matching {
+                events.remove(id);
+            }
+        }
+        Ok(count)
     }
 
     async fn upsert_power_levels_event(
@@ -1014,5 +1021,94 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
             },
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::writer::EventWriter;
+
+    fn make_event(event_id: &str, room_id: &str, ts: i64, event_type: &str) -> crate::event::RoomEvent {
+        crate::event::RoomEvent {
+            event_id: event_id.to_string(),
+            room_id: room_id.to_string(),
+            user_id: "@sender:example.com".to_string(),
+            event_type: event_type.to_string(),
+            content: serde_json::json!({}),
+            state_key: None,
+            depth: 0,
+            origin_server_ts: ts,
+            processed_ts: 0,
+            not_before: 0,
+            status: None,
+            reference_image: None,
+            origin: String::new(),
+            stream_ordering: None,
+            redacts: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_events_before_dry_run_does_not_delete() {
+        let store = InMemoryEventStore::new();
+        let room_id = "!room:example.com";
+        // Two deletable message events before the cutoff, plus one create event
+        // (create events are preserved) and one event after the cutoff.
+        store
+            .events
+            .write()
+            .await
+            .insert("$old1:example.com".to_string(), make_event("$old1:example.com", room_id, 1000, "m.room.message"));
+        store
+            .events
+            .write()
+            .await
+            .insert("$old2:example.com".to_string(), make_event("$old2:example.com", room_id, 2000, "m.room.message"));
+        store.events.write().await.insert(
+            "$create:example.com".to_string(),
+            make_event("$create:example.com", room_id, 500, "m.room.create"),
+        );
+        store.events.write().await.insert(
+            "$future:example.com".to_string(),
+            make_event("$future:example.com", room_id, 5000, "m.room.message"),
+        );
+
+        // dry_run=true: should return count of deletable events (2) but NOT remove them.
+        let count =
+            store.delete_events_before(room_id, 3000, true).await.expect("dry-run delete_events_before should succeed");
+        assert_eq!(count, 2, "dry-run should report 2 deletable events");
+
+        // All events must still be present — dry-run must not mutate state.
+        let remaining = store.events.read().await;
+        assert_eq!(remaining.len(), 4, "dry-run must not delete any events");
+        assert!(remaining.contains_key("$old1:example.com"), "old1 must still exist after dry-run");
+        assert!(remaining.contains_key("$old2:example.com"), "old2 must still exist after dry-run");
+        assert!(remaining.contains_key("$create:example.com"), "create event must still exist");
+        assert!(remaining.contains_key("$future:example.com"), "future event must still exist");
+    }
+
+    #[tokio::test]
+    async fn delete_events_before_actual_delete_removes_events() {
+        let store = InMemoryEventStore::new();
+        let room_id = "!room:example.com";
+        store
+            .events
+            .write()
+            .await
+            .insert("$old1:example.com".to_string(), make_event("$old1:example.com", room_id, 1000, "m.room.message"));
+        store.events.write().await.insert(
+            "$create:example.com".to_string(),
+            make_event("$create:example.com", room_id, 500, "m.room.create"),
+        );
+
+        // dry_run=false: should delete the message event but preserve the create event.
+        let deleted =
+            store.delete_events_before(room_id, 3000, false).await.expect("delete_events_before should succeed");
+        assert_eq!(deleted, 1, "should delete 1 message event");
+
+        let remaining = store.events.read().await;
+        assert_eq!(remaining.len(), 1, "only the create event should remain");
+        assert!(remaining.contains_key("$create:example.com"), "create event must be preserved");
     }
 }

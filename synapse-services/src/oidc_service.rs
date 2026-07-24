@@ -120,6 +120,99 @@ impl OidcService {
         self.config.is_enabled()
     }
 
+    /// Returns the configured OIDC issuer URL. Used by MAS token validation
+    /// to look up user mappings in `oidc_user_mapping` (keyed by issuer).
+    pub fn issuer(&self) -> &str {
+        &self.config.issuer
+    }
+
+    /// MSC3861: Verify a MAS-issued access token (JWT) against the OIDC
+    /// provider's JWKS and return the decoded claims.
+    ///
+    /// Unlike `validate_id_token`, this method:
+    /// - Does NOT validate the `nonce` claim (access tokens have no nonce).
+    /// - Does NOT validate the `aud` claim against `client_id` — MAS access
+    ///   tokens may target the homeserver as audience, not the OIDC client.
+    ///   We still validate `iss` against the configured issuer.
+    ///
+    /// Returns the decoded JWT claims as a `serde_json::Value` so the caller
+    /// can extract `sub`, `device_id`, and other MAS-specific claims.
+    pub async fn verify_access_token(&self, token: &str) -> Result<serde_json::Value, String> {
+        let header_bytes = URL_SAFE_NO_PAD
+            .decode(token.split('.').next().unwrap_or(""))
+            .map_err(|e| format!("Invalid access token header base64: {e}"))?;
+
+        let header: serde_json::Value =
+            serde_json::from_slice(&header_bytes).map_err(|e| format!("Invalid access token header JSON: {e}"))?;
+
+        let kid = header.get("kid").and_then(|v| v.as_str());
+        let alg_str = header.get("alg").and_then(|v| v.as_str()).unwrap_or("RS256");
+
+        let algorithm = match alg_str {
+            "RS256" => Algorithm::RS256,
+            "RS384" => Algorithm::RS384,
+            "RS512" => Algorithm::RS512,
+            "ES256" => Algorithm::ES256,
+            "ES384" => Algorithm::ES384,
+            "EdDSA" => Algorithm::EdDSA,
+            _ => return Err(format!("Unsupported access token algorithm: {alg_str}")),
+        };
+
+        let jwks = self.fetch_jwks().await?;
+
+        let matching_key =
+            jwks.keys.iter().find(|k| if let Some(ref key_kid) = k.kid { kid == Some(key_kid.as_str()) } else { true });
+
+        let key = matching_key.ok_or_else(|| {
+            tracing::error!(
+                kid = ?kid,
+                issuer = %self.config.issuer,
+                "No matching JWKS key found for MAS access token kid; rejecting"
+            );
+            "access token signature key (kid) not found in JWKS".to_string()
+        })?;
+
+        let decoding_key = if key.kty == "RSA" {
+            match (&key.n, &key.e) {
+                (Some(n), Some(e)) => {
+                    DecodingKey::from_rsa_components(n, e).map_err(|e| format!("Invalid RSA key: {e}"))?
+                }
+                _ => return Err("RSA key missing n/e components".to_string()),
+            }
+        } else if key.kty == "EC" {
+            match (&key.crv, &key.x, &key.y) {
+                (Some(_), Some(x), Some(y)) => {
+                    DecodingKey::from_ec_components(x, y).map_err(|e| format!("Invalid EC key: {e}"))?
+                }
+                _ => return Err("EC key missing crv/x/y components".to_string()),
+            }
+        } else if key.kty == "OKP" {
+            match (&key.crv, &key.x) {
+                (Some(_), Some(x)) => {
+                    DecodingKey::from_ed_components(x).map_err(|e| format!("Invalid EdDSA key: {e}"))?
+                }
+                _ => return Err("OKP key missing crv/x components".to_string()),
+            }
+        } else {
+            return Err(format!("Unsupported key type: {}", key.kty));
+        };
+
+        // Validate issuer and expiry, but NOT audience (MAS access tokens
+        // target the homeserver, not the OIDC client_id).
+        let mut validation = Validation::new(algorithm);
+        validation.set_issuer(&[&self.config.issuer]);
+        validation.validate_exp = true;
+        validation.validate_nbf = false;
+        validation.validate_aud = false;
+
+        let token_data = decode::<serde_json::Value>(token, &decoding_key, &validation)
+            .map_err(|e| format!("MAS access token JWT signature verification failed: {e}"))?;
+
+        debug!("MAS access token JWT signature verified successfully (kid={:?})", kid);
+
+        Ok(token_data.claims)
+    }
+
     pub async fn discover(&self) -> Result<OidcDiscoveryDocument, ApiError> {
         {
             let read = self.discovery.read().await;

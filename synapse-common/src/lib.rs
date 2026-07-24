@@ -70,11 +70,11 @@ pub use config::{
     default_ui_auth_session_timeout, AdminRegistrationConfig, ApnsConfig, BuiltinOidcConfig, BuiltinOidcUser,
     CircuitBreakerConfig, Config, ConfigError, ConfigManager, CorsConfig, DatabaseConfig, ExperimentalConfig,
     FcmConfig, FederationConfig, FederationRateLimitConfig, IdentityConfig, InstanceLocationConfig, LivekitConfig,
-    LoggingConfig, OidcAttributeMapping, OidcConfig, PerformanceConfig, PolicyServerConfig, PostgresFtsConfig,
-    PostgresFtsWeights, PushConfig, RedisConfig, ReplicationConfig, ReplicationHttpConfig, RetentionConfig,
-    RetentionPolicy, RetentionPurgeJob, SamlAttributeMapping, SamlConfig, SearchConfig, SecurityConfig, ServerConfig,
-    SmsConfig, SmtpConfig, SmtpRateLimitConfig, StreamWriters, SyncRateLimitConfig, TranslateConfig, TrustedKeyServer,
-    UrlBlacklistRule, UrlPreviewConfig, VoipConfig, WebPushConfig, WorkerConfig,
+    LoggingConfig, MasConfig, OidcAttributeMapping, OidcConfig, PerformanceConfig, PolicyServerConfig,
+    PostgresFtsConfig, PostgresFtsWeights, PushConfig, RedisConfig, ReplicationConfig, ReplicationHttpConfig,
+    RetentionConfig, RetentionPolicy, RetentionPurgeJob, SamlAttributeMapping, SamlConfig, SearchConfig,
+    SecurityConfig, ServerConfig, SmsConfig, SmtpConfig, SmtpRateLimitConfig, StreamWriters, SyncRateLimitConfig,
+    TranslateConfig, TrustedKeyServer, UrlBlacklistRule, UrlPreviewConfig, VoipConfig, WebPushConfig, WorkerConfig,
 };
 pub use constants::{
     millis, secs, ADMIN_REGISTER_NONCE_RATE_LIMIT, ADMIN_REGISTER_RATE_LIMIT, BURN_AFTER_READ_DELAY_SECS,

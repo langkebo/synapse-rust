@@ -24,15 +24,59 @@ impl EventStorage {
         Ok(event)
     }
 
-    pub async fn delete_events_before(&self, room_id: &str, timestamp: i64) -> Result<u64, sqlx::Error> {
+    /// Purge historical events before the given timestamp.
+    ///
+    /// **Security (P0)**: Only remote/federated events are deleted. Local
+    /// events (those whose `origin` is `'self'`, NULL, empty, or
+    /// `'undefined'`) are always preserved to prevent accidental deletion of
+    /// locally-originated outbound events. This mirrors the Element Synapse
+    /// v1.156 purge history safety fix.
+    ///
+    /// When `dry_run` is `true`, returns the count of events that *would* be
+    /// deleted without actually removing any rows. This enables admin
+    /// pre-flight inspection of a purge history operation.
+    pub async fn delete_events_before(&self, room_id: &str, timestamp: i64, dry_run: bool) -> Result<u64, sqlx::Error> {
+        if dry_run {
+            let count = self.count_events_before(room_id, timestamp).await?;
+            return Ok(count as u64);
+        }
         let result = sqlx::query(
-            "DELETE FROM events WHERE room_id = $1 AND origin_server_ts < $2 AND event_type != 'm.room.create'",
+            r#"
+            DELETE FROM events
+            WHERE room_id = $1
+              AND origin_server_ts < $2
+              AND event_type != 'm.room.create'
+              AND COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') != 'self'
+            "#,
         )
         .bind(room_id)
         .bind(timestamp)
         .execute(&*self.pool)
         .await?;
         Ok(result.rows_affected())
+    }
+
+    /// Count historical events before the given timestamp that would be
+    /// purged by [`delete_events_before`]. Does not mutate state.
+    ///
+    /// Applies the same security filter as `delete_events_before`: only
+    /// remote/federated events (origin != 'self') are counted, and
+    /// `m.room.create` events are always excluded.
+    pub async fn count_events_before(&self, room_id: &str, timestamp: i64) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COALESCE(COUNT(*), 0) FROM events
+            WHERE room_id = $1
+              AND origin_server_ts < $2
+              AND event_type != 'm.room.create'
+              AND COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') != 'self'
+            "#,
+        )
+        .bind(room_id)
+        .bind(timestamp)
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(count)
     }
 
     pub async fn get_room_events(&self, room_id: &str, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {

@@ -114,6 +114,17 @@ pub trait RoomStoreApi: Send + Sync {
         marker_type: &str,
     ) -> Result<(), sqlx::Error>;
 
+    /// MSC4446: Update read marker with monotonicity check.
+    /// Returns `true` if updated, `false` if silently dropped (backward move).
+    async fn update_read_marker_monotonic(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_id: &str,
+        marker_type: &str,
+        allow_backward: bool,
+    ) -> Result<bool, sqlx::Error>;
+
     // ── Extended room queries (added for service-layer migration) ──
 
     async fn get_rooms_batch(&self, room_ids: &[String]) -> Result<Vec<Room>, sqlx::Error>;
@@ -344,6 +355,17 @@ impl RoomStoreApi for super::RoomStorage {
         marker_type: &str,
     ) -> Result<(), sqlx::Error> {
         self.update_read_marker_with_type(room_id, user_id, event_id, marker_type).await
+    }
+
+    async fn update_read_marker_monotonic(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_id: &str,
+        marker_type: &str,
+        allow_backward: bool,
+    ) -> Result<bool, sqlx::Error> {
+        self.update_read_marker_monotonic(room_id, user_id, event_id, marker_type, allow_backward).await
     }
 
     // ── Extended room queries (delegated to inherent methods) ──

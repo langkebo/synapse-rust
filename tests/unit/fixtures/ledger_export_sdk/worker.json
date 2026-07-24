@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
-  "generated_at": "2026-07-23T14:27:12Z",
-  "synapse_rust_commit": "209b480813b4914e49c6d385ef4f5cd2ae487e3c",
+  "generated_at": "2026-05-02T00:00:00Z",
+  "synapse_rust_commit": "0000000000000000000000000000000000000000",
   "state_profile": "worker",
   "profile_flags": {
     "oidc_enabled": false,
@@ -9,7 +9,7 @@
     "saml_enabled": false,
     "openclaw_enabled": false
   },
-  "entry_count": 1308,
+  "entry_count": 1312,
   "entries": [
     {
       "method": "GET",
@@ -2351,6 +2351,15 @@
       ]
     },
     {
+      "method": "POST",
+      "path": "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}",
+      "registered_by": "delayed_events",
+      "path_params": [
+        "delay_id"
+      ],
+      "auth": "user"
+    },
+    {
       "method": "GET",
       "path": "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports",
       "registered_by": "assembly::create_router",
@@ -2473,6 +2482,12 @@
       "method": "GET",
       "path": "/_matrix/client/v1/account/whoami",
       "registered_by": "assembly::account_compat",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/auth_metadata",
+      "registered_by": "assembly::create_router",
       "path_params": []
     },
     {
@@ -6735,6 +6750,14 @@
       "path_params": []
     },
     {
+      "method": "POST",
+      "path": "/_matrix/client/v3/users/{user_id}/report",
+      "registered_by": "moderation",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/_matrix/client/v3/versions",
       "registered_by": "assembly::create_router",
@@ -6850,6 +6873,12 @@
       "method": "POST",
       "path": "/_matrix/client/v3/widgets/create",
       "registered_by": "widget",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v4/sync",
+      "registered_by": "sliding_sync",
       "path_params": []
     },
     {

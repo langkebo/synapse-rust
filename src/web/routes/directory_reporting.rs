@@ -258,6 +258,78 @@ pub(crate) async fn report_room(
     })))
 }
 
+/// MSC4260 — Report a user (POST /_matrix/client/v3/users/{userId}/report).
+///
+/// Spec (merged in Matrix v1.14):
+/// - Body: `{"reason": string}` — `reason` is **required** (field present),
+///   but the value may be an empty string `""`.
+/// - Success: `200 {}` (empty JSON object).
+/// - Target user not found: `404 M_NOT_FOUND`.
+/// - No room-membership restriction; self-report is allowed.
+/// - `score` is intentionally NOT used (dropped per MSC4260, unlike
+///   report-event which keeps it for backwards compatibility).
+///
+/// The report is stored locally via `event_report_service` with a synthetic
+/// `event_id` of the form `user_report:{userId}` and an empty `room_id`
+/// (no room context). Federation transit of user reports is out of scope
+/// (left to MSC3843 / MSC4202).
+pub(crate) async fn report_user(
+    State(ctx): State<AdminContext>,
+    headers: HeaderMap,
+    auth_user: AuthenticatedUser,
+    Path(reported_user_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
+    validate_user_id(&reported_user_id)?;
+
+    // MSC4260: `reason` is a REQUIRED field (the key must be present). The
+    // value may be an empty string. Missing key → M_BAD_JSON.
+    let Some(reason_value) = body.get("reason") else {
+        return Err(ApiError::bad_request("Missing required field: reason".to_string()));
+    };
+    let reason = reason_value
+        .as_str()
+        .ok_or_else(|| ApiError::bad_request("Field 'reason' must be a string".to_string()))?
+        .to_string();
+
+    // Fail-closed: verify the reported user exists before storing the report.
+    // The spec allows servers to mask existence by always returning 200, but
+    // the default behavior is to return 404 M_NOT_FOUND for unknown users.
+    let reported_user = ctx
+        .account_identity_service
+        .get_user_by_identifier(&reported_user_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
+
+    // Store the report locally. event_id is synthetic (no Matrix event is
+    // associated with a user report); room_id is empty because user reports
+    // have no room context per MSC4260.
+    let request = synapse_storage::event_report::CreateEventReportRequest {
+        event_id: format!("user_report:{reported_user_id}"),
+        room_id: String::new(),
+        reporter_user_id: auth_user.user_id.clone(),
+        reported_user_id: Some(reported_user.user_id.clone()),
+        event_json: None,
+        reason: Some(reason),
+        description: None,
+        score: Some(0),
+    };
+
+    let report = ctx.event_report_service.create_report(request).await?;
+
+    ::tracing::info!(
+        request_id = %request_id,
+        reported_user_id = %reported_user.user_id,
+        reporter_user_id = %auth_user.user_id,
+        report_id = report.id,
+        "Created user report (MSC4260)"
+    );
+
+    // MSC4260 success response is an empty JSON object.
+    Ok(Json(json!({})))
+}
+
 pub(crate) async fn get_scanner_info(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,

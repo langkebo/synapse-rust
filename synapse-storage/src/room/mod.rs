@@ -989,6 +989,88 @@ impl RoomStorage {
         Ok(result.map(|r| r.0))
     }
 
+    /// MSC4446: Update read marker with monotonicity check.
+    ///
+    /// When `allow_backward` is `false` (the default per MSC4446), the marker
+    /// is only updated if the new event is at the same position or more
+    /// recent than the current marker's event. Backward moves are silently
+    /// dropped (return `false`, no update, HTTP 200).
+    ///
+    /// When `allow_backward` is `true`, backward moves are accepted **only**
+    /// for `m.fully_read` markers. Other marker types (e.g. `m.read`) always
+    /// enforce monotonicity regardless of the flag.
+    ///
+    /// Event ordering uses `stream_ordering` when both events have it;
+    /// otherwise falls back to `origin_server_ts`.
+    ///
+    /// Returns `true` if the marker was updated, `false` if silently dropped.
+    pub async fn update_read_marker_monotonic(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_id: &str,
+        marker_type: &str,
+        allow_backward: bool,
+    ) -> Result<bool, sqlx::Error> {
+        // Get current marker
+        let current_event_id = self.get_read_marker(room_id, user_id, marker_type).await?;
+
+        match current_event_id {
+            None => {
+                // No existing marker → allow update
+                self.update_read_marker_with_type(room_id, user_id, event_id, marker_type).await?;
+                Ok(true)
+            }
+            Some(current_id) => {
+                if current_id == event_id {
+                    // Same event → idempotent, no update needed
+                    return Ok(true);
+                }
+
+                // Fetch event positions for comparison
+                let new_pos: Option<(Option<i64>, i64)> =
+                    sqlx::query_as("SELECT stream_ordering, origin_server_ts FROM events WHERE event_id = $1")
+                        .bind(event_id)
+                        .fetch_optional(&*self.pool)
+                        .await?;
+
+                let current_pos: Option<(Option<i64>, i64)> =
+                    sqlx::query_as("SELECT stream_ordering, origin_server_ts FROM events WHERE event_id = $1")
+                        .bind(&current_id)
+                        .fetch_optional(&*self.pool)
+                        .await?;
+
+                // If either event is missing from the store, fail-open (allow update)
+                let (new_pos, current_pos) = match (new_pos, current_pos) {
+                    (Some(n), Some(c)) => (n, c),
+                    _ => {
+                        self.update_read_marker_with_type(room_id, user_id, event_id, marker_type).await?;
+                        return Ok(true);
+                    }
+                };
+
+                // Determine if this is a backward move
+                let is_backward = match (current_pos.0, new_pos.0) {
+                    (Some(curr_so), Some(new_so)) => new_so < curr_so,
+                    _ => new_pos.1 < current_pos.1, // fallback to origin_server_ts
+                };
+
+                if !is_backward {
+                    // Forward or equal move → always allow
+                    self.update_read_marker_with_type(room_id, user_id, event_id, marker_type).await?;
+                    Ok(true)
+                } else if allow_backward && marker_type == "m.fully_read" {
+                    // MSC4446: backward allowed only for m.fully_read with flag
+                    self.update_read_marker_with_type(room_id, user_id, event_id, marker_type).await?;
+                    Ok(true)
+                } else {
+                    // Backward move not allowed → silently drop
+                    Ok(false)
+                }
+            }
+        }
+    }
+
     /// Get all read markers for a user in a room
     pub async fn get_all_read_markers(
         &self,
@@ -1712,6 +1794,118 @@ mod db_tests {
             .await
             .expect("get_all_read_markers empty should succeed");
         assert!(all.is_empty());
+    }
+
+    /// MSC4446: Without `allow_backward`, moving the fully read marker
+    /// backwards must be silently dropped (return `false`, no update).
+    #[tokio::test]
+    async fn test_update_read_marker_monotonic_blocks_backward() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!msc4446_blk_{}:example.com", suffix);
+        let user_id = format!("@msc4446_user_{}:example.com", suffix);
+        let old_event_id = format!("$msc4446_old_{}:example.com", suffix);
+        let new_event_id = format!("$msc4446_new_{}:example.com", suffix);
+
+        let _ = sqlx::query("DELETE FROM read_markers WHERE user_id = $1").bind(&user_id).execute(&*pool).await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
+        ensure_test_room(&pool, &room_id, &user_id).await;
+
+        // Insert two events: old (ts=1000) and new (ts=2000)
+        for (eid, ts) in [(&old_event_id, 1000i64), (&new_event_id, 2000i64)] {
+            sqlx::query(
+                r#"INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, origin_server_ts)
+                   VALUES ($1, $2, $3, $3, 'm.room.message', '{}'::jsonb, $4)
+                   ON CONFLICT (event_id) DO NOTHING"#,
+            )
+            .bind(eid)
+            .bind(&room_id)
+            .bind(&user_id)
+            .bind(ts)
+            .execute(&*pool)
+            .await
+            .expect("insert test event");
+        }
+
+        // Set marker to the NEW event first
+        storage.update_read_marker_with_type(&room_id, &user_id, &new_event_id, "m.fully_read").await.unwrap();
+
+        // Try to move BACKWARD to old event without allow_backward → should be blocked
+        let updated = storage
+            .update_read_marker_monotonic(&room_id, &user_id, &old_event_id, "m.fully_read", false)
+            .await
+            .expect("update_read_marker_monotonic should succeed");
+
+        assert!(!updated, "backward move without allow_backward should be silently dropped");
+
+        // Verify marker still points to the new event
+        let marker = storage.get_read_marker(&room_id, &user_id, "m.fully_read").await.unwrap();
+        assert_eq!(marker.as_deref(), Some(new_event_id.as_str()));
+
+        let _ = sqlx::query("DELETE FROM read_markers WHERE user_id = $1").bind(&user_id).execute(&*pool).await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
+    }
+
+    /// MSC4446: With `allow_backward=true`, moving the `m.fully_read` marker
+    /// backwards is accepted, but `m.read` still enforces monotonicity.
+    #[tokio::test]
+    async fn test_update_read_marker_monotonic_allows_backward_with_flag() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!msc4446_ab_{}:example.com", suffix);
+        let user_id = format!("@msc4446_ab_user_{}:example.com", suffix);
+        let old_event_id = format!("$msc4446_ab_old_{}:example.com", suffix);
+        let new_event_id = format!("$msc4446_ab_new_{}:example.com", suffix);
+
+        let _ = sqlx::query("DELETE FROM read_markers WHERE user_id = $1").bind(&user_id).execute(&*pool).await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
+        ensure_test_room(&pool, &room_id, &user_id).await;
+
+        for (eid, ts) in [(&old_event_id, 1000i64), (&new_event_id, 2000i64)] {
+            sqlx::query(
+                r#"INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, origin_server_ts)
+                   VALUES ($1, $2, $3, $3, 'm.room.message', '{}'::jsonb, $4)
+                   ON CONFLICT (event_id) DO NOTHING"#,
+            )
+            .bind(eid)
+            .bind(&room_id)
+            .bind(&user_id)
+            .bind(ts)
+            .execute(&*pool)
+            .await
+            .expect("insert test event");
+        }
+
+        // Set fully_read marker to NEW event
+        storage.update_read_marker_with_type(&room_id, &user_id, &new_event_id, "m.fully_read").await.unwrap();
+
+        // Move BACKWARD with allow_backward=true → should succeed
+        let updated = storage
+            .update_read_marker_monotonic(&room_id, &user_id, &old_event_id, "m.fully_read", true)
+            .await
+            .expect("update_read_marker_monotonic should succeed");
+
+        assert!(updated, "backward move with allow_backward=true for m.fully_read should succeed");
+        let marker = storage.get_read_marker(&room_id, &user_id, "m.fully_read").await.unwrap();
+        assert_eq!(marker.as_deref(), Some(old_event_id.as_str()));
+
+        // Set m.read marker to NEW event
+        storage.update_read_marker_with_type(&room_id, &user_id, &new_event_id, "m.read").await.unwrap();
+
+        // Try to move m.read BACKWARD with allow_backward=true → should be BLOCKED
+        let updated_read = storage
+            .update_read_marker_monotonic(&room_id, &user_id, &old_event_id, "m.read", true)
+            .await
+            .expect("update_read_marker_monotonic should succeed");
+
+        assert!(!updated_read, "m.read must always enforce monotonicity even with allow_backward");
+        let read_marker = storage.get_read_marker(&room_id, &user_id, "m.read").await.unwrap();
+        assert_eq!(read_marker.as_deref(), Some(new_event_id.as_str()));
+
+        let _ = sqlx::query("DELETE FROM read_markers WHERE user_id = $1").bind(&user_id).execute(&*pool).await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
     }
 
     #[tokio::test]

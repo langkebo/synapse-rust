@@ -120,7 +120,18 @@ impl SyncService {
 
         let mut joined_rooms = Map::new();
         let mut left_rooms = Map::new();
+        let mut invited_rooms = Map::new();
         for room_id in &rooms_to_include {
+            // MSC4311: invited rooms get stripped state (including m.room.create)
+            // instead of full room sync. Skip the full sync pipeline for them.
+            if room_sections.get(room_id).copied() == Some(SyncRoomSection::Invite) {
+                let stripped = self.build_invited_room_stripped_state(room_id, user_id).await;
+                if let Some(stripped) = stripped {
+                    invited_rooms.insert(room_id.clone(), stripped);
+                }
+                continue;
+            }
+
             let events = room_events.get(room_id).cloned().unwrap_or_default();
             let (timeline_events, timeline_limited) = Self::apply_timeline_limit(&events, timeline_limit);
             let state_events = Self::apply_sync_filter_to_values(
@@ -171,6 +182,10 @@ impl SyncService {
                     SyncRoomSection::Leave => {
                         left_rooms.insert(room_id.clone(), room_sync);
                     }
+                    // MSC4311: Invite rooms are handled above via stripped state
+                    // and never reach this match. The arm is unreachable but
+                    // required for exhaustiveness; fail-closed by ignoring.
+                    SyncRoomSection::Invite => {}
                 }
             }
         }
@@ -192,7 +207,7 @@ impl SyncService {
             }.encode(),
             "rooms": {
                 "join": joined_rooms,
-                "invite": {},
+                "invite": invited_rooms,
                 "leave": left_rooms
             },
             "presence": { "events": presence_events },
@@ -421,6 +436,89 @@ impl SyncService {
                 "highlight_count": counts.highlight_count,
                 "notification_count": counts.notification_count
             }
+        })
+    }
+
+    /// Build the stripped state for an invited room (MSC4311).
+    ///
+    /// Returns `{"invite_state": {"events": [...]}}` containing the key
+    /// state events the invitee needs to render the room preview and
+    /// determine the room version (via `m.room.create`).
+    ///
+    /// Per the Matrix spec, the stripped state includes:
+    /// m.room.create, m.room.join_rules, m.room.name, m.room.avatar,
+    /// m.room.topic, m.room.encryption, m.room.canonical_alias,
+    /// m.room.member (the invitee's invite event).
+    ///
+    /// Returns `None` if `m.room.create` cannot be loaded (fail-closed:
+    /// without room version info the client cannot safely process the invite).
+    async fn build_invited_room_stripped_state(&self, room_id: &str, user_id: &str) -> Option<Value> {
+        // State event types required for stripped state per Matrix spec.
+        // m.room.create is first — its absence triggers fail-closed return.
+        const STRIPPED_STATE_TYPES: &[&str] = &[
+            "m.room.create",
+            "m.room.join_rules",
+            "m.room.name",
+            "m.room.avatar",
+            "m.room.topic",
+            "m.room.encryption",
+            "m.room.canonical_alias",
+            "m.room.member",
+        ];
+
+        let mut stripped_events = Vec::new();
+        let mut has_create = false;
+
+        for event_type in STRIPPED_STATE_TYPES {
+            let state_events = self.event_reader.get_state_events_by_type(room_id, event_type).await.ok()?;
+
+            for event in state_events {
+                // For m.room.member, only include the invitee's invite event.
+                if *event_type == "m.room.member" {
+                    let matches_invitee = event.state_key.as_deref().is_some_and(|sk| sk == user_id);
+                    if !matches_invitee {
+                        continue;
+                    }
+                }
+
+                if *event_type == "m.room.create" {
+                    has_create = true;
+                }
+
+                stripped_events.push(Self::state_event_to_stripped_value(&event));
+            }
+        }
+
+        // MSC4311 fail-closed: if m.room.create is missing, the invitee
+        // cannot determine the room version. Return None so the room is
+        // omitted from the invite section rather than sent without critical
+        // state.
+        if !has_create {
+            ::tracing::warn!(
+                room_id = %room_id,
+                user_id = %user_id,
+                "Stripped state for invited room missing m.room.create, omitting from invite section (fail-closed)"
+            );
+            return None;
+        }
+
+        Some(json!({
+            "invite_state": {
+                "events": stripped_events
+            }
+        }))
+    }
+
+    /// Convert a `StateEvent` to the stripped state event JSON format used
+    /// in the `invite_state.events` array of the sync response.
+    fn state_event_to_stripped_value(event: &synapse_storage::event::StateEvent) -> Value {
+        json!({
+            "type": event.event_type,
+            "state_key": event.state_key,
+            "sender": event.sender,
+            "content": event.content,
+            "event_id": event.event_id,
+            "origin_server_ts": event.origin_server_ts
         })
     }
 }

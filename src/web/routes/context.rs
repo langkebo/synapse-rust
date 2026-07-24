@@ -86,6 +86,8 @@ pub struct RoomContext {
     pub dehydrated_device_service: Arc<synapse_services::dehydrated_device_service::DehydratedDeviceService>,
     #[cfg(feature = "burn-after-read")]
     pub burn_after_read: Arc<synapse_services::burn_after_read_service::BurnAfterReadService>,
+    /// MSC4140 — Delayed event storage for scheduling cancellable delayed messages.
+    pub delayed_event_storage: Arc<dyn synapse_storage::delayed_events::DelayedEventStorageApi>,
 }
 
 impl FromRef<AppState> for RoomContext {
@@ -131,6 +133,7 @@ impl FromRef<AppState> for RoomContext {
             dehydrated_device_service: Arc::new(state.services.e2ee.dehydrated_device_service.clone()),
             #[cfg(feature = "burn-after-read")]
             burn_after_read: state.services.extensions.burn_after_read.clone(),
+            delayed_event_storage: state.services.admin.modules.delayed_event_storage.clone(),
         }
     }
 }
@@ -379,6 +382,12 @@ pub struct AdminContext {
     pub retention_service: Arc<synapse_services::retention_service::RetentionService>,
     pub feature_flag_service: Arc<synapse_services::feature_flag_service::FeatureFlagService>,
     pub event_report_service: Arc<synapse_services::event_report_service::EventReportService>,
+    /// MSC4140 — Cancellable delayed events storage.
+    pub delayed_event_storage: Arc<dyn synapse_storage::delayed_events::DelayedEventStorageApi>,
+    /// MSC4284 — Policy server service for room/user/content moderation.
+    pub policy_service: Arc<synapse_services::policy_service::PolicyService>,
+    /// Event storage for admin redact/purge operations.
+    pub event_storage: synapse_storage::event::EventStorage,
     pub push_notification_service: Arc<synapse_services::push_notification_service::PushNotificationService>,
     pub app_service_manager: Arc<synapse_services::application_service::ApplicationServiceManager>,
     pub app_service_scheduler: Arc<synapse_services::application_service::ApplicationServiceScheduler>,
@@ -456,6 +465,12 @@ impl FromRef<AppState> for AdminContext {
             retention_service: state.services.admin.modules.retention_service.clone(),
             feature_flag_service: state.services.admin.modules.feature_flag_service.clone(),
             event_report_service: state.services.admin.modules.event_report_service.clone(),
+            delayed_event_storage: state.services.admin.modules.delayed_event_storage.clone(),
+            policy_service: state.services.admin.modules.policy_service.clone(),
+            event_storage: synapse_storage::event::EventStorage::new(
+                &state.services.database_pool(),
+                state.services.core.server_name.clone(),
+            ),
             push_notification_service: state.services.admin.modules.push_notification_service.clone(),
             app_service_manager: state.services.admin.modules.app_service_manager.clone(),
             app_service_scheduler: state.services.admin.modules.app_service_scheduler.clone(),

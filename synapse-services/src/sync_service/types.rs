@@ -237,6 +237,9 @@ impl Default for SyncResponseFilter {
 pub enum SyncRoomSection {
     Join,
     Leave,
+    /// Invited rooms — sync response includes stripped state (MSC4311:
+    /// must include m.room.create so invitees can determine room version).
+    Invite,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -163,6 +163,7 @@ mod tests {
             identity: IdentityConfig::default(),
             translate: TranslateConfig::default(),
             sso_redirect_allowlist: vec![],
+            ..Default::default()
         };
 
         let url = config.database_url();
@@ -599,6 +600,7 @@ mod tests {
             identity: IdentityConfig::default(),
             translate: TranslateConfig::default(),
             sso_redirect_allowlist: vec![],
+            ..Default::default()
         };
 
         config.resolve_env_variables()?;

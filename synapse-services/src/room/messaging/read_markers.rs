@@ -1,4 +1,4 @@
-//! Room read marker operations (MSC2654).
+//! Room read marker operations (MSC2654, MSC4446).
 
 use crate::common::error::{ApiError, ApiResult};
 
@@ -18,10 +18,21 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_log(&format!("Failed to set {marker_type} marker"), &e))
     }
 
+    /// Set read markers (MSC2654) with MSC4446 backward-move support.
+    ///
+    /// The optional `allow_backward` body flag allows the `m.fully_read`
+    /// marker to move backwards in time. Read receipts (`m.read`) always
+    /// enforce monotonicity regardless of the flag.
     pub async fn set_read_markers(&self, room_id: &str, user_id: &str, body: &serde_json::Value) -> ApiResult<()> {
+        let allow_backward = body.get("allow_backward").and_then(|v| v.as_bool()).unwrap_or(false);
+
         if let Some(event_id) = body.get("m.fully_read").and_then(|v| v.as_str()) {
             if event_id.starts_with('$') {
-                self.update_read_marker(room_id, user_id, event_id, "m.fully_read").await?;
+                // MSC4446: m.fully_read respects allow_backward flag
+                self.room_storage
+                    .update_read_marker_monotonic(room_id, user_id, event_id, "m.fully_read", allow_backward)
+                    .await
+                    .map_err(|e| ApiError::internal_with_log("Failed to set m.fully_read marker", &e))?;
             }
         }
 
@@ -45,7 +56,11 @@ impl MessagingService {
 
         if let Some(event_id) = body.get("m.read").and_then(|v| v.as_str()) {
             if event_id.starts_with('$') {
-                self.update_read_marker(room_id, user_id, event_id, "m.fully_read").await?;
+                // MSC4446: m.read always enforces monotonicity (allow_backward=false)
+                self.room_storage
+                    .update_read_marker_monotonic(room_id, user_id, event_id, "m.fully_read", false)
+                    .await
+                    .map_err(|e| ApiError::internal_with_log("Failed to set m.read marker", &e))?;
             }
         }
 

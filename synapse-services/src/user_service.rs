@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use synapse_common::ApiError;
@@ -154,6 +155,16 @@ impl UserService {
     #[instrument(skip(self))]
     pub async fn get_user_count(&self) -> Result<i64, ApiError> {
         self.user_storage.get_user_count().await.map_err(Self::db_error)
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_non_deactivated_user_count(&self) -> Result<i64, ApiError> {
+        self.user_storage.count_non_deactivated_users().await.map_err(Self::db_error)
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_non_deactivated_user_count_by_app_service(&self) -> Result<HashMap<String, i64>, ApiError> {
+        self.user_storage.count_non_deactivated_users_by_app_service().await.map_err(Self::db_error)
     }
 
     // ── delegated access to raw store for non-convenience operations ───

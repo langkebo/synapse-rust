@@ -16,6 +16,27 @@ impl MessagingService {
         receipt_type: &str,
         body: &serde_json::Value,
     ) -> ApiResult<()> {
+        // MSC4446: For m.fully_read, enforce monotonicity unless allow_backward
+        // is explicitly set. Read receipts (m.read) always enforce monotonicity.
+        if receipt_type == "m.fully_read" || receipt_type == "m.read" {
+            let allow_backward = if receipt_type == "m.fully_read" {
+                body.get("allow_backward").and_then(|v| v.as_bool()).unwrap_or(false)
+            } else {
+                false
+            };
+
+            let updated = self
+                .room_storage
+                .update_read_marker_monotonic(room_id, user_id, event_id, "m.fully_read", allow_backward)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to set fully_read marker", &e))?;
+
+            if !updated {
+                // MSC4446: silently drop backward move (return 200, no update)
+                return Ok(());
+            }
+        }
+
         self.room_storage
             .add_receipt(user_id, user_id, room_id, event_id, receipt_type, body)
             .await

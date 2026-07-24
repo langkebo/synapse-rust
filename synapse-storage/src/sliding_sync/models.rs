@@ -145,6 +145,11 @@ pub struct SlidingSyncRequest {
     pub timeout: Option<u32>,
     #[serde(rename = "clientTimeout")]
     pub client_timeout: Option<u32>,
+    /// MSC4186: transaction ID for request idempotency. When provided, the
+    /// server caches the response for this `txn_id` and returns the cached
+    /// response if the same `txn_id` is seen again (e.g., due to retries).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub txn_id: Option<String>,
 }
 
 fn deserialize_sliding_sync_lists<'de, D>(deserializer: D) -> Result<HashMap<String, SlidingSyncListData>, D::Error>

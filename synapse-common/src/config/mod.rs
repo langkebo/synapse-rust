@@ -20,6 +20,7 @@ pub mod experimental;
 pub mod federation;
 pub mod identity;
 pub mod logging;
+pub mod mas;
 pub mod performance;
 pub mod policy_server;
 pub mod push;
@@ -46,6 +47,7 @@ pub use experimental::ExperimentalConfig;
 pub use federation::{FederationConfig, FederationRateLimitConfig, TrustedKeyServer};
 pub use identity::IdentityConfig;
 pub use logging::LoggingConfig;
+pub use mas::MasConfig;
 pub use performance::PerformanceConfig;
 pub use policy_server::PolicyServerConfig;
 pub use rate_limit::{RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule, SyncRateLimitConfig};
@@ -128,6 +130,14 @@ pub struct Config {
     /// Message retention policy configuration
     #[serde(default)]
     pub retention: RetentionConfig,
+    /// MSC4284 — Policy server configuration for room/user/content moderation.
+    #[serde(default)]
+    pub policy_server: PolicyServerConfig,
+    /// MSC3861 — Matrix Authentication Service (MAS) configuration.
+    /// When enabled, the homeserver delegates auth to MAS and validates
+    /// MAS-issued access tokens (JWTs) instead of local HS256 tokens.
+    #[serde(default)]
+    pub mas: MasConfig,
     /// OpenTelemetry configuration
     #[serde(default)]
     pub telemetry: crate::telemetry_config::OpenTelemetryConfig,
@@ -361,6 +371,7 @@ mod tests {
             identity: IdentityConfig::default(),
             translate: TranslateConfig::default(),
             sso_redirect_allowlist: vec![],
+            ..Config::default()
         };
 
         let url = config.database_url();
@@ -797,6 +808,7 @@ mod tests {
             identity: IdentityConfig::default(),
             translate: TranslateConfig::default(),
             sso_redirect_allowlist: vec![],
+            ..Config::default()
         };
 
         config.resolve_env_variables()?;

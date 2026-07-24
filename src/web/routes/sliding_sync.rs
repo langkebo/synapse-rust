@@ -6,6 +6,7 @@ use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
 
 /// Sliding Sync endpoint
 /// Matrix MSC3575: https://github.com/matrix-org/matrix-spec-proposals/pull/3575
+/// MSC4186 (Simplified Sliding Sync): stable v4 path
 ///
 /// 注意：不要在 `/_matrix/client/v3/sync` 上挂载这里的 POST —— 该路径的 GET
 /// 已由 `sync.rs` 使用，axum 对同一路径不同 method 的 router 合并尚无法在
@@ -14,6 +15,7 @@ use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
 pub fn create_sliding_sync_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/v1/sync", post(sliding_sync))
+        .route("/_matrix/client/v4/sync", post(sliding_sync))
         .route("/_matrix/client/unstable/org.matrix.msc3575/sync", post(sliding_sync))
         .route("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync", post(sliding_sync))
 }
@@ -23,6 +25,7 @@ pub fn sliding_sync_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
     use axum::http::Method;
     [
         (Method::POST, "/_matrix/client/v1/sync"),
+        (Method::POST, "/_matrix/client/v4/sync"),
         (Method::POST, "/_matrix/client/unstable/org.matrix.msc3575/sync"),
         (Method::POST, "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"),
     ]

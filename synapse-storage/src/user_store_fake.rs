@@ -176,6 +176,24 @@ impl UserStore for FakeUserStore {
         Ok(0)
     }
 
+    async fn count_non_deactivated_users(&self) -> Result<i64, sqlx::Error> {
+        let users = self.users.read().await;
+        Ok(users.values().filter(|u| !u.is_deactivated).count() as i64)
+    }
+
+    async fn count_non_deactivated_users_by_app_service(&self) -> Result<HashMap<String, i64>, sqlx::Error> {
+        let users = self.users.read().await;
+        let mut map: HashMap<String, i64> = HashMap::new();
+        for user in users.values() {
+            if user.is_deactivated {
+                continue;
+            }
+            let key = user.appservice_id.clone().unwrap_or_default();
+            *map.entry(key).or_insert(0) += 1;
+        }
+        Ok(map)
+    }
+
     async fn get_daily_active_users(&self) -> Result<i64, sqlx::Error> {
         Ok(0)
     }
@@ -315,6 +333,105 @@ impl UserStore for FakeUserStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::user::UserStore;
+
+    fn make_user(user_id: &str, is_deactivated: bool) -> User {
+        User {
+            user_id: user_id.to_string(),
+            username: user_id.trim_start_matches('@').to_string(),
+            password_hash: None,
+            is_admin: false,
+            is_guest: false,
+            is_shadow_banned: false,
+            is_deactivated,
+            created_ts: 0,
+            updated_ts: None,
+            displayname: None,
+            avatar_url: None,
+            email: None,
+            phone: None,
+            generation: None,
+            consent_version: None,
+            appservice_id: None,
+            user_type: None,
+            invalid_update_at: None,
+            migration_state: None,
+            password_changed_ts: None,
+            is_password_change_required: false,
+            password_expires_at: None,
+            failed_login_attempts: 0,
+            locked_until: None,
+            must_change_password: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn count_non_deactivated_users_returns_only_active_count() {
+        let store = FakeUserStore::new();
+        // FakeUserStore::new seeds @alice:example.com (not deactivated) → 1 active.
+        store.seed_user(make_user("@bob:example.com", false)).await;
+        store.seed_user(make_user("@carol:example.com", true)).await;
+        store.seed_user(make_user("@dave:example.com", true)).await;
+
+        let count = store.count_non_deactivated_users().await.expect("count should succeed");
+        assert_eq!(count, 2, "only non-deactivated users should be counted (alice + bob)");
+    }
+
+    #[tokio::test]
+    async fn count_non_deactivated_users_zero_when_all_deactivated() {
+        let store = FakeUserStore::new();
+        // Override the seeded alice to be deactivated.
+        store.seed_user(make_user("@alice:example.com", true)).await;
+
+        let count = store.count_non_deactivated_users().await.expect("count should succeed");
+        assert_eq!(count, 0);
+    }
+
+    fn make_user_with_appservice(user_id: &str, is_deactivated: bool, appservice_id: Option<&str>) -> User {
+        let mut user = make_user(user_id, is_deactivated);
+        user.appservice_id = appservice_id.map(|s| s.to_string());
+        user
+    }
+
+    #[tokio::test]
+    async fn count_non_deactivated_users_by_app_service_groups_correctly() {
+        let store = FakeUserStore::new();
+        // FakeUserStore::new seeds @alice:example.com (not deactivated, appservice_id=None) → 1 local.
+        // AS "as1": 2 active, 1 deactivated → 2 counted
+        store.seed_user(make_user_with_appservice("@bob:example.com", false, Some("as1"))).await;
+        store.seed_user(make_user_with_appservice("@carol:example.com", false, Some("as1"))).await;
+        store.seed_user(make_user_with_appservice("@dave:example.com", true, Some("as1"))).await;
+        // AS "as2": 1 active, 1 deactivated → 1 counted
+        store.seed_user(make_user_with_appservice("@eve:example.com", false, Some("as2"))).await;
+        store.seed_user(make_user_with_appservice("@frank:example.com", true, Some("as2"))).await;
+        // Local (appservice_id=None): alice (active) + gina (active) → 2 counted
+        store.seed_user(make_user_with_appservice("@gina:example.com", false, None)).await;
+
+        let counts =
+            store.count_non_deactivated_users_by_app_service().await.expect("count by app service should succeed");
+
+        // Local users (appservice_id=NULL) are grouped under empty string key.
+        assert_eq!(counts.get("").copied(), Some(2), "local non-deactivated: alice + gina");
+        assert_eq!(counts.get("as1").copied(), Some(2), "as1 non-deactivated: bob + carol");
+        assert_eq!(counts.get("as2").copied(), Some(1), "as2 non-deactivated: eve");
+        // Total should match count_non_deactivated_users.
+        let total: i64 = counts.values().sum();
+        assert_eq!(total, 5, "sum of by-app-service counts should equal total non-deactivated users");
+    }
+
+    #[tokio::test]
+    async fn count_non_deactivated_users_by_app_service_empty_when_all_deactivated() {
+        let store = FakeUserStore::new();
+        // Override seeded alice to be deactivated.
+        store.seed_user(make_user_with_appservice("@alice:example.com", true, None)).await;
+        store.seed_user(make_user_with_appservice("@bob:example.com", true, Some("as1"))).await;
+
+        let counts =
+            store.count_non_deactivated_users_by_app_service().await.expect("count by app service should succeed");
+
+        // No groups should be present because all users are deactivated.
+        assert!(counts.is_empty(), "no non-deactivated users → empty map");
+    }
 
     #[tokio::test]
     async fn test_lock_and_check_user() {

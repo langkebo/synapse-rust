@@ -113,7 +113,12 @@ pub(super) async fn validate_federation_origin_shares_user_room(
 /// policy. If no ACL event exists for the room, all servers are allowed.
 ///
 /// This should be called for inbound federation requests that are scoped to a
-/// specific room (e.g., get_state, backfill, send_join, send_transaction PDUs).
+/// specific room (e.g., get_state, backfill, send_join, send_transaction PDUs,
+/// and room-scoped EDUs per MSC4163).
+///
+/// **Fail-closed:** if an ACL event exists but its content is missing or
+/// malformed, the request is denied. This prevents a corrupted/attacker-crafted
+/// ACL event from silently allowing denied servers through.
 pub(super) async fn check_server_acl(ctx: &FederationContext, room_id: &str, origin: &str) -> ApiResult<()> {
     let acl_events = ctx.room_service.messaging().get_state_events_by_type(room_id, "m.room.server_acl").await?;
 
@@ -123,13 +128,25 @@ pub(super) async fn check_server_acl(ctx: &FederationContext, room_id: &str, ori
     };
 
     let Some(acl_content) = acl_event.get("content") else {
-        return Ok(());
+        ::tracing::warn!(
+            room_id = %room_id, origin = %origin,
+            "m.room.server_acl event has no content, denying request (fail-closed)"
+        );
+        return Err(ApiError::forbidden(format!(
+            "Room '{}' has a malformed ACL event (missing content), request denied",
+            room_id
+        )));
     };
 
     let Some(acl) = synapse_federation::ServerAclContent::from_value(acl_content) else {
-        // Malformed ACL content — fail open (allow) to avoid breaking federation
-        ::tracing::warn!(room_id = %room_id, origin = %origin, "Failed to parse m.room.server_acl content, allowing request");
-        return Ok(());
+        ::tracing::warn!(
+            room_id = %room_id, origin = %origin,
+            "Failed to parse m.room.server_acl content, denying request (fail-closed)"
+        );
+        return Err(ApiError::forbidden(format!(
+            "Room '{}' has a malformed ACL event (unparseable content), request denied",
+            room_id
+        )));
     };
 
     if !acl.is_server_allowed(origin) {
@@ -137,6 +154,19 @@ pub(super) async fn check_server_acl(ctx: &FederationContext, room_id: &str, ori
     }
 
     Ok(())
+}
+
+/// Check whether the origin server is allowed by the room's ACL, returning a
+/// boolean instead of a `Result`. Used by EDU handlers (MSC4163) that need to
+/// silently drop denied EDUs rather than returning an error to the caller.
+///
+/// Returns `true` if no ACL exists or the origin is allowed. Returns `false`
+/// if the origin is denied or the ACL is malformed (fail-closed).
+pub(crate) async fn is_server_allowed_by_room_acl(ctx: &FederationContext, room_id: &str, origin: &str) -> bool {
+    match check_server_acl(ctx, room_id, origin).await {
+        Ok(()) => true,
+        Err(_) => false,
+    }
 }
 
 pub(super) fn increment_counter(ctx: &FederationContext, name: &str) {

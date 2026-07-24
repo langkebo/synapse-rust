@@ -26,6 +26,10 @@ pub struct CreateRoomConfig {
     pub name: Option<String>,
     pub topic: Option<String>,
     pub invite_list: Option<Vec<String>>,
+    /// MSC4491: per-invitee reasons keyed by user_id. Populated when createRoom
+    /// `invite` entries are objects with a `reason` field. Included in the
+    /// `m.room.member` invite event content.
+    pub invite_reasons: Option<std::collections::HashMap<String, String>>,
     pub preset: Option<String>,
     pub encryption: Option<String>,
     pub history_visibility: Option<String>,
@@ -567,6 +571,7 @@ impl From<crate::friend_room_service::FriendRoomCreateRoomConfig> for CreateRoom
             name: config.name,
             topic: config.topic,
             invite_list: config.invite_list,
+            invite_reasons: None,
             preset: config.preset,
             encryption: config.encryption,
             history_visibility: config.history_visibility,

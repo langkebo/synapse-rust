@@ -287,6 +287,65 @@ pub(crate) async fn send_message(
         }
     }
 
+    // MSC4140: If the body contains `org.matrix.msc4140.delay`, schedule the
+    // event as a delayed event instead of sending immediately. The server
+    // returns a `delay_id` (numeric) that clients use to cancel/restart/send
+    // via the management endpoint.
+    if let Some(delay_ms) = body.get("org.matrix.msc4140.delay").and_then(|v| v.as_i64()) {
+        // Validate delay is positive and bounded (max 24h = 86_400_000ms)
+        if delay_ms <= 0 {
+            return Err(ApiError::bad_request(
+                "org.matrix.msc4140.delay must be a positive integer (milliseconds)".to_string(),
+            ));
+        }
+        if delay_ms > 86_400_000 {
+            return Err(ApiError::bad_request(
+                "org.matrix.msc4140.delay must not exceed 24 hours (86_400_000ms)".to_string(),
+            ));
+        }
+
+        // Remove the MSC4140 delay field from the content before storing —
+        // it is a transport-level scheduling hint, not part of the event content.
+        let mut content = body.clone();
+        if let Some(obj) = content.as_object_mut() {
+            obj.remove("org.matrix.msc4140.delay");
+        }
+
+        let device_id = auth_user.device_id.as_deref().unwrap_or("");
+
+        let request = synapse_storage::delayed_events::CreateDelayedEventRequest {
+            room_id: room_id.clone(),
+            user_id: auth_user.user_id.clone(),
+            device_id: device_id.to_string(),
+            event_type: event_type.clone(),
+            state_key: None,
+            content,
+            delay_ms,
+        };
+
+        let delayed = ctx.delayed_event_storage.create_delayed_event(request).await?;
+
+        ::tracing::info!(
+            room_id = %room_id,
+            user_id = %auth_user.user_id,
+            delay_id = delayed.id,
+            delay_ms,
+            event_type = %event_type,
+            "MSC4140 delayed event scheduled"
+        );
+
+        // Cache the delay_id against the txn_id for idempotency.
+        if !txn_id.is_empty() {
+            let cache_key = format!("txn:{}:{}:{}", auth_user.user_id, room_id, txn_id);
+            let cached = serde_json::json!({ "delay_id": delayed.id });
+            if let Err(e) = ctx.cache.set(&cache_key, &cached.to_string(), 3600).await {
+                ::tracing::warn!("Failed to cache delayed event txn_id dedup marker: {e}");
+            }
+        }
+
+        return Ok(Json(serde_json::json!({ "delay_id": delayed.id })));
+    }
+
     let result = ctx.room_service.messaging().send_message(&room_id, &auth_user.user_id, &event_type, &body).await?;
 
     if !txn_id.is_empty() {

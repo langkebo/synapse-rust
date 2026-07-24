@@ -364,6 +364,7 @@ async fn test_initial_sync_returns_pos_and_empty_rooms() {
         pos: None,
         timeout: None,
         client_timeout: None,
+        txn_id: None,
     };
 
     let response = service.sync(&user_id, "DEV1", request).await.unwrap();
@@ -404,6 +405,7 @@ async fn test_sync_with_conn_id() {
         pos: None,
         timeout: None,
         client_timeout: None,
+        txn_id: None,
     };
 
     let response = service.sync(&user_id, "DEV1", request).await.unwrap();
@@ -442,6 +444,7 @@ async fn test_incremental_sync_with_valid_pos() {
         pos: None,
         timeout: None,
         client_timeout: None,
+        txn_id: None,
     };
 
     let first = service.sync(&user_id, "DEV1", request).await.unwrap();
@@ -455,6 +458,7 @@ async fn test_incremental_sync_with_valid_pos() {
         pos: Some(first.pos.clone()),
         timeout: None,
         client_timeout: None,
+        txn_id: None,
     };
 
     let second = service.sync(&user_id, "DEV1", incremental).await.unwrap();
@@ -492,6 +496,7 @@ async fn test_incremental_sync_with_invalid_pos_returns_error() {
         pos: Some("999999".to_string()),
         timeout: None,
         client_timeout: None,
+        txn_id: None,
     };
 
     let result = service.sync(&user_id, "DEV1", request).await;
@@ -682,6 +687,7 @@ async fn test_sync_with_room_subscriptions() {
         pos: None,
         timeout: None,
         client_timeout: None,
+        txn_id: None,
     };
 
     let response = service.sync(&user_id, "DEV1", request).await.unwrap();
@@ -723,6 +729,7 @@ async fn test_sync_with_unsubscribe_rooms() {
         pos: None,
         timeout: None,
         client_timeout: None,
+        txn_id: None,
     };
 
     let response = service.sync(&user_id, "DEV1", request).await.unwrap();
@@ -797,6 +804,7 @@ async fn test_sync_with_filters() {
         pos: None,
         timeout: None,
         client_timeout: None,
+        txn_id: None,
     };
 
     let response = service.sync(&user_id, "DEV1", request).await.unwrap();
@@ -865,6 +873,7 @@ async fn test_sync_multiple_lists() {
         pos: None,
         timeout: None,
         client_timeout: None,
+        txn_id: None,
     };
 
     let response = service.sync(&user_id, "DEV1", request).await.unwrap();
@@ -890,6 +899,7 @@ async fn test_sync_with_empty_lists() {
         pos: None,
         timeout: None,
         client_timeout: None,
+        txn_id: None,
     };
 
     let response = service.sync(&user_id, "DEV1", request).await.unwrap();
@@ -981,6 +991,7 @@ async fn test_sync_pos_advances_on_each_request() {
             pos: positions.last().cloned(),
             timeout: None,
             client_timeout: None,
+            txn_id: None,
         };
 
         let response = service.sync(&user_id, "DEV1", request).await.unwrap();
@@ -1024,6 +1035,7 @@ async fn test_sync_with_account_data_extension() {
         pos: None,
         timeout: None,
         client_timeout: None,
+        txn_id: None,
     };
 
     let response = service.sync(&user_id, "DEV1", request).await.unwrap();
@@ -1063,6 +1075,7 @@ async fn test_sync_without_extensions_returns_none() {
         pos: None,
         timeout: None,
         client_timeout: None,
+        txn_id: None,
     };
 
     let response = service.sync(&user_id, "DEV1", request).await.unwrap();

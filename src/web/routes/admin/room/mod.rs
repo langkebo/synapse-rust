@@ -147,6 +147,10 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
             post(management::purge_history_by_room),
         )
         .route(
+            "/_matrix/client/v3/admin/room/{room_id}/redact",
+            post(management::redact_room_events),
+        )
+        .route(
             "/_synapse/admin/v1/rooms/{room_id}/backfill",
             post(management::backfill_room),
         )

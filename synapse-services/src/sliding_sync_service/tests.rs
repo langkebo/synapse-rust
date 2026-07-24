@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashMap;
 use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::EventStorage;
@@ -102,6 +103,12 @@ fn create_test_service() -> SlidingSyncService {
             moka::sync::Cache::builder()
                 .max_capacity(MAX_TRACKED_CONNECTIONS)
                 .time_to_idle(std::time::Duration::from_millis(CONNECTION_TTL_MS as u64))
+                .build(),
+        ),
+        txn_id_cache: Arc::new(
+            moka::future::Cache::builder()
+                .max_capacity(MAX_TXN_ID_CACHE_ENTRIES)
+                .time_to_live(std::time::Duration::from_millis(TXN_ID_CACHE_TTL_MS))
                 .build(),
         ),
         metrics: Arc::new(MetricsCollector::new()),
@@ -556,6 +563,12 @@ fn create_cached_test_service(event_store: Arc<InMemoryEventStore>) -> SlidingSy
                 .time_to_idle(std::time::Duration::from_millis(CONNECTION_TTL_MS as u64))
                 .build(),
         ),
+        txn_id_cache: Arc::new(
+            moka::future::Cache::builder()
+                .max_capacity(MAX_TXN_ID_CACHE_ENTRIES)
+                .time_to_live(std::time::Duration::from_millis(TXN_ID_CACHE_TTL_MS))
+                .build(),
+        ),
         metrics: Arc::new(MetricsCollector::new()),
         latency_threshold_ms: PerformanceConfig::default().sliding_sync_latency_threshold_ms,
     }
@@ -636,4 +649,92 @@ async fn room_state_cache_invalidation_clears_on_write() {
     assert_eq!(result.len(), 1, "should return exactly one state event");
     let name = result[0].get("content").and_then(|c| c.get("name")).and_then(|n| n.as_str());
     assert_eq!(name, Some("FreshRoom"), "should return the newly added event, not cached empty");
+}
+
+// ── MSC4186: txn_id idempotency ─────────────────────────────────────
+//
+// MSC4186 §6.1: When a request includes `txn_id`, the server MUST cache
+// the response and return the cached body for subsequent requests with
+// the same `txn_id` (e.g., client retries). The cache is keyed by
+// `(user_id, device_id, txn_id)` to prevent cross-user leakage and is
+// bounded with a TTL to avoid unbounded growth.
+
+#[tokio::test]
+async fn test_txn_id_returns_cached_response_on_retry() {
+    let service = create_test_service();
+    let user_id = "@alice:example.com";
+    let device_id = "DEV1";
+    let txn_id = "txn-12345";
+
+    // Seed the txn_id cache with a known response.
+    let cached_response = SlidingSyncResponse {
+        pos: "cached-pos-999".to_string(),
+        conn_id: Some("conn-1".to_string()),
+        lists: serde_json::json!({"list1": {"count": 5}}),
+        rooms: serde_json::json!({"!room:example.com": {}}),
+        extensions: None,
+    };
+    service
+        .txn_id_cache
+        .insert(SlidingSyncService::txn_id_cache_key(user_id, device_id, txn_id), cached_response.clone())
+        .await;
+
+    // Issue a sync request with the same txn_id — should hit cache and return early,
+    // bypassing sync_inner entirely (which would otherwise fail due to lazy-connect pool).
+    let request = SlidingSyncRequest {
+        conn_id: Some("conn-1".to_string()),
+        lists: HashMap::new(),
+        room_subscriptions: None,
+        unsubscribe_rooms: None,
+        extensions: None,
+        pos: None,
+        timeout: None,
+        client_timeout: None,
+        txn_id: Some(txn_id.to_string()),
+    };
+
+    let response = service.sync(user_id, device_id, request).await.expect("cached sync should succeed");
+
+    assert_eq!(response.pos, "cached-pos-999", "should return cached pos, not a freshly generated one");
+    assert_eq!(response.conn_id, Some("conn-1".to_string()));
+    assert_eq!(response.lists["list1"]["count"], 5);
+}
+
+#[tokio::test]
+async fn test_txn_id_cache_isolates_by_user_device() {
+    // Cache key for (alice, DEV1, txn-shared) must differ from (bob, DEV1, txn-shared).
+    let alice_key = SlidingSyncService::txn_id_cache_key("@alice:example.com", "DEV1", "txn-shared");
+    let bob_key = SlidingSyncService::txn_id_cache_key("@bob:example.com", "DEV1", "txn-shared");
+    assert_ne!(alice_key, bob_key, "cache keys must isolate by user_id");
+
+    // Cache key must also differ by device_id.
+    let alice_dev2_key = SlidingSyncService::txn_id_cache_key("@alice:example.com", "DEV2", "txn-shared");
+    assert_ne!(alice_key, alice_dev2_key, "cache keys must isolate by device_id");
+
+    // Cache key must differ by txn_id.
+    let alice_other_txn = SlidingSyncService::txn_id_cache_key("@alice:example.com", "DEV1", "txn-other");
+    assert_ne!(alice_key, alice_other_txn, "cache keys must isolate by txn_id");
+}
+
+#[tokio::test]
+async fn test_txn_id_no_cache_lookup_when_txn_id_absent() {
+    let service = create_test_service();
+
+    // No txn_id provided — cache lookup must be skipped entirely.
+    // The sync call will proceed to sync_inner which fails (lazy-connect pool),
+    // proving the cache path was not taken.
+    let request = SlidingSyncRequest {
+        conn_id: None,
+        lists: HashMap::new(),
+        room_subscriptions: None,
+        unsubscribe_rooms: None,
+        extensions: None,
+        pos: None,
+        timeout: None,
+        client_timeout: None,
+        txn_id: None,
+    };
+
+    let result = service.sync("@alice:example.com", "DEV1", request).await;
+    assert!(result.is_err(), "without txn_id, sync must proceed to storage which fails on lazy-connect pool");
 }

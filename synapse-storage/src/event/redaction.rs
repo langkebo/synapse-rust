@@ -110,4 +110,115 @@ impl EventStorage {
         .await?;
         Ok(())
     }
+
+    /// Admin Redact API: Find event IDs in a room within an optional time
+    /// range for batch redaction.
+    ///
+    /// - `before_ts`: only redact events with `origin_server_ts < before_ts`
+    /// - `after_ts`: only redact events with `origin_server_ts > after_ts`
+    /// - `limit`: cap the number of events returned (default 1000)
+    ///
+    /// Excludes already-redacted events and `m.room.create` (cannot redact
+    /// the room create event without destroying the room).
+    pub async fn find_event_ids_for_redaction(
+        &self,
+        room_id: &str,
+        before_ts: Option<i64>,
+        after_ts: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let rows: Vec<(String,)> = match (before_ts, after_ts) {
+            (Some(before), Some(after)) => {
+                sqlx::query_as(
+                    r"
+                    SELECT event_id FROM events
+                    WHERE room_id = $1
+                      AND is_redacted = false
+                      AND event_type != 'm.room.create'
+                      AND COALESCE(origin_server_ts, 0) < $2
+                      AND COALESCE(origin_server_ts, 0) > $3
+                    ORDER BY origin_server_ts ASC
+                    LIMIT $4
+                    ",
+                )
+                .bind(room_id)
+                .bind(before)
+                .bind(after)
+                .bind(limit)
+                .fetch_all(&*self.pool)
+                .await?
+            }
+            (Some(before), None) => {
+                sqlx::query_as(
+                    r"
+                    SELECT event_id FROM events
+                    WHERE room_id = $1
+                      AND is_redacted = false
+                      AND event_type != 'm.room.create'
+                      AND COALESCE(origin_server_ts, 0) < $2
+                    ORDER BY origin_server_ts ASC
+                    LIMIT $3
+                    ",
+                )
+                .bind(room_id)
+                .bind(before)
+                .bind(limit)
+                .fetch_all(&*self.pool)
+                .await?
+            }
+            (None, Some(after)) => {
+                sqlx::query_as(
+                    r"
+                    SELECT event_id FROM events
+                    WHERE room_id = $1
+                      AND is_redacted = false
+                      AND event_type != 'm.room.create'
+                      AND COALESCE(origin_server_ts, 0) > $2
+                    ORDER BY origin_server_ts ASC
+                    LIMIT $3
+                    ",
+                )
+                .bind(room_id)
+                .bind(after)
+                .bind(limit)
+                .fetch_all(&*self.pool)
+                .await?
+            }
+            (None, None) => {
+                sqlx::query_as(
+                    r"
+                    SELECT event_id FROM events
+                    WHERE room_id = $1
+                      AND is_redacted = false
+                      AND event_type != 'm.room.create'
+                    ORDER BY origin_server_ts ASC
+                    LIMIT $2
+                    ",
+                )
+                .bind(room_id)
+                .bind(limit)
+                .fetch_all(&*self.pool)
+                .await?
+            }
+        };
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// Admin Redact API: Batch redact multiple events by event_id.
+    ///
+    /// Returns the number of events redacted. Uses individual UPDATEs rather
+    /// than a bulk UPDATE because each event type has a different redaction
+    /// retention table (see `redact_content`).
+    pub async fn batch_redact_events(
+        &self,
+        event_ids: &[String],
+        redacted_by: Option<&str>,
+    ) -> Result<u64, sqlx::Error> {
+        let mut redacted = 0u64;
+        for event_id in event_ids {
+            self.redact_event_content(event_id, redacted_by).await?;
+            redacted += 1;
+        }
+        Ok(redacted)
+    }
 }

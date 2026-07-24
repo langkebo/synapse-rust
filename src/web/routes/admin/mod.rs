@@ -3,6 +3,7 @@ pub mod cleanup;
 pub mod federation;
 pub mod media;
 pub mod notification;
+pub mod policy;
 pub mod register;
 pub mod report;
 pub mod retention;
@@ -21,6 +22,7 @@ pub use cleanup::create_cleanup_router;
 pub use federation::create_federation_router;
 pub use media::create_media_router;
 pub use notification::create_notification_router;
+pub use policy::create_policy_router;
 pub use register::create_register_router;
 pub use report::create_report_router;
 pub use retention::create_retention_router;
@@ -54,6 +56,7 @@ pub fn create_admin_module_router(state: AppState) -> Router<crate::web::routes:
             .merge(create_media_router())
             .merge(create_report_router())
             .merge(create_retention_router())
+            .merge(create_policy_router())
             .merge(room::create_room_router(state.clone()))
             .route("/_synapse/admin/info", axum::routing::get(server::get_admin_info))
             .route_layer(
@@ -83,5 +86,6 @@ pub fn admin_module_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
     entries.extend(server::admin_server_route_manifest());
     entries.extend(token::admin_token_route_manifest());
     entries.extend(user::admin_user_route_manifest());
+    entries.extend(policy::admin_policy_route_manifest());
     entries
 }

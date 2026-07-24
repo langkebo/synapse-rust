@@ -10,8 +10,9 @@ mod auth_compat;
 pub mod background_update;
 pub mod captcha;
 pub mod context;
+mod delayed_events;
 pub mod device;
-pub mod directory;
+mod directory;
 mod directory_reporting;
 pub mod dm;
 pub mod e2ee;
@@ -124,11 +125,12 @@ pub use burn_after_read::create_burn_after_read_router;
 pub use captcha::create_captcha_router;
 #[cfg(feature = "cas-sso")]
 pub use cas::cas_routes;
+pub use delayed_events::create_delayed_events_router;
 pub use device::create_device_router;
 pub(crate) use directory_reporting::{
     delete_room_alias, delete_room_alias_direct, get_public_rooms, get_room_aliases, get_room_by_alias,
     get_scanner_info, get_user_directory_profile, list_user_directory, query_public_rooms, report_event, report_room,
-    search_user_directory, set_room_alias, set_room_alias_direct, update_report_score,
+    report_user, search_user_directory, set_room_alias, set_room_alias_direct, update_report_score,
 };
 pub use dm::create_dm_router;
 pub use e2ee::create_e2ee_router;

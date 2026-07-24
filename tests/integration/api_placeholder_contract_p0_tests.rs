@@ -1068,3 +1068,445 @@ async fn test_receipt_contract_rejects_invalid_event_id_and_receipt_type() {
     )
     .await;
 }
+
+// =============================================================================
+// MSC4260 — POST /_matrix/client/v3/users/{userId}/report
+// =============================================================================
+//
+// Spec: Reporting users (Client-Server API), merged into Matrix v1.14.
+// - Body: {"reason": string} — reason REQUIRED, value may be "".
+// - Success: 200 {} (empty JSON object).
+// - Target user not found: 404 M_NOT_FOUND.
+// - Auth required (guests forbidden).
+// - Self-report is allowed (no special-case).
+// - No room-membership restriction.
+// - score field is NOT used (dropped per MSC4260, unlike report-event).
+
+fn url_encode_user_id(user_id: &str) -> String {
+    user_id.replace('@', "%40").replace(':', "%3A")
+}
+
+#[tokio::test]
+async fn test_msc4260_report_user_returns_200_when_target_exists() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let reporter_name = format!("msc4260_reporter_{}", rand::random::<u32>());
+    let target_name = format!("msc4260_target_{}", rand::random::<u32>());
+    let (reporter_token, _) = register_user(&app, &reporter_name).await;
+    let (_, target_user_id) = register_user(&app, &target_name).await;
+
+    let encoded_target = url_encode_user_id(&target_user_id);
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
+        Request::builder()
+            .method("POST")
+            .uri(format!("/_matrix/client/v3/users/{}/report", encoded_target))
+            .header("Authorization", format!("Bearer {}", reporter_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "reason": "abusive behavior" }).to_string()))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK, "MSC4260: reporting an existing user should return 200");
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(json.is_object(), "MSC4260: response body must be a JSON object");
+    assert!(
+        json.as_object().map(|o| o.is_empty()).unwrap_or(false),
+        "MSC4260: response should be an empty JSON object {{}}, got: {json}"
+    );
+}
+
+#[tokio::test]
+async fn test_msc4260_report_user_returns_404_when_target_missing() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let reporter_name = format!("msc4260_404_{}", rand::random::<u32>());
+    let (reporter_token, _) = register_user(&app, &reporter_name).await;
+
+    // User that was never registered on this server.
+    let missing_user_id = "@msc4260_nonexistent:localhost";
+    let encoded = url_encode_user_id(missing_user_id);
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri(format!("/_matrix/client/v3/users/{}/report", encoded))
+            .header("Authorization", format!("Bearer {}", reporter_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "reason": "does not exist" }).to_string()))
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "M_NOT_FOUND",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_msc4260_report_user_requires_reason_field() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let reporter_name = format!("msc4260_noreason_{}", rand::random::<u32>());
+    let target_name = format!("msc4260_target_noreason_{}", rand::random::<u32>());
+    let (reporter_token, _) = register_user(&app, &reporter_name).await;
+    let (_, target_user_id) = register_user(&app, &target_name).await;
+
+    let encoded_target = url_encode_user_id(&target_user_id);
+    // Body is missing the required "reason" field entirely.
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri(format!("/_matrix/client/v3/users/{}/report", encoded_target))
+            .header("Authorization", format!("Bearer {}", reporter_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({}).to_string()))
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "M_BAD_JSON",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_msc4260_report_user_accepts_empty_reason_string() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let reporter_name = format!("msc4260_empty_{}", rand::random::<u32>());
+    let target_name = format!("msc4260_target_empty_{}", rand::random::<u32>());
+    let (reporter_token, _) = register_user(&app, &reporter_name).await;
+    let (_, target_user_id) = register_user(&app, &target_name).await;
+
+    let encoded_target = url_encode_user_id(&target_user_id);
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
+        Request::builder()
+            .method("POST")
+            .uri(format!("/_matrix/client/v3/users/{}/report", encoded_target))
+            .header("Authorization", format!("Bearer {}", reporter_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "reason": "" }).to_string()))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "MSC4260: empty reason string must be accepted (field present, value may be empty)"
+    );
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(json.as_object().map(|o| o.is_empty()).unwrap_or(false));
+}
+
+#[tokio::test]
+async fn test_msc4260_report_user_allows_self_report() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let reporter_name = format!("msc4260_self_{}", rand::random::<u32>());
+    let (reporter_token, reporter_user_id) = register_user(&app, &reporter_name).await;
+
+    // MSC4260 explicitly allows self-reporting — no M_FORBIDDEN special-case.
+    let encoded_self = url_encode_user_id(&reporter_user_id);
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
+        Request::builder()
+            .method("POST")
+            .uri(format!("/_matrix/client/v3/users/{}/report", encoded_self))
+            .header("Authorization", format!("Bearer {}", reporter_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "reason": "self report test" }).to_string()))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "MSC4260: self-report must be allowed (spec: 'no restrictions on who can report a user')"
+    );
+}
+
+#[tokio::test]
+async fn test_msc4260_report_user_rejects_invalid_user_id_format() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let reporter_name = format!("msc4260_badid_{}", rand::random::<u32>());
+    let (reporter_token, _) = register_user(&app, &reporter_name).await;
+
+    // user_id must start with '@'. An invalid format should be rejected.
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/_matrix/client/v3/users/not-a-valid-user-id/report")
+            .header("Authorization", format!("Bearer {}", reporter_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "reason": "bad id" }).to_string()))
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "M_INVALID_PARAM",
+    )
+    .await;
+}
+
+// =============================================================================
+// MSC4140 — POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}
+// =============================================================================
+//
+// Spec: Cancellable delayed events (Gen 1 management endpoint).
+// - Body: {"action": "send" | "cancel" | "restart"}
+// - Success: 200 {} (empty JSON object).
+// - Unknown delay_id: 404 M_NOT_FOUND (fail-closed, no existence leak).
+// - Non-owner: 404 M_NOT_FOUND (fail-closed information hiding).
+// - Invalid action: 400 M_INVALID_PARAM.
+// - Missing action field: 400 (deserialization error).
+// - Auth required.
+
+const MSC4140_ENDPOINT: &str = "/_matrix/client/unstable/org.matrix.msc4140/delayed_events";
+
+#[tokio::test]
+async fn test_msc4140_manage_requires_authentication() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    // No Authorization header → 401 M_MISSING_TOKEN (or similar auth error).
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
+        Request::builder()
+            .method("POST")
+            .uri(format!("{MSC4140_ENDPOINT}/1"))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "action": "cancel" }).to_string()))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "MSC4140: endpoint must require auth");
+}
+
+#[tokio::test]
+async fn test_msc4140_manage_returns_404_for_nonexistent_delay_id() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let username = format!("msc4140_404_{}", rand::random::<u32>());
+    let (token, _) = register_user(&app, &username).await;
+
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri(format!("{MSC4140_ENDPOINT}/99999999"))
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "action": "cancel" }).to_string()))
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "M_NOT_FOUND",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_msc4140_manage_rejects_invalid_action() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let username = format!("msc4140_badaction_{}", rand::random::<u32>());
+    let (token, _) = register_user(&app, &username).await;
+
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri(format!("{MSC4140_ENDPOINT}/1"))
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "action": "delete" }).to_string()))
+            .unwrap(),
+        StatusCode::BAD_REQUEST,
+        "M_INVALID_PARAM",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_msc4140_manage_rejects_missing_action_field() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let username = format!("msc4140_noaction_{}", rand::random::<u32>());
+    let (token, _) = register_user(&app, &username).await;
+
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
+        Request::builder()
+            .method("POST")
+            .uri(format!("{MSC4140_ENDPOINT}/1"))
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({}).to_string()))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    // Missing required field → 400 (Json deserialization rejection).
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST, "MSC4140: missing 'action' field should return 400");
+}
+
+#[tokio::test]
+async fn test_msc4140_cancel_succeeds_for_owner() {
+    let Some((app, container)) = setup_test_app_with_services().await else {
+        return;
+    };
+
+    let username = format!("msc4140_cancel_{}", rand::random::<u32>());
+    let (token, user_id) = register_user(&app, &username).await;
+
+    // Insert a delayed event directly via storage so we have a real delay_id.
+    let storage = container.admin.modules.delayed_event_storage.clone();
+    let request = synapse_storage::delayed_events::CreateDelayedEventRequest {
+        room_id: format!("!msc4140_test_{}:localhost", rand::random::<u32>()),
+        user_id: user_id.clone(),
+        device_id: "TESTDEVICE".to_string(),
+        event_type: "m.room.message".to_string(),
+        state_key: None,
+        content: json!({ "body": "delayed", "msgtype": "m.text" }),
+        delay_ms: 60_000,
+    };
+    let event = storage.create_delayed_event(request).await.unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
+        Request::builder()
+            .method("POST")
+            .uri(format!("{MSC4140_ENDPOINT}/{}", event.id))
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "action": "cancel" }).to_string()))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK, "MSC4140: cancel by owner should return 200");
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(json.as_object().map(|o| o.is_empty()).unwrap_or(false), "response should be {{}}");
+
+    // Verify the event was actually cancelled.
+    let updated = storage.get_delayed_event(event.id).await.unwrap().unwrap();
+    assert_eq!(updated.status, "cancelled", "event status should be 'cancelled' after cancel");
+}
+
+#[tokio::test]
+async fn test_msc4140_restart_succeeds_for_owner() {
+    let Some((app, container)) = setup_test_app_with_services().await else {
+        return;
+    };
+
+    let username = format!("msc4140_restart_{}", rand::random::<u32>());
+    let (token, user_id) = register_user(&app, &username).await;
+
+    let storage = container.admin.modules.delayed_event_storage.clone();
+    let request = synapse_storage::delayed_events::CreateDelayedEventRequest {
+        room_id: format!("!msc4140_restart_{}:localhost", rand::random::<u32>()),
+        user_id,
+        device_id: "TESTDEVICE".to_string(),
+        event_type: "m.room.message".to_string(),
+        state_key: None,
+        content: json!({ "body": "delayed", "msgtype": "m.text" }),
+        delay_ms: 60_000,
+    };
+    let event = storage.create_delayed_event(request).await.unwrap();
+    let original_scheduled_ts = event.scheduled_ts;
+
+    // Sleep briefly so restart produces a different scheduled_ts.
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    let response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
+        Request::builder()
+            .method("POST")
+            .uri(format!("{MSC4140_ENDPOINT}/{}", event.id))
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "action": "restart" }).to_string()))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK, "MSC4140: restart by owner should return 200");
+
+    // Verify scheduled_ts was updated (heartbeat).
+    let updated = storage.get_delayed_event(event.id).await.unwrap().unwrap();
+    assert!(updated.scheduled_ts > original_scheduled_ts, "restart should advance scheduled_ts");
+    assert_eq!(updated.status, "pending", "event should still be pending after restart");
+}
+
+#[tokio::test]
+async fn test_msc4140_non_owner_returns_404() {
+    let Some((app, container)) = setup_test_app_with_services().await else {
+        return;
+    };
+
+    // Owner creates a delayed event.
+    let owner_name = format!("msc4140_owner_{}", rand::random::<u32>());
+    let (_, owner_user_id) = register_user(&app, &owner_name).await;
+
+    // Attacker tries to cancel it.
+    let attacker_name = format!("msc4140_attacker_{}", rand::random::<u32>());
+    let (attacker_token, _) = register_user(&app, &attacker_name).await;
+
+    let storage = container.admin.modules.delayed_event_storage.clone();
+    let request = synapse_storage::delayed_events::CreateDelayedEventRequest {
+        room_id: format!("!msc4140_owner_{}:localhost", rand::random::<u32>()),
+        user_id: owner_user_id,
+        device_id: "OWNERDEVICE".to_string(),
+        event_type: "m.room.message".to_string(),
+        state_key: None,
+        content: json!({ "body": "delayed", "msgtype": "m.text" }),
+        delay_ms: 60_000,
+    };
+    let event = storage.create_delayed_event(request).await.unwrap();
+
+    // Fail-closed: non-owner gets 404 (not 403) to avoid leaking existence.
+    assert_matrix_error(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri(format!("{MSC4140_ENDPOINT}/{}", event.id))
+            .header("Authorization", format!("Bearer {}", attacker_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "action": "cancel" }).to_string()))
+            .unwrap(),
+        StatusCode::NOT_FOUND,
+        "M_NOT_FOUND",
+    )
+    .await;
+}

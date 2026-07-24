@@ -278,11 +278,17 @@ impl DeviceSyncManager {
     pub async fn cleanup_expired_devices(&self, user_id: &str) -> Result<u64, ApiError> {
         let expiry_threshold = Utc::now() - Duration::days(DEVICE_KEY_EXPIRY_DAYS);
 
+        // Exclude device_ids that are also registered as dehydrated devices.
+        // Dehydrated devices are offline by design and would otherwise be
+        // purged by the last_seen_ts expiry check, breaking rehydration.
         let result = sqlx::query(
             r"
             DELETE FROM devices
             WHERE user_id = $1
             AND (last_seen_ts IS NULL OR last_seen_ts < $2)
+            AND device_id NOT IN (
+                SELECT device_id FROM dehydrated_devices WHERE user_id = $1
+            )
             ",
         )
         .bind(user_id)

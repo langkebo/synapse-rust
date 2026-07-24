@@ -140,6 +140,7 @@ pub async fn purge_history(
         .get("purge_up_to_ts")
         .and_then(|v| v.as_i64())
         .unwrap_or_else(|| current_timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
+    let dry_run = body.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false);
 
     if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -152,15 +153,17 @@ pub async fn purge_history(
         admin_user_id = %admin.user_id,
         target_room_id = %room_id,
         purge_up_to_ts = timestamp,
+        dry_run = dry_run,
         timestamp_ms = current_timestamp_millis(),
         "Admin purge history operation"
     );
 
-    let deleted_count = ctx.room_service.state().purge_history_before(room_id, timestamp).await?;
+    let affected_count = ctx.room_service.state().purge_history_before(room_id, timestamp, dry_run).await?;
 
     Ok(Json(json!({
         "success": true,
-        "deleted_events": deleted_count
+        "deleted_events": affected_count,
+        "dry_run": dry_run
     })))
 }
 
@@ -538,4 +541,84 @@ async fn kick_user_internal(
         "kicked": true,
         "reason": reason
     }))
+}
+
+/// `POST /_matrix/client/v3/admin/room/{room_id}/redact`
+///
+/// Admin Redact API with time filter: batch-redact events in a room within
+/// an optional time range. Matches Element Synapse's admin redact endpoint.
+///
+/// Request body:
+/// - `before_ts` (i64, optional): redact events with `origin_server_ts < before_ts`
+/// - `after_ts` (i64, optional): redact events with `origin_server_ts > after_ts`
+/// - `limit` (i64, optional, default 1000): cap number of events to redact
+/// - `reason` (string, optional): reason recorded in audit log
+#[axum::debug_handler]
+pub async fn redact_room_events(
+    admin: AdminUser,
+    State(ctx): State<AdminContext>,
+    headers: HeaderMap,
+    Path(room_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let before_ts = body.get("before_ts").and_then(|v| v.as_i64());
+    let after_ts = body.get("after_ts").and_then(|v| v.as_i64());
+    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(1000);
+    let reason = body.get("reason").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+    // Validate limit is positive and bounded (prevent excessive batch sizes)
+    if limit <= 0 || limit > 10_000 {
+        return Err(ApiError::bad_request("limit must be between 1 and 10000".to_string()));
+    }
+
+    // Verify room exists (fail-closed: don't reveal whether room has events)
+    if !ctx.room_service.state().room_exists(&room_id).await? {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    let request_id = resolve_request_id(&headers);
+
+    tracing::warn!(
+        request_id = %request_id,
+        action = "admin.redact_room_events",
+        admin_user_id = %admin.user_id,
+        target_room_id = %room_id,
+        before_ts = ?before_ts,
+        after_ts = ?after_ts,
+        limit = limit,
+        reason = ?reason,
+        timestamp_ms = current_timestamp_millis(),
+        "Admin batch redact operation started"
+    );
+
+    // Find events matching the time filter
+    let event_ids = ctx
+        .event_storage
+        .find_event_ids_for_redaction(&room_id, before_ts, after_ts, limit)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to query events for redaction", &e))?;
+
+    let found = event_ids.len() as u64;
+
+    // Batch redact the matched events
+    let redacted = ctx
+        .event_storage
+        .batch_redact_events(&event_ids, Some(&admin.user_id))
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to batch redact events", &e))?;
+
+    tracing::warn!(
+        request_id = %request_id,
+        action = "admin.redact_room_events.complete",
+        admin_user_id = %admin.user_id,
+        target_room_id = %room_id,
+        events_found = found,
+        events_redacted = redacted,
+        timestamp_ms = current_timestamp_millis(),
+        "Admin batch redact operation completed"
+    );
+
+    Ok(Json(json!({
+        "redacted": redacted
+    })))
 }

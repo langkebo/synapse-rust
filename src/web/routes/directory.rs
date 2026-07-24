@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::web::routes::context::RoomContext;
 use crate::web::routes::{ensure_room_member_ctx, validate_room_alias, ApiError, AuthenticatedUser};
 use axum::{

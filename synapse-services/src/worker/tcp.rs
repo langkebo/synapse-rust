@@ -8,6 +8,15 @@ use tokio::{
 };
 use tracing::{debug, info};
 
+/// GHSA-8q93 mitigation: Maximum time to wait when acquiring the
+/// `ReplicationConnection::client` Mutex before failing closed.
+///
+/// Without this bound, an attacker can starve the CPU by flooding the
+/// worker with concurrent `send_command`/`ping` calls that all contend
+/// on the same lock. 5 seconds is generous for an internal worker lock;
+/// normal operation acquires the lock in microseconds.
+const LOCK_ACQUIRE_TIMEOUT_SECS: u64 = 5;
+
 pub struct TcpReplicationClient {
     stream: Option<TcpStream>,
     protocol: ReplicationProtocol,
@@ -132,7 +141,15 @@ impl ReplicationConnection {
     }
 
     pub async fn send_command(&self, command: &ReplicationCommand) -> Result<(), ReplicationError> {
-        let mut guard = self.client.lock().await;
+        // GHSA-8q93: Bound lock acquisition to prevent CPU starvation under
+        // contention. Fail closed (return error) instead of hanging indefinitely.
+        let mut guard = timeout(Duration::from_secs(LOCK_ACQUIRE_TIMEOUT_SECS), self.client.lock())
+            .await
+            .map_err(|_| {
+                ReplicationError::IoError(format!(
+                    "Worker lock acquisition timed out after {LOCK_ACQUIRE_TIMEOUT_SECS}s — possible contention or deadlock"
+                ))
+            })?;
         if let Some(ref mut client) = *guard {
             client.send_command(command).await
         } else {
@@ -141,7 +158,14 @@ impl ReplicationConnection {
     }
 
     pub async fn ping(&self) -> Result<i64, ReplicationError> {
-        let mut guard = self.client.lock().await;
+        // GHSA-8q93: Same lock-acquire timeout as send_command.
+        let mut guard = timeout(Duration::from_secs(LOCK_ACQUIRE_TIMEOUT_SECS), self.client.lock())
+            .await
+            .map_err(|_| {
+                ReplicationError::IoError(format!(
+                    "Worker lock acquisition timed out after {LOCK_ACQUIRE_TIMEOUT_SECS}s — possible contention or deadlock"
+                ))
+            })?;
         if let Some(ref mut client) = *guard {
             client.ping().await
         } else {
@@ -239,5 +263,66 @@ mod tests {
             }
             _ => panic!("Expected Position command"),
         }
+    }
+
+    // ── GHSA-8q93: Worker Lock DoS mitigation ──────────────────────────
+    //
+    // `send_command` and `ping` acquire a Mutex before performing TCP I/O.
+    // Without a bound on lock acquisition, an attacker can starve the CPU
+    // by flooding the worker with concurrent requests that all contend on
+    // the same lock. These tests verify that lock acquisition is bounded
+    // by a timeout and fails closed (returns error, does not hang).
+
+    #[tokio::test(start_paused = true)]
+    async fn test_send_command_times_out_under_lock_contention() {
+        let conn = ReplicationConnection::new("worker1".to_string());
+
+        // Hold the client lock to simulate contention (e.g., a slow TCP peer
+        // or an attacker flooding concurrent send_command calls).
+        let _held_guard = conn.client.lock().await;
+
+        // send_command should time out trying to acquire the lock, not hang.
+        let cmd = ReplicationProtocol::create_ping();
+        let send_fut = conn.send_command(&cmd);
+
+        // Advance virtual time past the lock-acquire timeout.
+        tokio::time::advance(Duration::from_secs(LOCK_ACQUIRE_TIMEOUT_SECS + 1)).await;
+
+        let result = send_fut.await;
+        assert!(result.is_err(), "send_command must fail when lock acquisition times out");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.to_lowercase().contains("timeout") || err_msg.to_lowercase().contains("timed out"),
+            "error should mention timeout, got: {err_msg}"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_ping_times_out_under_lock_contention() {
+        let conn = ReplicationConnection::new("worker1".to_string());
+
+        let _held_guard = conn.client.lock().await;
+
+        let ping_fut = conn.ping();
+
+        tokio::time::advance(Duration::from_secs(LOCK_ACQUIRE_TIMEOUT_SECS + 1)).await;
+
+        let result = ping_fut.await;
+        assert!(result.is_err(), "ping must fail when lock acquisition times out");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.to_lowercase().contains("timeout") || err_msg.to_lowercase().contains("timed out"),
+            "error should mention timeout, got: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_send_command_fails_closed_when_not_connected() {
+        // Without contention, send_command on a disconnected client should
+        // still fail-closed with "Not connected" — not hang or silently succeed.
+        let conn = ReplicationConnection::new("worker1".to_string());
+        let cmd = ReplicationProtocol::create_ping();
+        let result = conn.send_command(&cmd).await;
+        assert!(result.is_err());
     }
 }

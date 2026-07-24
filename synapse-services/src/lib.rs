@@ -56,6 +56,7 @@ pub mod event;
 pub mod event_broadcaster_trait;
 pub mod event_notifier;
 pub mod event_report_service;
+pub mod extensible_events;
 pub mod feature_flag_service;
 pub mod federation_blacklist_service;
 pub mod federation_key_rotation_service;
@@ -71,6 +72,7 @@ pub mod oidc_service;
 pub mod presence_service;
 pub mod push;
 pub use push::service as push_notification_service;
+pub mod policy_service;
 /// Backward-compatibility prelude — glob-import point for domain-grouped types.
 pub mod prelude;
 pub mod refresh_token_service;

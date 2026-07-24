@@ -1,6 +1,8 @@
 mod account;
 pub mod credential_auth;
 mod login;
+pub mod mas_rest_client;
+pub mod mas_validator;
 pub mod password_policy;
 mod power_levels;
 mod register;
@@ -21,6 +23,7 @@ use synapse_common::{ApiError, ApiResult};
 use synapse_storage::*;
 
 pub use credential_auth::CredentialAuth;
+pub use mas_validator::{MasTokenClaims, MasTokenValidator, OidcMasTokenValidator};
 pub use room_auth::RoomAuth;
 pub use token_auth::TokenAuth;
 
@@ -57,6 +60,11 @@ pub struct AuthService {
     pub allow_legacy_hashes: bool,
     pub login_failure_lockout_threshold: u32,
     pub login_lockout_duration_seconds: u64,
+    /// MSC3861: Optional MAS token validator. When set (MAS deployed),
+    /// `validate_token` first tries the MAS path for RS256/ES256/EdDSA
+    /// JWTs before falling back to the local HS256 path. `None` preserves
+    /// the legacy behavior (local tokens only).
+    pub mas_validator: Option<Arc<dyn MasTokenValidator>>,
 }
 
 impl AuthService {
@@ -102,7 +110,17 @@ impl AuthService {
             allow_legacy_hashes: security.allow_legacy_hashes,
             login_failure_lockout_threshold: security.login_failure_lockout_threshold,
             login_lockout_duration_seconds: security.login_lockout_duration_seconds,
+            mas_validator: None,
         }
+    }
+
+    /// MSC3861: Attach a MAS token validator. When set, `validate_token`
+    /// will first attempt MAS (RS256/ES256/EdDSA JWT) validation before
+    /// falling back to the local HS256 path. Call this when the server
+    /// is configured to use an external MAS / OIDC provider for auth.
+    pub fn with_mas_validator(mut self, validator: Arc<dyn MasTokenValidator>) -> Self {
+        self.mas_validator = Some(validator);
+        self
     }
 }
 

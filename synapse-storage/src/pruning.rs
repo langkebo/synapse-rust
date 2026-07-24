@@ -17,6 +17,22 @@ use synapse_common::current_timestamp_millis;
 /// bound.
 pub const DEVICE_LIST_CHANGES_RETENTION_DAYS: i64 = 30;
 
+/// Retention period for the device list sync stream (30 days).
+///
+/// `device_lists_stream` is the append-only stream that clients read
+/// during `/sync` to get incremental device list updates. Entries older
+/// than this are pruned; clients that have not synced within this window
+/// will receive a full device list resync instead of a delta.
+pub const DEVICE_LIST_STREAM_RETENTION_DAYS: i64 = 30;
+
+/// Retention period for sent device list outbound pokes (7 days).
+///
+/// `device_lists_outbound_pokes` tracks pending federation notifications.
+/// Entries where `sent_ts IS NOT NULL` have been delivered and are safe to
+/// prune after this period. Unsent entries (`sent_ts IS NULL`) are never
+/// pruned to avoid losing pending delivery attempts.
+pub const DEVICE_LIST_OUTBOUND_POKES_RETENTION_DAYS: i64 = 7;
+
 /// Retention period for one-time keys (7 days). Keys that have been used
 /// or are older than this are pruned.
 pub const ONE_TIME_KEYS_RETENTION_DAYS: i64 = 7;
@@ -50,6 +66,38 @@ pub async fn prune_old_device_list_changes(pool: &PgPool, retention_days: i64) -
     let cutoff = current_timestamp_millis() - (retention_days * 86400 * 1000);
     let result =
         sqlx::query("DELETE FROM device_lists_changes WHERE created_ts < $1").bind(cutoff).execute(pool).await?;
+    Ok(result.rows_affected())
+}
+
+/// Prune old entries from the device list sync stream.
+///
+/// Deletes rows from `device_lists_stream` whose `created_ts` is older
+/// than [`DEVICE_LIST_STREAM_RETENTION_DAYS`]. This is the append-only
+/// stream that clients read during `/sync`; entries older than the
+/// retention window are no longer needed for incremental sync.
+///
+/// Returns the number of rows deleted.
+pub async fn prune_old_device_lists_stream(pool: &PgPool) -> Result<u64, sqlx::Error> {
+    let cutoff = current_timestamp_millis() - (DEVICE_LIST_STREAM_RETENTION_DAYS * 86400 * 1000);
+    let result =
+        sqlx::query("DELETE FROM device_lists_stream WHERE created_ts < $1").bind(cutoff).execute(pool).await?;
+    Ok(result.rows_affected())
+}
+
+/// Prune sent device list outbound pokes.
+///
+/// Deletes rows from `device_lists_outbound_pokes` that have been sent
+/// (`sent_ts IS NOT NULL`) and are older than
+/// [`DEVICE_LIST_OUTBOUND_POKES_RETENTION_DAYS`]. Unsent entries are
+/// never pruned to avoid losing pending federation deliveries.
+///
+/// Returns the number of rows deleted.
+pub async fn prune_sent_device_lists_outbound_pokes(pool: &PgPool) -> Result<u64, sqlx::Error> {
+    let cutoff = current_timestamp_millis() - (DEVICE_LIST_OUTBOUND_POKES_RETENTION_DAYS * 86400 * 1000);
+    let result = sqlx::query("DELETE FROM device_lists_outbound_pokes WHERE sent_ts IS NOT NULL AND created_ts < $1")
+        .bind(cutoff)
+        .execute(pool)
+        .await?;
     Ok(result.rows_affected())
 }
 
@@ -132,6 +180,10 @@ mod tests {
     fn test_retention_constants_are_sensible() {
         // Device list changes: 30 days
         assert_eq!(DEVICE_LIST_CHANGES_RETENTION_DAYS, 30);
+        // Device list stream: 30 days (matches changes retention)
+        assert_eq!(DEVICE_LIST_STREAM_RETENTION_DAYS, 30);
+        // Device list outbound pokes (sent): 7 days
+        assert_eq!(DEVICE_LIST_OUTBOUND_POKES_RETENTION_DAYS, 7);
         // One-time keys: 7 days
         assert_eq!(ONE_TIME_KEYS_RETENTION_DAYS, 7);
         // Presence: 7 days in milliseconds
@@ -140,6 +192,23 @@ mod tests {
         assert_eq!(TO_DEVICE_TRANSACTIONS_RETENTION_MS, 24 * 60 * 60 * 1000);
         // Federation queue: 7 days
         assert_eq!(FEDERATION_QUEUE_RETENTION_DAYS, 7);
+    }
+
+    #[test]
+    fn test_device_list_stream_retention_matches_changes() {
+        // The stream and changes tables serve the same sync window, so their
+        // retention periods must match. If they drift, clients syncing after
+        // a long absence could see dangling stream_ids that reference pruned
+        // change records.
+        assert_eq!(DEVICE_LIST_STREAM_RETENTION_DAYS, DEVICE_LIST_CHANGES_RETENTION_DAYS);
+    }
+
+    #[test]
+    fn test_outbound_pokes_retention_is_shorter_than_stream() {
+        // Outbound pokes are per-destination delivery trackers; once sent they
+        // are safe to prune sooner than the sync stream because they are not
+        // read by clients.
+        assert!(DEVICE_LIST_OUTBOUND_POKES_RETENTION_DAYS < DEVICE_LIST_STREAM_RETENTION_DAYS);
     }
 
     #[test]

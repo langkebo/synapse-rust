@@ -93,6 +93,10 @@ impl ExtensionServices {
         let friend_federation = Arc::new(synapse_federation::FriendFederation::new(
             friend_room_service.clone() as Arc<dyn synapse_common::traits::FriendRoomProvider>
         ));
+        // Suppress unused-variable warnings when `friends` feature is disabled:
+        // rooms/presence_storage/federation are only consumed by the block above.
+        #[cfg(not(feature = "friends"))]
+        let _ = (rooms, presence_storage, federation);
 
         #[cfg(feature = "voip-tracking")]
         let call_session_storage: Arc<dyn synapse_storage::call_session::CallSessionStoreApi> =

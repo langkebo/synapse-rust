@@ -239,9 +239,9 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_log("Failed to grant room admin", &e))
     }
 
-    pub async fn purge_history_before(&self, room_id: &str, timestamp: i64) -> ApiResult<u64> {
+    pub async fn purge_history_before(&self, room_id: &str, timestamp: i64, dry_run: bool) -> ApiResult<u64> {
         self.event_writer
-            .delete_events_before(room_id, timestamp)
+            .delete_events_before(room_id, timestamp, dry_run)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to purge history", &e))
     }

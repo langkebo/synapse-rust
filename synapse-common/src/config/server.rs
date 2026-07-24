@@ -201,6 +201,27 @@ pub struct ServerConfig {
     #[serde(default = "default_true")]
     pub presence_enabled: bool,
 
+    /// 不参与 presence 计算的房间 ID 列表（Synapse parity:
+    /// `exclude_rooms_from_presence`）。在这些房间中的成员关系/事件
+    /// 不会触发 presence 更新。默认为空列表。
+    #[serde(default)]
+    pub exclude_rooms_from_presence: Vec<String>,
+
+    /// 最后活跃时间的粒度（毫秒），默认 120000 (2 分钟)。
+    /// 控制 presence last_active_ts 的更新频率，避免每次心跳都写库。
+    #[serde(default = "default_last_active_granularity")]
+    pub last_active_granularity: u64,
+
+    /// 同步在线超时（毫秒），默认 30000 (30 秒)。
+    /// 客户端长轮询同步 online presence 的最大等待时间。
+    #[serde(default = "default_sync_online_timeout")]
+    pub sync_online_timeout: u64,
+
+    /// 空闲超时（毫秒），默认 300000 (5 分钟)。
+    /// 用户超过该时间无活动后，presence 由 online 切换为 unavailable。
+    #[serde(default = "default_idle_timeout")]
+    pub idle_timeout: u64,
+
     /// 媒体文件存储路径。
     ///
     /// 控制媒体服务把上传的文件写到哪个目录。可通过标准环境变量覆盖
@@ -269,6 +290,18 @@ fn default_media_path() -> String {
 
 fn default_refresh_token_ttl_secs() -> i64 {
     2_592_000
+}
+
+fn default_last_active_granularity() -> u64 {
+    120_000
+}
+
+fn default_sync_online_timeout() -> u64 {
+    30_000
+}
+
+fn default_idle_timeout() -> u64 {
+    300_000
 }
 
 impl ServerConfig {
@@ -387,5 +420,93 @@ mod tests {
         config.host = "matrix.example.com".into();
         config.port = 8080;
         assert_eq!(config.get_public_baseurl(), "http://matrix.example.com:8080");
+    }
+
+    // ── exclude_rooms_from_presence (MSC-inspired, Synapse parity) ──
+
+    #[test]
+    fn exclude_rooms_from_presence_defaults_to_empty() {
+        let config = make_config();
+        assert!(config.exclude_rooms_from_presence.is_empty(), "default should be an empty list");
+    }
+
+    #[test]
+    fn exclude_rooms_from_presence_parses_from_yaml() {
+        let config: ServerConfig = serde_yaml::from_str(minimal_server_yaml()).expect("parse should succeed");
+        assert!(config.exclude_rooms_from_presence.is_empty());
+    }
+
+    #[test]
+    fn exclude_rooms_from_presence_parses_populated_list() {
+        let yaml = format!(
+            r#"
+{}
+exclude_rooms_from_presence:
+  - "!internal:example.com"
+  - "!lobby:example.com"
+"#,
+            minimal_server_yaml_body()
+        );
+        let config: ServerConfig = serde_yaml::from_str(&yaml).expect("parse should succeed");
+        assert_eq!(config.exclude_rooms_from_presence, vec!["!internal:example.com", "!lobby:example.com"]);
+    }
+
+    // ── Presence tuning parameters (P2.4) ───────────────────────────
+
+    #[test]
+    fn last_active_granularity_defaults_to_two_minutes() {
+        let config: ServerConfig = serde_yaml::from_str(minimal_server_yaml()).expect("parse should succeed");
+        assert_eq!(config.last_active_granularity, 120_000, "default should be 120000 ms (2 min)");
+    }
+
+    #[test]
+    fn sync_online_timeout_defaults_to_thirty_seconds() {
+        let config: ServerConfig = serde_yaml::from_str(minimal_server_yaml()).expect("parse should succeed");
+        assert_eq!(config.sync_online_timeout, 30_000, "default should be 30000 ms (30 s)");
+    }
+
+    #[test]
+    fn idle_timeout_defaults_to_five_minutes() {
+        let config: ServerConfig = serde_yaml::from_str(minimal_server_yaml()).expect("parse should succeed");
+        assert_eq!(config.idle_timeout, 300_000, "default should be 300000 ms (5 min)");
+    }
+
+    #[test]
+    fn presence_tuning_params_parse_from_yaml() {
+        let yaml = format!(
+            r#"
+{}
+last_active_granularity: 60000
+sync_online_timeout: 15000
+idle_timeout: 180000
+"#,
+            minimal_server_yaml_body()
+        );
+        let config: ServerConfig = serde_yaml::from_str(&yaml).expect("parse should succeed");
+        assert_eq!(config.last_active_granularity, 60_000);
+        assert_eq!(config.sync_online_timeout, 15_000);
+        assert_eq!(config.idle_timeout, 180_000);
+    }
+
+    /// Minimal YAML body satisfying all required (non-defaulted) ServerConfig fields.
+    fn minimal_server_yaml_body() -> &'static str {
+        r#"
+name: example.com
+registration_shared_secret: null
+admin_contact: null
+max_image_resolution: 100
+enable_registration: false
+enable_registration_captcha: false
+background_tasks_interval: 60
+expire_access_token: false
+expire_access_token_lifetime: 0
+refresh_token_lifetime: 0
+refresh_token_sliding_window_size: 0
+session_duration: 0
+"#
+    }
+
+    fn minimal_server_yaml() -> &'static str {
+        minimal_server_yaml_body()
     }
 }

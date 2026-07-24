@@ -199,7 +199,14 @@ impl ServiceContainer {
         let threepid_storage: Arc<dyn ThreepidStoreApi> = Arc::new(ThreepidStorage::new(pool));
         let presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi> =
             Arc::new(PresenceStorage::new(pool.clone(), cache.clone()));
-        let presence_service = Arc::new(crate::presence_service::PresenceService::new(presence_storage.clone()));
+        let presence_tuning = crate::presence_service::PresenceTuning {
+            excluded_rooms: config.server.exclude_rooms_from_presence.clone(),
+            last_active_granularity: config.server.last_active_granularity,
+            sync_online_timeout: config.server.sync_online_timeout,
+            idle_timeout: config.server.idle_timeout,
+        };
+        let presence_service =
+            Arc::new(crate::presence_service::PresenceService::with_tuning(presence_storage.clone(), presence_tuning));
         let qr_login_storage: Arc<dyn QrLoginStoreApi> = Arc::new(QrLoginStorage::new(pool.clone()));
         let invite_blocklist_storage: Arc<dyn InviteBlocklistStoreApi> =
             Arc::new(InviteBlocklistStorage::new(pool.clone()));

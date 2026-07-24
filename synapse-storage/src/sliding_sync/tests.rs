@@ -154,6 +154,7 @@ fn test_sliding_sync_request() {
         pos: None,
         timeout: Some(30000),
         client_timeout: None,
+        txn_id: None,
     };
 
     assert!(request.conn_id.is_some());

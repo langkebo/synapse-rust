@@ -101,6 +101,7 @@ fn make_request(lists: HashMap<String, SlidingSyncListData>) -> SlidingSyncReque
         pos: None,
         timeout: None,
         client_timeout: None,
+        txn_id: None,
     }
 }
 

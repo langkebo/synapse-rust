@@ -9,7 +9,7 @@
     "saml_enabled": false,
     "openclaw_enabled": false
   },
-  "entry_count": 1186,
+  "entry_count": 1233,
   "entries": [
     {
       "method": "GET",
@@ -1280,6 +1280,15 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/client/r0/rooms/{room_id}/call/{call_id}",
+      "registered_by": "assembly::voip_tracking",
+      "path_params": [
+        "room_id",
+        "call_id"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/_matrix/client/r0/rooms/{room_id}/event/{event_id}",
       "registered_by": "room",
       "path_params": [
@@ -1516,6 +1525,42 @@
       "registered_by": "room",
       "path_params": [
         "room_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/r0/rooms/{room_id}/send/m.call.answer/{txn_id}",
+      "registered_by": "assembly::voip_tracking",
+      "path_params": [
+        "room_id",
+        "txn_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/r0/rooms/{room_id}/send/m.call.candidates/{txn_id}",
+      "registered_by": "assembly::voip_tracking",
+      "path_params": [
+        "room_id",
+        "txn_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/r0/rooms/{room_id}/send/m.call.hangup/{txn_id}",
+      "registered_by": "assembly::voip_tracking",
+      "path_params": [
+        "room_id",
+        "txn_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/r0/rooms/{room_id}/send/m.call.invite/{txn_id}",
+      "registered_by": "assembly::voip_tracking",
+      "path_params": [
+        "room_id",
+        "txn_id"
       ]
     },
     {
@@ -2139,6 +2184,18 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/client/r0/voice/config",
+      "registered_by": "voice",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/r0/voice/upload",
+      "registered_by": "voice",
+      "path_params": []
+    },
+    {
+      "method": "GET",
       "path": "/_matrix/client/r0/voip/config",
       "registered_by": "assembly::voip_compat",
       "path_params": []
@@ -2210,6 +2267,15 @@
       "path_params": [
         "device_id"
       ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}",
+      "registered_by": "delayed_events",
+      "path_params": [
+        "delay_id"
+      ],
+      "auth": "user"
     },
     {
       "method": "GET",
@@ -2334,6 +2400,12 @@
       "method": "GET",
       "path": "/_matrix/client/v1/account/whoami",
       "registered_by": "assembly::account_compat",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/auth_metadata",
+      "registered_by": "assembly::create_router",
       "path_params": []
     },
     {
@@ -3730,6 +3802,40 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/client/v1/voice/config",
+      "registered_by": "voice",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/voice/room/{room_id}/stats",
+      "registered_by": "voice",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/voice/stats",
+      "registered_by": "voice",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v1/voice/upload",
+      "registered_by": "voice",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v1/voice/user/{user_id}/stats",
+      "registered_by": "voice",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/_matrix/client/v3/account/3pid",
       "registered_by": "assembly::account_compat",
       "path_params": []
@@ -4938,6 +5044,15 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/client/v3/rooms/{room_id}/call/{call_id}",
+      "registered_by": "assembly::voip_tracking",
+      "path_params": [
+        "room_id",
+        "call_id"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/_matrix/client/v3/rooms/{room_id}/capabilities",
       "registered_by": "room",
       "path_params": [
@@ -5437,6 +5552,42 @@
       "registered_by": "room",
       "path_params": [
         "room_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/v3/rooms/{room_id}/send/m.call.answer/{txn_id}",
+      "registered_by": "assembly::voip_tracking",
+      "path_params": [
+        "room_id",
+        "txn_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/v3/rooms/{room_id}/send/m.call.candidates/{txn_id}",
+      "registered_by": "assembly::voip_tracking",
+      "path_params": [
+        "room_id",
+        "txn_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/v3/rooms/{room_id}/send/m.call.hangup/{txn_id}",
+      "registered_by": "assembly::voip_tracking",
+      "path_params": [
+        "room_id",
+        "txn_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/v3/rooms/{room_id}/send/m.call.invite/{txn_id}",
+      "registered_by": "assembly::voip_tracking",
+      "path_params": [
+        "room_id",
+        "txn_id"
       ]
     },
     {
@@ -6357,10 +6508,100 @@
       "path_params": []
     },
     {
+      "method": "POST",
+      "path": "/_matrix/client/v3/users/{user_id}/report",
+      "registered_by": "moderation",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/_matrix/client/v3/versions",
       "registered_by": "assembly::create_router",
       "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/voice/config",
+      "registered_by": "voice",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/voice/room/{room_id}",
+      "registered_by": "voice",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/voice/room/{room_id}/stats",
+      "registered_by": "voice",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/voice/stats",
+      "registered_by": "voice",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/voice/upload",
+      "registered_by": "voice",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/voice/user/{user_id}",
+      "registered_by": "voice",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/voice/user/{user_id}/stats",
+      "registered_by": "voice",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/voice/{media_id}",
+      "registered_by": "voice",
+      "path_params": [
+        "media_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/voice/{media_id}/convert",
+      "registered_by": "voice",
+      "path_params": [
+        "media_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/voice/{media_id}/optimize",
+      "registered_by": "voice",
+      "path_params": [
+        "media_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v3/voice/{media_id}/transcription",
+      "registered_by": "voice",
+      "path_params": [
+        "media_id"
+      ]
     },
     {
       "method": "GET",
@@ -6384,6 +6625,12 @@
       "method": "GET",
       "path": "/_matrix/client/v3/voip/turnServer/guest",
       "registered_by": "assembly::voip_compat",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v4/sync",
+      "registered_by": "sliding_sync",
       "path_params": []
     },
     {
@@ -7780,6 +8027,56 @@
     },
     {
       "method": "GET",
+      "path": "/_synapse/admin/v1/notifications",
+      "registered_by": "admin::notification",
+      "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/notifications",
+      "registered_by": "admin::notification",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/notifications/active",
+      "registered_by": "admin::notification",
+      "path_params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/_synapse/admin/v1/notifications/{notification_id}",
+      "registered_by": "admin::notification",
+      "path_params": [
+        "notification_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/notifications/{notification_id}",
+      "registered_by": "admin::notification",
+      "path_params": [
+        "notification_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_synapse/admin/v1/notifications/{notification_id}",
+      "registered_by": "admin::notification",
+      "path_params": [
+        "notification_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_synapse/admin/v1/notifications/{notification_id}/deactivate",
+      "registered_by": "admin::notification",
+      "path_params": [
+        "notification_id"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/_synapse/admin/v1/password_auth_providers",
       "registered_by": "module",
       "path_params": []
@@ -8247,6 +8544,34 @@
       ]
     },
     {
+      "method": "POST",
+      "path": "/_synapse/admin/v1/send_server_notice",
+      "registered_by": "admin::notification",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/server_notices",
+      "registered_by": "admin::notification",
+      "path_params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/_synapse/admin/v1/server_notices/{notice_id}",
+      "registered_by": "admin::notification",
+      "path_params": [
+        "notice_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/server_notices/{notice_id}",
+      "registered_by": "admin::notification",
+      "path_params": [
+        "notice_id"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/_synapse/admin/v1/server_version",
       "registered_by": "admin::server",
@@ -8501,6 +8826,22 @@
       ]
     },
     {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/users/{user_id}/notification",
+      "registered_by": "admin::notification",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_synapse/admin/v1/users/{user_id}/notification",
+      "registered_by": "admin::notification",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
       "method": "DELETE",
       "path": "/_synapse/admin/v1/users/{user_id}/override_ratelimit",
       "registered_by": "admin::security",
@@ -8530,6 +8871,23 @@
       "registered_by": "admin::user",
       "path_params": [
         "user_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/admin/v1/users/{user_id}/pushers",
+      "registered_by": "admin::notification",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}",
+      "registered_by": "admin::notification",
+      "path_params": [
+        "user_id",
+        "pushkey"
       ]
     },
     {

@@ -13,6 +13,12 @@ expression: body
     "m.change_password": {
       "enabled": true
     },
+    "m.forget_forced_upon_leave": {
+      "enabled": false
+    },
+    "m.profile_fields": {
+      "enabled": true
+    },
     "m.room.suggested": {
       "enabled": true
     },
@@ -55,6 +61,7 @@ expression: body
     "io.hula.friends": "[feature_gated]",
     "org.matrix.msc3245.voice": "[feature_gated]",
     "org.matrix.msc3886.sliding_sync": "[feature_gated]",
-    "org.matrix.msc3983.thread": "[feature_gated]"
+    "org.matrix.msc3983.thread": "[feature_gated]",
+    "org.matrix.msc4186": "[feature_gated]"
   }
 }

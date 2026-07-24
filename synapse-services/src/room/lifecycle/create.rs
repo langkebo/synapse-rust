@@ -279,7 +279,16 @@ impl LifecycleService {
             return Err(ApiError::internal_with_log("Failed to set room metadata", &e));
         }
 
-        let result = self.process_invites(&room_id, config.invite_list.as_ref(), user_id, now + 7, Some(&mut tx)).await;
+        let result = self
+            .process_invites(
+                &room_id,
+                config.invite_list.as_ref(),
+                config.invite_reasons.as_ref(),
+                user_id,
+                now + 7,
+                Some(&mut tx),
+            )
+            .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to process invites", &e));

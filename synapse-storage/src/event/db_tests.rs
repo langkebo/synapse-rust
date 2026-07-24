@@ -416,9 +416,131 @@ async fn test_delete_events_before() {
 
     // Delete events before a far-future timestamp — should succeed even if 0 rows
     let _deleted = storage
-        .delete_events_before(&room_id, current_timestamp_millis() + 86400000)
+        .delete_events_before(&room_id, current_timestamp_millis() + 86400000, false)
         .await
         .expect("delete_events_before should succeed");
+
+    let _ = storage.delete_room_events(&room_id).await;
+}
+
+/// Security regression test (P0): purge history must preserve local events
+/// (origin = 'self' or NULL) and only delete remote/federated events.
+///
+/// Mirrors the Element Synapse v1.156 fix that prevents accidental deletion
+/// of locally-originated outbound events during history purge operations.
+#[tokio::test]
+async fn test_purge_history_preserves_local_events() {
+    let pool = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!purge_sec_{}:example.com", uuid::Uuid::new_v4());
+    let user_id = "@purger:example.com";
+    let local_event_id = format!("$local_{}:example.com", uuid::Uuid::new_v4());
+    let remote_event_id = format!("$remote_{}:remote.example.com", uuid::Uuid::new_v4());
+
+    let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, user_id).await;
+
+    // Insert a LOCAL event via create_event (origin = 'self')
+    let past_ts = current_timestamp_millis() - 60_000;
+    let local_params = CreateEventParams {
+        event_id: local_event_id.clone(),
+        room_id: room_id.clone(),
+        user_id: user_id.to_string(),
+        event_type: "m.room.message".to_string(),
+        content: serde_json::json!({"body": "local outbound"}),
+        state_key: None,
+        origin_server_ts: past_ts,
+        redacts: None,
+    };
+    storage.create_event(local_params, None).await.expect("local event insert should succeed");
+
+    // Insert a REMOTE event via direct SQL (origin = 'remote.example.com')
+    sqlx::query(
+        r#"INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, origin)
+           VALUES ($1, $2, $3, $3, 'm.room.message', $4, NULL, $5, false, 'remote.example.com')"#,
+    )
+    .bind(&remote_event_id)
+    .bind(&room_id)
+    .bind(user_id)
+    .bind(&serde_json::json!({"body": "remote inbound"}))
+    .bind(past_ts)
+    .execute(&*pool)
+    .await
+    .expect("remote event insert should succeed");
+
+    // Purge all events before now+1s — both events satisfy the timestamp filter
+    let purge_cutoff = current_timestamp_millis() + 1_000;
+    let deleted =
+        storage.delete_events_before(&room_id, purge_cutoff, false).await.expect("delete_events_before should succeed");
+
+    // Exactly one remote event should have been deleted
+    assert_eq!(deleted, 1, "purge should delete exactly 1 remote event, got {}", deleted);
+
+    // Local event MUST still exist
+    let local_still_exists = storage.get_event(&local_event_id).await.expect("get_event for local should succeed");
+    assert!(local_still_exists.is_some(), "LOCAL event must be preserved during purge history (security regression)");
+
+    // Remote event MUST be deleted
+    let remote_still_exists = storage.get_event(&remote_event_id).await.expect("get_event for remote should succeed");
+    assert!(remote_still_exists.is_none(), "REMOTE event should have been purged");
+
+    let _ = storage.delete_room_events(&room_id).await;
+}
+
+/// Verify `count_events_before` returns the number of remote events that
+/// would be purged, and that `delete_events_before` with `dry_run=true`
+/// returns the same count without deleting anything.
+#[tokio::test]
+async fn test_count_events_before_and_dry_run() {
+    let pool = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!dryrun_{}:example.com", uuid::Uuid::new_v4());
+    let user_id = "@dryrunner:example.com";
+    let remote_event_id = format!("$remote_dry_{}:remote.example.com", uuid::Uuid::new_v4());
+
+    let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, user_id).await;
+
+    let past_ts = current_timestamp_millis() - 60_000;
+    sqlx::query(
+        r#"INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, origin)
+           VALUES ($1, $2, $3, $3, 'm.room.message', $4, NULL, $5, false, 'remote.example.com')"#,
+    )
+    .bind(&remote_event_id)
+    .bind(&room_id)
+    .bind(user_id)
+    .bind(&serde_json::json!({"body": "remote"}))
+    .bind(past_ts)
+    .execute(&*pool)
+    .await
+    .expect("remote event insert should succeed");
+
+    let purge_cutoff = current_timestamp_millis() + 1_000;
+
+    // count_events_before should report exactly 1 deletable remote event
+    let count = storage.count_events_before(&room_id, purge_cutoff).await.expect("count_events_before should succeed");
+    assert_eq!(count, 1, "count_events_before should report 1 remote event");
+
+    // dry_run=true should return the same count but NOT delete
+    let dry_count = storage
+        .delete_events_before(&room_id, purge_cutoff, true)
+        .await
+        .expect("dry-run delete_events_before should succeed");
+    assert_eq!(dry_count, 1, "dry-run should report 1 deletable event");
+
+    // Event must still exist after dry-run
+    let still_exists = storage.get_event(&remote_event_id).await.expect("get_event should succeed");
+    assert!(still_exists.is_some(), "dry-run must not delete the event");
+
+    // Now actually delete with dry_run=false
+    let deleted =
+        storage.delete_events_before(&room_id, purge_cutoff, false).await.expect("delete_events_before should succeed");
+    assert_eq!(deleted, 1, "actual delete should remove 1 event");
+
+    let gone = storage.get_event(&remote_event_id).await.expect("get_event should succeed");
+    assert!(gone.is_none(), "event should be deleted after non-dry-run purge");
 
     let _ = storage.delete_room_events(&room_id).await;
 }

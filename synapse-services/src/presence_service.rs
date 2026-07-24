@@ -8,13 +8,67 @@ pub type PresenceRecord = (String, Option<String>, Option<i64>);
 /// Batch presence tuple: (user_id, presence_state, status_msg, last_active_ts)
 pub type PresenceBatchRecord = (String, String, Option<String>, Option<i64>);
 
+/// Presence tuning parameters sourced from `ServerConfig`.
+/// Kept as a plain struct so `PresenceService` can be constructed without
+/// pulling the entire config object into the service layer.
+#[derive(Debug, Clone)]
+pub struct PresenceTuning {
+    /// Rooms whose events/membership must NOT trigger presence updates.
+    pub excluded_rooms: Vec<String>,
+    /// Granularity of `last_active_ts` updates, in milliseconds.
+    pub last_active_granularity: u64,
+    /// Long-poll timeout for online presence sync, in milliseconds.
+    pub sync_online_timeout: u64,
+    /// Idle timeout before online → unavailable transition, in milliseconds.
+    pub idle_timeout: u64,
+}
+
+impl Default for PresenceTuning {
+    fn default() -> Self {
+        Self {
+            excluded_rooms: Vec::new(),
+            last_active_granularity: 120_000,
+            sync_online_timeout: 30_000,
+            idle_timeout: 300_000,
+        }
+    }
+}
+
 pub struct PresenceService {
     storage: Arc<dyn PresenceStoreApi>,
+    tuning: PresenceTuning,
 }
 
 impl PresenceService {
     pub fn new(storage: Arc<dyn PresenceStoreApi>) -> Self {
-        Self { storage }
+        Self { storage, tuning: PresenceTuning::default() }
+    }
+
+    /// Construct with explicit presence tuning parameters (sourced from config).
+    pub fn with_tuning(storage: Arc<dyn PresenceStoreApi>, tuning: PresenceTuning) -> Self {
+        Self { storage, tuning }
+    }
+
+    /// Returns true if `room_id` is in `exclude_rooms_from_presence` and must
+    /// NOT participate in presence calculations. Mirrors Synapse's
+    /// `exclude_rooms_from_presence` config behavior.
+    pub fn is_room_excluded_from_presence(&self, room_id: &str) -> bool {
+        self.tuning.excluded_rooms.iter().any(|r| r == room_id)
+    }
+
+    /// Granularity (ms) of `last_active_ts` updates.
+    pub fn last_active_granularity(&self) -> u64 {
+        self.tuning.last_active_granularity
+    }
+
+    /// Long-poll timeout (ms) for online presence sync.
+    pub fn sync_online_timeout(&self) -> u64 {
+        self.tuning.sync_online_timeout
+    }
+
+    /// Idle timeout (ms) before online → unavailable transition.
+    pub fn idle_timeout(&self) -> u64 {
+        self.tuning.idle_timeout
     }
 
     #[tracing::instrument(skip(self))]
@@ -81,6 +135,57 @@ mod tests {
         assert_eq!(record.0, "online");
         assert_eq!(record.1, Some("at work".to_string()));
         assert_eq!(record.2, Some(1719600000));
+    }
+
+    // ── exclude_rooms_from_presence (P2.3) ──────────────────────────
+
+    #[test]
+    fn is_room_excluded_returns_false_for_empty_list() {
+        let svc = test_service();
+        assert!(!svc.is_room_excluded_from_presence("!any:example.com"));
+    }
+
+    #[test]
+    fn is_room_excluded_returns_true_for_listed_room() {
+        let tuning = PresenceTuning {
+            excluded_rooms: vec!["!internal:example.com".to_string(), "!lobby:example.com".to_string()],
+            ..PresenceTuning::default()
+        };
+        let svc = PresenceService::with_tuning(Arc::new(InMemoryPresenceStore::new()), tuning);
+        assert!(svc.is_room_excluded_from_presence("!internal:example.com"));
+        assert!(svc.is_room_excluded_from_presence("!lobby:example.com"));
+    }
+
+    #[test]
+    fn is_room_excluded_returns_false_for_unlisted_room() {
+        let tuning =
+            PresenceTuning { excluded_rooms: vec!["!internal:example.com".to_string()], ..PresenceTuning::default() };
+        let svc = PresenceService::with_tuning(Arc::new(InMemoryPresenceStore::new()), tuning);
+        assert!(!svc.is_room_excluded_from_presence("!other:example.com"));
+    }
+
+    // ── Presence tuning accessors (P2.4) ────────────────────────────
+
+    #[test]
+    fn tuning_defaults_match_synapse_defaults() {
+        let svc = test_service();
+        assert_eq!(svc.last_active_granularity(), 120_000);
+        assert_eq!(svc.sync_online_timeout(), 30_000);
+        assert_eq!(svc.idle_timeout(), 300_000);
+    }
+
+    #[test]
+    fn tuning_custom_values_are_exposed_via_accessors() {
+        let tuning = PresenceTuning {
+            excluded_rooms: vec![],
+            last_active_granularity: 60_000,
+            sync_online_timeout: 15_000,
+            idle_timeout: 180_000,
+        };
+        let svc = PresenceService::with_tuning(Arc::new(InMemoryPresenceStore::new()), tuning);
+        assert_eq!(svc.last_active_granularity(), 60_000);
+        assert_eq!(svc.sync_online_timeout(), 15_000);
+        assert_eq!(svc.idle_timeout(), 180_000);
     }
 
     #[test]

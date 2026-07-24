@@ -1,10 +1,10 @@
 use super::route_ledger::{RouteEntry, RouteLedger};
 use super::route_module::{route_modules, ProfileFlags};
 use super::{
-    account_data, background_update, captcha, device, dm, e2ee, ephemeral, event_report, feature_flags, guest,
-    handlers, key_backup, key_rotation, media, moderation, presence, push, push_notification, reactions, relations,
-    rendezvous, room_summary, sliding_sync, space, sync, tags, telemetry, thirdparty, typing, verification_routes,
-    worker, *,
+    account_data, background_update, captcha, delayed_events, device, dm, e2ee, ephemeral, event_report, feature_flags,
+    guest, handlers, key_backup, key_rotation, media, moderation, presence, push, push_notification, reactions,
+    relations, rendezvous, room_summary, sliding_sync, space, sync, tags, telemetry, thirdparty, typing,
+    verification_routes, worker, *,
 };
 use crate::web::middleware::{
     cors_middleware, csrf_middleware, method_not_allowed_middleware, rate_limit_middleware, request_id_middleware,
@@ -61,6 +61,7 @@ fn base_route_manifest() -> RouteLedger {
     ledger.extend(event_report::event_report_route_manifest());
     ledger.extend(space::space_route_manifest());
     ledger.extend(moderation::moderation_route_manifest());
+    ledger.extend(delayed_events::delayed_events_route_manifest());
     ledger.extend(guest::guest_route_manifest());
     ledger.extend(captcha::captcha_route_manifest());
     ledger.extend(rendezvous::rendezvous_route_manifest());
@@ -118,6 +119,7 @@ pub fn top_level_inline_manifest() -> Vec<RouteEntry> {
         (Method::GET, "/.well-known/matrix/support"),
         (Method::GET, "/_matrix/client/unstable/org.matrix.msc2965/auth_metadata"),
         (Method::GET, "/_matrix/client/unstable/org.matrix.msc2965/auth_issuer"),
+        (Method::GET, "/_matrix/client/v1/auth_metadata"),
         (Method::GET, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device"),
         (Method::GET, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status"),
         (Method::PUT, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device"),
@@ -383,6 +385,11 @@ pub fn create_router(state: AppState) -> Router {
             "/_matrix/client/unstable/org.matrix.msc2965/auth_issuer",
             get(handlers::auth_discovery::get_auth_issuer),
         )
+        // MSC2965 stable path: same handler as unstable path above.
+        .route(
+            "/_matrix/client/v1/auth_metadata",
+            get(handlers::auth_discovery::get_auth_metadata),
+        )
         .route(
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
             get(handlers::dehydrated_device::get_dehydrated_device)
@@ -417,6 +424,11 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_directory_router(state.clone()))
         .merge(create_sync_router(state.clone()))
         .merge(create_moderation_router())
+        // MSC4140 — Cancellable delayed events (unstable namespace).
+        .nest(
+            "/_matrix/client/unstable/org.matrix.msc4140",
+            create_delayed_events_router(),
+        )
         .merge(create_device_router())
         .merge(create_media_router(&state))
         .merge(create_e2ee_router(state.clone()))

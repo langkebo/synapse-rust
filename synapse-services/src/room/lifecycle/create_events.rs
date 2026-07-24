@@ -4,6 +4,7 @@
 
 use super::service::LifecycleService;
 use serde_json::json;
+use std::collections::HashMap;
 use synapse_common::generate_event_id;
 use synapse_common::{ApiError, ApiResult};
 use synapse_storage::CreateEventParams;
@@ -118,6 +119,7 @@ impl LifecycleService {
         &self,
         room_id: &str,
         invite_list: Option<&Vec<String>>,
+        invite_reasons: Option<&HashMap<String, String>>,
         sender_user_id: &str,
         base_ts: i64,
         mut tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
@@ -141,8 +143,9 @@ impl LifecycleService {
                         );
                         continue;
                     }
+                    let reason = invite_reasons.and_then(|m| m.get(invitee)).map(String::as_str);
                     self.member_storage
-                        .add_member(room_id, invitee, "invite", None, None, Some(sender_user_id), Some(&mut **t))
+                        .add_member(room_id, invitee, "invite", None, reason, Some(sender_user_id), Some(&mut **t))
                         .await
                         .map_err(|e| ApiError::internal_with_log("Failed to invite user", &e))?;
                     self.event_writer
@@ -152,10 +155,7 @@ impl LifecycleService {
                                 room_id: room_id.to_string(),
                                 user_id: sender_user_id.to_string(),
                                 event_type: "m.room.member".to_string(),
-                                content: json!({
-                                    "membership": "invite",
-                                    "displayname": invitee.trim_start_matches('@').split(':').next().unwrap_or(invitee),
-                                }),
+                                content: build_invite_event_content(invitee, reason),
                                 state_key: Some(invitee.to_string()),
                                 origin_server_ts: base_ts + offset,
                                 redacts: None,
@@ -172,8 +172,9 @@ impl LifecycleService {
                     if !existing_users.contains(invitee) {
                         continue;
                     }
+                    let reason = invite_reasons.and_then(|m| m.get(invitee)).map(String::as_str);
                     self.member_storage
-                        .add_member(room_id, invitee, "invite", None, None, Some(sender_user_id), None)
+                        .add_member(room_id, invitee, "invite", None, reason, Some(sender_user_id), None)
                         .await
                         .map_err(|e| ApiError::internal_with_log("Failed to invite user", &e))?;
                     self.event_writer
@@ -183,10 +184,7 @@ impl LifecycleService {
                                 room_id: room_id.to_string(),
                                 user_id: sender_user_id.to_string(),
                                 event_type: "m.room.member".to_string(),
-                                content: json!({
-                                    "membership": "invite",
-                                    "displayname": invitee.trim_start_matches('@').split(':').next().unwrap_or(invitee),
-                                }),
+                                content: build_invite_event_content(invitee, reason),
                                 state_key: Some(invitee.to_string()),
                                 origin_server_ts: base_ts + offset,
                                 redacts: None,
@@ -200,5 +198,43 @@ impl LifecycleService {
             }
         }
         Ok(())
+    }
+}
+
+/// Build the `m.room.member` invite event content, optionally including a
+/// `reason` field per MSC4491.
+fn build_invite_event_content(invitee: &str, reason: Option<&str>) -> serde_json::Value {
+    let displayname = invitee.trim_start_matches('@').split(':').next().unwrap_or(invitee);
+    match reason {
+        Some(r) => json!({
+            "membership": "invite",
+            "displayname": displayname,
+            "reason": r,
+        }),
+        None => json!({
+            "membership": "invite",
+            "displayname": displayname,
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_invite_event_content_without_reason() {
+        let content = build_invite_event_content("@alice:example.com", None);
+        assert_eq!(content["membership"], "invite");
+        assert_eq!(content["displayname"], "alice");
+        assert!(content.get("reason").is_none());
+    }
+
+    #[test]
+    fn build_invite_event_content_with_reason() {
+        let content = build_invite_event_content("@alice:example.com", Some("Welcome!"));
+        assert_eq!(content["membership"], "invite");
+        assert_eq!(content["displayname"], "alice");
+        assert_eq!(content["reason"], "Welcome!");
     }
 }

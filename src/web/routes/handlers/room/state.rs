@@ -16,6 +16,7 @@ pub(crate) async fn get_room_state(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -29,9 +30,22 @@ pub(crate) async fn get_room_state(
 
     let state_events = ctx.room_service.messaging().get_state_events(&room_id).await?;
 
+    // MSC4497: optional `type` query parameter filters state events by event type.
+    let filtered_events = match params.get("type") {
+        Some(event_type) if !event_type.is_empty() => filter_state_events_by_type(&state_events, event_type),
+        _ => state_events,
+    };
+
     Ok(Json(json!({
-        "events": state_events
+        "events": filtered_events
     })))
+}
+
+/// Filters a list of state events by event type (MSC4497 `?type=` query parameter).
+///
+/// Performs an exact, case-sensitive match against each event's `type` field.
+pub(crate) fn filter_state_events_by_type(events: &[Value], event_type: &str) -> Vec<Value> {
+    events.iter().filter(|e| e.get("type").and_then(|v| v.as_str()) == Some(event_type)).cloned().collect()
 }
 
 pub(crate) async fn get_state_by_type(
@@ -485,4 +499,72 @@ pub(crate) async fn get_room_permissions(
         "join_rule": join_rule,
         "power_levels": pl_content
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::filter_state_events_by_type;
+    use serde_json::json;
+
+    fn state_event(event_type: &str, state_key: &str) -> serde_json::Value {
+        json!({
+            "event_id": format!("${event_type}:{state_key}"),
+            "sender": "@alice:example.com",
+            "type": event_type,
+            "state_key": state_key,
+            "content": {}
+        })
+    }
+
+    #[test]
+    fn test_filter_state_events_by_type_returns_only_matching_events() {
+        let events = vec![
+            state_event("m.room.member", "@alice:example.com"),
+            state_event("m.room.member", "@bob:example.com"),
+            state_event("m.room.create", ""),
+            state_event("m.room.power_levels", ""),
+        ];
+
+        let filtered = filter_state_events_by_type(&events, "m.room.member");
+
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.iter().all(|e| e.get("type").and_then(|v| v.as_str()) == Some("m.room.member")));
+    }
+
+    #[test]
+    fn test_filter_state_events_by_type_returns_empty_when_no_match() {
+        let events = vec![state_event("m.room.member", "@alice:example.com"), state_event("m.room.create", "")];
+
+        let filtered = filter_state_events_by_type(&events, "m.room.power_levels");
+
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_filter_state_events_by_type_returns_empty_for_empty_input() {
+        let events: Vec<serde_json::Value> = vec![];
+        let filtered = filter_state_events_by_type(&events, "m.room.member");
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_filter_state_events_by_type_is_exact_match() {
+        let events = vec![state_event("m.room.member", "@alice:example.com")];
+
+        // Prefix substring should not match.
+        assert!(filter_state_events_by_type(&events, "m.room").is_empty());
+        // Case-sensitive exact match.
+        assert_eq!(filter_state_events_by_type(&events, "m.room.member").len(), 1);
+    }
+
+    #[test]
+    fn test_filter_state_events_by_type_handles_events_missing_type_field() {
+        let events = vec![
+            json!({"event_id": "$1", "state_key": "", "content": {}}),
+            state_event("m.room.member", "@alice:example.com"),
+        ];
+
+        let filtered = filter_state_events_by_type(&events, "m.room.member");
+        assert_eq!(filtered.len(), 1);
+    }
 }

@@ -12,6 +12,37 @@ impl AuthService {
     pub async fn validate_token(&self, token: &str) -> ApiResult<(String, Option<String>, bool, bool, bool)> {
         ::tracing::debug!(target: "token_validation", "Validating token");
 
+        // MSC3861: When a MAS token validator is configured, first try the
+        // MAS path. MAS tokens are RS256/ES256/EdDSA JWTs issued by the
+        // external MAS provider; the validator returns `Ok(Some(claims))`
+        // for valid MAS tokens, `Ok(None)` for non-MAS tokens (fall back to
+        // local HS256 path), and `Err` for tokens that look like MAS tokens
+        // but fail verification (reject — do NOT fall back, to prevent
+        // confusion between providers).
+        if let Some(mas_validator) = &self.mas_validator {
+            match mas_validator.validate(token).await {
+                Ok(Some(claims)) => {
+                    ::tracing::debug!(
+                        target: "token_validation",
+                        user_id = %claims.user_id,
+                        "MAS token validated successfully"
+                    );
+                    return Ok((claims.user_id, claims.device_id, claims.is_admin, false, claims.is_guest));
+                }
+                Ok(None) => {
+                    ::tracing::debug!(target: "token_validation", "Token is not a MAS token, falling back to local HS256 path");
+                }
+                Err(e) => {
+                    ::tracing::warn!(
+                        target: "token_validation",
+                        error = %e,
+                        "MAS token validation failed for a token that appears to be a MAS token"
+                    );
+                    return Err(e);
+                }
+            }
+        }
+
         if self
             .token_storage
             .is_in_blacklist(token)

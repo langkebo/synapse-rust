@@ -108,6 +108,19 @@ async fn handle_typing_edu(ctx: &FederationContext, origin: &str, edu: &Value, _
         }
     };
 
+    // MSC4163: enforce m.room.server_acl on room-scoped EDUs (typing).
+    // If the origin server is denied by the room's ACL (or the ACL is
+    // malformed — fail-closed), silently drop the EDU.
+    if !crate::web::routes::federation::is_server_allowed_by_room_acl(ctx, room_id, origin).await {
+        ::tracing::info!(
+            room_id = %room_id,
+            origin = %origin,
+            "Dropping m.typing EDU from origin denied by room ACL (MSC4163)"
+        );
+        increment_counter_by(ctx, "federation_inbound_edu_acl_denied_total", 1);
+        return EduProcessResult { dropped: 1, ..Default::default() };
+    }
+
     let user_ids = edu
         .get("content")
         .and_then(|c| c.get("user_ids"))

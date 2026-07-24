@@ -239,6 +239,46 @@ mod tests {
         assert!(acl.allow_ip_literals);
     }
 
+    // ── MSC4163 fail-closed tests ──
+    // Malformed ACL content must return None from from_value so that
+    // check_server_acl denies the request (fail-closed security).
+
+    #[test]
+    fn test_from_value_returns_none_for_non_object() {
+        let content = json!("not an object");
+        assert!(ServerAclContent::from_value(&content).is_none());
+    }
+
+    #[test]
+    fn test_from_value_returns_none_for_array() {
+        let content = json!([1, 2, 3]);
+        assert!(ServerAclContent::from_value(&content).is_none());
+    }
+
+    #[test]
+    fn test_from_value_returns_none_for_null() {
+        let content = json!(null);
+        assert!(ServerAclContent::from_value(&content).is_none());
+    }
+
+    #[test]
+    fn test_from_value_returns_none_for_wrong_allow_type() {
+        let content = json!({"allow": "not-an-array", "deny": []});
+        assert!(ServerAclContent::from_value(&content).is_none());
+    }
+
+    #[test]
+    fn test_from_value_handles_empty_object() {
+        // Empty object should parse with defaults (empty allow/deny, ip_literals=true).
+        // Note: empty allow list means deny-all per spec.
+        let content = json!({});
+        let acl = ServerAclContent::from_value(&content).expect("empty object should parse with defaults");
+        assert!(acl.allow.is_empty());
+        assert!(acl.deny.is_empty());
+        assert!(acl.allow_ip_literals, "should default to true");
+        assert!(!acl.is_server_allowed("any.server"), "empty allow list denies all");
+    }
+
     #[test]
     fn test_glob_match_wildcard() {
         assert!(glob_match("*", "anything"));

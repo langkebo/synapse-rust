@@ -56,6 +56,10 @@ pub enum MatrixErrorCode {
     CannotLeaveServerNoticeRoom,
     Unimplemented,
     RequestTimeout,
+    /// MSC4335: Returned when the server has reached its user account limit.
+    /// Distinct from `LimitExceeded` (generic rate limit) and
+    /// `ResourceLimitExceeded` (server-wide resource exhaustion).
+    UserLimitExceeded,
 }
 
 impl MatrixErrorCode {
@@ -95,6 +99,7 @@ impl MatrixErrorCode {
             Self::CannotLeaveServerNoticeRoom => "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM",
             Self::Unimplemented => "M_UNRECOGNIZED",
             Self::RequestTimeout => "M_REQUEST_TIMEOUT",
+            Self::UserLimitExceeded => "M_USER_LIMIT_EXCEEDED",
         }
     }
 
@@ -134,6 +139,8 @@ impl MatrixErrorCode {
             Self::CannotLeaveServerNoticeRoom => StatusCode::FORBIDDEN,
             Self::Unimplemented => StatusCode::NOT_IMPLEMENTED,
             Self::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
+            // MSC4335: Too many users — 429 with retry-after semantics
+            Self::UserLimitExceeded => StatusCode::TOO_MANY_REQUESTS,
         }
     }
 }

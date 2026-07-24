@@ -86,6 +86,7 @@ pub fn build_test_config() -> Config {
             megolm_encryption_key_path: None,
             enable_burn_after_read_processor: true,
             refresh_token_ttl_secs: 2_592_000,
+            ..Default::default()
         },
         database: DatabaseConfig {
             host,
@@ -200,6 +201,8 @@ pub fn build_test_config() -> Config {
         oidc: synapse_common::config::OidcConfig::default(),
         saml: synapse_common::config::SamlConfig::default(),
         retention: synapse_common::config::RetentionConfig::default(),
+        policy_server: synapse_common::config::PolicyServerConfig::default(),
+        mas: synapse_common::config::MasConfig::default(),
         telemetry: synapse_common::telemetry_config::OpenTelemetryConfig::default(),
         prometheus: synapse_common::telemetry_config::PrometheusConfig::default(),
         performance: synapse_common::config::PerformanceConfig::default(),

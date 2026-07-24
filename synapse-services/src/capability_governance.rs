@@ -102,6 +102,28 @@ const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
     ("m.supports_login_via_phone_number", false),
     ("org.matrix.msc3882", true),
     ("uk.tcpip.msc4133", true),
+    // MSC1763 Extensible Events: server-side text extraction is always
+    // available (see `extensible_events::extract_text_from_event_content`),
+    // so we declare the unstable feature unconditionally. Clients use this
+    // to decide whether to send `m.message`-style extensible events.
+    ("org.matrix.msc1763", true),
+    // MSC4445: Clarify /sync timeline order. synapse-rust orders initial
+    // sync timeline by `origin_server_ts` (the logical event order from the
+    // originating server), which is semantically equivalent to topological
+    // ordering (depth-based) — NOT stream ordering (arrival time). This
+    // matches Synapse's behavior and the MSC's recommended flag. Clients
+    // use this to correlate /sync timeline order with /messages order.
+    ("org.matrix.msc4445.initial_sync_timeline_topological_ordering", true),
+    // MSC4140: Cancellable delayed events. The management endpoint
+    // (POST /_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id})
+    // is implemented with cancel/restart/send actions. Clients use this flag to
+    // decide whether to offer delayed/scheduled message sending.
+    ("org.matrix.msc4140", true),
+    // MSC4446: Allow moving the fully read marker to older events. The
+    // `allow_backward` body flag on /read_markers and /receipt endpoints
+    // enables backward movement of `m.fully_read` (read receipts still
+    // enforce monotonicity).
+    ("org.matrix.msc4446", true),
 ];
 
 // ---------------------------------------------------------------------------
@@ -225,6 +247,7 @@ impl CapabilityGovernance {
         unstable_features.insert("org.matrix.msc3983".to_string(), json!(self.msc3983_capability().enabled()));
         unstable_features.insert("org.matrix.msc3814".to_string(), json!(self.msc3814_capability().enabled()));
         unstable_features.insert("org.matrix.msc4143".to_string(), json!(self.msc4143_capability().enabled()));
+        unstable_features.insert("org.matrix.msc4186".to_string(), json!(self.msc4186_capability().enabled()));
         // Private `io.hula.*` extensions are intentionally NOT declared in
         // `/versions.unstable_features` — that surface is unauthenticated and
         // consumed by stock Matrix clients which do not understand the
@@ -305,6 +328,13 @@ impl CapabilityGovernance {
 
     fn sliding_sync_capability(&self) -> CapabilityFlag {
         CapabilityFlag::route_surface(self.manifest_has_route("POST", "/_matrix/client/v1/sync"))
+    }
+
+    /// MSC4186 (Simplified Sliding Sync): declared when the stable v4 sync
+    /// route is registered. Clients check this to decide whether to use the
+    /// simplified v4 endpoint instead of the MSC3575 unstable path.
+    fn msc4186_capability(&self) -> CapabilityFlag {
+        CapabilityFlag::route_surface(self.manifest_has_route("POST", "/_matrix/client/v4/sync"))
     }
 
     fn change_password_capability(&self) -> CapabilityFlag {
@@ -417,6 +447,7 @@ impl CapabilityGovernance {
             "org.matrix.msc3245.voice": self.voice_capability().enabled(),
             "org.matrix.msc3983.thread": self.thread_capability().enabled(),
             "org.matrix.msc3886.sliding_sync": self.sliding_sync_capability().enabled(),
+            "org.matrix.msc4186": self.msc4186_capability().enabled(),
             "io.hula.burn_after_read": self.burn_after_read_capability().enabled()
         })
     }
@@ -458,6 +489,13 @@ impl CapabilityGovernance {
         );
         self.insert_enabled_capability(&mut capabilities, "m.voice", self.voice_capability().enabled());
         self.insert_enabled_capability(&mut capabilities, "m.thread", self.thread_capability().enabled());
+        // MSC4133: Extended profile fields — unstable routes exist at
+        // `uk.tcpip.msc4133` namespace; declare stable capability so
+        // clients can discover profile field support.
+        self.insert_enabled_capability(&mut capabilities, "m.profile_fields", true);
+        // MSC4267: Auto-forget rooms on leave. Not implemented — declare
+        // as disabled so clients know they must call /forget explicitly.
+        self.insert_enabled_capability(&mut capabilities, "m.forget_forced_upon_leave", false);
         // Sliding sync is declared via the standard `org.matrix.msc3886.sliding_sync`
         // unstable feature in `/versions` and `/capabilities.unstable_features`.
         // The private `io.hula.sliding_sync` capability is intentionally omitted
@@ -616,12 +654,15 @@ mod tests {
             "m.supports_login_via_phone_number",
             "org.matrix.msc3882",
             "uk.tcpip.msc4133",
+            "org.matrix.msc1763",
             "org.matrix.msc3886.sliding_sync",
             "org.matrix.msc3266",
             "org.matrix.msc3245",
             "org.matrix.msc3983",
             "org.matrix.msc3814",
             "org.matrix.msc4143",
+            "org.matrix.msc4445.initial_sync_timeline_topological_ordering",
+            "org.matrix.msc4140",
         ];
         for key in expected_unstable {
             assert!(unstable.contains_key(*key), "missing unstable feature: {key}");
@@ -863,6 +904,8 @@ mod tests {
             "m.room.suggested",
             "m.voice",
             "m.thread",
+            "m.profile_fields",
+            "m.forget_forced_upon_leave",
             "io.hula.friends",
             "m.sso",
             "ai_connection",

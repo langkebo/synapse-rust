@@ -1833,10 +1833,10 @@ fn test_room_sections_leave_membership_maps_to_leave() {
 }
 
 #[test]
-fn test_room_sections_invite_membership_maps_to_join() {
+fn test_room_sections_invite_membership_maps_to_invite() {
     let memberships = vec![UserRoomMembership { room_id: "!r3:b".into(), membership: "invite".into() }];
     let sections = SyncService::room_sections_from_memberships(&memberships);
-    assert_eq!(sections.get("!r3:b").copied(), Some(SyncRoomSection::Join));
+    assert_eq!(sections.get("!r3:b").copied(), Some(SyncRoomSection::Invite));
 }
 
 #[test]
@@ -1844,11 +1844,13 @@ fn test_room_sections_mixed_memberships() {
     let memberships = vec![
         UserRoomMembership { room_id: "!r1:b".into(), membership: "join".into() },
         UserRoomMembership { room_id: "!r2:b".into(), membership: "leave".into() },
+        UserRoomMembership { room_id: "!r3:b".into(), membership: "invite".into() },
     ];
     let sections = SyncService::room_sections_from_memberships(&memberships);
-    assert_eq!(sections.len(), 2);
+    assert_eq!(sections.len(), 3);
     assert_eq!(sections.get("!r1:b").copied(), Some(SyncRoomSection::Join));
     assert_eq!(sections.get("!r2:b").copied(), Some(SyncRoomSection::Leave));
+    assert_eq!(sections.get("!r3:b").copied(), Some(SyncRoomSection::Invite));
 }
 
 #[test]
