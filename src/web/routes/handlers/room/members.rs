@@ -187,6 +187,16 @@ pub(crate) async fn invite_user(
 
     validate_user_id(invitee)?;
 
+    // Matrix spec: inviting a non-existent user must return M_BAD_REQUEST
+    // (400) rather than M_NOT_FOUND (404). Only local users can be checked
+    // against our database; remote users go through the federation invite
+    // path which has its own error handling.
+    if !ctx.room_service.membership().is_remote_user(invitee)
+        && !ctx.account_identity_service.user_exists(invitee).await?
+    {
+        return Err(ApiError::bad_request("User not found".to_string()));
+    }
+
     ctx.room_auth.can_invite_user(&room_id, &auth_user.user_id).await?;
 
     ctx.room_service.membership().invite_user(&room_id, &auth_user.user_id, invitee).await?;

@@ -76,7 +76,12 @@ impl crate::auth::TokenAuth for FakeTokenAuth {
         Err(ApiError::unauthorized("mock token_auth: generate_access_token not configured"))
     }
 
-    async fn generate_refresh_token(&self, _user_id: &str, _device_id: &str) -> ApiResult<String> {
+    async fn generate_refresh_token(
+        &self,
+        _user_id: &str,
+        _device_id: &str,
+        _access_token: &str,
+    ) -> ApiResult<String> {
         Err(ApiError::unauthorized("mock token_auth: generate_refresh_token not configured"))
     }
 

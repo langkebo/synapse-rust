@@ -46,7 +46,11 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-        let invalid = || ApiError::forbidden("Invalid credentials".to_string());
+        // P-007: Matrix spec requires 401 M_FORBIDDEN for failed login (not 403).
+        // Use Unauthorized kind (→ HTTP 401) with Forbidden code (→ M_FORBIDDEN).
+        let invalid = || {
+            ApiError::unauthorized("Invalid credentials".to_string()).with_code(synapse_common::error::MatrixErrorCode::Forbidden)
+        };
 
         let (password_hash_owned, user_for_success) = match user_opt.as_ref() {
             Some(u) if !u.is_deactivated => match u.password_hash.as_deref() {
@@ -103,7 +107,11 @@ impl AuthService {
         let device_id = self.get_or_create_device_id(device_id, &user, initial_display_name).await?;
 
         let access_token = self.generate_access_token(&user.user_id, &device_id, user.is_admin).await?;
-        let refresh_token = self.generate_refresh_token(&user.user_id, &device_id).await?;
+        // P2-12: link refresh_token to access_token so rotation can invalidate
+        // the old access_token cache entry (Synapse v1.154 #19483).
+        let refresh_token = self
+            .generate_refresh_token(&user.user_id, &device_id, &access_token)
+            .await?;
 
         Ok((user, access_token, refresh_token, device_id))
     }

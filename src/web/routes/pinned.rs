@@ -42,6 +42,14 @@ pub async fn pin_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&body.event_id)?;
+
+    // Event existence + room-membership-of-event check.
+    // `messaging().get_event` returns 404 ("Event not found") when the event
+    // doesn't exist, and 404 ("Event not found in this room") when it exists
+    // but belongs to a different room — exactly the semantics we need here.
+    // We discard the returned payload; the call is purely for validation.
+    let _ = ctx.room_service.messaging().get_event(&room_id, &body.event_id).await?;
+
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a member of this room to modify pinned events")
         .await?;
     ctx.room_auth.verify_state_event_write(&room_id, &auth_user.user_id, "m.room.pinned_events").await?;

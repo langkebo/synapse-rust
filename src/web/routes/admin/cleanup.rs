@@ -55,13 +55,6 @@ pub async fn cleanup_all(
     let reg_tokens = ctx.registration_token_service.cleanup_expired_tokens().await?;
     token_results.insert("registration_tokens_deleted".to_string(), json!(reg_tokens));
 
-    let qr_txns = ctx
-        .qr_login_storage
-        .cleanup_expired()
-        .await
-        .map_err(|e| ApiError::internal_with_log("QR login cleanup failed", &e))?;
-    token_results.insert("qr_transactions_deleted".to_string(), json!(qr_txns));
-
     let email_tokens = ctx
         .email_verification_storage
         .cleanup_expired_tokens()

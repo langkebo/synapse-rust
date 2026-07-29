@@ -39,7 +39,8 @@ impl RoomSummaryService {
 
         if let Some(summary) = summary {
             let heroes = self.get_heroes(room_id).await?;
-            Ok(Some(summary.to_response(heroes)))
+            let allowed_room_ids = self.resolve_allowed_room_ids(room_id).await?;
+            Ok(Some(summary.to_response_with_allowed_room_ids(heroes, allowed_room_ids)))
         } else {
             Ok(None)
         }
@@ -81,6 +82,35 @@ impl RoomSummaryService {
         };
 
         Ok(members.into_iter().map(RoomSummaryHero::from).collect())
+    }
+
+    /// Resolve `allowed_room_ids` for a room by querying the current
+    /// `m.room.join_rules` state event. Returns `None` for non-restricted
+    /// join rules (per Matrix v1.15 `/summary` spec). Fails closed: on
+    /// storage errors, returns `None` rather than blocking the summary
+    /// response, since `allowed_room_ids` is informational metadata.
+    pub(crate) async fn resolve_allowed_room_ids(
+        &self,
+        room_id: &str,
+    ) -> Result<Option<Vec<String>>, ApiError> {
+        let events_res = self.event_reader.get_state_events_by_type(room_id, "m.room.join_rules").await;
+
+        let content = match events_res {
+            Ok(events) => events
+                .into_iter()
+                .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
+                .map(|event| event.content),
+            Err(e) => {
+                tracing::warn!(
+                    room_id = %room_id,
+                    error = %e,
+                    "Failed to load m.room.join_rules for allowed_room_ids; returning None"
+                );
+                return Ok(None);
+            }
+        };
+
+        Ok(content.as_ref().and_then(extract_allowed_room_ids))
     }
 
     /// Batch variant of [`get_heroes`] that fetches heroes for multiple rooms
@@ -267,9 +297,36 @@ impl RoomSummaryService {
     }
 }
 
+/// Extract `allowed_room_ids` from a `m.room.join_rules` state event content.
+///
+/// Returns `Some(room_ids)` when the join rule is `restricted` or
+/// `knock_restricted` (per Matrix v1.15 `/summary` spec), or `None` for any
+/// other join rule. Entries in the `allow` array without a string `room_id`
+/// field are silently skipped. When the join rule is restricted but the
+/// `allow` array is missing, returns `Some(vec![])` so callers can
+/// distinguish "restricted with no parents" from "not restricted".
+pub(crate) fn extract_allowed_room_ids(join_rules_content: &serde_json::Value) -> Option<Vec<String>> {
+    let join_rule = join_rules_content.get("join_rule").and_then(|v| v.as_str())?;
+    if join_rule != "restricted" && join_rule != "knock_restricted" {
+        return None;
+    }
+
+    let allowed = join_rules_content
+        .get("allow")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|entry| entry.get("room_id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Some(allowed)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::RoomSummaryService;
+    use super::{extract_allowed_room_ids, RoomSummaryService};
     use synapse_storage::room_summary::CreateRoomSummaryRequest;
 
     #[test]
@@ -361,5 +418,82 @@ mod tests {
         let update = RoomSummaryService::create_request_to_update_request(&create);
         assert_eq!(update.name, Some("".to_string()));
         assert_eq!(update.topic, Some("".to_string()));
+    }
+
+    // ---------- P0-1: allowed_room_ids in /summary (Matrix v1.15) ----------
+
+    #[test]
+    fn extract_allowed_room_ids_returns_none_for_public_join_rule() {
+        let content = serde_json::json!({"join_rule": "public"});
+        assert_eq!(extract_allowed_room_ids(&content), None);
+    }
+
+    #[test]
+    fn extract_allowed_room_ids_returns_none_for_invite_join_rule() {
+        let content = serde_json::json!({"join_rule": "invite"});
+        assert_eq!(extract_allowed_room_ids(&content), None);
+    }
+
+    #[test]
+    fn extract_allowed_room_ids_returns_some_for_restricted_with_allow() {
+        let content = serde_json::json!({
+            "join_rule": "restricted",
+            "allow": [
+                {"room_id": "!parent:example.org", "type": "m.room_membership"},
+                {"room_id": "!other:example.org", "type": "m.room_membership"}
+            ]
+        });
+        assert_eq!(
+            extract_allowed_room_ids(&content),
+            Some(vec!["!parent:example.org".to_string(), "!other:example.org".to_string()])
+        );
+    }
+
+    #[test]
+    fn extract_allowed_room_ids_returns_some_for_knock_restricted() {
+        let content = serde_json::json!({
+            "join_rule": "knock_restricted",
+            "allow": [{"room_id": "!parent:example.org", "type": "m.room_membership"}]
+        });
+        assert_eq!(
+            extract_allowed_room_ids(&content),
+            Some(vec!["!parent:example.org".to_string()])
+        );
+    }
+
+    #[test]
+    fn extract_allowed_room_ids_returns_empty_vec_when_allow_missing() {
+        // Restricted join rule without `allow` array — return empty vec (not None)
+        // so callers can distinguish "restricted but no parents" from "not restricted".
+        let content = serde_json::json!({"join_rule": "restricted"});
+        assert_eq!(extract_allowed_room_ids(&content), Some(vec![]));
+    }
+
+    #[test]
+    fn extract_allowed_room_ids_skips_entries_without_room_id() {
+        let content = serde_json::json!({
+            "join_rule": "restricted",
+            "allow": [
+                {"room_id": "!valid:example.org", "type": "m.room_membership"},
+                {"type": "m.room_membership"},
+                {"room_id": 42}
+            ]
+        });
+        assert_eq!(
+            extract_allowed_room_ids(&content),
+            Some(vec!["!valid:example.org".to_string()])
+        );
+    }
+
+    #[test]
+    fn extract_allowed_room_ids_returns_none_for_unknown_join_rule_string() {
+        let content = serde_json::json!({"join_rule": "custom_rule"});
+        assert_eq!(extract_allowed_room_ids(&content), None);
+    }
+
+    #[test]
+    fn extract_allowed_room_ids_returns_none_when_join_rule_missing() {
+        let content = serde_json::json!({"allow": []});
+        assert_eq!(extract_allowed_room_ids(&content), None);
     }
 }

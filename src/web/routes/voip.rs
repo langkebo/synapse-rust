@@ -42,6 +42,10 @@ pub async fn get_turn_server(
         }));
     }
 
+    if auth_user.is_guest && !voip_service.can_guest_use_turn() {
+        return Err(ApiError::forbidden("Guest access to TURN server is disabled"));
+    }
+
     let creds = voip_service.generate_turn_credentials(&auth_user.user_id)?;
 
     Ok(Json(TurnServerResponse {
@@ -60,30 +64,42 @@ pub async fn get_voip_config(
     let voip_service = &ctx.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
-        return Ok(Json(VoipConfigResponse { turn_servers: None, stun_servers: None }));
+        // Return an empty array instead of null so clients can always index into `turn_servers`.
+        return Ok(Json(VoipConfigResponse { turn_servers: Some(Vec::new()), stun_servers: None }));
     }
 
     let settings = voip_service.get_settings();
-    let turn_servers = if !settings.turn_uris.is_empty() {
-        if let (Some(username), Some(password)) = (settings.turn_username, settings.turn_password) {
-            Some(vec![TurnServerResponse { username, password, uris: settings.turn_uris, ttl: 86400 }])
-        } else {
-            None
-        }
+    let stun_servers = if !settings.stun_uris.is_empty() { Some(settings.stun_uris) } else { None };
+
+    let turn_servers = if settings.turn_uris.is_empty() {
+        // No TURN URIs configured — return an empty array rather than null.
+        Some(Vec::new())
+    } else if let (Some(username), Some(password)) = (settings.turn_username, settings.turn_password) {
+        // Static shared credentials.
+        Some(vec![TurnServerResponse { username, password, uris: settings.turn_uris, ttl: 86400 }])
     } else {
-        None
+        // HMAC / dynamic credentials: generate them the same way /voip/turnServer does.
+        // If credential generation fails (e.g. shared secret not configured), fall back to an
+        // empty array rather than null so the response shape stays stable for clients.
+        match voip_service.generate_turn_credentials(&auth_user.user_id) {
+            Ok(creds) => Some(vec![TurnServerResponse {
+                username: creds.username,
+                password: creds.password,
+                uris: creds.uris,
+                ttl: creds.ttl,
+            }]),
+            Err(_) => Some(Vec::new()),
+        }
     };
 
-    let _ = auth_user;
-
-    Ok(Json(VoipConfigResponse {
-        turn_servers,
-        stun_servers: if !settings.stun_uris.is_empty() { Some(settings.stun_uris) } else { None },
-    }))
+    Ok(Json(VoipConfigResponse { turn_servers, stun_servers }))
 }
 
 #[allow(clippy::unused_async)]
-pub async fn get_turn_credentials_guest(State(ctx): State<RoomContext>) -> Result<Json<TurnServerResponse>, ApiError> {
+pub async fn get_turn_credentials_guest(
+    State(ctx): State<RoomContext>,
+    _auth_user: AuthenticatedUser,
+) -> Result<Json<TurnServerResponse>, ApiError> {
     let voip_service = &ctx.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {

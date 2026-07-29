@@ -23,26 +23,138 @@ pub(super) async fn key_query(
     State(ctx): State<FederationContext>,
     Path((server_name, key_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    // P2-16: Spec-compliant notary query returns { "server_keys": [Server Keys] }
+    // wrapped in an array. This is required for interoperability with
+    // Synapse/Dendrite which expect the wrapped format from all notary
+    // endpoints (including the Synapse-extension {keyId} path).
+    let server_key = if server_name == ctx.server_name || server_name == ctx.config.federation.server_name {
+        resolve_server_keys(&ctx).await?
+    } else {
+        let response = fetch_remote_server_keys_response(&ctx, &server_name, &key_id).await?;
+
+        // P2-15: Defensive validation of the response before returning it to the
+        // client. Invalid responses are never cached (see
+        // `fetch_remote_server_keys_response`); this check only logs a warning so
+        // we can observe stale/malformed keys slipping through (e.g. an expired
+        // cached entry). We still return the response rather than erroring.
+        if validate_server_key_response(&response, &server_name).is_none() {
+            ::tracing::warn!(
+                server_name = %server_name,
+                key_id = %key_id,
+                "Federation key query response failed validation; returning without caching"
+            );
+        }
+        response
+    };
+
+    // Wrap in the spec-compliant { "server_keys": [...] } format.
+    Ok(Json(json!({ "server_keys": [server_key] })))
+}
+
+/// P2-16: `GET /_matrix/key/v2/query/{serverName}` — spec-defined notary query
+/// without a specific key_id. Returns all of the server's signing keys in the
+/// wrapped `{ "server_keys": [...] }` format.
+///
+/// For local server queries, returns own keys directly. For remote servers,
+/// fetches from the origin server (or serves from cache).
+pub(super) async fn key_query_all(
+    State(ctx): State<FederationContext>,
+    Path(server_name): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    // Local server: return own keys.
     if server_name == ctx.server_name || server_name == ctx.config.federation.server_name {
-        return server_key(State(ctx)).await;
+        let server_key = resolve_server_keys(&ctx).await?;
+        return Ok(Json(json!({ "server_keys": [server_key] })));
     }
 
-    let response = fetch_remote_server_keys_response(&ctx, &server_name, &key_id).await?;
-
-    // P2-15: Defensive validation of the response before returning it to the
-    // client. Invalid responses are never cached (see
-    // `fetch_remote_server_keys_response`); this check only logs a warning so
-    // we can observe stale/malformed keys slipping through (e.g. an expired
-    // cached entry). We still return the response rather than erroring.
+    // Remote server: fetch from origin. Without a specific key_id, use the
+    // wildcard "*" to signal "all keys". The remote /_matrix/key/v2/server
+    // endpoint returns all keys regardless of key_id, so this works.
+    let response = fetch_remote_server_keys_response(&ctx, &server_name, "*").await?;
     if validate_server_key_response(&response, &server_name).is_none() {
         ::tracing::warn!(
             server_name = %server_name,
-            key_id = %key_id,
-            "Federation key query response failed validation; returning without caching"
+            "Federation key query (all) response failed validation; returning without caching"
         );
     }
+    Ok(Json(json!({ "server_keys": [response] })))
+}
 
-    Ok(Json(response))
+/// P2-16: `POST /_matrix/key/v2/query` — spec-defined batch notary query.
+///
+/// Accepts a request body of the form:
+/// ```json
+/// { "server_keys": { "example.org": { "ed25519:abc": { "minimum_valid_until_ts": 123 } } } }
+/// ```
+/// Returns the spec-compliant wrapped format:
+/// ```json
+/// { "server_keys": [ { "server_name": ..., "verify_keys": ..., ... } ] }
+/// ```
+///
+/// Per spec: "If no servers are given, the notary server must return an empty
+/// server_keys array in the response."
+pub(super) async fn key_query_batch(
+    State(ctx): State<FederationContext>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let Some(request_map) = body.get("server_keys").and_then(|v| v.as_object()) else {
+        return Ok(Json(json!({ "server_keys": [] })));
+    };
+
+    if request_map.is_empty() {
+        // Spec: empty request → empty server_keys array.
+        return Ok(Json(json!({ "server_keys": [] })));
+    }
+
+    let mut results: Vec<Value> = Vec::with_capacity(request_map.len());
+
+    for (server_name, criteria) in request_map {
+        // Local server: return own keys.
+        if server_name == &ctx.server_name || server_name == &ctx.config.federation.server_name {
+            match resolve_server_keys(&ctx).await {
+                Ok(key) => results.push(key),
+                Err(e) => ::tracing::warn!(
+                    server_name = %server_name,
+                    error = ?e,
+                    "Failed to resolve own server keys for batch notary query"
+                ),
+            }
+            continue;
+        }
+
+        // Remote server: fetch from origin. Use "*" for "all keys".
+        // Extract a specific key_id if the criteria object has one.
+        let key_id = criteria
+            .as_object()
+            .and_then(|obj| obj.keys().next())
+            .map_or("*", |k| k.as_str());
+
+        match fetch_remote_server_keys_response(&ctx, server_name, key_id).await {
+            Ok(response) => {
+                if validate_server_key_response(&response, server_name).is_none() {
+                    ::tracing::warn!(
+                        server_name = %server_name,
+                        key_id = %key_id,
+                        "Batch notary query response failed validation; skipping"
+                    );
+                    continue;
+                }
+                results.push(response);
+            }
+            Err(e) => {
+                ::tracing::warn!(
+                    server_name = %server_name,
+                    key_id = %key_id,
+                    error = ?e,
+                    "Failed to fetch remote server keys for batch notary query"
+                );
+                // Per spec: "Servers which are offline and have no cached keys
+                // will not be included in the result."
+            }
+        }
+    }
+
+    Ok(Json(json!({ "server_keys": results })))
 }
 
 pub(super) async fn key_clone(

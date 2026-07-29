@@ -32,6 +32,10 @@ server:
   # If unset, an ephemeral key is generated and encrypted megolm
   # sessions will be unreadable after restart.
   # megolm_encryption_key_path: "/app/data/megolm.key"
+  # Suppress r0 route deprecation warning at startup.
+  # Set true when the deployment intentionally supports r0 clients.
+  # Override via SYNAPSE__SERVER__SUPPRESS_R0_DEPRECATION_WARNING env var.
+  # suppress_r0_deprecation_warning: false
   # Whether to start the burn-after-read processor (default true).
   # Override via SYNAPSE__SERVER__ENABLE_BURN_AFTER_READ_PROCESSOR env var.
   # enable_burn_after_read_processor: true
@@ -73,6 +77,13 @@ federation:
   # Max events accumulated before flushing an outbound federation transaction
   # (default 100).
   # event_broadcast_batch_size: 100
+  # Master key for encrypting federation signing keys at rest (AES-256-GCM).
+  # Generate with: openssl rand -hex 32
+  # Override via SYNAPSE__FEDERATION__SIGNING_KEY_MASTER_KEY env var.
+  # signing_key_master_key: "64-hex-chars"
+  # Explicitly allow plaintext signing key storage when no master key is set.
+  # Defaults to false (fail-closed). Set true only for dev environments.
+  # allow_plaintext_signing_keys: false
 
 # Search service configuration.
 # search:

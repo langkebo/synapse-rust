@@ -44,10 +44,10 @@ pub async fn security_headers_middleware(request: Request<Body>, next: axum::mid
             "default-src 'none'; \
              script-src 'self' 'wasm-unsafe-eval'; \
              style-src 'self' 'unsafe-inline'; \
-             img-src 'self' data: blob: mxc:; \
-             media-src 'self' mxc:; \
-             connect-src 'self' wss:; \
-             frame-src 'none'; \
+             img-src 'self' data: blob: mxc: https:; \
+             media-src 'self' mxc: https:; \
+             connect-src 'self' https: wss: ws:; \
+             frame-src https:; \
              object-src 'none'; \
              base-uri 'self'; \
              form-action 'self'",

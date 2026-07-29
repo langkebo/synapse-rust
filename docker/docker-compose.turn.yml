@@ -1,0 +1,31 @@
+# docker-compose.turn.yml
+# ----------------------------------------------------------------------------
+# Adds coturn TURN/STUN server for VoIP call support.
+# Use together with docker-compose.yml + docker-compose.web.yml:
+#
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.web.yml \
+#     -f docker-compose.turn.yml \
+#     up -d
+# ----------------------------------------------------------------------------
+services:
+  coturn:
+    image: coturn/coturn:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-synapse}-coturn
+    restart: unless-stopped
+    networks:
+      - synapse_network
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/tcp"
+      - "49152-49272:49152-49272/udp"
+    volumes:
+      - ./coturn/turnserver.conf:/etc/turnserver.conf:ro
+    command: ["-c", "/etc/turnserver.conf", "--log-file=stdout"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"

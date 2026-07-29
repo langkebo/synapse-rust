@@ -150,6 +150,7 @@ pub fn build_test_config() -> Config {
             join_acquire_timeout_ms: 750,
             admission_mode: false,
             signing_key_master_key: None,
+            allow_plaintext_signing_keys: false,
             event_broadcast_batch_size: 100,
             rate_limit: FederationRateLimitConfig::default(),
         },

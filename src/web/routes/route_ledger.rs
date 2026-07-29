@@ -182,17 +182,9 @@ impl RouteLedger {
     /// with overlapping methods, so we would rather fail cleanly at manifest
     /// validation than leave the panic to Axum's internals.
     pub fn validate(&self) -> Result<LedgerReport, DuplicateRouteError> {
-        // Emit a deprecation warning when any r0 routes remain registered.
+        // Count r0 routes for the caller to conditionally warn about.
         // r0 is a legacy Matrix API version — clients should migrate to /v3/.
         let r0_count = self.entries.iter().filter(|e| e.path.contains("/r0/")).count();
-        if r0_count > 0 {
-            ::tracing::warn!(
-                r0_routes = r0_count,
-                "{} r0 route(s) are deprecated and scheduled for removal. \
-                 Clients should migrate to /v3/ paths.",
-                r0_count,
-            );
-        }
 
         // `Method` doesn't implement `Ord`, so a `BTreeMap` is out — but its
         // `Hash + Eq` impls let us key a `HashMap` directly. We then sort the
@@ -217,7 +209,7 @@ impl RouteLedger {
             return Err(DuplicateRouteError { duplicates });
         }
 
-        Ok(LedgerReport { unique_tuples: seen.len(), total_entries: self.entries.len() })
+        Ok(LedgerReport { unique_tuples: seen.len(), total_entries: self.entries.len(), r0_route_count: r0_count })
     }
 }
 
@@ -230,6 +222,10 @@ pub struct LedgerReport {
     /// Raw number of [`RouteEntry`] values across all manifests. Kept
     /// separately for future use; today it matches `unique_tuples` exactly.
     pub total_entries: usize,
+    /// Number of registered r0 (legacy Matrix API) routes. The caller is
+    /// responsible for emitting a deprecation warning when this is non-zero
+    /// and not suppressed by configuration.
+    pub r0_route_count: usize,
 }
 
 #[derive(Debug, Clone)]

@@ -172,6 +172,8 @@ fn create_test_config() -> Config {
         identity: synapse_rust::common::config::IdentityConfig::default(),
         translate: synapse_rust::common::config::TranslateConfig::default(),
         sso_redirect_allowlist: vec![],
+        policy_server: synapse_rust::common::config::PolicyServerConfig::default(),
+        mas: synapse_rust::common::config::MasConfig::default(),
     }
 }
 

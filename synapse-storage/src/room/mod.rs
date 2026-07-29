@@ -922,19 +922,40 @@ impl RoomStorage {
         Ok(())
     }
 
+    /// Look up the `origin_server_ts` of an event by id. Returns `None` if the
+    /// event does not exist (e.g. already purged). Used to populate the
+    /// redundant `read_markers.origin_server_ts` column so that
+    /// `get_unread_counts` can recover `last_read_ts` after `purge_history`
+    /// deletes the referenced event (P1-7).
+    async fn lookup_event_origin_server_ts(&self, event_id: &str) -> Result<Option<i64>, sqlx::Error> {
+        let ts: Option<(Option<i64>,)> = sqlx::query_as(
+            "SELECT origin_server_ts FROM events WHERE event_id = $1",
+        )
+        .bind(event_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(ts.and_then(|t| t.0))
+    }
+
     pub async fn update_read_marker(&self, room_id: &str, user_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
         let now: i64 = current_timestamp_millis();
+        // P1-7: cache origin_server_ts so get_unread_counts survives purge_history
+        let event_ts = self.lookup_event_origin_server_ts(event_id).await?;
         sqlx::query(
             r"
-            INSERT INTO read_markers (room_id, user_id, event_id, marker_type, created_ts, updated_ts)
-            VALUES ($1, $2, $3, 'm.fully_read', $4, $4)
-            ON CONFLICT (room_id, user_id, marker_type) DO UPDATE SET event_id = EXCLUDED.event_id, updated_ts = EXCLUDED.updated_ts
+            INSERT INTO read_markers (room_id, user_id, event_id, marker_type, created_ts, updated_ts, origin_server_ts)
+            VALUES ($1, $2, $3, 'm.fully_read', $4, $4, $5)
+            ON CONFLICT (room_id, user_id, marker_type) DO UPDATE SET
+                event_id = EXCLUDED.event_id,
+                updated_ts = EXCLUDED.updated_ts,
+                origin_server_ts = EXCLUDED.origin_server_ts
             ",
         )
         .bind(room_id)
         .bind(user_id)
         .bind(event_id)
         .bind(now)
+        .bind(event_ts)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -950,11 +971,16 @@ impl RoomStorage {
         marker_type: &str,
     ) -> Result<(), sqlx::Error> {
         let now: i64 = current_timestamp_millis();
+        // P1-7: cache origin_server_ts so get_unread_counts survives purge_history
+        let event_ts = self.lookup_event_origin_server_ts(event_id).await?;
         sqlx::query(
             r"
-            INSERT INTO read_markers (room_id, user_id, event_id, marker_type, created_ts, updated_ts)
-            VALUES ($1, $2, $3, $4, $5, $5)
-            ON CONFLICT (room_id, user_id, marker_type) DO UPDATE SET event_id = EXCLUDED.event_id, updated_ts = EXCLUDED.updated_ts
+            INSERT INTO read_markers (room_id, user_id, event_id, marker_type, created_ts, updated_ts, origin_server_ts)
+            VALUES ($1, $2, $3, $4, $5, $5, $6)
+            ON CONFLICT (room_id, user_id, marker_type) DO UPDATE SET
+                event_id = EXCLUDED.event_id,
+                updated_ts = EXCLUDED.updated_ts,
+                origin_server_ts = EXCLUDED.origin_server_ts
             ",
         )
         .bind(room_id)
@@ -962,6 +988,7 @@ impl RoomStorage {
         .bind(event_id)
         .bind(marker_type)
         .bind(now)
+        .bind(event_ts)
         .execute(&*self.pool)
         .await?;
         Ok(())

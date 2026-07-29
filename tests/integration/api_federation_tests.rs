@@ -352,11 +352,16 @@ async fn test_local_key_query_reuses_server_key_response() {
     let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
-    assert_eq!(json["server_name"], "test.example.com");
-    assert!(json["verify_keys"].get(&key_id).is_some());
+    // P2-16: Notary query now returns the spec-compliant wrapped format.
+    assert!(json["server_keys"].is_array(), "notary query must return wrapped format");
+    let server_keys = json["server_keys"].as_array().unwrap();
+    assert!(!server_keys.is_empty());
+    let first = &server_keys[0];
+    assert_eq!(first["server_name"], "test.example.com");
+    assert!(first["verify_keys"].get(&key_id).is_some());
 }
 
 #[tokio::test]
@@ -416,11 +421,16 @@ async fn test_remote_key_query_fetches_real_remote_server_response() {
     let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let resp_body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let resp_body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
     let json: Value = serde_json::from_slice(&resp_body).unwrap();
 
-    assert_eq!(json["server_name"], server_name);
-    assert_eq!(json["verify_keys"][key_id]["key"], verify_key_b64);
+    // P2-16: Notary query now returns the spec-compliant wrapped format.
+    assert!(json["server_keys"].is_array(), "remote notary query must return wrapped format");
+    let server_keys = json["server_keys"].as_array().unwrap();
+    assert!(!server_keys.is_empty());
+    let first = &server_keys[0];
+    assert_eq!(first["server_name"], server_name);
+    assert_eq!(first["verify_keys"][key_id]["key"], verify_key_b64);
 }
 
 #[tokio::test]
@@ -451,4 +461,169 @@ async fn test_federation_openid_userinfo_validates_openid_token_without_placehol
 
     let invalid_response = ServiceExt::<Request<Body>>::oneshot(app, invalid_request).await.unwrap();
     assert_eq!(invalid_response.status(), StatusCode::UNAUTHORIZED);
+}
+
+// =============================================================================
+// P2-16: Federation key query/notary semantic convergence (MSC4242-adjacent)
+// =============================================================================
+//
+// Matrix spec v1.18 server-server-api defines three notary query endpoints:
+//   1. GET  /_matrix/key/v2/query/{serverName}           — all keys for a server
+//   2. GET  /_matrix/key/v2/query/{serverName}/{keyId}   — specific key (Synapse ext)
+//   3. POST /_matrix/key/v2/query                         — batch notary query
+//
+// All three MUST return the spec-compliant wrapped format:
+//   { "server_keys": [ { "server_name": ..., "verify_keys": ..., ... } ] }
+//
+// The single-object format (returned by /_matrix/key/v2/server) is NOT
+// spec-compliant for notary query endpoints and breaks interoperability with
+// Synapse/Dendrite, which expect the wrapped array format.
+
+/// Spec compliance: `GET /_matrix/key/v2/query/{serverName}` (without key_id)
+/// must be registered and return the spec-compliant wrapped format.
+#[tokio::test]
+async fn test_p2_16_notary_query_without_key_id_returns_wrapped_format() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    // Query own server via the spec-defined notary path (no key_id).
+    let request = Request::builder()
+        .uri("/_matrix/key/v2/query/test.example.com")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "notary query without key_id must be accepted");
+
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    // Spec: response must be { "server_keys": [Server Keys] } — wrapped in array.
+    assert!(
+        json["server_keys"].is_array(),
+        "notary query response must be wrapped in server_keys array; got: {json}"
+    );
+    let server_keys = json["server_keys"].as_array().unwrap();
+    assert!(!server_keys.is_empty(), "server_keys array must not be empty for local server");
+
+    let first = &server_keys[0];
+    assert_eq!(first["server_name"], "test.example.com");
+    assert!(first["verify_keys"].as_object().is_some_and(|keys| !keys.is_empty()));
+    assert!(first["valid_until_ts"].is_i64());
+    // signatures may be absent in test env without a valid signing key.
+}
+
+/// Spec compliance: `GET /_matrix/key/v2/query/{serverName}/{keyId}` (Synapse
+/// extension) must also return the spec-compliant wrapped format for
+/// interoperability with Synapse/Dendrite.
+#[tokio::test]
+async fn test_p2_16_notary_query_with_key_id_returns_wrapped_format() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    // First fetch own server keys to discover the key_id.
+    let request = Request::builder().uri("/_matrix/key/v2/server").body(Body::empty()).unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let server_key_json: Value = serde_json::from_slice(&body).unwrap();
+    let key_id = server_key_json["verify_keys"]
+        .as_object()
+        .and_then(|keys| keys.keys().next().cloned())
+        .unwrap();
+
+    // Query own server via the Synapse-extension notary path (with key_id).
+    let request = Request::builder()
+        .uri(format!("/_matrix/key/v2/query/test.example.com/{}", key_id))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    // Spec: response must be { "server_keys": [Server Keys] } — wrapped in array.
+    assert!(
+        json["server_keys"].is_array(),
+        "notary query with key_id must return wrapped format; got: {json}"
+    );
+    let server_keys = json["server_keys"].as_array().unwrap();
+    assert!(!server_keys.is_empty(), "server_keys array must not be empty");
+
+    let first = &server_keys[0];
+    assert_eq!(first["server_name"], "test.example.com");
+    assert!(first["verify_keys"].get(&key_id).is_some(), "queried key_id must be present in response");
+}
+
+/// Spec compliance: `POST /_matrix/key/v2/query` batch notary query must be
+/// registered and return the spec-compliant wrapped format.
+#[tokio::test]
+async fn test_p2_16_batch_notary_query_returns_wrapped_format() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    // Batch query for own server's keys.
+    let body = serde_json::json!({
+        "server_keys": {
+            "test.example.com": {}
+        }
+    });
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/key/v2/query")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "POST /_matrix/key/v2/query must be accepted");
+
+    let body = axum::body::to_bytes(response.into_body(), 8192).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    // Spec: response must be { "server_keys": [Server Keys] } — wrapped in array.
+    assert!(
+        json["server_keys"].is_array(),
+        "batch notary query response must be wrapped in server_keys array; got: {json}"
+    );
+    let server_keys = json["server_keys"].as_array().unwrap();
+    assert!(!server_keys.is_empty(), "server_keys array must contain own server's keys");
+
+    let first = &server_keys[0];
+    assert_eq!(first["server_name"], "test.example.com");
+    assert!(first["verify_keys"].as_object().is_some_and(|keys| !keys.is_empty()));
+}
+
+/// Spec compliance: `POST /_matrix/key/v2/query` with empty server_keys request
+/// must return an empty server_keys array (per spec: "If no servers are given,
+/// the notary server must return an empty server_keys array in the response").
+#[tokio::test]
+async fn test_p2_16_batch_notary_query_empty_request_returns_empty_array() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let body = serde_json::json!({ "server_keys": {} });
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/key/v2/query")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    assert!(json["server_keys"].is_array(), "response must contain server_keys array");
+    assert!(
+        json["server_keys"].as_array().unwrap().is_empty(),
+        "empty request must return empty server_keys array"
+    );
 }

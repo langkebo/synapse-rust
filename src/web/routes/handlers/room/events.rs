@@ -21,6 +21,10 @@ pub(crate) async fn get_single_event(
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
 
+    if !ctx.room_service.state().room_exists(&room_id).await? {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let event = ctx.room_service.messaging().get_event(&room_id, &event_id).await?;
@@ -245,9 +249,13 @@ pub(crate) async fn send_message(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
+    if !ctx.room_service.state().room_exists(&room_id).await? {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     let s = body.to_string();
     if s.len() > 65536 {
-        return Err(ApiError::bad_request("Message content too long (max 64KB)".to_string()));
+        return Err(ApiError::too_large("Message content too long (max 64KB)".to_string()));
     }
 
     if !txn_id.is_empty() {
@@ -896,6 +904,10 @@ pub(crate) async fn redact_event(
         })));
     }
     validate_event_id(&event_id)?;
+
+    if !ctx.room_service.state().room_exists(&room_id).await? {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
 
     let original_event = ctx
         .room_service

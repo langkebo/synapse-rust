@@ -27,6 +27,19 @@ fn ensure_presence_access(auth_user: &AuthenticatedUser, target_user_id: &str) -
     Ok(())
 }
 
+/// P1-3: Reject presence requests when the presence module is disabled in
+/// server config. Per Matrix spec, the server must return `M_UNSUPPORTED`
+/// so clients can gracefully degrade instead of treating the failure as a
+/// transient network error.
+fn ensure_presence_enabled(ctx: &RoomContext) -> Result<(), ApiError> {
+    if !ctx.config.server.presence_enabled {
+        return Err(ApiError::unsupported(
+            "Presence is not supported on this server",
+        ));
+    }
+    Ok(())
+}
+
 async fn ensure_presence_access_or_shared_room(
     ctx: &RoomContext,
     auth_user: &AuthenticatedUser,
@@ -56,10 +69,16 @@ pub(crate) async fn get_presence(
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_presence_enabled(&ctx)?;
     validate_user_id(&user_id)?;
-    ensure_presence_access_or_shared_room(&ctx, &auth_user, &user_id).await?;
 
+    // P-052: Check the target user exists *before* the room-membership /
+    // presence-visibility check. Otherwise a non-existent user yields 403
+    // M_FORBIDDEN (because they share no rooms) instead of 404 M_NOT_FOUND,
+    // which leaks user-existence information.
     ctx.account_identity_service.ensure_active_user_exists(&user_id).await?;
+
+    ensure_presence_access_or_shared_room(&ctx, &auth_user, &user_id).await?;
 
     let presence = ctx.presence_service.get_presence_with_meta(&user_id).await?;
 
@@ -89,6 +108,7 @@ pub(crate) async fn set_presence(
     Path(user_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_presence_enabled(&ctx)?;
     validate_user_id(&user_id)?;
     ensure_presence_access(&auth_user, &user_id)?;
 
@@ -125,6 +145,7 @@ pub(crate) async fn presence_list(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_presence_enabled(&ctx)?;
     let request_id = resolve_request_id(&headers);
     let user_id = &auth_user.user_id;
 
@@ -214,6 +235,7 @@ pub(crate) async fn get_presence_list_no_path(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_presence_enabled(&ctx)?;
     let user_id = &auth_user.user_id;
 
     let subscriptions = ctx.presence_service.get_subscriptions(user_id).await?;
@@ -260,6 +282,7 @@ pub(crate) async fn get_presence_list(
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    ensure_presence_enabled(&ctx)?;
     validate_user_id(&user_id)?;
     ensure_presence_access(&auth_user, &user_id)?;
 

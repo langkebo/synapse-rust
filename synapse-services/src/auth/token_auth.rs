@@ -8,7 +8,9 @@ pub trait TokenAuth: Send + Sync {
 
     async fn generate_access_token(&self, user_id: &str, device_id: &str, admin: bool) -> ApiResult<String>;
 
-    async fn generate_refresh_token(&self, user_id: &str, device_id: &str) -> ApiResult<String>;
+    /// Generate a new refresh token, linked to the given `access_token` for
+    /// cache invalidation during rotation (P2-12, Synapse v1.154 #19483).
+    async fn generate_refresh_token(&self, user_id: &str, device_id: &str, access_token: &str) -> ApiResult<String>;
 
     async fn refresh_token(&self, refresh_token: &str) -> ApiResult<(String, String, String)>;
 

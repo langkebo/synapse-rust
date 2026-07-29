@@ -308,7 +308,6 @@ pub struct AuthContext {
     pub oidc_service: Option<Arc<synapse_services::oidc_service::OidcService>>,
     #[cfg(feature = "builtin-oidc")]
     pub builtin_oidc_provider: Option<Arc<synapse_services::builtin_oidc_provider::BuiltinOidcProvider>>,
-    pub qr_login_storage: Arc<dyn synapse_storage::qr_login::QrLoginStoreApi>,
     pub threepid_storage: Arc<dyn synapse_storage::threepid::ThreepidStoreApi>,
     pub rendezvous_storage: Arc<dyn synapse_storage::rendezvous::RendezvousStoreApi>,
     pub rendezvous_message_storage: Arc<dyn synapse_storage::rendezvous::RendezvousMessageStoreApi>,
@@ -338,7 +337,6 @@ impl FromRef<AppState> for AuthContext {
             oidc_service: state.services.sso.oidc_service.clone(),
             #[cfg(feature = "builtin-oidc")]
             builtin_oidc_provider: state.services.sso.builtin_oidc_provider.clone(),
-            qr_login_storage: state.services.account.qr_login_storage.clone(),
             threepid_storage: state.services.account.threepid_storage.clone(),
             rendezvous_storage: state.services.admin.modules.rendezvous_storage.clone(),
             rendezvous_message_storage: state.services.admin.modules.rendezvous_message_storage.clone(),
@@ -427,7 +425,6 @@ pub struct AdminContext {
     pub friend_room_service: Arc<synapse_services::friend_room_service::models::FriendRoomService>,
     pub ssss_service: synapse_e2ee::ssss::SecretStorageService,
     pub token_storage: Arc<dyn synapse_storage::token::AccessTokenStoreApi>,
-    pub qr_login_storage: Arc<dyn synapse_storage::qr_login::QrLoginStoreApi>,
     pub client_push_service: Arc<synapse_services::client_push_service::ClientPushService>,
     #[cfg(feature = "widgets")]
     pub widget_service: Arc<synapse_services::widget_service::WidgetService>,
@@ -506,7 +503,6 @@ impl FromRef<AppState> for AdminContext {
             friend_room_service: state.services.extensions.friend_room_service.clone(),
             ssss_service: state.services.e2ee.ssss_service.clone(),
             token_storage: state.services.account.token_storage.clone(),
-            qr_login_storage: state.services.account.qr_login_storage.clone(),
             client_push_service: state.services.core.client_push_service.clone(),
             #[cfg(feature = "widgets")]
             widget_service: state.services.extensions.widget_service.clone(),

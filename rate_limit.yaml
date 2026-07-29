@@ -5,12 +5,14 @@ default:
 endpoints:
   - path: "/_matrix/client/v3/login"
     match_type: "prefix"
-    per_second: 5
-    burst_size: 20
+    rule:
+      per_second: 5
+      burst_size: 50
   - path: "/_matrix/client/r0/login"
     match_type: "prefix"
-    per_second: 5
-    burst_size: 20
+    rule:
+      per_second: 5
+      burst_size: 50
 ip_header_priority:
   - "x-forwarded-for"
   - "x-real-ip"

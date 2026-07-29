@@ -230,7 +230,20 @@ impl AuthService {
         Ok(token)
     }
 
-    pub async fn generate_refresh_token(&self, user_id: &str, device_id: &str) -> ApiResult<String> {
+    /// Generate a new refresh token, linked to `access_token` for cache
+    /// invalidation during rotation (P2-12, Synapse v1.154 #19483).
+    ///
+    /// The `access_token` string is stored in `refresh_tokens.access_token_id`
+    /// so that `refresh_token()` can look it up and call `cache.delete_token()`
+    /// when the token is rotated. Without this linkage, a stale cache entry
+    /// would allow the old (post-rotation invalid) access_token to pass
+    /// validation until its TTL expires.
+    pub async fn generate_refresh_token(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        access_token: &str,
+    ) -> ApiResult<String> {
         let token = super::auth_generate_token(32);
         let token_hash = Self::hash_token(&token);
         let expiry_ts = current_timestamp_millis() + (self.refresh_token_expiry * 1000);
@@ -239,7 +252,9 @@ impl AuthService {
             token_hash: token_hash.clone(),
             user_id: user_id.to_string(),
             device_id: Some(device_id.to_string()),
-            access_token_id: None,
+            // P2-12: persist the linked access_token so refresh_token() can
+            // invalidate its cache entry on rotation.
+            access_token_id: Some(access_token.to_string()),
             scope: None,
             expires_at: expiry_ts,
             client_info: None,

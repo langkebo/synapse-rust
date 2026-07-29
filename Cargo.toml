@@ -24,7 +24,14 @@ needless_pass_by_value = "warn"
 redundant_else = "warn"
 
 [features]
-default = ["server", "core-private-chat", "openclaw"]
+# P-028: `openclaw` removed from default — its routes are dead code for the
+#        frontend (Tauri local comms + SDK OpenClawManager). The feature flag
+#        and source remain for opt-in builds via `--features openclaw`.
+# P-056: `widgets` added to default — widget endpoints are required by the
+#        deployment (WidgetManager / WidgetContainer).
+# P-067: `external-services` added to default — admin external_service routes
+#        must respond (previously 404 due to missing feature flag).
+default = ["server", "core-private-chat", "widgets", "external-services"]
 server = ["dep:axum", "dep:tower-http"]
 openclaw = ["openclaw-routes"]
 openclaw-routes = ["synapse-common/openclaw-routes", "synapse-services/openclaw-routes", "synapse-storage/openclaw-routes"]

@@ -6,6 +6,15 @@ incremental = true
 # 使用 .sqlx/ 离线缓存验证 SQL，避免 rust-analyzer 和 CI 环境连接数据库
 SQLX_OFFLINE = "true"
 
+[source.crates-io]
+replace-with = "rsproxy-sparse"
+
+[source.rsproxy-sparse]
+registry = "sparse+https://rsproxy.cn/index/"
+
+[net]
+git-fetch-with-cli = true
+
 [profile.release]
 # 优化编译速度和内存使用
 opt-level = 2

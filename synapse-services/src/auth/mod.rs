@@ -223,8 +223,13 @@ impl crate::auth::TokenAuth for AuthService {
         self.generate_access_token(user_id, device_id, admin).await
     }
 
-    async fn generate_refresh_token(&self, user_id: &str, device_id: &str) -> ApiResult<String> {
-        self.generate_refresh_token(user_id, device_id).await
+    async fn generate_refresh_token(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        access_token: &str,
+    ) -> ApiResult<String> {
+        self.generate_refresh_token(user_id, device_id, access_token).await
     }
 
     async fn refresh_token(&self, refresh_token: &str) -> ApiResult<(String, String, String)> {

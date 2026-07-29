@@ -168,4 +168,98 @@ impl EventStorage {
         .await?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
+
+    // =========================================================================
+    // MSC4242 State DAG methods (P2-14)
+    // =========================================================================
+
+    /// Get the `prev_state_events` for a given event (MSC4242 State DAG).
+    ///
+    /// Returns `None` if the event does not exist or has no `prev_state_events`
+    /// (i.e. it is not a state event in an MSC4242 room version).
+    ///
+    /// This is the state-DAG equivalent of reading `prev_events` for the room
+    /// DAG. The returned event IDs form the edges of the state DAG.
+    pub async fn get_prev_state_events(&self, event_id: &str) -> Result<Option<Vec<String>>, sqlx::Error> {
+        let row: Option<(Option<serde_json::Value>,)> = sqlx::query_as(
+            "SELECT prev_state_events FROM events WHERE event_id = $1",
+        )
+        .bind(event_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        match row {
+            None => Ok(None),
+            Some((None,)) => Ok(None),
+            Some((Some(json),)) => {
+                let ids: Vec<String> = serde_json::from_value(json).unwrap_or_default();
+                if ids.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(ids))
+                }
+            }
+        }
+    }
+
+    /// Get the state DAG edges for a room — all `(event_id, prev_state_event_id)`
+    /// pairs where `prev_state_events` is non-NULL.
+    ///
+    /// Used by `/send_join` (federation) to provide the full state DAG to
+    /// joining servers, and by `/get_missing_events` to walk the state DAG
+    /// when backfilling missing state events (MSC4242).
+    ///
+    /// Returns a flat list of `(event_id, prev_state_event_id)` edges.
+    pub async fn get_state_dag_edges(&self, room_id: &str) -> Result<Vec<(String, String)>, sqlx::Error> {
+        let rows: Vec<(String, serde_json::Value)> = sqlx::query_as(
+            r"
+            SELECT event_id, prev_state_events
+            FROM events
+            WHERE room_id = $1 AND prev_state_events IS NOT NULL
+            ORDER BY origin_server_ts ASC, stream_ordering ASC
+            ",
+        )
+        .bind(room_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut edges = Vec::new();
+        for (event_id, prev_json) in rows {
+            let prev_ids: Vec<String> = serde_json::from_value(prev_json).unwrap_or_default();
+            for prev_id in prev_ids {
+                edges.push((event_id.clone(), prev_id));
+            }
+        }
+        Ok(edges)
+    }
+
+    /// Find state events in a room that reference any of `missing_event_ids`
+    /// in their `prev_state_events`. Used by the `/get_missing_events`
+    /// federation handler to determine which state DAG events need backfilling
+    /// (MSC4242 mandates servers fill in unknown `prev_state_events`).
+    ///
+    /// Returns the event IDs that reference at least one missing event.
+    pub async fn find_events_referencing_missing_state(
+        &self,
+        room_id: &str,
+        missing_event_ids: &[String],
+    ) -> Result<Vec<String>, sqlx::Error> {
+        if missing_event_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r"
+            SELECT event_id
+            FROM events
+            WHERE room_id = $1
+              AND prev_state_events IS NOT NULL
+              AND prev_state_events ?| $2::text[]
+            ",
+        )
+        .bind(room_id)
+        .bind(missing_event_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
 }

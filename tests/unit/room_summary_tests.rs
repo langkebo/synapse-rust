@@ -102,11 +102,13 @@ mod tests {
             }],
             last_event_ts: Some(1234567890),
             last_message_ts: Some(1234567800),
+            allowed_room_ids: None,
         };
 
         assert_eq!(response.room_id, "!test:example.com");
         assert_eq!(response.member_count, 10);
         assert_eq!(response.heroes.len(), 1);
+        assert!(response.allowed_room_ids.is_none());
     }
 
     #[test]

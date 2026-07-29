@@ -23,7 +23,7 @@ use synapse_common::current_timestamp_millis;
 fn create_relations_core_router() -> Router<AppState> {
     Router::new()
         .route("/rooms/{room_id}/relations/{event_id}/{rel_type}", get(get_relations))
-        .route("/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_id}", put(send_relation))
+        .route("/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}", put(send_relation))
         .route("/rooms/{room_id}/aggregations/{event_id}/{rel_type}", get(get_aggregations))
 }
 
@@ -46,7 +46,7 @@ fn relations_core_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
     vec![
         (Method::GET, "/rooms/{room_id}/relations/{event_id}/{rel_type}"),
-        (Method::PUT, "/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_id}"),
+        (Method::PUT, "/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}"),
         (Method::GET, "/rooms/{room_id}/aggregations/{event_id}/{rel_type}"),
     ]
 }
@@ -189,15 +189,18 @@ async fn get_relations(
 }
 
 /// Send a relation (annotation/reference/replace)
+///
+/// The last path segment is a transaction ID (`txn_id`) used for idempotency,
+/// NOT an event ID. The parent `event_id` (the event being related to) is the
+/// second path segment and is what gets recorded as `relates_to_event_id`.
 async fn send_relation(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id, rel_type, target_event_id)): Path<(String, String, String, String)>,
+    Path((room_id, event_id, rel_type, txn_id)): Path<(String, String, String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<RelationSendResponse>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
-    validate_event_id(&target_event_id)?;
 
     // `m.thread` 作为参考型关系走与 `m.reference` 相同的落地路径：
     // backend 侧仅需要把事件 ID 作为 relates_to 记录，SDK/Thread 功能据此完成
@@ -218,6 +221,14 @@ async fn send_relation(
     let sender = auth_user.user_id.clone();
     let origin_server_ts = current_timestamp_millis();
 
+    tracing::debug!(
+        room_id = %room_id,
+        relates_to_event_id = %event_id,
+        rel_type = %rel_type,
+        txn_id = %txn_id,
+        "Sending relation event (txn_id used for idempotency)"
+    );
+
     let result_event_id = match rel_type.as_str() {
         "m.annotation" => {
             let key = body.get("key").and_then(|v| v.as_str()).unwrap_or("👍").to_string();
@@ -225,7 +236,7 @@ async fn send_relation(
             ctx.relations_service
                 .send_annotation(synapse_services::relations_service::SendAnnotationRequest {
                     room_id: room_id.clone(),
-                    relates_to_event_id: target_event_id.clone(),
+                    relates_to_event_id: event_id.clone(),
                     sender,
                     key,
                     origin_server_ts,
@@ -239,7 +250,7 @@ async fn send_relation(
             ctx.relations_service
                 .send_reference(synapse_services::relations_service::SendReferenceRequest {
                     room_id: room_id.clone(),
-                    relates_to_event_id: target_event_id.clone(),
+                    relates_to_event_id: event_id.clone(),
                     sender,
                     content,
                     origin_server_ts,
@@ -254,7 +265,7 @@ async fn send_relation(
             ctx.relations_service
                 .send_reference(synapse_services::relations_service::SendReferenceRequest {
                     room_id: room_id.clone(),
-                    relates_to_event_id: target_event_id.clone(),
+                    relates_to_event_id: event_id.clone(),
                     sender: sender.clone(),
                     content,
                     origin_server_ts,
@@ -273,7 +284,7 @@ async fn send_relation(
             ctx.relations_service
                 .send_replacement(synapse_services::relations_service::SendReplacementRequest {
                     room_id: room_id.clone(),
-                    relates_to_event_id: target_event_id.clone(),
+                    relates_to_event_id: event_id.clone(),
                     sender,
                     new_content,
                     origin_server_ts,
@@ -287,7 +298,7 @@ async fn send_relation(
     Ok(Json(RelationSendResponse {
         event_id: result_event_id,
         room_id,
-        relates_to: RelationTarget { event_id: target_event_id, rel_type },
+        relates_to: RelationTarget { event_id, rel_type },
     }))
 }
 
@@ -320,7 +331,7 @@ mod tests {
     fn test_relations_routes_structure() {
         let compat_routes = [
             "/_matrix/client/v1/relations/{room_id}/{event_id}/{rel_type}",
-            "/_matrix/client/r0/relations/{room_id}/{event_id}/{rel_type}/{event_id}",
+            "/_matrix/client/r0/relations/{room_id}/{event_id}/{rel_type}/{txn_id}",
             "/_matrix/client/v3/relations/{room_id}/{event_id}/{rel_type}",
             "/_matrix/client/v1/aggregations/{room_id}/{event_id}/{rel_type}",
             "/_matrix/client/r0/aggregations/{room_id}/{event_id}/{rel_type}",
@@ -334,7 +345,7 @@ mod tests {
     fn test_relations_compat_router_contains_shared_paths() {
         let shared_paths = [
             "/relations/{room_id}/{event_id}/{rel_type}",
-            "/relations/{room_id}/{event_id}/{rel_type}/{event_id}",
+            "/relations/{room_id}/{event_id}/{rel_type}/{txn_id}",
             "/aggregations/{room_id}/{event_id}/{rel_type}",
         ];
 

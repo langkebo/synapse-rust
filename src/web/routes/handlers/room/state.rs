@@ -88,6 +88,10 @@ pub(crate) async fn get_state_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
+    if !ctx.room_service.state().room_exists(&room_id).await? {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let final_event_type = normalize_room_event_type(&event_type);
@@ -344,6 +348,10 @@ pub(crate) async fn get_state_event_empty_key(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
+    if !ctx.room_service.state().room_exists(&room_id).await? {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let final_event_type = normalize_room_event_type(&event_type);
@@ -365,6 +373,10 @@ pub(crate) async fn get_power_levels(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
+    if !ctx.room_service.state().room_exists(&room_id).await? {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let events = ctx.room_service.messaging().get_state_events_by_type(&room_id, "m.room.power_levels").await?;
@@ -377,6 +389,24 @@ pub(crate) async fn get_power_levels(
     let power_levels_content = event.get("content").cloned().unwrap_or_else(|| json!({}));
 
     Ok(Json(power_levels_content))
+}
+
+/// P-041: Dedicated PUT handler for `/rooms/{room_id}/state/m.room.power_levels/`
+/// (compat router only has `{room_id}` path param, not `{event_type}`).
+pub(crate) async fn put_power_levels(
+    State(ctx): State<RoomContext>,
+    auth_user: AuthenticatedUser,
+    Path(room_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    // Delegate to put_state_event_empty_key with event_type hardcoded
+    put_state_event_empty_key(
+        State(ctx),
+        auth_user,
+        Path((room_id, "m.room.power_levels".to_string())),
+        Json(body),
+    )
+    .await
 }
 
 pub(crate) async fn put_state_event_empty_key(

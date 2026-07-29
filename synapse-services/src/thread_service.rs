@@ -567,6 +567,9 @@ impl ThreadService {
 
 #[cfg(test)]
 mod tests {
+    use super::ApiError;
+    use std::sync::Arc;
+
     #[test]
     fn test_create_thread_request() {
         let request = super::CreateThreadRequest {
@@ -733,5 +736,116 @@ mod tests {
             updated_ts: 1234567890,
         };
         assert_eq!(receipt.unread_count, 3);
+    }
+
+    // -- P1 #19634: frozen event behaviour (service layer) --
+    //
+    // The `ThreadService::freeze_thread` / `unfreeze_thread` operations must
+    // actually gate `add_reply` and `subscribe`: a frozen thread rejects new
+    // replies and new subscriptions, and unfreezing restores both. These are
+    // behavioural contracts that pure-structure tests above do not cover, and
+    // they break silently if the storage layer's freeze flag does not
+    // propagate onto `ThreadRoot.is_fetched` (the field the service reads).
+
+    fn make_service_with_thread() -> (super::ThreadService, String, String) {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime for thread service test");
+        let storage: Arc<dyn synapse_storage::thread::ThreadStoreApi> =
+            Arc::new(synapse_storage::test_mocks::InMemoryThreadStore::new());
+        let service = super::ThreadService::new(storage);
+
+        let room_id = "!room:example.com".to_string();
+        let request = super::CreateThreadRequest {
+            room_id: room_id.clone(),
+            root_event_id: "$root:example.com".to_string(),
+        };
+        let root = rt.block_on(service.create_thread("@creator:example.com", request)).expect("create thread");
+        let thread_id = root.thread_id.expect("thread_id assigned at creation");
+        (service, room_id, thread_id)
+    }
+
+    fn make_reply_request(room_id: &str, thread_id: &str) -> super::CreateReplyRequest {
+        super::CreateReplyRequest {
+            room_id: room_id.to_string(),
+            thread_id: thread_id.to_string(),
+            event_id: "$reply:example.com".to_string(),
+            root_event_id: "$root:example.com".to_string(),
+            content: serde_json::json!({"msgtype": "m.text", "body": "reply"}),
+            in_reply_to_event_id: None,
+            origin_server_ts: 1_700_000_000_000,
+        }
+    }
+
+    #[test]
+    fn freeze_thread_blocks_new_replies() {
+        let (service, room_id, thread_id) = make_service_with_thread();
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+
+        rt.block_on(service.freeze_thread(&room_id, &thread_id)).expect("freeze should succeed");
+
+        let err = rt
+            .block_on(service.add_reply("@replier:example.com", make_reply_request(&room_id, &thread_id)))
+            .expect_err("add_reply must be rejected on a frozen thread");
+        assert!(
+            err.is_bad_request(),
+            "expected BadRequest from add_reply on frozen thread, got kind={:?} message={}",
+            err.kind,
+            err.message
+        );
+    }
+
+    #[test]
+    fn unfreeze_thread_restores_replies() {
+        let (service, room_id, thread_id) = make_service_with_thread();
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+
+        rt.block_on(service.freeze_thread(&room_id, &thread_id)).expect("freeze should succeed");
+        rt.block_on(service.unfreeze_thread(&room_id, &thread_id)).expect("unfreeze should succeed");
+
+        let reply = rt
+            .block_on(service.add_reply("@replier:example.com", make_reply_request(&room_id, &thread_id)))
+            .expect("add_reply must succeed after unfreeze");
+        assert_eq!(reply.thread_id, thread_id);
+    }
+
+    #[test]
+    fn freeze_thread_blocks_new_subscriptions() {
+        let (service, room_id, thread_id) = make_service_with_thread();
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+
+        rt.block_on(service.freeze_thread(&room_id, &thread_id)).expect("freeze should succeed");
+
+        let err = rt
+            .block_on(service.subscribe(super::SubscribeRequest {
+                room_id: room_id.clone(),
+                thread_id: thread_id.clone(),
+                user_id: "@subscriber:example.com".to_string(),
+                notification_level: "all".to_string(),
+            }))
+            .expect_err("subscribe must be rejected on a frozen thread");
+        assert!(
+            err.is_bad_request(),
+            "expected BadRequest from subscribe on frozen thread, got kind={:?} message={}",
+            err.kind,
+            err.message
+        );
+    }
+
+    #[test]
+    fn unfreeze_thread_restores_subscriptions() {
+        let (service, room_id, thread_id) = make_service_with_thread();
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+
+        rt.block_on(service.freeze_thread(&room_id, &thread_id)).expect("freeze should succeed");
+        rt.block_on(service.unfreeze_thread(&room_id, &thread_id)).expect("unfreeze should succeed");
+
+        let sub = rt
+            .block_on(service.subscribe(super::SubscribeRequest {
+                room_id: room_id.clone(),
+                thread_id: thread_id.clone(),
+                user_id: "@subscriber:example.com".to_string(),
+                notification_level: "all".to_string(),
+            }))
+            .expect("subscribe must succeed after unfreeze");
+        assert_eq!(sub.notification_level, "all");
     }
 }

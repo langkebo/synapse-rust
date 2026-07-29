@@ -23,7 +23,8 @@
     "breadcrumbs": true
   },
   "features": {
-    "feature_video_rooms": false
+    "feature_video_rooms": false,
+    "feature_simplified_sliding_sync": "enable"
   },
   "jitsi": {
     "preferred_domain": "meet.jit.si"

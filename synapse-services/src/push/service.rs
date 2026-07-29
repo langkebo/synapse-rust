@@ -544,6 +544,16 @@ impl PushNotificationService {
                             return Ok(false);
                         }
                     }
+                    "event_property_contains" => {
+                        if !Self::matches_event_property_contains(&condition, event) {
+                            return Ok(false);
+                        }
+                    }
+                    "event_property_is" => {
+                        if !Self::matches_event_property_is(&condition, event) {
+                            return Ok(false);
+                        }
+                    }
                     "contains_display_name" => {
                         if !Self::matches_contains_display_name(event) {
                             return Ok(false);
@@ -573,6 +583,71 @@ impl PushNotificationService {
 
         let value = Self::get_event_value(event, key);
         value.is_some_and(|v| v.contains(pattern))
+    }
+
+    /// Matrix spec v1.11+ push condition. Resolves `key` (a dotted path with
+    /// `\.` escaping a literal `.`) against `event` and matches when the
+    /// resolved value is an array that contains `condition.value`, or — for
+    /// backwards compat with `event_match`-style string fields – when the
+    /// resolved value is a string containing `condition.value`.
+    ///
+    /// Used by `.m.rule.is_user_mention` against
+    /// `content.m\.mentions.user_ids`.
+    pub(crate) fn matches_event_property_contains(condition: &JsonValue, event: &JsonValue) -> bool {
+        let key = condition.get("key").and_then(|k| k.as_str()).unwrap_or("");
+        let Some(value) = condition.get("value") else { return false; };
+        let Some(target) = Self::get_event_value_json(event, key) else { return false; };
+        match target {
+            JsonValue::Array(arr) => arr.iter().any(|item| item == value),
+            JsonValue::String(s) => value.as_str().is_some_and(|v| s.contains(v)),
+            _ => false,
+        }
+    }
+
+    /// Matrix spec v1.11+ push condition. Resolves `key` (dotted path with
+    /// `\.` escaping) against `event` and matches when the resolved value
+    /// equals `condition.value` (JSON equality).
+    ///
+    /// Used by `.m.rule.is_room_mention` against `content.m\.mentions.room`.
+    pub(crate) fn matches_event_property_is(condition: &JsonValue, event: &JsonValue) -> bool {
+        let key = condition.get("key").and_then(|k| k.as_str()).unwrap_or("");
+        let Some(value) = condition.get("value") else { return false; };
+        let Some(target) = Self::get_event_value_json(event, key) else { return false; };
+        target == value
+    }
+
+    /// Parse a Matrix push-rule dotted path into key segments, honouring the
+    /// `\.` escape sequence for a literal `.` inside a key (per spec v1.7
+    /// push condition `key` grammar). `\\` escapes a literal backslash.
+    fn parse_dotted_path(key: &str) -> Vec<String> {
+        let mut parts = Vec::new();
+        let mut current = String::new();
+        let mut chars = key.chars().peekable();
+        while let Some(c) = chars.next() {
+            match c {
+                '\\' => match chars.next() {
+                    Some(next) => current.push(next),
+                    None => current.push('\\'),
+                },
+                '.' => {
+                    parts.push(std::mem::take(&mut current));
+                }
+                _ => current.push(c),
+            }
+        }
+        parts.push(current);
+        parts
+    }
+
+    /// Resolve a dotted-path push-rule `key` against `event`, returning the
+    /// raw JSON value at that path (used by `event_property_contains` and
+    /// `event_property_is` which need to compare non-string values).
+    pub(crate) fn get_event_value_json<'a>(event: &'a JsonValue, key: &str) -> Option<&'a JsonValue> {
+        let mut current = event;
+        for part in Self::parse_dotted_path(key) {
+            current = current.get(&part)?;
+        }
+        Some(current)
     }
 
     fn matches_contains_display_name(_event: &JsonValue) -> bool {
@@ -715,5 +790,122 @@ mod tests {
         let rule = make_test_rule(json!([{"kind": "unknown_kind", "key": "x", "pattern": "y"}]));
         let event = json!({"content": {"body": "hello"}});
         assert!(PushNotificationService::matches_rule(&rule, &event).unwrap());
+    }
+
+    // -- event_property_contains (m.mentions.user_ids) --
+
+    /// RED: `.m.rule.is_user_mention` uses `event_property_contains` against
+    /// `content.m\.mentions.user_ids`. The evaluator must recognise the kind
+    /// and check array membership — not silently fall through to "always
+    /// match" via the unknown-kind arm. See P1 #19634.
+    #[test]
+    fn matches_event_property_contains_when_user_id_in_array() {
+        let rule = make_test_rule(json!([{
+            "kind": "event_property_contains",
+            "key": "content.m\\.mentions.user_ids",
+            "value": "@alice:example.com"
+        }]));
+        let event = json!({
+            "content": {
+                "m.mentions": {"user_ids": ["@alice:example.com", "@bob:example.com"]}
+            }
+        });
+        assert!(
+            PushNotificationService::matches_rule(&rule, &event).unwrap(),
+            "is_user_mention must match when recipient is listed in m.mentions.user_ids"
+        );
+    }
+
+    #[test]
+    fn matches_event_property_contains_does_not_match_when_user_id_absent() {
+        let rule = make_test_rule(json!([{
+            "kind": "event_property_contains",
+            "key": "content.m\\.mentions.user_ids",
+            "value": "@alice:example.com"
+        }]));
+        let event = json!({
+            "content": {
+                "m.mentions": {"user_ids": ["@bob:example.com", "@carol:example.com"]}
+            }
+        });
+        assert!(
+            !PushNotificationService::matches_rule(&rule, &event).unwrap(),
+            "is_user_mention must NOT match when recipient is absent from m.mentions.user_ids"
+        );
+    }
+
+    #[test]
+    fn matches_event_property_contains_does_not_match_when_mentions_missing() {
+        let rule = make_test_rule(json!([{
+            "kind": "event_property_contains",
+            "key": "content.m\\.mentions.user_ids",
+            "value": "@alice:example.com"
+        }]));
+        let event = json!({"content": {"body": "hello"}});
+        assert!(
+            !PushNotificationService::matches_rule(&rule, &event).unwrap(),
+            "is_user_mention must NOT match when event has no m.mentions at all"
+        );
+    }
+
+    #[test]
+    fn matches_event_property_contains_does_not_match_when_user_ids_not_array() {
+        let rule = make_test_rule(json!([{
+            "kind": "event_property_contains",
+            "key": "content.m\\.mentions.user_ids",
+            "value": "@alice:example.com"
+        }]));
+        let event = json!({"content": {"m.mentions": {"user_ids": "@alice:example.com"}}});
+        assert!(
+            !PushNotificationService::matches_rule(&rule, &event).unwrap(),
+            "is_user_mention must NOT match when user_ids is a string instead of an array"
+        );
+    }
+
+    // -- event_property_is (m.mentions.room) --
+
+    /// RED: `.m.rule.is_room_mention` uses `event_property_is` against
+    /// `content.m\.mentions.room`. The evaluator must compare equality on the
+    /// resolved JSON value, not silently always match.
+    #[test]
+    fn matches_event_property_is_when_room_mention_true() {
+        let rule = make_test_rule(json!([{
+            "kind": "event_property_is",
+            "key": "content.m\\.mentions.room",
+            "value": true
+        }]));
+        let event = json!({"content": {"m.mentions": {"room": true}}});
+        assert!(
+            PushNotificationService::matches_rule(&rule, &event).unwrap(),
+            "is_room_mention must match when content.m.mentions.room is true"
+        );
+    }
+
+    #[test]
+    fn matches_event_property_is_does_not_match_when_room_mention_false() {
+        let rule = make_test_rule(json!([{
+            "kind": "event_property_is",
+            "key": "content.m\\.mentions.room",
+            "value": true
+        }]));
+        let event = json!({"content": {"m.mentions": {"room": false}}});
+        assert!(
+            !PushNotificationService::matches_rule(&rule, &event).unwrap(),
+            "is_room_mention must NOT match when content.m.mentions.room is false"
+        );
+    }
+
+    #[test]
+    fn matches_event_property_is_does_not_match_when_room_key_missing() {
+        let rule = make_test_rule(json!([{
+            "kind": "event_property_is",
+            "key": "content.m\\.mentions.room",
+            "value": true
+        }]));
+        let event = json!({"content": {"body": "hello"}});
+        assert!(
+            !PushNotificationService::matches_rule(&rule, &event).unwrap(),
+            "is_room_mention must NOT match when content.m.mentions.room is missing"
+        );
     }
 }

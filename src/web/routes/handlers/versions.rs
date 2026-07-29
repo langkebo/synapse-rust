@@ -145,7 +145,29 @@ pub async fn get_capabilities(
     Query(_): Query<EmptyQuery>,
 ) -> Json<serde_json::Value> {
     let governance = build_governance(&ctx.config);
-    Json(governance.build_capabilities_response(auth.user_id.is_some()))
+    let mut response = governance.build_capabilities_response(auth.user_id.is_some());
+    // P-051: Include a `rooms` field with room version information so clients
+    // can discover the default and available room versions. Per Matrix spec,
+    // this goes inside the `capabilities` object, not at the top level.
+    if let Some(obj) = response.as_object_mut() {
+        let caps = obj
+            .entry("capabilities")
+            .or_insert_with(|| json!({}));
+        if let Some(caps_obj) = caps.as_object_mut() {
+            caps_obj.insert(
+                "rooms".to_string(),
+                json!({
+                    "room_versions": {
+                        "default": "11",
+                        "available": {
+                            "11": "stable"
+                        }
+                    }
+                }),
+            );
+        }
+    }
+    Json(response)
 }
 
 // ---------------------------------------------------------------------------

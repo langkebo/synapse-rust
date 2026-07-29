@@ -144,6 +144,141 @@ impl EventStorage {
         Ok(event)
     }
 
+    /// Create a state event with MSC4242 `prev_state_events` (state DAG edges).
+    ///
+    /// This is the MSC4242 State DAG equivalent of `create_event_with_graph`:
+    /// it stores `prev_state_events` in addition to `prev_events` and
+    /// `auth_events`, forming the state DAG distinct from the room DAG.
+    ///
+    /// - `prev_events`: room DAG edges (all events)
+    /// - `auth_events`: authorization events (sender-specified for v1-v11;
+    ///   ignored / server-calculated for MSC4242 room versions)
+    /// - `prev_state_events`: state DAG edges (state events only, MSC4242)
+    ///
+    /// For non-MSC4242 room versions, use `create_event_with_graph` instead
+    /// (which leaves `prev_state_events` NULL).
+    pub async fn create_state_event_with_dag(
+        &self,
+        params: CreateEventParams,
+        prev_events: &[String],
+        auth_events: &[String],
+        prev_state_events: &[String],
+        depth: i64,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error> {
+        let prev_events_json = serde_json::to_value(prev_events).unwrap_or(serde_json::Value::Null);
+        let auth_events_json = serde_json::to_value(auth_events).unwrap_or(serde_json::Value::Null);
+        let prev_state_events_json = serde_json::to_value(prev_state_events).unwrap_or(serde_json::Value::Null);
+
+        let query = r"
+            INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key,
+                                origin_server_ts, is_redacted, redacts, depth,
+                                prev_events, auth_events, prev_state_events)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12, $13)
+            RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
+                      COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
+                      0::BIGINT as not_before, 'pending' as status, null as reference_image,
+                      'self' as origin, stream_ordering, redacts
+            ";
+
+        let event = if let Some(tx) = tx {
+            let event = sqlx::query_as(query)
+                .bind(&params.event_id)
+                .bind(&params.room_id)
+                .bind(&params.user_id)
+                .bind(&params.user_id)
+                .bind(&params.event_type)
+                .bind(&params.content)
+                .bind(params.state_key.as_deref())
+                .bind(params.origin_server_ts)
+                .bind(params.redacts.as_deref())
+                .bind(depth)
+                .bind(&prev_events_json)
+                .bind(&auth_events_json)
+                .bind(&prev_state_events_json)
+                .fetch_one(&mut **tx)
+                .await?;
+
+            // Populate event_edges for room DAG (is_state=false).
+            if !prev_events.is_empty() {
+                sqlx::query(
+                    r"
+                    INSERT INTO event_edges (event_id, prev_event_id, is_state)
+                    SELECT $1, unnest($2::text[]), false
+                    ON CONFLICT DO NOTHING
+                    ",
+                )
+                .bind(&params.event_id)
+                .bind(prev_events)
+                .execute(&mut **tx)
+                .await?;
+            }
+            // Populate event_edges for state DAG (is_state=true).
+            if !prev_state_events.is_empty() {
+                sqlx::query(
+                    r"
+                    INSERT INTO event_edges (event_id, prev_event_id, is_state)
+                    SELECT $1, unnest($2::text[]), true
+                    ON CONFLICT DO NOTHING
+                    ",
+                )
+                .bind(&params.event_id)
+                .bind(prev_state_events)
+                .execute(&mut **tx)
+                .await?;
+            }
+            event
+        } else {
+            let event = sqlx::query_as(query)
+                .bind(&params.event_id)
+                .bind(&params.room_id)
+                .bind(&params.user_id)
+                .bind(&params.user_id)
+                .bind(&params.event_type)
+                .bind(&params.content)
+                .bind(params.state_key.as_deref())
+                .bind(params.origin_server_ts)
+                .bind(params.redacts.as_deref())
+                .bind(depth)
+                .bind(&prev_events_json)
+                .bind(&auth_events_json)
+                .bind(&prev_state_events_json)
+                .fetch_one(&*self.pool)
+                .await?;
+
+            // Populate event_edges outside a transaction.
+            if !prev_events.is_empty() {
+                sqlx::query(
+                    r"
+                    INSERT INTO event_edges (event_id, prev_event_id, is_state)
+                    SELECT $1, unnest($2::text[]), false
+                    ON CONFLICT DO NOTHING
+                    ",
+                )
+                .bind(&params.event_id)
+                .bind(prev_events)
+                .execute(&*self.pool)
+                .await?;
+            }
+            if !prev_state_events.is_empty() {
+                sqlx::query(
+                    r"
+                    INSERT INTO event_edges (event_id, prev_event_id, is_state)
+                    SELECT $1, unnest($2::text[]), true
+                    ON CONFLICT DO NOTHING
+                    ",
+                )
+                .bind(&params.event_id)
+                .bind(prev_state_events)
+                .execute(&*self.pool)
+                .await?;
+            }
+            event
+        };
+
+        Ok(event)
+    }
+
     pub async fn upsert_power_levels_event(
         &self,
         event_id: &str,

@@ -64,23 +64,7 @@ impl LifecycleService {
         }
 
         let now = current_timestamp_millis();
-        let mut create_content = json!({
-            "creator": user_id,
-            "room_version": room_version,
-        });
-        if let Some(extra) = config.creation_content.as_ref().and_then(|v| v.as_object()) {
-            if let Some(map) = create_content.as_object_mut() {
-                for (k, v) in extra {
-                    if matches!(k.as_str(), "room_version" | "creator") {
-                        continue;
-                    }
-                    map.insert(k.clone(), v.clone());
-                }
-            }
-        }
-        if let Some(ref room_type) = config.room_type {
-            create_content["type"] = json!(room_type);
-        }
+        let create_content = build_create_event_content(user_id, room_version, &config);
         let result = self
             .event_writer
             .create_event(
@@ -529,6 +513,41 @@ impl LifecycleService {
     }
 }
 
+/// Build the `m.room.create` event content from the room creation config.
+///
+/// Extracted as a pure function so the content shape (including the
+/// `is_direct` flag required by MSC vectors for DM rooms) can be unit-tested
+/// without a database. Per the Matrix spec, `is_direct` is only emitted when
+/// it is `Some(true)` — clients treat its absence as `false`.
+fn build_create_event_content(user_id: &str, room_version: &str, config: &CreateRoomConfig) -> serde_json::Value {
+    let mut create_content = json!({
+        "creator": user_id,
+        "room_version": room_version,
+    });
+    if let Some(extra) = config.creation_content.as_ref().and_then(|v| v.as_object()) {
+        if let Some(map) = create_content.as_object_mut() {
+            for (k, v) in extra {
+                // `room_version` and `creator` are reserved and set above.
+                if matches!(k.as_str(), "room_version" | "creator") {
+                    continue;
+                }
+                map.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    if let Some(ref room_type) = config.room_type {
+        create_content["type"] = json!(room_type);
+    }
+    // P0-1: `is_direct` must be present in `m.room.create` so other clients
+    // (and the SDK) can identify the room as a direct message. Previously
+    // this flag was only persisted to the room summary, which left the create
+    // event non-compliant and broke DM detection on the client side.
+    if config.is_direct == Some(true) {
+        create_content["is_direct"] = json!(true);
+    }
+    create_content
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -586,5 +605,47 @@ mod tests {
         let resp = LifecycleService::build_room_response("!room:ex.com", None);
         assert_eq!(resp["room_id"], "!room:ex.com");
         assert!(resp["room_alias"].is_null());
+    }
+
+    // ── build_create_event_content (P0-1 regression) ────────────────
+
+    #[test]
+    fn build_create_event_content_includes_is_direct_when_true() {
+        let config = CreateRoomConfig { is_direct: Some(true), ..Default::default() };
+        let content = build_create_event_content("@alice:ex.com", "11", &config);
+        assert_eq!(content["is_direct"], json!(true));
+        assert_eq!(content["creator"], "@alice:ex.com");
+        assert_eq!(content["room_version"], "11");
+    }
+
+    #[test]
+    fn build_create_event_content_omits_is_direct_when_false() {
+        let config = CreateRoomConfig { is_direct: Some(false), ..Default::default() };
+        let content = build_create_event_content("@alice:ex.com", "11", &config);
+        assert!(content.get("is_direct").is_none(), "is_direct must be absent when Some(false)");
+    }
+
+    #[test]
+    fn build_create_event_content_omits_is_direct_when_none() {
+        let config = CreateRoomConfig { is_direct: None, ..Default::default() };
+        let content = build_create_event_content("@alice:ex.com", "11", &config);
+        assert!(content.get("is_direct").is_none(), "is_direct must be absent when None");
+    }
+
+    #[test]
+    fn build_create_event_content_merges_creation_content_extras() {
+        let config = CreateRoomConfig {
+            is_direct: Some(true),
+            room_type: Some("m.direct".to_string()),
+            creation_content: Some(json!({ "m.federate": false, "creator": "should_be_ignored" })),
+            ..Default::default()
+        };
+        let content = build_create_event_content("@alice:ex.com", "11", &config);
+        assert_eq!(content["is_direct"], json!(true));
+        assert_eq!(content["type"], "m.direct");
+        assert_eq!(content["m.federate"], json!(false));
+        // Reserved keys in creation_content must not override the canonical ones.
+        assert_eq!(content["creator"], "@alice:ex.com");
+        assert_eq!(content["room_version"], "11");
     }
 }

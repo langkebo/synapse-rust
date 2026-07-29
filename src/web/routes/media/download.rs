@@ -252,6 +252,13 @@ pub(crate) async fn thumbnail_response_common(
     media_id: &str,
     params: &Value,
 ) -> Result<synapse_services::media::MediaResponsePayload, ApiError> {
+    let has_width = params.get("width").is_some();
+    let has_height = params.get("height").is_some();
+    if !has_width && !has_height {
+        return Err(ApiError::bad_request(
+            "Missing width and height query parameters: at least one must be provided".to_string(),
+        ));
+    }
     let (width, height, method) = thumbnail_request_params(params);
 
     if server_name == ctx.server_name {
@@ -267,8 +274,10 @@ pub(crate) async fn thumbnail_response_common(
 
 pub(crate) async fn download_media(
     State(ctx): State<MediaContext>,
+    auth_user: AuthenticatedUser,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let _ = auth_user;
     let response = download_media_common(&ctx, &server_name, &media_id, None).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))
@@ -379,9 +388,11 @@ pub(crate) async fn download_media_v1_with_filename(
 
 pub(crate) async fn get_thumbnail(
     State(ctx): State<MediaContext>,
+    auth_user: AuthenticatedUser,
     Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let _ = auth_user;
     let response = thumbnail_response_common(&ctx, &server_name, &media_id, &params).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))

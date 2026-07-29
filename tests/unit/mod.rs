@@ -9,6 +9,8 @@ mod admin_extra_api_tests;
 mod app_service_api_tests;
 mod background_update_api_tests;
 
+mod canonical_json_vectors;
+
 mod boundary_tests;
 mod captcha_api_tests;
 mod core_api_tests;
@@ -64,6 +66,7 @@ mod worker_coverage_tests;
 
 mod benchmark_pr_gate_tests;
 mod prelude_module_tests;
+mod sliding_sync_perf_gate_tests;
 mod room_domain_refactor_tests;
 mod services_remaining_domains_refactor_tests;
 mod services_sync_domain_refactor_tests;

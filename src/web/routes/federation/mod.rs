@@ -280,6 +280,9 @@ pub fn create_federation_router(state: &AppState) -> Router<AppState> {
         .route("/_matrix/key/v2/server", get(keys::server_key))
         .route("/_matrix/federation/v2/query/{server_name}/{key_id}", get(keys::key_query))
         .route("/_matrix/key/v2/query/{server_name}/{key_id}", get(keys::key_query))
+        .route("/_matrix/federation/v2/query/{server_name}", get(keys::key_query_all))
+        .route("/_matrix/key/v2/query/{server_name}", get(keys::key_query_all))
+        .route("/_matrix/key/v2/query", post(keys::key_query_batch))
         .route("/_matrix/federation/v1/version", get(federation_version))
         .route("/_matrix/federation/v1", get(federation_discovery))
         .route("/_matrix/federation/v1/publicRooms", get(events::get_public_rooms))
@@ -340,6 +343,9 @@ fn federation_public_relative_routes() -> Vec<(axum::http::Method, &'static str)
         (Method::GET, "/_matrix/key/v2/server"),
         (Method::GET, "/_matrix/federation/v2/query/{server_name}/{key_id}"),
         (Method::GET, "/_matrix/key/v2/query/{server_name}/{key_id}"),
+        (Method::GET, "/_matrix/federation/v2/query/{server_name}"),
+        (Method::GET, "/_matrix/key/v2/query/{server_name}"),
+        (Method::POST, "/_matrix/key/v2/query"),
         (Method::GET, "/_matrix/federation/v1/version"),
         (Method::GET, "/_matrix/federation/v1"),
         (Method::GET, "/_matrix/federation/v1/publicRooms"),

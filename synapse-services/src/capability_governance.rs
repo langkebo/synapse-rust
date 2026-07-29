@@ -242,12 +242,20 @@ impl CapabilityGovernance {
         // clients observe the same availability on both endpoints.
         unstable_features
             .insert("org.matrix.msc3886.sliding_sync".to_string(), json!(self.sliding_sync_capability().enabled()));
+        // Element Web checks `org.matrix.simplified_msc3575` to detect native
+        // sliding sync support (see SlidingSyncManager.nativeSlidingSyncSupport).
+        unstable_features.insert(
+            "org.matrix.simplified_msc3575".to_string(),
+            json!(self.sliding_sync_capability().enabled()),
+        );
         unstable_features.insert("org.matrix.msc3266".to_string(), json!(self.msc3266_capability().enabled()));
         unstable_features.insert("org.matrix.msc3245".to_string(), json!(self.msc3245_capability().enabled()));
         unstable_features.insert("org.matrix.msc3983".to_string(), json!(self.msc3983_capability().enabled()));
         unstable_features.insert("org.matrix.msc3814".to_string(), json!(self.msc3814_capability().enabled()));
         unstable_features.insert("org.matrix.msc4143".to_string(), json!(self.msc4143_capability().enabled()));
         unstable_features.insert("org.matrix.msc4186".to_string(), json!(self.msc4186_capability().enabled()));
+        // MSC4108: Sign in with QR code — rendezvous endpoints are always available
+        unstable_features.insert("org.matrix.msc4108".to_string(), json!(true));
         // Private `io.hula.*` extensions are intentionally NOT declared in
         // `/versions.unstable_features` — that surface is unauthenticated and
         // consumed by stock Matrix clients which do not understand the
@@ -447,8 +455,11 @@ impl CapabilityGovernance {
             "org.matrix.msc3245.voice": self.voice_capability().enabled(),
             "org.matrix.msc3983.thread": self.thread_capability().enabled(),
             "org.matrix.msc3886.sliding_sync": self.sliding_sync_capability().enabled(),
+            "org.matrix.simplified_msc3575": self.sliding_sync_capability().enabled(),
             "org.matrix.msc4186": self.msc4186_capability().enabled(),
-            "io.hula.burn_after_read": self.burn_after_read_capability().enabled()
+            "io.hula.burn_after_read": self.burn_after_read_capability().enabled(),
+            // MSC4108: Sign in with QR code — rendezvous endpoints are always available
+            "org.matrix.msc4108": true
         })
     }
 
@@ -656,6 +667,7 @@ mod tests {
             "uk.tcpip.msc4133",
             "org.matrix.msc1763",
             "org.matrix.msc3886.sliding_sync",
+            "org.matrix.simplified_msc3575",
             "org.matrix.msc3266",
             "org.matrix.msc3245",
             "org.matrix.msc3983",

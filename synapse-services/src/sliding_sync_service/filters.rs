@@ -128,6 +128,7 @@ impl SlidingSyncService {
                     if let Some(room) = room {
                         let payload = self
                             .build_room_json(
+                                user_id,
                                 &room,
                                 room_configs.get(room_id).unwrap_or(&RoomSubscriptionConfig::default()),
                                 request.pos.is_none(),
@@ -166,6 +167,7 @@ impl SlidingSyncService {
                         if !rooms_json.contains_key(&room_id) {
                             let payload = self
                                 .build_room_json(
+                                    user_id,
                                     &room,
                                     room_configs.get(&room_id).unwrap_or(&RoomSubscriptionConfig::default()),
                                     request.pos.is_none(),
@@ -183,6 +185,7 @@ impl SlidingSyncService {
 
     async fn build_room_json(
         &self,
+        user_id: &str,
         room: &SlidingSyncRoom,
         config: &RoomSubscriptionConfig,
         initial: bool,
@@ -201,6 +204,38 @@ impl SlidingSyncService {
         room_json["prev_batch"] = json!(prev_batch);
         room_json["num_live"] = json!(config.timeline_limit.filter(|limit| *limit > 0).map_or(0, |_| timeline.len()));
         room_json["bump_stamp"] = json!(room.bump_stamp.unwrap_or(0));
+
+        // MSC4354: Inject sticky events into the sliding sync room response.
+        // When sticky_event_storage is configured and the room has sticky
+        // events for this user, they are surfaced as a `sticky_events` array
+        // keyed by event type. Errors are logged and swallowed so that a
+        // sticky-event storage failure does not break the entire sync.
+        if let Some(sticky_storage) = &self.sticky_event_storage {
+            match sticky_storage.get_all_is_sticky_events(&room.room_id, user_id).await {
+                Ok(sticky_events) if !sticky_events.is_empty() => {
+                    let sticky_json: Vec<serde_json::Value> = sticky_events
+                        .iter()
+                        .map(|e| {
+                            json!({
+                                "event_type": e.event_type,
+                                "event_id": e.event_id,
+                                "is_sticky": e.is_sticky,
+                            })
+                        })
+                        .collect();
+                    room_json["sticky_events"] = json!(sticky_json);
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        room_id = %room.room_id,
+                        user_id = %user_id,
+                        "Failed to load sticky events for sliding sync room response; omitting sticky_events"
+                    );
+                }
+            }
+        }
 
         Ok(room_json)
     }

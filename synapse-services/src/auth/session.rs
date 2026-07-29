@@ -185,8 +185,28 @@ impl AuthService {
                         return Err(ApiError::unauthorized("Refresh token has no associated device".to_string()));
                     }
                 };
+
+                // P2-12 (Synapse v1.154 #19483): invalidate the old access_token
+                // cache entry before issuing new tokens. The refresh_token row
+                // stores the linked access_token string in `access_token_id`.
+                // Without this invalidation, a stale cache entry would allow
+                // the rotated-out access_token to keep passing validation until
+                // its TTL expires — a token-revocation bypass window.
+                if let Some(old_access_token) = t.access_token_id.as_deref() {
+                    self.cache.delete_token(old_access_token).await;
+                    ::tracing::debug!(
+                        target: "token_rotation",
+                        user_id = u.user_id.as_str(),
+                        "P2-12: invalidated old access_token cache entry during refresh_token rotation"
+                    );
+                }
+
                 let new_access_token = self.generate_access_token(&u.user_id, &device_id, u.is_admin).await?;
-                let new_refresh_token = self.generate_refresh_token(&u.user_id, &device_id).await?;
+                // Link the new refresh_token to the new access_token for the
+                // next rotation cycle.
+                let new_refresh_token = self
+                    .generate_refresh_token(&u.user_id, &device_id, &new_access_token)
+                    .await?;
 
                 Ok((new_access_token, new_refresh_token, device_id))
             }

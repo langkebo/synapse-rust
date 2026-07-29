@@ -214,6 +214,26 @@ GitHub Actions 中已将 Criterion 基准与 `performance_manual` 分离；后�
 | `e2e_scenarios.rs` | 模拟端到端场景编排 | 已接线 |
 | `user_flow_tests.rs` | 完整用户注册→登录→使用流程 | 已接线，真实 HTTP 流程默认受 `E2E_RUN=1` 控制 |
 
+### 3.4 互通测试（Complement）
+
+| 测试文件 | 覆盖场景 | 接线状态 |
+|---------|---------|---------|
+| `tests/complement/main_test.go` | Docker 黑盒互通：注册→登录→同步→建房间→发事件→联邦密钥→服务发现→媒体上传/下载 | 扩展验证（需 Docker + Go） |
+
+**运行入口**：
+
+```bash
+# 构建并运行全部互通用例
+bash scripts/ci/run_complement_tests.sh
+
+# 运行单个用例
+bash scripts/ci/run_complement_tests.sh TestRegisterLogin
+```
+
+**前置条件**：本机 Docker 守护进程运行中、Go ≥ 1.22、首次运行会自动克隆 `matrix-org/complement` 到 `target/complement-src`。
+
+**镜像契约**：`docker/complement/Dockerfile` 产物遵循 [Complement base image contract](https://github.com/matrix-org/complement/blob/main/docs/homeserver-design-overview.md)，监听 8008（client）与 8448（federation），`/start.sh` 负责生成签名密钥、写入 `homeserver.yaml`、应用迁移并启动 `synapse-rust`。
+
 ---
 
 ## 四、性能测试规范

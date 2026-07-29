@@ -149,6 +149,11 @@ pub struct RoomSummaryResponse {
     pub heroes: Vec<RoomSummaryHero>,
     pub last_event_ts: Option<i64>,
     pub last_message_ts: Option<i64>,
+    /// `allowed_room_ids` from `m.room.join_rules` when the join rule is
+    /// `restricted` or `knock_restricted` (Matrix v1.15). `None` for any
+    /// other join rule; `Some(vec)` for restricted rules (may be empty).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_room_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,6 +180,18 @@ pub struct RoomSummaryUpdateQueueItem {
 
 impl RoomSummary {
     pub fn to_response(&self, heroes: Vec<RoomSummaryHero>) -> RoomSummaryResponse {
+        self.to_response_with_allowed_room_ids(heroes, None)
+    }
+
+    /// Build a [`RoomSummaryResponse`] with an explicit `allowed_room_ids`
+    /// value, extracted from the room's `m.room.join_rules` state event by
+    /// the caller. Use [`to_response`] when `allowed_room_ids` is not
+    /// available (defaults to `None`).
+    pub fn to_response_with_allowed_room_ids(
+        &self,
+        heroes: Vec<RoomSummaryHero>,
+        allowed_room_ids: Option<Vec<String>>,
+    ) -> RoomSummaryResponse {
         RoomSummaryResponse {
             room_id: self.room_id.clone(),
             room_type: self.room_type.clone(),
@@ -194,6 +211,7 @@ impl RoomSummary {
             heroes,
             last_event_ts: self.last_event_ts,
             last_message_ts: self.last_message_ts,
+            allowed_room_ids,
         }
     }
 }

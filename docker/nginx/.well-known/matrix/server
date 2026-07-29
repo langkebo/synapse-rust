@@ -1,7 +1,7 @@
-# Matrix Server Discovery for cjystx.top
+# Matrix Server Discovery for matrix.test
 # This file tells Matrix clients and servers how to find our homeserver
 
 {
-  "m.server": "matrix.cjystx.top:443",
+  "m.server": "matrix.test:443",
   "m.identity_server": "https://vector.im"
 }

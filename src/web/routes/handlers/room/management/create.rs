@@ -185,6 +185,11 @@ pub(crate) async fn create_room(
     };
 
     let preset = body.get("preset").and_then(|v| v.as_str());
+    if let Some(p) = preset {
+        if p != "private_chat" && p != "trusted_private_chat" && p != "public_chat" {
+            return Err(ApiError::bad_request("Invalid preset value".to_string()));
+        }
+    }
 
     let room_type = body
         .get("room_type")

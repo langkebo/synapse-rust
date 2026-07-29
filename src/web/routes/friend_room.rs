@@ -307,6 +307,10 @@ pub fn friend_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
         (Method::GET, "/_matrix/client/r0/friends/groups/{group_id}/friends"),
         (Method::GET, "/_matrix/client/v1/friends/{user_id}/groups"),
         (Method::GET, "/_matrix/client/r0/friends/{user_id}/groups"),
+        (Method::GET, "/_matrix/client/v1/friends/dm/{user_id}"),
+        (Method::POST, "/_matrix/client/v1/friends/dm/{user_id}"),
+        (Method::GET, "/_matrix/client/r0/friends/dm/{user_id}"),
+        (Method::POST, "/_matrix/client/r0/friends/dm/{user_id}"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "friend_room"))
@@ -443,21 +447,26 @@ async fn search_friend_directory(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
     Query(query): Query<FriendSearchQuery>,
-    body: Option<Json<Value>>,
+    bytes: axum::body::Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    let body_value = body.as_ref().map(|Json(b)| b);
+    // Manually parse the body so that an empty JSON body (Content-Type: application/json
+    // with no payload) is treated as None instead of returning 400 "EOF while parsing".
+    let body: Option<Value> = if bytes.is_empty() {
+        None
+    } else {
+        serde_json::from_slice::<Value>(&bytes).ok()
+    };
+    let body_value = body.as_ref();
     let search_term = resolve_friend_search_term(&query, body_value);
     let Some(search_term) = search_term else {
         return Err(ApiError::bad_request("Search term cannot be empty"));
     };
 
-    let exact_only = body
-        .as_ref()
-        .and_then(|Json(b)| b.get("mode").and_then(|v| v.as_str()))
+    let exact_only = body_value
+        .and_then(|b| b.get("mode").and_then(|v| v.as_str()))
         .map_or_else(|| matches!(query.mode.as_deref(), Some("exact")), |m: &str| m == "exact");
-    let search_limit = body
-        .as_ref()
-        .and_then(|Json(b)| b.get("limit").and_then(|v| v.as_i64()))
+    let search_limit = body_value
+        .and_then(|b| b.get("limit").and_then(|v| v.as_i64()))
         .unwrap_or_else(|| query.limit.unwrap_or(DEFAULT_FRIEND_LIST_LIMIT) as i64) as usize;
     let rate_limit_key = format!("ratelimit:friend-search:{}", auth_user.user_id);
     let decision = ctx.cache.rate_limit_token_bucket_take(&rate_limit_key, 2, 20).await?;

@@ -7,7 +7,7 @@ use axum::{
 };
 use serde_json::Value;
 use synapse_common::rate_limit_config::RateLimitConfigFile;
-use synapse_services::sync_service::SyncServiceRequest;
+use synapse_services::sync_service::{SyncServiceRequest, SyncToken};
 
 struct SyncParams {
     ctx: SyncContext,
@@ -61,7 +61,36 @@ pub(crate) async fn sync(
     let request_id = crate::web::utils::auth::resolve_request_id(&headers);
     let set_presence = params.get("set_presence").and_then(|v| v.as_str()).unwrap_or("online").to_string();
     let filter = params.get("filter").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let since = params.get("since").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let mut since = params.get("since").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+    // P-049: Validate timeout is non-negative. `parse_u64_query_param` already
+    // rejects negative values (u64 cannot represent them) but silently falls
+    // back to the default. Detect a present-but-negative value and reject it
+    // with M_BAD_JSON instead of silently using the default.
+    if let Some(raw) = params.get("timeout") {
+        let as_i64 = match raw {
+            Value::Number(n) => n.as_i64(),
+            Value::String(s) => s.parse::<i64>().ok(),
+            _ => None,
+        };
+        if let Some(t) = as_i64 {
+            if t < 0 {
+                return Err(ApiError::bad_request("timeout must be a non-negative integer".to_string()));
+            }
+        }
+    }
+
+    // P-048: Validate the since token before using it. A malformed token
+    // (e.g. "invalid_token") cannot be parsed as a SyncToken and must be
+    // rejected with M_UNKNOWN_TOKEN instead of being silently treated as an
+    // initial sync. An empty string is treated as "no since" (initial sync).
+    if let Some(ref since_token) = since {
+        if since_token.trim().is_empty() {
+            since = None;
+        } else if SyncToken::parse(since_token).is_none() {
+            return Err(ApiError::authentication("Invalid since token".to_string()));
+        }
+    }
 
     let (fail_open_on_error, sync_rate_limit_enabled, init_per_second, init_burst_size, inc_per_second, inc_burst_size) =
         resolve_rate_limit_override(&ctx);

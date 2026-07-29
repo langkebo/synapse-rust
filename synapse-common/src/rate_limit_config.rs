@@ -149,12 +149,12 @@ impl Default for RateLimitConfigFile {
                 RateLimitEndpointRule {
                     path: "/_matrix/client/v3/login".to_string(),
                     match_type: RateLimitMatchType::Prefix,
-                    rule: RateLimitRule { per_second: 1, burst_size: 3 },
+                    rule: RateLimitRule { per_second: 5, burst_size: 50 },
                 },
                 RateLimitEndpointRule {
                     path: "/_matrix/client/v3/register".to_string(),
                     match_type: RateLimitMatchType::Prefix,
-                    rule: RateLimitRule { per_second: 1, burst_size: 2 },
+                    rule: RateLimitRule { per_second: 1, burst_size: 10 },
                 },
                 RateLimitEndpointRule {
                     path: "/_matrix/client/v3/register/captcha".to_string(),

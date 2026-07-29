@@ -8,7 +8,7 @@ server:
   form_secret: "${FORM_SECRET:?FORM_SECRET is required}"
   server_name: "${SERVER_NAME:-localhost}"
   registration_shared_secret: "${REGISTRATION_SECRET:?REGISTRATION_SECRET is required}"
-  max_upload_size: 10485760
+  max_upload_size: 52428800
   max_image_resolution: 8000000
   enable_registration: true
   enable_registration_captcha: false
@@ -19,6 +19,7 @@ server:
   refresh_token_sliding_window_size: 3600
   session_duration: 86400000
   warmup_pool: true
+  megolm_encryption_key_path: "/app/data/megolm.key"
 
 rate_limit:
   enabled: true
@@ -84,6 +85,7 @@ federation:
   max_transaction_payload: 10485760
   signing_key: "${FEDERATION_SIGNING_KEY:?FEDERATION_SIGNING_KEY is required}"
   key_id: "${FEDERATION_KEY_ID:-ed25519:local}"
+  allow_plaintext_signing_keys: false
   trusted_key_servers:
     - server_name: "matrix.org"
   key_refresh_interval: 86400
@@ -171,13 +173,14 @@ identity_server_url: "https://vector.im"
 
 voip:
   turn_uris:
-    - "turn:turn.example.com:3478?transport=udp"
-    - "turn:turn.example.com:3478?transport=tcp"
+    - "turn:matrix.test:3478?transport=udp"
+    - "turn:matrix.test:3478?transport=tcp"
+    - "turns:matrix.test:5349?transport=tcp"
   turn_shared_secret: "${TURN_SHARED_SECRET:?TURN_SHARED_SECRET is required}"
   turn_user_lifetime: "1h"
-  turn_allow_guests: true
+  turn_allow_guests: false
   stun_uris:
-    - "stun:stun.example.com:3478"
+    - "stun:matrix.test:3478"
 
 url_preview:
   enabled: false

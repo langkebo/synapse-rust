@@ -473,11 +473,29 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
 
     async fn freeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
         self.frozen.write().await.insert((room_id.to_string(), thread_id.to_string()));
+        // Mirror the production storage: `ThreadService::add_reply` /
+        // `subscribe` gate on `ThreadRoot.is_fetched`, so the mock must
+        // flip that field on the actual root or the freeze is invisible to
+        // the service layer (see P1 #19634).
+        let now = current_timestamp_millis();
+        for root in self.roots.write().await.iter_mut() {
+            if root.room_id == room_id && root.thread_id.as_deref() == Some(thread_id) {
+                root.is_fetched = true;
+                root.updated_ts = Some(now);
+            }
+        }
         Ok(())
     }
 
     async fn unfreeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
         self.frozen.write().await.remove(&(room_id.to_string(), thread_id.to_string()));
+        let now = current_timestamp_millis();
+        for root in self.roots.write().await.iter_mut() {
+            if root.room_id == room_id && root.thread_id.as_deref() == Some(thread_id) {
+                root.is_fetched = false;
+                root.updated_ts = Some(now);
+            }
+        }
         Ok(())
     }
 }

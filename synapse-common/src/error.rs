@@ -60,6 +60,9 @@ pub enum MatrixErrorCode {
     /// Distinct from `LimitExceeded` (generic rate limit) and
     /// `ResourceLimitExceeded` (server-wide resource exhaustion).
     UserLimitExceeded,
+    /// M_UNSUPPORTED: The server does not support this feature (e.g. presence
+    /// disabled). Per Matrix spec, returned with HTTP 405 Method Not Allowed.
+    Unsupported,
 }
 
 impl MatrixErrorCode {
@@ -100,6 +103,7 @@ impl MatrixErrorCode {
             Self::Unimplemented => "M_UNRECOGNIZED",
             Self::RequestTimeout => "M_REQUEST_TIMEOUT",
             Self::UserLimitExceeded => "M_USER_LIMIT_EXCEEDED",
+            Self::Unsupported => "M_UNSUPPORTED",
         }
     }
 
@@ -116,7 +120,7 @@ impl MatrixErrorCode {
             Self::Unrecognized => StatusCode::BAD_REQUEST,
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::UserDeactivated => StatusCode::FORBIDDEN,
-            Self::UserInUse => StatusCode::CONFLICT,
+            Self::UserInUse => StatusCode::BAD_REQUEST,
             Self::InvalidUsername => StatusCode::BAD_REQUEST,
             Self::RoomInUse => StatusCode::CONFLICT,
             Self::InvalidRoomState => StatusCode::BAD_REQUEST,
@@ -141,6 +145,7 @@ impl MatrixErrorCode {
             Self::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
             // MSC4335: Too many users — 429 with retry-after semantics
             Self::UserLimitExceeded => StatusCode::TOO_MANY_REQUESTS,
+            Self::Unsupported => StatusCode::METHOD_NOT_ALLOWED,
         }
     }
 }
@@ -200,6 +205,8 @@ impl<'de> Deserialize<'de> for MatrixErrorCode {
             "M_RESOURCE_LIMIT_EXCEEDED" => Ok(Self::ResourceLimitExceeded),
             "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM" => Ok(Self::CannotLeaveServerNoticeRoom),
             "M_REQUEST_TIMEOUT" => Ok(Self::RequestTimeout),
+            "M_USER_LIMIT_EXCEEDED" => Ok(Self::UserLimitExceeded),
+            "M_UNSUPPORTED" => Ok(Self::Unsupported),
             _ => Err(serde::de::Error::unknown_variant(
                 &s,
                 &[
@@ -236,6 +243,8 @@ impl<'de> Deserialize<'de> for MatrixErrorCode {
                     "M_RESOURCE_LIMIT_EXCEEDED",
                     "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM",
                     "M_REQUEST_TIMEOUT",
+                    "M_USER_LIMIT_EXCEEDED",
+                    "M_UNSUPPORTED",
                 ],
             )),
         }
@@ -261,6 +270,8 @@ pub enum ApiErrorKind {
     Conflict,
     /// 410 — resource permanently gone
     Gone,
+    /// 413 — request body exceeds size limit (M_TOO_LARGE)
+    PayloadTooLarge,
     /// 429 — rate limit exceeded
     RateLimited,
     /// 500 — unexpected internal error
@@ -280,6 +291,7 @@ impl ApiErrorKind {
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Conflict => StatusCode::CONFLICT,
             Self::Gone => StatusCode::GONE,
+            Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             Self::NotImplemented => StatusCode::NOT_IMPLEMENTED,
@@ -422,6 +434,20 @@ impl ApiError {
         Self {
             kind: ApiErrorKind::NotImplemented,
             code: MatrixErrorCode::Unimplemented,
+            message: message.into(),
+            source: None,
+            cause: None,
+        }
+    }
+
+    /// P1-3: Construct an `M_UNSUPPORTED` error. Used when a feature (e.g.
+    /// presence) is disabled in server config. The HTTP status is 501 (Not
+    /// Implemented) via `ApiErrorKind::NotImplemented`; the Matrix errcode
+    /// is `M_UNSUPPORTED` so clients can branch on the feature gate.
+    pub fn unsupported(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::NotImplemented,
+            code: MatrixErrorCode::Unsupported,
             message: message.into(),
             source: None,
             cause: None,
@@ -612,7 +638,7 @@ impl ApiError {
 
     pub fn user_in_use(message: impl Into<String>) -> Self {
         Self {
-            kind: ApiErrorKind::Conflict,
+            kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::UserInUse,
             message: message.into(),
             source: None,
@@ -772,7 +798,7 @@ impl ApiError {
 
     pub fn too_large(message: impl Into<String>) -> Self {
         Self {
-            kind: ApiErrorKind::BadRequest,
+            kind: ApiErrorKind::PayloadTooLarge,
             code: MatrixErrorCode::TooLarge,
             message: message.into(),
             source: None,
@@ -1275,9 +1301,11 @@ where
                 | Some("M_INVALID_USERNAME")
                 | Some("M_BAD_STATE")
                 | Some("M_INVALID_ROOM_STATE") => StatusCode::BAD_REQUEST,
-                Some("M_USER_IN_USE") | Some("M_ROOM_IN_USE") | Some("M_THREEPID_IN_USE") => StatusCode::CONFLICT,
+                Some("M_USER_IN_USE") => StatusCode::BAD_REQUEST,
+                Some("M_ROOM_IN_USE") | Some("M_THREEPID_IN_USE") => StatusCode::CONFLICT,
                 Some("M_TOO_LARGE") => StatusCode::PAYLOAD_TOO_LARGE,
                 Some("M_SERVER_NOT_TRUSTED") => StatusCode::BAD_GATEWAY,
+                Some("M_UNSUPPORTED") => StatusCode::METHOD_NOT_ALLOWED,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             }
         };
@@ -1348,6 +1376,25 @@ mod tests {
         let err = ApiError::not_implemented("not done yet");
         assert_eq!(err.kind, ApiErrorKind::NotImplemented);
         assert_eq!(err.code, MatrixErrorCode::Unimplemented);
+    }
+
+    // P1-3: M_UNSUPPORTED constructor for disabled features (e.g. presence).
+    #[test]
+    fn test_api_error_unsupported_construction() {
+        let err = ApiError::unsupported("presence disabled");
+        assert_eq!(err.kind, ApiErrorKind::NotImplemented);
+        assert_eq!(err.code, MatrixErrorCode::Unsupported);
+        assert_eq!(err.code.as_str(), "M_UNSUPPORTED");
+        assert_eq!(err.code.http_status(), StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(err.message, "presence disabled");
+    }
+
+    #[test]
+    fn test_matrix_error_code_unsupported_round_trip() {
+        let json = serde_json::to_string(&MatrixErrorCode::Unsupported).unwrap();
+        assert_eq!(json, "\"M_UNSUPPORTED\"");
+        let back: MatrixErrorCode = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, MatrixErrorCode::Unsupported);
     }
 
     #[test]
@@ -1676,7 +1723,7 @@ mod tests {
 
         // user_in_use
         let err = ApiError::user_in_use("user taken");
-        assert_eq!(err.kind, ApiErrorKind::Conflict);
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
         assert_eq!(err.code, MatrixErrorCode::UserInUse);
 
         // room_in_use
@@ -1756,7 +1803,7 @@ mod tests {
 
         // too_large
         let err = ApiError::too_large("too big");
-        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.kind, ApiErrorKind::PayloadTooLarge);
         assert_eq!(err.code, MatrixErrorCode::TooLarge);
 
         // exclusive
@@ -1879,7 +1926,7 @@ mod tests {
         assert_eq!(MatrixErrorCode::ServerNotTrusted.http_status(), StatusCode::BAD_GATEWAY);
         assert_eq!(MatrixErrorCode::TooLarge.http_status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(MatrixErrorCode::RequestTimeout.http_status(), StatusCode::REQUEST_TIMEOUT);
-        assert_eq!(MatrixErrorCode::UserInUse.http_status(), StatusCode::CONFLICT);
+        assert_eq!(MatrixErrorCode::UserInUse.http_status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]
@@ -1895,6 +1942,7 @@ mod tests {
             MatrixErrorCode::NotJson,
             MatrixErrorCode::Unrecognized,
             MatrixErrorCode::InvalidUsername,
+            MatrixErrorCode::UserInUse,
             MatrixErrorCode::InvalidRoomState,
             MatrixErrorCode::UnsupportedRoomVersion,
             MatrixErrorCode::IncompatibleRoomVersion,
@@ -1923,7 +1971,6 @@ mod tests {
         }
 
         let conflict_codes = [
-            MatrixErrorCode::UserInUse,
             MatrixErrorCode::RoomInUse,
             MatrixErrorCode::ThreepidInUse,
             MatrixErrorCode::Exclusive,
@@ -1992,6 +2039,7 @@ mod tests {
         assert_eq!(ApiErrorKind::NotFound.default_http_status(), StatusCode::NOT_FOUND);
         assert_eq!(ApiErrorKind::Conflict.default_http_status(), StatusCode::CONFLICT);
         assert_eq!(ApiErrorKind::Gone.default_http_status(), StatusCode::GONE);
+        assert_eq!(ApiErrorKind::PayloadTooLarge.default_http_status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(ApiErrorKind::RateLimited.default_http_status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(ApiErrorKind::Internal.default_http_status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(ApiErrorKind::NotImplemented.default_http_status(), StatusCode::NOT_IMPLEMENTED);
@@ -2007,6 +2055,7 @@ mod tests {
             ApiErrorKind::NotFound,
             ApiErrorKind::Conflict,
             ApiErrorKind::Gone,
+            ApiErrorKind::PayloadTooLarge,
             ApiErrorKind::RateLimited,
             ApiErrorKind::Internal,
             ApiErrorKind::NotImplemented,

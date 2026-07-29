@@ -488,6 +488,10 @@ pub struct Msc3266RoomSummaryResponse {
     pub is_guest_can_join: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub children_state: Option<Vec<serde_json::Value>>,
+    /// `allowed_room_ids` for restricted/knock_restricted join rules
+    /// (Matrix v1.15). Forwarded from the underlying `RoomSummaryResponse`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_room_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -513,6 +517,7 @@ impl From<RoomSummaryResponse> for Msc3266RoomSummaryResponse {
             is_world_readable: s.history_visibility == "world_readable",
             is_guest_can_join: s.guest_access == "can_join",
             children_state: None,
+            allowed_room_ids: s.allowed_room_ids,
         }
     }
 }
@@ -809,6 +814,7 @@ mod tests {
                 is_world_readable: false,
                 is_guest_can_join: false,
                 children_state: None,
+                allowed_room_ids: None,
             }],
             events: vec![],
             total_room_count_estimate: 1,

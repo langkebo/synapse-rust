@@ -14,6 +14,71 @@ use crate::application_service::scheduler::{
 };
 use crate::application_service::ApplicationServiceManager;
 
+/// MSC2409: A batch of ephemeral data units (EDUs) to deliver in an
+/// application service transaction. Each field is an array of EDU objects
+/// keyed by its Matrix type. Empty fields are omitted from the serialized
+/// transaction payload.
+#[derive(Debug, Clone, Default)]
+pub struct AppServiceEphemeralBatch {
+    /// `m.presence` EDUs — user presence updates.
+    pub presence: Vec<serde_json::Value>,
+    /// `m.receipt` EDUs — read receipt updates.
+    pub receipts: Vec<serde_json::Value>,
+    /// `m.typing` EDUs — typing notification updates.
+    pub typing: Vec<serde_json::Value>,
+}
+
+impl AppServiceEphemeralBatch {
+    /// Returns `true` when all EDU arrays are empty (no ephemeral data to send).
+    pub fn is_empty(&self) -> bool {
+        self.presence.is_empty() && self.receipts.is_empty() && self.typing.is_empty()
+    }
+}
+
+/// Build the JSON payload for an application service transaction.
+///
+/// When `edus` is `None` or empty, the payload contains only the `events`
+/// field (backwards-compatible with pre-MSC2409 transactions). When `edus`
+/// is `Some` and non-empty, the payload additionally includes `presence`,
+/// `receipts`, and `typing` arrays per MSC2409.
+pub fn build_transaction_payload(
+    events: &[serde_json::Value],
+    edus: Option<&AppServiceEphemeralBatch>,
+) -> serde_json::Value {
+    let mut payload = json!({
+        "events": events,
+    });
+
+    if let Some(batch) = edus {
+        if !batch.presence.is_empty() {
+            payload["presence"] = json!(batch.presence);
+        }
+        if !batch.receipts.is_empty() {
+            payload["receipts"] = json!(batch.receipts);
+        }
+        if !batch.typing.is_empty() {
+            payload["typing"] = json!(batch.typing);
+        }
+    }
+
+    payload
+}
+
+/// Check whether an application service has opted into receiving ephemeral
+/// events per MSC2409. Returns `true` when the service's `config` JSON
+/// contains `de.sorunome.msc2409: true` (pre-stabilization flag) or
+/// `ephemeral: true` (post-stabilization flag, Matrix v1.156+).
+pub fn appservice_receives_ephemeral(service: &ApplicationService) -> bool {
+    let config = &service.config;
+    if config.get("de.sorunome.msc2409").and_then(|v| v.as_bool()) == Some(true) {
+        return true;
+    }
+    if config.get("ephemeral").and_then(|v| v.as_bool()) == Some(true) {
+        return true;
+    }
+    false
+}
+
 pub(super) const APPSERVICE_RETRY_BACKOFF_BASE_MS: i64 = 5_000;
 pub(super) const APPSERVICE_RETRY_BACKOFF_MAX_MS: i64 = 5 * 60 * 1_000;
 pub(super) const APPSERVICE_FATAL_FAILURE_THRESHOLD: i32 = 3;
@@ -137,15 +202,36 @@ impl ApplicationServiceManager {
         transaction_id: &str,
         events: &[serde_json::Value],
     ) -> Result<(), ApiError> {
+        self.deliver_transaction_with_edus(service, transaction_id, events, None).await
+    }
+
+    /// Deliver a transaction with optional ephemeral data units (MSC2409).
+    ///
+    /// When `edus` is `Some` and the service has opted into ephemeral events
+    /// (per [`appservice_receives_ephemeral`]), the EDU arrays are included
+    /// in the transaction payload. Otherwise, only `events` are sent.
+    pub async fn deliver_transaction_with_edus(
+        &self,
+        service: &ApplicationService,
+        transaction_id: &str,
+        events: &[serde_json::Value],
+        edus: Option<AppServiceEphemeralBatch>,
+    ) -> Result<(), ApiError> {
         let url = format!("{}/transactions/{}", service.url, transaction_id);
+
+        // Only include EDUs when the service has opted in AND the batch is non-empty.
+        let effective_edus: Option<&AppServiceEphemeralBatch> = match &edus {
+            Some(batch) if appservice_receives_ephemeral(service) && !batch.is_empty() => Some(batch),
+            _ => None,
+        };
+
+        let payload = build_transaction_payload(events, effective_edus);
 
         let response = self
             .http_client
             .put(&url)
             .header("Authorization", format!("Bearer {}", service.hs_token))
-            .json(&json!({
-                "events": events
-            }))
+            .json(&payload)
             .send()
             .await;
 
@@ -661,5 +747,159 @@ mod tests {
         let stats = ApplicationServiceManager::scheduler_statistics_from_states(&states);
         // Whitespace-only state value is trimmed and treated as missing
         assert_eq!(stats["available"], false);
+    }
+
+    // ── MSC2409: ephemeral event support ──────────────────────────────
+
+    #[test]
+    fn build_transaction_payload_without_edus_returns_events_only() {
+        let events = vec![json!({"type": "m.room.message", "room_id": "!r:example.com"})];
+        let payload = build_transaction_payload(&events, None);
+        assert!(payload.get("events").is_some());
+        assert!(payload.get("presence").is_none());
+        assert!(payload.get("receipts").is_none());
+        assert!(payload.get("typing").is_none());
+        assert_eq!(payload["events"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn build_transaction_payload_with_empty_edus_omits_edu_fields() {
+        // Empty EDU batch should not add presence/receipts/typing fields
+        let events = vec![json!({"type": "m.room.message"})];
+        let edus = AppServiceEphemeralBatch::default();
+        let payload = build_transaction_payload(&events, Some(&edus));
+        assert!(payload.get("events").is_some());
+        assert!(payload.get("presence").is_none(), "empty presence should be omitted");
+        assert!(payload.get("receipts").is_none(), "empty receipts should be omitted");
+        assert!(payload.get("typing").is_none(), "empty typing should be omitted");
+    }
+
+    #[test]
+    fn build_transaction_payload_with_presence_includes_presence_field() {
+        let events = vec![];
+        let edus = AppServiceEphemeralBatch {
+            presence: vec![json!({"type": "m.presence", "sender": "@alice:example.com", "content": {"presence": "online"}})],
+            ..Default::default()
+        };
+        let payload = build_transaction_payload(&events, Some(&edus));
+        assert!(payload.get("presence").is_some());
+        assert_eq!(payload["presence"].as_array().unwrap().len(), 1);
+        assert!(payload.get("receipts").is_none());
+        assert!(payload.get("typing").is_none());
+    }
+
+    #[test]
+    fn build_transaction_payload_with_receipts_includes_receipts_field() {
+        let edus = AppServiceEphemeralBatch {
+            receipts: vec![json!({"type": "m.receipt", "room_id": "!r:example.com"})],
+            ..Default::default()
+        };
+        let payload = build_transaction_payload(&[], Some(&edus));
+        assert!(payload.get("receipts").is_some());
+        assert_eq!(payload["receipts"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn build_transaction_payload_with_typing_includes_typing_field() {
+        let edus = AppServiceEphemeralBatch {
+            typing: vec![json!({"type": "m.typing", "room_id": "!r:example.com", "content": {"user_ids": ["@alice:example.com"]}})],
+            ..Default::default()
+        };
+        let payload = build_transaction_payload(&[], Some(&edus));
+        assert!(payload.get("typing").is_some());
+        assert_eq!(payload["typing"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn build_transaction_payload_with_all_edus_includes_all_fields() {
+        let events = vec![json!({"type": "m.room.message"})];
+        let edus = AppServiceEphemeralBatch {
+            presence: vec![json!({"type": "m.presence"})],
+            receipts: vec![json!({"type": "m.receipt"})],
+            typing: vec![json!({"type": "m.typing"})],
+        };
+        let payload = build_transaction_payload(&events, Some(&edus));
+        assert_eq!(payload["events"].as_array().unwrap().len(), 1);
+        assert_eq!(payload["presence"].as_array().unwrap().len(), 1);
+        assert_eq!(payload["receipts"].as_array().unwrap().len(), 1);
+        assert_eq!(payload["typing"].as_array().unwrap().len(), 1);
+    }
+
+    // ── MSC2409: appservice ephemeral opt-in check ────────────────────
+
+    fn make_appservice_with_config(config: serde_json::Value) -> ApplicationService {
+        ApplicationService {
+            id: 1,
+            as_id: "test-as".to_string(),
+            url: "http://localhost:8080".to_string(),
+            as_token: "token".to_string(),
+            hs_token: "hs_token".to_string(),
+            sender_localpart: "testbot".to_string(),
+            is_enabled: true,
+            is_rate_limited: false,
+            protocols: vec![],
+            namespaces: json!({}),
+            created_ts: 0,
+            updated_ts: None,
+            description: None,
+            api_key: None,
+            config,
+        }
+    }
+
+    #[test]
+    fn appservice_receives_ephemeral_true_when_msc2409_flag_set() {
+        let service = make_appservice_with_config(json!({"de.sorunome.msc2409": true}));
+        assert!(appservice_receives_ephemeral(&service));
+    }
+
+    #[test]
+    fn appservice_receives_ephemeral_true_when_ephemeral_flag_set() {
+        // Post-stabilization flag (Matrix v1.156 uses the stabilized form)
+        let service = make_appservice_with_config(json!({"ephemeral": true}));
+        assert!(appservice_receives_ephemeral(&service));
+    }
+
+    #[test]
+    fn appservice_receives_ephemeral_false_when_no_flag() {
+        let service = make_appservice_with_config(json!({}));
+        assert!(!appservice_receives_ephemeral(&service));
+    }
+
+    #[test]
+    fn appservice_receives_ephemeral_false_when_flag_false() {
+        let service = make_appservice_with_config(json!({"de.sorunome.msc2409": false}));
+        assert!(!appservice_receives_ephemeral(&service));
+    }
+
+    #[test]
+    fn appservice_receives_ephemeral_false_when_config_null() {
+        let service = make_appservice_with_config(serde_json::Value::Null);
+        assert!(!appservice_receives_ephemeral(&service));
+    }
+
+    #[test]
+    fn appservice_ephemeral_batch_is_empty_default() {
+        let batch = AppServiceEphemeralBatch::default();
+        assert!(batch.presence.is_empty());
+        assert!(batch.receipts.is_empty());
+        assert!(batch.typing.is_empty());
+        assert!(batch.is_empty());
+    }
+
+    #[test]
+    fn appservice_ephemeral_batch_is_empty_when_all_empty() {
+        let batch = AppServiceEphemeralBatch { presence: vec![], receipts: vec![], typing: vec![] };
+        assert!(batch.is_empty());
+    }
+
+    #[test]
+    fn appservice_ephemeral_batch_not_empty_with_presence() {
+        let batch = AppServiceEphemeralBatch {
+            presence: vec![json!({"type": "m.presence"})],
+            receipts: vec![],
+            typing: vec![],
+        };
+        assert!(!batch.is_empty());
     }
 }

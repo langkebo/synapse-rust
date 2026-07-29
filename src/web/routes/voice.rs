@@ -70,7 +70,10 @@ pub fn voice_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntr
 }
 
 #[axum::debug_handler]
-async fn get_voice_config() -> Result<Json<Value>, ApiError> {
+async fn get_voice_config(
+    State(_ctx): State<RoomContext>,
+    _auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
     Ok(Json(serde_json::json!({
         "enabled": true,
         "max_duration": 600,
@@ -92,7 +95,13 @@ async fn upload_voice_message(
 ) -> Result<Json<Value>, ApiError> {
     let voice_service = &ctx.voice_service;
 
-    let content_base64 = body.get("content").and_then(|v| v.as_str()).unwrap_or("");
+    let content_base64 = body
+        .get("content")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("content is required".to_string()))?;
+    if content_base64.is_empty() {
+        return Err(ApiError::bad_request("content cannot be empty".to_string()));
+    }
     let engine = base64::engine::general_purpose::STANDARD;
     let content = match engine.decode(content_base64) {
         Ok(data) => data,
@@ -100,6 +109,9 @@ async fn upload_voice_message(
             return Err(ApiError::bad_request("Invalid base64 content".to_string()));
         }
     };
+    if content.is_empty() {
+        return Err(ApiError::bad_request("content cannot decode to empty".to_string()));
+    }
 
     const MAX_SIZE: usize = 50 * 1024 * 1024;
     if content.len() > MAX_SIZE {
@@ -181,10 +193,15 @@ async fn get_room_voice_stats(
 #[axum::debug_handler]
 async fn get_user_voice_stats(
     State(ctx): State<RoomContext>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
+    if auth_user.user_id.as_str() != user_id.as_str() {
+        return Err(ApiError::forbidden(
+            "Cannot view another user's voice stats",
+        ));
+    }
     let stats = ctx.voice_service.get_user_voice_stats(&user_id).await?;
     Ok(Json(stats))
 }
@@ -206,10 +223,15 @@ async fn get_room_voice_messages(
 #[axum::debug_handler]
 async fn get_user_voice_messages(
     State(ctx): State<RoomContext>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
     Query(query): Query<VoiceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
+    if auth_user.user_id.as_str() != user_id.as_str() {
+        return Err(ApiError::forbidden(
+            "Cannot view another user's voice messages",
+        ));
+    }
     let limit = query.limit.unwrap_or(50).min(100);
     let result = ctx.voice_service.get_user_voice_messages(&user_id, limit, query.from).await?;
     Ok(Json(result))
@@ -231,7 +253,7 @@ async fn convert_voice_message(
     _auth_user: AuthenticatedUser,
     Path(_media_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized(
+    Err(ApiError::not_implemented(
         "Voice conversion is handled client-side per MSC3245. Server-side processing is not supported",
     ))
 }
@@ -242,7 +264,7 @@ async fn optimize_voice_message(
     _auth_user: AuthenticatedUser,
     Path(_media_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized(
+    Err(ApiError::not_implemented(
         "Voice optimization is handled client-side per MSC3245. Server-side processing is not supported",
     ))
 }
@@ -253,7 +275,7 @@ async fn transcribe_voice_message(
     _auth_user: AuthenticatedUser,
     Path(_media_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized(
+    Err(ApiError::not_implemented(
         "Voice transcription is handled client-side per MSC3245. Use Web Speech API or local Whisper model on the client",
     ))
 }

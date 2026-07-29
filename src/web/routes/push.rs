@@ -89,10 +89,14 @@ pub struct SetPusherRequest {
     #[serde(rename = "kind")]
     pub kind: Option<String>,
     pub app_id: String,
-    pub app_display_name: String,
-    pub device_display_name: String,
+    // 当 kind=null（删除 pusher）时，这些字段可省略
+    #[serde(default)]
+    pub app_display_name: Option<String>,
+    #[serde(default)]
+    pub device_display_name: Option<String>,
     pub profile_tag: Option<String>,
-    pub lang: String,
+    #[serde(default)]
+    pub lang: Option<String>,
     pub data: Option<Value>,
     pub append: Option<bool>,
 }
@@ -139,8 +143,36 @@ async fn get_pushers(State(ctx): State<AdminContext>, auth_user: AuthenticatedUs
 async fn set_pusher(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<SetPusherRequest>,
+    Json(raw): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    // P-053: Validate required fields up front so missing/empty fields return
+    // 400 M_BAD_JSON instead of axum's 422 deserialization error.
+    // Note: `kind` may be null (to delete a pusher); `app_display_name` and
+    // `lang` are only required when kind is non-null.
+    for field in ["pushkey", "app_id"] {
+        let present_non_empty = raw.get(field).and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty());
+        if !present_non_empty {
+            return Err(ApiError::bad_request(format!("Missing required field: {field}")));
+        }
+    }
+    // kind must be present (key exists) but may be null
+    if raw.get("kind").is_none() {
+        return Err(ApiError::bad_request("Missing required field: kind".to_string()));
+    }
+    // app_display_name and lang required only when kind is non-null
+    let kind_is_null = raw.get("kind").and_then(|v| v.as_null()).is_some();
+    if !kind_is_null {
+        for field in ["app_display_name", "lang"] {
+            let present_non_empty = raw.get(field).and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty());
+            if !present_non_empty {
+                return Err(ApiError::bad_request(format!("Missing required field: {field}")));
+            }
+        }
+    }
+
+    let body: SetPusherRequest =
+        serde_json::from_value(raw).map_err(|e| ApiError::bad_request(format!("Invalid request body: {e}")))?;
+
     // P2 #32: 验证 access_token 必须关联 device_id，防止无设备用户设置 pusher
     let device_id: String = auth_user
         .device_id
@@ -159,10 +191,10 @@ async fn set_pusher(
                 pushkey: body.pushkey.clone(),
                 kind: kind.clone(),
                 app_id: body.app_id.clone(),
-                app_display_name: body.app_display_name,
-                device_display_name: body.device_display_name,
+                app_display_name: body.app_display_name.unwrap_or_default(),
+                device_display_name: body.device_display_name.unwrap_or_default(),
                 profile_tag: body.profile_tag,
-                lang: body.lang,
+                lang: body.lang.unwrap_or_default(),
                 data: body.data,
             })
             .await?;
@@ -506,10 +538,10 @@ mod tests {
             pushkey: "pushkey123".to_string(),
             kind: Some("http".to_string()),
             app_id: "com.example.app".to_string(),
-            app_display_name: "Example App".to_string(),
-            device_display_name: "My Device".to_string(),
+            app_display_name: Some("Example App".to_string()),
+            device_display_name: Some("My Device".to_string()),
             profile_tag: Some("tag123".to_string()),
-            lang: "en".to_string(),
+            lang: Some("en".to_string()),
             data: Some(json!({"url": "https://example.com/push"})),
             append: Some(false),
         };

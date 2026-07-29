@@ -110,6 +110,7 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
         to_device_storage,
         metrics,
         PerformanceConfig::default(),
+        None,
     )
 }
 

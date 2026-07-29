@@ -330,6 +330,7 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
         to_device_storage,
         metrics,
         PerformanceConfig::default(),
+        None,
     )
 }
 
@@ -1132,4 +1133,459 @@ async fn test_update_room_state_preserves_name_when_null() {
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
     assert_eq!(room.name, Some("Original Name".to_string()));
     assert_eq!(room.avatar, Some("mxc://orig".to_string()));
+}
+
+// =============================================================================
+// P1-5: Sliding Sync 订阅变更即时响应 (Synapse #19714 / #19734)
+//
+// 上游修复：在 long-poll 模式下，当客户端在等待期间发送了订阅变更请求
+// (room_subscriptions / unsubscribe_rooms / required_state / timeline_limit)，
+// 服务器应立即返回新响应，而不是继续等待 long-poll 超时。
+//
+// synapse-rust 当前是同步轮询模式（无 long-poll），订阅变更天然在新请求中
+// 立即生效。以下测试验证此行为，作为回归保护：如果未来引入 long-poll 模式，
+// 这些测试确保订阅变更仍然立即响应。
+// =============================================================================
+
+/// 辅助函数：构造一个空的 main list 请求。
+fn make_p1_5_request(
+    lists: HashMap<String, SlidingSyncListData>,
+    room_subscriptions: Option<serde_json::Value>,
+    unsubscribe_rooms: Option<Vec<String>>,
+    pos: Option<String>,
+) -> SlidingSyncRequest {
+    SlidingSyncRequest {
+        conn_id: None,
+        lists,
+        room_subscriptions,
+        unsubscribe_rooms,
+        extensions: None,
+        pos,
+        timeout: None,
+        client_timeout: None,
+        txn_id: None,
+    }
+}
+
+/// 辅助函数：构造 main list（范围 [0, 20]）。
+fn make_p1_5_main_list() -> HashMap<String, SlidingSyncListData> {
+    let mut lists = HashMap::new();
+    lists.insert(
+        "main".to_string(),
+        SlidingSyncListData {
+            ranges: vec![vec![0, 20]],
+            sort: vec!["by_recency".to_string()],
+            filters: None,
+            timeline_limit: None,
+            required_state: None,
+            slow_by: None,
+            bump_event_types: None,
+        },
+    );
+    lists
+}
+
+/// P1-5 场景 1: room_subscriptions 变更即时响应。
+///
+/// 步骤：
+/// 1. 创建 room_A 和 room_B 两个房间
+/// 2. 第一次 sync：订阅 room_A，验证响应包含 room_A 不包含 room_B
+/// 3. 第二次 sync：订阅 room_B（不再订阅 room_A），验证响应包含 room_B 不包含 room_A
+///
+/// 期望：第二次响应立即反映订阅变更，无需等待。
+#[tokio::test]
+async fn test_p1_5_room_subscription_change_reflected_immediately() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+    let service = create_service(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@p15_sub_{suffix}:localhost");
+    let room_a = format!("!roomA_{suffix}:localhost");
+    let room_b = format!("!roomB_{suffix}:localhost");
+
+    // 物化两个房间
+    service
+        .update_room_state(&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
+        .await
+        .unwrap();
+    service
+        .update_room_state(&user_id, "DEV1", &room_b, None, 2000, 0, 0, false, false, Some("Room B"), None)
+        .await
+        .unwrap();
+
+    // 第一次 sync：订阅 room_A
+    let request1 = make_p1_5_request(
+        make_p1_5_main_list(),
+        Some(serde_json::json!({
+            &room_a: { "timeline_limit": 10 }
+        })),
+        None,
+        None,
+    );
+    let response1 = service.sync(&user_id, "DEV1", request1).await.unwrap();
+    let rooms1 = response1.rooms.as_object().unwrap();
+    assert!(
+        rooms1.contains_key(&room_a),
+        "first sync should include room_A in response (subscribed)"
+    );
+
+    // 第二次 sync：订阅 room_B（不再订阅 room_A）
+    let request2 = make_p1_5_request(
+        make_p1_5_main_list(),
+        Some(serde_json::json!({
+            &room_b: { "timeline_limit": 10 }
+        })),
+        None,
+        Some(response1.pos.clone()),
+    );
+    let response2 = service.sync(&user_id, "DEV1", request2).await.unwrap();
+    let rooms2 = response2.rooms.as_object().unwrap();
+    assert!(
+        rooms2.contains_key(&room_b),
+        "second sync should immediately include room_B (new subscription)"
+    );
+    // room_A 仍然可能在响应中（因为它在 main list 范围内），但 room_B 必须立即出现
+    // 关键点：room_B 的订阅变更在第二次请求中立即生效，无需等待
+}
+
+/// P1-5 场景 2: unsubscribe_rooms 即时生效。
+///
+/// 步骤：
+/// 1. 创建并订阅 room_A
+/// 2. 第二次 sync：unsubscribe_rooms: [room_A]
+/// 3. 验证 room_A 已从存储中删除
+///
+/// 期望：unsubscribe 在当次请求中立即生效。
+#[tokio::test]
+async fn test_p1_5_unsubscribe_rooms_takes_effect_immediately() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+    let service = create_service(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@p15_unsub_{suffix}:localhost");
+    let room_a = format!("!roomA_{suffix}:localhost");
+
+    service
+        .update_room_state(&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
+        .await
+        .unwrap();
+
+    // 第一次 sync：订阅 room_A
+    let request1 = make_p1_5_request(
+        make_p1_5_main_list(),
+        Some(serde_json::json!({
+            &room_a: { "timeline_limit": 10 }
+        })),
+        None,
+        None,
+    );
+    let response1 = service.sync(&user_id, "DEV1", request1).await.unwrap();
+    let rooms1 = response1.rooms.as_object().unwrap();
+    assert!(rooms1.contains_key(&room_a), "first sync should include room_A");
+
+    // 第二次 sync：unsubscribe room_A
+    let request2 = make_p1_5_request(
+        make_p1_5_main_list(),
+        None,
+        Some(vec![room_a.clone()]),
+        Some(response1.pos.clone()),
+    );
+    let response2 = service.sync(&user_id, "DEV1", request2).await.unwrap();
+    assert!(!response2.pos.is_empty(), "second sync should succeed");
+
+    // 验证 room_A 已从存储中删除（unsubscribe 立即生效）
+    let storage = SlidingSyncStorage::new(pool.clone());
+    let room = storage.get_room(&user_id, "DEV1", &room_a, None).await.unwrap();
+    assert!(room.is_none(), "room_A should be deleted from storage after unsubscribe");
+}
+
+/// P1-5 场景 3: required_state 变更即时响应。
+///
+/// 步骤：
+/// 1. 创建 room_A，写入 m.room.name 状态事件
+/// 2. 第一次 sync：订阅 room_A，required_state = []（空）
+/// 3. 第二次 sync：订阅 room_A，required_state = [["m.room.name", ""]]
+/// 4. 验证第二次响应的 required_state 立即包含 m.room.name 事件
+///
+/// 期望：required_state 变更在第二次请求中立即生效。
+#[tokio::test]
+async fn test_p1_5_required_state_change_reflected_immediately() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+    let service = create_service(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@p15_rs_{suffix}:localhost");
+    let room_a = format!("!roomA_{suffix}:localhost");
+
+    service
+        .update_room_state(&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
+        .await
+        .unwrap();
+
+    // 写入 m.room.name 状态事件到 events 表（供 required_state 查询）
+    sqlx::query(
+        r#"
+        INSERT INTO events (event_id, room_id, user_id, sender, event_type, content, state_key, depth, origin_server_ts, processed_at, not_before, is_redacted, status, origin)
+        VALUES ($1, $2, $3, $3, 'm.room.name', '{"name": "Room A"}', '', 1, 1000, 1000, 0, FALSE, 'processed', 'localhost')
+        "#,
+    )
+    .bind(format!("$name_{suffix}:localhost"))
+    .bind(&room_a)
+    .bind(&user_id)
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // 第一次 sync：订阅 room_A，required_state = []（空，不返回任何状态）
+    let request1 = make_p1_5_request(
+        make_p1_5_main_list(),
+        Some(serde_json::json!({
+            &room_a: {
+                "timeline_limit": 0,
+                "required_state": []
+            }
+        })),
+        None,
+        None,
+    );
+    let response1 = service.sync(&user_id, "DEV1", request1).await.unwrap();
+    let rooms1 = response1.rooms.as_object().unwrap();
+    let room_a_resp1 = rooms1.get(&room_a).expect("room_A should be in response");
+    let required_state1 = room_a_resp1.get("required_state").and_then(|v| v.as_array());
+    assert!(
+        required_state1.map_or(true, |arr| arr.is_empty()),
+        "first sync with empty required_state should return no state events, got: {:?}",
+        required_state1
+    );
+
+    // 第二次 sync：订阅 room_A，required_state = [["m.room.name", ""]]
+    let request2 = make_p1_5_request(
+        make_p1_5_main_list(),
+        Some(serde_json::json!({
+            &room_a: {
+                "timeline_limit": 0,
+                "required_state": [["m.room.name", ""]]
+            }
+        })),
+        None,
+        Some(response1.pos.clone()),
+    );
+    let response2 = service.sync(&user_id, "DEV1", request2).await.unwrap();
+    let rooms2 = response2.rooms.as_object().unwrap();
+    let room_a_resp2 = rooms2.get(&room_a).expect("room_A should be in second response");
+    let required_state2 = room_a_resp2
+        .get("required_state")
+        .and_then(|v| v.as_array())
+        .expect("required_state should be an array in second response");
+    assert!(
+        !required_state2.is_empty(),
+        "second sync with required_state=[[m.room.name,\"\"]] should immediately return name event, got: {:?}",
+        required_state2
+    );
+    // 验证返回的事件类型是 m.room.name
+    let event_type = required_state2[0].get("type").and_then(|v| v.as_str());
+    assert_eq!(
+        event_type,
+        Some("m.room.name"),
+        "required_state event should be m.room.name, got: {:?}",
+        event_type
+    );
+}
+
+/// P1-5 场景 4: timeline_limit 变更即时响应。
+///
+/// 步骤：
+/// 1. 创建 room_A，写入 2 条 timeline 事件
+/// 2. 第一次 sync：timeline_limit = 1
+/// 3. 第二次 sync：timeline_limit = 10
+/// 4. 验证第二次响应的 timeline 立即包含更多事件
+///
+/// 期望：timeline_limit 变更在第二次请求中立即生效。
+#[tokio::test]
+async fn test_p1_5_timeline_limit_change_reflected_immediately() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+    let service = create_service(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@p15_tl_{suffix}:localhost");
+    let room_a = format!("!roomA_{suffix}:localhost");
+
+    service
+        .update_room_state(&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
+        .await
+        .unwrap();
+
+    // 写入 2 条 timeline 事件
+    for i in 0..2 {
+        sqlx::query(
+            r#"
+            INSERT INTO events (event_id, room_id, user_id, sender, event_type, content, state_key, depth, origin_server_ts, processed_at, not_before, is_redacted, status, origin)
+            VALUES ($1, $2, $3, $3, 'm.room.message', $4, NULL, $5, $6, $6, 0, FALSE, 'processed', 'localhost')
+            "#,
+        )
+        .bind(format!("$msg{i}_{suffix}:localhost"))
+        .bind(&room_a)
+        .bind(&user_id)
+        .bind(serde_json::json!({"body": format!("msg {i}"), "msgtype": "m.text"}))
+        .bind(i + 1)
+        .bind(2000 + i)
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
+    }
+
+    // 第一次 sync：timeline_limit = 1
+    let request1 = make_p1_5_request(
+        make_p1_5_main_list(),
+        Some(serde_json::json!({
+            &room_a: {
+                "timeline_limit": 1,
+                "required_state": []
+            }
+        })),
+        None,
+        None,
+    );
+    let response1 = service.sync(&user_id, "DEV1", request1).await.unwrap();
+    let rooms1 = response1.rooms.as_object().unwrap();
+    let room_a_resp1 = rooms1.get(&room_a).expect("room_A should be in first response");
+    let timeline1 = room_a_resp1
+        .get("timeline")
+        .and_then(|v| v.as_array())
+        .expect("timeline should be an array in first response");
+    assert_eq!(
+        timeline1.len(),
+        1,
+        "first sync with timeline_limit=1 should return exactly 1 event, got: {}",
+        timeline1.len()
+    );
+
+    // 第二次 sync：timeline_limit = 10
+    let request2 = make_p1_5_request(
+        make_p1_5_main_list(),
+        Some(serde_json::json!({
+            &room_a: {
+                "timeline_limit": 10,
+                "required_state": []
+            }
+        })),
+        None,
+        Some(response1.pos.clone()),
+    );
+    let response2 = service.sync(&user_id, "DEV1", request2).await.unwrap();
+    let rooms2 = response2.rooms.as_object().unwrap();
+    let room_a_resp2 = rooms2.get(&room_a).expect("room_A should be in second response");
+    let timeline2 = room_a_resp2
+        .get("timeline")
+        .and_then(|v| v.as_array())
+        .expect("timeline should be an array in second response");
+    assert!(
+        timeline2.len() >= 2,
+        "second sync with timeline_limit=10 should immediately return at least 2 events, got: {}",
+        timeline2.len()
+    );
+}
+
+// =============================================================================
+// P1-6: /sync 瞬态错误缓存修复验证 (Synapse #19845)
+//
+// 上游修复：`/sync` 不应缓存瞬态错误响应（如数据库短暂故障）。
+// synapse-rust 的 `/sync` (v3) 没有 response cache，不存在此问题。
+// MSC4186 sliding sync 的 txn_id 缓存已明确：只在 `Ok` 时缓存。
+// 此测试验证 txn_id 缓存行为：成功响应被缓存，失败响应不被缓存。
+// =============================================================================
+
+/// P1-6 场景 1: 成功响应应被 txn_id 缓存（基线行为）。
+#[tokio::test]
+async fn test_p1_6_successful_response_is_cached_under_txn_id() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+    let service = create_service(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@p16_ok_{suffix}:localhost");
+    let txn_id = format!("txn-p16-ok-{suffix}");
+
+    let request = SlidingSyncRequest {
+        conn_id: None,
+        lists: make_p1_5_main_list(),
+        room_subscriptions: None,
+        unsubscribe_rooms: None,
+        extensions: None,
+        pos: None,
+        timeout: None,
+        client_timeout: None,
+        txn_id: Some(txn_id.clone()),
+    };
+
+    // 第一次请求 — 应成功并被缓存
+    let response1 = service.sync(&user_id, "DEV1", request).await.expect("first sync should succeed");
+    assert!(!response1.pos.is_empty());
+
+    // 第二次请求使用相同 txn_id — 应命中缓存返回相同 pos
+    let request2 = SlidingSyncRequest {
+        conn_id: None,
+        lists: make_p1_5_main_list(),
+        room_subscriptions: None,
+        unsubscribe_rooms: None,
+        extensions: None,
+        pos: None,
+        timeout: None,
+        client_timeout: None,
+        txn_id: Some(txn_id.clone()),
+    };
+    let response2 = service.sync(&user_id, "DEV1", request2).await.expect("cached sync should succeed");
+    assert_eq!(
+        response1.pos, response2.pos,
+        "P1-6 baseline: successful response with same txn_id should be cached and return same pos"
+    );
+}
+
+/// P1-6 场景 2: 失败响应不应被 txn_id 缓存。
+///
+/// 验证方式：发送一个会失败的请求（使用无效 pos），确认错误不被缓存。
+/// 如果错误被缓存，后续相同 txn_id 的请求会持续返回错误。
+#[tokio::test]
+async fn test_p1_6_failed_response_not_cached_under_txn_id() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+    let service = create_service(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@p16_err_{suffix}:localhost");
+    let txn_id = format!("txn-p16-err-{suffix}");
+
+    // 使用无效 pos 触发失败
+    let request_with_invalid_pos = SlidingSyncRequest {
+        conn_id: None,
+        lists: make_p1_5_main_list(),
+        room_subscriptions: None,
+        unsubscribe_rooms: None,
+        extensions: None,
+        pos: Some("invalid-pos-token-p1-6".to_string()),
+        timeout: None,
+        client_timeout: None,
+        txn_id: Some(txn_id.clone()),
+    };
+
+    // 第一次请求 — 应失败（无效 pos）
+    let result1 = service.sync(&user_id, "DEV1", request_with_invalid_pos).await;
+    assert!(result1.is_err(), "sync with invalid pos should fail");
+
+    // 第二次请求使用相同 txn_id 但有效参数 — 应成功（不命中缓存的错误）
+    let request_valid = SlidingSyncRequest {
+        conn_id: None,
+        lists: make_p1_5_main_list(),
+        room_subscriptions: None,
+        unsubscribe_rooms: None,
+        extensions: None,
+        pos: None,
+        timeout: None,
+        client_timeout: None,
+        txn_id: Some(txn_id.clone()),
+    };
+    let response2 = service.sync(&user_id, "DEV1", request_valid).await;
+    assert!(
+        response2.is_ok(),
+        "P1-6: failed response must NOT be cached — second request with same txn_id but valid params should succeed, got error: {:?}",
+        response2.err()
+    );
 }

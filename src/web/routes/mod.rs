@@ -31,13 +31,14 @@ pub mod ledger_export;
 pub mod media;
 pub mod moderation;
 pub mod module;
+pub mod msc4108_rendezvous;
 pub mod oidc;
 pub mod pinned;
 pub mod presence;
 pub mod push;
 pub mod push_notification;
 pub mod push_rules;
-pub mod qr_login;
+pub mod qr_login_token;
 pub mod reactions;
 pub mod relations;
 pub mod rendezvous;
@@ -155,7 +156,7 @@ pub(crate) use handlers::room::{
     get_room_timeline, get_room_turn_server, get_room_unread_count, get_room_user_fragments, get_room_vault_data,
     get_room_version, get_room_visibility, get_single_event, get_state_by_type, get_state_event,
     get_state_event_empty_key, get_user_rooms, invite_user, invite_user_by_room, join_room, join_room_by_id_or_alias,
-    kick_user, knock_room, leave_room, put_state_event, put_state_event_empty_key, put_state_event_no_key,
+    kick_user, knock_room, leave_room, put_power_levels, put_state_event, put_state_event_empty_key, put_state_event_no_key,
     redact_event, room_initial_sync, search_room_messages, send_message, send_receipt, send_state_event,
     set_read_markers, set_room_account_data, set_room_vault_data, set_room_visibility, sign_room_event,
     translate_room_event, translate_text, unban_user, upgrade_room, verify_room_event,
@@ -169,6 +170,7 @@ pub use key_rotation::create_key_rotation_router;
 pub use media::create_media_router;
 pub use moderation::create_moderation_router;
 pub use module::create_module_router;
+pub use msc4108_rendezvous::{create_msc4108_rendezvous_router, msc4108_route_manifest};
 pub use oidc::create_oidc_router;
 #[cfg(feature = "openclaw-routes")]
 pub use openclaw::create_openclaw_router;
@@ -276,8 +278,7 @@ mod auth_router_tests {
             "/_matrix/client/r0/logout/all",
             "/_matrix/client/v3/refresh",
         ];
-        let v1_only_routes =
-            ["/_matrix/client/v1/login/get_qr_code", "/_matrix/client/v1/login/qr/{transaction_id}/status"];
+        let v1_only_routes = ["/_matrix/client/v1/login/qr_token"];
 
         assert!(compat_routes.iter().all(|route| route.starts_with("/_matrix/client/")));
         assert!(v1_only_routes.iter().all(|route| route.starts_with("/_matrix/client/v1/")));
@@ -301,12 +302,12 @@ mod auth_router_tests {
     }
 
     #[test]
-    fn test_auth_router_keeps_qr_login_outside_compat_scope() {
+    fn test_auth_router_keeps_msc4108_qr_token_outside_compat_scope() {
         let compat_paths = ["/register", "/login", "/refresh"];
-        let qr_paths = ["/_matrix/client/v1/login/get_qr_code", "/_matrix/client/v1/login/qr/start"];
+        let qr_token_path = "/_matrix/client/v1/login/qr_token";
 
-        assert!(compat_paths.iter().all(|path| !path.contains("/login/qr")));
-        assert!(qr_paths.iter().all(|path| path.starts_with("/_matrix/client/v1/login/")));
+        assert!(compat_paths.iter().all(|path| !path.contains("/login/qr_token")));
+        assert!(qr_token_path.starts_with("/_matrix/client/v1/login/"));
     }
 }
 

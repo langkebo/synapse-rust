@@ -65,6 +65,7 @@ fn base_route_manifest() -> RouteLedger {
     ledger.extend(guest::guest_route_manifest());
     ledger.extend(captcha::captcha_route_manifest());
     ledger.extend(rendezvous::rendezvous_route_manifest());
+    ledger.extend(msc4108_rendezvous::msc4108_route_manifest());
     ledger.extend(telemetry::telemetry_route_manifest());
     ledger.extend(thirdparty::thirdparty_route_manifest());
     ledger.extend(background_update::background_update_route_manifest());
@@ -206,15 +207,12 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
         ],
     ));
 
-    // Auth standalone routes (QR login + login fallback) — absolute paths
+    // Auth standalone routes (login fallback + MSC4108 QR token) — absolute paths
     out.extend(
         [
             (Method::GET, "/_matrix/static/client/login/"),
-            (Method::GET, "/_matrix/client/v1/login/get_qr_code"),
-            (Method::POST, "/_matrix/client/v1/login/qr/confirm"),
-            (Method::POST, "/_matrix/client/v1/login/qr/start"),
-            (Method::GET, "/_matrix/client/v1/login/qr/{transaction_id}/status"),
-            (Method::POST, "/_matrix/client/v1/login/qr/invalidate"),
+            // MSC4108: short-lived login token generation for QR sign-in
+            (Method::POST, "/_matrix/client/v1/login/qr_token"),
         ]
         .into_iter()
         .map(|(m, p)| RouteEntry::new(m, p, "assembly::auth_router")),
@@ -345,6 +343,23 @@ pub fn create_router(state: AppState) -> Router {
                 "route manifest validated: {} declared (method, path) tuples, 0 duplicates",
                 report.unique_tuples,
             );
+            // Emit r0 deprecation warning unless suppressed by configuration.
+            // The config system maps `SYNAPSE__SERVER__SUPPRESS_R0_DEPRECATION_WARNING`
+            // to `server.suppress_r0_deprecation_warning`; we check the env var
+            // here because AppState does not carry the resolved Config.
+            let suppress_r0_warning = std::env::var("SYNAPSE__SERVER__SUPPRESS_R0_DEPRECATION_WARNING")
+                .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+                .unwrap_or(false);
+            if report.r0_route_count > 0 && !suppress_r0_warning {
+                ::tracing::warn!(
+                    target: "synapse_rust::web::routes::route_ledger",
+                    r0_routes = report.r0_route_count,
+                    "{} r0 route(s) are deprecated and scheduled for removal. \
+                     Clients should migrate to /v3/ paths. Set \
+                     `server.suppress_r0_deprecation_warning: true` to suppress.",
+                    report.r0_route_count,
+                );
+            }
         }
         Err(err) => {
             tracing::error!("route manifest contains duplicate entries — refusing to start:\n{err}");
@@ -474,6 +489,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(ephemeral::create_ephemeral_router(state.clone()))
         .merge(crate::web::routes::handlers::thread::create_thread_routes(state.clone()))
         .merge(create_rendezvous_router(state.clone()))
+        .merge(create_msc4108_rendezvous_router(state.clone()))
         .merge(create_presence_router());
 
     // Fallback handler: unmatched routes return M_UNRECOGNIZED per Matrix spec.
@@ -523,35 +539,11 @@ fn create_auth_router() -> Router<AppState> {
             "/_matrix/static/client/login/",
             get(auth_compat::login_fallback_page),
         )
+        // MSC4108: existing device generates a short-lived login token that the
+        // new device exchanges via m.login.token over the secure rendezvous channel.
         .route(
-            "/_matrix/client/v1/login/get_qr_code",
-            get(qr_login::get_qr_code),
-        )
-        .route(
-            "/_matrix/client/v1/login/qr/confirm",
-            post(qr_login::confirm_qr_login),
-        )
-        .route(
-            "/_matrix/client/v1/login/qr/start",
-            post(qr_login::start_qr_login),
-        )
-        .route(
-            "/_matrix/client/v1/login/qr/{transaction_id}/status",
-            get(qr_login::get_qr_status),
-        )
-        .route(
-            "/_matrix/client/v1/login/qr/invalidate",
-            post(qr_login::invalidate_qr_login),
-        )
-        // Frontend compat: POST /login/qrcode/new -> get_qr_code
-        .route(
-            "/_matrix/client/v1/login/qrcode/new",
-            post(qr_login::get_qr_code),
-        )
-        // Frontend compat: GET /login/qrcode/{session_id} -> get_qr_status
-        .route(
-            "/_matrix/client/v1/login/qrcode/{session_id}",
-            get(qr_login::get_qr_status),
+            "/_matrix/client/v1/login/qr_token",
+            post(auth_compat::generate_qr_login_token),
         )
 }
 

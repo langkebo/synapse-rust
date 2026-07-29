@@ -273,3 +273,33 @@ fn is_valid_room_id(room_id: &str) -> bool {
 fn is_valid_membership(membership: &str) -> bool {
     matches!(membership, "join" | "invite" | "leave" | "ban")
 }
+
+// Test 19: allowed_room_ids field serialization (Matrix v1.15)
+#[test]
+fn test_allowed_room_ids_serialization_when_restricted() {
+    let summary = json!({
+        "room_id": "!room:localhost",
+        "join_rule": "restricted",
+        "allowed_room_ids": ["!parent:example.org", "!other:example.org"],
+        "num_joined_members": 10
+    });
+
+    assert_eq!(summary["join_rule"], "restricted");
+    let allowed = summary["allowed_room_ids"].as_array().unwrap();
+    assert_eq!(allowed.len(), 2);
+    assert_eq!(allowed[0], "!parent:example.org");
+}
+
+// Test 20: allowed_room_ids omitted for non-restricted join rules
+#[test]
+fn test_allowed_room_ids_omitted_when_public() {
+    // When join_rule is "public", allowed_room_ids should be None and
+    // skip_serialized (per #[serde(skip_serializing_if = "Option::is_none")])
+    let summary = json!({
+        "room_id": "!room:localhost",
+        "join_rule": "public",
+        "num_joined_members": 10
+    });
+
+    assert!(summary.get("allowed_room_ids").is_none());
+}

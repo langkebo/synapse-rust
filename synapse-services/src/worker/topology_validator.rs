@@ -679,4 +679,211 @@ mod tests {
         assert_eq!(global_maintenance_owner(&config), WorkerType::Background);
         assert!(!should_run_global_maintenance(&config));
     }
+
+    // =========================================================================
+    // P2-15: Synapse v1.156 worker config coverage extensions
+    // =========================================================================
+    //
+    // These tests extend topology_validator coverage to validate stream writers
+    // introduced/clarified in Synapse v1.156 (`device_lists`, `push_rules`,
+    // `account_data`, `receipts`, `presence`, `to_device`) and edge cases that
+    // the original test suite did not exercise.
+
+    /// Helper: build a multi-worker config with a single non-master stream
+    /// owner, leaving everything else at master. Used to test per-stream
+    /// owner-type validation.
+    fn build_config_with_stream_owner(stream: &str, owner: &str) -> WorkerConfig {
+        let mut instance_map = HashMap::new();
+        // Register the owner instance so it is "known" — otherwise the
+        // validator short-circuits on "unknown instance" before reaching the
+        // owner-type check we want to exercise.
+        instance_map.insert(
+            owner.to_string(),
+            InstanceLocationConfig { host: "127.0.0.1".to_string(), port: 8199, tls: false },
+        );
+
+        let mut stream_writers = StreamWriters {
+            events: vec!["master".to_string()],
+            typing: vec!["master".to_string()],
+            to_device: vec!["master".to_string()],
+            account_data: vec!["master".to_string()],
+            receipts: vec!["master".to_string()],
+            presence: vec!["master".to_string()],
+            push_rules: vec!["master".to_string()],
+            device_lists: vec!["master".to_string()],
+        };
+        match stream {
+            "events" => stream_writers.events = vec![owner.to_string()],
+            "typing" => stream_writers.typing = vec![owner.to_string()],
+            "to_device" => stream_writers.to_device = vec![owner.to_string()],
+            "account_data" => stream_writers.account_data = vec![owner.to_string()],
+            "receipts" => stream_writers.receipts = vec![owner.to_string()],
+            "presence" => stream_writers.presence = vec![owner.to_string()],
+            "push_rules" => stream_writers.push_rules = vec![owner.to_string()],
+            "device_lists" => stream_writers.device_lists = vec![owner.to_string()],
+            _ => {}
+        }
+
+        WorkerConfig {
+            enabled: true,
+            instance_name: "master".to_string(),
+            instance_map,
+            stream_writers,
+            replication: ReplicationConfig {
+                enabled: true,
+                server_name: "localhost".to_string(),
+                http: ReplicationHttpConfig {
+                    enabled: true,
+                    host: "127.0.0.1".to_string(),
+                    port: 9093,
+                    secret: Some("test-secret".to_string()),
+                    secret_path: None,
+                },
+            },
+            ..WorkerConfig::default()
+        }
+    }
+
+    /// P2-15: All non-events streams must reject non-master owners.
+    /// Synapse v1.156 clarified that only `events` may be owned by
+    /// `event_persister`; all other streams are master-only.
+    #[test]
+    fn test_p2_15_device_lists_stream_rejects_non_master_owner() {
+        let config = build_config_with_stream_owner("device_lists", "event_persister");
+        let result = validate_worker_config(&config);
+        assert!(!result.valid, "device_lists owned by event_persister must be rejected");
+        assert!(
+            result.errors.iter().any(|e| e.contains("device_lists") && e.contains("only allows: master")),
+            "expected device_lists rejection error, got: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_p2_15_push_rules_stream_rejects_non_master_owner() {
+        let config = build_config_with_stream_owner("push_rules", "event_persister");
+        let result = validate_worker_config(&config);
+        assert!(!result.valid, "push_rules owned by event_persister must be rejected");
+        assert!(result.errors.iter().any(|e| e.contains("push_rules")), "expected push_rules error");
+    }
+
+    #[test]
+    fn test_p2_15_presence_stream_rejects_non_master_owner() {
+        let config = build_config_with_stream_owner("presence", "event_persister");
+        let result = validate_worker_config(&config);
+        assert!(!result.valid, "presence owned by event_persister must be rejected");
+        assert!(result.errors.iter().any(|e| e.contains("presence")), "expected presence error");
+    }
+
+    #[test]
+    fn test_p2_15_receipts_stream_rejects_non_master_owner() {
+        let config = build_config_with_stream_owner("receipts", "event_persister");
+        let result = validate_worker_config(&config);
+        assert!(!result.valid, "receipts owned by event_persister must be rejected");
+        assert!(result.errors.iter().any(|e| e.contains("receipts")), "expected receipts error");
+    }
+
+    #[test]
+    fn test_p2_15_account_data_stream_rejects_non_master_owner() {
+        let config = build_config_with_stream_owner("account_data", "event_persister");
+        let result = validate_worker_config(&config);
+        assert!(!result.valid, "account_data owned by event_persister must be rejected");
+        assert!(result.errors.iter().any(|e| e.contains("account_data")), "expected account_data error");
+    }
+
+    #[test]
+    fn test_p2_15_to_device_stream_rejects_non_master_owner() {
+        let config = build_config_with_stream_owner("to_device", "event_persister");
+        let result = validate_worker_config(&config);
+        assert!(!result.valid, "to_device owned by event_persister must be rejected");
+        assert!(result.errors.iter().any(|e| e.contains("to_device")), "expected to_device error");
+    }
+
+    /// P2-15: `events` stream accepts `event_persister` (the only non-master
+    /// allowed stream writer type). This is the positive control for the
+    /// per-stream type check.
+    #[test]
+    fn test_p2_15_events_stream_accepts_event_persister() {
+        let config = build_config_with_stream_owner("events", "event_persister");
+        let result = validate_worker_config(&config);
+        assert!(
+            result.valid,
+            "events owned by event_persister must be accepted (only events allows non-master), errors: {:?}",
+            result.errors
+        );
+    }
+
+    /// P2-15: An empty stream-writers vec must be flagged as an error.
+    /// `stream_writer_sets` returns an error when `owners.is_empty()`.
+    #[test]
+    fn test_p2_15_empty_stream_owners_vec_is_error() {
+        let mut config = WorkerConfig { enabled: true, instance_name: "master".to_string(), ..WorkerConfig::default() };
+        config.stream_writers.events = vec![];
+        let result = validate_worker_config(&config);
+        assert!(!result.valid, "empty events stream owners must be an error");
+        assert!(
+            result.errors.iter().any(|e| e.contains("no configured owners")),
+            "expected 'no configured owners' error, got: {:?}",
+            result.errors
+        );
+    }
+
+    /// P2-15: `should_run_global_maintenance` returns true when the current
+    /// instance IS the background worker — the negative case is tested by
+    /// `test_global_maintenance_owner_prefers_background_worker_when_present`
+    /// but the positive case was not.
+    #[test]
+    fn test_p2_15_should_run_global_maintenance_on_background_worker_itself() {
+        let mut config = WorkerConfig {
+            enabled: true,
+            instance_name: "background_worker".to_string(),
+            ..WorkerConfig::default()
+        };
+        config.instance_map.insert(
+            "background_worker".to_string(),
+            InstanceLocationConfig { host: "127.0.0.1".to_string(), port: 8105, tls: false },
+        );
+        assert_eq!(current_instance_worker_type(&config), WorkerType::Background);
+        assert_eq!(global_maintenance_owner(&config), WorkerType::Background);
+        assert!(should_run_global_maintenance(&config), "background_worker must run global maintenance");
+    }
+
+    /// P2-15: `RouteOwnerProbe::path()` returns the canonical Matrix endpoint
+    /// for each probe — verify all three are valid Matrix paths.
+    #[test]
+    fn test_p2_15_route_owner_probe_paths_are_valid_matrix_endpoints() {
+        assert_eq!(RouteOwnerProbe::Sync.path(), "/_matrix/client/v3/sync");
+        assert_eq!(RouteOwnerProbe::Media.path(), "/_matrix/media/v3/config");
+        assert_eq!(RouteOwnerProbe::Federation.path(), "/_matrix/federation/v1/version");
+    }
+
+    /// P2-15: `worker_type_for_instance_name` accepts hyphen/underscore
+    /// suffixes (e.g. "sync_worker-1", "event_persister_2"). This covers
+    /// multi-instance deployments where each instance has a numeric suffix.
+    #[test]
+    fn test_p2_15_instance_name_suffix_resolution() {
+        // Direct match
+        assert_eq!(worker_type_for_instance_name("sync_worker"), Some(WorkerType::Synchrotron));
+        // Hyphen suffix
+        assert_eq!(worker_type_for_instance_name("sync_worker-1"), Some(WorkerType::Synchrotron));
+        // Underscore suffix
+        assert_eq!(worker_type_for_instance_name("event_persister_2"), Some(WorkerType::EventPersister));
+        // Unknown name
+        assert_eq!(worker_type_for_instance_name("unknown_worker"), None);
+    }
+
+    /// P2-15: All 8 streams are covered by `stream_writer_sets()`. This is a
+    /// structural assertion that prevents accidentally dropping a stream when
+    /// the `StreamWriters` struct is extended in the future.
+    #[test]
+    fn test_p2_15_stream_writer_sets_covers_all_eight_streams() {
+        let config = WorkerConfig::default();
+        let sets = stream_writer_sets(&config);
+        let names: Vec<&str> = sets.iter().map(|(name, _)| *name).collect();
+        assert_eq!(
+            names,
+            vec!["events", "typing", "to_device", "account_data", "receipts", "presence", "push_rules", "device_lists"],
+            "all 8 stream writers must be covered by stream_writer_sets()"
+        );
+    }
 }

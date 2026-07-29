@@ -108,7 +108,12 @@ async fn test_media_routes_share_content_across_versions() {
 
 #[tokio::test]
 async fn test_media_preview_and_delete_boundaries() {
-    let Some(app) = setup_test_app().await else {
+    // P2-11: preview_url endpoint requires msc4452_enabled=true to return 200.
+    let Some(app) = super::setup_fresh_test_app_with_config(|container| {
+        container.core.config.experimental.msc4452_enabled = true;
+    })
+    .await
+    .map(|(app, _)| app) else {
         return;
     };
     let token = register_user(&app, "media_routes_delete").await;
@@ -217,7 +222,12 @@ async fn test_client_v1_authenticated_media_download_requires_access_token() {
 
 #[tokio::test]
 async fn test_client_v1_authenticated_media_thumbnail_and_preview_routes_work() {
-    let Some(app) = setup_test_app().await else {
+    // P2-11: preview_url endpoint requires msc4452_enabled=true to return 200.
+    let Some(app) = super::setup_fresh_test_app_with_config(|container| {
+        container.core.config.experimental.msc4452_enabled = true;
+    })
+    .await
+    .map(|(app, _)| app) else {
         return;
     };
     let token = register_user(&app, &format!("media_auth_thumbnail_{}", rand::random::<u32>())).await;
@@ -656,4 +666,46 @@ async fn test_legacy_media_download_missing_returns_not_found_status() {
     let body = axum::body::to_bytes(r1_response.into_body(), 2048).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_NOT_FOUND");
+}
+
+// ============================================================================
+// P2-11: MSC4452 endpoint-level 403 enforcement
+// ============================================================================
+//
+// Synapse v1.154 (#19715) introduced MSC4452: when the
+// `io.element.msc4452.preview_url` capability is disabled (controlled by
+// `config.experimental.msc4452_enabled`, default false), the
+// `GET /_matrix/media/v3/preview_url` endpoint MUST return 403 Forbidden.
+//
+// The capability declaration already exists in capability_governance.rs; this
+// test verifies the endpoint-level enforcement.
+
+/// P2-11 RED: when `msc4452_enabled` is false (default), the preview_url
+/// endpoint MUST return 403 Forbidden, matching Synapse v1.154 behavior.
+#[tokio::test]
+async fn test_p2_11_preview_url_returns_403_when_msc4452_disabled() {
+    // Default config has msc4452_enabled = false.
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/media/v3/preview_url?url=https://example.com")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "P2-11: preview_url must return 403 when msc4452_enabled is false (default)"
+    );
+
+    let body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        json["errcode"], "M_FORBIDDEN",
+        "P2-11: 403 response must use M_FORBIDDEN errcode"
+    );
 }

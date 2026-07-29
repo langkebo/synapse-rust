@@ -40,35 +40,81 @@ async fn require_password_uia(
                 .into_response());
         }
         Some(auth_val) => {
-            let result = ctx
-                .uia_service
-                .validate_auth(
-                    auth_val,
-                    &auth_user.user_id,
-                    synapse_services::uia_service::UiaService::get_delete_device_flows(),
-                )
-                .await;
-
-            match result {
-                Ok(_) => {}
-                Err(uia_response) => {
-                    return Err((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
+            // P-054: Do not delegate to `validate_auth` here. That helper marks
+            // the stage complete and removes the session *before* the password
+            // has actually been verified, which destroys the UIA session on a
+            // wrong password and yields "Unknown or expired session" on retry.
+            // Instead, look up the session manually, verify credentials, and
+            // only complete the stage on success — keeping the session alive
+            // across failed attempts so the client can retry with a different
+            // password (per Matrix UIA spec).
+            let flows = synapse_services::uia_service::UiaService::get_delete_device_flows();
+            let session_id = auth_val.get("session").and_then(|v| v.as_str());
+            let session = match session_id {
+                Some(sid) => match ctx.uia_service.get_session(sid).await {
+                    Some(s) if s.user_id == auth_user.user_id => s,
+                    Some(_) => {
+                        let new_session = ctx.uia_service.create_session(&auth_user.user_id, flows).await;
+                        return Err((
+                            StatusCode::UNAUTHORIZED,
+                            Json(ctx.uia_service.build_uia_response(
+                                &new_session,
+                                "M_FORBIDDEN",
+                                "Session belongs to a different user",
+                            )),
+                        )
+                            .into_response());
+                    }
+                    None => {
+                        let new_session = ctx.uia_service.create_session(&auth_user.user_id, flows).await;
+                        return Err((
+                            StatusCode::UNAUTHORIZED,
+                            Json(ctx.uia_service.build_uia_response(
+                                &new_session,
+                                "M_UNKNOWN",
+                                "Unknown or expired session",
+                            )),
+                        )
+                            .into_response());
+                    }
+                },
+                None => {
+                    let new_session = ctx.uia_service.create_session(&auth_user.user_id, flows).await;
+                    return Err((
+                        StatusCode::UNAUTHORIZED,
+                        Json(ctx.uia_service.build_uia_response(
+                            &new_session,
+                            "M_UIA_REQUIRED",
+                            "User-Interactive Authentication required",
+                        )),
+                    )
+                        .into_response());
                 }
-            }
+            };
 
             let auth_type = auth_val.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+            // Reject auth types that are not part of any configured flow.
+            let valid_stages: Vec<String> = session.flows.iter().flat_map(|f| f.stages.iter().cloned()).collect();
+            if !valid_stages.contains(&auth_type.to_string()) {
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    Json(ctx.uia_service.build_uia_response(
+                        &session,
+                        "M_INVALID_PARAM",
+                        &format!("Unsupported auth type: {auth_type}"),
+                    )),
+                )
+                    .into_response());
+            }
+
+            // Verify credentials. On failure, return the SAME session so the
+            // client can retry — the session is NOT deleted or replaced.
             match auth_type {
                 "m.login.password" => {
                     if let Err(e) =
                         ctx.uia_service.verify_password_stage(auth_val, &auth_user.user_id, &ctx.credential_auth).await
                     {
-                        let session = ctx
-                            .uia_service
-                            .create_session(
-                                &auth_user.user_id,
-                                synapse_services::uia_service::UiaService::get_delete_device_flows(),
-                            )
-                            .await;
                         return Err((
                             StatusCode::UNAUTHORIZED,
                             Json(ctx.uia_service.build_uia_response(&session, "M_FORBIDDEN", &e.to_string())),
@@ -80,13 +126,6 @@ async fn require_password_uia(
                     if let Err(e) =
                         ctx.uia_service.verify_token_stage(auth_val, &auth_user.user_id, &ctx.token_auth).await
                     {
-                        let session = ctx
-                            .uia_service
-                            .create_session(
-                                &auth_user.user_id,
-                                synapse_services::uia_service::UiaService::get_delete_device_flows(),
-                            )
-                            .await;
                         return Err((
                             StatusCode::UNAUTHORIZED,
                             Json(ctx.uia_service.build_uia_response(&session, "M_FORBIDDEN", &e.to_string())),
@@ -95,13 +134,6 @@ async fn require_password_uia(
                     }
                 }
                 _ => {
-                    let session = ctx
-                        .uia_service
-                        .create_session(
-                            &auth_user.user_id,
-                            synapse_services::uia_service::UiaService::get_delete_device_flows(),
-                        )
-                        .await;
                     return Err((
                         StatusCode::UNAUTHORIZED,
                         Json(ctx.uia_service.build_uia_response(
@@ -113,6 +145,24 @@ async fn require_password_uia(
                         .into_response());
                 }
             }
+
+            // Credentials verified — now complete the stage.
+            let session = ctx.uia_service.complete_stage(&session.session_id, auth_type).await.unwrap_or(session);
+
+            if !ctx.uia_service.is_session_complete(&session) {
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    Json(ctx.uia_service.build_uia_response(
+                        &session,
+                        "M_UIA_REQUIRED",
+                        "Additional authentication stages required",
+                    )),
+                )
+                    .into_response());
+            }
+
+            // Flow complete — remove the session and fall through to Ok(()).
+            ctx.uia_service.remove_session(&session.session_id).await;
         }
     }
 

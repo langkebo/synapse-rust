@@ -37,13 +37,19 @@ impl EventStorage {
     }
 
     /// Get unread notification and highlight counts for a user in a room.
+    ///
+    /// P1-7: `last_read_ts` falls back to `read_markers.origin_server_ts` when
+    /// the referenced event has been purged (the LEFT JOIN returns NULL).
+    /// Without this fallback, `last_read_ts` would collapse to 0 and every
+    /// remaining event in the room — including already-read local events that
+    /// survived `purge_history` — would be counted as unread (count bloat).
     pub async fn get_unread_counts(&self, room_id: &str, user_id: &str) -> Result<RoomUnreadCounts, sqlx::Error> {
         let mention_pattern = format!("%{user_id}%");
 
         sqlx::query_as::<_, RoomUnreadCounts>(
             r"
             WITH last_read AS (
-                SELECT COALESCE(MAX(e.origin_server_ts), 0) AS last_read_ts
+                SELECT COALESCE(MAX(e.origin_server_ts), MAX(rm.origin_server_ts), 0) AS last_read_ts
                 FROM read_markers rm
                 LEFT JOIN events e ON e.event_id = rm.event_id
                 WHERE rm.room_id = $1 AND rm.user_id = $2
@@ -81,6 +87,9 @@ impl EventStorage {
     }
 
     /// Batch variant of [`get_unread_counts`](Self::get_unread_counts).
+    ///
+    /// P1-7: like the single-room variant, `last_read_ts` falls back to
+    /// `read_markers.origin_server_ts` when the referenced event is purged.
     pub async fn get_unread_counts_batch(
         &self,
         room_ids: &[String],
@@ -97,7 +106,8 @@ impl EventStorage {
                 SELECT UNNEST($2::text[]) AS room_id
             ),
             last_reads AS (
-                SELECT tr.room_id, COALESCE(MAX(e.origin_server_ts), 0) AS last_read_ts
+                SELECT tr.room_id,
+                       COALESCE(MAX(e.origin_server_ts), MAX(rm.origin_server_ts), 0) AS last_read_ts
                 FROM target_rooms tr
                 LEFT JOIN read_markers rm
                   ON rm.room_id = tr.room_id

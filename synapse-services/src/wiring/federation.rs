@@ -38,7 +38,8 @@ impl FederationServices {
             &server_name,
             config.server.signing_key_path.clone(),
             config.federation.signing_key_master_key.as_ref().map(|k| k.as_bytes().to_vec()),
-        );
+        )
+        .with_allow_plaintext_signing_keys(config.federation.allow_plaintext_signing_keys);
         let key_rotation_service = Arc::new(crate::federation_key_rotation_service::FederationKeyRotationService::new(
             Arc::new(key_rotation_manager.clone()),
             Arc::new(KeyRotationStorage::new(pool.clone())),

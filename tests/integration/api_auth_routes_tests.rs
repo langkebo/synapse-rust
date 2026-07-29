@@ -183,6 +183,7 @@ async fn test_versions_and_public_capabilities_match_declared_room_version_surfa
     assert_eq!(unstable["org.matrix.msc3245.voice"], true);
     assert_eq!(unstable["org.matrix.msc3983.thread"], true);
     assert_eq!(unstable["org.matrix.msc3886.sliding_sync"], true);
+    assert_eq!(unstable["org.matrix.simplified_msc3575"], true);
     assert_eq!(unstable["io.hula.friends"], cfg!(feature = "friends"));
     assert_eq!(unstable["io.hula.burn_after_read"], cfg!(feature = "burn-after-read"));
 

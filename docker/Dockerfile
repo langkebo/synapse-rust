@@ -1,11 +1,13 @@
 ARG RUST_VERSION=1.93.0
-ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/cc-debian12
-ARG CARGO_FEATURE_ARGS="--features server,core-private-chat,openclaw,voice-extended,cas-sso,saml-sso --no-default-features"
+ARG RUST_BUILDER_IMAGE=rust:1.93.0-slim-bookworm@sha256:776861219cd851131c1cec3bbd7cbeb16b99a794048097eb69ad9682a8ed0d57
+ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/cc-debian12@sha256:e8e7ee4b8b106d4c5fde9e422a321b2b8a2d5cca546c97adcce927f3e1d36e36
+ARG DEBIAN_BASE_IMAGE=debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
+ARG CARGO_FEATURE_ARGS="--features server,core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso --no-default-features"
 
 # ============================================================================
 # Stage 1: builder — 编译 Rust 二进制 + 收集运行时所需文件到 /out/app
 # ============================================================================
-FROM rust:${RUST_VERSION}-slim-bookworm AS builder
+FROM ${RUST_BUILDER_IMAGE} AS builder
 
 ARG CARGO_FEATURE_ARGS
 ARG CARGO_BUILD_JOBS=2
@@ -38,6 +40,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # BuildKit cache mounts 大幅加速重复构建 (cargo registry / git / target)
 COPY Cargo.toml Cargo.lock ./
 COPY .sqlx ./.sqlx
+# 复制 cargo 配置（含国内镜像源），避免 cargo fetch 时访问 crates.io 超时
+COPY .cargo/config.toml ./.cargo/config.toml
 COPY synapse-common/Cargo.toml      ./synapse-common/Cargo.toml
 COPY synapse-cache/Cargo.toml       ./synapse-cache/Cargo.toml
 COPY synapse-storage/Cargo.toml     ./synapse-storage/Cargo.toml
@@ -62,6 +66,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
            synapse-federation/src synapse-services/src
 
 # 复制真正的源码 + 迁移脚本 + 启动脚本
+# CACHE_BUST 用于强制 invalidate COPY 缓存（修复 BuildKit 未检测源码变更的问题）
+ARG CACHE_BUST=1
 COPY . .
 
 # The builder image is already pinned to the requested Rust version.
@@ -88,7 +94,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # Stage 2: runtime-libs — 从 debian-slim 抽取 distroless 缺失的动态库
 # 仅在 distroless `runtime` 目标使用. 默认 `tools` 目标不依赖此阶段.
 # ============================================================================
-FROM debian:bookworm-slim AS runtime-libs
+FROM ${DEBIAN_BASE_IMAGE} AS runtime-libs
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -151,7 +157,7 @@ CMD ["/app/synapse-rust"]
 # debian-slim + libssl3 + ca-certificates + postgresql-client + curl
 # 体积约 200MB, 但能在容器内自洽完成: 等待 DB → 执行迁移 → 校验 schema → 启动
 # ============================================================================
-FROM debian:bookworm-slim AS tools
+FROM ${DEBIAN_BASE_IMAGE} AS tools
 
 ARG VERSION=dev
 ARG BUILD_DATE=unknown

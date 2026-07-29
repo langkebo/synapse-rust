@@ -92,7 +92,8 @@ pub fn get_well_known_server() -> axum::Json<serde_json::Value> {
                     }
                 },
                 "unstable_features": {
-                    "org.matrix.msc3886.sliding_sync": true
+                    "org.matrix.msc3886.sliding_sync": true,
+                    "org.matrix.simplified_msc3575": true
                 }
             })
         ),

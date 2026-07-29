@@ -206,7 +206,7 @@ pub(crate) async fn oidc_callback(
             .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
         let refresh_token: String = ctx
             .token_auth
-            .generate_refresh_token(&user_id, &device_id)
+            .generate_refresh_token(&user_id, &device_id, &access_token)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to generate refresh token", &e))?;
         (existing, access_token, refresh_token, device_id)
@@ -237,7 +237,7 @@ pub(crate) async fn oidc_callback(
                         .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
                     let refresh_token: String = ctx
                         .token_auth
-                        .generate_refresh_token(&user_id, &device_id)
+                        .generate_refresh_token(&user_id, &device_id, &access_token)
                         .await
                         .map_err(|e| ApiError::internal_with_log("Failed to generate refresh token", &e))?;
                     (existing, access_token, refresh_token, device_id)

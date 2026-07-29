@@ -117,7 +117,11 @@ async fn handle_saml_callback(
 
     let expires_in = 3600_i64;
 
-    let refresh_token = match ctx.token_auth.generate_refresh_token(&auth_result.user_id, &device_id).await {
+    let refresh_token = match ctx
+        .token_auth
+        .generate_refresh_token(&auth_result.user_id, &device_id, &access_token)
+        .await
+    {
         Ok(token) => Some(token),
         Err(e) => {
             ::tracing::warn!(

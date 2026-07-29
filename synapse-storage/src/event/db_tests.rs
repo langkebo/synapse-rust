@@ -1666,3 +1666,363 @@ async fn test_search_joined_room_events_matches() {
 
     let _ = storage.delete_room_events(&room_id).await;
 }
+
+// --- P1-7: notification count bloat after purge_history ---
+
+/// Helper: insert a remote-origin event from `sender` at `ts`.
+async fn insert_remote_event(
+    pool: &Pool<Postgres>,
+    event_id: &str,
+    room_id: &str,
+    sender: &str,
+    ts: i64,
+    origin: &str,
+) {
+    sqlx::query(
+        r#"INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, origin)
+           VALUES ($1, $2, $3, $3, 'm.room.message', $4, NULL, $5, false, $6)"#,
+    )
+    .bind(event_id)
+    .bind(room_id)
+    .bind(sender)
+    .bind(&serde_json::json!({"body": "msg"}))
+    .bind(ts)
+    .bind(origin)
+    .execute(pool)
+    .await
+    .expect("insert event should succeed");
+}
+
+/// P1-7 RED test: After `purge_history` deletes the event referenced by
+/// `read_markers.event_id`, `get_unread_counts` must NOT bloat.
+///
+/// Scenario:
+/// - e1_local  @ ts=1000  (origin='self', sender=@other) — survives purge
+/// - e2_remote @ ts=2000  (origin='remote', sender=@other) — MARKER event, purged
+/// - e3_remote @ ts=3000  (origin='remote', sender=@other) — unread, survives purge
+/// - Reader @me sets read marker to e2 → e3 is the only unread (count=1)
+/// - Purge before ts=2500 → deletes e2_remote (marker). e1_local + e3_remote remain.
+/// - Expected: count still 1 (only e3; e1_local was already read before marker e2)
+/// - BUG (current): last_read_ts=0 because e2 is gone, so e1_local (ts=1000 > 0)
+///   is counted as unread → count=2 (bloat)
+#[tokio::test]
+async fn test_p1_7_unread_count_not_bloated_after_purge_history() {
+    let pool = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_storage = crate::room::RoomStorage::new(&pool);
+
+    let suffix = uuid::Uuid::new_v4();
+    let room_id = format!("!p17_{}:example.com", suffix);
+    let reader = format!("@p17me_{}:example.com", suffix);
+    let other = format!("@p17other_{}:example.com", suffix);
+    let e1_id = format!("$p17_e1_{}:example.com", suffix);
+    let e2_id = format!("$p17_e2_{}:remote.example.com", suffix);
+    let e3_id = format!("$p17_e3_{}:remote.example.com", suffix);
+
+    // Cleanup
+    let _ = sqlx::query("DELETE FROM read_markers WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
+    let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, &reader).await;
+    ensure_test_user(&pool, &other).await;
+
+    // e1: LOCAL event from @other (origin='self', survives purge)
+    insert_remote_event(&pool, &e1_id, &room_id, &other, 1_000_000, "self").await;
+    // e2: REMOTE event from @other (origin='remote', will be purged) — MARKER
+    insert_remote_event(&pool, &e2_id, &room_id, &other, 1_000_001, "remote.example.com").await;
+    // e3: REMOTE event from @other (origin='remote', after cutoff, survives)
+    insert_remote_event(&pool, &e3_id, &room_id, &other, 1_000_002, "remote.example.com").await;
+
+    // Reader @me sets read marker to e2 (read up to e2; e3 is unread)
+    room_storage.update_read_marker(&room_id, &reader, &e2_id).await.expect("update_read_marker should succeed");
+
+    // Baseline: only e3 is unread (e1 is before marker e2)
+    let baseline = storage.get_unread_counts(&room_id, &reader).await.expect("baseline get_unread_counts should succeed");
+    assert_eq!(
+        baseline.notification_count, 1,
+        "baseline: only e3 should be unread (e1 is before marker e2)"
+    );
+
+    // Purge history before ts=1_000_002 → deletes e2 (ts=1_000_001 < cutoff, origin=remote)
+    // e1 survives (origin='self'), e3 survives (ts=1_000_002 is NOT < cutoff)
+    let purge_cutoff = 1_000_002;
+    let deleted = storage
+        .delete_events_before(&room_id, purge_cutoff, false)
+        .await
+        .expect("delete_events_before should succeed");
+    assert_eq!(deleted, 1, "purge should delete exactly 1 remote event (e2, the marker)");
+
+    // Verify e2 is gone and e1/e3 remain
+    assert!(storage.get_event(&e2_id).await.unwrap().is_none(), "e2 (marker) should be purged");
+    assert!(storage.get_event(&e1_id).await.unwrap().is_some(), "e1 (local) should survive purge");
+    assert!(storage.get_event(&e3_id).await.unwrap().is_some(), "e3 (after cutoff) should survive purge");
+
+    // P1-7 assertion: count must still be 1 (only e3), NOT 2 (e1+e3)
+    let after_purge =
+        storage.get_unread_counts(&room_id, &reader).await.expect("post-purge get_unread_counts should succeed");
+    assert_eq!(
+        after_purge.notification_count, 1,
+        "P1-7: after purge_history deletes the marker event, unread count must NOT bloat. \
+         Expected 1 (only e3), got {}. e1_local was already read before marker e2 and must not be recounted.",
+        after_purge.notification_count
+    );
+
+    // Cleanup
+    let _ = sqlx::query("DELETE FROM read_markers WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
+    let _ = storage.delete_room_events(&room_id).await;
+}
+
+// =============================================================================
+// P2-14: MSC4242 State DAG — prev_state_events storage and query
+// =============================================================================
+//
+// MSC4242 adds `prev_state_events` to state events, forming a state DAG
+// distinct from the room DAG (`prev_events`). These tests verify the storage
+// layer can persist and retrieve `prev_state_events`, which is the tracer
+// bullet for MSC4242 support.
+
+/// P2-14 RED: A state event created with `prev_state_events` must persist
+/// them to the `events.prev_state_events` column and return them via
+/// `get_prev_state_events`.
+#[tokio::test]
+async fn test_p2_14_state_event_stores_prev_state_events() {
+    let pool = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+
+    let suffix = uuid::Uuid::new_v4();
+    let room_id = format!("!p214a_{}:example.com", suffix);
+    let event_id = format!("$p214a_state_{}:example.com", suffix);
+    let prev_state_1 = format!("$p214a_prev1_{}:example.com", suffix);
+    let prev_state_2 = format!("$p214a_prev2_{}:example.com", suffix);
+    let user_id = "@p214sender:example.com";
+
+    // Cleanup
+    let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, user_id).await;
+
+    let params = CreateEventParams {
+        event_id: event_id.clone(),
+        room_id: room_id.clone(),
+        user_id: user_id.to_string(),
+        event_type: "m.room.member".to_string(),
+        content: serde_json::json!({"membership": "join"}),
+        state_key: Some("@p214sender:example.com".to_string()),
+        origin_server_ts: current_timestamp_millis(),
+        redacts: None,
+    };
+
+    // Create a state event with prev_state_events (MSC4242).
+    let prev_state_events = vec![prev_state_1.clone(), prev_state_2.clone()];
+    storage
+        .create_state_event_with_dag(params, &[], &[], &prev_state_events, 1, None)
+        .await
+        .expect("create_state_event_with_dag should succeed");
+
+    // Query back the prev_state_events.
+    let result = storage
+        .get_prev_state_events(&event_id)
+        .await
+        .expect("get_prev_state_events should succeed");
+    assert!(
+        result.is_some(),
+        "get_prev_state_events must return Some for event with prev_state_events"
+    );
+    let retrieved = result.unwrap();
+    assert_eq!(
+        retrieved.len(),
+        2,
+        "must retrieve exactly 2 prev_state_events"
+    );
+    assert!(
+        retrieved.contains(&prev_state_1),
+        "retrieved prev_state_events must contain {prev_state_1}, got {retrieved:?}"
+    );
+    assert!(
+        retrieved.contains(&prev_state_2),
+        "retrieved prev_state_events must contain {prev_state_2}, got {retrieved:?}"
+    );
+
+    // Cleanup
+    let _ = storage.delete_room_events(&room_id).await;
+}
+
+/// P2-14: `get_state_dag_edges` must return all (event_id, prev_state_event_id)
+/// pairs for a room, forming the complete state DAG edge list.
+#[tokio::test]
+async fn test_p2_14_get_state_dag_edges_returns_all_edges() {
+    let pool = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+
+    let suffix = uuid::Uuid::new_v4();
+    let room_id = format!("!p214b_{}:example.com", suffix);
+    let user_id = "@p214bsender:example.com";
+
+    // Cleanup
+    let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, user_id).await;
+
+    // Create 3 state events forming a chain: e3 -> e2 -> e1
+    let e1 = format!("$p214b_e1_{}:example.com", suffix);
+    let e2 = format!("$p214b_e2_{}:example.com", suffix);
+    let e3 = format!("$p214b_e3_{}:example.com", suffix);
+
+    // e1: no prev_state_events (genesis state event)
+    storage
+        .create_state_event_with_dag(
+            CreateEventParams {
+                event_id: e1.clone(),
+                room_id: room_id.clone(),
+                user_id: user_id.to_string(),
+                event_type: "m.room.create".to_string(),
+                content: serde_json::json!({"creator": user_id}),
+                state_key: Some("".to_string()),
+                origin_server_ts: 1_000_000,
+                redacts: None,
+            },
+            &[],
+            &[],
+            &[],
+            0,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // e2: prev_state_events = [e1]
+    storage
+        .create_state_event_with_dag(
+            CreateEventParams {
+                event_id: e2.clone(),
+                room_id: room_id.clone(),
+                user_id: user_id.to_string(),
+                event_type: "m.room.member".to_string(),
+                content: serde_json::json!({"membership": "join"}),
+                state_key: Some(user_id.to_string()),
+                origin_server_ts: 1_000_001,
+                redacts: None,
+            },
+            &[],
+            &[],
+            &[e1.clone()],
+            1,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // e3: prev_state_events = [e2]
+    storage
+        .create_state_event_with_dag(
+            CreateEventParams {
+                event_id: e3.clone(),
+                room_id: room_id.clone(),
+                user_id: user_id.to_string(),
+                event_type: "m.room.power_levels".to_string(),
+                content: serde_json::json!({"ban": 50}),
+                state_key: Some("".to_string()),
+                origin_server_ts: 1_000_002,
+                redacts: None,
+            },
+            &[],
+            &[],
+            &[e2.clone()],
+            2,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Query state DAG edges for the room.
+    let edges = storage.get_state_dag_edges(&room_id).await.expect("get_state_dag_edges should succeed");
+
+    // e1 has empty prev_state_events (not stored as edges), so only 2 edges:
+    // (e2 -> e1) and (e3 -> e2)
+    assert_eq!(edges.len(), 2, "expected 2 state DAG edges (e2->e1, e3->e2), got {edges:?}");
+
+    // Verify edge (e2 -> e1)
+    assert!(
+        edges.contains(&(e2.clone(), e1.clone())),
+        "edges must contain (e2, e1), got {edges:?}"
+    );
+    // Verify edge (e3 -> e2)
+    assert!(
+        edges.contains(&(e3.clone(), e2.clone())),
+        "edges must contain (e3, e2), got {edges:?}"
+    );
+
+    // Cleanup
+    let _ = storage.delete_room_events(&room_id).await;
+}
+
+/// P2-14: `find_events_referencing_missing_state` must return event IDs whose
+/// `prev_state_events` contain any of the missing event IDs. This is the
+/// query used by `/get_missing_events` to determine which state DAG events
+/// need backfilling (MSC4242 mandates servers fill in unknown prev_state_events).
+#[tokio::test]
+async fn test_p2_14_find_events_referencing_missing_state() {
+    let pool = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+
+    let suffix = uuid::Uuid::new_v4();
+    let room_id = format!("!p214c_{}:example.com", suffix);
+    let user_id = "@p214csender:example.com";
+
+    // Cleanup
+    let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, user_id).await;
+
+    // Create a state event that references a "missing" event (never inserted).
+    let missing_event = format!("$p214c_missing_{}:example.com", suffix);
+    let referencing_event = format!("$p214c_ref_{}:example.com", suffix);
+
+    storage
+        .create_state_event_with_dag(
+            CreateEventParams {
+                event_id: referencing_event.clone(),
+                room_id: room_id.clone(),
+                user_id: user_id.to_string(),
+                event_type: "m.room.member".to_string(),
+                content: serde_json::json!({"membership": "join"}),
+                state_key: Some(user_id.to_string()),
+                origin_server_ts: 1_000_000,
+                redacts: None,
+            },
+            &[],
+            &[],
+            &[missing_event.clone()],
+            1,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // Query: which events reference the missing event in prev_state_events?
+    let result = storage
+        .find_events_referencing_missing_state(&room_id, &[missing_event.clone()])
+        .await
+        .expect("find_events_referencing_missing_state should succeed");
+
+    assert_eq!(
+        result.len(),
+        1,
+        "expected 1 event referencing the missing state event, got {result:?}"
+    );
+    assert_eq!(
+        result[0], referencing_event,
+        "the referencing event must be returned"
+    );
+
+    // Negative test: query for a different missing event → empty result.
+    let other_missing = format!("$p214c_other_missing_{}:example.com", suffix);
+    let empty_result = storage
+        .find_events_referencing_missing_state(&room_id, &[other_missing])
+        .await
+        .expect("find_events_referencing_missing_state should succeed for non-existent missing");
+    assert!(empty_result.is_empty(), "no events should reference a non-existent missing event");
+
+    // Cleanup
+    let _ = storage.delete_room_events(&room_id).await;
+}

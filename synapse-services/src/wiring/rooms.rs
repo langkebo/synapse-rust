@@ -95,7 +95,7 @@ impl RoomSyncServices {
             beacon_service: Some(beacon_service.clone()),
             #[cfg(not(feature = "beacons"))]
             beacon_service: None,
-            sticky_event_storage,
+            sticky_event_storage: sticky_event_storage.clone(),
             cache: infra.cache.clone(),
             key_rotation_storage: Some(
                 Arc::new(synapse_e2ee::key_rotation::KeyRotationStorage::new(infra.pool.clone()))
@@ -144,6 +144,7 @@ impl RoomSyncServices {
             to_device_storage.clone(),
             infra.metrics.clone(),
             infra.config.performance.clone(),
+            Some(sticky_event_storage.clone()),
         ));
 
         let space_storage: Arc<dyn synapse_storage::space::SpaceStoreApi> = Arc::new(SpaceStorage::new(&infra.pool));

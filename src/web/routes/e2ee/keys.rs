@@ -142,7 +142,12 @@ async fn upload_keys(
     let has_one_time_keys = body.get("one_time_keys").is_some();
 
     if !has_device_keys && !has_one_time_keys {
-        return Err(ApiError::bad_request("Must include at least device_keys or one_time_keys".to_string()));
+        // P-050: Matrix spec makes the request body optional for
+        // /keys/upload. An empty body ({}) should return 200 with the
+        // current one_time_key_counts rather than 400 M_BAD_JSON.
+        return Ok(Json(serde_json::json!({
+            "one_time_key_counts": {}
+        })));
     }
 
     // Validate device_keys has required fields when provided as a non-empty object

@@ -258,11 +258,7 @@ impl SlidingSyncStorage {
         query.push_bind(user_id);
         query.push(" AND device_id = ");
         query.push_bind(device_id);
-        query.push(" AND (conn_id = ");
-        query.push_bind(conn_id);
-        query.push(" OR conn_id IS NULL) AND (list_key = ");
-        query.push_bind(list_key);
-        query.push(" OR list_key IS NULL)");
+        Self::push_list_membership_filter(&mut query, conn_id, list_key);
 
         Self::push_room_filters(&mut query, filters);
 
@@ -292,16 +288,33 @@ impl SlidingSyncStorage {
         query.push_bind(user_id);
         query.push(" AND device_id = ");
         query.push_bind(device_id);
-        query.push(" AND (conn_id = ");
-        query.push_bind(conn_id);
-        query.push(" OR (");
-        query.push_bind(conn_id);
-        query.push(" IS NULL AND conn_id IS NULL)) AND list_key = ");
-        query.push_bind(list_key);
+        // P0-2: Reuse the same list-membership predicate as
+        // `get_rooms_for_list` so `count` and the rooms returned in `ops`
+        // always describe the same set. Previously the two queries used
+        // different NULL-handling rules, which made `count` diverge from
+        // the actual `ops` room count and broke the SDK's sliding window.
+        Self::push_list_membership_filter(&mut query, conn_id, list_key);
 
         Self::push_room_filters(&mut query, filters);
 
         query.build_query_scalar().fetch_one(&*self.pool).await
+    }
+
+    /// Append the list-membership predicate that selects rooms belonging to
+    /// the given connection/list, *including* rooms materialised into the
+    /// default pool (NULL `conn_id` / NULL `list_key`). Both
+    /// `get_rooms_for_list` and `count_rooms_for_list` must use this helper
+    /// so their result sets stay aligned — see P0-2.
+    fn push_list_membership_filter<'a>(
+        query: &mut QueryBuilder<'a, Postgres>,
+        conn_id: Option<&'a str>,
+        list_key: &'a str,
+    ) {
+        query.push(" AND (conn_id = ");
+        query.push_bind(conn_id);
+        query.push(" OR conn_id IS NULL) AND (list_key = ");
+        query.push_bind(list_key);
+        query.push(" OR list_key IS NULL)");
     }
 
     pub async fn get_room(

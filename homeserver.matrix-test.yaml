@@ -21,7 +21,7 @@ server:
   macaroon_secret_key: "local-dev-macaroon-secret-do-not-use-in-prod--32+"
   form_secret: "local-dev-form-secret-do-not-use-in-prod--32+chars"
   registration_shared_secret: "local-dev-registration-shared-secret-32+chars"
-  max_upload_size: 104857600
+  max_upload_size: 52428800
   max_image_resolution: 1920
   enable_registration: true
   enable_registration_captcha: false
@@ -121,7 +121,15 @@ smtp:
   enabled: false
 
 voip:
-  enabled: false
+  turn_uris:
+    - "turn:matrix.test:3478?transport=udp"
+    - "turn:matrix.test:3478?transport=tcp"
+    - "turns:matrix.test:5349?transport=tcp"
+  turn_shared_secret: "${TURN_SHARED_SECRET:-dev-turn-secret}"
+  turn_user_lifetime: "1h"
+  turn_allow_guests: false
+  stun_uris:
+    - "stun:matrix.test:3478"
 
 push:
   enabled: false

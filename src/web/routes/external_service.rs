@@ -417,6 +417,8 @@ pub fn external_service_route_manifest() -> Vec<crate::web::routes::route_ledger
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
 
+    // `mut` only needed when openclaw-routes feature appends an extra entry below.
+    #[cfg_attr(not(feature = "openclaw-routes"), allow(unused_mut))]
     let mut entries: Vec<RouteEntry> = [
         (Method::GET, "/_synapse/admin/v1/external_services"),
         (Method::POST, "/_synapse/admin/v1/external_services"),

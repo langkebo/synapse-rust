@@ -409,3 +409,65 @@ async fn test_login_clears_logout_marker_on_success() {
     let marker: Option<String> = cache.get(&logout_marker).await.unwrap();
     assert!(marker.is_none(), "logout marker should be cleared on successful login");
 }
+
+// ============================================================================
+// P2-12: Refresh Token access_token cache invalidation
+// ============================================================================
+//
+// Synapse v1.154 (#19483) fixed a bug where the access_token cache entry was
+// NOT invalidated when the associated refresh_token was rotated. This allowed
+// a stale cache entry to keep serving the old access_token even after the
+// refresh_token had been revoked, creating a security gap.
+//
+// This test verifies that after `refresh_token` is called, the old
+// access_token's cache entry is removed, forcing subsequent requests with the
+// old access_token to hit the database (where it can be properly validated
+// against the revoked refresh_token state).
+
+/// P2-12 RED: after `refresh_token`, the old access_token cache entry MUST be
+/// invalidated. This test will fail until the fix is implemented.
+#[tokio::test]
+async fn test_p2_12_refresh_token_invalidates_old_access_token_cache() {
+    let pool = crate::require_test_pool().await;
+    let security = test_security();
+    let (auth, cache) = build_auth_with_cache(&pool, &security);
+
+    // Register a user to get access_token + refresh_token.
+    let username = unique_username();
+    let (user, old_access_token, refresh_token, device_id) =
+        auth.register(&username, "StrongP@ss1!", false, None).await.unwrap();
+
+    // Populate the cache with the old access_token (simulating a prior
+    // authenticated request that cached the token validation result).
+    let now = chrono::Utc::now().timestamp();
+    let claims = synapse_common::Claims {
+        sub: user.user_id.clone(),
+        user_id: user.user_id.clone(),
+        jti: "test-jti-p2-12".to_string(),
+        is_admin: false,
+        exp: now + 3600,
+        iat: now,
+        device_id: Some(device_id.clone()),
+        iss: Some("localhost".to_string()),
+        aud: Some("localhost".to_string()),
+    };
+    cache.set_token(&old_access_token, &claims, 3600).await;
+
+    // Verify the cache entry exists before refresh.
+    assert!(
+        cache.get_token(&old_access_token).await.is_some(),
+        "cache should contain the old access_token before refresh"
+    );
+
+    // Refresh the token — this should rotate the refresh_token and invalidate
+    // the old access_token cache entry.
+    let result = auth.refresh_token(&refresh_token).await;
+    assert!(result.is_ok(), "refresh_token should succeed: {:?}", result.err());
+
+    // P2-12: The old access_token cache entry MUST be invalidated after refresh.
+    assert!(
+        cache.get_token(&old_access_token).await.is_none(),
+        "P2-12: old access_token cache entry must be invalidated after refresh_token \
+         (Synapse v1.154 #19483). Stale cache entries allow revoked tokens to pass validation."
+    );
+}

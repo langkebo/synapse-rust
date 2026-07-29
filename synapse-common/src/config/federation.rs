@@ -119,6 +119,19 @@ pub struct FederationConfig {
     #[serde(default)]
     pub signing_key_master_key: Option<String>,
 
+    /// Explicitly allow storing federation signing keys in plaintext when no
+    /// master key is configured. Defaults to `false` (fail-closed: key
+    /// persistence is refused without a master key).
+    ///
+    /// Production deployments should set `signing_key_master_key` for
+    /// encryption at rest. This flag is intended for development environments
+    /// that accept the risk of plaintext key storage.
+    ///
+    /// Can also be set via the `SYNAPSE__FEDERATION__ALLOW_PLAINTEXT_SIGNING_KEYS`
+    /// environment variable.
+    #[serde(default)]
+    pub allow_plaintext_signing_keys: bool,
+
     /// 出站联邦事件批处理的最大事件数，默认 100。
     ///
     /// `EventBroadcaster` 在 flush 之前最多累积这么多事件。历史实现
