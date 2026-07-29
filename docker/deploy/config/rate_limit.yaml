@@ -27,7 +27,7 @@ exempt_paths:
 exempt_path_prefixes:
   []
 endpoint_aliases: {}
-fail_open_on_error: true
+fail_open_on_error: false
 sync:
   enabled: false
   initial:

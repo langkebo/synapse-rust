@@ -29,7 +29,7 @@ exempt_path_prefixes:
   - "/_matrix/client/r0/sync"
   - "/_matrix/client/unstable/"
 endpoint_aliases: {}
-fail_open_on_error: true
+fail_open_on_error: false
 sync:
   enabled: false
   initial:

@@ -67,7 +67,7 @@ exempt_path_prefixes:
   - "/_matrix/client/v3/events"
   - "/_matrix/client/r0/events"
 endpoint_aliases: {}
-fail_open_on_error: true
+fail_open_on_error: false
 sync:
   # Sliding sync performs long-polling and bursty catch-up after login. Disabling
   # the dedicated sync limiter avoids false-positive 429s during local use of
