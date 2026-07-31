@@ -1,7 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::context::AuthContext;
-use crate::web::routes::AppState;
-use crate::web::routes::OptionalAuthenticatedUser;
+use crate::web::routes::{AppState, AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, State},

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use synapse_services::widget_service::{
     CreateSessionRequest, CreateWidgetRequest, SessionListResponse, SessionResponse, SetPermissionRequest,
-    UpdateWidgetRequest, WidgetListResponse, WidgetResponse,
+    UpdateWidgetRequest, WidgetListResponse,
 };
 
 #[derive(Debug, Deserialize)]
@@ -148,11 +148,32 @@ pub fn widget_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
 async fn create_widget(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<CreateWidgetBody>,
-) -> Result<Json<WidgetResponse>, ApiError> {
-    validate_widget_url(&body.url)?;
+    Json(raw): Json<serde_json::Value>,
+) -> Result<Json<WidgetApiResponse>, ApiError> {
+    // P-079: Validate required fields up front so missing/empty fields return
+    // 400 M_BAD_JSON instead of axum's 422 deserialization error.
+    let url = raw
+        .get("url")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ApiError::bad_request("Missing required field: url"))?;
+    let name = raw
+        .get("name")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ApiError::bad_request("Missing required field: name"))?;
+    let widget_type = raw
+        .get("widget_type")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ApiError::bad_request("Missing required field: widget_type"))?;
 
-    if let Some(room_id) = body.room_id.as_deref() {
+    validate_widget_url(url)?;
+
+    let room_id = raw.get("room_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let data = raw.get("data").cloned();
+
+    if let Some(ref room_id) = room_id {
         let room_exists = ctx.room_service.state().room_exists(room_id).await?;
         if !room_exists {
             return Err(ApiError::not_found("Room not found"));
@@ -163,26 +184,27 @@ async fn create_widget(
     }
 
     let request = CreateWidgetRequest {
-        room_id: body.room_id,
-        widget_type: body.widget_type,
-        url: body.url,
-        name: body.name,
-        data: body.data,
+        room_id,
+        widget_type: widget_type.to_string(),
+        url: url.to_string(),
+        name: name.to_string(),
+        data,
     };
 
     let widget = ctx.widget_service.create_widget(&auth_user.user_id, request).await?;
 
-    Ok(Json(WidgetResponse { widget }))
+    // P-078: Return WidgetApiResponse with widget_id at top level (not nested in widget key)
+    Ok(Json(WidgetApiResponse::from(widget)))
 }
 
 async fn get_widget(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path(widget_id): Path<String>,
-) -> Result<Json<WidgetResponse>, ApiError> {
+) -> Result<Json<WidgetApiResponse>, ApiError> {
     let widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "read").await?;
 
-    Ok(Json(WidgetResponse { widget }))
+    Ok(Json(WidgetApiResponse::from(widget)))
 }
 
 async fn update_widget(
@@ -190,7 +212,7 @@ async fn update_widget(
     auth_user: AuthenticatedUser,
     Path(widget_id): Path<String>,
     Json(body): Json<UpdateWidgetBody>,
-) -> Result<Json<WidgetResponse>, ApiError> {
+) -> Result<Json<WidgetApiResponse>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
     if let Some(url) = body.url.as_deref() {
         validate_widget_url(url)?;
@@ -200,7 +222,7 @@ async fn update_widget(
     let widget =
         ctx.widget_service.update_widget(&widget_id, request).await?.ok_or(ApiError::not_found("Widget not found"))?;
 
-    Ok(Json(WidgetResponse { widget }))
+    Ok(Json(WidgetApiResponse::from(widget)))
 }
 
 async fn delete_widget(
@@ -415,8 +437,8 @@ async fn get_widget_with_access(
     if let Some(room_id) = widget.room_id.as_deref() {
         ensure_room_member_strict_admin(ctx, auth_user, room_id, "You must be a room member to access this widget")
             .await?;
-        let is_member = true;
-        if is_member && required_permission == "read" {
+        // Membership already verified by ensure_room_member_strict_admin above
+        if required_permission == "read" {
             return Ok(widget);
         }
     }
