@@ -36,6 +36,14 @@ pub fn test_redis_url() -> String {
 /// `localhost:5432` / `synapse` / `synapse` / `synapse`) and wires up
 /// sensible test defaults for every other sub-config.
 pub fn build_test_config() -> Config {
+    // Suppress r0 deprecation warning in test builds — assembly.rs checks
+    // the SYNAPSE__SERVER__SUPPRESS_R0_DEPRECATION_WARNING env var.
+    // Set once per process; tests don't need r0 migration warnings.
+    static SUPPRESS_R0_WARN_INIT: std::sync::Once = std::sync::Once::new();
+    SUPPRESS_R0_WARN_INIT.call_once(|| {
+        std::env::set_var("SYNAPSE__SERVER__SUPPRESS_R0_DEPRECATION_WARNING", "true");
+    });
+
     let host = std::env::var("DATABASE_HOST").unwrap_or_else(|_| "localhost".to_string());
     let port: u16 = std::env::var("DATABASE_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(5432);
     let user = std::env::var("DATABASE_USER").unwrap_or_else(|_| "synapse".to_string());
@@ -84,6 +92,7 @@ pub fn build_test_config() -> Config {
             presence_enabled: true,
             media_path: "./data/media".to_string(),
             megolm_encryption_key_path: None,
+            suppress_r0_deprecation_warning: true,
             enable_burn_after_read_processor: true,
             refresh_token_ttl_secs: 2_592_000,
             ..Default::default()

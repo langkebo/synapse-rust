@@ -12,7 +12,7 @@
 
 use crate::common::ApiError;
 use crate::web::routes::context::AuthContext;
-use crate::web::routes::{AppState, AuthenticatedUser};
+use crate::web::routes::AppState;
 use axum::{
     body::Body,
     extract::{Path, State},

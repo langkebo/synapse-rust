@@ -402,8 +402,6 @@ pub(crate) async fn get_thumbnail_authenticated(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_thumbnail_default_dimensions() {
         let default_width: u32 = 800;
