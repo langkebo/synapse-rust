@@ -22,19 +22,6 @@ pub(crate) async fn media_config(
     )
 }
 
-#[allow(clippy::unused_async)]
-#[allow(dead_code)]
-async fn _preview_url(State(_ctx): State<MediaContext>, Query(params): Query<Value>) -> Result<Json<Value>, ApiError> {
-    let url =
-        params.get("url").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("URL required".to_string()))?;
-
-    Ok(Json(json!({
-        "url": url,
-        "title": "Preview",
-        "description": "URL preview"
-    })))
-}
-
 pub(crate) async fn preview_url(
     State(ctx): State<MediaContext>,
     _auth_user: OptionalAuthenticatedUser,

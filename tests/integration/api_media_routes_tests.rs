@@ -85,6 +85,7 @@ async fn test_media_routes_share_content_across_versions() {
     let r1_download_request = Request::builder()
         .method("GET")
         .uri(format!("/_matrix/media/r1/download/{}/{}/shared.png", server_name, media_id))
+        .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
 
@@ -94,7 +95,12 @@ async fn test_media_routes_share_content_across_versions() {
     let body = axum::body::to_bytes(r1_download_response.into_body(), 2048).await.unwrap();
     assert_eq!(body.as_ref(), &[0x89, 0x50, 0x4E, 0x47, 0x0D]);
 
-    let config_request = Request::builder().method("GET").uri("/_matrix/media/r0/config").body(Body::empty()).unwrap();
+    let config_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/media/r0/config")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
 
     let config_response = ServiceExt::<Request<Body>>::oneshot(app, config_request).await.unwrap();
     assert_eq!(config_response.status(), StatusCode::OK);
@@ -643,6 +649,7 @@ async fn test_legacy_media_download_missing_returns_not_found_status() {
 
     let missing_media_id = format!("missing_media_{}", rand::random::<u32>());
 
+    // v1 download remains public (no auth required)
     let v1_request = Request::builder()
         .method("GET")
         .uri(format!("/_matrix/media/v1/download/{}/{}", "example.com", missing_media_id))
@@ -655,9 +662,12 @@ async fn test_legacy_media_download_missing_returns_not_found_status() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["errcode"], "M_NOT_FOUND");
 
+    // r1 download now requires auth (VULN-01/02 fix)
+    let token = register_user(&app, &format!("legacy_dl_{}", rand::random::<u32>())).await;
     let r1_request = Request::builder()
         .method("GET")
         .uri(format!("/_matrix/media/r1/download/{}/{}/missing.txt", "example.com", missing_media_id))
+        .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
     let r1_response = ServiceExt::<Request<Body>>::oneshot(app, r1_request).await.unwrap();

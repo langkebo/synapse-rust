@@ -65,7 +65,7 @@ The codebase generally follows `route -> service -> storage`, with `AppState`/`S
 - Route implementation is split by domain under `src/web/routes/` and `src/web/routes/handlers/`.
 
 ### Dependency wiring
-- `src/services/container.rs` is the main dependency graph for application features.
+- `synapse-services/src/container.rs` is the main dependency graph for application features.
 - It constructs storages and services for auth, rooms, sync, sliding sync, E2EE, federation helpers, media, push, moderation, retention, feature flags, worker integration, and more.
 - If you need to understand how a feature is actually enabled end-to-end, start at `ServiceContainer::new(...)`, then trace the relevant router and storage.
 

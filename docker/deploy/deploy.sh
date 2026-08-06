@@ -600,7 +600,14 @@ rebuild_project() {
         log_info "跳过项目编译 (--skip-build)"
         return
     fi
-    log_info "重新编译项目..."
+    # Docker 构建已在 builder 阶段完成 cargo build --release，主机编译为冗余步骤。
+    # 设置 SKIP_HOST_BUILD=true（默认）可跳过主机编译，节省 15-30 分钟。
+    # 如需在 Docker 构建前做编译预检，设置 SKIP_HOST_BUILD=false。
+    if [ "${SKIP_HOST_BUILD:-true}" = "true" ]; then
+        log_info "跳过主机编译 (Docker 构建阶段已含编译，SKIP_HOST_BUILD=true)"
+        return
+    fi
+    log_info "重新编译项目 (主机预检)..."
     if [ "$ENABLED_EXTENSIONS" = "all" ]; then
         (cd "$PROJECT_ROOT" && cargo build --release --locked --features all-extensions --bin synapse-rust --bin healthcheck)
     elif [ "$ENABLED_EXTENSIONS" = "none" ]; then
@@ -648,10 +655,13 @@ build_images() {
     log_info "构建新的 Docker 镜像..."
     local feature_args
     feature_args="$(docker_feature_args)"
+    # 覆盖基础镜像 digest pin，使用本地已拉取的 tag 版本，避免网络抖动导致 digest 拉取失败
     docker build --no-cache \
         -f "$PROJECT_ROOT/docker/Dockerfile" \
         --target tools \
         --build-arg "CARGO_FEATURE_ARGS=${feature_args}" \
+        --build-arg "RUST_BUILDER_IMAGE=rust:1.93.0-slim-bookworm" \
+        --build-arg "DEBIAN_BASE_IMAGE=debian:bookworm-slim" \
         -t "$(local_image_ref)" \
         "$PROJECT_ROOT"
     docker image inspect "$(local_image_ref)" >/dev/null

@@ -39,6 +39,21 @@ fn create_media_legacy_download_router() -> Router<AppState> {
         .route("/download/{server_name}/{media_id}/{filename}", get(download::download_media_v1_with_filename))
 }
 
+/// r1 legacy download router with mandatory authentication.
+///
+/// VULN-01/VULN-02 fix: the r1 legacy download endpoints previously allowed
+/// unauthenticated media access. We now require a valid access token via
+/// `auth_middleware` before the handler runs. The v1/v3 download routes remain
+/// public per Matrix spec (federation media compatibility); only the r1
+/// legacy path is locked down.
+fn create_media_r1_router(state: &AppState) -> Router<AppState> {
+    use crate::web::routes::context::CoreContext;
+    create_media_legacy_download_router().route_layer(axum::middleware::from_fn_with_state(
+        <CoreContext as axum::extract::FromRef<AppState>>::from_ref(state),
+        crate::web::middleware::auth_middleware,
+    ))
+}
+
 fn create_media_modern_upload_router() -> Router<AppState> {
     Router::new().route("/upload", post(upload::upload_media_v3)).layer(DefaultBodyLimit::max(50 * 1024 * 1024))
 }
@@ -93,10 +108,6 @@ fn create_media_r0_router() -> Router<AppState> {
         .merge(create_media_preview_delete_router())
 }
 
-fn create_media_r1_router() -> Router<AppState> {
-    create_media_legacy_download_router()
-}
-
 fn create_media_authenticated_router() -> Router<AppState> {
     Router::new()
         .route("/download/{server_name}/{media_id}", get(download::download_media_authenticated))
@@ -119,14 +130,14 @@ fn create_media_authenticated_router() -> Router<AppState> {
 ///   - `/_matrix/media/r0`
 ///   - `/_matrix/media/r1`
 ///   - `/_matrix/client/v1/media`
-pub fn create_media_router(_state: &AppState) -> Router<AppState> {
+pub fn create_media_router(state: &AppState) -> Router<AppState> {
     let preview_router = Router::new().route("/preview_url", get(preview::preview_url));
     let authenticated_media_router = create_media_authenticated_router();
     Router::new()
         .nest("/_matrix/media/v1", create_media_v1_router())
         .nest("/_matrix/media/v3", create_media_v3_router())
         .nest("/_matrix/media/r0", create_media_r0_router())
-        .nest("/_matrix/media/r1", create_media_r1_router())
+        .nest("/_matrix/media/r1", create_media_r1_router(state))
         .nest("/_matrix/client/v1/media", authenticated_media_router.merge(preview_router))
 }
 

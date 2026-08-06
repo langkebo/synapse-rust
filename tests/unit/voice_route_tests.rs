@@ -1,0 +1,93 @@
+// Voice route layer tests.
+//
+// Covers the wire-level contracts exposed by `src/web/routes/voice.rs`:
+//   * FT-123: `limit` query parameter clamping for voice listing endpoints
+//     (lower bound of 1, upper bound of 100, default of 50).
+//   * FT-125: `upload_voice_message` must propagate the service's `ApiError`
+//     verbatim instead of flattening every failure to a 500.
+//
+// The handlers themselves require a fully-wired `RoomContext` (voice_service,
+// media_service, etc.), so — following the established pattern in
+// `burn_after_read_route_tests.rs` — the pure decision logic is extracted into
+// small `pub fn` helpers in `voice.rs` and exercised directly here.
+
+#![cfg(feature = "voice-extended")]
+
+use synapse_common::{ApiError, ApiErrorKind, ApiResult, MatrixErrorCode};
+use synapse_rust::web::routes::voice::{clamp_voice_list_limit, voice_upload_response};
+
+// ============================================================================
+// FT-123: limit clamping for voice listing endpoints
+// ============================================================================
+
+#[test]
+fn ft123_negative_limit_clamped_to_lower_bound_of_one() {
+    // Bug: `limit.unwrap_or(50).min(100)` has no lower bound, so -1 passes
+    // through. After the fix it must clamp to 1.
+    assert_eq!(clamp_voice_list_limit(Some(-1)), 1);
+}
+
+#[test]
+fn ft123_zero_limit_clamped_to_lower_bound_of_one() {
+    assert_eq!(clamp_voice_list_limit(Some(0)), 1);
+}
+
+#[test]
+fn ft123_default_limit_is_fifty_when_missing() {
+    assert_eq!(clamp_voice_list_limit(None), 50);
+}
+
+#[test]
+fn ft123_limit_above_one_hundred_clamped_to_upper_bound() {
+    assert_eq!(clamp_voice_list_limit(Some(500)), 100);
+}
+
+#[test]
+fn ft123_limit_of_one_hundred_is_allowed() {
+    assert_eq!(clamp_voice_list_limit(Some(100)), 100);
+}
+
+#[test]
+fn ft123_normal_limit_within_range_passes_through() {
+    assert_eq!(clamp_voice_list_limit(Some(25)), 25);
+}
+
+// ============================================================================
+// FT-125: upload_voice_message must preserve the service's ApiError
+// ============================================================================
+
+#[test]
+fn ft125_preserves_service_bad_request_error() {
+    // Bug: the handler flattens every service error to a 500 via
+    // `ApiError::internal(e.to_string())`, losing the original errcode/error.
+    // After the fix a `BadRequest` from the service must surface as a 400.
+    let service_err = ApiError::bad_request("duration must be positive".to_string());
+    let service_result: ApiResult<serde_json::Value> = Err(service_err);
+
+    let response = voice_upload_response(service_result);
+
+    let err = response.expect_err("service error must propagate, not be swallowed");
+    assert_eq!(err.kind, ApiErrorKind::BadRequest, "must keep BadRequest kind (400)");
+    assert_eq!(err.code, MatrixErrorCode::BadJson, "must keep M_BAD_JSON errcode");
+    assert_eq!(err.message, "duration must be positive", "must keep original message");
+}
+
+#[test]
+fn ft125_preserves_service_forbidden_error() {
+    let service_err = ApiError::forbidden("not allowed".to_string());
+    let service_result: ApiResult<serde_json::Value> = Err(service_err);
+
+    let err = voice_upload_response(service_result).expect_err("must propagate");
+
+    assert_eq!(err.kind, ApiErrorKind::Forbidden, "must keep Forbidden kind (403)");
+    assert_eq!(err.code, MatrixErrorCode::Forbidden, "must keep M_FORBIDDEN errcode");
+}
+
+#[test]
+fn ft125_ok_result_is_wrapped_as_json() {
+    let payload = serde_json::json!({"content_uri": "mxc://localhost/abc"});
+    let service_result: ApiResult<serde_json::Value> = Ok(payload.clone());
+
+    let json = voice_upload_response(service_result).expect("ok result must succeed");
+    assert_eq!(json.0, payload, "successful payload must be forwarded unchanged");
+}

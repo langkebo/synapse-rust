@@ -115,6 +115,8 @@ pub fn top_level_inline_manifest() -> Vec<RouteEntry> {
         (Method::GET, "/_matrix/client/v1/config/client"),
         (Method::GET, "/_matrix/client/v3/pushrules/"),
         (Method::GET, "/_matrix/client/v3/pushrules/global/"),
+        (Method::GET, "/_matrix/client/r0/pushrules/"),
+        (Method::GET, "/_matrix/client/r0/pushrules/global/"),
         (Method::GET, "/.well-known/matrix/server"),
         (Method::GET, "/.well-known/matrix/client"),
         (Method::GET, "/.well-known/matrix/support"),

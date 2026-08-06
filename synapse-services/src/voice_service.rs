@@ -40,6 +40,32 @@ impl VoiceService {
         Ok(())
     }
 
+    /// FT-105: 判定调用者是否有权访问指定语音消息的内容（IDOR 防护）。
+    ///
+    /// 这是一个纯函数授权决策点，便于在不依赖数据库/handler 的情况下单元测试。
+    /// 所有权规则：
+    /// - 管理员始终允许
+    /// - 上传者本人始终允许
+    /// - 非上传者仅当消息归属某房间且调用者为该房间成员时允许
+    ///   （房间成员身份由 handler 层通过 `ensure_room_member_ctx` 异步校验后传入）
+    /// - 其余情况一律拒绝
+    pub fn can_access_voice_message(
+        requesting_user_id: &str,
+        owner_user_id: &str,
+        is_admin: bool,
+        room_id: Option<&str>,
+        is_room_member: bool,
+    ) -> bool {
+        if is_admin {
+            return true;
+        }
+        if requesting_user_id == owner_user_id {
+            return true;
+        }
+        // 非上传者：仅当消息归属某房间且调用者为该房间成员时允许访问
+        room_id.is_some() && is_room_member
+    }
+
     pub async fn upload_voice_message(&self, params: VoiceMessageUploadParams) -> ApiResult<serde_json::Value> {
         Self::validate_audio_content_type(&params.content_type)?;
 

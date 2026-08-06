@@ -153,8 +153,11 @@ impl SynapseServer {
         if let Err(e) = synapse_common::crypto::validate_token_hash_secret() {
             return Err(format!("FATAL: {e}").into());
         }
+        ::tracing::info!("[启动阶段 2/4] 安全密钥校验通过 (TOKEN_HASH_SECRET)");
 
+        ::tracing::info!("[启动阶段 2/4] 构建服务容器 (services + cache + redis)...");
         let (services, cache, redis_pool_option) = services::build_service_container(&pool, &config).await?;
+        ::tracing::info!("[启动阶段 2/4] 服务容器构建完成");
 
         // Startup topology validation — ensures worker configuration is consistent before proceeding
         {
@@ -198,12 +201,12 @@ impl SynapseServer {
                     let manager = Arc::new(manager);
                     let config = manager.get_config();
                     let handle = start_config_watcher(manager.clone(), config.reload_interval_seconds).await;
-                    ::tracing::info!("Rate limit config loaded from {:?}", rate_limit_config_path);
+                    ::tracing::info!("[启动阶段 3/4] 限流配置加载完成: {:?}", rate_limit_config_path);
                     (Some(manager), Some(handle))
                 }
                 Err(e) => {
                     ::tracing::warn!(
-                        "Failed to load rate limit config from {:?}: {}. Using default config.",
+                        "[启动阶段 3/4] 限流配置加载失败 ({:?}): {}, 使用默认配置",
                         rate_limit_config_path,
                         e
                     );
@@ -213,7 +216,7 @@ impl SynapseServer {
             }
         } else {
             ::tracing::info!(
-                "Rate limit config file not found at {:?}. Using default config.",
+                "[启动阶段 3/4] 限流配置文件不存在 ({:?}), 使用默认配置",
                 rate_limit_config_path.display()
             );
             let manager = create_rate_limit_manager(&rate_limit_config_path);
@@ -251,19 +254,19 @@ impl SynapseServer {
     }
 
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
-        ::tracing::info!("Starting Synapse Rust Matrix Server...");
-        ::tracing::info!("Server name: {}", self.app_state.services.core.server_name);
-        ::tracing::info!("Listening on (Client API): {}", self.address);
-        ::tracing::info!("Listening on (Federation): {}", self.federation_address);
+        ::tracing::info!("[启动阶段 4/4] 正在启动 Synapse Rust Matrix Server...");
+        ::tracing::info!("[启动阶段 4/4] Server name: {}", self.app_state.services.core.server_name);
+        ::tracing::info!("[启动阶段 4/4] Listening on (Client API): {}", self.address);
+        ::tracing::info!("[启动阶段 4/4] Listening on (Federation): {}", self.federation_address);
         if self.app_state.services.core.config.prometheus.enabled {
             ::tracing::info!(
-                "Listening on (Prometheus): {}:{}{}",
+                "[启动阶段 4/4] Listening on (Prometheus): {}:{}{}",
                 self.app_state.services.core.config.server.host,
                 self.app_state.services.core.config.prometheus.port,
                 self.app_state.services.core.config.prometheus.path
             );
         }
-        ::tracing::info!("Media storage: {}", self.media_path.display());
+        ::tracing::info!("[启动阶段 4/4] Media storage: {}", self.media_path.display());
 
         if let Err(e) = self.warmup().await {
             ::tracing::warn!("Warmup encountered minor errors: {}", e);
@@ -642,7 +645,7 @@ impl SynapseServer {
             let _ = prom_tx.send(());
         }
 
-        ::tracing::info!("All servers started successfully");
+        ::tracing::info!("[启动完成] ✅ Synapse Rust Matrix Server 已启动并准备接受请求 (4/4 阶段全部完成)");
 
         // Spawn signal handler for graceful shutdown (ctrl_c / SIGTERM).
         let shutdown_tx_signal = shutdown_tx.clone();

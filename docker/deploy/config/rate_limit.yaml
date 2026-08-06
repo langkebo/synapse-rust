@@ -6,13 +6,53 @@ endpoints:
   - path: "/_matrix/client/v3/login"
     match_type: "prefix"
     rule:
-      per_second: 3
-      burst_size: 10
+      per_second: 5
+      burst_size: 50
   - path: "/_matrix/client/r0/login"
     match_type: "prefix"
     rule:
-      per_second: 3
+      per_second: 5
+      burst_size: 50
+  - path: "/_matrix/client/v3/register"
+    match_type: "prefix"
+    rule:
+      per_second: 50
+      burst_size: 100
+  - path: "/_matrix/client/r0/register"
+    match_type: "prefix"
+    rule:
+      per_second: 50
+      burst_size: 100
+  - path: "/_matrix/client/v3/account/password"
+    match_type: "prefix"
+    rule:
+      per_second: 1
+      burst_size: 3
+  - path: "/_matrix/client/v3/register/email/requestToken"
+    match_type: "prefix"
+    rule:
+      per_second: 1
+      burst_size: 3
+  - path: "/_matrix/client/v3/refresh"
+    match_type: "prefix"
+    rule:
+      per_second: 2
+      burst_size: 5
+  - path: "/_matrix/client/v3/keys/upload"
+    match_type: "prefix"
+    rule:
+      per_second: 5
       burst_size: 10
+  - path: "/_matrix/client/unstable/org.matrix.msc4108/"
+    match_type: "prefix"
+    rule:
+      per_second: 10
+      burst_size: 20
+  - path: "/_synapse/external/"
+    match_type: "prefix"
+    rule:
+      per_second: 10
+      burst_size: 20
 ip_header_priority:
   - "x-forwarded-for"
   - "x-real-ip"
@@ -20,12 +60,11 @@ ip_header_priority:
 include_headers: true
 exempt_paths:
   - "/"
-  - "/_matrix/client/versions"
-  - "/_matrix/client/v3/versions"
-  - "/_matrix/client/r0/versions"
-  - "/_matrix/federation/v1/version"
 exempt_path_prefixes:
-  []
+  - "/_matrix/client/v3/sync"
+  - "/_matrix/client/r0/sync"
+  - "/_matrix/client/v3/events"
+  - "/_matrix/client/r0/events"
 endpoint_aliases: {}
 fail_open_on_error: false
 sync:

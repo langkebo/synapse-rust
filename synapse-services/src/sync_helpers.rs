@@ -12,7 +12,11 @@ use synapse_storage::StateEvent;
 /// Convert a [`RoomEvent`] to its Client-format JSON representation.
 pub fn room_event_to_json(event: &RoomEvent) -> Value {
     let now = current_timestamp_millis();
-    let age = now.saturating_sub(event.origin_server_ts);
+    // `saturating_sub` only clamps at the i64 type bounds, so a future
+    // `origin_server_ts` (clock skew) would yield a negative age. Matrix's
+    // `unsigned.age` represents elapsed time and must be non-negative, so
+    // clamp at 0 explicitly.
+    let age = now.saturating_sub(event.origin_server_ts).max(0);
     let mut obj = json!({
         "type": event.event_type,
         "content": event.content,
@@ -33,7 +37,7 @@ pub fn room_event_to_json(event: &RoomEvent) -> Value {
 /// Convert a [`StateEvent`] to its Client-format JSON representation.
 pub fn state_event_to_json(event: &StateEvent) -> Value {
     let now = current_timestamp_millis();
-    let age = now.saturating_sub(event.origin_server_ts);
+    let age = now.saturating_sub(event.origin_server_ts).max(0);
     let sender = event.user_id.as_deref().unwrap_or(&event.sender);
     let event_type = event.event_type.as_deref().unwrap_or("m.room.message");
     let mut obj = json!({

@@ -1,0 +1,9 @@
+---
+source: tests/unit/security_endpoint_snapshots_tests.rs
+expression: body
+---
+{
+  "rooms_with_burn_enabled": 0,
+  "total_burned": 0,
+  "total_pending": 0
+}

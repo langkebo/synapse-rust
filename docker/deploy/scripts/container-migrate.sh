@@ -161,6 +161,16 @@ latest_baseline_file() {
     find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '00000000_unified_schema_v*.sql' ! -name '*.undo.sql' | sort | tail -n 1
 }
 
+# Check if a file is a baseline script (any version, not just the latest).
+# Older baselines must be skipped in apply_pending_migrations to avoid
+# applying obsolete schema on top of the latest baseline.
+is_baseline_file() {
+    case "$(basename "$1")" in
+        00000000_unified_schema_v*.sql) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 table_exists() {
     table_name="$1"
     psql_db -tAc "SELECT EXISTS (
@@ -236,8 +246,9 @@ apply_sql_file() {
     filename="$(basename "$file")"
     version="${filename%.sql}"
     started_at="$(date +%s)"
+    file_size="$(wc -c <"$file" 2>/dev/null | tr -d '[:space:]')"
 
-    log INFO "应用迁移: $filename"
+    log INFO "应用迁移: $filename (size=${file_size:-unknown}B)"
     if psql_db <"$file" >/dev/null; then
         finished_at="$(date +%s)"
         duration_ms=$(((finished_at - started_at) * 1000))
@@ -262,7 +273,7 @@ apply_sql_file() {
                 description = EXCLUDED.description,
                 executed_at = EXCLUDED.executed_at
         " >/dev/null
-        log INFO "迁移完成: $filename"
+        log INFO "迁移完成: $filename (耗时 ${duration_ms}ms)"
         return 0
     fi
 
@@ -290,7 +301,7 @@ apply_sql_file() {
             description = EXCLUDED.description,
             executed_at = EXCLUDED.executed_at
     " >/dev/null || true
-    log ERROR "迁移失败: $filename"
+    log ERROR "迁移失败: $filename (耗时 ${duration_ms}ms) — 检查 psql 输出或文件内容以定位失败语句"
     return 1
 }
 
@@ -301,6 +312,14 @@ init_database() {
     if [ -z "$baseline_file" ]; then
         log ERROR "找不到统一基线脚本"
         return 1
+    fi
+
+    # 列出所有候选基线, 说明为何选择当前版本 (避免 v07/v10 排序混淆)
+    all_baselines="$(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '00000000_unified_schema_v*.sql' ! -name '*.undo.sql' | sort)"
+    baseline_count="$(printf '%s\n' "$all_baselines" | grep -c '\.sql')"
+    log INFO "基线选择: 候选数=${baseline_count}, 选中=$(basename "$baseline_file")"
+    if [ "$baseline_count" -gt 1 ]; then
+        log INFO "  所有候选基线 (旧版本将被跳过, 不作为增量迁移): $(printf '%s' "$all_baselines" | tr '\n' ' ')"
     fi
 
     baseline_name="$(basename "$baseline_file")"
@@ -320,6 +339,16 @@ init_database() {
 apply_pending_migrations() {
     ensure_database_exists
     ensure_schema_migrations_table
+
+    # 启动摘要: 便于排查迁移范围/扩展配置/数据库目标错配问题
+    log INFO "========================================"
+    log INFO "数据库迁移启动"
+    log INFO "  目标数据库: ${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+    log INFO "  迁移目录: ${MIGRATIONS_DIR}"
+    log INFO "  扩展模式: ENABLED_EXTENSIONS=${ENABLED_EXTENSIONS}"
+    log INFO "  PG 镜像版本: $(psql_db -tAc "SELECT version();" 2>/dev/null | head -1 || echo 'unknown')"
+    log INFO "========================================"
+
     init_database
 
     log INFO "扩展模式: ENABLED_EXTENSIONS=$ENABLED_EXTENSIONS"
@@ -328,8 +357,12 @@ apply_pending_migrations() {
     applied=0
 
     find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' ! -name '*.conf' | sort | while IFS= read -r file; do
-        baseline_file="$(latest_baseline_file)"
-        if [ -n "$baseline_file" ] && [ "$file" = "$baseline_file" ]; then
+        # Skip ALL baseline files (v07, v10, etc.) — only the latest one is applied
+        # in init_database(); older baselines must not run as incremental migrations
+        # because their CREATE TABLE IF NOT EXISTS would no-op on tables already
+        # created by the latest baseline, but their CREATE INDEX statements would
+        # fail on columns the latest baseline dropped/renamed.
+        if is_baseline_file "$file"; then
             continue
         fi
 
@@ -347,7 +380,15 @@ apply_pending_migrations() {
         applied=$((applied + 1))
     done
 
-    log INFO "迁移完成: applied=$applied, skipped=$skipped (extension filtered)"
+    # 结束摘要: 应用数/跳过数/表总数 便于排查迁移完整性
+    table_count="$(psql_db -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE';" 2>/dev/null | tr -d '[:space:]')"
+    migration_count="$(psql_db -tAc "SELECT count(*) FROM schema_migrations;" 2>/dev/null | tr -d '[:space:]')"
+    log INFO "========================================"
+    log INFO "数据库迁移结束"
+    log INFO "  本次应用: applied=${applied}, skipped=${skipped} (扩展过滤)"
+    log INFO "  历史迁移记录数: ${migration_count:-unknown}"
+    log INFO "  当前 public schema 表数: ${table_count:-unknown}"
+    log INFO "========================================"
 }
 
 validate_schema() {

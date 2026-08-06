@@ -194,6 +194,38 @@ mod friend_room_tests {
         assert!(response["room_id"].is_string());
         assert_eq!(response["total"], 1);
     }
+
+    /// FT-092: GET /friends 响应应只返回 `friends` 字段，不再返回冗余的 `items` 字段。
+    /// 后端 handler（friend_room.rs get_friends）已删除 `"items": items` 冗余行。
+    #[test]
+    fn test_friends_response_no_redundant_items_field() {
+        let response = json!({
+            "friends": [
+                {
+                    "user_id": "@friend:example.com",
+                    "display_name": "Friend User"
+                }
+            ],
+            "total": 1,
+            "limit": 50,
+            "offset": null,
+            "next_offset": null,
+            "next_batch": null,
+            "room_id": "!friends:example.com",
+            "version": 1,
+            "cached": false,
+            "generated_ts": 1700000000000_i64
+        });
+
+        assert!(
+            response.get("items").is_none(),
+            "GET /friends 响应不应包含冗余的 items 字段（FT-092）"
+        );
+        assert!(
+            response.get("friends").is_some(),
+            "GET /friends 响应应包含 friends 字段"
+        );
+    }
 }
 
 mod config_tests {
@@ -225,5 +257,102 @@ mod config_tests {
 
         assert!(response["homeserver"]["base_url"].is_string());
         assert!(response["features"]["e2ee"].as_bool().unwrap());
+    }
+}
+
+/// FT-105: `get_voice_message_content` handler 必须校验调用者身份，防止 IDOR。
+///
+/// 这些测试覆盖 handler 所依赖的授权决策纯函数
+/// `VoiceService::can_access_voice_message`，验证以下所有权规则：
+/// - 管理员始终允许
+/// - 上传者本人始终允许
+/// - 非上传者仅当消息归属某房间且调用者为该房间成员时允许
+/// - 其余情况一律拒绝
+#[cfg(feature = "voice-extended")]
+mod voice_idor_tests {
+    use synapse_services::voice_service::VoiceService;
+
+    /// FT-105: 上传者本人始终可以访问自己的语音消息内容
+    #[test]
+    fn test_owner_can_access_own_voice_message() {
+        assert!(VoiceService::can_access_voice_message(
+            "@alice:example.com",
+            "@alice:example.com",
+            false,
+            None,
+            false,
+        ));
+    }
+
+    /// FT-105: 上传者本人即使消息归属某房间也允许访问
+    #[test]
+    fn test_owner_can_access_own_voice_message_in_room() {
+        assert!(VoiceService::can_access_voice_message(
+            "@alice:example.com",
+            "@alice:example.com",
+            false,
+            Some("!room:example.com"),
+            false,
+        ));
+    }
+
+    /// FT-105: 非上传者且消息不归属任何房间时，必须拒绝访问（IDOR 防护核心场景）
+    #[test]
+    fn test_non_owner_no_room_is_denied() {
+        assert!(!VoiceService::can_access_voice_message(
+            "@mallory:example.com",
+            "@alice:example.com",
+            false,
+            None,
+            false,
+        ));
+    }
+
+    /// FT-105: 非上传者但消息归属某房间且调用者是该房间成员时，允许访问
+    #[test]
+    fn test_room_member_can_access_room_voice_message() {
+        assert!(VoiceService::can_access_voice_message(
+            "@bob:example.com",
+            "@alice:example.com",
+            false,
+            Some("!room:example.com"),
+            true,
+        ));
+    }
+
+    /// FT-105: 非上传者且非房间成员，即使消息归属某房间也必须拒绝访问
+    #[test]
+    fn test_non_member_is_denied_even_if_message_has_room() {
+        assert!(!VoiceService::can_access_voice_message(
+            "@mallory:example.com",
+            "@alice:example.com",
+            false,
+            Some("!room:example.com"),
+            false,
+        ));
+    }
+
+    /// FT-105: 管理员始终可以访问任意语音消息内容（即使非上传者、非房间成员）
+    #[test]
+    fn test_admin_can_access_any_voice_message() {
+        assert!(VoiceService::can_access_voice_message(
+            "@admin:example.com",
+            "@alice:example.com",
+            true,
+            None,
+            false,
+        ));
+    }
+
+    /// FT-105: 管理员访问归属房间的他人消息也应放行
+    #[test]
+    fn test_admin_can_access_room_voice_message_without_membership() {
+        assert!(VoiceService::can_access_voice_message(
+            "@admin:example.com",
+            "@alice:example.com",
+            true,
+            Some("!room:example.com"),
+            false,
+        ));
     }
 }

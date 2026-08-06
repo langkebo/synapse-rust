@@ -3533,6 +3533,8 @@ CREATE INDEX IF NOT EXISTS idx_events_room_stream_ordering_not_redacted ON event
 CREATE INDEX IF NOT EXISTS idx_events_sync_covering ON events(room_id, stream_ordering DESC) INCLUDE (event_id, sender, event_type, content, origin_server_ts);
 CREATE INDEX IF NOT EXISTS idx_events_friend_room ON events(sender, room_id, origin_server_ts DESC) WHERE event_type = 'm.room.create' AND content->>'type' = 'm.friends';
 CREATE INDEX IF NOT EXISTS idx_events_friend_list ON events(room_id, origin_server_ts DESC) WHERE event_type = 'm.friends.list' AND state_key = '';
+-- 确保 redacts 列存在（v7 schema 可能未包含此列）
+ALTER TABLE events ADD COLUMN IF NOT EXISTS redacts TEXT;
 CREATE INDEX IF NOT EXISTS idx_events_redacts ON events(redacts) WHERE redacts IS NOT NULL;
 
 -- Event relations

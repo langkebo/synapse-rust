@@ -7,9 +7,7 @@
 use crate::common::error::ApiError;
 use crate::web::routes::context::RoomContext;
 use crate::web::routes::room_access::ensure_room_member_ctx;
-use crate::web::routes::validators::{
-    validate_event_id as shared_validate_event_id, validate_room_id as shared_validate_room_id,
-};
+use crate::web::routes::validators::{validate_event_id, validate_room_id};
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
@@ -102,17 +100,6 @@ pub struct RelationSendResponse {
 pub struct RelationTarget {
     pub event_id: String,
     pub rel_type: String,
-}
-
-/// Validates room_id format (delegates to project-level validators for
-/// consistent semantics with the rest of the router).
-fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
-    shared_validate_room_id(room_id)
-}
-
-/// Validates event_id format (delegates to project-level validators).
-fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
-    shared_validate_event_id(event_id)
 }
 
 /// Get relations for an event without rel_type filter

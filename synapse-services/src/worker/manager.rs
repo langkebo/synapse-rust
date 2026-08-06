@@ -189,9 +189,11 @@ impl WorkerManager {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to check existing worker", &e))?
         {
-            if existing.status == "running" {
-                return Err(ApiError::bad_request(format!("Worker '{}' is already running", existing.worker_id)));
-            }
+            // P-080: Return 409 Conflict for any duplicate worker_id (not just "running" status)
+            return Err(ApiError::conflict(format!(
+                "Worker '{}' already exists with status '{}'",
+                existing.worker_id, existing.status
+            )));
         }
 
         let worker = self

@@ -236,6 +236,14 @@ client.sendReadReceipt(event);
 - 启动 **30秒** 倒计时。
 - 倒计时结束后，自动执行 `Redaction`（物理删除）操作，消息内容将被永久清除。
 
+## 最近修复
+
+### 2026-07-31
+
+- **修复 rendezvous 认证问题**: MSC4108 QR 登录流程现在正确允许未认证访问 (`synapse-rust/src/web/routes/msc4108_rendezvous.rs`, `synapse-rust/src/web/routes/rendezvous.rs`)
+- **修复 widget 权限硬编码**: 移除 `is_member = true` 死代码，简化权限检查逻辑 (`synapse-rust/src/web/routes/widget.rs`)
+- **修复 push_notification 响应包装**: 移除不必要的 JSON 包装，直接返回数组 (`synapse-rust/src/web/routes/push_notification.rs`)
+
 ## 项目任务与状态追踪
 
 > ⚠️ 任务追踪已整合到 GitHub Issues 和项目看板

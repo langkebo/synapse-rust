@@ -1,5 +1,5 @@
 use crate::web::routes::context::{AdminContext, RoomContext};
-use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::{ApiError, AuthenticatedUser};
 use std::sync::Arc;
 
 // =============================================================================
@@ -14,29 +14,6 @@ async fn is_member_via(
 ) -> Result<bool, ApiError> {
     let membership = room_service.membership().get_room_membership(room_id, user_id).await?;
     Ok(membership.is_some_and(|m| m == "join"))
-}
-
-// =============================================================================
-// AppState-based helpers — retained for backward compatibility with handlers
-// that still use State<AppState>.
-// =============================================================================
-
-pub(crate) async fn is_joined_room_member(state: &AppState, user_id: &str, room_id: &str) -> Result<bool, ApiError> {
-    is_member_via(&state.services.rooms.room_service, user_id, room_id).await
-}
-
-#[allow(dead_code)]
-pub(crate) async fn is_joined_room_member_or_creator(
-    state: &AppState,
-    user_id: &str,
-    room_id: &str,
-    creator_user_id: Option<&str>,
-) -> Result<bool, ApiError> {
-    if creator_user_id == Some(user_id) {
-        return Ok(true);
-    }
-
-    is_joined_room_member(state, user_id, room_id).await
 }
 
 // =============================================================================
@@ -92,15 +69,6 @@ pub(crate) async fn ensure_room_member_strict_ctx(
 // AdminContext-based helpers — used by handlers migrated to State<AdminContext>.
 // =============================================================================
 
-#[allow(dead_code)]
-pub(crate) async fn is_joined_room_member_admin(
-    ctx: &AdminContext,
-    user_id: &str,
-    room_id: &str,
-) -> Result<bool, ApiError> {
-    is_member_via(&ctx.room_service, user_id, room_id).await
-}
-
 pub(crate) async fn ensure_room_member_admin(
     ctx: &AdminContext,
     auth_user: &AuthenticatedUser,
@@ -134,11 +102,5 @@ pub(crate) async fn ensure_room_member_strict_admin(
 // RoomService-based helpers — for callers that have room_service directly.
 // =============================================================================
 
-#[allow(dead_code)]
-pub(crate) async fn is_joined_room_member_svc(
-    room_service: &Arc<dyn synapse_services::RoomServiceApi>,
-    user_id: &str,
-    room_id: &str,
-) -> Result<bool, ApiError> {
-    is_member_via(room_service, user_id, room_id).await
-}
+// NOTE: `is_joined_room_member_svc` removed as dead code — callers use
+// `is_member_via` directly when they already hold a `room_service` reference.

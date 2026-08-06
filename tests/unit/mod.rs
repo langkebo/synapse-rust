@@ -6,6 +6,8 @@ mod common;
 
 mod admin_api_tests;
 mod admin_extra_api_tests;
+mod api_optimization_verification_tests;
+mod api_optimized_features_tests;
 mod app_service_api_tests;
 mod background_update_api_tests;
 
@@ -14,12 +16,15 @@ mod canonical_json_vectors;
 mod boundary_tests;
 mod captcha_api_tests;
 mod core_api_tests;
+mod client_push_service_tests;
 mod e2ee_api_tests;
 mod event_report_api_tests;
 mod federation_api_tests;
 mod federation_cache_api_tests;
 mod friend_api_tests;
 mod key_backup_api_tests;
+mod key_rotation_route_tests;
+mod key_rotation_service_tests;
 mod ledger_export_tests;
 mod media_api_tests;
 mod media_quota_api_tests;
@@ -27,8 +32,10 @@ mod megolm_dual_write_metrics_tests;
 mod migration_consistency_tests;
 mod module_api_tests;
 mod msc_tests;
+mod msc4108_rendezvous_route_tests;
 mod placeholder_scan_tests;
 mod push_api_tests;
+mod push_notification_route_tests;
 mod rate_limit_api_tests;
 mod reactions_api_tests;
 mod refresh_token_api_tests;
@@ -47,9 +54,13 @@ mod thread_api_tests;
 mod worker_api_tests;
 
 mod directory_service_tests;
+mod rendezvous_service_tests;
 mod typing_service_tests;
 #[cfg(feature = "voice-extended")]
 mod voice_service_tests;
+
+#[cfg(feature = "voice-extended")]
+mod voice_route_tests;
 
 mod identity_service_tests;
 mod sso_cas_tests;
@@ -72,3 +83,30 @@ mod services_remaining_domains_refactor_tests;
 mod services_sync_domain_refactor_tests;
 mod storage_admin_domain_refactor_tests;
 mod storage_remaining_domains_refactor_tests;
+
+// P-096 route tests (12 files)
+mod account_compat_route_tests;
+mod ai_connection_route_tests;
+mod assembly_route_tests;
+mod auth_compat_route_tests;
+mod burn_after_read_route_tests;
+mod context_route_tests;
+mod ephemeral_route_tests;
+mod formatting_route_tests;
+mod guest_route_tests;
+mod pinned_route_tests;
+mod qr_login_token_route_tests;
+mod room_access_route_tests;
+
+// P-097: insta snapshot tests for security-sensitive endpoint response shapes
+mod security_endpoint_snapshots_tests;
+
+// P-099 service tests (8 files)
+mod admin_server_service_tests;
+mod container_service_tests;
+mod event_broadcaster_tests;
+mod event_service_tests;
+mod mcp_proxy_tests;
+mod server_notification_service_tests;
+mod sync_helpers_tests;
+mod user_service_tests;

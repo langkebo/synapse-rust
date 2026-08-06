@@ -248,6 +248,9 @@ CREATE TABLE IF NOT EXISTS voice_messages (
 CREATE INDEX IF NOT EXISTS idx_voice_messages_user ON voice_messages(user_id);
 CREATE INDEX IF NOT EXISTS idx_voice_messages_room ON voice_messages(room_id);
 
+-- voice_usage_stats: 基线 v10 已创建该表 (按消息记录, 含 room_id/media_id/created_ts 列)
+-- 扩展迁移脚本期望按日期聚合的 schema (含 date/messages_sent 列)
+-- 如果基线表已存在, 跳过 CREATE TABLE; 后续索引/约束使用条件检测避免列不存在错误
 CREATE TABLE IF NOT EXISTS voice_usage_stats (
     id BIGSERIAL,
     user_id TEXT NOT NULL,
@@ -259,7 +262,18 @@ CREATE TABLE IF NOT EXISTS voice_usage_stats (
     CONSTRAINT uq_voice_usage_stats_user_date UNIQUE (user_id, date)
 );
 CREATE INDEX IF NOT EXISTS idx_voice_usage_stats_user ON voice_usage_stats(user_id);
-CREATE INDEX IF NOT EXISTS idx_voice_usage_stats_date ON voice_usage_stats(date);
+-- 仅当 date 列存在时创建索引 (基线 v10 schema 用 created_ts 而非 date)
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'voice_usage_stats' AND column_name = 'date'
+    ) THEN
+        CREATE INDEX IF NOT EXISTS idx_voice_usage_stats_date ON voice_usage_stats(date);
+    ELSE
+        RAISE NOTICE '跳过 idx_voice_usage_stats_date: voice_usage_stats 表无 date 列 (基线 v10 schema)';
+    END IF;
+END $$;
 
 -- ============================================================================
 -- Extension: Privacy Settings (feature: privacy-ext)

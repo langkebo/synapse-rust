@@ -83,6 +83,16 @@ pub(crate) async fn register(
     let displayname = body.get("displayname").and_then(|v| v.as_str());
     let initial_device_display_name = body.get("initial_device_display_name").and_then(|v| v.as_str());
 
+    // D6/R3: Standard register endpoint intentionally ignores the `admin` field.
+    // Admin accounts must be created via the shared-secret endpoint
+    // (/_synapse/admin/v1/register) for security.
+    if body.get("admin").is_some() {
+        tracing::warn!(
+            username = %username,
+            "Register request included 'admin' field; ignoring. Use /_synapse/admin/v1/register for admin account creation."
+        );
+    }
+
     Ok(Json(
         ctx.registration_service
             .register_user(&username, password, displayname, initial_device_display_name)
@@ -303,8 +313,68 @@ pub(crate) async fn get_register_flows() -> Json<Value> {
     }))
 }
 
+// ---------------------------------------------------------------------------
+// D8: Login failure lockout (Redis-backed, fail-open)
+// ---------------------------------------------------------------------------
+
+/// Maximum failed login attempts before lockout triggers.
+const LOGIN_MAX_ATTEMPTS: u32 = 5;
+/// Lockout duration in seconds (15 minutes).
+const LOGIN_LOCKOUT_TTL_SECS: u64 = 900;
+
+fn extract_login_client_ip(headers: &HeaderMap) -> String {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim().to_string())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.trim().to_string())
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Check if the user is locked out due to too many failed login attempts.
+/// Fail-open: if Redis is unavailable, login proceeds normally.
+async fn check_login_lockout(cache: &crate::cache::CacheManager, ip: &str, username: &str) -> Result<(), ApiError> {
+    if !cache.is_redis_enabled() {
+        return Ok(());
+    }
+    let key = format!("login_fail:{ip}:{username}");
+    match cache.get::<u32>(&key).await {
+        Ok(Some(count)) if count >= LOGIN_MAX_ATTEMPTS => {
+            tracing::warn!(ip = %ip, username = %username, count, "Login locked out due to too many failures");
+            Err(ApiError::rate_limited_with_retry(LOGIN_LOCKOUT_TTL_SECS * 1000))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Record a failed login attempt. Fail-open on Redis errors.
+async fn record_login_failure(cache: &crate::cache::CacheManager, ip: &str, username: &str) {
+    if !cache.is_redis_enabled() {
+        return;
+    }
+    let key = format!("login_fail:{ip}:{username}");
+    let current = cache.get::<u32>(&key).await.ok().flatten().unwrap_or(0);
+    let _ = cache.set(&key, current + 1, LOGIN_LOCKOUT_TTL_SECS).await;
+}
+
+/// Clear login failure counter on successful login.
+async fn clear_login_failures(cache: &crate::cache::CacheManager, ip: &str, username: &str) {
+    if !cache.is_redis_enabled() {
+        return;
+    }
+    let key = format!("login_fail:{ip}:{username}");
+    cache.delete(&key).await;
+}
+
 pub(crate) async fn login(
     State(ctx): State<AuthContext>,
+    headers: HeaderMap,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let login_type = body.get("type").and_then(|v| v.as_str()).unwrap_or("m.login.password");
@@ -377,19 +447,34 @@ pub(crate) async fn login(
     let initial_display_name = body.get("initial_display_name").and_then(|v| v.as_str());
     let mfa_code = body.get("mfa_code").and_then(|v| v.as_str());
 
+    // D8: Check login lockout before attempting authentication.
+    let client_ip = extract_login_client_ip(&headers);
+    check_login_lockout(&ctx.cache, &client_ip, username).await?;
+
     enforce_admin_login_mfa_svc(&ctx.config.security, ctx.user_service.as_ref(), username, mfa_code).await?;
 
-    let (user, access_token, refresh_token, device_id) =
-        ctx.credential_auth.login(username, password, device_id, initial_display_name).await?;
-
-    Ok(Json(format_token_response(
-        &access_token,
-        &refresh_token,
-        ctx.token_auth.token_expiry(),
-        &device_id,
-        &user.user_id(),
-        &ctx.config.server.get_public_baseurl(),
-    )))
+    // D8: Record failures and clear on success.
+    match ctx
+        .credential_auth
+        .login(username, password, device_id, initial_display_name)
+        .await
+    {
+        Ok((user, access_token, refresh_token, device_id)) => {
+            clear_login_failures(&ctx.cache, &client_ip, username).await;
+            Ok(Json(format_token_response(
+                &access_token,
+                &refresh_token,
+                ctx.token_auth.token_expiry(),
+                &device_id,
+                &user.user_id(),
+                &ctx.config.server.get_public_baseurl(),
+            )))
+        }
+        Err(e) => {
+            record_login_failure(&ctx.cache, &client_ip, username).await;
+            Err(e)
+        }
+    }
 }
 
 /// Generate a short-lived login token for QR sign-in.

@@ -66,7 +66,10 @@ pub fn thirdparty_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
     out
 }
 
-async fn get_protocols(State(_ctx): State<RoomContext>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn get_protocols(
+    State(_ctx): State<RoomContext>,
+    _auth_user: AuthenticatedUser,
+) -> Result<Json<serde_json::Value>, ApiError> {
     Ok(Json(serde_json::json!({})))
 }
 

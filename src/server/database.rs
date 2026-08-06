@@ -35,13 +35,19 @@ pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std:
         })
         .test_before_acquire(false);
 
-    ::tracing::info!("Connecting to database with optimized pool settings...");
-    ::tracing::info!("  Max connections: {}", config.database.max_size);
-    ::tracing::info!("  Min idle connections: {:?}", config.database.min_idle);
-    ::tracing::info!("  Connection timeout: {}s", config.database.connection_timeout);
+    ::tracing::info!("[启动阶段 1/4] 连接数据库 (pool: max={}, min_idle={:?}, timeout={}s)",
+        config.database.max_size, config.database.min_idle, config.database.connection_timeout);
 
     let database_url = config.database_url();
     let pool = pool_options.connect(&database_url).await?;
+
+    // 记录 PG 服务端版本, 便于排查兼容性问题 (如 PG14 以下不支持某些 SQL 语法)
+    let pg_version: Option<String> = sqlx::query_scalar("SELECT version()")
+        .fetch_optional(&pool)
+        .await
+        .ok()
+        .flatten();
+    ::tracing::info!("[启动阶段 1/4] 数据库连接建立: {}", pg_version.as_deref().unwrap_or("unknown"));
     let pool = Arc::new(pool);
 
     // 先执行运行时数据库初始化，确保所有表存在
@@ -51,28 +57,38 @@ pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std:
     let skip_db_init = std::env::var("SYNAPSE_SKIP_DB_INIT")
         .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
         .unwrap_or(false);
+    let migrations_dir = if std::path::Path::new("/app/migrations").exists() {
+        "/app/migrations"
+    } else if std::path::Path::new("./migrations").exists() {
+        "./migrations"
+    } else {
+        "(none)"
+    };
     if !runtime_db_init_enabled || skip_db_init {
         ::tracing::info!(
-            "Runtime database initialization disabled; use docker/db_migrate.sh and db-migration-gate.yml as the migration source of truth"
+            "[启动阶段 1/4] 运行时数据库初始化已禁用 (SYNAPSE_ENABLE_RUNTIME_DB_INIT={}, SYNAPSE_SKIP_DB_INIT={}); 迁移主链: docker/db_migrate.sh + db-migration-gate.yml, 迁移目录: {}",
+            runtime_db_init_enabled, skip_db_init, migrations_dir
         );
     } else {
+        ::tracing::info!("[启动阶段 1/4] 开始运行时数据库初始化 (迁移目录: {})", migrations_dir);
         let db_init_service = DatabaseInitService::new(pool.clone());
         db_init_service.initialize().await?;
+        ::tracing::info!("[启动阶段 1/4] 运行时数据库初始化完成");
     }
 
     // 运行数据库 Schema 健康检查（在运行时初始化之后）
     let skip_schema_check = std::env::var("SYNAPSE_SKIP_SCHEMA_CHECK").unwrap_or_default().to_lowercase() == "true";
 
     if skip_schema_check {
-        ::tracing::warn!("⚠️  Skipping database schema health check (SYNAPSE_SKIP_SCHEMA_CHECK=true)");
+        ::tracing::warn!("[启动阶段 1/4] ⚠️  跳过数据库 schema 健康检查 (SYNAPSE_SKIP_SCHEMA_CHECK=true)");
     } else {
-        ::tracing::info!("Running database schema health check...");
+        ::tracing::info!("[启动阶段 1/4] 开始数据库 schema 健康检查...");
         match run_schema_health_check(&pool, false).await {
             Ok(result) => {
                 if result.passed {
-                    ::tracing::info!("✅ Database schema validation PASSED");
+                    ::tracing::info!("[启动阶段 1/4] ✅ 数据库 schema 校验通过");
                 } else {
-                    ::tracing::error!("❌ Database schema validation FAILED");
+                    ::tracing::error!("[启动阶段 1/4] ❌ 数据库 schema 校验失败");
                     if !result.missing_tables.is_empty() {
                         ::tracing::error!("  Missing tables: {:?}", result.missing_tables);
                     }
@@ -102,7 +118,7 @@ pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std:
                 }
             }
             Err(e) => {
-                ::tracing::error!("Failed to run schema health check: {}", e);
+                ::tracing::error!("[启动阶段 1/4] 数据库 schema 健康检查执行失败: {}", e);
                 // Schema health check itself failed — this is NOT safe to ignore.
                 // We might be running against a half-migrated schema.
                 return Err(format!(

@@ -46,10 +46,10 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-        // P-007: Matrix spec requires 401 M_FORBIDDEN for failed login (not 403).
-        // Use Unauthorized kind (→ HTTP 401) with Forbidden code (→ M_FORBIDDEN).
+        // P-007: Matrix spec requires 403 M_FORBIDDEN for failed login
+        // (POST /_matrix/client/v3/login: "The credentials were rejected.").
         let invalid = || {
-            ApiError::unauthorized("Invalid credentials".to_string()).with_code(synapse_common::error::MatrixErrorCode::Forbidden)
+            ApiError::forbidden("Invalid credentials".to_string())
         };
 
         let (password_hash_owned, user_for_success) = match user_opt.as_ref() {

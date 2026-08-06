@@ -1,8 +1,9 @@
 use crate::web::routes::context::AdminContext;
 use axum::{
+    body::Body,
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    http::{HeaderMap, Request, StatusCode},
+    response::{IntoResponse, Response},
     routing::{get, post, put},
     Json, Router,
 };
@@ -104,6 +105,30 @@ fn extract_webhook_auth(headers: &HeaderMap, payload_signature: Option<&str>) ->
         .map(ToOwned::to_owned);
 
     WebhookAuthInput { token, signature }
+}
+
+/// VULN-03/04/05 fix: webhook auth guard middleware.
+///
+/// Ensures at least one auth credential is present before the handler runs.
+/// Without this, the `Json<Payload>` extractor deserializes the request body
+/// first and returns 422 (leaking the API contract) when no credentials are
+/// provided. This middleware returns 401 immediately if no credential header
+/// is found, preventing body deserialization.
+///
+/// The actual credential *validation* still happens inside each handler via
+/// `extract_webhook_auth`; this guard only checks *presence*.
+async fn webhook_auth_guard(request: Request<Body>, next: axum::middleware::Next) -> Response {
+    let headers = request.headers();
+    let has_credential = headers.contains_key("authorization")
+        || headers.contains_key("x-webhook-token")
+        || headers.contains_key("x-api-key")
+        || headers.contains_key("x-webhook-signature");
+
+    if !has_credential {
+        return ApiError::missing_token().into_response();
+    }
+
+    next.run(request).await
 }
 
 pub async fn register_external_service(
@@ -409,6 +434,11 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
     #[cfg(feature = "openclaw-routes")]
     let public_routes =
         public_routes.route("/_synapse/external/openclaw/{service_id}/webhook", post(handle_openclaw_webhook));
+
+    // VULN-03/04/05: require at least one auth credential header before body
+    // deserialization. Without this, `Json<Payload>` returns 422 (leaking the
+    // API contract) when no credentials are provided.
+    let public_routes = public_routes.route_layer(axum::middleware::from_fn(webhook_auth_guard));
 
     public_routes.merge(admin_routes).merge(admin_v1_routes).merge(client_v1_routes).with_state(state)
 }

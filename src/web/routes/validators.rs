@@ -1,3 +1,17 @@
+// Route-layer lightweight parameter validation.
+//
+// These free functions perform fast structural checks (prefix, length, colon
+// split) on HTTP request parameters. They intentionally do NOT use regex so
+// they can be called without constructing a `Validator` instance.
+//
+// For full business-layer validation (username/password policy, regex-based
+// Matrix ID format checks, email, device_id, url, etc.) use
+// `synapse_common::validation::Validator` (injected via Context as
+// `Arc<Validator>`). The two modules are complementary, not duplicates:
+//   - validators.rs  → route-layer quick reject (presence, receipt_type,
+//                      membership, room_alias, event_id, structural ID checks)
+//   - validation.rs  → business-layer policy (password strength, email regex,
+//                      username localpart charset, timestamp window, etc.)
 use crate::common::{ApiError, PresenceState};
 
 pub fn validate_user_id(user_id: &str) -> Result<(), ApiError> {

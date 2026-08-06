@@ -22,7 +22,7 @@ ARG DEBIAN_BASE_IMAGE=debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe
 # ============================================================================
 FROM ${RUST_BUILDER_IMAGE} AS builder
 
-ARG CARGO_FEATURE_ARGS="--features server,core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso --no-default-features"
+ARG CARGO_FEATURE_ARGS="--features server,core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features"
 ARG CARGO_BUILD_JOBS=2
 
 WORKDIR /workspace

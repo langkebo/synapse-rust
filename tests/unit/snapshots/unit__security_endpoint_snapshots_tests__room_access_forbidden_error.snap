@@ -1,0 +1,8 @@
+---
+source: tests/unit/security_endpoint_snapshots_tests.rs
+expression: body
+---
+{
+  "errcode": "M_FORBIDDEN",
+  "error": "You must be a room member to configure burn-after-read"
+}

@@ -441,13 +441,6 @@ impl RegistrationTokenApi for InMemoryRegistrationTokenService {
     }
 }
 
-// =============================================================================
-// Extension TODOs (tracked in 执行清单 Phase 3)
-// =============================================================================
-
-// SYNC-4 (DONE): SyncServiceDeps fields → Arc<dyn Trait>.
-// SYNC-5 (DONE): FakeTokenAuth with configurable validate_token for auth-gated tests.
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -193,6 +193,8 @@ impl SyncService {
         let stream_id = Self::next_event_stream_id(since_token, &room_events, Some(&state_change_ts_by_room));
         let device_one_time_keys_count = self.build_device_one_time_keys_count(user_id, device_id).await?;
 
+        let device_unused_fallback_key_types = self.build_device_unused_fallback_key_types(user_id, device_id).await?;
+
         let key_rotation_needed = self.build_key_rotation_needed(user_id).await?;
 
         let device_list_changes = self.build_device_list_changes(user_id, &device_lists).await?;
@@ -215,6 +217,7 @@ impl SyncService {
             "to_device": { "events": to_device_events },
             "device_lists": device_lists,
             "device_one_time_keys_count": device_one_time_keys_count,
+            "device_unused_fallback_key_types": device_unused_fallback_key_types,
             "key_rotation_needed": key_rotation_needed,
             "device_list_changes": device_list_changes
         }))
@@ -237,6 +240,20 @@ impl SyncService {
         }
 
         Ok(Value::Object(result))
+    }
+
+    async fn build_device_unused_fallback_key_types(&self, user_id: &str, device_id: Option<&str>) -> ApiResult<Value> {
+        let Some(device_id) = device_id else {
+            return Ok(json!([]));
+        };
+
+        let types = self
+            .device_key_storage
+            .get_unused_fallback_key_types(user_id, device_id)
+            .await
+            .map_err(map_internal!("Failed to load unused fallback key types"))?;
+
+        Ok(json!(types))
     }
 
     async fn build_key_rotation_needed(&self, user_id: &str) -> ApiResult<Value> {

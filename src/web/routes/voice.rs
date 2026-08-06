@@ -1,6 +1,6 @@
 #![allow(clippy::unused_async)]
 use super::{ensure_room_member_ctx, validate_user_id, AppState, AuthenticatedUser};
-use crate::common::ApiError;
+use crate::common::{ApiError, ApiResult};
 use crate::web::routes::context::RoomContext;
 use axum::{
     extract::{Path, Query, State},
@@ -11,6 +11,24 @@ use base64::Engine;
 use serde::Deserialize;
 use serde_json::Value;
 use synapse_services::voice_service::VoiceMessageUploadParams;
+
+/// Clamp the `limit` query parameter for voice listing endpoints.
+///
+/// Lower bound is 1, upper bound is 100, default (when `None`) is 50.
+pub fn clamp_voice_list_limit(limit: Option<i64>) -> i64 {
+    limit.unwrap_or(50).min(100).max(1)
+}
+
+/// Map a `upload_voice_message` service result into the handler response.
+///
+/// FT-125: the service already returns an `ApiError`; this preserves the
+/// original errcode/error instead of flattening every failure to a 500.
+pub fn voice_upload_response(result: ApiResult<Value>) -> Result<Json<Value>, ApiError> {
+    match result {
+        Ok(value) => Ok(Json(value)),
+        Err(e) => Err(e),
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct VoiceListQuery {
@@ -154,7 +172,7 @@ async fn upload_voice_message(
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().filter_map(|v| v.as_u64().map(|n| n as u16)).collect());
 
-    match voice_service
+    let result = voice_service
         .upload_voice_message(VoiceMessageUploadParams {
             user_id: auth_user.user_id,
             room_id: room_id.map(|s| s.to_string()),
@@ -163,11 +181,8 @@ async fn upload_voice_message(
             duration_ms,
             waveform,
         })
-        .await
-    {
-        Ok(result) => Ok(Json(result)),
-        Err(e) => Err(ApiError::internal(e.to_string())),
-    }
+        .await;
+    voice_upload_response(result)
 }
 
 #[axum::debug_handler]
@@ -215,7 +230,7 @@ async fn get_room_voice_messages(
 ) -> Result<Json<Value>, ApiError> {
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a member of this room to view voice messages")
         .await?;
-    let limit = query.limit.unwrap_or(50).min(100);
+    let limit = clamp_voice_list_limit(query.limit);
     let result = ctx.voice_service.get_room_voice_messages(&room_id, limit, query.from).await?;
     Ok(Json(result))
 }
@@ -232,7 +247,7 @@ async fn get_user_voice_messages(
             "Cannot view another user's voice messages",
         ));
     }
-    let limit = query.limit.unwrap_or(50).min(100);
+    let limit = clamp_voice_list_limit(query.limit);
     let result = ctx.voice_service.get_user_voice_messages(&user_id, limit, query.from).await?;
     Ok(Json(result))
 }
@@ -240,10 +255,50 @@ async fn get_user_voice_messages(
 #[axum::debug_handler]
 async fn get_voice_message_content(
     State(ctx): State<RoomContext>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path(media_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    // FT-105: 先取出内容（含归属信息），在返回给调用者之前完成所有权校验，防止 IDOR
     let result = ctx.voice_service.get_voice_message_content(&media_id).await?;
+
+    let owner_id = result.get("user_id").and_then(|v| v.as_str()).unwrap_or_default();
+    let room_id = result.get("room_id").and_then(|v| v.as_str());
+
+    // 非管理员且非上传者：需要校验房间成员身份；管理员/上传者直接视为通过
+    let needs_room_check = !auth_user.is_admin && auth_user.user_id.as_str() != owner_id;
+    let is_room_member = if needs_room_check {
+        match room_id {
+            // 非上传者但消息归属某房间：校验调用者是否为该房间成员
+            Some(rid) => {
+                ensure_room_member_ctx(
+                    &ctx,
+                    &auth_user,
+                    rid,
+                    "You must be a member of this room to access this voice message",
+                )
+                .await
+                .is_ok()
+            }
+            // 非上传者且消息不归属任何房间：无权访问
+            None => false,
+        }
+    } else {
+        // 管理员或上传者：不需要房间成员校验
+        true
+    };
+
+    if !synapse_services::voice_service::VoiceService::can_access_voice_message(
+        &auth_user.user_id,
+        owner_id,
+        auth_user.is_admin,
+        room_id,
+        is_room_member,
+    ) {
+        return Err(ApiError::forbidden(
+            "You do not have permission to access this voice message",
+        ));
+    }
+
     Ok(Json(result))
 }
 

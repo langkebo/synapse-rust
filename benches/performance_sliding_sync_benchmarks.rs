@@ -41,8 +41,8 @@ use tokio::runtime::Runtime;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::config::PerformanceConfig;
 use synapse_rust::metrics::MetricsCollector;
-use synapse_rust::services::sliding_sync_service::SlidingSyncService;
-use synapse_rust::services::typing_service::TypingService;
+use synapse_services::sliding_sync_service::SlidingSyncService;
+use synapse_services::typing_service::TypingService;
 use synapse_rust::storage::device::DeviceStorage;
 use synapse_rust::storage::event::EventStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
@@ -90,12 +90,12 @@ fn connect_bench_pool(rt: &Runtime) -> Option<Arc<sqlx::PgPool>> {
 /// default performance config (5000 ms latency threshold).
 fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let storage = SlidingSyncStorage::new(pool.clone());
-    let event_storage = EventStorage::new(pool, "localhost".to_string());
+    let storage = Arc::new(SlidingSyncStorage::new(pool.clone()));
+    let event_storage = Arc::new(EventStorage::new(pool, "localhost".to_string()));
     let typing_service = Arc::new(TypingService::default());
-    let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
+    let presence_storage = Arc::new(PresenceStorage::new(pool.clone(), cache.clone()));
     let member_storage = Arc::new(RoomMemberStorage::new(pool, "localhost"));
-    let device_storage = DeviceStorage::new(pool);
+    let device_storage = Arc::new(DeviceStorage::new(pool));
     let to_device_storage = synapse_e2ee::to_device::ToDeviceStorage::new(pool);
     let metrics = Arc::new(MetricsCollector::new());
 
@@ -103,6 +103,8 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
         storage,
         cache,
         event_storage,
+        Arc::new(synapse_e2ee::device_keys::DeviceKeyStorage::new(pool))
+            as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
         typing_service,
         presence_storage,
         member_storage,
@@ -140,6 +142,7 @@ fn build_initial_sync_request(room_count: usize) -> SlidingSyncRequest {
         pos: None,
         timeout: Some(0),
         client_timeout: Some(0),
+        txn_id: None,
     }
 }
 
@@ -160,6 +163,7 @@ fn build_subscribe_request(room_ids: &[String]) -> SlidingSyncRequest {
         pos: None,
         timeout: Some(0),
         client_timeout: Some(0),
+        txn_id: None,
     }
 }
 
@@ -175,6 +179,7 @@ fn build_unsubscribe_request(room_ids: &[String]) -> SlidingSyncRequest {
         pos: None,
         timeout: Some(0),
         client_timeout: Some(0),
+        txn_id: None,
     }
 }
 

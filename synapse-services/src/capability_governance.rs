@@ -459,7 +459,9 @@ impl CapabilityGovernance {
             "org.matrix.msc4186": self.msc4186_capability().enabled(),
             "io.hula.burn_after_read": self.burn_after_read_capability().enabled(),
             // MSC4108: Sign in with QR code — rendezvous endpoints are always available
-            "org.matrix.msc4108": true
+            "org.matrix.msc4108": true,
+            // MSC4133: Extended profile (about/sex/region/birthday) — endpoints implemented in extended_profile.rs
+            "uk.tcpip.msc4133": true
         })
     }
 

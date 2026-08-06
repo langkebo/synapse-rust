@@ -1,6 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::context::MediaContext;
-use crate::web::AuthenticatedUser;
+use crate::web::{AuthenticatedUser, OptionalAuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
@@ -38,20 +38,9 @@ const SAFE_INLINE_MEDIA_TYPES: &[&str] = &[
 // Media ID validation
 // ---------------------------------------------------------------------------
 
-/// Validate that a media_id does not contain path traversal sequences.
-#[allow(dead_code)]
-pub(crate) fn validate_media_id(server_name: &str, media_id: &str) -> Result<(), ApiError> {
-    if media_id.is_empty() {
-        return Err(ApiError::bad_request("media_id must not be empty".to_string()));
-    }
-    if media_id.contains("..") || media_id.contains('/') || media_id.contains('\\') {
-        return Err(ApiError::bad_request(format!(
-            "Invalid media_id for server {}: path traversal not allowed",
-            server_name
-        )));
-    }
-    Ok(())
-}
+// NOTE: media_id validation is centralized in `synapse_services::media_service::validate_media_id`
+// (synapse-services/src/media_service.rs:65). The previous route-local duplicate was removed as
+// dead code — production download paths delegate to the service-layer validator.
 
 // ---------------------------------------------------------------------------
 // Header formatting helpers
@@ -274,7 +263,7 @@ pub(crate) async fn thumbnail_response_common(
 
 pub(crate) async fn download_media(
     State(ctx): State<MediaContext>,
-    auth_user: AuthenticatedUser,
+    auth_user: OptionalAuthenticatedUser,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
     let _ = auth_user;
@@ -285,8 +274,10 @@ pub(crate) async fn download_media(
 
 pub(crate) async fn download_media_with_filename(
     State(ctx): State<MediaContext>,
+    auth_user: OptionalAuthenticatedUser,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let _ = auth_user;
     let response = download_media_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))
@@ -388,7 +379,7 @@ pub(crate) async fn download_media_v1_with_filename(
 
 pub(crate) async fn get_thumbnail(
     State(ctx): State<MediaContext>,
-    auth_user: AuthenticatedUser,
+    auth_user: OptionalAuthenticatedUser,
     Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -412,26 +403,6 @@ pub(crate) async fn get_thumbnail_authenticated(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_validate_media_id_rejects_traversal() {
-        assert!(validate_media_id("server", "../etc").is_err());
-        assert!(validate_media_id("server", "a/b").is_err());
-        assert!(validate_media_id("server", "a\\b").is_err());
-    }
-
-    #[test]
-    fn test_validate_media_id_allows_valid() {
-        assert!(validate_media_id("server", "abc123").is_ok());
-        assert!(validate_media_id("server", "media_id_with_underscores").is_ok());
-        assert!(validate_media_id("server", "media-id-with-dashes").is_ok());
-        assert!(validate_media_id("server", "UPPERCASE123").is_ok());
-    }
-
-    #[test]
-    fn test_validate_media_id_rejects_empty() {
-        assert!(validate_media_id("server", "").is_err());
-    }
 
     #[test]
     fn test_thumbnail_default_dimensions() {

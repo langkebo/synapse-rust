@@ -823,6 +823,18 @@ async fn export_keys_by_version(
     Ok(Json(export_data))
 }
 
+/// Resolve the `version` field for `import_keys`.
+///
+/// FT-126: previously defaulted silently to "1" when missing, which could
+/// write keys to the wrong backup version. Now requires the field and
+/// returns a 400 Bad Request when it is absent or not a string.
+pub fn resolve_import_version(body: &Value) -> Result<String, ApiError> {
+    body.get("version")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| ApiError::bad_request("version is required".to_string()))
+}
+
 /// Import keys
 /// POST /_matrix/client/r0/room_keys/import
 #[axum::debug_handler]
@@ -836,7 +848,7 @@ async fn import_keys(
         .and_then(|v| v.as_array())
         .ok_or_else(|| crate::error::ApiError::bad_request("Missing room_keys".to_string()))?;
 
-    let version = body.get("version").and_then(|v| v.as_str()).unwrap_or("1");
+    let version = resolve_import_version(&body)?;
 
     let mut imported_count = 0;
     let mut failed_count = 0;
@@ -846,7 +858,7 @@ async fn import_keys(
         let session_id = key_data.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
         let session_data = key_data.get("session_data").and_then(|v| v.as_str()).unwrap_or("");
 
-        if !room_id.is_empty() && !session_id.is_empty() {
+        if !room_id.is_empty() && !session_id.is_empty() && !session_data.is_empty() {
             let params = crate::e2ee::backup::BackupKeyUploadParams {
                 user_id: auth_user.user_id.clone(),
                 room_id: room_id.to_string(),
@@ -897,7 +909,7 @@ async fn import_keys_by_version(
         let session_id = key_data.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
         let session_data = key_data.get("session_data").and_then(|v| v.as_str()).unwrap_or("");
 
-        if !room_id.is_empty() && !session_id.is_empty() {
+        if !room_id.is_empty() && !session_id.is_empty() && !session_data.is_empty() {
             let params = crate::e2ee::backup::BackupKeyUploadParams {
                 user_id: auth_user.user_id.clone(),
                 room_id: room_id.to_string(),

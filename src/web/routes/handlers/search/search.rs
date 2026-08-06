@@ -89,45 +89,6 @@ pub(crate) struct GroupBy {
     pub key: String,
 }
 
-/// Parsed search query parameters extracted from request body and query string.
-#[allow(dead_code)]
-pub(crate) struct ParsedSearchQuery {
-    pub search_term: String,
-    pub limit: usize,
-    pub order_by: String,
-    pub include_profile: bool,
-}
-
-/// Extract and validate search parameters from the query string and request body.
-#[allow(dead_code)]
-pub(crate) fn parse_search_params(
-    params: &HashMap<String, String>,
-    body: &SearchRequest,
-) -> Result<ParsedSearchQuery, ApiError> {
-    let room_events = body
-        .search_categories
-        .room_events
-        .as_ref()
-        .ok_or_else(|| ApiError::bad_request("Missing room_events search category"))?;
-
-    let search_term = room_events.search_term.trim().to_string();
-    if search_term.is_empty() {
-        return Err(ApiError::bad_request("Search term cannot be empty"));
-    }
-    if search_term.len() > MAX_SEARCH_TERM_LENGTH {
-        return Err(ApiError::bad_request(format!("Search term too long (max {MAX_SEARCH_TERM_LENGTH} characters)")));
-    }
-
-    let limit = room_events.filter.as_ref().and_then(|f| f.limit).unwrap_or(DEFAULT_SEARCH_LIMIT).min(MAX_SEARCH_LIMIT)
-        as usize;
-
-    let order_by = room_events.order_by.clone();
-
-    let include_profile = params.get("include_profile").is_some_and(|v| v == "true");
-
-    Ok(ParsedSearchQuery { search_term, limit, order_by, include_profile })
-}
-
 pub(crate) fn validate_search_request(body: &SearchRequest) -> Result<(), ApiError> {
     if let Some(room_events) = &body.search_categories.room_events {
         if room_events.search_term.len() > MAX_SEARCH_TERM_LENGTH {
@@ -613,68 +574,5 @@ mod tests {
 
         assert!(response.get("chunk").is_some());
         assert!(response.get("total").is_some());
-    }
-
-    #[test]
-    fn test_parse_search_params_extracts_valid_params() {
-        let body = SearchRequest {
-            search_categories: SearchCategories {
-                room_events: Some(RoomEventsSearch {
-                    search_term: "test".to_string(),
-                    keys: vec![],
-                    filter: Some(Filter {
-                        limit: Some(25),
-                        rooms: None,
-                        not_rooms: None,
-                        types: None,
-                        not_types: None,
-                        senders: None,
-                        not_senders: None,
-                    }),
-                    groupings: None,
-                    order_by: "recent".to_string(),
-                    next_batch: None,
-                }),
-                users: None,
-            },
-        };
-
-        let params: HashMap<String, String> = [("include_profile".to_string(), "true".to_string())].into();
-
-        let result = parse_search_params(&params, &body).unwrap();
-        assert_eq!(result.search_term, "test");
-        assert_eq!(result.limit, 25);
-        assert_eq!(result.order_by, "recent");
-        assert!(result.include_profile);
-    }
-
-    #[test]
-    fn test_parse_search_params_rejects_empty_term() {
-        let body = SearchRequest {
-            search_categories: SearchCategories {
-                room_events: Some(RoomEventsSearch {
-                    search_term: "   ".to_string(),
-                    keys: vec![],
-                    filter: None,
-                    groupings: None,
-                    order_by: default_order_by(),
-                    next_batch: None,
-                }),
-                users: None,
-            },
-        };
-
-        let params = HashMap::new();
-        let result = parse_search_params(&params, &body);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_parse_search_params_missing_room_events() {
-        let body = SearchRequest { search_categories: SearchCategories { room_events: None, users: None } };
-
-        let params = HashMap::new();
-        let result = parse_search_params(&params, &body);
-        assert!(result.is_err());
     }
 }

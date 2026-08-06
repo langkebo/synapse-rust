@@ -430,7 +430,6 @@ async fn get_friends(
 
     Ok(Json(json!({
         "friends": items,
-        "items": items,
         "total": page.total,
         "limit": page.limit,
         "offset": page.offset,

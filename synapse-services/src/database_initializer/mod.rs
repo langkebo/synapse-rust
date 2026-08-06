@@ -289,6 +289,13 @@ impl DatabaseInitService {
 
     async fn step_connection_test(&self) -> Result<String, sqlx::Error> {
         sqlx::query("SELECT 1 as test").fetch_one(&*self.pool).await?;
+        // 记录 PG 服务端版本, 便于排查兼容性问题 (如 PG14 以下不支持某些 SQL 语法)
+        let pg_version: Option<String> = sqlx::query_scalar("SELECT version()")
+            .fetch_optional(&*self.pool)
+            .await
+            .ok()
+            .flatten();
+        info!(pg_version = ?pg_version, "数据库连接测试通过");
         Ok("数据库连接测试通过".to_string())
     }
 
@@ -317,6 +324,8 @@ impl DatabaseInitService {
             }
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }
+        // 记录锁获取耗时: 高耗时暗示有并发迁移进程 (如多 worker 同时启动)
+        info!(lock_key, lock_acquire_ms = lock_start.elapsed().as_millis() as u64, "已获取迁移 advisory lock");
 
         let migrations_dir = if std::path::Path::new("/app/migrations").exists() {
             std::path::Path::new("/app/migrations")
@@ -424,7 +433,23 @@ impl DatabaseInitService {
 
         migration_files.sort();
 
-        info!(migration_file_count = migration_files.len(), "发现迁移文件");
+        // 按文件名前缀分类: 基线 (00000000_unified_schema_v*) vs 增量 (其余)
+        // 用于排查"旧基线被当作增量执行"的兼容性问题
+        let baseline_count = migration_files
+            .iter()
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|name| name.starts_with("00000000_unified_schema_v"))
+            })
+            .count();
+        let incremental_count = migration_files.len().saturating_sub(baseline_count);
+        info!(
+            migration_file_count = migration_files.len(),
+            baseline_count,
+            incremental_count,
+            "发现迁移文件 (基线版本都会被尝试应用, 旧基线的 CREATE TABLE IF NOT EXISTS 是幂等的)"
+        );
 
         let mut success_count = 0;
         let mut skip_count = 0;
@@ -527,7 +552,21 @@ impl DatabaseInitService {
             }
         }
 
-        info!(success_count, skip_count, error_count, "迁移完成");
+        // 迁移后统计表数, 便于对比迁移前后 schema 完整性
+        let table_count: Option<i64> = sqlx::query_scalar(
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'",
+        )
+        .fetch_one(&*self.pool)
+        .await
+        .ok();
+
+        info!(
+            success_count,
+            skip_count,
+            error_count,
+            table_count = ?table_count,
+            "迁移完成"
+        );
         Ok(format!("数据库迁移执行完成 (成功: {success_count}, 跳过: {skip_count}, 错误: {error_count})"))
     }
 

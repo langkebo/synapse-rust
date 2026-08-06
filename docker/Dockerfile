@@ -2,7 +2,7 @@ ARG RUST_VERSION=1.93.0
 ARG RUST_BUILDER_IMAGE=rust:1.93.0-slim-bookworm@sha256:776861219cd851131c1cec3bbd7cbeb16b99a794048097eb69ad9682a8ed0d57
 ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/cc-debian12@sha256:e8e7ee4b8b106d4c5fde9e422a321b2b8a2d5cca546c97adcce927f3e1d36e36
 ARG DEBIAN_BASE_IMAGE=debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
-ARG CARGO_FEATURE_ARGS="--features server,core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso --no-default-features"
+ARG CARGO_FEATURE_ARGS="--features server,core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends --no-default-features"
 
 # ============================================================================
 # Stage 1: builder — 编译 Rust 二进制 + 收集运行时所需文件到 /out/app
@@ -27,7 +27,8 @@ ENV CARGO_INCREMENTAL=0 \
     CARGO_PROFILE_RELEASE_PANIC=abort \
     RUSTFLAGS="-C link-arg=-Wl,--gc-sections -C link-arg=-Wl,-z,relro,-z,now"
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     clang \
     file \
@@ -96,7 +97,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # ============================================================================
 FROM ${DEBIAN_BASE_IMAGE} AS runtime-libs
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
@@ -172,7 +174,8 @@ LABEL org.opencontainers.image.title="synapse-rust" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.licenses="Apache-2.0"
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
     postgresql-client \

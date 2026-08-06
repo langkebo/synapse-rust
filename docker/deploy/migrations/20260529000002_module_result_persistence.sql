@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS third_party_rule_results (
 );
 
 ALTER TABLE spam_check_results
+    ADD COLUMN IF NOT EXISTS user_id TEXT,
+    ADD COLUMN IF NOT EXISTS spam_score REAL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS is_spam BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS check_details JSONB DEFAULT '{}',
     ADD COLUMN IF NOT EXISTS sender TEXT,
     ADD COLUMN IF NOT EXISTS event_type TEXT,
     ADD COLUMN IF NOT EXISTS content JSONB,
@@ -68,21 +72,43 @@ ALTER TABLE spam_check_results
     ALTER COLUMN checked_ts SET NOT NULL;
 
 ALTER TABLE third_party_rule_results
+    ADD COLUMN IF NOT EXISTS user_id TEXT,
     ADD COLUMN IF NOT EXISTS sender TEXT,
     ADD COLUMN IF NOT EXISTS event_type TEXT,
     ADD COLUMN IF NOT EXISTS rule_name TEXT,
     ADD COLUMN IF NOT EXISTS reason TEXT,
     ADD COLUMN IF NOT EXISTS modified_content JSONB,
-    ADD COLUMN IF NOT EXISTS checked_ts BIGINT;
+    ADD COLUMN IF NOT EXISTS checked_ts BIGINT,
+    ADD COLUMN IF NOT EXISTS rule_details JSONB DEFAULT '{}';
 
-UPDATE third_party_rule_results
-SET
-    sender = COALESCE(sender, user_id),
-    event_type = COALESCE(event_type, rule_details->>'event_type', 'm.room.message'),
-    rule_name = COALESCE(rule_name, rule_type),
-    reason = COALESCE(reason, rule_details->>'reason'),
-    modified_content = COALESCE(modified_content, rule_details->'modified_content'),
-    checked_ts = COALESCE(checked_ts, created_ts);
+-- v10 baseline removed rule_type column (m-26); only run data migration
+-- from rule_type → rule_name when upgrading from v07 (column still exists).
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'third_party_rule_results'
+          AND column_name = 'rule_type'
+    ) THEN
+        UPDATE third_party_rule_results
+        SET
+            sender = COALESCE(sender, user_id),
+            event_type = COALESCE(event_type, rule_details->>'event_type', 'm.room.message'),
+            rule_name = COALESCE(rule_name, rule_type),
+            reason = COALESCE(reason, rule_details->>'reason'),
+            modified_content = COALESCE(modified_content, rule_details->'modified_content'),
+            checked_ts = COALESCE(checked_ts, created_ts);
+    ELSE
+        UPDATE third_party_rule_results
+        SET
+            sender = COALESCE(sender, user_id),
+            event_type = COALESCE(event_type, rule_details->>'event_type', 'm.room.message'),
+            reason = COALESCE(reason, rule_details->>'reason'),
+            modified_content = COALESCE(modified_content, rule_details->'modified_content'),
+            checked_ts = COALESCE(checked_ts, created_ts);
+    END IF;
+END $$;
 
 ALTER TABLE third_party_rule_results
     ALTER COLUMN sender SET NOT NULL,
@@ -102,5 +128,18 @@ CREATE INDEX IF NOT EXISTS idx_spam_results_room
 CREATE INDEX IF NOT EXISTS idx_third_party_results_event_checked
     ON third_party_rule_results(event_id, checked_ts DESC);
 
-CREATE INDEX IF NOT EXISTS idx_third_party_rule_type
-    ON third_party_rule_results(rule_type);
+-- v10 uses rule_name (rule_type was removed in m-26); create index on
+-- whichever column exists.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'third_party_rule_results'
+          AND column_name = 'rule_type'
+    ) THEN
+        EXECUTE 'CREATE INDEX IF NOT EXISTS idx_third_party_rule_type ON third_party_rule_results(rule_type)';
+    ELSE
+        EXECUTE 'CREATE INDEX IF NOT EXISTS idx_third_party_rule_name ON third_party_rule_results(rule_name)';
+    END IF;
+END $$;

@@ -1,6 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::context::SyncContext;
-use crate::web::routes::{AppState, AuthenticatedUser};
+use crate::web::routes::{AppState, AuthenticatedUser, MatrixJson};
 use axum::{extract::State, routing::post, Json, Router};
 use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
 
@@ -38,7 +38,7 @@ pub fn sliding_sync_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
 async fn sliding_sync(
     State(ctx): State<SyncContext>,
     auth_user: AuthenticatedUser,
-    Json(body): Json<SlidingSyncRequest>,
+    MatrixJson(body): MatrixJson<SlidingSyncRequest>,
 ) -> Result<Json<SlidingSyncResponse>, ApiError> {
     tracing::debug!(
         "Sliding sync request from user: {}, pos: {:?}, lists: {:?}",

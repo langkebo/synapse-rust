@@ -107,12 +107,13 @@ fn test_room_key_format() {
     assert!(key.get("session_data").is_some());
 }
 
-// Test 8: Session data validation
+// Test 8: Session data validation (FT-114: empty session_data must be rejected)
 #[test]
 fn test_session_data_validation() {
     // Valid base64 data
     assert!(is_valid_session_data("SGVsbG8gV29ybGQ="));
-    assert!(is_valid_session_data(""));
+    // FT-114: empty session_data must NOT be accepted
+    assert!(!is_valid_session_data(""));
 
     // This is basic - real implementation would validate base64
     assert!(is_valid_session_data("valid_data"));
@@ -173,6 +174,43 @@ fn test_get_room_key_by_id() {
     assert!(key.get("room_id").is_some());
     assert!(key.get("session_id").is_some());
     assert!(key.get("session_data").is_some());
+}
+
+// Test FT-114: Import with empty session_data should count as failed
+#[test]
+fn test_ft114_import_rejects_empty_session_data() {
+    // Simulate the import validation logic
+    let room_keys = json!([
+        {
+            "room_id": "!room:localhost",
+            "session_id": "session123",
+            "session_data": ""  // empty session_data
+        },
+        {
+            "room_id": "!room:localhost",
+            "session_id": "session456",
+            "session_data": "Base64Data"  // valid
+        }
+    ]);
+
+    let mut imported_count = 0;
+    let mut failed_count = 0;
+
+    for key_data in room_keys.as_array().unwrap().iter() {
+        let room_id = key_data.get("room_id").and_then(|v| v.as_str()).unwrap_or("");
+        let session_id = key_data.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+        let session_data = key_data.get("session_data").and_then(|v| v.as_str()).unwrap_or("");
+
+        // FT-114: session_data must be non-empty
+        if !room_id.is_empty() && !session_id.is_empty() && !session_data.is_empty() {
+            imported_count += 1;
+        } else {
+            failed_count += 1;
+        }
+    }
+
+    assert_eq!(imported_count, 1);
+    assert_eq!(failed_count, 1);
 }
 
 // Test 12: Delete backup version
@@ -288,9 +326,73 @@ fn is_valid_algorithm(algorithm: &str) -> bool {
 }
 
 fn is_valid_session_data(data: &str) -> bool {
-    !data.is_empty() || data.is_empty() // Accept empty for cleared data
+    !data.is_empty()
 }
 
 fn is_valid_recovery_key(key: &str) -> bool {
     !key.is_empty() || key.is_empty() // Accept empty for testing
+}
+
+// ============================================================================
+// FT-126: import_keys must require the `version` field
+// ============================================================================
+//
+// Bug: `version.unwrap_or("1")` silently defaults to "1" when version is
+// missing, which could write keys to the wrong backup version. The fix
+// returns a 400 Bad Request when version is absent.
+
+use synapse_common::{ApiErrorKind, MatrixErrorCode};
+use synapse_rust::web::routes::key_backup::resolve_import_version;
+
+#[test]
+fn ft126_missing_version_returns_bad_request() {
+    // No `version` field at all.
+    let body = json!({
+        "room_keys": [
+            {"room_id": "!r:localhost", "session_id": "s1", "session_data": "data"}
+        ]
+    });
+
+    let result = resolve_import_version(&body);
+
+    let err = result.expect_err("missing version must be rejected, not defaulted to \"1\"");
+    assert_eq!(err.kind, ApiErrorKind::BadRequest, "must be a 400 Bad Request");
+    assert_eq!(err.code, MatrixErrorCode::BadJson, "must be M_BAD_JSON");
+    assert!(
+        err.message.contains("version"),
+        "error message must mention version, got: {}",
+        err.message
+    );
+}
+
+#[test]
+fn ft126_null_version_returns_bad_request() {
+    // `version` present but null.
+    let body = json!({
+        "version": serde_json::Value::Null,
+        "room_keys": []
+    });
+
+    let result = resolve_import_version(&body);
+    assert!(result.is_err(), "null version must be rejected");
+    let err = result.unwrap_err();
+    assert_eq!(err.kind, ApiErrorKind::BadRequest);
+}
+
+#[test]
+fn ft126_present_version_is_returned_verbatim() {
+    let body = json!({"version": "42"});
+
+    let version = resolve_import_version(&body).expect("present version must resolve");
+    assert_eq!(version, "42", "must not override a caller-supplied version");
+}
+
+#[test]
+fn ft126_present_version_one_is_returned_verbatim() {
+    // Guard against a regression where "1" is force-injected even when the
+    // caller did supply it explicitly.
+    let body = json!({"version": "1"});
+
+    let version = resolve_import_version(&body).expect("present version must resolve");
+    assert_eq!(version, "1");
 }

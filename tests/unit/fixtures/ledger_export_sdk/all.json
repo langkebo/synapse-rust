@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
-  "generated_at": "2026-07-24T09:12:01Z",
-  "synapse_rust_commit": "52743253bdca3fa83ea774744e15c917ae07bbfd",
+  "generated_at": "2026-07-31T22:14:32Z",
+  "synapse_rust_commit": "c2e43304843f9460bc5d88d93b708016306d97f1",
   "state_profile": "all",
   "profile_flags": {
     "oidc_enabled": true,
@@ -9,7 +9,7 @@
     "saml_enabled": true,
     "openclaw_enabled": true
   },
-  "entry_count": 1364,
+  "entry_count": 1378,
   "entries": [
     {
       "method": "GET",
@@ -371,6 +371,22 @@
     {
       "method": "GET",
       "path": "/_matrix/client/r0/friends/check/{user_id}",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/r0/friends/dm/{user_id}",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/r0/friends/dm/{user_id}",
       "registered_by": "friend_room",
       "path_params": [
         "user_id"
@@ -962,6 +978,18 @@
       "method": "GET",
       "path": "/_matrix/client/r0/pushrules",
       "registered_by": "push",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/r0/pushrules/",
+      "registered_by": "assembly::create_router",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/r0/pushrules/global/",
+      "registered_by": "assembly::create_router",
       "path_params": []
     },
     {
@@ -1604,13 +1632,13 @@
     },
     {
       "method": "PUT",
-      "path": "/_matrix/client/r0/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_id}",
+      "path": "/_matrix/client/r0/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}",
       "registered_by": "relations",
       "path_params": [
         "room_id",
         "event_id",
         "rel_type",
-        "event_id"
+        "txn_id"
       ]
     },
     {
@@ -1714,6 +1742,14 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/client/r0/rooms/{room_id}/state/m.room.power_levels/",
+      "registered_by": "room",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "PUT",
       "path": "/_matrix/client/r0/rooms/{room_id}/state/m.room.power_levels/",
       "registered_by": "room",
       "path_params": [
@@ -2394,6 +2430,36 @@
     },
     {
       "method": "POST",
+      "path": "/_matrix/client/unstable/org.matrix.msc4108/rendezvous",
+      "registered_by": "msc4108_rendezvous",
+      "path_params": []
+    },
+    {
+      "method": "DELETE",
+      "path": "/_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id}",
+      "registered_by": "msc4108_rendezvous",
+      "path_params": [
+        "session_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id}",
+      "registered_by": "msc4108_rendezvous",
+      "path_params": [
+        "session_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id}",
+      "registered_by": "msc4108_rendezvous",
+      "path_params": [
+        "session_id"
+      ]
+    },
+    {
+      "method": "POST",
       "path": "/_matrix/client/unstable/org.matrix.msc4140/delayed_events/{delay_id}",
       "registered_by": "delayed_events",
       "path_params": [
@@ -2790,6 +2856,22 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/client/v1/friends/dm/{user_id}",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/client/v1/friends/dm/{user_id}",
+      "registered_by": "friend_room",
+      "path_params": [
+        "user_id"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/_matrix/client/v1/friends/groups",
       "registered_by": "friend_room",
       "path_params": []
@@ -3145,36 +3227,10 @@
       ]
     },
     {
-      "method": "GET",
-      "path": "/_matrix/client/v1/login/get_qr_code",
-      "registered_by": "assembly::auth_router",
-      "path_params": []
-    },
-    {
       "method": "POST",
-      "path": "/_matrix/client/v1/login/qr/confirm",
+      "path": "/_matrix/client/v1/login/qr_token",
       "registered_by": "assembly::auth_router",
       "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/login/qr/invalidate",
-      "registered_by": "assembly::auth_router",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_matrix/client/v1/login/qr/start",
-      "registered_by": "assembly::auth_router",
-      "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/v1/login/qr/{transaction_id}/status",
-      "registered_by": "assembly::auth_router",
-      "path_params": [
-        "transaction_id"
-      ]
     },
     {
       "method": "GET",
@@ -3711,13 +3767,13 @@
     },
     {
       "method": "PUT",
-      "path": "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_id}",
+      "path": "/_matrix/client/v1/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}",
       "registered_by": "relations",
       "path_params": [
         "room_id",
         "event_id",
         "rel_type",
-        "event_id"
+        "txn_id"
       ]
     },
     {
@@ -3758,6 +3814,14 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/",
+      "registered_by": "room",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "PUT",
       "path": "/_matrix/client/v1/rooms/{room_id}/state/m.room.power_levels/",
       "registered_by": "room",
       "path_params": [
@@ -6032,13 +6096,13 @@
     },
     {
       "method": "PUT",
-      "path": "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{event_id}",
+      "path": "/_matrix/client/v3/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}",
       "registered_by": "relations",
       "path_params": [
         "room_id",
         "event_id",
         "rel_type",
-        "event_id"
+        "txn_id"
       ]
     },
     {
@@ -6207,6 +6271,14 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/",
+      "registered_by": "room",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "PUT",
       "path": "/_matrix/client/v3/rooms/{room_id}/state/m.room.power_levels/",
       "registered_by": "room",
       "path_params": [
@@ -6575,6 +6647,22 @@
     {
       "method": "GET",
       "path": "/_matrix/client/v3/rooms/{room_id}/version",
+      "registered_by": "room",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/v3/rooms/{room_id}/visibility",
+      "registered_by": "room",
+      "path_params": [
+        "room_id"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/_matrix/client/v3/rooms/{room_id}/visibility",
       "registered_by": "room",
       "path_params": [
         "room_id"
@@ -7510,6 +7598,14 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/federation/v2/query/{server_name}",
+      "registered_by": "federation",
+      "path_params": [
+        "server_name"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/_matrix/federation/v2/query/{server_name}/{key_id}",
       "registered_by": "federation",
       "path_params": [
@@ -7546,6 +7642,20 @@
       "path": "/_matrix/federation/v2/user/keys/query",
       "registered_by": "federation",
       "path_params": []
+    },
+    {
+      "method": "POST",
+      "path": "/_matrix/key/v2/query",
+      "registered_by": "federation",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/key/v2/query/{server_name}",
+      "registered_by": "federation",
+      "path_params": [
+        "server_name"
+      ]
     },
     {
       "method": "GET",
