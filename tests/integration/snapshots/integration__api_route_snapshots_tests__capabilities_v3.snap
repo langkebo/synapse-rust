@@ -54,6 +54,14 @@ expression: body
     },
     "m.voice": {
       "enabled": true
+    },
+    "rooms": {
+      "room_versions": {
+        "available": {
+          "11": "stable"
+        },
+        "default": "11"
+      }
     }
   },
   "unstable_features": {
@@ -62,6 +70,9 @@ expression: body
     "org.matrix.msc3245.voice": "[feature_gated]",
     "org.matrix.msc3886.sliding_sync": "[feature_gated]",
     "org.matrix.msc3983.thread": "[feature_gated]",
-    "org.matrix.msc4186": "[feature_gated]"
+    "org.matrix.msc4108": "[feature_gated]",
+    "org.matrix.msc4186": "[feature_gated]",
+    "org.matrix.simplified_msc3575": "[feature_gated]",
+    "uk.tcpip.msc4133": "[feature_gated]"
   }
 }

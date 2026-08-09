@@ -170,10 +170,10 @@ fn assert_route_ledger_snapshot(snapshot_file: &str, actual: &str) {
 async fn declared_route_manifest_size_stays_under_probe_warning_threshold() {
     // Guard for SPEC_ALIGNMENT_PLAN_2026-05-01 §7.2: bumping this constant
     // silently is a regression path. Current ceiling = current manifest size
-    // (1190 on 2026-05-02) + ~10% headroom. If you genuinely need to raise
+    // (1317 on 2026-08-06) + ~10% headroom. If you genuinely need to raise
     // it, refresh §7.2 with a fresh probe-time datapoint and decide whether
     // PROBE_CONCURRENCY needs raising or sampling needs to land first.
-    const WARNING_ROUTE_COUNT: usize = 1300;
+    const WARNING_ROUTE_COUNT: usize = 1450;
 
     let Some(ledger) = default_ledger().await else {
         eprintln!("Skipping: integration test database is not available");

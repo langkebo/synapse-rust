@@ -1,6 +1,5 @@
 ---
 source: tests/integration/api_route_snapshots_tests.rs
-assertion_line: 343
 expression: body
 ---
 {
@@ -401,6 +400,7 @@ expression: body
     "left": []
   },
   "device_one_time_keys_count": {},
+  "device_unused_fallback_key_types": [],
   "key_rotation_needed": {
     "rooms": []
   },

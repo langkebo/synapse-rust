@@ -1,5 +1,5 @@
 # route-ledger snapshot: default
-count: 1282
+count: 1284
 
 DELETE /_matrix/admin/v1/external_services/{as_id} [external_service]
 DELETE /_matrix/client/r0/devices/{device_id} [device]
@@ -154,6 +154,8 @@ GET /_matrix/client/r0/push/devices [push_notification]
 GET /_matrix/client/r0/push/rules [push_notification]
 GET /_matrix/client/r0/pushers [push]
 GET /_matrix/client/r0/pushrules [push]
+GET /_matrix/client/r0/pushrules/ [assembly::create_router]
+GET /_matrix/client/r0/pushrules/global/ [assembly::create_router]
 GET /_matrix/client/r0/pushrules/{scope} [push]
 GET /_matrix/client/r0/pushrules/{scope}/{kind} [push]
 GET /_matrix/client/r0/pushrules/{scope}/{kind}/{rule_id} [push]

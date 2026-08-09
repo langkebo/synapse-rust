@@ -67,9 +67,15 @@ async fn create_room(app: &axum::Router, token: &str) -> String {
         .unwrap();
 
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "createRoom failed: body={}",
+        String::from_utf8_lossy(&body)
+    );
 
-    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
 }
@@ -101,7 +107,7 @@ async fn create_widget(app: &axum::Router, token: &str, room_id: &str) -> String
     assert_eq!(response.status(), StatusCode::OK);
 
     let json = read_json(response).await;
-    json["widget"]["widget_id"].as_str().unwrap().to_string()
+    json["widget_id"].as_str().unwrap().to_string()
 }
 
 async fn create_widget_session(app: &axum::Router, token: &str, widget_id: &str) -> String {
@@ -214,8 +220,8 @@ async fn test_create_widget_succeeds_for_existing_room() {
 
     let body = axum::body::to_bytes(create_widget_response.into_body(), 2048).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["widget"]["room_id"], room_id);
-    assert_eq!(json["widget"]["name"], "Test Widget");
+    assert_eq!(json["room_id"], room_id);
+    assert_eq!(json["name"], "Test Widget");
 }
 
 #[tokio::test]
@@ -324,8 +330,8 @@ async fn test_create_widget_allows_joined_room_moderator() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let json = read_json(response).await;
-    assert_eq!(json["widget"]["room_id"], room_id);
-    assert_eq!(json["widget"]["name"], "Moderator Widget");
+    assert_eq!(json["room_id"], room_id);
+    assert_eq!(json["name"], "Moderator Widget");
 }
 
 #[tokio::test]

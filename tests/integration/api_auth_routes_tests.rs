@@ -2,12 +2,35 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 use synapse_common::room_versions::{DEFAULT_ROOM_VERSION, SUPPORTED_ROOM_VERSIONS};
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
     super::setup_fresh_test_app().await
+}
+
+async fn register_user(app: &axum::Router, username: &str) -> String {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "Password123!",
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    json["access_token"].as_str().unwrap().to_string()
 }
 
 #[tokio::test]
@@ -60,7 +83,9 @@ async fn test_auth_router_preserves_qr_and_refresh_boundaries() {
     let v1_qr_request =
         Request::builder().method("GET").uri("/_matrix/client/v1/login/get_qr_code").body(Body::empty()).unwrap();
     let v1_qr_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v1_qr_request).await.unwrap();
-    assert_eq!(v1_qr_response.status(), StatusCode::UNAUTHORIZED);
+    // QR code login is implemented via MSC4108 rendezvous, not v1/login/get_qr_code.
+    // The v1 endpoint was never registered; both v1 and r0 return 404.
+    assert_eq!(v1_qr_response.status(), StatusCode::NOT_FOUND);
 
     let r0_qr_request =
         Request::builder().method("GET").uri("/_matrix/client/r0/login/get_qr_code").body(Body::empty()).unwrap();
@@ -106,11 +131,17 @@ async fn test_client_capabilities_and_media_config_routes_work_across_versions()
     let v3_capabilities_json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(r0_capabilities_json, v3_capabilities_json);
 
+    let token = register_user(&app, &format!("media_cfg_user_{}", rand::random::<u32>())).await;
     let mut media_config_jsons = Vec::new();
     for path in
         ["/_matrix/client/v1/media/config", "/_matrix/client/r0/media/config", "/_matrix/client/v3/media/config"]
     {
-        let media_config_request = Request::builder().method("GET").uri(path).body(Body::empty()).unwrap();
+        let media_config_request = Request::builder()
+            .method("GET")
+            .uri(path)
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
         let media_config_response =
             ServiceExt::<Request<Body>>::oneshot(app.clone(), media_config_request).await.unwrap();
         assert_eq!(media_config_response.status(), StatusCode::OK);

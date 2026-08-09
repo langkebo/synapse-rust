@@ -103,9 +103,21 @@ async fn test_voice_config_endpoint() {
         return;
     };
 
+    let token = create_test_user(&app).await;
+
     for uri in ["/_matrix/client/r0/voice/config", "/_matrix/client/v1/voice/config", "/_matrix/client/v3/voice/config"]
     {
-        let response = app.clone().oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap()).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .header("Authorization", format!("Bearer {}", token))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
 
         let status = response.status();
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();

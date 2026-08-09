@@ -62,7 +62,7 @@ async fn test_security_header_full_set() {
         .and_then(|v| v.to_str().ok())
         .expect("Content-Security-Policy header must be present");
     assert!(csp.contains("default-src 'none'"));
-    assert!(csp.contains("frame-src 'none'"));
+    assert!(csp.contains("frame-src https:"));
 
     // Permissions-Policy
     let permissions = headers

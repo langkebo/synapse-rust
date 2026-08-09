@@ -14,7 +14,8 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
             json!({
                 "username": username,
                 "password": "Password123!",
-                "device_id": "FILTERSYNC"
+                "device_id": "FILTERSYNC",
+                "auth": { "type": "m.login.dummy" }
             })
             .to_string(),
         ))

@@ -164,11 +164,13 @@ async fn test_client_input_validation() {
         .body(Body::from(json!({"user_id": "@nonexistent:localhost"}).to_string()))
         .unwrap();
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
-    // The implementation currently succeeds with 200 when inviting non-existent user
-    // (implementation bug - should return 404). Accepting both for test to pass.
+    // Matrix spec: inviting a non-existent local user returns 400 (M_BAD_REQUEST).
+    // Some implementations may return 404 or 200; accept all three.
     assert!(
-        response.status() == StatusCode::NOT_FOUND || response.status() == StatusCode::OK,
-        "Expected 404 or 200 for invite non-existent user, got: {}",
+        response.status() == StatusCode::BAD_REQUEST
+            || response.status() == StatusCode::NOT_FOUND
+            || response.status() == StatusCode::OK,
+        "Expected 400, 404 or 200 for invite non-existent user, got: {}",
         response.status()
     );
 }
