@@ -93,6 +93,10 @@ pub(crate) async fn send_leave(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
 
+    // Forward secrecy: mark megolm session for rotation when a member leaves
+    // an encrypted room, so the departed member cannot decrypt future messages.
+    ctx.room_service.membership().trigger_key_rotation_on_leave(&room_id, user_id).await;
+
     ::tracing::info!(
         request_id = %request_id,
         origin = %auth.origin,
@@ -122,6 +126,9 @@ pub(crate) async fn send_leave_v2(
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
     let sender = validate_federation_member_event(&auth.origin, &room_id, &event_id, &body, "leave")?;
+    // OPT-017: Check room access BEFORE room version to prevent existence leaking.
+    // Access denied and non-existent rooms both return 404.
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
     let membership_content = serde_json::json!({
         "membership": "leave"
@@ -160,6 +167,10 @@ pub(crate) async fn send_leave_v2(
         .remove_member_record(&room_id, sender)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
+
+    // Forward secrecy: mark megolm session for rotation when a member leaves
+    // an encrypted room, so the departed member cannot decrypt future messages.
+    ctx.room_service.membership().trigger_key_rotation_on_leave(&room_id, sender).await;
 
     ::tracing::info!(
         target: "federation",

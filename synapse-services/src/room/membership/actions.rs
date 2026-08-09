@@ -205,6 +205,23 @@ impl MembershipService {
         // Forward secrecy: when a member leaves a LOCAL encrypted room, mark the
         // room's megolm session for rotation so the departed member cannot
         // decrypt future messages. Remote rooms return early above.
+        self.trigger_key_rotation_on_leave(room_id, user_id).await;
+
+        Ok(())
+    }
+
+    /// Forward-secrecy helper: when a member leaves an encrypted room, mark
+    /// the room's megolm session for rotation so the departed member cannot
+    /// decrypt future messages.
+    ///
+    /// This is called automatically by [`leave_room`](Self::leave_room) for
+    /// client-initiated leaves, and should also be called by federation
+    /// `send_leave` / `send_leave_v2` handlers when a remote user leaves a
+    /// locally-hosted encrypted room.
+    ///
+    /// No-op for unencrypted rooms or when key rotation storage is not
+    /// configured.
+    pub async fn trigger_key_rotation_on_leave(&self, room_id: &str, user_id: &str) {
         if let Some(key_rotation_storage) = &self.key_rotation_storage {
             let encryption_state =
                 self.get_state_events_by_type(room_id, "m.room.encryption").await.unwrap_or_default();
@@ -219,8 +236,6 @@ impl MembershipService {
                 }
             }
         }
-
-        Ok(())
     }
 
     pub async fn forget_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {

@@ -17,6 +17,8 @@ pub(crate) async fn knock_room(
 ) -> Result<Json<Value>, ApiError> {
     validate_federation_user_origin(&auth.origin, &user_id)?;
     validate_federation_knock_event(&auth.origin, &room_id, &user_id, &body)?;
+    // OPT-017: Check room access BEFORE room version to prevent existence leaking.
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
     let event_id = format!("${}", crate::common::crypto::generate_event_id(&ctx.server_name));

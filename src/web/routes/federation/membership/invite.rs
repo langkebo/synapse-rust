@@ -33,6 +33,8 @@ pub(crate) async fn thirdparty_invite(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("sender required".to_string()))?;
     super::validate_federation_user_origin(&auth.origin, sender)?;
+    // OPT-017: Check room access BEFORE room version to prevent existence leaking.
+    super::validate_federation_origin_can_observe_room(&ctx, room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, room_id).await?;
 
     let event_id = format!("${}", crate::common::crypto::generate_event_id(&ctx.server_name));
@@ -83,6 +85,8 @@ pub(crate) async fn invite_v2(
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
     let (sender, state_key) = validate_federation_invite_event(&auth.origin, &room_id, &event_id, &body)?;
+    // OPT-017: Check room access BEFORE room version to prevent existence leaking.
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
     let content = body.get("content").cloned().unwrap_or(json!({}));
 
@@ -132,6 +136,8 @@ pub(crate) async fn invite(
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
     validate_federation_invite_event(&auth.origin, &room_id, &event_id, &body)?;
+    // OPT-017: Check room access BEFORE room version to prevent existence leaking.
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
     ::tracing::info!(
