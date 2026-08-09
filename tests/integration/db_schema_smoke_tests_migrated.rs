@@ -373,6 +373,7 @@ async fn test_verification_and_moderation_schema_smoke_roundtrip() {
             exchange_hashes: vec!["sha256".to_string()],
             commitment: Some("commitment".to_string()),
             pubkey: Some("pubkey".to_string()),
+            secret_key: Some("secret_key".to_string()),
             sas_bytes: Some(vec![1, 2, 3]),
             mac: Some("mac".to_string()),
         })

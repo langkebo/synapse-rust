@@ -716,6 +716,7 @@ CREATE TABLE IF NOT EXISTS verification_sas (
     exchange_hashes JSONB NOT NULL DEFAULT '[]',
     commitment TEXT,
     pubkey TEXT,
+    secret_key TEXT,
     sas_bytes BYTEA,
     mac TEXT
 );

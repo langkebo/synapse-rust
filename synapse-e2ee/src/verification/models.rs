@@ -35,6 +35,11 @@ pub struct SasState {
     pub exchange_hashes: Vec<String>,
     pub commitment: Option<String>,
     pub pubkey: Option<String>,
+    /// E2EE-02: base64-encoded Curve25519 private key, stored so that
+    /// `generate_sas` can compute the ECDH shared secret with the peer's
+    /// public key.  This is transient verification state and is cleared
+    /// when the transaction completes.
+    pub secret_key: Option<String>,
     pub sas_bytes: Option<Vec<u8>>,
     pub mac: Option<String>,
 }

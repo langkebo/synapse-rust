@@ -37,9 +37,12 @@ impl VerificationService {
         let secret = StaticSecret::random_from_rng(aes_gcm::aead::OsRng);
         let public = PublicKey::from(&secret);
 
-        let public_bytes = public.as_bytes();
+        let secret_b64 = base64::engine::general_purpose::STANDARD.encode(secret.as_bytes());
+        let public_b64 = base64::engine::general_purpose::STANDARD.encode(public.as_bytes());
 
-        (String::new(), base64::engine::general_purpose::STANDARD.encode(public_bytes))
+        // E2EE-02: return BOTH keys so the caller can store the private key for
+        // later ECDH computation. Previously the secret was discarded.
+        (secret_b64, public_b64)
     }
 
     pub fn compute_shared_secret(&self, our_secret: &str, their_public: &str) -> Result<[u8; 32], ApiError> {
@@ -139,6 +142,7 @@ impl VerificationService {
             exchange_hashes: vec![],
             commitment: None,
             pubkey: None,
+            secret_key: None,
             sas_bytes: None,
             mac: None,
         };
@@ -166,13 +170,42 @@ impl VerificationService {
             return Err(ApiError::bad_request("Verification already completed".to_string()));
         }
 
-        let (_secret_key, public_key) = self.generate_key_pair();
+        // E2EE-02: generate a real Curve25519 key pair and preserve the private key.
+        let (secret_key, public_key) = self.generate_key_pair();
 
         let commitment =
             self.compute_mac(slice_from_ref(&public_key), &[0u8; 32], "verification.commitment").map_err(|e| {
                 tracing::error!("Failed to compute commitment: {e}");
                 ApiError::internal("An internal error occurred".to_string())
             })?;
+
+        // Persist the key pair so generate_sas can compute the ECDH shared secret later.
+        let mut sas_state = self.storage.get_sas_state(transaction_id).await?;
+        if sas_state.is_none() {
+            // Create a minimal state if none exists yet.
+            sas_state = Some(SasState {
+                tx_id: transaction_id.to_string(),
+                from_device: request.from_device.clone(),
+                to_device: request.to_device.clone(),
+                method: VerificationMethod::Sas,
+                state: VerificationState::Ready,
+                exchange_hashes: vec![],
+                commitment: None,
+                pubkey: None,
+                secret_key: None,
+                sas_bytes: None,
+                mac: None,
+            });
+        }
+        if let Some(ref mut sas) = sas_state {
+            sas.state = VerificationState::Ready;
+            sas.pubkey = Some(public_key);
+            sas.secret_key = Some(secret_key);
+            sas.commitment = Some(commitment.clone());
+        }
+        if let Some(ref sas) = sas_state {
+            self.storage.store_sas_state(sas).await?;
+        }
 
         let sas_data = SasData {
             transaction_id: transaction_id.to_string(),
@@ -194,14 +227,37 @@ impl VerificationService {
             return Err(ApiError::not_found("Verification request not found".to_string()));
         };
 
-        let (our_secret, _our_public) = self.generate_key_pair();
+        // E2EE-02: retrieve the private key that was generated and stored during
+        // accept_sas, then compute the real ECDH shared secret with the peer's
+        // public key.  Previously a *new* key pair was generated here and the
+        // secret was discarded, causing the code to fall back to random bytes.
+        let sas_state = self.storage.get_sas_state(transaction_id).await?;
+        let stored_secret = sas_state.as_ref().and_then(|s| s.secret_key.as_deref());
 
-        let shared_secret = if !other_pubkey.is_empty() && !our_secret.is_empty() {
-            self.compute_shared_secret(&our_secret, other_pubkey)?
-        } else {
-            let mut bytes = [0u8; 32];
-            rand::rng().fill_bytes(&mut bytes);
-            bytes
+        let shared_secret = match stored_secret {
+            Some(secret) if !secret.is_empty() && !other_pubkey.is_empty() => {
+                self.compute_shared_secret(secret, other_pubkey)?
+            }
+            _ => {
+                // Fallback: if no stored secret exists yet, generate a key pair,
+                // persist it, and compute the shared secret.
+                tracing::warn!("No stored SAS secret key for transaction {transaction_id}; generating new key pair");
+                let (new_secret, new_public) = self.generate_key_pair();
+                // Persist for subsequent calls.
+                if let Some(ref mut sas) = sas_state.clone() {
+                    sas.pubkey = Some(new_public.clone());
+                    sas.secret_key = Some(new_secret.clone());
+                    sas.state = VerificationState::Ready;
+                    let _ = self.storage.store_sas_state(sas).await;
+                }
+                if !other_pubkey.is_empty() {
+                    self.compute_shared_secret(&new_secret, other_pubkey)?
+                } else {
+                    let mut bytes = [0u8; 32];
+                    rand::rng().fill_bytes(&mut bytes);
+                    bytes
+                }
+            }
         };
 
         let sas_bytes = self.derive_sas(&shared_secret, "SAS");
@@ -250,7 +306,8 @@ impl VerificationService {
         };
 
         if let Some(stored_mac) = &sas_state.mac {
-            if mac != stored_mac {
+            // E2EE-08: use constant-time comparison to prevent timing side-channels.
+            if !mac_matches(mac, stored_mac) {
                 self.storage.update_state(transaction_id, VerificationState::Cancelled).await?;
                 tracing::warn!("SAS MAC mismatch for transaction {}", transaction_id);
                 return Err(ApiError::bad_request("MAC verification failed".to_string()));
@@ -348,6 +405,15 @@ fn slice_from_ref<T>(val: &T) -> &[T] {
     std::slice::from_ref(val)
 }
 
+/// Constant-time MAC comparison (E2EE-08).
+///
+/// Wraps [`synapse_common::secure_compare`] so that MAC verification in
+/// `confirm_sas` does not leak timing information about how many leading
+/// bytes match.
+fn mac_matches(provided: &str, stored: &str) -> bool {
+    synapse_common::secure_compare(provided, stored)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,6 +432,58 @@ mod tests {
         // Public key should be 32 bytes → 44 base64 chars (no padding for URL-safe)
         let decoded = base64::engine::general_purpose::STANDARD.decode(&public).unwrap();
         assert_eq!(decoded.len(), 32);
+    }
+
+    #[tokio::test]
+    async fn generate_key_pair_returns_non_empty_secret_key() {
+        let svc = make_service();
+        let (secret, _public) = svc.generate_key_pair();
+        // E2EE-02: the secret key must NOT be empty — it is needed for ECDH.
+        assert!(!secret.is_empty(), "private key must not be discarded");
+        let decoded = base64::engine::general_purpose::STANDARD.decode(&secret).unwrap();
+        assert_eq!(decoded.len(), 32, "secret key must be 32 bytes");
+    }
+
+    #[tokio::test]
+    async fn generate_key_pair_secret_and_public_form_valid_pair() {
+        let svc = make_service();
+        let (secret, public) = svc.generate_key_pair();
+        // E2EE-02: the returned (secret, public) must be a genuine Curve25519 pair.
+        // Computing the shared secret with our own public key must succeed and
+        // produce a non-zero 32-byte result.
+        let shared = svc.compute_shared_secret(&secret, &public).unwrap();
+        assert_eq!(shared.len(), 32);
+        assert_ne!(shared, [0u8; 32]);
+    }
+
+    #[tokio::test]
+    async fn generate_key_pair_produces_unique_keys() {
+        let svc = make_service();
+        let (s1, p1) = svc.generate_key_pair();
+        let (s2, p2) = svc.generate_key_pair();
+        assert_ne!(s1, s2, "secret keys must be unique");
+        assert_ne!(p1, p2, "public keys must be unique");
+    }
+
+    #[test]
+    fn mac_matches_accepts_equal_macs() {
+        let mac = "dGVzdC1tYWMtdmFsdWU=";
+        assert!(mac_matches(mac, mac));
+    }
+
+    #[test]
+    fn mac_matches_rejects_different_macs() {
+        assert!(!mac_matches("dGVzdC1tYWMtdmFsdWU=", "ZGlmZmVyZW50LW1hYw=="));
+    }
+
+    #[test]
+    fn mac_matches_rejects_different_lengths() {
+        assert!(!mac_matches("short", "longer-mac-value"));
+    }
+
+    #[test]
+    fn mac_matches_rejects_prefix_match() {
+        assert!(!mac_matches("abcdef", "abcdefgh"));
     }
 
     #[tokio::test]

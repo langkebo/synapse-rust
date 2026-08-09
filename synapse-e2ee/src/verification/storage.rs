@@ -109,10 +109,10 @@ impl VerificationStorage {
         sqlx::query(
             r"
             INSERT INTO verification_sas
-            (tx_id, from_device, to_device, method, state, exchange_hashes, commitment, pubkey, sas_bytes, mac)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            (tx_id, from_device, to_device, method, state, exchange_hashes, commitment, pubkey, secret_key, sas_bytes, mac)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (tx_id) DO UPDATE SET
-                to_device = $3, state = $5, exchange_hashes = $6, commitment = $7, pubkey = $8, sas_bytes = $9, mac = $10
+                to_device = $3, state = $5, exchange_hashes = $6, commitment = $7, pubkey = $8, secret_key = $9, sas_bytes = $10, mac = $11
             ",
         )
         .bind(&sas.tx_id)
@@ -123,6 +123,7 @@ impl VerificationStorage {
         .bind(serde_json::to_value(&sas.exchange_hashes).unwrap_or_default())
         .bind(&sas.commitment)
         .bind(&sas.pubkey)
+        .bind(&sas.secret_key)
         .bind(&sas.sas_bytes)
         .bind(&sas.mac)
         .execute(&*self.pool)
@@ -209,9 +210,9 @@ impl VerificationStorage {
 
     pub async fn get_sas_state(&self, transaction_id: &str) -> Result<Option<SasState>, ApiError> {
         let row = sqlx::query_as::<_, (
-            String, String, Option<String>, String, String, serde_json::Value, Option<String>, Option<String>, Option<Vec<u8>>, Option<String>
+            String, String, Option<String>, String, String, serde_json::Value, Option<String>, Option<String>, Option<String>, Option<Vec<u8>>, Option<String>
         )>(
-            "SELECT tx_id, from_device, to_device, method, state, exchange_hashes, commitment, pubkey, sas_bytes, mac FROM verification_sas WHERE tx_id = $1"
+            "SELECT tx_id, from_device, to_device, method, state, exchange_hashes, commitment, pubkey, secret_key, sas_bytes, mac FROM verification_sas WHERE tx_id = $1"
         )
         .bind(transaction_id)
         .fetch_optional(&*self.pool)
@@ -227,6 +228,7 @@ impl VerificationStorage {
             exchange_hashes,
             commitment,
             pubkey,
+            secret_key,
             sas_bytes,
             mac,
         )) = row
@@ -240,6 +242,7 @@ impl VerificationStorage {
                 exchange_hashes: serde_json::from_value(exchange_hashes).unwrap_or_default(),
                 commitment,
                 pubkey,
+                secret_key,
                 sas_bytes,
                 mac,
             }))
