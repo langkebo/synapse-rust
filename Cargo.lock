@@ -4511,6 +4511,7 @@ dependencies = [
  "dashmap",
  "ed25519-dalek",
  "generic-array",
+ "hkdf",
  "hmac",
  "rand 0.9.4",
  "serde",

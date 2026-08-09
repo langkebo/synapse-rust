@@ -15,9 +15,13 @@ use synapse_common::ApiError;
 #[cfg(test)]
 use synapse_common::ApiErrorKind;
 use x25519_dalek::{PublicKey, StaticSecret};
+use zeroize::Zeroizing;
 
 const SSSS_KEY_LENGTH: usize = 32;
 const SSSS_IV_LENGTH: usize = 12;
+
+/// HKDF-SHA256 info parameter for SSSS key derivation (domain separation).
+const SSSS_HKDF_INFO: &[u8] = b"matrix:ssss:curve25519-aes-sha2";
 
 #[derive(Clone)]
 pub struct SecretStorageService {
@@ -228,10 +232,14 @@ impl SecretStorageService {
         let nonce = Nonce::from_slice(&nonce_bytes[..12]);
 
         if ciphertext_bytes.len() < 32 {
-            return Err(ApiError::bad_request("Ciphertext too short to extract key".to_string()));
+            return Err(ApiError::bad_request("Ciphertext too short for key derivation".to_string()));
         }
 
-        let cipher = Aes256Gcm::new_from_slice(&ciphertext_bytes[..32]).map_err(|e| {
+        // E2EE-01: Derive the AES-256-GCM key via HKDF-SHA256 instead of using
+        // raw ciphertext bytes directly. This ensures proper key extraction and
+        // domain separation, preventing the ciphertext from being used as-is.
+        let derived_key = derive_ssss_key(&ciphertext_bytes)?;
+        let cipher = Aes256Gcm::new_from_slice(&*derived_key).map_err(|e| {
             tracing::error!("Cipher init failed: {e}");
             ApiError::database("A database error occurred".to_string())
         })?;
@@ -253,12 +261,17 @@ impl SecretStorageService {
         let key_bytes =
             BASE64.decode(parts[0]).map_err(|e| ApiError::bad_request(format!("Invalid key base64: {e}")))?;
 
-        let mut key_arr = [0u8; 32];
-        if key_bytes.len() >= 32 {
-            key_arr.copy_from_slice(&key_bytes[..32]);
-        } else {
-            key_arr[..key_bytes.len()].copy_from_slice(&key_bytes);
+        // E2EE-11: Reject keys shorter than 32 bytes instead of zero-padding.
+        // Zero-padding a short key creates a weak key that is trivially recoverable.
+        if key_bytes.len() < 32 {
+            return Err(ApiError::bad_request(format!(
+                "Key too short: expected at least 32 bytes, got {}",
+                key_bytes.len()
+            )));
         }
+
+        let mut key_arr = [0u8; 32];
+        key_arr.copy_from_slice(&key_bytes[..32]);
 
         let cipher = Aes256Gcm::new_from_slice(&key_arr).map_err(|e| {
             tracing::error!("Cipher init failed: {e}");
@@ -339,6 +352,26 @@ pub(crate) fn compute_hmac(data: &str, key: &[u8]) -> [u8; 32] {
     let mut result = [0u8; 32];
     result.copy_from_slice(&digest[..32]);
     result
+}
+
+/// Derive a 32-byte AES-256-GCM key from arbitrary input key material
+/// using HKDF-SHA256 (RFC 5869).
+///
+/// This replaces the insecure practice of using raw ciphertext bytes
+/// directly as an AES key (E2EE-01). HKDF provides proper key extraction
+/// and domain separation, ensuring the derived key is cryptographically
+/// distinct from the input material.
+///
+/// The returned `Zeroizing` wrapper ensures the key bytes are securely
+/// erased from memory when no longer needed.
+pub(crate) fn derive_ssss_key(input: &[u8]) -> Result<Zeroizing<[u8; 32]>, ApiError> {
+    let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, input);
+    let mut okm = Zeroizing::new([0u8; 32]);
+    hk.expand(SSSS_HKDF_INFO, &mut *okm).map_err(|e| {
+        tracing::error!("HKDF key derivation failed: {e}");
+        ApiError::internal("HKDF key derivation failed")
+    })?;
+    Ok(okm)
 }
 
 #[cfg(test)]
@@ -431,5 +464,92 @@ mod tests {
         let a = compute_hmac("data", &key_a);
         let b = compute_hmac("data", &key_b);
         assert_ne!(a, b);
+    }
+
+    // ── derive_ssss_key (E2EE-01: HKDF-SHA256 key derivation) ───────
+
+    #[test]
+    fn derive_ssss_key_produces_32_bytes() {
+        let input = [0x42u8; 64];
+        let key = derive_ssss_key(&input).expect("HKDF derivation should succeed for valid input");
+        assert_eq!(key.len(), 32, "Derived key must be 32 bytes for AES-256");
+    }
+
+    #[test]
+    fn derive_ssss_key_is_deterministic() {
+        let input = [0xABu8; 48];
+        let a = derive_ssss_key(&input).expect("HKDF derivation should succeed");
+        let b = derive_ssss_key(&input).expect("HKDF derivation should succeed");
+        assert_eq!(a, b, "Same input must produce the same derived key");
+    }
+
+    #[test]
+    fn derive_ssss_key_different_input_different_output() {
+        let input_a = [0x01u8; 48];
+        let input_b = [0x02u8; 48];
+        let a = derive_ssss_key(&input_a).expect("HKDF derivation should succeed");
+        let b = derive_ssss_key(&input_b).expect("HKDF derivation should succeed");
+        assert_ne!(a, b, "Different inputs must produce different keys");
+    }
+
+    #[test]
+    fn derive_ssss_key_not_equal_to_raw_input_prefix() {
+        // E2EE-01: The derived key must NOT equal the raw first 32 bytes of
+        // the input. The old vulnerability used ciphertext_bytes[..32] directly
+        // as the AES key. HKDF ensures proper key separation.
+        let input = [0x42u8; 64];
+        let key = derive_ssss_key(&input).expect("HKDF derivation should succeed");
+        assert_ne!(&key[..], &input[..32], "Derived key must differ from raw input prefix");
+    }
+
+    // ── E2EE-11: Reject short keys instead of zero-padding ──────────
+
+    #[test]
+    fn encrypt_secret_aes_hmac_rejects_short_key() {
+        // E2EE-11: Keys shorter than 32 bytes must be rejected, not zero-padded.
+        let short_key_b64 = BASE64.encode(&[0x42u8; 16]);
+        let iv_b64 = BASE64.encode(&[0x00u8; 12]);
+        let encrypted_key = format!("{short_key_b64}:{iv_b64}");
+
+        let key_data = SecretStorageKey {
+            key_id: "test-short".to_string(),
+            user_id: "@test:example.com".to_string(),
+            algorithm: "aes-hmac-sha2".to_string(),
+            encrypted_key,
+            public_key: None,
+            signatures: serde_json::json!({}),
+            created_ts: 0,
+        };
+
+        let result = SecretStorageService::encrypt_secret_aes_hmac("secret", &key_data);
+        assert!(result.is_err(), "Short key (<32 bytes) must be rejected (E2EE-11)");
+        let err = result.unwrap_err();
+        assert_eq!(err.kind, ApiErrorKind::BadRequest, "expected BadRequest for short key");
+        assert!(
+            err.message.to_lowercase().contains("short") || err.message.contains("32"),
+            "Error message should indicate key length requirement: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn encrypt_secret_aes_hmac_accepts_valid_32_byte_key() {
+        // Ensure valid 32-byte keys still work after the E2EE-11 fix.
+        let valid_key_b64 = BASE64.encode(&[0x42u8; 32]);
+        let iv_b64 = BASE64.encode(&[0x00u8; 12]);
+        let encrypted_key = format!("{valid_key_b64}:{iv_b64}");
+
+        let key_data = SecretStorageKey {
+            key_id: "test-valid".to_string(),
+            user_id: "@test:example.com".to_string(),
+            algorithm: "aes-hmac-sha2".to_string(),
+            encrypted_key,
+            public_key: None,
+            signatures: serde_json::json!({}),
+            created_ts: 0,
+        };
+
+        let result = SecretStorageService::encrypt_secret_aes_hmac("secret", &key_data);
+        assert!(result.is_ok(), "Valid 32-byte key should be accepted: {:?}", result.err());
     }
 }
