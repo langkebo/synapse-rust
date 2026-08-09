@@ -25,8 +25,12 @@ target/
 **/*.log
 **/logs/
 *.tmp
-*.bak
 *.orig
+# 备份文件。注意 `*.bak` 只匹配以 .bak 结尾的名字, 匹配不到
+# `nginx.conf.bak.p076` / `lcov.info.bak.20260610` 这类带后缀的备份,
+# 所以两种形态都要写。
+**/*.bak
+**/*.bak.*
 
 # 环境文件 (任意层级)
 **/.env
@@ -41,18 +45,30 @@ docker/Dockerfile
 docker/docker-compose*.yml
 
 # docker/ 目录中纯运行时/调试产物 (不应进镜像也不应进上下文)
+#
+# 注意: docker/ 不能整目录排除 —— Dockerfile 的 builder 阶段会 install 这几个文件:
+#   docker/entrypoint.sh, docker/healthcheck.sh, docker/db_migrate.sh,
+#   docker/config/rate_limit.yaml, docker/deploy/scripts/container-migrate.sh
+# 排除它们会直接构建失败, 只能逐项裁剪。
 docker/data/
 docker/logs/
 docker/media/
 docker/test-results/
 docker/artifacts/
 docker/ssl/
-docker/nginx/        # nginx 反代配置由部署侧管理, 不进应用镜像
+# nginx 反代配置由部署侧管理, 不进应用镜像。
+# (原先这行带行内注释, 而 .dockerignore 不支持行内注释 —— 整行被当成一个
+#  字面 pattern, 规则从未生效, 备份文件因此进了构建上下文。)
+docker/nginx/
 docker/*.tsv
 docker/*.log
 docker/*.txt
 docker/load_obs_*
 docker/obs_*
+# deploy/ 里除 scripts/ 外都是运行时数据, 其中 backups/ 就有 38MB
+docker/deploy/backups/
+docker/deploy/logs/
+docker/deploy/media/
 
 # 工作区文档 / PR 草稿 / 计划文件 (不应进镜像)
 *.md
@@ -66,6 +82,15 @@ tests/
 element-desktop/
 element-web/
 
+# AI / 开发工具的本地状态目录。
+# .claude 单独就有 22GB, 不排除的话每次 docker build 都要把它推给 daemon,
+# 构建上下文会从几十 MB 膨胀到 20GB+。
+.claude/
+.superpowers/
+.gstack/
+.workbuddy/
+.cursor/
+
 # 杂项
 LICENSE
 TODO
@@ -73,4 +98,6 @@ TODO.md
 *.iml
 node_modules/
 coverage/
+artifacts/
+lcov.info
 *.profraw
