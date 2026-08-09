@@ -455,9 +455,20 @@ impl SlidingSyncService {
         // ~10 req/s to ~1 request per timeout, while delivery latency stays at
         // one round trip because the waiter is woken the instant an event is
         // written.
+        // A sliding sync is idle (eligible for long-poll backpressure) when this
+        // is an incremental request, carries no new extensions/account-data, and
+        // the list membership did not change. We deliberately do NOT require
+        // `rooms_response` to be empty: a client that subscribes to a list always
+        // receives room summaries (and, until timelines are made pos-aware, the
+        // most-recent N timeline events) on every sync. Those are static or
+        // already-seen and must not defeat the long-poll — genuinely new data is
+        // instead signalled by the event notifier, which wakes this request the
+        // instant an event lands for this user or one of their rooms (see the
+        // `tokio::select!` below). Requiring an empty `rooms_response` here was
+        // the bug that let every real (list-using) client busy-loop, because the
+        // room summaries meant `rooms_response` was never empty.
         let is_idle = !is_initial
             && extensions_response.is_none()
-            && rooms_response.as_object().map(|o| o.is_empty()).unwrap_or(true)
             && !Self::has_list_operations(&lists_response);
 
         // Time spent parked. Reported back to `sync()` so the latency metric
@@ -525,6 +536,17 @@ impl SlidingSyncService {
                     )
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to rebuild extensions response", &e))?;
+            } else {
+                // Timed out without a wake-up: by definition there is no new data.
+                // The response built before parking carries room summaries plus the
+                // most-recent N timeline events, which the client already received
+                // on its previous sync. Drop the rooms payload so the idle
+                // incremental response is genuinely "no new data" (correct Matrix
+                // incremental-sync semantics), preventing the client from
+                // re-processing already-seen events and keeping the long-poll
+                // meaningful. The notifier already handled the common case where a
+                // real event lands during the wait (it wakes us above).
+                rooms_response = serde_json::Value::Object(serde_json::Map::new());
             }
             tracing::debug!(
                 user_id = %user_id,
