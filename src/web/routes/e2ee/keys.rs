@@ -221,7 +221,11 @@ async fn query_keys(
     let requested_users: Vec<String> =
         device_keys_raw.as_object().map(|map| map.keys().cloned().collect()).unwrap_or_default();
 
-    let allowed_users = filter_users_with_shared_rooms(&ctx.room_service, &auth_user.user_id, &requested_users).await;
+    // NOTE: We intentionally do NOT filter `requested_users` by shared-room
+    // membership before querying keys. Silently dropping a requested user made
+    // the client SDK retry keys/query forever (see docs/keys-query-死循环根因分析).
+    // `query_keys` below resolves device keys directly from the DB with no
+    // room-membership gate, matching reference synapse behavior.
 
     let device_keys = if requested_users.is_empty() {
         let mut shared = ctx
@@ -234,15 +238,14 @@ async fn query_keys(
         let map: serde_json::Map<String, Value> = shared.into_iter().map(|uid| (uid, serde_json::json!([]))).collect();
         serde_json::Value::Object(map)
     } else {
-        let mut filtered = serde_json::Map::new();
-        if let Some(obj) = device_keys_raw.as_object() {
-            for (uid, val) in obj {
-                if allowed_users.contains(uid) {
-                    filtered.insert(uid.clone(), val.clone());
-                }
-            }
-        }
-        serde_json::Value::Object(filtered)
+        // B (fix for keys/query 429 storm): echo every requested user back into
+        // the query instead of silently dropping those that don't share a
+        // *joined* room. matrix-rust-sdk only clears its per-user "dirty" retry
+        // marker when the user appears in the response; dropping it caused an
+        // endless retry loop. An invitee (e.g. someone invited to a room) must
+        // receive an encrypted invite, so we must return their real keys —
+        // `query_keys` queries the DB directly with no room-membership gate.
+        device_keys_raw.clone()
     };
 
     request.device_keys = device_keys;
@@ -395,7 +398,7 @@ async fn claim_keys(
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let mut request: crate::e2ee::device_keys::KeyClaimRequest = serde_json::from_value(body)
+    let request: crate::e2ee::device_keys::KeyClaimRequest = serde_json::from_value(body)
         .map_err(|e| crate::error::ApiError::bad_request(format!("Invalid request: {e}")))?;
 
     let requested_users =
@@ -406,9 +409,11 @@ async fn claim_keys(
     // remote users with unclaimed devices after the local claim.
     let original_one_time_keys = request.one_time_keys.clone();
 
-    if let Some(one_time_keys) = request.one_time_keys.as_object_mut() {
-        one_time_keys.retain(|user_id, _| allowed_users.iter().any(|allowed| allowed == user_id));
-    }
+    // B (fix for keys/claim retry loop): do NOT silently drop requested users
+    // here just because they don't share a *joined* room. An invitee must be
+    // able to claim one-time keys to receive an encrypted invite; dropping
+    // them forced the same infinite-retry loop as keys/query. `allowed_users`
+    // is still used below (federation remote-claim gate only).
 
     let requested_device_count: usize = request
         .one_time_keys
