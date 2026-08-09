@@ -284,6 +284,13 @@ impl ServiceContainer {
             Arc::new(broadcaster)
         };
 
+        // Sync wake-up bus. Built here rather than inside a single wiring
+        // module because both sides of the long-poll need the *same* instance:
+        // `RoomSyncServices` gives it to the sliding-sync service (the waiter)
+        // and `CoreServices` re-exports it to the route layer (the notifier).
+        // Two separate instances would silently never wake each other.
+        let event_notifier = crate::event_notifier::EventNotifier::new();
+
         // Rooms — receives member_storage + the 4 injected services directly
         let rooms = wiring::RoomSyncServices::new(
             &infra.infra,
@@ -298,6 +305,7 @@ impl ServiceContainer {
             federation.federation_client.clone(),
             storage.sticky_event_storage.clone(),
             storage.user_service.clone(),
+            event_notifier.clone(),
         )
         .await;
 
@@ -314,6 +322,7 @@ impl ServiceContainer {
             &storage.user_storage,
             &infra.server_metrics,
             event_broadcaster,
+            event_notifier,
         )
         .await;
 

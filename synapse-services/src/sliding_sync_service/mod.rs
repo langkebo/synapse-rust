@@ -39,6 +39,14 @@ const SLIDING_SYNC_LATENCY_HISTOGRAM: &str = "sliding_sync_request_duration_ms";
 /// the configured latency threshold).
 const SLIDING_SYNC_SLOW_REQUESTS_COUNTER: &str = "sliding_sync_slow_requests_total";
 
+/// Maximum time an idle incremental sliding sync is held open before returning
+/// an (empty) response. Caps worst-case latency and prevents a client from
+/// forcing the server to wait indefinitely via a huge `timeout`.
+const MAX_SLIDING_SYNC_IDLE_WAIT_MS: u64 = 30_000;
+
+/// Default idle wait when the client omits the `timeout` field.
+const DEFAULT_SLIDING_SYNC_IDLE_WAIT_MS: u64 = 10_000;
+
 #[derive(Clone)]
 pub struct SlidingSyncService {
     storage: Arc<dyn SlidingSyncStoreApi>,
@@ -71,6 +79,12 @@ pub struct SlidingSyncService {
     /// slower than this trigger a warning log and increment the slow
     /// request counter.
     latency_threshold_ms: u64,
+    /// Wake-up channel used to implement long-polling. When present, an
+    /// incremental sync that has nothing to return parks on this notifier
+    /// instead of returning immediately, and is woken the moment an event
+    /// lands for the user or one of their rooms. `None` disables long-polling
+    /// and falls back to a plain timed wait (used by tests and benchmarks).
+    event_notifier: Option<crate::event_notifier::EventNotifier>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -130,7 +144,19 @@ impl SlidingSyncService {
             txn_id_cache: Arc::new(txn_id_cache),
             metrics,
             latency_threshold_ms: performance.sliding_sync_latency_threshold_ms,
+            event_notifier: None,
         }
+    }
+
+    /// Attaches the event notifier that powers long-polling.
+    ///
+    /// Without it an idle incremental sync still waits, but only on a timer —
+    /// new events are not delivered until the wait elapses. Production wiring
+    /// must call this; tests and benchmarks may omit it.
+    #[must_use]
+    pub fn with_event_notifier(mut self, event_notifier: crate::event_notifier::EventNotifier) -> Self {
+        self.event_notifier = Some(event_notifier);
+        self
     }
 
     /// Returns the configured sliding sync latency threshold in milliseconds.
@@ -192,7 +218,10 @@ impl SlidingSyncService {
             }
         }
 
-        let result = self.sync_inner(user_id, device_id, request).await;
+        let (result, idle_wait_ms) = match self.sync_inner(user_id, device_id, request).await {
+            Ok((response, idle_wait_ms)) => (Ok(response), idle_wait_ms),
+            Err(e) => (Err(e), 0),
+        };
 
         // MSC4186: on success, cache the response under txn_id so retries
         // receive the same body. Errors are NOT cached — a failed request
@@ -204,7 +233,10 @@ impl SlidingSyncService {
             }
         }
 
-        let total_ms = started.elapsed().as_secs_f64() * 1000.0;
+        // Exclude the idle long-poll from the latency metric: parking is the
+        // intended behaviour, not slowness, and counting it would permanently
+        // trip the sliding-sync performance rollback gate.
+        let total_ms = (started.elapsed().as_secs_f64() * 1000.0 - idle_wait_ms as f64).max(0.0);
         self.record_sync_latency_metrics(user_id, device_id, conn_id_for_metrics.as_deref(), total_ms, is_initial);
 
         result
@@ -265,16 +297,35 @@ impl SlidingSyncService {
         }
     }
 
+    /// Builds one sliding sync response.
+    ///
+    /// Returns the response together with the number of milliseconds the
+    /// request spent parked in the idle long-poll, so the caller can subtract
+    /// it from the measured latency.
     async fn sync_inner(
         &self,
         user_id: &str,
         device_id: &str,
         request: SlidingSyncRequest,
-    ) -> Result<SlidingSyncResponse, ApiError> {
-        // Update user presence to online
-        tracing::info!(user_id = %user_id, device_id = %device_id, "Updating presence for user");
-        if let Err(e) = self.presence_storage.set_presence(user_id, "online", None).await {
-            tracing::warn!(%e, user_id, device_id, "Failed to set presence online");
+    ) -> Result<(SlidingSyncResponse, u64), ApiError> {
+        // Mark the user online, but only on the *initial* sync.
+        //
+        // Previously this ran on EVERY sliding sync request. That had two bad
+        // effects:
+        //   1. It thrashed the presence table with a write per request
+        //      (hundreds of redundant writes per minute per active client).
+        //   2. Because the presence extension re-echoes the user's own presence
+        //      on every response, the client observed a "fresh" presence event
+        //      on every sync and busy-looped its sliding sync (the 1:1
+        //      sync↔presence self-excitation seen in production).
+        //
+        // The client already owns online assertion (it sets presence=online on
+        // login and refreshes it via a 4-minute heartbeat), so the server must
+        // NOT rewrite presence on each incremental request.
+        if request.pos.is_none() {
+            if let Err(e) = self.presence_storage.set_presence(user_id, "online", None).await {
+                tracing::warn!(%e, user_id, device_id, "Failed to set presence online");
+            }
         }
 
         let conn_id = request.conn_id.as_deref();
@@ -336,17 +387,48 @@ impl SlidingSyncService {
             }
         }
 
-        let lists_response = self
+        // ── Long-poll waiter registration ────────────────────────────────────
+        // Register the wake-up waiters BEFORE reading any state below.
+        //
+        // Producers write to the database and *then* notify. By registering
+        // first we guarantee that every event is either (a) already visible to
+        // the reads below — so this sync is not idle and returns data — or
+        // (b) delivered to an already-registered waiter. Registering after the
+        // reads would leave a window in which a notification is dropped
+        // (`notify_waiters` stores no permit) and the client stalls for the
+        // full timeout.
+        //
+        // `Notified::enable()` is what makes registration eager; simply
+        // creating the future is not enough, it only registers when first
+        // polled.
+        let notify_slots = match self.event_notifier.as_ref() {
+            Some(notifier) if !is_initial => {
+                let room_ids = self.member_storage.get_joined_rooms(user_id).await.unwrap_or_default();
+                notifier.slots_for(user_id, &room_ids)
+            }
+            // An initial sync always returns data, so it never parks.
+            _ => Vec::new(),
+        };
+        let mut long_poll_waiters: Vec<_> = notify_slots
+            .iter()
+            .map(|slot| {
+                let mut waiter = Box::pin(slot.notified());
+                waiter.as_mut().enable();
+                waiter
+            })
+            .collect();
+
+        let mut lists_response = self
             .build_lists_response(user_id, device_id, conn_id, &request.lists, request.pos.as_deref())
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to build lists response", &e))?;
 
-        let rooms_response = self
+        let mut rooms_response = self
             .build_rooms_response(user_id, device_id, conn_id, &request)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to build rooms response", &e))?;
 
-        let extensions_response = self
+        let mut extensions_response = self
             .build_extensions_response(
                 user_id,
                 device_id,
@@ -358,19 +440,116 @@ impl SlidingSyncService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to build extensions response", &e))?;
 
+        // ── Long-poll / backpressure (self-excitation loop-breaker) ───────────
+        // A Matrix sliding-sync client keeps one connection open and expects
+        // the SERVER to block until there is new data (or `timeout` elapses);
+        // matrix-js-sdk only backs off on 5xx/429, never on an empty success.
+        // synapse-rust used to answer immediately every time, so an idle client
+        // re-issued its sync as fast as the network allowed (~10 req/s) — the
+        // driver, alongside the presence echo, of the sync↔presence
+        // self-excitation observed in production.
+        //
+        // Now an incremental sync with nothing to deliver parks on the event
+        // notifier until either an event lands for this user / one of their
+        // rooms, or `timeout` (capped at 30s) elapses. Idle traffic drops from
+        // ~10 req/s to ~1 request per timeout, while delivery latency stays at
+        // one round trip because the waiter is woken the instant an event is
+        // written.
+        let is_idle = !is_initial
+            && extensions_response.is_none()
+            && rooms_response.as_object().map(|o| o.is_empty()).unwrap_or(true)
+            && !Self::has_list_operations(&lists_response);
+
+        // Time spent parked. Reported back to `sync()` so the latency metric
+        // measures real work only — otherwise every idle long-poll would count
+        // as a "slow request" and the performance rollback gate would fire
+        // continuously on a healthy server.
+        let mut idle_wait_ms = 0u64;
+
+        if is_idle {
+            let wait = std::time::Duration::from_millis(
+                request
+                    .timeout
+                    .map(|t| (t as u64).min(MAX_SLIDING_SYNC_IDLE_WAIT_MS))
+                    .unwrap_or(DEFAULT_SLIDING_SYNC_IDLE_WAIT_MS),
+            );
+            let parked_at = std::time::Instant::now();
+            let mut woken_by_event = false;
+
+            if long_poll_waiters.is_empty() {
+                // No notifier wired (tests, benchmarks): degrade to a plain
+                // timed wait. Still breaks the busy-loop, but new events are
+                // only picked up on the next poll.
+                tokio::time::sleep(wait).await;
+            } else {
+                tokio::select! {
+                    _ = futures::future::select_all(long_poll_waiters.iter_mut()) => {
+                        woken_by_event = true;
+                        tracing::trace!(
+                            user_id = %user_id,
+                            device_id = %device_id,
+                            "Sliding sync long-poll woken by event notification"
+                        );
+                    }
+                    _ = tokio::time::sleep(wait) => {}
+                }
+            }
+
+            idle_wait_ms = parked_at.elapsed().as_millis() as u64;
+
+            // A notification means something was persisted for this user, but
+            // the response above was built *before* we parked and is empty.
+            // Rebuild it so the event ships in THIS response; returning the
+            // stale empty one would force the client into a second round trip
+            // for data the server already has. On a timeout there is by
+            // definition nothing new, so the empty response stands.
+            if woken_by_event {
+                lists_response = self
+                    .build_lists_response(user_id, device_id, conn_id, &request.lists, request.pos.as_deref())
+                    .await
+                    .map_err(|e| ApiError::internal_with_log("Failed to rebuild lists response", &e))?;
+
+                rooms_response = self
+                    .build_rooms_response(user_id, device_id, conn_id, &request)
+                    .await
+                    .map_err(|e| ApiError::internal_with_log("Failed to rebuild rooms response", &e))?;
+
+                extensions_response = self
+                    .build_extensions_response(
+                        user_id,
+                        device_id,
+                        conn_id,
+                        request.pos.as_deref(),
+                        &rooms_response,
+                        request.extensions.as_ref(),
+                    )
+                    .await
+                    .map_err(|e| ApiError::internal_with_log("Failed to rebuild extensions response", &e))?;
+            }
+            tracing::debug!(
+                user_id = %user_id,
+                device_id = %device_id,
+                idle_wait_ms = idle_wait_ms,
+                "Sliding sync idle long-poll finished"
+            );
+        }
+
         let new_token = self
             .storage
             .create_or_update_token(user_id, device_id, conn_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update token", &e))?;
 
-        Ok(SlidingSyncResponse {
-            pos: new_token.pos.to_string(),
-            conn_id: request.conn_id,
-            lists: lists_response,
-            rooms: rooms_response,
-            extensions: extensions_response,
-        })
+        Ok((
+            SlidingSyncResponse {
+                pos: new_token.pos.to_string(),
+                conn_id: request.conn_id,
+                lists: lists_response,
+                rooms: rooms_response,
+                extensions: extensions_response,
+            },
+            idle_wait_ms,
+        ))
     }
 
     async fn invalidate_room_cache(&self, user_id: &str, device_id: &str, room_id: &str, conn_id: Option<&str>) {
@@ -388,6 +567,24 @@ impl SlidingSyncService {
             Some(cid) => format!("{user_id}:{device_id}:{cid}"),
             None => format!("{user_id}:{device_id}:"),
         }
+    }
+
+    /// Returns true if any list in a sliding-sync lists response carries a
+    /// non-empty `ops` array, i.e. there is new list data to deliver.
+    /// Used by the idle long-poll check to decide whether a sync actually has
+    /// something to return (vs. being empty and eligible for backpressure).
+    fn has_list_operations(lists: &serde_json::Value) -> bool {
+        lists
+            .as_object()
+            .map(|obj| {
+                obj.values().any(|list| {
+                    list.get("ops")
+                        .and_then(|ops| ops.as_array())
+                        .map(|a| !a.is_empty())
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false)
     }
 
     /// Lazy GC: remove stale connection data (DB rows + cache entries) for the

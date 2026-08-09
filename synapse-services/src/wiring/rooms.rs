@@ -46,12 +46,21 @@ impl RoomSyncServices {
         federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
         sticky_event_storage: Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>,
         user_service: Arc<UserService>,
+        event_notifier: crate::event_notifier::EventNotifier,
     ) -> Self {
         let server_name_for_storage = infra.config.server.get_server_name().to_string();
         let room_storage: Arc<dyn synapse_storage::room::RoomStoreApi> = Arc::new(RoomStorage::new(&infra.pool));
         let event_storage_concrete = Arc::new(EventStorage::new(&infra.pool, server_name_for_storage));
         let event_reader: Arc<dyn synapse_storage::event::EventReader> = event_storage_concrete.clone();
-        let event_writer: Arc<dyn synapse_storage::event::EventWriter> = event_storage_concrete.clone();
+        // Every room mutation — messages, state, membership, moderation,
+        // federation backfill — persists through this trait object. Decorating
+        // it here is what releases long-polling sliding-sync clients, and it is
+        // the only place that has to remember to do so.
+        let event_writer: Arc<dyn synapse_storage::event::EventWriter> =
+            Arc::new(crate::notifying_event_writer::NotifyingEventWriter::new(
+                event_storage_concrete.clone(),
+                event_notifier.clone(),
+            ));
         let device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi> =
             Arc::new(DeviceStorage::new(&infra.pool));
         let relations_storage: Arc<dyn synapse_storage::relations::RelationsStoreApi> =
@@ -145,7 +154,11 @@ impl RoomSyncServices {
             infra.metrics.clone(),
             infra.config.performance.clone(),
             Some(sticky_event_storage.clone()),
-        ));
+        )
+        // Enables sliding-sync long-polling: an idle incremental sync parks
+        // here and is woken the moment an event is written for the user or one
+        // of their rooms.
+        .with_event_notifier(event_notifier));
 
         let space_storage: Arc<dyn synapse_storage::space::SpaceStoreApi> = Arc::new(SpaceStorage::new(&infra.pool));
         let space_service = Arc::new(crate::space_service::SpaceService::new(

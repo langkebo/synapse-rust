@@ -106,6 +106,37 @@ impl EventNotifier {
         }
     }
 
+    /// Returns the notification slots a sync connection for `user_id` should
+    /// watch: the user's own slot (to-device messages, device-list changes)
+    /// plus one slot per joined room (timeline events, receipts, typing).
+    ///
+    /// # Ordering contract (important)
+    ///
+    /// Callers **must** register their waiters — i.e. create the
+    /// [`Notified`](tokio::sync::futures::Notified) futures and call
+    /// `Notified::enable()` — *before* reading state from the database, and
+    /// only await them afterwards. [`Notify::notify_waiters`] does not store a
+    /// permit, so a notification that fires between the read and the
+    /// registration would be lost and the client would stall until its
+    /// timeout. Registering first makes the sequence race-free: producers
+    /// write to the database *then* notify, so any event that is invisible to
+    /// the caller's read is guaranteed to notify an already-registered waiter.
+    ///
+    /// # Growth
+    ///
+    /// Slots are created lazily and currently never evicted, so the maps grow
+    /// to one entry per distinct user/room that has ever been waited on
+    /// (~100 bytes each). This is bounded by the size of the deployment in
+    /// practice; add TTL eviction if that assumption stops holding.
+    pub fn slots_for(&self, user_id: &str, room_ids: &[String]) -> Vec<Arc<Notify>> {
+        let mut slots = Vec::with_capacity(room_ids.len() + 1);
+        slots.push(self.get_or_create_user_notify(user_id));
+        for room_id in room_ids {
+            slots.push(self.get_or_create_room_notify(room_id));
+        }
+        slots
+    }
+
     /// Wait until the given user receives a notification, or the timeout
     /// elapses.
     pub async fn wait_for_user(&self, user_id: &str, timeout: tokio::time::Duration) {
@@ -256,6 +287,64 @@ mod tests {
         notifier.notify_user(&user_id);
 
         handle.await.unwrap();
+    }
+
+    #[test]
+    fn test_slots_for_returns_user_slot_plus_one_per_room() {
+        let notifier = EventNotifier::new();
+        let rooms = vec!["!a:example.com".to_string(), "!b:example.com".to_string()];
+
+        let slots = notifier.slots_for("@alice:example.com", &rooms);
+
+        assert_eq!(slots.len(), 3, "expected 1 user slot + 2 room slots");
+    }
+
+    #[test]
+    fn test_slots_for_is_stable_across_calls() {
+        let notifier = EventNotifier::new();
+        let rooms = vec!["!a:example.com".to_string()];
+
+        let first = notifier.slots_for("@alice:example.com", &rooms);
+        let second = notifier.slots_for("@alice:example.com", &rooms);
+
+        // The same logical slot must hand back the same `Notify` instance,
+        // otherwise a notification would be delivered to a different object
+        // than the one the waiter registered on.
+        for (a, b) in first.iter().zip(second.iter()) {
+            assert!(Arc::ptr_eq(a, b));
+        }
+    }
+
+    /// Regression guard for the long-poll ordering contract: a notification
+    /// that fires *after* the waiter is registered but *before* it is awaited
+    /// must still wake the waiter. This is the exact sequence sliding sync
+    /// relies on (register → read database → await), and it only holds because
+    /// `Notified::enable()` registers the waiter eagerly.
+    #[tokio::test]
+    async fn test_registered_waiter_survives_notify_before_await() {
+        let notifier = EventNotifier::new();
+        let rooms = vec!["!race:example.com".to_string()];
+        let slots = notifier.slots_for("@alice:example.com", &rooms);
+
+        let mut waiters: Vec<_> = slots
+            .iter()
+            .map(|slot| {
+                let mut fut = Box::pin(slot.notified());
+                fut.as_mut().enable();
+                fut
+            })
+            .collect();
+
+        // Fires while the waiter is registered but not yet awaited — this is
+        // the window that would be lost without `enable()`.
+        notifier.notify_room("!race:example.com");
+
+        let woken = tokio::time::timeout(tokio::time::Duration::from_millis(200), async {
+            futures::future::select_all(waiters.iter_mut()).await;
+        })
+        .await;
+
+        assert!(woken.is_ok(), "waiter registered before the notification must still be woken");
     }
 
     #[tokio::test]

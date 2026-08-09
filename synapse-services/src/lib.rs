@@ -68,6 +68,9 @@ pub mod media;
 pub mod media_quota_service;
 pub mod media_service;
 pub mod module_service;
+/// Wake-up decorator around the storage-layer event writer, used to release
+/// long-polling sliding-sync clients as soon as an event is persisted.
+pub mod notifying_event_writer;
 pub mod oidc_service;
 pub mod presence_service;
 pub mod push;

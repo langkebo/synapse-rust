@@ -114,6 +114,7 @@ fn create_test_service() -> SlidingSyncService {
         metrics: Arc::new(MetricsCollector::new()),
         latency_threshold_ms: PerformanceConfig::default().sliding_sync_latency_threshold_ms,
         sticky_event_storage: None,
+        event_notifier: None,
     }
 }
 
@@ -573,6 +574,7 @@ fn create_cached_test_service(event_store: Arc<InMemoryEventStore>) -> SlidingSy
         metrics: Arc::new(MetricsCollector::new()),
         latency_threshold_ms: PerformanceConfig::default().sliding_sync_latency_threshold_ms,
         sticky_event_storage: None,
+        event_notifier: None,
     }
 }
 

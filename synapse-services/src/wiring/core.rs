@@ -48,6 +48,7 @@ impl CoreServices {
         user_storage: &Arc<dyn UserStore>,
         server_metrics: &Arc<ServerMetrics>,
         event_broadcaster: Arc<EventBroadcaster>,
+        event_notifier: crate::event_notifier::EventNotifier,
     ) -> Self {
         let search_service = Arc::new(crate::search_service::SearchService::with_postgres(
             &infra.config.search.elasticsearch_url,
@@ -123,7 +124,9 @@ impl CoreServices {
             validator: validator.clone(),
             key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage::new(infra.pool.clone()),
             event_broadcaster,
-            event_notifier: crate::event_notifier::EventNotifier::new(),
+            // Shared with the sliding-sync service so that a write on the
+            // request path wakes the parked long-poll of every reader.
+            event_notifier,
             account_data_service,
             client_push_service,
             user_service,

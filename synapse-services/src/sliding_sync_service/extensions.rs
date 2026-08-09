@@ -177,12 +177,48 @@ impl SlidingSyncService {
                 }));
             }
 
-            response_extensions.insert(
-                "presence".to_string(),
-                serde_json::json!({
-                    "events": presence_events
-                }),
-            );
+            // `get_presences` returns a HashMap, so iteration order is not
+            // stable across calls. Sort by sender so the serialized payload is
+            // deterministic — otherwise the de-duplication below would see a
+            // "different" payload on every sync and never suppress echoes.
+            presence_events.sort_by(|a, b| {
+                let sa = a.get("sender").and_then(|v| v.as_str()).unwrap_or("");
+                let sb = b.get("sender").and_then(|v| v.as_str()).unwrap_or("");
+                sa.cmp(sb)
+            });
+
+            // De-duplicate the presence extension across incremental syncs.
+            //
+            // The presence extension previously echoed the full presence set on
+            // EVERY response. Since the client long-polls in a tight loop, that
+            // produced a 1:1 sync↔presence self-excitation (every sync carried a
+            // "fresh" presence event). We now only include the presence
+            // extension when the payload actually changed since the last sync
+            // for this connection. When nothing changed, the response carries no
+            // presence data, so the client's sliding-sync loop has nothing to
+            // react to and backs off instead of busy-looping.
+            //
+            // Caveat: `get_raw` only consults the in-process cache (`set_raw`
+            // also writes Redis). Without sticky sessions a client that lands
+            // on a different instance misses the cache and receives one extra
+            // presence echo. That is a cosmetic regression, not a correctness
+            // one — the loop itself is broken by the long-poll below, which
+            // needs no shared state.
+            let cache_key = Self::presence_cache_key(user_id, device_id, conn_id);
+            let payload = serde_json::json!({ "events": presence_events });
+            let payload_str = serde_json::to_string(&payload).unwrap_or_default();
+
+            let changed = since_pos.is_none()
+                || self
+                    .cache
+                    .get_raw(&cache_key)
+                    .map(|prev| prev != payload_str)
+                    .unwrap_or(true);
+
+            if changed {
+                response_extensions.insert("presence".to_string(), payload);
+                self.cache.set_raw(&cache_key, &payload_str, 1800).await;
+            }
         }
 
         if response_extensions.is_empty() {
@@ -287,6 +323,16 @@ impl SlidingSyncService {
         match conn_id {
             Some(conn_id) => format!("sliding_sync:e2ee:shared_users:{user_id}:{device_id}:{conn_id}"),
             None => format!("sliding_sync:e2ee:shared_users:{user_id}:{device_id}:"),
+        }
+    }
+
+    /// Cache key under which the last-sent presence extension payload for a
+    /// connection is stored, used to de-duplicate presence echoes across
+    /// incremental syncs (see `build_extensions_response`).
+    pub(crate) fn presence_cache_key(user_id: &str, device_id: &str, conn_id: Option<&str>) -> String {
+        match conn_id {
+            Some(conn_id) => format!("sliding_sync:presence:{user_id}:{device_id}:{conn_id}"),
+            None => format!("sliding_sync:presence:{user_id}:{device_id}:"),
         }
     }
 
