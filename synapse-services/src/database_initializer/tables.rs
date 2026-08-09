@@ -740,14 +740,24 @@ impl DatabaseInitService {
                 user_id TEXT NOT NULL,
                 room_id TEXT NOT NULL,
                 event_id TEXT NOT NULL,
+                marker_type TEXT NOT NULL DEFAULT 'm.fully_read',
                 created_ts BIGINT NOT NULL,
                 updated_ts BIGINT NOT NULL,
-                CONSTRAINT uq_read_markers UNIQUE (user_id, room_id)
+                origin_server_ts BIGINT,
+                CONSTRAINT uq_read_markers UNIQUE (room_id, user_id, marker_type)
             )
             "#,
         )
         .execute(&*self.pool)
         .await?;
+
+        // Ensure columns exist even if table was created by a previous schema version.
+        sqlx::query("ALTER TABLE read_markers ADD COLUMN IF NOT EXISTS marker_type TEXT NOT NULL DEFAULT 'm.fully_read'")
+            .execute(&*self.pool)
+            .await?;
+        sqlx::query("ALTER TABLE read_markers ADD COLUMN IF NOT EXISTS origin_server_ts BIGINT")
+            .execute(&*self.pool)
+            .await?;
 
         sqlx::query(
             r#"

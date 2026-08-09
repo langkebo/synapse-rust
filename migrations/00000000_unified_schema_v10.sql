@@ -2928,6 +2928,7 @@ CREATE TABLE IF NOT EXISTS read_markers (
     marker_type TEXT NOT NULL,
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT NOT NULL,
+    origin_server_ts BIGINT,
     CONSTRAINT pk_read_markers PRIMARY KEY (id),
     CONSTRAINT uq_read_markers_room_user_type UNIQUE (room_id, user_id, marker_type)
 );
