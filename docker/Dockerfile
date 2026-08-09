@@ -27,7 +27,7 @@ ENV CARGO_INCREMENTAL=0 \
     CARGO_PROFILE_RELEASE_PANIC=abort \
     RUSTFLAGS="-C link-arg=-Wl,--gc-sections -C link-arg=-Wl,-z,relro,-z,now"
 
-RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
+RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     clang \
@@ -97,7 +97,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # ============================================================================
 FROM ${DEBIAN_BASE_IMAGE} AS runtime-libs
 
-RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
+RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
@@ -174,7 +174,7 @@ LABEL org.opencontainers.image.title="synapse-rust" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.licenses="Apache-2.0"
 
-RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
+RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources && \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
