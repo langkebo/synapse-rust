@@ -58,7 +58,8 @@ async fn register_user_and_get_token(app: &axum::Router) -> String {
             json!({
                 "username": format!("user_{}", rand::random::<u32>()),
                 "password": "UserTest@123",
-                "device_id": "TESTDEVICE"
+                "device_id": "TESTDEVICE",
+                "auth": { "type": "m.login.dummy" }
             })
             .to_string(),
         ))
@@ -89,6 +90,12 @@ async fn test_sync_initial_vs_incremental_rate_limit_isolated() {
         .unwrap();
     let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert!(response.status().is_success());
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 64).await.unwrap();
+    let initial_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let next_batch = initial_json["next_batch"]
+        .as_str()
+        .expect("initial sync should return next_batch")
+        .to_string();
 
     let request = Request::builder()
         .method("GET")
@@ -103,14 +110,22 @@ async fn test_sync_initial_vs_incremental_rate_limit_isolated() {
     assert_eq!(json["errcode"], "M_LIMIT_EXCEEDED");
     assert!(json.get("retry_after_ms").and_then(|v| v.as_u64()).is_some());
 
+    // 增量同步使用初始同步返回的 next_batch 作为 since，绕过 initial 限流。
     let request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/v3/sync?since=1")
+        .uri(format!("/_matrix/client/v3/sync?since={}", next_batch))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
     let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
-    assert!(response.status().is_success());
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 64).await.unwrap();
+    assert!(
+        status.is_success(),
+        "incremental sync should succeed with valid since token, got status={:?} body={}",
+        status,
+        String::from_utf8_lossy(&body)
+    );
 }
 
 #[tokio::test]

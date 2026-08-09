@@ -35,7 +35,8 @@ async fn register_user_and_get_token(app: &axum::Router) -> String {
             json!({
                 "username": format!("user_{}", rand::random::<u32>()),
                 "password": "UserTest@123",
-                "device_id": "TESTDEVICE"
+                "device_id": "TESTDEVICE",
+                "auth": { "type": "m.login.dummy" }
             })
             .to_string(),
         ))

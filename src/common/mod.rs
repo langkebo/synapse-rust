@@ -26,14 +26,15 @@ pub mod error;
 pub mod federation_test_keys;
 pub mod health;
 pub mod logging;
-pub mod rate_limit;
 
 // Re-exports of local-only items from genuine modules.
 //
-// Pure-facade modules (config, crypto, federation_test_keys, rate_limit) need
+// Pure-facade modules (config, crypto, federation_test_keys) need
 // no explicit re-export here — their items are covered by `pub use
 // synapse_common::*` above, and the local modules just re-export from
 // synapse_common internally.
+// (`rate_limit` facade removed 2026-08-09 together with the dead legacy
+// in-memory RateLimiter; the authoritative limiter is web/middleware/rate_limit.rs.)
 //
 // `logging::init_logging` is re-exported explicitly because the local
 // implementation differs from synapse_common's (adds RequestIdPropagationLayer);

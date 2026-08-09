@@ -43,6 +43,31 @@ endpoints:
     rule:
       per_second: 5
       burst_size: 10
+  - path: "/_matrix/client/v3/keys/query"
+    match_type: "prefix"
+    rule:
+      per_second: 50
+      burst_size: 300
+  - path: "/_matrix/client/v3/keys/claim"
+    match_type: "prefix"
+    rule:
+      per_second: 10
+      burst_size: 30
+  - path: "/_matrix/client/v3/friends/"
+    match_type: "prefix"
+    rule:
+      per_second: 20
+      burst_size: 60
+  - path: "/_matrix/client/v1/friends/"
+    match_type: "prefix"
+    rule:
+      per_second: 20
+      burst_size: 60
+  - path: "/_matrix/client/r0/friends/"
+    match_type: "prefix"
+    rule:
+      per_second: 20
+      burst_size: 60
   - path: "/_matrix/client/unstable/org.matrix.msc4108/"
     match_type: "prefix"
     rule:

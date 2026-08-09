@@ -27,7 +27,6 @@ pub mod membership_transition;
 pub mod metrics;
 pub mod nonce_cache;
 pub mod password_hash_pool;
-pub mod rate_limit;
 pub mod rate_limit_config;
 pub mod redaction;
 pub mod regex_cache;
@@ -47,10 +46,17 @@ pub mod xml_parser;
 
 // Explicit re-exports — each item is an intentional API commitment.
 // Note: RateLimitConfig, RateLimitRule, RateLimitEndpointRule, and
-// RateLimitMatchType are intentionally re-exported from `rate_limit` /
+// RateLimitMatchType are intentionally re-exported from
 // `rate_limit_config` only (not from `config`) to avoid ambiguity; the
 // `config`-namespace equivalents remain reachable as
 // `synapse_common::config::RateLimitConfig` etc.
+//
+// The legacy in-memory `rate_limit` module (user/ip/endpoint triple-bucket
+// `RateLimiter`) was removed on 2026-08-09: it was never wired into the
+// request path (dead code) and risked being mounted as a third rate-limit
+// layer. The single authoritative limiter is
+// `web/middleware/rate_limit.rs` (Redis/local token bucket, configured via
+// `rate_limit.yaml`).
 
 pub use sanitizer::{create_sanitizer, create_strict_sanitizer, ContentSanitizer, SanitizerMode};
 
@@ -118,8 +124,6 @@ pub use password_hash_pool::{
     get_pool_metrics, get_pool_status, PasswordHashError, PasswordHashMetrics, PasswordHashPool,
     PasswordHashPoolConfig, PoolStatus,
 };
-#[allow(deprecated)] // RateLimitConfig is a deprecated alias kept for API compatibility
-pub use rate_limit::{RateLimitConfig, RateLimitInfo, RateLimitState, RateLimitStats, RateLimiter};
 pub use rate_limit_config::{
     select_endpoint_rule, select_endpoint_rule_runtime, start_config_watcher, RateLimitBackend, RateLimitConfigAdapter,
     RateLimitConfigError, RateLimitConfigFile, RateLimitConfigManager, RateLimitEndpointRule, RateLimitMatchType,

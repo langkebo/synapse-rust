@@ -98,6 +98,15 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
     };
 
     if !decision.allowed {
+        tracing::warn!(
+            target: "rate_limit",
+            ip = %ip,
+            endpoint = %endpoint_id,
+            per_second = per_second,
+            burst_size = burst_size,
+            retry_after_seconds = decision.retry_after_seconds,
+            "rate limit rejected request"
+        );
         let retry_after_ms = decision.retry_after_seconds.saturating_mul(1000);
         let mut response = ApiError::rate_limited_with_retry(retry_after_ms).into_response();
         if let Ok(v) = decision.retry_after_seconds.to_string().parse() {
