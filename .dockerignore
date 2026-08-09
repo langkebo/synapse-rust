@@ -91,6 +91,10 @@ element-web/
 .workbuddy/
 .cursor/
 
+# 仓库根目录的运行时数据: media 上传 / db 备份 / 签名密钥, 构建期完全不需要
+# (docker/ 里还有一份 docker/data/ 已排除; 这里排除的是仓库根 data/, 占 ~15MB)
+data/
+
 # 杂项
 LICENSE
 TODO
