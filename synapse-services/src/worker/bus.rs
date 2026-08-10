@@ -300,30 +300,50 @@ impl WorkerBus {
             let full_channel = full_channel.clone();
             let encoded = encoded.clone();
             tokio::spawn(async move {
-                match pool.get().await {
-                    Ok(mut conn) => {
+                // WORK-05: 跨实例消息静默丢弃会表现为「另一台实例收不到事件」
+                // 的诡异故障。先按指数退避重试（100ms → 200ms → 400ms），
+                // 全部失败再 warn 留痕，而不是单次失败即丢消息。
+                const MAX_ATTEMPTS: u32 = 3;
+                let mut last_err: Option<String> = None;
+                for attempt in 1..=MAX_ATTEMPTS {
+                    let attempt_result: Result<(), String> = async {
+                        let mut conn = pool
+                            .get()
+                            .await
+                            .map_err(|e| format!("get connection: {e}"))?;
                         use redis::AsyncCommands;
-                        let result: Result<(), redis::RedisError> = conn.publish(&full_channel, &encoded).await;
-                        if let Err(e) = result {
-                            // WORK-05: 跨实例消息静默丢弃会表现为「另一台实例
-                            // 收不到事件」的诡异故障，至少 warn 留痕。
-                            warn!(
+                        conn.publish::<_, _, ()>(&full_channel, &encoded)
+                            .await
+                            .map_err(|e| format!("publish: {e}"))
+                    }
+                    .await;
+
+                    match attempt_result {
+                        Ok(()) => return,
+                        Err(e) => {
+                            debug!(
                                 error = %e,
                                 channel = %full_channel,
-                                payload_bytes = encoded.len(),
-                                "Failed to publish to Redis pub/sub; cross-instance message lost"
+                                attempt = attempt,
+                                "Redis publish attempt failed, retrying"
                             );
+                            last_err = Some(e);
+                            if attempt < MAX_ATTEMPTS {
+                                tokio::time::sleep(std::time::Duration::from_millis(
+                                    100 * (1 << (attempt - 1)),
+                                ))
+                                .await;
+                            }
                         }
                     }
-                    Err(e) => {
-                        warn!(
-                            error = %e,
-                            channel = %full_channel,
-                            payload_bytes = encoded.len(),
-                            "Failed to get Redis connection for publish; cross-instance message lost"
-                        );
-                    }
                 }
+                warn!(
+                    error = last_err.as_deref().unwrap_or("unknown"),
+                    channel = %full_channel,
+                    payload_bytes = encoded.len(),
+                    attempts = MAX_ATTEMPTS,
+                    "Failed to publish to Redis pub/sub after retries; cross-instance message lost"
+                );
             });
         }
 

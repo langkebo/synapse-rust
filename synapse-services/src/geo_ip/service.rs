@@ -20,7 +20,8 @@ impl GeoIpService {
     pub fn new(config: GeoIpConfig) -> Self {
         Self {
             config,
-            http_client: reqwest::Client::new(),
+            // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()
+            http_client: synapse_common::http_client::default_client(),
             cache: Arc::new(RwLock::new(HashMap::new())),
             rules: Arc::new(RwLock::new(Vec::new())),
             cache_ttl: Duration::from_secs(3600),

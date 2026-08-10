@@ -1,6 +1,6 @@
 use super::{
-    cors_origins_regex, get_allowed_origins, is_dev_mode, is_localhost_bind, is_origin_allowed, same_origin,
-    set_config_allowed_origins_once,
+    cors_origins_regex, get_allowed_origins, is_dev_mode, is_local_bind_address, is_localhost_bind, is_origin_allowed,
+    same_origin, set_config_allowed_origins_once,
 };
 use axum::body::Body;
 use axum::http::{HeaderValue, Request, StatusCode};
@@ -136,11 +136,8 @@ pub fn validate_bind_address_for_dev_mode(host: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    let local_addresses = ["127.0.0.1", "localhost", "::1", "0.0.0.0", "::", "[::]"];
-
-    let is_local = local_addresses
-        .iter()
-        .any(|&local| host.eq_ignore_ascii_case(local) || host.starts_with("127.") || host.starts_with("::1"));
+    // WEB-03: 通配地址（0.0.0.0 / ::）不是本机地址，统一走 is_local_bind_address
+    let is_local = is_local_bind_address(host);
 
     if !is_local {
         return Err(format!(
@@ -368,8 +365,21 @@ mod tests {
         assert!(validate_bind_address_for_dev_mode("127.0.0.1").is_ok());
         assert!(validate_bind_address_for_dev_mode("localhost").is_ok());
         assert!(validate_bind_address_for_dev_mode("::1").is_ok());
-        assert!(validate_bind_address_for_dev_mode("0.0.0.0").is_ok());
         assert!(validate_bind_address_for_dev_mode("127.0.0.5").is_ok());
+    }
+
+    // WEB-03: 0.0.0.0 / :: / [::] 是通配地址而非 localhost，
+    // dev 模式绑定通配地址必须被拒绝（否则 CORS 全开放暴露到整个网络）
+    #[test]
+    fn web03_wildcard_bind_rejected_in_dev_mode() {
+        let _env_lock = env_lock();
+        let mut env_guard = EnvGuard::new();
+        env_guard.set("RUST_ENV", "development");
+
+        for addr in ["0.0.0.0", "::", "[::]"] {
+            let result = validate_bind_address_for_dev_mode(addr);
+            assert!(result.is_err(), "wildcard bind address {addr} must be rejected in dev mode");
+        }
     }
 
     #[test]

@@ -44,7 +44,8 @@ impl ApplicationServiceManager {
                     pool_idle_timeout_secs = 60_u64,
                     "Failed to build HTTP client with custom config, using default"
                 );
-                Client::new()
+                // F-1: 回退共享默认 client（带超时），不再退化为无超时 Client::new()
+                synapse_common::http_client::default_client()
             });
 
         Self { storage, event_reader, http_client, server_name }

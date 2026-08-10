@@ -128,6 +128,9 @@ pub struct ServerConfig {
     pub admin_contact: Option<String>,
 
     /// 最大上传大小（字节）
+    ///
+    /// G-1: 这是上传大小上限的唯一权威来源。media 路由的 DefaultBodyLimit、
+    /// 全局 RequestBodyLimitLayer 及 `m.upload.size` 响应均从本字段派生。
     #[serde(default = "default_max_upload_size_value")]
     pub max_upload_size: u64,
 

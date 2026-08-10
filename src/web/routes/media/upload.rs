@@ -280,7 +280,7 @@ pub(crate) async fn chunked_upload_progress(
 
 /// POST /_matrix/client/v3/upload/token
 pub(crate) async fn create_upload_token(
-    State(_ctx): State<MediaContext>,
+    State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -297,14 +297,15 @@ pub(crate) async fn create_upload_token(
             "upload_url": "/_matrix/media/v3/upload",
             "filename": filename,
             "content_type": content_type,
-            "max_file_size": 50 * 1024 * 1024u64,
+            // G-1: 上报给客户端的上限统一来自权威配置 server.max_upload_size
+            "max_file_size": ctx.config.server.max_upload_size,
         })),
     ))
 }
 
 /// GET /_matrix/client/v3/upload/provider
 pub(crate) async fn get_upload_provider(
-    State(_ctx): State<MediaContext>,
+    State(ctx): State<MediaContext>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     Ok((
@@ -313,7 +314,8 @@ pub(crate) async fn get_upload_provider(
             "provider": "matrix",
             "supports_chunked_upload": true,
             "supports_resume": true,
-            "max_file_size": 50 * 1024 * 1024u64,
+            // G-1: 上限来自权威配置 server.max_upload_size，不再硬编码 50MB
+            "max_file_size": ctx.config.server.max_upload_size,
             "chunk_size": 5 * 1024 * 1024,
         })),
     ))

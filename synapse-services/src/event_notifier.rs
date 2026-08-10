@@ -106,10 +106,13 @@ impl EventNotifier {
     ///
     /// # Growth
     ///
-    /// Slots are created lazily and currently never evicted, so the maps grow
-    /// to one entry per distinct user/room that has ever been waited on
-    /// (~100 bytes each). This is bounded by the size of the deployment in
-    /// practice; add TTL eviction if that assumption stops holding.
+    /// Slots are created lazily. Idle slots (no live waiters, i.e. the map
+    /// holds the only `Arc` reference) are reclaimed by
+    /// [`evict_idle_slots`][EventNotifier::evict_idle_slots], which the
+    /// container runs periodically via
+    /// [`start_idle_slot_evictor`][EventNotifier::start_idle_slot_evictor]
+    /// (A-7). A slot is never evicted while a sync connection still holds
+    /// its `Arc<Notify>`, so in-flight waits are unaffected.
     pub fn slots_for(&self, user_id: &str, room_ids: &[String]) -> Vec<Arc<Notify>> {
         let mut slots = Vec::with_capacity(room_ids.len() + 1);
         slots.push(self.get_or_create_user_notify(user_id));
@@ -117,6 +120,51 @@ impl EventNotifier {
             slots.push(self.get_or_create_room_notify(room_id));
         }
         slots
+    }
+
+    /// Evict slots that have no live waiters (A-7).
+    ///
+    /// A slot is "idle" when the map holds the only `Arc<Notify>` reference
+    /// (`strong_count == 1`): every waiter keeps its own clone for the whole
+    /// duration of a long-poll, so any slot with `strong_count > 1` is still
+    /// in use and must be kept. Returns the number of evicted entries.
+    ///
+    /// Race safety: `DashMap::retain` holds the shard write lock, so a
+    /// concurrent [`slots_for`][EventNotifier::slots_for] on the same shard
+    /// blocks until the retain pass finishes; a waiter that already cloned
+    /// the `Arc` keeps the count above 1 and is never evicted. A slot evicted
+    /// between two `slots_for` calls is simply re-created on the next call —
+    /// a `Notify` with no registered waiters carries no state worth keeping.
+    pub fn evict_idle_slots(&self) -> usize {
+        let before = self.room_notifiers.len() + self.user_notifiers.len();
+        self.room_notifiers.retain(|_, notify| Arc::strong_count(notify) > 1);
+        self.user_notifiers.retain(|_, notify| Arc::strong_count(notify) > 1);
+        before - (self.room_notifiers.len() + self.user_notifiers.len())
+    }
+
+    /// Start a background task that periodically evicts idle slots (A-7).
+    ///
+    /// Without this, the notifier maps grow by one entry per distinct
+    /// user/room ever waited on and never shrink. The container wires this
+    /// once at startup; the returned `JoinHandle` can be aborted on shutdown.
+    pub fn start_idle_slot_evictor(&self, interval: std::time::Duration) -> tokio::task::JoinHandle<()> {
+        let room_notifiers = self.room_notifiers.clone();
+        let user_notifiers = self.user_notifiers.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            // Skip the immediate first tick; there is nothing to evict at startup.
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let before = room_notifiers.len() + user_notifiers.len();
+                room_notifiers.retain(|_, notify| Arc::strong_count(notify) > 1);
+                user_notifiers.retain(|_, notify| Arc::strong_count(notify) > 1);
+                let evicted = before - (room_notifiers.len() + user_notifiers.len());
+                if evicted > 0 {
+                    debug!(evicted, "EventNotifier: evicted idle notify slots");
+                }
+            }
+        })
     }
 
     /// Notify all connections waiting for events in the given room.
@@ -690,5 +738,54 @@ mod tests {
         let notifier = EventNotifier::new();
         let result = notifier.start_redis_subscriber();
         assert!(result.is_ok(), "start_redis_subscriber without Redis must return Ok(())");
+    }
+
+    // ========== A-7: idle slot eviction tests ==========
+
+    /// A-7: slots whose waiters have all gone away must be reclaimable,
+    /// otherwise the maps grow monotonically with every user/room ever seen.
+    #[test]
+    fn a7_evict_idle_slots_removes_unreferenced_slots() {
+        let notifier = EventNotifier::new();
+        {
+            let _slots = notifier.slots_for("@alice:example.com", &["!r1:example.com".to_string(), "!r2:example.com".to_string()]);
+            assert_eq!(notifier.broadcast_subscriber_count(), 3);
+        }
+        // All Arc clones dropped; only the maps hold references now.
+        let evicted = notifier.evict_idle_slots();
+        assert_eq!(evicted, 3, "all idle slots should be evicted");
+        assert_eq!(notifier.broadcast_subscriber_count(), 0);
+    }
+
+    /// A-7: a slot still held by a live sync connection must survive eviction.
+    #[test]
+    fn a7_evict_idle_slots_keeps_slots_with_live_holders() {
+        let notifier = EventNotifier::new();
+        let held = notifier.slots_for("@bob:example.com", &["!live:example.com".to_string()]);
+        {
+            let _transient = notifier.slots_for("@carol:example.com", &[]);
+        }
+        let evicted = notifier.evict_idle_slots();
+        assert_eq!(evicted, 1, "only the unreferenced user slot should be evicted");
+        assert_eq!(notifier.broadcast_subscriber_count(), 2);
+
+        // The held slot must still be the same live Notify instance.
+        let again = notifier.slots_for("@bob:example.com", &["!live:example.com".to_string()]);
+        for (a, b) in held.iter().zip(again.iter()) {
+            assert!(Arc::ptr_eq(a, b), "live slots must not be replaced by eviction");
+        }
+    }
+
+    /// A-7: the background evictor must actually reclaim idle slots.
+    #[tokio::test]
+    async fn a7_background_evictor_reclaims_idle_slots() {
+        let notifier = EventNotifier::new();
+        {
+            let _slots = notifier.slots_for("@dave:example.com", &["!bg:example.com".to_string()]);
+        }
+        let handle = notifier.start_idle_slot_evictor(std::time::Duration::from_millis(20));
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        handle.abort();
+        assert_eq!(notifier.broadcast_subscriber_count(), 0, "background evictor should reclaim idle slots");
     }
 }

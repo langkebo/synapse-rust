@@ -76,8 +76,14 @@ impl MasRestClient {
     /// is disabled — so callers can hold the client cheaply and gate calls
     /// on `MasConfig::is_configured()` themselves.
     pub fn new(config: &MasConfig) -> Self {
-        let http_client =
-            reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build().unwrap_or_default();
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|e| {
+                // F-1: builder 失败不再静默 unwrap_or_default，记录 warn 并回退共享默认 client
+                tracing::warn!(error = %e, "Failed to build MAS REST HTTP client, using shared default");
+                synapse_common::http_client::default_client()
+            });
         // Strip a single trailing slash so `{base_url}/account/{sub}` does
         // not produce a double slash.
         let base_url = if config.issuer_url.ends_with('/') {

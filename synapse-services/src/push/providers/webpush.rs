@@ -69,7 +69,11 @@ impl WebPushProvider {
         let client = Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs))
             .build()
-            .unwrap_or_else(|_| Client::new());
+            .unwrap_or_else(|e| {
+                // F-1: builder 失败不再静默退化，记录 warn 并回退共享默认 client
+                tracing::warn!(error = %e, "Failed to build WebPush HTTP client, using shared default");
+                synapse_common::http_client::default_client()
+            });
 
         Self { config, client, enabled }
     }

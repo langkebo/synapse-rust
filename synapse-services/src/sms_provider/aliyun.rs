@@ -52,7 +52,8 @@ pub struct AliyunSmsProvider {
 impl AliyunSmsProvider {
     pub fn new(config: &SmsConfig) -> Self {
         Self {
-            client: Client::new(),
+            // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()
+            client: synapse_common::http_client::default_client(),
             endpoint: if config.endpoint.is_empty() {
                 "dysmsapi.aliyuncs.com".to_string()
             } else {

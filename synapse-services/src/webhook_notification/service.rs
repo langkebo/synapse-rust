@@ -14,7 +14,8 @@ impl WebhookNotifier {
         let enabled = config.enabled;
 
         if enabled {
-            let http_client = reqwest::Client::new();
+            // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()
+            let http_client = synapse_common::http_client::default_client();
             let config_clone = config.clone();
 
             tokio::spawn(async move {

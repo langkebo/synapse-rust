@@ -795,6 +795,7 @@ fn test_health_check_config_custom() {
         max_consecutive_failures: 5,
         recovery_threshold: 3,
         degraded_latency_ms: 2000,
+        heartbeat_timeout_secs: 120,
     };
 
     assert_eq!(config.check_interval_secs, 60);

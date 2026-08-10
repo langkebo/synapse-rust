@@ -46,6 +46,9 @@ pub struct HealthCheckConfig {
     pub max_consecutive_failures: u32,
     pub recovery_threshold: u32,
     pub degraded_latency_ms: u64,
+    /// WORK-04: 心跳超时（秒）。超过该时长未收到心跳的 worker 判定为
+    /// 探测失败——崩溃的 worker 不再「注册即健康」。
+    pub heartbeat_timeout_secs: u64,
 }
 
 impl Default for HealthCheckConfig {
@@ -56,6 +59,7 @@ impl Default for HealthCheckConfig {
             max_consecutive_failures: 3,
             recovery_threshold: 2,
             degraded_latency_ms: 1000,
+            heartbeat_timeout_secs: 90,
         }
     }
 }
@@ -64,11 +68,17 @@ pub struct HealthChecker {
     config: HealthCheckConfig,
     health_status: RwLock<HashMap<String, HealthCheckResult>>,
     callbacks: RwLock<Vec<HealthCallback>>,
+    last_heartbeat: RwLock<HashMap<String, i64>>,
 }
 
 impl HealthChecker {
     pub fn new(config: HealthCheckConfig) -> Self {
-        Self { config, health_status: RwLock::new(HashMap::new()), callbacks: RwLock::new(Vec::new()) }
+        Self {
+            config,
+            health_status: RwLock::new(HashMap::new()),
+            callbacks: RwLock::new(Vec::new()),
+            last_heartbeat: RwLock::new(HashMap::new()),
+        }
     }
 
     pub async fn register_worker(&self, worker_id: &str) {
@@ -79,13 +89,24 @@ impl HealthChecker {
             last_check_ts: current_timestamp_millis(),
             ..Default::default()
         });
+        drop(status);
+
+        // 注册即有一次心跳（注册动作本身由心跳路径触发）
+        self.record_heartbeat(worker_id).await;
 
         debug!("Worker registered for health checks: {}", worker_id);
+    }
+
+    /// WORK-04: 记录 worker 心跳，供健康检查做活性探测。
+    pub async fn record_heartbeat(&self, worker_id: &str) {
+        self.last_heartbeat.write().await.insert(worker_id.to_string(), current_timestamp_millis());
     }
 
     pub async fn unregister_worker(&self, worker_id: &str) {
         let mut status = self.health_status.write().await;
         status.remove(worker_id);
+        drop(status);
+        self.last_heartbeat.write().await.remove(worker_id);
 
         debug!("Worker unregistered from health checks: {}", worker_id);
     }
@@ -105,13 +126,26 @@ impl HealthChecker {
     }
 
     async fn perform_health_check(&self, worker_id: &str) -> Result<(), String> {
-        let status = self.health_status.read().await;
-        if !status.contains_key(worker_id) {
-            return Err("Worker not registered".to_string());
+        {
+            let status = self.health_status.read().await;
+            if !status.contains_key(worker_id) {
+                return Err("Worker not registered".to_string());
+            }
         }
-        drop(status);
 
-        Ok(())
+        // WORK-04: 真实活性探测——崩溃的 worker 停止心跳，超过
+        // heartbeat_timeout 即探测失败；不再「注册表有键就 Healthy」。
+        let last_beat = self.last_heartbeat.read().await.get(worker_id).copied();
+        match last_beat {
+            Some(ts) => {
+                let elapsed_ms = current_timestamp_millis() - ts;
+                if elapsed_ms > self.config.heartbeat_timeout_secs as i64 * 1000 {
+                    return Err(format!("Heartbeat stale: last seen {elapsed_ms}ms ago"));
+                }
+                Ok(())
+            }
+            None => Err("No heartbeat recorded".to_string()),
+        }
     }
 
     async fn update_health_status(
@@ -406,6 +440,52 @@ mod tests {
         assert_eq!(healthy.status, HealthStatus::Healthy);
         assert_eq!(healthy.consecutive_failures, 1);
         assert!(checker.is_healthy("worker1").await);
+    }
+
+    // WORK-04: 心跳停滞的 worker（如进程崩溃）必须被探测为失败，
+    // 连续失败达到阈值后标记 Unhealthy——不再「注册表有键即健康」。
+    #[tokio::test]
+    async fn work04_stale_heartbeat_marks_worker_unhealthy() {
+        let checker = HealthChecker::new(HealthCheckConfig {
+            max_consecutive_failures: 2,
+            heartbeat_timeout_secs: 60,
+            ..HealthCheckConfig::default()
+        });
+        checker.register_worker("worker1").await;
+
+        // 模拟崩溃：最后一次心跳在 1 小时前
+        let stale_ts = current_timestamp_millis() - 3600_000;
+        checker.last_heartbeat.write().await.insert("worker1".to_string(), stale_ts);
+
+        checker.check_health("worker1").await;
+        let result = checker.check_health("worker1").await;
+
+        assert_eq!(result.status, HealthStatus::Unhealthy);
+        assert!(result.error_message.as_deref().unwrap_or("").contains("Heartbeat stale"));
+    }
+
+    // WORK-04: 补跳后从停滞恢复
+    #[tokio::test]
+    async fn work04_record_heartbeat_restores_health() {
+        let checker = HealthChecker::new(HealthCheckConfig {
+            max_consecutive_failures: 2,
+            heartbeat_timeout_secs: 60,
+            ..HealthCheckConfig::default()
+        });
+        checker.register_worker("worker1").await;
+
+        let stale_ts = current_timestamp_millis() - 3600_000;
+        checker.last_heartbeat.write().await.insert("worker1".to_string(), stale_ts);
+        checker.check_health("worker1").await;
+        checker.check_health("worker1").await;
+        assert_eq!(checker.get_health("worker1").await.unwrap().status, HealthStatus::Unhealthy);
+
+        // worker 恢复心跳
+        checker.record_heartbeat("worker1").await;
+        checker.check_health("worker1").await;
+        checker.check_health("worker1").await;
+        let result = checker.check_health("worker1").await;
+        assert!(result.status == HealthStatus::Healthy || result.status == HealthStatus::Degraded);
     }
 
     #[test]

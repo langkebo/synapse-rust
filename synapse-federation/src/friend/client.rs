@@ -25,7 +25,8 @@ impl FriendFederationClient {
             std::env::var("FEDERATION_SIGNING_KEY").ok().and_then(|key_b64| Self::decode_signing_key(&key_b64));
 
         Self {
-            client: Client::new(),
+            // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()
+            client: synapse_common::http_client::default_client(),
             server_name,
             signing_key_id,
             signing_key,

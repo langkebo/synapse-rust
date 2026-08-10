@@ -231,7 +231,8 @@ impl SearchService {
         let base_url = url.trim_end_matches('/').to_string();
 
         Self {
-            client: reqwest::Client::new(),
+            // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()
+            client: synapse_common::http_client::default_client(),
             enabled,
             base_url,
             index_name: index_name.to_string(),

@@ -515,6 +515,17 @@ impl BuiltinOidcProvider {
         }
 
         if let Some(ref plain) = user.password {
+            // SEC-03: 明文密码默认拒绝（生产止血），仅在配置显式
+            // allow_plaintext_passwords=true 时放行（开发/测试逃生门）。
+            if !self.config.allow_plaintext_passwords {
+                tracing::error!(
+                    username_present = !username.is_empty(),
+                    has_plaintext_password = true,
+                    "BuiltinOidcProvider user has plaintext password but allow_plaintext_passwords=false; \
+                     refusing authentication. Migrate to password_hash (argon2 PHC)."
+                );
+                return Err(ApiError::unauthorized("Invalid username or password".to_string()));
+            }
             warn!(
                 username_present = !username.is_empty(),
                 has_plaintext_password = true,
@@ -674,6 +685,7 @@ mod tests {
                 email: "test@example.com".to_string(),
                 displayname: Some("Test User".to_string()),
             }],
+            allow_plaintext_passwords: true,
             signing_key_path: None,
         })
     }
@@ -777,6 +789,46 @@ mod tests {
 
         let result = provider.authorize(request).await;
         assert!(result.is_err());
+    }
+
+    // SEC-03: 默认（未显式开启 allow_plaintext_passwords）时，即使明文密码
+    // 正确也必须拒绝认证。
+    #[tokio::test]
+    async fn sec03_plaintext_password_rejected_by_default() {
+        let mut config = (*test_config()).clone();
+        config.allow_plaintext_passwords = false;
+        let provider = BuiltinOidcProvider::new(Arc::new(config)).expect("Failed to create provider");
+        let request = AuthorizeRequest {
+            client_id: "test-client".to_string(),
+            redirect_uri: "https://app.test/callback".to_string(),
+            scope: "openid".to_string(),
+            state: "state".to_string(),
+            nonce: None,
+            code_verifier: None,
+            username: "testuser".to_string(),
+            password: "password123".to_string(),
+        };
+
+        let result = provider.authorize(request).await;
+        assert!(result.is_err(), "plaintext password must be rejected when allow_plaintext_passwords=false");
+    }
+
+    // SEC-03: 显式开启后明文密码可用（开发/测试逃生门）
+    #[tokio::test]
+    async fn sec03_plaintext_password_allowed_when_explicitly_enabled() {
+        let provider = create_provider(); // test_config 显式 allow_plaintext_passwords: true
+        let request = AuthorizeRequest {
+            client_id: "test-client".to_string(),
+            redirect_uri: "https://app.test/callback".to_string(),
+            scope: "openid".to_string(),
+            state: "state".to_string(),
+            nonce: None,
+            code_verifier: None,
+            username: "testuser".to_string(),
+            password: "password123".to_string(),
+        };
+
+        assert!(provider.authorize(request).await.is_ok());
     }
 
     #[tokio::test]

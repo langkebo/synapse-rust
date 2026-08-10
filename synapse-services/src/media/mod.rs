@@ -766,7 +766,8 @@ mod tests {
                 .expect("failed to set user quota");
         }
 
-        let chunked_upload_service = Arc::new(chunked_upload::ChunkedUploadService::new(pool.clone()));
+        let chunked_upload_service =
+            Arc::new(chunked_upload::ChunkedUploadService::new(pool.clone(), 100 * 1024 * 1024));
         let media_domain_service =
             MediaDomainService::new(media_service.clone(), media_quota_service, chunked_upload_service);
 

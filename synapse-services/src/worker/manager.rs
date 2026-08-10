@@ -281,6 +281,8 @@ impl WorkerManager {
 
                 if let Some(hc) = &self.health_checker {
                     hc.register_worker(worker_id).await;
+                    // WORK-04: 心跳驱动活性探测
+                    hc.record_heartbeat(worker_id).await;
                 }
             }
             WorkerStatus::Stopping | WorkerStatus::Stopped | WorkerStatus::Error => {

@@ -939,7 +939,7 @@ mod tests {
 /// media_store:
 ///   enabled: true
 ///   storage_path: "/var/lib/synapse/media"
-///   upload_size: "100M"
+///   max_upload_size: 104857600  # 字节；权威字段为 server.max_upload_size（G-1 统一）
 ///   url_preview_enabled: true
 ///   max_thumbnail_size: "10M"
 ///   min_thumbnail_size: "10K"
@@ -952,10 +952,6 @@ pub struct MediaStoreConfig {
 
     /// 媒体文件存储路径
     pub storage_path: String,
-
-    /// 最大上传大小（如 "100M", "1G"）
-    #[serde(default = "default_max_upload_size")]
-    pub upload_size: String,
 
     /// 是否启用 URL 预览功能
     #[serde(default)]
@@ -1110,7 +1106,7 @@ fn default_compress() -> bool {
 /// # 配置示例
 /// ```yaml
 /// limits:
-///   upload_size: "100M"
+///   max_upload_size: 104857600  # 字节；权威字段为 server.max_upload_size（G-1 统一）
 ///   room_join_complexity_limit: 10000
 ///   event_fields_size_limit: "65536"
 /// federation:
@@ -1119,10 +1115,6 @@ fn default_compress() -> bool {
 /// ```
 #[derive(Debug, Clone, Deserialize)]
 pub struct LimitsConfig {
-    /// 最大上传大小
-    #[serde(default = "default_max_upload_size")]
-    pub upload_size: String,
-
     /// 房间加入复杂度限制
     #[serde(default = "default_room_join_complexity")]
     pub room_join_complexity_limit: u64,
@@ -1147,9 +1139,6 @@ pub struct FederationLimitsConfig {
     pub batch_size_limit: u64,
 }
 
-fn default_max_upload_size() -> String {
-    "100M".to_string()
-}
 fn default_room_join_complexity() -> u64 {
     10000
 }

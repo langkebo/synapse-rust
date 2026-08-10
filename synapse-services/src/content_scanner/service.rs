@@ -10,7 +10,8 @@ pub struct ContentScanner {
 
 impl ContentScanner {
     pub fn new(config: ContentScannerConfig) -> Self {
-        Self { config, http_client: reqwest::Client::new() }
+        // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()
+        Self { config, http_client: synapse_common::http_client::default_client() }
     }
 
     pub fn is_enabled(&self) -> bool {

@@ -12,7 +12,8 @@ pub struct IdentityService {
 
 impl IdentityService {
     pub fn new(storage: IdentityStorage, trusted_servers: Vec<String>) -> Self {
-        Self { storage, http_client: Client::new(), trusted_servers }
+        // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()
+        Self { storage, http_client: synapse_common::http_client::default_client(), trusted_servers }
     }
 
     pub async fn get_user_three_pids(&self, user_id: &str) -> ApiResult<Vec<ThirdPartyId>> {

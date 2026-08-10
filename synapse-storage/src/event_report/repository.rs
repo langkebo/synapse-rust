@@ -294,14 +294,18 @@ impl EventReportStorage {
     }
 
     pub async fn check_rate_limit(&self, user_id: &str) -> Result<ReportRateLimitCheck, sqlx::Error> {
-        let limit = sqlx::query_as::<_, ReportRateLimit>(&format!("{REPORT_RATE_LIMIT_SELECT} WHERE user_id = $1"))
+        // STO-05: SELECT→UPDATE 包在事务里并 FOR UPDATE 行锁，
+        // 消除「读已过期封锁 → 并发重复解锁」的 TOCTOU 窗口。
+        let mut tx = self.pool.begin().await?;
+
+        let limit = sqlx::query_as::<_, ReportRateLimit>(&format!("{REPORT_RATE_LIMIT_SELECT} WHERE user_id = $1 FOR UPDATE"))
             .bind(user_id)
-            .fetch_optional(&*self.pool)
+            .fetch_optional(&mut *tx)
             .await?;
 
         let max_reports_per_day = 50;
 
-        match limit {
+        let result = match limit {
             None => Ok(ReportRateLimitCheck {
                 is_allowed: true,
                 remaining_reports: max_reports_per_day,
@@ -315,85 +319,84 @@ impl EventReportStorage {
                             sqlx::query(
                                 "UPDATE report_rate_limits SET is_blocked = FALSE, blocked_until_at = NULL, block_reason = NULL, updated_ts = $2 WHERE user_id = $1",
                             )
-                                .bind(user_id)
-                                .bind(now)
-                                .execute(&*self.pool)
-                                .await?;
-                            return Ok(ReportRateLimitCheck {
-                                is_allowed: true,
-                                remaining_reports: max_reports_per_day,
-                                block_reason: None,
-                            });
+                            .bind(user_id)
+                            .bind(now)
+                            .execute(&mut *tx)
+                            .await?;
+                            return {
+                                tx.commit().await?;
+                                Ok(ReportRateLimitCheck {
+                                    is_allowed: true,
+                                    remaining_reports: max_reports_per_day,
+                                    block_reason: None,
+                                })
+                            };
                         }
                     }
-                    return Ok(ReportRateLimitCheck {
-                        is_allowed: false,
-                        remaining_reports: 0,
-                        block_reason: l.block_reason,
-                    });
+                    return {
+                        tx.commit().await?;
+                        Ok(ReportRateLimitCheck {
+                            is_allowed: false,
+                            remaining_reports: 0,
+                            block_reason: l.block_reason,
+                        })
+                    };
                 }
 
                 let one_day_ago = current_timestamp_millis() - 86_400_000;
                 if l.last_report_at.is_some_and(|last_report_at| last_report_at > one_day_ago) {
                     if l.report_count >= max_reports_per_day {
-                        return Ok(ReportRateLimitCheck {
+                        Ok(ReportRateLimitCheck {
                             is_allowed: false,
                             remaining_reports: 0,
                             block_reason: Some("Daily report limit exceeded".to_string()),
-                        });
+                        })
+                    } else {
+                        Ok(ReportRateLimitCheck {
+                            is_allowed: true,
+                            remaining_reports: max_reports_per_day - l.report_count,
+                            block_reason: None,
+                        })
                     }
-                    return Ok(ReportRateLimitCheck {
+                } else {
+                    Ok(ReportRateLimitCheck {
                         is_allowed: true,
-                        remaining_reports: max_reports_per_day - l.report_count,
+                        remaining_reports: max_reports_per_day,
                         block_reason: None,
-                    });
+                    })
                 }
-
-                Ok(ReportRateLimitCheck {
-                    is_allowed: true,
-                    remaining_reports: max_reports_per_day,
-                    block_reason: None,
-                })
             }
-        }
+        };
+
+        tx.commit().await?;
+        result
     }
 
     pub async fn record_report(&self, user_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
         let one_day_ago = now - 86_400_000;
 
-        let existing = sqlx::query_as::<_, ReportRateLimit>(&format!("{REPORT_RATE_LIMIT_SELECT} WHERE user_id = $1"))
-            .bind(user_id)
-            .fetch_optional(&*self.pool)
-            .await?;
-
-        match existing {
-            Some(l) => {
-                let new_count = if l.last_report_at.is_none_or(|last_report_at| last_report_at < one_day_ago) {
-                    1
-                } else {
-                    l.report_count + 1
-                };
-
-                sqlx::query(
-                    "UPDATE report_rate_limits SET report_count = $2, last_report_at = $3, updated_ts = $3 WHERE user_id = $1",
-                )
-                .bind(user_id)
-                .bind(new_count)
-                .bind(now)
-                .execute(&*self.pool)
-                .await?;
-            }
-            None => {
-                sqlx::query(
-                    "INSERT INTO report_rate_limits (user_id, report_count, last_report_at, created_ts, updated_ts) VALUES ($1, 1, $2, $2, $2)",
-                )
-                .bind(user_id)
-                .bind(now)
-                .execute(&*self.pool)
-                .await?;
-            }
-        }
+        // STO-05: 原子 UPSERT。此前 SELECT→计算→UPDATE/INSERT 两步走，
+        // 并发下丢失计数（两个请求读到同一 report_count 都 +1 写回同值），
+        // 新用户并发 INSERT 还会撞唯一约束报错。
+        sqlx::query(
+            r"
+            INSERT INTO report_rate_limits (user_id, report_count, last_report_at, created_ts, updated_ts)
+            VALUES ($1, 1, $2, $2, $2)
+            ON CONFLICT (user_id) DO UPDATE SET
+                report_count = CASE
+                    WHEN report_rate_limits.last_report_at IS NULL OR report_rate_limits.last_report_at < $3 THEN 1
+                    ELSE report_rate_limits.report_count + 1
+                END,
+                last_report_at = $2,
+                updated_ts = $2
+            ",
+        )
+        .bind(user_id)
+        .bind(now)
+        .bind(one_day_ago)
+        .execute(&*self.pool)
+        .await?;
 
         Ok(())
     }

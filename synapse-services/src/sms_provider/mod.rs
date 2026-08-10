@@ -54,7 +54,8 @@ pub struct HttpSmsProvider {
 impl HttpSmsProvider {
     pub fn new(config: &SmsConfig) -> Self {
         Self {
-            client: Client::new(),
+            // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()
+            client: synapse_common::http_client::default_client(),
             endpoint: config.endpoint.trim().to_string(),
             api_key: (!config.api_key.trim().is_empty()).then(|| config.api_key.clone()),
             api_secret: (!config.api_secret.trim().is_empty()).then(|| config.api_secret.clone()),

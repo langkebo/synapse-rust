@@ -307,11 +307,19 @@ impl RateLimitConfigManager {
     }
 }
 
-pub fn select_endpoint_rule(config: &RateLimitConfigFile, path: &str) -> (String, RateLimitRule) {
+/// Shared longest-prefix rule selection over an endpoint list (B-1: single
+/// implementation for both the hot-reload file config and the runtime
+/// homeserver.yaml view — the leaf types are the same types).
+fn select_rule(
+    endpoints: &[RateLimitEndpointRule],
+    endpoint_aliases: &HashMap<String, String>,
+    default: &RateLimitRule,
+    path: &str,
+) -> (String, RateLimitRule) {
     let mut best_match: Option<&RateLimitEndpointRule> = None;
     let mut best_match_len = 0;
 
-    for rule in &config.endpoints {
+    for rule in endpoints {
         let is_match = match rule.match_type {
             RateLimitMatchType::Exact => rule.path == path,
             RateLimitMatchType::Prefix => path.starts_with(&rule.path),
@@ -325,39 +333,24 @@ pub fn select_endpoint_rule(config: &RateLimitConfigFile, path: &str) -> (String
 
     match best_match {
         Some(rule) => {
-            let endpoint_id = config.endpoint_aliases.get(&rule.path).cloned().unwrap_or_else(|| rule.path.clone());
+            let endpoint_id = endpoint_aliases.get(&rule.path).cloned().unwrap_or_else(|| rule.path.clone());
             (endpoint_id, rule.rule.clone())
         }
-        None => (path.to_string(), config.default.clone()),
+        None => (path.to_string(), default.clone()),
     }
 }
 
+pub fn select_endpoint_rule(config: &RateLimitConfigFile, path: &str) -> (String, RateLimitRule) {
+    select_rule(&config.endpoints, &config.endpoint_aliases, &config.default, path)
+}
+
+/// Same selection over the runtime `config::RateLimitConfig` view. The leaf
+/// types are re-exports of this module's types, so this is a thin wrapper.
 pub fn select_endpoint_rule_runtime(
     config: &crate::config::RateLimitConfig,
     path: &str,
-) -> (String, crate::config::RateLimitRule) {
-    let mut best_match: Option<&crate::config::RateLimitEndpointRule> = None;
-    let mut best_match_len = 0;
-
-    for rule in &config.endpoints {
-        let is_match = match rule.match_type {
-            crate::config::RateLimitMatchType::Exact => rule.path == path,
-            crate::config::RateLimitMatchType::Prefix => path.starts_with(&rule.path),
-        };
-
-        if is_match && rule.path.len() > best_match_len {
-            best_match = Some(rule);
-            best_match_len = rule.path.len();
-        }
-    }
-
-    match best_match {
-        Some(rule) => {
-            let endpoint_id = config.endpoint_aliases.get(&rule.path).cloned().unwrap_or_else(|| rule.path.clone());
-            (endpoint_id, rule.rule.clone())
-        }
-        None => (path.to_string(), config.default.clone()),
-    }
+) -> (String, RateLimitRule) {
+    select_rule(&config.endpoints, &config.endpoint_aliases, &config.default, path)
 }
 
 pub async fn start_config_watcher(
@@ -378,8 +371,8 @@ pub async fn start_config_watcher(
 #[derive(Debug, Clone)]
 pub struct RateLimitConfigAdapter {
     pub enabled: bool,
-    pub default: crate::config::RateLimitRule,
-    pub endpoints: Vec<crate::config::RateLimitEndpointRule>,
+    pub default: RateLimitRule,
+    pub endpoints: Vec<RateLimitEndpointRule>,
     pub ip_header_priority: Vec<String>,
     pub include_headers: bool,
     pub exempt_paths: Vec<String>,
@@ -392,24 +385,11 @@ pub struct RateLimitConfigAdapter {
 
 impl From<RateLimitConfigFile> for RateLimitConfigAdapter {
     fn from(config: RateLimitConfigFile) -> Self {
+        // B-1: leaf types are unified, so this is a straight field move.
         Self {
             enabled: config.enabled,
-            default: crate::config::RateLimitRule {
-                per_second: config.default.per_second,
-                burst_size: config.default.burst_size,
-            },
-            endpoints: config
-                .endpoints
-                .into_iter()
-                .map(|e| crate::config::RateLimitEndpointRule {
-                    path: e.path,
-                    match_type: match e.match_type {
-                        RateLimitMatchType::Exact => crate::config::RateLimitMatchType::Exact,
-                        RateLimitMatchType::Prefix => crate::config::RateLimitMatchType::Prefix,
-                    },
-                    rule: crate::config::RateLimitRule { per_second: e.rule.per_second, burst_size: e.rule.burst_size },
-                })
-                .collect(),
+            default: config.default,
+            endpoints: config.endpoints,
             ip_header_priority: config.ip_header_priority,
             include_headers: config.include_headers,
             exempt_paths: config.exempt_paths,

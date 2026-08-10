@@ -83,6 +83,7 @@ parking_lot = "0.12"
 regex = "1.10"
 quick-xml = "0.41"
 url = "2.5"
+reqwest = { version = "0.12", features = ["json"] }
 
 validator = { version = "0.20.0", features = ["derive"] }
 ammonia = "4.1"

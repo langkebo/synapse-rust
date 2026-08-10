@@ -43,7 +43,8 @@ impl McpProxyService {
             .build()
             .unwrap_or_else(|e| {
                 error!(error = %e, timeout_secs = 30_u64, "Failed to build HTTP client for McpProxyService");
-                Client::new()
+                // F-1: 回退共享默认 client（带超时），不再退化为无超时 Client::new()
+                synapse_common::http_client::default_client()
             });
 
         Self { client, cache }

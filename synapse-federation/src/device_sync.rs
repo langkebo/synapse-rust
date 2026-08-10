@@ -47,7 +47,8 @@ impl DeviceSyncManager {
     ) -> Self {
         let http_client = Client::builder().timeout(std::time::Duration::from_secs(10)).build().unwrap_or_else(|e| {
             tracing::warn!("Failed to build HTTP client, using default: {}", e);
-            Client::new()
+            // F-1: 回退到共享默认 client（带超时），不再退化为无超时 Client::new()
+            synapse_common::http_client::default_client()
         });
 
         Self {

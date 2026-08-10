@@ -22,12 +22,14 @@ pub struct ChunkedUploadService {
 }
 
 impl ChunkedUploadService {
-    pub fn new(pool: Arc<PgPool>) -> Self {
+    /// G-1: `max_file_size` 必须来自权威配置 `config.server.max_upload_size`（字节），
+    /// 由调用方（container 装配处）传入，不再硬编码 100MB。
+    pub fn new(pool: Arc<PgPool>, max_file_size: usize) -> Self {
         Self {
             storage: ChunkedUploadStorage::new(&pool),
             chunk_size_limit: 10 * 1024 * 1024, // 10MB per chunk
-            max_file_size: 100 * 1024 * 1024,   // 100MB total
-            upload_expiry_seconds: 3600,        // 1 hour
+            max_file_size,
+            upload_expiry_seconds: 3600, // 1 hour
         }
     }
 

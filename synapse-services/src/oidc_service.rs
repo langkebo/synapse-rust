@@ -111,7 +111,11 @@ impl OidcService {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout))
             .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+            .unwrap_or_else(|e| {
+                // F-1: builder 失败不再静默退化，记录 warn 并回退共享默认 client
+                tracing::warn!(error = %e, "Failed to build OIDC HTTP client, using shared default");
+                synapse_common::http_client::default_client()
+            });
 
         Self { config, http_client, discovery: RwLock::new(None), jwks: RwLock::new(None) }
     }

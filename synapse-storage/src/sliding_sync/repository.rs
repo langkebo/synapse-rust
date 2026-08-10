@@ -20,7 +20,6 @@ impl SlidingSyncStorage {
         conn_id: Option<&str>,
         event_stream_pos: i64,
     ) -> Result<SlidingSyncToken, sqlx::Error> {
-        self.ensure_schema()?;
         let now = current_timestamp_millis();
         let expires_at = now + 7 * 24 * 3600 * 1000;
 
@@ -56,7 +55,6 @@ impl SlidingSyncStorage {
         device_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Option<SlidingSyncToken>, sqlx::Error> {
-        self.ensure_schema()?;
         sqlx::query_as::<_, SlidingSyncToken>(
             r"
             SELECT id, user_id, device_id, conn_id, token, pos, created_ts, expires_at, event_stream_pos FROM sliding_sync_tokens
@@ -77,7 +75,6 @@ impl SlidingSyncStorage {
         conn_id: Option<&str>,
         pos: &str,
     ) -> Result<bool, sqlx::Error> {
-        self.ensure_schema()?;
         let result: Option<(bool,)> = sqlx::query_as(
             r"
             SELECT (pos = $4) FROM sliding_sync_tokens
@@ -106,7 +103,6 @@ impl SlidingSyncStorage {
         room_subscription: Option<&serde_json::Value>,
         ranges: &[(u32, u32)],
     ) -> Result<SlidingSyncList, sqlx::Error> {
-        self.ensure_schema()?;
         let now = current_timestamp_millis();
         let sort_json = serde_json::to_value(sort).unwrap_or(serde_json::json!([]));
         let filters_json =
@@ -146,7 +142,6 @@ impl SlidingSyncStorage {
         device_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Vec<SlidingSyncList>, sqlx::Error> {
-        self.ensure_schema()?;
         sqlx::query_as::<_, SlidingSyncList>(
             r"
             SELECT id, user_id, device_id, conn_id, list_key, sort, filters, room_subscription, ranges, created_ts, updated_ts FROM sliding_sync_lists
@@ -168,7 +163,6 @@ impl SlidingSyncStorage {
         conn_id: Option<&str>,
         list_key: &str,
     ) -> Result<(), sqlx::Error> {
-        self.ensure_schema()?;
         sqlx::query(
             r"
             DELETE FROM sliding_sync_lists
@@ -204,7 +198,6 @@ impl SlidingSyncStorage {
         avatar: Option<&str>,
         timestamp: i64,
     ) -> Result<SlidingSyncRoom, sqlx::Error> {
-        self.ensure_schema()?;
         let now = current_timestamp_millis();
 
         sqlx::query_as::<_, SlidingSyncRoom>(
@@ -254,7 +247,6 @@ impl SlidingSyncStorage {
         query_params: SlidingSyncListQuery<'_>,
     ) -> Result<Vec<SlidingSyncRoom>, sqlx::Error> {
         let SlidingSyncListQuery { user_id, device_id, conn_id, list_key, start, end, filters } = query_params;
-        self.ensure_schema()?;
         let mut query = QueryBuilder::<Postgres>::new(
             r"
             SELECT id, user_id, device_id, room_id, conn_id, list_key, bump_stamp, highlight_count, notification_count, is_dm, is_encrypted, is_tombstoned, is_invited, name, avatar, timestamp, created_ts, updated_ts FROM sliding_sync_rooms
@@ -284,7 +276,6 @@ impl SlidingSyncStorage {
         list_key: &str,
         filters: Option<&SlidingSyncFilters>,
     ) -> Result<i64, sqlx::Error> {
-        self.ensure_schema()?;
         let mut query = QueryBuilder::<Postgres>::new(
             r"
             SELECT COUNT(*) FROM sliding_sync_rooms
@@ -329,7 +320,6 @@ impl SlidingSyncStorage {
         room_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Option<SlidingSyncRoom>, sqlx::Error> {
-        self.ensure_schema()?;
         sqlx::query_as::<_, SlidingSyncRoom>(
             r"
             SELECT id, user_id, device_id, room_id, conn_id, list_key, bump_stamp, highlight_count, notification_count, is_dm, is_encrypted, is_tombstoned, is_invited, name, avatar, timestamp, created_ts, updated_ts FROM sliding_sync_rooms
@@ -351,7 +341,6 @@ impl SlidingSyncStorage {
         room_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Option<SlidingSyncRoom>, sqlx::Error> {
-        self.ensure_schema()?;
 
         // Query 1: membership check (short-circuits if not a member)
         let is_member = sqlx::query_scalar::<_, bool>(
@@ -469,7 +458,6 @@ impl SlidingSyncStorage {
         room_id: &str,
         conn_id: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        self.ensure_schema()?;
         sqlx::query(
             r"
             DELETE FROM sliding_sync_rooms
@@ -495,7 +483,6 @@ impl SlidingSyncStorage {
         highlight_count: i32,
         notification_count: i32,
     ) -> Result<(), sqlx::Error> {
-        self.ensure_schema()?;
         let now = current_timestamp_millis();
 
         sqlx::query(
@@ -526,7 +513,6 @@ impl SlidingSyncStorage {
         conn_id: Option<&str>,
         bump_stamp: i64,
     ) -> Result<(), sqlx::Error> {
-        self.ensure_schema()?;
         let now = current_timestamp_millis();
 
         sqlx::query(
@@ -549,7 +535,6 @@ impl SlidingSyncStorage {
     }
 
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error> {
-        self.ensure_schema()?;
         let now = current_timestamp_millis();
 
         let result = sqlx::query(
@@ -571,7 +556,6 @@ impl SlidingSyncStorage {
         limit: i64,
         from: Option<&RoomTokenSyncCursor>,
     ) -> Result<Vec<AdminRoomTokenSyncEntry>, sqlx::Error> {
-        self.ensure_schema()?;
         let now = current_timestamp_millis();
         // Fetch one extra row so callers can detect "more pages available",
         // but truncate back to `limit` before returning so the public contract
@@ -681,7 +665,6 @@ impl SlidingSyncStorage {
     }
 
     pub async fn count_room_token_sync(&self, room_id: &str) -> Result<i64, sqlx::Error> {
-        self.ensure_schema()?;
         sqlx::query_scalar("SELECT COUNT(*) FROM sliding_sync_rooms WHERE room_id = $1")
             .bind(room_id)
             .fetch_one(&*self.pool)
@@ -689,7 +672,6 @@ impl SlidingSyncStorage {
     }
 
     pub async fn get_global_account_data(&self, user_id: &str) -> Result<serde_json::Value, sqlx::Error> {
-        self.ensure_schema()?;
         let rows = sqlx::query(
             r"
             SELECT data_type, content
@@ -715,7 +697,6 @@ impl SlidingSyncStorage {
         user_id: &str,
         room_ids: &[String],
     ) -> Result<serde_json::Value, sqlx::Error> {
-        self.ensure_schema()?;
         if room_ids.is_empty() {
             return Ok(serde_json::json!({}));
         }
@@ -749,7 +730,6 @@ impl SlidingSyncStorage {
 
     #[allow(clippy::expect_used)]
     pub async fn get_receipts_for_rooms(&self, room_ids: &[String]) -> Result<serde_json::Value, sqlx::Error> {
-        self.ensure_schema()?;
         if room_ids.is_empty() {
             return Ok(serde_json::json!({}));
         }
@@ -804,17 +784,12 @@ impl SlidingSyncStorage {
         Ok(serde_json::Value::Object(rooms_map))
     }
 
-    fn ensure_schema(&self) -> Result<(), sqlx::Error> {
-        Ok(())
-    }
-
     pub async fn delete_connection_data(
         &self,
         user_id: &str,
         device_id: &str,
         conn_id: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        self.ensure_schema()?;
 
         // C-1: 三条 DELETE 必须在同一事务中，否则部分失败会留下
         // "token 已删（被判 initial）但 lists 残留（陈旧 range）"的不一致状态
@@ -859,5 +834,19 @@ impl SlidingSyncStorage {
         tx.commit().await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// C-2: ensure_schema 空壳已删除（schema 校验归启动期 migration）。
+    /// 源码扫描守卫：禁止重新引入逐方法空调用。模式用 concat! 拼接避免自匹配。
+    #[test]
+    fn c2_no_ensure_schema_noop_call() {
+        let source = include_str!("repository.rs");
+        let call_pattern = concat!("self.ensure", "_schema()");
+        let fn_pattern = concat!("fn ensure", "_schema");
+        assert_eq!(source.matches(call_pattern).count(), 0, "ensure_schema 空调用不得重新引入");
+        assert_eq!(source.matches(fn_pattern).count(), 0, "ensure_schema 空壳函数不得重新引入");
     }
 }

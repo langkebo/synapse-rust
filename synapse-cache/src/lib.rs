@@ -261,15 +261,24 @@ impl Default for CacheConfig {
 #[derive(Clone, Debug)]
 pub struct LocalCache {
     cache: Cache<String, String>,
+    /// D-1: per-key 过期截止时间。moka 0.12 没有 insert_with_ttl，
+    /// 用旁路 deadline 表实现「L1 与 L2 Redis 相同的 per-key TTL」。
+    deadlines: Arc<parking_lot::Mutex<HashMap<String, std::time::Instant>>>,
 }
 
 impl LocalCache {
     pub fn new(config: &CacheConfig) -> Self {
+        let deadlines = Arc::new(parking_lot::Mutex::new(HashMap::new()));
+        let deadlines_for_listener = Arc::clone(&deadlines);
         let cache = Cache::builder()
             .max_capacity(config.max_capacity)
             .time_to_live(std::time::Duration::from_secs(config.time_to_live))
+            // 容量驱逐时同步清理 deadline，避免旁路表泄漏
+            .eviction_listener(move |key: Arc<String>, _value, _cause| {
+                deadlines_for_listener.lock().remove(key.as_str());
+            })
             .build();
-        Self { cache }
+        Self { cache, deadlines }
     }
 
     pub fn get(&self, token: &str) -> Option<Claims> {
@@ -279,6 +288,7 @@ impl LocalCache {
     pub fn set(&self, token: &str, claims: &Claims) {
         match serde_json::to_string(claims) {
             Ok(s) => {
+                self.deadlines.lock().remove(token);
                 self.cache.insert(token.to_string(), s);
             }
             Err(e) => {
@@ -288,14 +298,33 @@ impl LocalCache {
     }
 
     pub fn set_raw(&self, key: &str, value: &str) {
+        // 无 per-key TTL 的普通写入：清除旧 deadline，回落到 builder 级 TTL
+        self.deadlines.lock().remove(key);
+        self.cache.insert(key.to_string(), value.to_string());
+    }
+
+    /// D-1: 带独立 TTL 的写入。此前所有条目共用 builder 级 TTL，
+    /// 调用方传入的 ttl 只作用于 L2 Redis，L1 与 L2 过期时间不一致。
+    pub fn set_raw_with_ttl(&self, key: &str, value: &str, ttl: std::time::Duration) {
+        self.deadlines.lock().insert(key.to_string(), std::time::Instant::now() + ttl);
         self.cache.insert(key.to_string(), value.to_string());
     }
 
     pub fn get_raw(&self, key: &str) -> Option<String> {
+        // D-1: per-key 过期判定（moka 自身只认 builder 级 TTL）
+        let deadline = self.deadlines.lock().get(key).copied();
+        if let Some(deadline) = deadline {
+            if std::time::Instant::now() >= deadline {
+                self.cache.remove(key);
+                self.deadlines.lock().remove(key);
+                return None;
+            }
+        }
         self.cache.get(key)
     }
 
     pub fn remove(&self, token: &str) {
+        self.deadlines.lock().remove(token);
         self.cache.remove(token);
     }
 }
@@ -793,6 +822,10 @@ impl CacheManager {
     }
 
     pub async fn broadcast_invalidation(&self, key: &str, invalidation_type: InvalidationType) -> Result<(), ApiError> {
+        // PERF-08: 本地 L1 同步失效。Redis 订阅端会跳过本实例的自回声
+        // （sender_instance == instance_id），不在这里处理本地就永远没人处理，
+        // 调用方一旦忘记先删本地，本实例 L1 残留陈旧数据直到 TTL 过期。
+        self.handle_invalidation_message(&CacheInvalidationMessage::new(key.to_string(), invalidation_type, String::new()));
         if let Some(im) = &self.invalidation_manager {
             im.broadcaster()
                 .ok_or_else(|| ApiError::internal("Invalidation broadcaster not available"))?
@@ -885,7 +918,8 @@ impl CacheManager {
     }
 
     pub async fn set_raw(&self, key: &str, value: &str, ttl: u64) {
-        self.local.set_raw(key, value);
+        // D-1: L1 也按调用方 TTL 过期，与 L2 Redis 保持一致
+        self.local.set_raw_with_ttl(key, value, Duration::from_secs(ttl));
         if let Some(redis) = &self.redis {
             let _ = redis.set(key, value, ttl).await;
         }
@@ -1307,6 +1341,71 @@ mod tests {
 
         let _ = manager.delete("test_key").await;
         assert!(manager.get::<String>("test_key").await.unwrap().is_none());
+    }
+
+    // PERF-08: broadcast_invalidation 必须同时失效本地 L1——Redis 订阅端
+    // 跳过本实例自回声，本地不失效就会残留陈旧数据。
+    #[tokio::test]
+    async fn perf08_broadcast_invalidation_clears_local_key() {
+        let manager = CacheManager::new(&CacheConfig::default());
+        manager.set_raw("perf08:key", "stale", 600).await;
+        // moka 写缓冲：先落实写入，保证可见性确定
+        manager.local.cache.run_pending_tasks();
+        assert!(manager.get_raw("perf08:key").is_some());
+
+        manager.broadcast_invalidation("perf08:key", InvalidationType::Key).await.expect("broadcast");
+        manager.local.cache.run_pending_tasks();
+        assert!(manager.get_raw("perf08:key").is_none(), "local L1 must be invalidated by broadcast");
+    }
+
+    #[tokio::test]
+    async fn perf08_broadcast_invalidation_pattern_clears_local() {
+        let manager = CacheManager::new(&CacheConfig::default());
+        manager.set_raw("perf08:room:1", "a", 600).await;
+        manager.set_raw("perf08:room:2", "b", 600).await;
+        manager.set_raw("perf08:other", "c", 600).await;
+        manager.local.cache.run_pending_tasks();
+
+        manager.broadcast_invalidation("perf08:room:", InvalidationType::Prefix).await.expect("broadcast");
+        manager.local.cache.run_pending_tasks();
+        assert!(manager.get_raw("perf08:room:1").is_none());
+        assert!(manager.get_raw("perf08:room:2").is_none());
+        assert!(manager.get_raw("perf08:other").is_some(), "unrelated key must survive prefix invalidation");
+    }
+
+    #[tokio::test]
+    async fn perf08_broadcast_invalidation_all_clears_local() {
+        let manager = CacheManager::new(&CacheConfig::default());
+        manager.set_raw("perf08:any", "x", 600).await;
+        manager.local.cache.run_pending_tasks();
+        assert!(manager.get_raw("perf08:any").is_some());
+
+        manager.broadcast_invalidation("*", InvalidationType::All).await.expect("broadcast");
+        manager.local.cache.run_pending_tasks();
+        assert!(manager.get_raw("perf08:any").is_none());
+    }
+
+    // D-1: L1 必须按调用方 TTL 过期（此前 L1 固定用 builder 级 7200s TTL，
+    // 与 L2 Redis 的 per-key TTL 不一致）
+    #[tokio::test]
+    async fn d1_set_raw_honors_per_key_ttl_in_local_cache() {
+        let manager = CacheManager::new(&CacheConfig::default());
+        manager.set_raw("d1:short", "v", 1).await; // 1 秒 TTL
+        manager.local.cache.run_pending_tasks();
+        assert!(manager.get_raw("d1:short").is_some());
+
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        assert!(manager.get_raw("d1:short").is_none(), "L1 entry must expire after its per-key TTL");
+    }
+
+    #[tokio::test]
+    async fn d1_set_raw_long_ttl_survives_short_window() {
+        let manager = CacheManager::new(&CacheConfig::default());
+        manager.set_raw("d1:long", "v", 600).await;
+        manager.local.cache.run_pending_tasks();
+
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        assert!(manager.get_raw("d1:long").is_some(), "600s TTL entry must survive a 1.1s window");
     }
 
     #[tokio::test]

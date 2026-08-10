@@ -16,6 +16,10 @@ pub struct BuiltinOidcConfig {
     pub allow_client_ids: Vec<String>,
     #[serde(default)]
     pub users: Vec<BuiltinOidcUser>,
+    /// SEC-03: 是否允许用户使用明文密码登录。默认 false（生产拒绝），
+    /// 仅开发/测试环境显式开启；开启后仍会打 warn 日志。
+    #[serde(default)]
+    pub allow_plaintext_passwords: bool,
     /// Persistence path for the built-in OIDC Provider's RSA signing key (PKCS#8 PEM).
     /// If empty, a temporary key is generated in-process; old tokens become invalid after process restart.
     #[serde(default)]
@@ -49,6 +53,7 @@ impl Default for BuiltinOidcConfig {
             allow_redirect_uris: vec![],
             allow_client_ids: vec![],
             users: vec![],
+            allow_plaintext_passwords: false,
             signing_key_path: None,
         }
     }

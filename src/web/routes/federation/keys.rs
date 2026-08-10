@@ -399,11 +399,13 @@ async fn fetch_remote_server_keys_response(
         .map_err(|e| ApiError::internal_with_log("Federation key fetch semaphore closed", &e))?;
 
     let timeout_ms = ctx.config.federation.key_fetch_timeout_ms.max(1);
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_millis(timeout_ms))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| ApiError::internal_with_log("Failed to build federation HTTP client", &e))?;
+    // E-1: 复用进程级共享 client（按 timeout 缓存、禁止重定向以保留 SSRF 防护、
+    // 带连接池），不再每次请求新建。
+    // TODO(E-1): 此处密钥抓取逻辑与 synapse-federation/src/client.rs 的
+    // `get_server_keys` 重复实现，后续应合一为单一实现。
+    let client = synapse_common::http_client::no_redirect_client_with_timeout(std::time::Duration::from_millis(
+        timeout_ms,
+    ));
 
     // SSRF protection: reuse the URL preview IP blacklist to block private/loopback addresses.
     // When `allow_http_key_fetch` is set (test/dev only), HTTP is used and SSRF checks are skipped.

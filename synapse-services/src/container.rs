@@ -333,6 +333,10 @@ impl ServiceContainer {
             crate::event_notifier::EventNotifier::new()
         };
 
+        // A-7: reclaim notifier slots whose waiters have gone away, so the
+        // room/user maps don't grow monotonically over the process lifetime.
+        event_notifier.start_idle_slot_evictor(std::time::Duration::from_secs(300));
+
         // Rooms — receives member_storage + the 4 injected services directly
         let rooms = wiring::RoomSyncServices::new(
             &infra.infra,
@@ -370,7 +374,11 @@ impl ServiceContainer {
         .await;
 
         // Media domain service — needs core.media_service + admin.media.media_quota_service
-        let chunked_upload_service = Arc::new(crate::media::chunked_upload::ChunkedUploadService::new(pool.clone()));
+        // G-1: 分块上传的整文件上限统一读权威配置 server.max_upload_size
+        let chunked_upload_service = Arc::new(crate::media::chunked_upload::ChunkedUploadService::new(
+            pool.clone(),
+            config.server.max_upload_size as usize,
+        ));
         let media_domain_service = Arc::new({
             let svc = crate::media::MediaDomainService::new(
                 core.media_service.clone(),

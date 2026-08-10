@@ -508,14 +508,24 @@ pub fn create_router(state: AppState) -> Router {
 
     let core_ctx = <crate::web::routes::context::CoreContext as axum::extract::FromRef<AppState>>::from_ref(&state);
 
+    // WEB-04: 中间件顺序修正。axum 的 .layer() 先注册者在**内层**（后执行），
+    // 因此下方调用顺序即「请求到达的逆序」。修正后的请求流向（外→内）：
+    //   request_id → cors → security_headers → method_not_allowed → compression
+    //   → shadow_ban → csrf → rate_limit → routes
+    // 修正点：
+    // 1. CORS 从最内层移到近最外层——此前 rate_limit/csrf 短路返回的 429/403
+    //    不带 CORS 头，浏览器客户端连错误都读不到；预检 OPTIONS 也会先撞
+    //    CSRF/限流。现在所有错误响应都会经过 CORS 后处理。
+    // 2. csrf 移到 rate_limit 之前——此前 CSRF 必失败的请求也消耗限流配额，
+    //    且响应语义错误（应 403 而非 429）。
     router
-        .layer(axum::middleware::from_fn(cors_middleware))
-        .layer(axum::middleware::from_fn(security_headers_middleware))
-        .layer(axum::middleware::from_fn(method_not_allowed_middleware))
-        .layer(CompressionLayer::new().compress_when(SizeAbove::new(1024)))
-        .layer(axum::middleware::from_fn_with_state(core_ctx.clone(), csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(core_ctx.clone(), rate_limit_middleware))
+        .layer(axum::middleware::from_fn_with_state(core_ctx.clone(), csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(core_ctx, shadow_ban_middleware))
+        .layer(CompressionLayer::new().compress_when(SizeAbove::new(1024)))
+        .layer(axum::middleware::from_fn(method_not_allowed_middleware))
+        .layer(axum::middleware::from_fn(security_headers_middleware))
+        .layer(axum::middleware::from_fn(cors_middleware))
         .layer(axum::middleware::from_fn(request_id_middleware))
         .merge(crate::web::api_doc::swagger_ui_router(state.clone()))
         .with_state(state)
@@ -607,4 +617,30 @@ fn create_directory_router(state: AppState) -> Router<AppState> {
         .nest("/_matrix/client/v3", create_directory_compat_router())
         .merge(create_guest_router(state.clone()))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    /// WEB-04: 中间件注册顺序守卫（源码扫描）。
+    /// axum 的 .layer() 先注册者在**内层**，因此源文件中的出现顺序必须保持：
+    /// rate_limit 先于 csrf 注册（csrf 更外层，先执行）、
+    /// cors 晚于 security_headers 注册（cors 更外层，错误响应也带 CORS 头）、
+    /// request_id 最后注册（最外层）。
+    #[test]
+    fn web04_middleware_layer_order_guard() {
+        let source = include_str!("assembly.rs");
+        let idx = |needle: &str| source.find(needle).unwrap_or_else(|| panic!("{needle} not found in assembly.rs"));
+
+        let rate_limit = idx("rate_limit_middleware))");
+        let csrf = idx("csrf_middleware))");
+        let shadow_ban = idx("shadow_ban_middleware))");
+        let cors = idx("from_fn(cors_middleware)");
+        let security_headers = idx("from_fn(security_headers_middleware)");
+        let request_id = idx("from_fn(request_id_middleware)");
+
+        assert!(rate_limit < csrf, "rate_limit 必须注册在 csrf 内层（源文件中先出现）");
+        assert!(csrf < shadow_ban, "csrf 必须注册在 shadow_ban 内层");
+        assert!(cors > security_headers, "cors 必须比 security_headers 更外层（源文件中后出现）");
+        assert!(request_id > cors, "request_id 必须注册在最外层");
+    }
 }

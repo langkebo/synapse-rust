@@ -58,7 +58,11 @@ impl TranslationService {
             .connect_timeout(Duration::from_secs(5))
             .pool_idle_timeout(Duration::from_secs(60))
             .build()
-            .unwrap_or_else(|_| Client::new());
+            .unwrap_or_else(|e| {
+                // F-1: builder 失败不再静默退化，记录 warn 并回退共享默认 client
+                tracing::warn!(error = %e, "Failed to build translation HTTP client, using shared default");
+                synapse_common::http_client::default_client()
+            });
 
         let cache =
             Cache::builder().max_capacity(10_000).time_to_idle(Duration::from_secs(config.cache_ttl_secs)).build();

@@ -96,7 +96,8 @@ pub struct LivekitClient {
 
 impl LivekitClient {
     pub fn new(config: LivekitConfig) -> Self {
-        Self { config, http_client: reqwest::Client::new() }
+        // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()
+        Self { config, http_client: synapse_common::http_client::default_client() }
     }
 
     pub async fn create_room(&self, request: CreateRoomRequest) -> Result<LivekitRoom, LivekitError> {

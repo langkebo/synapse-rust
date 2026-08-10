@@ -54,16 +54,15 @@ pub(crate) fn is_forwarded_headers_trusted() -> bool {
 }
 
 pub(crate) fn is_localhost_bind() -> bool {
-    BIND_ADDRESS.get().is_some_and(|addr| {
-        let host = addr.to_lowercase();
-        host == "127.0.0.1"
-            || host == "localhost"
-            || host == "::1"
-            || host == "0.0.0.0"
-            || host == "::"
-            || host == "[::]"
-            || host.starts_with("127.")
-    })
+    BIND_ADDRESS.get().is_some_and(|addr| is_local_bind_address(addr))
+}
+
+/// WEB-03: 纯函数判定绑定地址是否为本机地址。
+/// 0.0.0.0 / :: / [::] 是「所有接口」通配地址，**不是** localhost——
+/// 此前被算作 localhost 时，dev 模式 CORS 全开放会暴露到整个网络。
+pub(crate) fn is_local_bind_address(addr: &str) -> bool {
+    let host = addr.to_lowercase();
+    host == "127.0.0.1" || host == "localhost" || host == "::1" || host.starts_with("127.")
 }
 
 pub(crate) fn is_dev_mode() -> bool {
@@ -156,4 +155,24 @@ pub(crate) fn cors_origins_regex() -> Option<&'static Regex> {
 
 pub(crate) fn set_config_allowed_origins_once(origins: Vec<String>) {
     let _ = CONFIG_ALLOWED_ORIGINS.set(origins);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // WEB-03: is_local_bind_address 纯函数判定
+    #[test]
+    fn web03_local_bind_addresses_accepted() {
+        for addr in ["127.0.0.1", "localhost", "LOCALHOST", "::1", "127.0.0.5", "127.1.2.3"] {
+            assert!(is_local_bind_address(addr), "{addr} should be recognized as local");
+        }
+    }
+
+    #[test]
+    fn web03_wildcard_and_remote_addresses_rejected() {
+        for addr in ["0.0.0.0", "::", "[::]", "192.168.1.1", "10.0.0.1", "example.com", "172.16.0.1"] {
+            assert!(!is_local_bind_address(addr), "{addr} must NOT be recognized as local");
+        }
+    }
 }

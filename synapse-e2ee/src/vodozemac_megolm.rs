@@ -756,30 +756,62 @@ mod tests {
     // ========================================================================
     // E2EE-09: .expect() removal — verify error propagation instead of panic
     // ========================================================================
+    //
+    // The happy path (valid pickle → Ok) is already covered by the
+    // roundtrip tests above. These tests verify the *error* path:
+    // malformed input must return `Err`, not panic. If `.expect()`
+    // were re-introduced in any of these functions, the corresponding
+    // test would panic and fail.
 
-    /// `pickle_to_string` must return `Result` (not panic) so that a
-    /// serialization failure in production code propagates as an
-    /// `ApiError` instead of crashing the server.
+    /// `pickle_from_string` must return `Err` (not panic) when given
+    /// malformed base64 input. This exercises the base64 decode error
+    /// path that replaced the previous panic-prone pattern.
     #[test]
-    fn test_pickle_to_string_returns_result_on_valid_pickle() {
-        let outbound = GroupSession::new(SessionConfig::default());
-        let result = pickle_to_string(&outbound.pickle());
-        assert!(result.is_ok(), "pickle_to_string should return Ok for a valid GroupSessionPickle");
-        let encoded = result.unwrap();
-        assert!(!encoded.is_empty(), "encoded pickle string should be non-empty");
+    fn test_pickle_from_string_returns_err_on_invalid_base64() {
+        let result = pickle_from_string("!!!not valid base64!!!");
+        assert!(
+            result.is_err(),
+            "pickle_from_string should return Err for invalid base64 input"
+        );
     }
 
-    /// `inbound_pickle_to_string` must return `Result` (not panic) so
-    /// that a serialization failure in the decrypt path propagates as
-    /// an `ApiError` instead of crashing the server.
+    /// `pickle_from_string` must return `Err` (not panic) when given
+    /// valid base64 that decodes to invalid JSON for a GroupSessionPickle.
+    /// This exercises the `serde_json::from_slice` error path.
     #[test]
-    fn test_inbound_pickle_to_string_returns_result_on_valid_pickle() {
-        let outbound = GroupSession::new(SessionConfig::default());
-        let key = outbound.session_key();
-        let inbound = InboundGroupSession::new(&key, SessionConfig::default());
-        let result = inbound_pickle_to_string(&inbound.pickle());
-        assert!(result.is_ok(), "inbound_pickle_to_string should return Ok for a valid InboundGroupSessionPickle");
-        let encoded = result.unwrap();
-        assert!(!encoded.is_empty(), "encoded inbound pickle string should be non-empty");
+    fn test_pickle_from_string_returns_err_on_invalid_json() {
+        let invalid_json_b64 = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            b"not a valid pickle json",
+        );
+        let result = pickle_from_string(&invalid_json_b64);
+        assert!(
+            result.is_err(),
+            "pickle_from_string should return Err for valid base64 of invalid JSON"
+        );
+    }
+
+    /// `inbound_pickle_from_string` must return `Err` (not panic) when
+    /// given malformed base64 input.
+    #[test]
+    fn test_inbound_pickle_from_string_returns_err_on_invalid_base64() {
+        let result = inbound_pickle_from_string("!!!not valid base64!!!");
+        assert!(
+            result.is_err(),
+            "inbound_pickle_from_string should return Err for invalid base64 input"
+        );
+    }
+
+    /// `MegolmMessage::from_bytes` must return `Err` (not panic) when
+    /// given malformed ciphertext. This verifies the error path in the
+    /// `decrypt` method for external/untrusted input — the exact
+    /// scenario where `.expect()` would crash the server.
+    #[test]
+    fn test_megolm_message_from_bytes_returns_err_on_malformed_input() {
+        let result = vodozemac::megolm::MegolmMessage::from_bytes(&[0u8; 5]);
+        assert!(
+            result.is_err(),
+            "MegolmMessage::from_bytes should return Err for malformed ciphertext"
+        );
     }
 }

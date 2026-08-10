@@ -18,6 +18,7 @@ pub mod event_utils;
 pub mod feature_flags;
 pub mod federation_test_keys;
 pub mod health;
+pub mod http_client;
 pub mod key_encryption;
 pub mod logging;
 pub mod macros;

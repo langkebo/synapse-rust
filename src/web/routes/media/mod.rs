@@ -54,11 +54,18 @@ fn create_media_r1_router(state: &AppState) -> Router<AppState> {
     ))
 }
 
-fn create_media_modern_upload_router() -> Router<AppState> {
-    Router::new().route("/upload", post(upload::upload_media_v3)).layer(DefaultBodyLimit::max(50 * 1024 * 1024))
+/// G-1: 上传 body limit 的单一权威来源是 `config.server.max_upload_size`（u64，字节）。
+/// 此前此处硬编码 50MB（50 * 1024 * 1024），与配置默认值（50_000_000 字节）及
+/// `server/router.rs` 的全局 `RequestBodyLimitLayer` 不一致；现统一从配置派生。
+fn media_upload_body_limit(max_upload_size: u64) -> usize {
+    max_upload_size as usize
 }
 
-fn create_media_v1_router() -> Router<AppState> {
+fn create_media_modern_upload_router(upload_limit: usize) -> Router<AppState> {
+    Router::new().route("/upload", post(upload::upload_media_v3)).layer(DefaultBodyLimit::max(upload_limit))
+}
+
+fn create_media_v1_router(upload_limit: usize) -> Router<AppState> {
     Router::new()
         .merge(create_media_config_router())
         .merge(create_media_preview_delete_router())
@@ -72,30 +79,34 @@ fn create_media_v1_router() -> Router<AppState> {
         .route("/upload/chunk/cancel", post(upload::chunked_upload_cancel))
         .route("/upload/chunk/progress", get(upload::chunked_upload_progress))
         // Upload route with separate body limit to override Axum's default 2MB limit
+        // G-1: limit 来自 config.server.max_upload_size，不再硬编码
         .merge(
             Router::new()
                 .route("/upload", post(upload::upload_media_v1))
-                .layer(DefaultBodyLimit::max(50 * 1024 * 1024)),
+                .layer(DefaultBodyLimit::max(upload_limit)),
         )
         // Chunk upload route with separate body limit
+        // G-1 说明: 10MB 是「单个分块」上限，与整文件上限 max_upload_size 语义不同，
+        // 但以配置值为 cap（配置小于 10MB 时收紧到配置值）
         .merge(
             Router::new()
                 .route("/upload/chunk", post(upload::chunked_upload_chunk))
-                .layer(DefaultBodyLimit::max(10 * 1024 * 1024)),
+                .layer(DefaultBodyLimit::max(upload_limit.min(10 * 1024 * 1024))),
         )
 }
 
-fn create_media_v3_router() -> Router<AppState> {
+fn create_media_v3_router(upload_limit: usize) -> Router<AppState> {
     Router::new()
-        .merge(create_media_modern_upload_router())
+        .merge(create_media_modern_upload_router(upload_limit))
         .merge(create_media_config_router())
         .merge(create_media_preview_delete_router())
         // G-2: MSC2246 异步上传端点必须覆盖 Axum 默认 2MB body limit，
-        // 与 /upload 的 50MB 对齐
+        // 与 /upload 对齐
+        // G-1: limit 来自 config.server.max_upload_size，不再硬编码 50MB
         .merge(
             Router::new()
                 .route("/upload/{server_name}/{media_id}", put(upload::upload_media_with_id))
-                .layer(DefaultBodyLimit::max(50 * 1024 * 1024)),
+                .layer(DefaultBodyLimit::max(upload_limit)),
         )
         .route("/download/{server_name}/{media_id}", get(download::download_media))
         .route("/download/{server_name}/{media_id}/{filename}", get(download::download_media_with_filename))
@@ -107,8 +118,8 @@ fn create_media_v3_router() -> Router<AppState> {
         .route("/thumbnail/{server_name}/{media_id}", get(download::get_thumbnail))
 }
 
-fn create_media_r0_router() -> Router<AppState> {
-    create_media_modern_upload_router()
+fn create_media_r0_router(upload_limit: usize) -> Router<AppState> {
+    create_media_modern_upload_router(upload_limit)
         .merge(create_media_config_router())
         .merge(create_media_legacy_download_router())
         .merge(create_media_preview_delete_router())
@@ -137,12 +148,14 @@ fn create_media_authenticated_router() -> Router<AppState> {
 ///   - `/_matrix/media/r1`
 ///   - `/_matrix/client/v1/media`
 pub fn create_media_router(state: &AppState) -> Router<AppState> {
+    // G-1: 从权威配置字段读取一次，统一下发到 v1/v3/r0 所有上传路由
+    let upload_limit = media_upload_body_limit(state.services.core.config.server.max_upload_size);
     let preview_router = Router::new().route("/preview_url", get(preview::preview_url));
     let authenticated_media_router = create_media_authenticated_router();
     Router::new()
-        .nest("/_matrix/media/v1", create_media_v1_router())
-        .nest("/_matrix/media/v3", create_media_v3_router())
-        .nest("/_matrix/media/r0", create_media_r0_router())
+        .nest("/_matrix/media/v1", create_media_v1_router(upload_limit))
+        .nest("/_matrix/media/v3", create_media_v3_router(upload_limit))
+        .nest("/_matrix/media/r0", create_media_r0_router(upload_limit))
         .nest("/_matrix/media/r1", create_media_r1_router(state))
         .nest("/_matrix/client/v1/media", authenticated_media_router.merge(preview_router))
 }
@@ -389,5 +402,19 @@ mod tests {
     fn test_content_type_fallback_is_octet_stream() {
         let default_ct = "application/octet-stream";
         assert!(!default_ct.is_empty());
+    }
+
+    /// G-1: media 路由的上传 body limit 必须等于 `config.server.max_upload_size`
+    /// （单一权威来源），不允许再出现独立的硬编码值。
+    #[test]
+    fn test_g1_upload_body_limit_matches_config() {
+        // limit 原样透传配置值（字节），无二次换算、无硬编码回退
+        let configured = 100 * 1024 * 1024u64; // 例如管理员配置 100MB
+        assert_eq!(super::media_upload_body_limit(configured), configured as usize);
+
+        // 默认配置（server.rs 中 default_max_upload_size_value = 50_000_000 字节）
+        // 与 server/router.rs 全局 RequestBodyLimitLayer 读取同一字段，二者天然一致
+        let default_bytes = 50_000_000u64;
+        assert_eq!(super::media_upload_body_limit(default_bytes), 50_000_000usize);
     }
 }

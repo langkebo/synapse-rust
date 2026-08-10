@@ -1,9 +1,15 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-/// 限流配置。
+/// 限流配置（homeserver.yaml 的 `rate_limit` 段，运行时视图）。
 ///
-/// 配置 API 请求限流规则，包括全局限流和端点级限流。
+/// B-1：限流叶子类型全仓只有一份定义，在 `crate::rate_limit_config`
+/// （支持热更新的权威实现）；此处仅 re-export，避免两套同名类型漂移。
+/// 本模块只保留外层 `RateLimitConfig`——它是主配置文件的反序列化视图，
+/// 字段集与热更新文件（`RateLimitConfigFile`，多 `backend` /
+/// `reload_interval_seconds` 等）不同，因此两个顶层 struct 各自保留。
+pub use crate::rate_limit_config::{RateLimitEndpointRule, RateLimitMatchType, RateLimitRule};
+pub use crate::rate_limit_config::SyncRateLimitConfigFile as SyncRateLimitConfig;
 
 // ============================================================================
 // SECTION: Rate Limiting
@@ -55,68 +61,6 @@ fn default_rate_limit_enabled() -> bool {
 
 fn default_rate_limit_fail_open() -> bool {
     false
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct SyncRateLimitConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub initial: RateLimitRule,
-    #[serde(default)]
-    pub incremental: RateLimitRule,
-}
-
-/// 单个限流规则。
-///
-/// 定义令牌桶算法的参数：每秒补充令牌数和桶容量。
-#[derive(Debug, Clone, Deserialize)]
-pub struct RateLimitRule {
-    /// 每秒允许的请求数
-    #[serde(default = "default_rate_limit_per_second")]
-    pub per_second: u32,
-    /// 令牌桶容量（突发请求数）
-    #[serde(default = "default_rate_limit_burst_size")]
-    pub burst_size: u32,
-}
-
-fn default_rate_limit_per_second() -> u32 {
-    10
-}
-
-fn default_rate_limit_burst_size() -> u32 {
-    20
-}
-
-impl Default for RateLimitRule {
-    fn default() -> Self {
-        Self { per_second: default_rate_limit_per_second(), burst_size: default_rate_limit_burst_size() }
-    }
-}
-
-/// 端点级限流规则。
-///
-/// 为特定 API 路径配置独立的限流参数。
-#[derive(Debug, Clone, Deserialize)]
-pub struct RateLimitEndpointRule {
-    /// 匹配的路径
-    pub path: String,
-    /// 路径匹配类型
-    #[serde(default)]
-    pub match_type: RateLimitMatchType,
-    /// 该路径的限流规则
-    pub rule: RateLimitRule,
-}
-
-/// 路径匹配类型。
-#[derive(Debug, Clone, Copy, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum RateLimitMatchType {
-    /// 精确匹配
-    #[default]
-    Exact,
-    /// 前缀匹配
-    Prefix,
 }
 
 impl Default for RateLimitConfig {
@@ -200,5 +144,17 @@ mod tests {
     fn test_rate_limit_match_type_default() {
         let match_type = RateLimitMatchType::default();
         assert!(matches!(match_type, RateLimitMatchType::Exact));
+    }
+
+    /// B-1: 叶子类型必须是同一类型（re-export），而非两份定义。
+    #[test]
+    fn test_leaf_types_are_single_source() {
+        fn assert_same<T>(_: &T, _: &T) {}
+        let rule = RateLimitRule::default();
+        let file_rule = crate::rate_limit_config::RateLimitRule::default();
+        assert_same(&rule, &file_rule);
+        let sync = SyncRateLimitConfig::default();
+        let file_sync = crate::rate_limit_config::SyncRateLimitConfigFile::default();
+        assert_same(&sync, &file_sync);
     }
 }
