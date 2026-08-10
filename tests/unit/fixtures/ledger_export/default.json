@@ -903,6 +903,18 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/client/r0/pushrules/",
+      "registered_by": "assembly::create_router",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/client/r0/pushrules/global/",
+      "registered_by": "assembly::create_router",
+      "path_params": []
+    },
+    {
+      "method": "GET",
       "path": "/_matrix/client/r0/pushrules/{scope}",
       "registered_by": "push",
       "path_params": [
@@ -7611,12 +7623,6 @@
       ]
     },
     {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/backups",
-      "registered_by": "admin::server",
-      "path_params": []
-    },
-    {
       "method": "POST",
       "path": "/_synapse/admin/v1/captcha/cleanup",
       "registered_by": "captcha",
@@ -9072,12 +9078,6 @@
       "path_params": [
         "service_id"
       ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/federation/v1/event_auth",
-      "registered_by": "federation",
-      "path_params": []
     },
     {
       "method": "GET",

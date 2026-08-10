@@ -34,6 +34,32 @@ pub fn sliding_sync_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
     .collect()
 }
 
+/// S15 / B-3: 限流后端（Redis）故障时的决策，与 `/sync` 处理器（handlers/sync.rs）
+/// 保持同一 fail-open 语义：fail_open_on_error=true 放行，否则返回 500。
+fn rate_limit_decision_on_error(
+    fail_open_on_error: bool,
+    burst_size: u32,
+) -> Result<crate::cache::RateLimitDecision, ApiError> {
+    if fail_open_on_error {
+        Ok(crate::cache::RateLimitDecision { allowed: true, retry_after_seconds: 0, remaining: burst_size })
+    } else {
+        Err(ApiError::internal("Sliding sync rate limit backend unavailable".to_string()))
+    }
+}
+
+/// S26 / B-2: 独立限流计数器名。429 与长轮询互为掩护 —— 限流只在长轮询
+/// 失效时才触发，因此 `sliding_sync_rate_limited_total > 0` 可直接作为
+/// 「长轮询失效」的告警信号，必须独立于慢请求指标计数。
+const SLIDING_SYNC_RATE_LIMITED_COUNTER: &str = "sliding_sync_rate_limited_total";
+
+/// S26: 记录一次 sliding sync 限流拒绝（429）。
+fn record_rate_limited(metrics: &synapse_common::metrics::MetricsCollector) {
+    let counter = metrics
+        .get_counter(SLIDING_SYNC_RATE_LIMITED_COUNTER)
+        .unwrap_or_else(|| metrics.register_counter(SLIDING_SYNC_RATE_LIMITED_COUNTER.to_string()));
+    counter.inc();
+}
+
 #[axum::debug_handler]
 async fn sliding_sync(
     State(ctx): State<SyncContext>,
@@ -57,61 +83,47 @@ async fn sliding_sync(
     if sync_rate_limit_enabled {
         let (per_second, burst_size): (u32, u32) =
             resolve_sliding_sync_rate_limit(&ctx, file_config.as_ref(), body.pos.is_none());
+        let fail_open_on_error =
+            file_config.as_ref().map_or(ctx.config.rate_limit.fail_open_on_error, |config| config.fail_open_on_error);
         let kind: &str = if body.pos.is_none() { "initial" } else { "incremental" };
         let rate_limit_key: String = format!("ratelimit:sliding_sync:{}:{}:{}", auth_user.user_id, device_id, kind);
-        let decision: crate::cache::RateLimitDecision = ctx
-            .cache
-            .rate_limit_token_bucket_take(&rate_limit_key, per_second, burst_size)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Sliding sync rate limit failed", &e))?;
+        // S15: Redis 故障时按 fail_open_on_error 放行，与 /sync 处理器语义一致
+        let decision: crate::cache::RateLimitDecision =
+            match ctx.cache.rate_limit_token_bucket_take(&rate_limit_key, per_second, burst_size).await {
+                Ok(decision) => decision,
+                Err(error) => {
+                    tracing::warn!(
+                        user_id = %auth_user.user_id,
+                        device_id = %device_id,
+                        kind,
+                        fail_open = fail_open_on_error,
+                        error = %error,
+                        "Sliding sync rate limiter failed"
+                    );
+                    rate_limit_decision_on_error(fail_open_on_error, burst_size)?
+                }
+            };
         if !decision.allowed {
             let retry_after_ms: u64 = decision.retry_after_seconds.saturating_mul(1000);
+            record_rate_limited(&ctx.metrics);
             return Err(ApiError::rate_limited_with_retry(retry_after_ms));
         }
     }
 
-    // Call the sliding sync service
+    // Call the sliding sync service.
     //
-    // OPT-08: Performance gate for sliding sync. Records request duration
-    // in a histogram and logs a warning when the response exceeds the
-    // configured latency threshold. This provides p50/p95/p99 visibility
-    // and slow-request alerting, acting as a performance rollback gate
-    // inspired by Synapse v1.153.0rc3 which reverted a sliding-sync
-    // optimisation after performance regressions went unnoticed.
-    let sync_start = std::time::Instant::now();
-    let response: SlidingSyncResponse = ctx.sliding_sync_service.sync(&auth_user.user_id, &device_id, body).await?;
-    let elapsed_ms = sync_start.elapsed().as_millis() as u64;
-
-    // Record duration in histogram for p50/p95/p99 observability.
-    let histogram = ctx
-        .metrics
-        .get_histogram("sliding_sync_duration_ms")
-        .unwrap_or_else(|| ctx.metrics.register_histogram("sliding_sync_duration_ms".to_string()));
-    histogram.observe(elapsed_ms as f64);
-
-    // Increment total request counter.
+    // S11 / A-4 / SS-02: 延迟直方图与慢请求判定统一由 service 层上报
+    // （sliding_sync_request_duration_ms / 慢请求计数器），因为只有 service
+    // 层能从 wall-clock 中扣除 idle_wait_ms —— 路由层自测会把健康的 30s
+    // 长轮询全部误记为慢请求并重复计数。此处仅保留请求总量计数器（QPS 观测，
+    // service 层无等价物）。
     let total_counter = ctx
         .metrics
         .get_counter("sliding_sync_requests_total")
         .unwrap_or_else(|| ctx.metrics.register_counter("sliding_sync_requests_total".to_string()));
     total_counter.inc();
 
-    // Slow-request gate: warn + counter when threshold exceeded.
-    let threshold_ms = ctx.config.performance.sliding_sync_latency_threshold_ms;
-    if elapsed_ms > threshold_ms {
-        ::tracing::warn!(
-            user_id = %auth_user.user_id,
-            device_id = %device_id,
-            elapsed_ms = elapsed_ms,
-            threshold_ms = threshold_ms,
-            "Sliding sync response exceeded latency threshold"
-        );
-        let slow_counter = ctx
-            .metrics
-            .get_counter("sliding_sync_slow_requests_total")
-            .unwrap_or_else(|| ctx.metrics.register_counter("sliding_sync_slow_requests_total".to_string()));
-        slow_counter.inc();
-    }
+    let response: SlidingSyncResponse = ctx.sliding_sync_service.sync(&auth_user.user_id, &device_id, body).await?;
 
     Ok(Json(response))
 }
@@ -142,6 +154,31 @@ fn resolve_sliding_sync_rate_limit(
 
 #[cfg(test)]
 mod tests {
+    // ------------------------------------------------------------------
+    // S26 / B-2: 429 与长轮询互为掩护 —— 限流触发必须独立计数，
+    // sliding_sync_rate_limited_total > 0 即长轮询失效的告警信号
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_record_rate_limited_increments_dedicated_counter() {
+        let metrics = synapse_common::metrics::MetricsCollector::new();
+        super::record_rate_limited(&metrics);
+        super::record_rate_limited(&metrics);
+        let counter =
+            metrics.get_counter("sliding_sync_rate_limited_total").expect("rate-limited counter must be registered");
+        assert_eq!(counter.get(), 2, "每次 429 拒绝都必须独立计数");
+    }
+
+    #[test]
+    fn test_route_layer_does_not_double_count_slow_requests() {
+        // S11: 慢请求判定与计数只属 service 层（其扣除了 idle_wait_ms）。
+        // 路由层不得再注册/递增慢请求计数器 —— 该守卫通过源码扫描维持：
+        // 本文件中该计数器名只允许出现在本测试的 matches() 调用里。
+        let source = include_str!("sliding_sync.rs");
+        let occurrences = source.matches("sliding_sync_slow_requests_total").count();
+        assert!(occurrences == 1, "路由层不得直接计数慢请求, found {occurrences} occurrences");
+    }
+
     #[cfg(feature = "test-utils")]
     use super::resolve_sliding_sync_rate_limit;
     #[cfg(feature = "test-utils")]
@@ -158,6 +195,25 @@ mod tests {
     use axum::extract::FromRef;
     #[cfg(feature = "test-utils")]
     use std::sync::Arc;
+
+    // ------------------------------------------------------------------
+    // S15 / B-3 / SS-08: Redis 故障时的 fail-open 语义必须与 /sync 一致
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_rate_limit_error_fail_open_allows_request() {
+        let decision = super::rate_limit_decision_on_error(true, 50)
+            .expect("fail-open must allow the request");
+        assert!(decision.allowed);
+        assert_eq!(decision.retry_after_seconds, 0);
+        assert_eq!(decision.remaining, 50);
+    }
+
+    #[test]
+    fn test_rate_limit_error_fail_closed_returns_error() {
+        let result = super::rate_limit_decision_on_error(false, 50);
+        assert!(result.is_err(), "fail-closed must surface the error");
+    }
 
     #[cfg(feature = "test-utils")]
     #[tokio::test]

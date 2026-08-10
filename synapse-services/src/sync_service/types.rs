@@ -121,6 +121,10 @@ pub struct SyncServiceDeps {
     pub metrics: Arc<MetricsCollector>,
     pub performance: PerformanceConfig,
     pub cache: Arc<synapse_cache::CacheManager>,
+    /// S6: event-driven wake-up for v2 /sync long-polling. When `Some`,
+    /// `wait_for_incremental_update` parks on `Notify` slots instead of
+    /// polling the database every 250ms.
+    pub event_notifier: Option<crate::event_notifier::EventNotifier>,
 }
 
 pub struct SyncServiceRequest<'a> {

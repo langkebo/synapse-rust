@@ -13,6 +13,9 @@ pub struct SlidingSyncToken {
     pub pos: i64,
     pub created_ts: i64,
     pub expires_at: Option<i64>,
+    /// S14: 上一次同步开始时 events.stream_ordering 的快照，
+    /// 作为本次增量同步 timeline 的起始水位线。
+    pub event_stream_pos: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

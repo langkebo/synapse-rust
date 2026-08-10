@@ -10,6 +10,7 @@ pub trait SlidingSyncStoreApi: Send + Sync {
         user_id: &str,
         device_id: &str,
         conn_id: Option<&str>,
+        event_stream_pos: i64,
     ) -> Result<SlidingSyncToken, sqlx::Error>;
     async fn get_token(
         &self,
@@ -143,8 +144,9 @@ impl SlidingSyncStoreApi for SlidingSyncStorage {
         user_id: &str,
         device_id: &str,
         conn_id: Option<&str>,
+        event_stream_pos: i64,
     ) -> Result<SlidingSyncToken, sqlx::Error> {
-        self.create_or_update_token(user_id, device_id, conn_id).await
+        self.create_or_update_token(user_id, device_id, conn_id, event_stream_pos).await
     }
     async fn get_token(
         &self,

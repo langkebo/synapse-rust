@@ -136,6 +136,11 @@ impl InMemoryDeviceKeyStore {
     pub async fn seed_fallback(&self, key_id: &str) {
         self.fallback_key_ids.write().await.insert(key_id.to_string());
     }
+
+    /// Number of stored signatures (test assertions for upload_signatures paths).
+    pub async fn signature_count(&self) -> usize {
+        self.signatures.read().await.len()
+    }
 }
 
 #[async_trait::async_trait]

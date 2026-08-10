@@ -18,6 +18,11 @@ impl SlidingSyncService {
 
         let cache_key = format!("room_state:{room_id}");
 
+        // S10/N2: 该键的失效由 room service 的状态变更路径负责
+        // （room/lifecycle/create.rs、messaging/events.rs、membership/*.rs 等
+        // 在状态事件写入后删除 `room_state:{room_id}`）。此前此处另有一套
+        // `sliding_sync:room:{user}:{device}:{conn}:{room}` 键的删除逻辑，
+        // 但该键全仓无人写入，属永落空空操作，已随其无调用方的宿主方法一并删除。
         // Try cache first.
         let state_events: Vec<StateEvent> = match self.cache.get::<Vec<StateEvent>>(&cache_key).await {
             Ok(Some(cached)) => cached,
@@ -43,101 +48,6 @@ impl SlidingSyncService {
             let state_key_match = entry.get(1).is_some_and(|value| value == "*" || value == state_key);
             event_type_match && state_key_match
         })
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn update_room_state(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        room_id: &str,
-        conn_id: Option<&str>,
-        bump_stamp: i64,
-        highlight_count: i32,
-        notification_count: i32,
-        is_dm: bool,
-        is_encrypted: bool,
-        name: Option<&str>,
-        avatar: Option<&str>,
-    ) -> Result<(), ApiError> {
-        self.storage
-            .upsert_room(
-                user_id,
-                device_id,
-                room_id,
-                conn_id,
-                None,
-                bump_stamp,
-                highlight_count,
-                notification_count,
-                is_dm,
-                is_encrypted,
-                false,
-                false,
-                name,
-                avatar,
-                bump_stamp,
-            )
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update room state", &e))?;
-
-        self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
-
-        Ok(())
-    }
-
-    pub async fn bump_room(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        room_id: &str,
-        conn_id: Option<&str>,
-        bump_stamp: i64,
-    ) -> Result<(), ApiError> {
-        self.storage
-            .bump_room(user_id, device_id, room_id, conn_id, bump_stamp)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to bump room", &e))?;
-
-        self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
-
-        Ok(())
-    }
-
-    pub async fn update_notification_counts(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        room_id: &str,
-        conn_id: Option<&str>,
-        highlight_count: i32,
-        notification_count: i32,
-    ) -> Result<(), ApiError> {
-        self.storage
-            .update_notification_counts(user_id, device_id, room_id, conn_id, highlight_count, notification_count)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update notifications", &e))?;
-
-        self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
-
-        Ok(())
-    }
-
-    pub async fn remove_room(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        room_id: &str,
-        conn_id: Option<&str>,
-    ) -> Result<(), ApiError> {
-        self.storage
-            .delete_room(user_id, device_id, room_id, conn_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to remove room", &e))?;
-
-        self.invalidate_room_cache(user_id, device_id, room_id, conn_id).await;
-
-        Ok(())
     }
 
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, ApiError> {

@@ -90,7 +90,13 @@ fn create_media_v3_router() -> Router<AppState> {
         .merge(create_media_modern_upload_router())
         .merge(create_media_config_router())
         .merge(create_media_preview_delete_router())
-        .route("/upload/{server_name}/{media_id}", put(upload::upload_media_with_id))
+        // G-2: MSC2246 异步上传端点必须覆盖 Axum 默认 2MB body limit，
+        // 与 /upload 的 50MB 对齐
+        .merge(
+            Router::new()
+                .route("/upload/{server_name}/{media_id}", put(upload::upload_media_with_id))
+                .layer(DefaultBodyLimit::max(50 * 1024 * 1024)),
+        )
         .route("/download/{server_name}/{media_id}", get(download::download_media))
         .route("/download/{server_name}/{media_id}/{filename}", get(download::download_media_with_filename))
         .route("/download_signed/{server_name}/{media_id}", get(download::download_media_signed))

@@ -9,7 +9,7 @@
 use async_trait::async_trait;
 
 use crate::client::{
-    BackfillResponse, DirectoryResponse, EventResponse, FederationClient, FederationClientError, FederationTransaction,
+    BackfillResponse, DirectoryResponse, FederationClient, FederationClientError, FederationTransaction,
     InviteResponse, MakeJoinResponse, MakeLeaveResponse, ProfileResponse, ResolvedServer, SendJoinResponse,
     SendLeaveResponse, ServerKeys, StateIdsResponse, StateResponse, UserDevicesResponse, VersionResponse,
 };
@@ -90,9 +90,6 @@ pub trait FederationClientApi: Send + Sync {
         event: &serde_json::Value,
     ) -> Result<InviteResponse, FederationClientError>;
 
-    /// Fetch a single event from a remote server.
-    async fn get_event(&self, destination: &str, event_id: &str) -> Result<EventResponse, FederationClientError>;
-
     /// Fetch the full current state for a room from a remote server.
     async fn get_state(&self, destination: &str, room_id: &str) -> Result<StateResponse, FederationClientError>;
 
@@ -117,14 +114,6 @@ pub trait FederationClientApi: Send + Sync {
         latest_events: &[String],
         limit: u32,
         min_depth: Option<i64>,
-    ) -> Result<serde_json::Value, FederationClientError>;
-
-    /// Fetch the auth chain for an event from a remote server.
-    async fn get_event_auth(
-        &self,
-        destination: &str,
-        room_id: &str,
-        event_id: &str,
     ) -> Result<serde_json::Value, FederationClientError>;
 
     /// Query device keys for a user from a remote server.
@@ -305,10 +294,6 @@ impl FederationClientApi for FederationClient {
         FederationClient::invite(self, destination, room_id, event_id, event).await
     }
 
-    async fn get_event(&self, destination: &str, event_id: &str) -> Result<EventResponse, FederationClientError> {
-        FederationClient::get_event(self, destination, event_id).await
-    }
-
     async fn get_state(&self, destination: &str, room_id: &str) -> Result<StateResponse, FederationClientError> {
         FederationClient::get_state(self, destination, room_id).await
     }
@@ -346,15 +331,6 @@ impl FederationClientApi for FederationClient {
             min_depth,
         )
         .await
-    }
-
-    async fn get_event_auth(
-        &self,
-        destination: &str,
-        room_id: &str,
-        event_id: &str,
-    ) -> Result<serde_json::Value, FederationClientError> {
-        FederationClient::get_event_auth(self, destination, room_id, event_id).await
     }
 
     async fn get_user_devices(

@@ -1130,6 +1130,10 @@ impl RoomStorage {
         let now: i64 = current_timestamp_millis();
         let receipt_data = if data.is_object() { data.clone() } else { json!({}) };
 
+        // STO-02: DELETE + INSERT 必须在同一事务中，否则 DELETE 成功而 INSERT
+        // 失败时用户已读状态被静默清空
+        let mut tx = self.pool.begin().await?;
+
         sqlx::query(
             r"
             DELETE FROM event_receipts
@@ -1143,7 +1147,7 @@ impl RoomStorage {
         .bind(user_id)
         .bind(receipt_type)
         .bind(event_id)
-        .execute(&*self.pool)
+        .execute(&mut *tx)
         .await?;
 
         sqlx::query(
@@ -1160,8 +1164,10 @@ impl RoomStorage {
         .bind(receipt_type)
         .bind(now)
         .bind(receipt_data)
-        .execute(&*self.pool)
+        .execute(&mut *tx)
         .await?;
+
+        tx.commit().await?;
         Ok(())
     }
 

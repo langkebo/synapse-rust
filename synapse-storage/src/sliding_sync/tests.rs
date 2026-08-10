@@ -101,6 +101,7 @@ fn test_sliding_sync_token_struct() {
         pos: 100,
         created_ts: 1234567890000,
         expires_at: Some(1235172690000),
+        event_stream_pos: 0,
     };
 
     assert_eq!(token.user_id, "@alice:example.com");

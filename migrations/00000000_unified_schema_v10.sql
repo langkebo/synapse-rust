@@ -2660,7 +2660,9 @@ CREATE TABLE IF NOT EXISTS sliding_sync_tokens (
     token TEXT NOT NULL,
     pos BIGINT NOT NULL,
     created_ts BIGINT NOT NULL,
-    expires_at BIGINT
+    expires_at BIGINT,
+    -- S14: 增量同步 timeline 水位线（events.stream_ordering 快照）
+    event_stream_pos BIGINT NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS sliding_sync_rooms (

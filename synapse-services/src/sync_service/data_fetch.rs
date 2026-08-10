@@ -719,6 +719,7 @@ mod tests {
             metrics: Arc::new(synapse_common::MetricsCollector::new()),
             performance: synapse_common::config::PerformanceConfig::default(),
             cache,
+            event_notifier: None,
         })
     }
 
@@ -935,6 +936,7 @@ mod tests {
             metrics: Arc::new(synapse_common::MetricsCollector::new()),
             performance: synapse_common::config::PerformanceConfig::default(),
             cache,
+            event_notifier: None,
         })
     }
 

@@ -76,6 +76,34 @@ impl EventStorage {
         Ok(events)
     }
 
+    /// S14: 增量同步水位线查询 —— 返回 `stream_ordering > after` 的最新
+    /// `limit` 条事件，按 stream_ordering 升序排列。
+    ///
+    /// 语义说明：先按 stream_ordering 降序取最新 limit 条（保证客户端拿到
+    /// 的是最新消息而非最旧消息），再翻转为升序输出。
+    pub async fn get_room_events_after_stream_ordering(
+        &self,
+        room_id: &str,
+        after: i64,
+        limit: i64,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        let mut events = sqlx::query_as(&format!(
+            "SELECT {ROOM_EVENT_COLS}
+            FROM events
+            WHERE room_id = $1 AND stream_ordering > $2
+            ORDER BY stream_ordering DESC
+            LIMIT $3
+            "
+        ))
+        .bind(room_id)
+        .bind(after)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+        events.reverse();
+        Ok(events)
+    }
+
     /// Find the event closest to a given timestamp
     /// Used by MSC3030 timestamp_to_event endpoint
     pub async fn find_event_by_timestamp(

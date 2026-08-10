@@ -1,5 +1,6 @@
 use crate::common::ApiError;
-use crate::web::utils::auth::{bearer_token, resolve_request_id};
+use crate::web::routes::extractors::auth::AuthenticatedUser;
+use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, State},
     http::HeaderMap,
@@ -125,22 +126,29 @@ mod tests {
 
 pub(crate) async fn create_private_room(
     State(ctx): State<RoomContext>,
+    auth_user: AuthenticatedUser,
     headers: HeaderMap,
     Json(mut body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     body["preset"] = serde_json::Value::String("private_chat".to_string());
     body["visibility"] = serde_json::Value::String("private".to_string());
-    create_room(State(ctx), headers, Json(body)).await
+    create_room(State(ctx), auth_user, headers, Json(body)).await
 }
 
 pub(crate) async fn create_room(
     State(ctx): State<RoomContext>,
+    auth_user: AuthenticatedUser,
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    // S25 / WEB-01: 访客不得创建房间。此前手动 validate_token 丢弃了 is_guest
+    // 标志，访客可自由建房；改用 AuthenticatedUser 提取器后同时获得审计埋点
+    // （提取器在认证成功时按 POST/PUT/DELETE 自动写审计事件）。
+    if auth_user.is_guest {
+        return Err(ApiError::forbidden("Guests cannot create rooms".to_string()));
+    }
     let request_id = resolve_request_id(&headers);
-    let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
+    let user_id = auth_user.user_id.as_str();
 
     let visibility = body.get("visibility").and_then(|v| v.as_str());
     if let Some(v) = visibility {
@@ -224,7 +232,7 @@ pub(crate) async fn create_room(
         ..Default::default()
     };
 
-    let result = ctx.room_service.lifecycle().create_room(&user_id, config.clone()).await?;
+    let result = ctx.room_service.lifecycle().create_room(user_id, config.clone()).await?;
 
     if config.room_type.as_deref() == Some("m.space") {
         let space_request = synapse_storage::space::CreateSpaceRequest {

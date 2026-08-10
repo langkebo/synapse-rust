@@ -46,6 +46,7 @@ impl CoreServices {
         credential_auth: &Arc<dyn CredentialAuth>,
         room_auth: &Arc<dyn RoomAuth>,
         user_storage: &Arc<dyn UserStore>,
+        user_service: Arc<UserService>,
         server_metrics: &Arc<ServerMetrics>,
         event_broadcaster: Arc<EventBroadcaster>,
         event_notifier: crate::event_notifier::EventNotifier,
@@ -79,8 +80,7 @@ impl CoreServices {
             Some(infra.pool.clone()),
         );
 
-        let user_service = Arc::new(UserService::new(user_storage.clone()));
-
+        // S23: user_service is now injected from the container singleton
         let registration_service = Arc::new(crate::registration_service::RegistrationService::new(
             user_service.clone(),
             token_auth.clone(),

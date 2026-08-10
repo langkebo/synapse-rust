@@ -39,9 +39,7 @@ pub(crate) fn extract_client_ip(
             if let Some(ip) = headers
                 .get("x-forwarded-for")
                 .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.split(',').next())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
+                .and_then(|s| rightmost_untrusted_hop(s, trusted_proxies))
             {
                 return Some(ip);
             }
@@ -81,6 +79,27 @@ pub(crate) fn extract_client_ip(
 /// Check whether `ip` matches any of the CIDR strings in `networks`.
 fn is_trusted_peer(ip: &IpAddr, networks: &[String]) -> bool {
     networks.iter().any(|cidr| ip_matches_cidr(ip, cidr))
+}
+
+/// SEC-01: 从 XFF 链中取「最右第一个不可信跳」作为真实客户端 IP。
+///
+/// 攻击者只能向 XFF 左侧注入伪造条目（可信代理会把攻击者真实 IP 追加到右侧），
+/// 因此从右往左跳过所有可信代理跳后得到的第一个不可信 IP 才是真实客户端。
+/// 取最左元素会让攻击者用 `X-Forwarded-For: fake_ip` 获得全新限流桶。
+/// 全链可信时（纯内部转发）回退到最左元素。
+fn rightmost_untrusted_hop(xff: &str, trusted_proxies: &[String]) -> Option<String> {
+    let hops: Vec<&str> = xff.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    if hops.is_empty() {
+        return None;
+    }
+    for hop in hops.iter().rev() {
+        let trusted = hop.parse::<IpAddr>().map(|ip| is_trusted_peer(&ip, trusted_proxies)).unwrap_or(false);
+        if !trusted {
+            return Some((*hop).to_string());
+        }
+    }
+    // 全链可信：回退最左元素
+    Some(hops[0].to_string())
 }
 
 /// Match an IP address against a CIDR string (e.g. "10.0.0.0/8" or "127.0.0.1/32").
@@ -321,5 +340,45 @@ mod tests {
         // Trusted peer but no headers → falls back to peer addr
         let ip = extract_client_ip(&headers, &priority, Some(peer), &trusted).unwrap();
         assert_eq!(ip, "10.0.0.5");
+    }
+
+    // ---------------------------------------------------------------------------
+    // S16 / SEC-01: XFF 不得取最左元素（可伪造注入），应取最右第一个不可信跳
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn spoofed_leftmost_xff_is_ignored() {
+        // 攻击者直连可信代理，注入 XFF: 9.9.9.9(伪造)；代理追加攻击者真实 IP
+        let headers = make_headers_with_xff("9.9.9.9, 1.2.3.4");
+        let priority = vec!["x-forwarded-for".to_string()];
+        let peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5)), 12345);
+        let trusted: Vec<String> = vec!["10.0.0.0/8".to_string()];
+
+        let ip = extract_client_ip(&headers, &priority, Some(peer), &trusted).unwrap();
+        assert_eq!(ip, "1.2.3.4", "伪造的最左 XFF 元素不得生效，应取最右第一个不可信跳");
+    }
+
+    #[test]
+    fn trusted_chain_skips_trusted_hops() {
+        // XFF: 真实客户端 + 可信中间代理 10.0.0.1；peer 10.0.0.5 也可信
+        let headers = make_headers_with_xff("1.2.3.4, 10.0.0.1");
+        let priority = vec!["x-forwarded-for".to_string()];
+        let peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5)), 12345);
+        let trusted: Vec<String> = vec!["10.0.0.0/8".to_string()];
+
+        let ip = extract_client_ip(&headers, &priority, Some(peer), &trusted).unwrap();
+        assert_eq!(ip, "1.2.3.4", "应从右往左跳过所有可信跳后取真实客户端 IP");
+    }
+
+    #[test]
+    fn all_trusted_xff_falls_back_to_leftmost() {
+        // 全链可信（内部转发）→ 回退最左元素
+        let headers = make_headers_with_xff("10.0.0.1, 10.0.0.2");
+        let priority = vec!["x-forwarded-for".to_string()];
+        let peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5)), 12345);
+        let trusted: Vec<String> = vec!["10.0.0.0/8".to_string()];
+
+        let ip = extract_client_ip(&headers, &priority, Some(peer), &trusted).unwrap();
+        assert_eq!(ip, "10.0.0.1");
     }
 }

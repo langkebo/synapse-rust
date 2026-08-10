@@ -23,7 +23,7 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
-use synapse_common::current_timestamp_millis;
+
 use synapse_common::*;
 use synapse_e2ee::device_keys::DeviceKeyStoreApi;
 use synapse_e2ee::key_rotation::KeyRotationStorage;
@@ -46,6 +46,8 @@ pub struct SyncService {
     pub(crate) metrics: Arc<MetricsCollector>,
     pub(crate) performance: synapse_common::config::PerformanceConfig,
     pub(crate) cache: Arc<synapse_cache::CacheManager>,
+    /// S6: event-driven wake-up for v2 /sync long-polling.
+    pub(crate) event_notifier: Option<crate::event_notifier::EventNotifier>,
 }
 
 /// Maximum number of (user, device, room) entries kept in the in-memory
@@ -75,6 +77,7 @@ impl SyncService {
             metrics: deps.metrics,
             performance: deps.performance,
             cache: deps.cache,
+            event_notifier: deps.event_notifier,
         }
     }
 
@@ -94,6 +97,7 @@ impl SyncService {
         metrics: Arc<MetricsCollector>,
         performance: synapse_common::config::PerformanceConfig,
         cache: Arc<synapse_cache::CacheManager>,
+        event_notifier: Option<crate::event_notifier::EventNotifier>,
     ) -> Self {
         Self::from_deps(SyncServiceDeps {
             presence_storage,
@@ -110,6 +114,7 @@ impl SyncService {
             metrics,
             performance,
             cache,
+            event_notifier,
         })
     }
 
@@ -307,11 +312,10 @@ impl SyncService {
         is_full_state: bool,
         since: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(60),
-            self.room_sync(user_id, room_id, timeout, is_full_state, since),
-        )
-        .await;
+        // S13/N6: 外层超时与 /sync 主路径统一为「客户端 timeout + 15s 宽余」。
+        // 此前硬编码 60s，客户端 timeout=120s 会在 60s 处被服务端提前截断。
+        let server_timeout = synapse_common::constants::sync_server_timeout(timeout);
+        let result = tokio::time::timeout(server_timeout, self.room_sync(user_id, room_id, timeout, is_full_state, since)).await;
 
         match result {
             Ok(Ok(value)) => Ok(value),
@@ -319,8 +323,8 @@ impl SyncService {
                 ::tracing::error!(
                     user_id = %user_id,
                     room_id = %room_id,
-                    timeout_secs = 60_u64,
-                    requested_timeout_secs = timeout,
+                    server_timeout_ms = server_timeout.as_millis() as u64,
+                    requested_timeout_ms = timeout,
                     is_full_state,
                     since = ?since,
                     error = %error,
@@ -332,8 +336,8 @@ impl SyncService {
                 ::tracing::error!(
                     user_id = %user_id,
                     room_id = %room_id,
-                    timeout_secs = 60_u64,
-                    requested_timeout_secs = timeout,
+                    server_timeout_ms = server_timeout.as_millis() as u64,
+                    requested_timeout_ms = timeout,
                     is_full_state,
                     since = ?since,
                     "Room sync timeout"
@@ -415,7 +419,10 @@ impl SyncService {
 
     pub(crate) fn event_since_ts(since_token: &Option<SyncToken>) -> i64 {
         match since_token {
-            Some(token) if token.stream_id >= Self::TIMESTAMP_TOKEN_MIN => token.stream_id,
+            // S6: timestamp-based tokens (stream_id >= 1e12) are no longer
+            // treated as origin_server_ts. Return 0 so callers fall back to
+            // StreamOrdering(0) for a full resync instead of the racy
+            // OriginServerTs path that has same-millisecond漏读 risk.
             Some(token) if token.to_device_stream_id.is_some() || token.device_list_stream_id.is_some() => {
                 token.stream_id.max(0)
             }
@@ -429,9 +436,8 @@ impl SyncService {
         room_events: &HashMap<String, Vec<RoomEvent>>,
         state_change_ts_by_room: Option<&HashMap<String, i64>>,
     ) -> i64 {
+        let _ = state_change_ts_by_room; // S6: state change timestamps no longer used for token generation
         let event_max_stream = room_events.values().flat_map(|v| v.iter()).filter_map(|e| e.stream_ordering).max();
-        let event_max_ts = room_events.values().flat_map(|v| v.iter()).map(|e| e.origin_server_ts).max();
-        let state_max_ts = state_change_ts_by_room.into_iter().flat_map(|entries| entries.values().copied()).max();
 
         if let Some(max_stream) = event_max_stream {
             match since_token.as_ref() {
@@ -439,12 +445,13 @@ impl SyncService {
                 None => max_stream,
             }
         } else {
-            let max_ts = event_max_ts.max(state_max_ts);
-            match (max_ts, since_token.as_ref()) {
-                (Some(ts), Some(token)) => ts.max(token.stream_id),
-                (Some(ts), None) => ts,
-                (None, Some(token)) => token.stream_id,
-                (None, None) => current_timestamp_millis(),
+            // S6: no events with stream_ordering — preserve the since_token's
+            // stream_id (or 0 if no token). Do NOT fall back to origin_server_ts,
+            // which would create a timestamp-based token with same-millisecond
+            // race conditions.
+            match since_token.as_ref() {
+                Some(token) => token.stream_id.max(0),
+                None => 0,
             }
         }
     }

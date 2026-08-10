@@ -544,13 +544,13 @@ impl WorkerManager {
 
     #[instrument(skip(self))]
     pub async fn claim_task(&self, task_id: &str, worker_id: &str) -> Result<(), ApiError> {
+        // PERF-05: 按 task_id 直查，不再拉 1000 条 pending 到内存 find——
+        // 旧实现在待领任务 >1000 时会错误地报 not_found。
         let task = self
             .storage
-            .get_pending_tasks(1000)
+            .get_pending_task_by_id(task_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to inspect pending tasks before claim", &e))?
-            .into_iter()
-            .find(|task| task.task_id == task_id)
+            .map_err(|e| ApiError::internal_with_log("Failed to load pending task before claim", &e))?
             .ok_or_else(|| ApiError::not_found("Task is not pending or unavailable"))?;
         let worker = self
             .get(worker_id)
@@ -758,6 +758,63 @@ impl WorkerManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // PERF-05: claim_task 必须能领取排在前 1000 条之外的待领任务。
+    // 旧实现 `get_pending_tasks(1000)` + 内存 find，超过 1000 条即误报 not_found。
+    #[tokio::test]
+    async fn perf05_claim_task_beyond_first_1000_pending() {
+        use synapse_storage::test_mocks::InMemoryWorkerStore;
+        let store = Arc::new(InMemoryWorkerStore::new());
+        let manager = WorkerManager::new(store.clone(), "test.server".to_string());
+        store
+            .register_worker(RegisterWorkerRequest {
+                worker_id: "master-1".to_string(),
+                worker_name: "master".to_string(),
+                worker_type: WorkerType::Master,
+                host: "127.0.0.1".to_string(),
+                port: 8100,
+                config: None,
+                metadata: None,
+                version: None,
+            })
+            .await
+            .expect("register worker");
+
+        // 1000 条 priority=0 的任务 + 1 条 priority=-1 的目标任务。
+        // 目标任务稳定排在 pending 列表末尾，旧实现的 LIMIT 1000 必然截掉它。
+        for _ in 0..1000 {
+            store
+                .assign_task(AssignTaskRequest {
+                    task_type: "event_processing".to_string(),
+                    task_data: serde_json::json!({}),
+                    priority: Some(0),
+                    preferred_worker_id: None,
+                })
+                .await
+                .expect("assign task");
+        }
+        let target = store
+            .assign_task(AssignTaskRequest {
+                task_type: "event_processing".to_string(),
+                task_data: serde_json::json!({}),
+                priority: Some(-1),
+                preferred_worker_id: None,
+            })
+            .await
+            .expect("assign target task");
+
+        manager.claim_task(&target.task_id, "master-1").await.expect("task beyond first 1000 must be claimable");
+    }
+
+    #[tokio::test]
+    async fn perf05_claim_unknown_task_returns_not_found() {
+        use synapse_storage::test_mocks::InMemoryWorkerStore;
+        let store = Arc::new(InMemoryWorkerStore::new());
+        let manager = WorkerManager::new(store, "test.server".to_string());
+
+        let err = manager.claim_task("task-nonexistent", "master-1").await.expect_err("unknown task must fail");
+        assert!(err.is_not_found());
+    }
 
     #[test]
     fn test_worker_capabilities_for_task() {

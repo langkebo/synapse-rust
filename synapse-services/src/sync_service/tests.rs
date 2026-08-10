@@ -3,6 +3,7 @@ use super::SyncService;
 use crate::*;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use synapse_storage::UserRoomMembership;
 
 #[test]
@@ -1701,9 +1702,12 @@ fn test_event_since_ts_none_token_returns_zero() {
 }
 
 #[test]
-fn test_event_since_ts_timestamp_token_returns_stream_id() {
+fn test_event_since_ts_timestamp_token_returns_zero() {
+    // S6: timestamp-based tokens (stream_id >= 1e12) must NOT be treated as
+    // origin_server_ts. Return 0 so the caller falls back to a full resync
+    // via StreamOrdering(0) instead of the racy OriginServerTs path.
     let token = make_token(1700000000000);
-    assert_eq!(SyncService::event_since_ts(&Some(token)), 1700000000000);
+    assert_eq!(SyncService::event_since_ts(&Some(token)), 0);
 }
 
 #[test]
@@ -1738,10 +1742,13 @@ fn test_event_since_ts_negative_stream_id_clamped_to_zero() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_next_event_stream_id_no_events_no_token_returns_current_time() {
+fn test_next_event_stream_id_no_events_no_token_returns_zero() {
+    // S6: no events and no token → 0 (not current_timestamp_millis).
+    // Returning a timestamp would create a timestamp-based token that has
+    // same-millisecond race conditions.
     let room_events: HashMap<String, Vec<synapse_storage::RoomEvent>> = HashMap::new();
     let result = SyncService::next_event_stream_id(&None, &room_events, None);
-    assert!(result > 1_700_000_000_000);
+    assert_eq!(result, 0);
 }
 
 #[test]
@@ -1777,7 +1784,10 @@ fn test_next_event_stream_id_event_max_exceeds_token() {
 }
 
 #[test]
-fn test_next_event_stream_id_falls_back_to_origin_server_ts() {
+fn test_next_event_stream_id_no_fallback_to_origin_server_ts() {
+    // S6: events without stream_ordering must NOT fall back to origin_server_ts.
+    // Return 0 instead — the client will get s0 and do a full resync on the
+    // next poll, which is safe (no data loss, just a larger response).
     let mut room_events: HashMap<String, Vec<synapse_storage::RoomEvent>> = HashMap::new();
     let mut event1 = make_timeline_event("@a:b", "m.room.message", None);
     event1.stream_ordering = None;
@@ -1787,20 +1797,23 @@ fn test_next_event_stream_id_falls_back_to_origin_server_ts() {
     event2.origin_server_ts = 1700000001000;
     room_events.insert("!r1:b".into(), vec![event1, event2]);
     let result = SyncService::next_event_stream_id(&None, &room_events, None);
-    assert_eq!(result, 1700000001000);
+    assert_eq!(result, 0);
 }
 
 #[test]
-fn test_next_event_stream_id_uses_state_change_ts() {
+fn test_next_event_stream_id_ignores_state_change_ts() {
+    // S6: state change timestamps must NOT produce timestamp-based tokens.
     let room_events: HashMap<String, Vec<synapse_storage::RoomEvent>> = HashMap::new();
     let mut state_ts: HashMap<String, i64> = HashMap::new();
     state_ts.insert("!r1:b".into(), 1700000002000);
     let result = SyncService::next_event_stream_id(&None, &room_events, Some(&state_ts));
-    assert_eq!(result, 1700000002000);
+    assert_eq!(result, 0);
 }
 
 #[test]
-fn test_next_event_stream_id_event_origin_ts_over_state_ts() {
+fn test_next_event_stream_id_event_origin_ts_ignored_without_stream_ordering() {
+    // S6: events without stream_ordering must NOT fall back to origin_server_ts,
+    // even when state change ts is also present.
     let mut room_events: HashMap<String, Vec<synapse_storage::RoomEvent>> = HashMap::new();
     let mut event1 = make_timeline_event("@a:b", "m.room.message", None);
     event1.stream_ordering = None;
@@ -1809,7 +1822,7 @@ fn test_next_event_stream_id_event_origin_ts_over_state_ts() {
     let mut state_ts: HashMap<String, i64> = HashMap::new();
     state_ts.insert("!r1:b".into(), 1700000002000);
     let result = SyncService::next_event_stream_id(&None, &room_events, Some(&state_ts));
-    assert_eq!(result, 1700000003000);
+    assert_eq!(result, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1858,4 +1871,221 @@ fn test_room_sections_empty() {
     let memberships: Vec<UserRoomMembership> = vec![];
     let sections = SyncService::room_sections_from_memberships(&memberships);
     assert!(sections.is_empty());
+}
+
+// ========== S6-D: Event-driven wake-up tests ==========
+
+/// Helper: builds a SyncService wired with an `InMemoryEventStore` and
+/// (optionally) an `EventNotifier`, so we can test event-driven long-poll
+/// behaviour without a real database.
+fn sync_service_for_notifier_test(
+    event_store: Arc<synapse_storage::test_mocks::InMemoryEventStore>,
+    event_notifier: Option<crate::event_notifier::EventNotifier>,
+    sync_poll_interval_ms: u64,
+) -> SyncService {
+    let pool: Arc<sqlx::PgPool> = Arc::new(
+        sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://synapse:synapse@localhost/synapse")
+            .expect("lazy pool"),
+    );
+    let cache = Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default()));
+    let mut perf = synapse_common::config::PerformanceConfig::default();
+    perf.sync_poll_interval_ms = sync_poll_interval_ms;
+
+    SyncService::from_deps(SyncServiceDeps {
+        presence_storage: Arc::new(synapse_storage::test_mocks::InMemoryPresenceStore::new()),
+        member_storage: Arc::new(synapse_storage::test_mocks::InMemoryMemberStore::new()),
+        event_reader: event_store as Arc<dyn synapse_storage::event::EventReader>,
+        room_storage: Arc::new(synapse_storage::room::RoomStorage::new(&pool)),
+        room_account_data_storage: Arc::new(
+            synapse_storage::room_account_data::RoomAccountDataStorage::new(&pool),
+        ),
+        account_data_storage: Arc::new(synapse_storage::test_mocks::InMemoryAccountDataStore::new()),
+        filter_storage: Arc::new(synapse_storage::filter::FilterStorage::new(&pool)),
+        device_storage: Arc::new(synapse_storage::test_mocks::InMemoryDeviceListStore::new()),
+        device_key_storage: Arc::new(synapse_e2ee::device_keys::DeviceKeyStorage::new(&pool))
+            as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
+        key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage::new(pool.clone()),
+        to_device_storage: synapse_e2ee::to_device::ToDeviceStorage::new(&pool),
+        metrics: Arc::new(synapse_common::MetricsCollector::new()),
+        performance: perf,
+        cache,
+        event_notifier,
+    })
+}
+
+/// S6-D Red→Green: When an `EventNotifier` is wired and a room notification
+/// fires, `wait_for_incremental_update` must wake immediately instead of
+/// waiting for the full timeout.
+#[tokio::test]
+async fn s6d_wait_wakes_on_room_notification() {
+    let event_store = Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
+    let notifier = crate::event_notifier::EventNotifier::new();
+    // 1 s poll interval: if the implementation still polls, the 1 s test
+    // timeout will expire. Only event-driven wake-up can pass.
+    let service = sync_service_for_notifier_test(event_store.clone(), Some(notifier.clone()), 1000);
+
+    let room_id = "!s6d-wake:example.com".to_string();
+    let room_ids = vec![room_id.clone()];
+
+    // Start wait_for_incremental_update with a 5 s timeout.
+    // device_id = None so the to-device check short-circuits to false.
+    let start = std::time::Instant::now();
+    let handle = tokio::spawn({
+        let room_ids = room_ids.clone();
+        async move {
+            service
+                .wait_for_incremental_update(
+                    "@alice:example.com",
+                    None,
+                    &room_ids,
+                    0,    // since_stream_ord
+                    None, // since_token
+                    5000, // 5 s timeout
+                )
+                .await
+        }
+    });
+
+    // Give the waiter time to register.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // Add an event with stream_ordering > 0, then notify.
+    event_store
+        .create_event(synapse_storage::event::CreateEventParams {
+            event_id: "$ev1:example.com".to_string(),
+            room_id: room_id.clone(),
+            user_id: "@bob:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: json!({}),
+            state_key: None,
+            origin_server_ts: 12345,
+            redacts: None,
+        })
+        .await
+        .expect("create event");
+    event_store.set_stream_ordering("$ev1:example.com", 1).await;
+    notifier.notify_room(&room_id);
+
+    // Should return well before the 5 s timeout.
+    let result = tokio::time::timeout(std::time::Duration::from_secs(1), handle).await;
+    let elapsed = start.elapsed();
+
+    assert!(result.is_ok(), "should be woken by notification, not wait for timeout");
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "should return quickly after notification, took {:?}",
+        elapsed
+    );
+    let update = result.unwrap().unwrap().unwrap();
+    assert_eq!(update, IncrementalUpdate::Events);
+}
+
+/// S6-D Red→Green: Without any notification, `wait_for_incremental_update`
+/// must wait for the full timeout (event-driven, not busy-polling).
+#[tokio::test]
+async fn s6d_wait_times_out_without_notification() {
+    let event_store = Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
+    let notifier = crate::event_notifier::EventNotifier::new();
+    // 1 s poll interval: if the implementation still polls, it would sleep
+    // for 1 s. Event-driven select! must timeout at 200 ms.
+    let service = sync_service_for_notifier_test(event_store, Some(notifier), 1000);
+
+    let room_ids = vec!["!s6d-timeout:example.com".to_string()];
+
+    let start = std::time::Instant::now();
+    let result = service
+        .wait_for_incremental_update(
+            "@alice:example.com",
+            None,
+            &room_ids,
+            0,
+            None,
+            200, // 200 ms timeout
+        )
+        .await;
+    let elapsed = start.elapsed();
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), IncrementalUpdate::Timeout);
+    assert!(
+        elapsed >= std::time::Duration::from_millis(150),
+        "should wait for most of the timeout, took {:?}",
+        elapsed
+    );
+    assert!(
+        elapsed < std::time::Duration::from_millis(500),
+        "should not wait much longer than timeout, took {:?}",
+        elapsed
+    );
+}
+
+/// S6-D Red→Green: `has_room_events_since` must check `stream_ordering`,
+/// not `origin_server_ts`. An event with `origin_server_ts > 0` but
+/// `stream_ordering <= since` must NOT trigger an "events available" signal.
+#[tokio::test]
+async fn s6d_has_events_checks_stream_ordering_not_origin_ts() {
+    let event_store = Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
+
+    // Insert an event with a large origin_server_ts but stream_ordering = 5.
+    event_store
+        .create_event(synapse_storage::event::CreateEventParams {
+            event_id: "$ev2:example.com".to_string(),
+            room_id: "!s6d-so:example.com".to_string(),
+            user_id: "@bob:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: json!({}),
+            state_key: None,
+            origin_server_ts: 1_700_000_000_000,
+            redacts: None,
+        })
+        .await
+        .expect("create event");
+    event_store.set_stream_ordering("$ev2:example.com", 5).await;
+
+    let room_ids = vec!["!s6d-so:example.com".to_string()];
+
+    // since = 5 → stream_ordering (5) is NOT > 5 → false
+    let has = event_store.has_room_events_since(&room_ids, 5).await.unwrap();
+    assert!(!has, "stream_ordering == since should not match");
+
+    // since = 4 → stream_ordering (5) > 4 → true
+    let has = event_store.has_room_events_since(&room_ids, 4).await.unwrap();
+    assert!(has, "stream_ordering > since should match");
+
+    // since = 0 → stream_ordering (5) > 0 → true (but NOT because origin_server_ts > 0)
+    let has = event_store.has_room_events_since(&room_ids, 0).await.unwrap();
+    assert!(has, "stream_ordering > 0 should match");
+}
+
+/// S6-D Red→Green: When `event_notifier` is `None` (not wired), the function
+/// must fall back to sleep-based polling and still eventually time out.
+#[tokio::test]
+async fn s6d_wait_falls_back_to_polling_without_notifier() {
+    let event_store = Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
+    // 100 ms poll interval for the fallback path (no notifier wired).
+    let service = sync_service_for_notifier_test(event_store, None, 100);
+
+    let room_ids = vec!["!s6d-nofifier:example.com".to_string()];
+
+    let start = std::time::Instant::now();
+    let result = service
+        .wait_for_incremental_update(
+            "@alice:example.com",
+            None,
+            &room_ids,
+            0,
+            None,
+            300, // 300 ms timeout
+        )
+        .await;
+    let elapsed = start.elapsed();
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), IncrementalUpdate::Timeout);
+    assert!(
+        elapsed >= std::time::Duration::from_millis(250),
+        "should wait for most of the timeout even without notifier, took {:?}",
+        elapsed
+    );
 }

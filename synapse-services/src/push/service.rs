@@ -587,9 +587,7 @@ impl PushNotificationService {
 
     /// Matrix spec v1.11+ push condition. Resolves `key` (a dotted path with
     /// `\.` escaping a literal `.`) against `event` and matches when the
-    /// resolved value is an array that contains `condition.value`, or — for
-    /// backwards compat with `event_match`-style string fields – when the
-    /// resolved value is a string containing `condition.value`.
+    /// resolved value is an array that contains `condition.value`.
     ///
     /// Used by `.m.rule.is_user_mention` against
     /// `content.m\.mentions.user_ids`.
@@ -597,9 +595,11 @@ impl PushNotificationService {
         let key = condition.get("key").and_then(|k| k.as_str()).unwrap_or("");
         let Some(value) = condition.get("value") else { return false; };
         let Some(target) = Self::get_event_value_json(event, key) else { return false; };
+        // Matrix spec: event_property_contains 仅当目标为数组且包含 value 时匹配。
+        // 字符串等其他类型一律不匹配（子串匹配是 event_match 的语义，不能混用，
+        // 否则 `m.mentions.user_ids` 被篡改成一个长字符串时会误触发提及推送）。
         match target {
             JsonValue::Array(arr) => arr.iter().any(|item| item == value),
-            JsonValue::String(s) => value.as_str().is_some_and(|v| s.contains(v)),
             _ => false,
         }
     }

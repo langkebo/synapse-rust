@@ -41,6 +41,15 @@ impl InMemoryEventStore {
         Ok(self.events.read().await.get(event_id).cloned())
     }
 
+    /// Set the `stream_ordering` on an existing event. Useful for testing
+    /// `has_room_events_since` which checks `stream_ordering > since`.
+    pub async fn set_stream_ordering(&self, event_id: &str, stream_ordering: i64) {
+        let mut events = self.events.write().await;
+        if let Some(event) = events.get_mut(event_id) {
+            event.stream_ordering = Some(stream_ordering);
+        }
+    }
+
     pub async fn get_room_events(&self, room_id: &str, limit: i64) -> Result<Vec<crate::event::RoomEvent>, String> {
         let events = self.events.read().await;
         let mut matched: Vec<_> = events.values().filter(|e| e.room_id == room_id).cloned().collect();
@@ -686,8 +695,12 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
     async fn has_room_events_since(&self, room_ids: &[String], since: i64) -> Result<bool, sqlx::Error> {
         let events = self.events.read().await;
         for event in events.values() {
-            if room_ids.contains(&event.room_id) && event.origin_server_ts > since {
-                return Ok(true);
+            if room_ids.contains(&event.room_id) {
+                if let Some(so) = event.stream_ordering {
+                    if so > since {
+                        return Ok(true);
+                    }
+                }
             }
         }
         Ok(false)
@@ -802,6 +815,31 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
         Ok(events
             .values()
             .any(|e| e.room_id == room_id && e.event_type == "m.room.encryption" && e.state_key.is_some()))
+    }
+
+    async fn get_room_events_after_stream_ordering(
+        &self,
+        room_id: &str,
+        after: i64,
+        limit: i64,
+    ) -> Result<Vec<crate::event::RoomEvent>, sqlx::Error> {
+        let events = self.events.read().await;
+        let mut matched: Vec<_> = events
+            .values()
+            .filter(|e| e.room_id == room_id && e.stream_ordering.unwrap_or(0) > after)
+            .cloned()
+            .collect();
+        matched.sort_by_key(|e| e.stream_ordering.unwrap_or(0));
+        // 与真实实现语义一致：超限时保留最新的 limit 条
+        if matched.len() > limit as usize {
+            matched = matched.split_off(matched.len() - limit as usize);
+        }
+        Ok(matched)
+    }
+
+    async fn get_max_stream_ordering(&self) -> Result<i64, sqlx::Error> {
+        let events = self.events.read().await;
+        Ok(events.values().filter_map(|e| e.stream_ordering).max().unwrap_or(0))
     }
 
     // ── unread counts / room state copy (moved from RoomStorage) ───────

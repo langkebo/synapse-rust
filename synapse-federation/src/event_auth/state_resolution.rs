@@ -105,6 +105,10 @@ impl EventAuthChain {
         event_ids: &[&'a str],
     ) -> HashMap<String, &'a Value> {
         let mut state: HashMap<String, &Value> = HashMap::new();
+        // 每个状态槽位当前胜者的 (origin_server_ts, event_id)，用于确定性裁决：
+        // 与 detect_conflicts 同一约定 —— 时间戳大者胜，平票时 event_id 小者胜。
+        // 不带该裁决时，胜者由 HashMap 迭代/BFS 顺序决定，同输入可能产出不同结果。
+        let mut slot_winners: HashMap<String, (i64, &str)> = HashMap::new();
         let mut processed = HashSet::new();
         let mut queue: VecDeque<&str> = event_ids.iter().copied().collect();
         let mut hops = 0;
@@ -125,7 +129,18 @@ impl EventAuthChain {
                     let state_key_str = state_key.as_str().unwrap_or("");
                     // Empty state_key is valid for events like m.room.name
                     if let Some(content) = event.content.as_ref() {
-                        state.insert(format!("{}:{}", event.event_type, state_key_str), content);
+                        let slot = format!("{}:{}", event.event_type, state_key_str);
+                        let wins = match slot_winners.get(&slot) {
+                            None => true,
+                            Some(&(ts, eid)) => {
+                                event.origin_server_ts > ts
+                                    || (event.origin_server_ts == ts && event.event_id.as_str() < eid)
+                            }
+                        };
+                        if wins {
+                            slot_winners.insert(slot.clone(), (event.origin_server_ts, event.event_id.as_str()));
+                            state.insert(slot, content);
+                        }
                     }
                 }
 

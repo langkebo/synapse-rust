@@ -15,6 +15,8 @@ fn is_sync_rate_limit_exempt_path(path: &str) -> bool {
         "/_matrix/client/r0/sync"
             | "/_matrix/client/v1/sync"
             | "/_matrix/client/v3/sync"
+            // SS-01: v4/sync 是 sliding sync 路由，处理器内已有 per-user+device 限流
+            | "/_matrix/client/v4/sync"
             | "/_matrix/client/unstable/org.matrix.msc3575/sync"
             | "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"
     )
@@ -170,7 +172,9 @@ mod tests {
         let trusted: Vec<String> = vec!["10.0.0.0/8".to_string()];
 
         headers.insert("x-forwarded-for", "1.2.3.4, 5.6.7.8".parse().expect("valid header value"));
-        assert_eq!(extract_client_ip(&headers, &priority, Some(peer), &trusted), Some("1.2.3.4".to_string()));
+        // SEC-01: 取最右第一个不可信跳（5.6.7.8 是最右且不在 trusted_proxies 内），
+        // 不再取可伪造的最左元素
+        assert_eq!(extract_client_ip(&headers, &priority, Some(peer), &trusted), Some("5.6.7.8".to_string()));
 
         headers = axum::http::HeaderMap::new();
         headers.insert("x-real-ip", "10.0.0.1".parse().expect("valid header value"));
@@ -187,6 +191,9 @@ mod tests {
         assert!(is_sync_rate_limit_exempt_path("/_matrix/client/r0/sync"));
         assert!(is_sync_rate_limit_exempt_path("/_matrix/client/v1/sync"));
         assert!(is_sync_rate_limit_exempt_path("/_matrix/client/v3/sync"));
+        // SS-01: v4/sync 由 sliding_sync 处理器承接（内部已有 per-user+device 限流），
+        // 必须豁免 IP 级限流，否则构成双重限流
+        assert!(is_sync_rate_limit_exempt_path("/_matrix/client/v4/sync"));
         assert!(is_sync_rate_limit_exempt_path("/_matrix/client/unstable/org.matrix.msc3575/sync"));
         assert!(is_sync_rate_limit_exempt_path("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"));
         assert!(!is_sync_rate_limit_exempt_path("/_matrix/client/v3/events"));

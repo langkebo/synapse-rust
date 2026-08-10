@@ -778,7 +778,9 @@ mod tests {
     fn build_transaction_payload_with_presence_includes_presence_field() {
         let events = vec![];
         let edus = AppServiceEphemeralBatch {
-            presence: vec![json!({"type": "m.presence", "sender": "@alice:example.com", "content": {"presence": "online"}})],
+            presence: vec![
+                json!({"type": "m.presence", "sender": "@alice:example.com", "content": {"presence": "online"}}),
+            ],
             ..Default::default()
         };
         let payload = build_transaction_payload(&events, Some(&edus));
@@ -802,7 +804,9 @@ mod tests {
     #[test]
     fn build_transaction_payload_with_typing_includes_typing_field() {
         let edus = AppServiceEphemeralBatch {
-            typing: vec![json!({"type": "m.typing", "room_id": "!r:example.com", "content": {"user_ids": ["@alice:example.com"]}})],
+            typing: vec![
+                json!({"type": "m.typing", "room_id": "!r:example.com", "content": {"user_ids": ["@alice:example.com"]}}),
+            ],
             ..Default::default()
         };
         let payload = build_transaction_payload(&[], Some(&edus));

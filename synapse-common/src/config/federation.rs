@@ -157,6 +157,11 @@ pub struct FederationRateLimitConfig {
     /// Burst size (maximum tokens in the bucket).
     #[serde(default = "default_federation_rate_limit_burst_size")]
     pub burst_size: u32,
+    /// S17/SEC-02: 限流后端（Redis）故障时的行为。false（默认，与主限流器
+    /// 对齐）= fail-closed 返回 5xx；true = fail-open 放行并告警。
+    /// 注意：2026-08-10 之前联邦限流在 Redis 故障时无条件放行且无配置项。
+    #[serde(default = "default_federation_rate_limit_fail_open")]
+    pub fail_open_on_error: bool,
 }
 
 impl Default for FederationRateLimitConfig {
@@ -165,6 +170,7 @@ impl Default for FederationRateLimitConfig {
             enabled: default_federation_rate_limit_enabled(),
             per_second: default_federation_rate_limit_per_second(),
             burst_size: default_federation_rate_limit_burst_size(),
+            fail_open_on_error: default_federation_rate_limit_fail_open(),
         }
     }
 }
@@ -179,6 +185,10 @@ fn default_federation_rate_limit_per_second() -> u32 {
 
 fn default_federation_rate_limit_burst_size() -> u32 {
     200
+}
+
+fn default_federation_rate_limit_fail_open() -> bool {
+    false
 }
 
 /// 信任的密钥服务器配置
@@ -253,4 +263,37 @@ fn default_federation_join_max_concurrency() -> usize {
 
 fn default_federation_join_acquire_timeout_ms() -> u64 {
     750
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ------------------------------------------------------------------
+    // S17 / SEC-02: 联邦限流必须有 fail_open_on_error 配置项，
+    // 且默认与主限流器对齐（fail-closed）
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn federation_rate_limit_fail_open_defaults_to_false() {
+        let config = FederationRateLimitConfig::default();
+        assert!(!config.fail_open_on_error, "默认必须与主限流器 fail-closed 语义对齐");
+    }
+
+    #[test]
+    fn federation_rate_limit_fail_open_deser_defaults_to_false() {
+        // 缺字段（旧配置文件）→ 默认 fail-closed
+        let config: FederationRateLimitConfig = serde_json::from_str("{}").unwrap();
+        assert!(!config.fail_open_on_error);
+        assert!(!config.enabled);
+        assert_eq!(config.per_second, 50);
+        assert_eq!(config.burst_size, 200);
+    }
+
+    #[test]
+    fn federation_rate_limit_fail_open_explicit_opt_in() {
+        let config: FederationRateLimitConfig =
+            serde_json::from_str(r#"{"fail_open_on_error": true}"#).unwrap();
+        assert!(config.fail_open_on_error, "显式配置 true 时必须生效（放行）");
+    }
 }

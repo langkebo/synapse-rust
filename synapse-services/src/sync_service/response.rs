@@ -29,34 +29,35 @@ impl SyncService {
         let event_format = response_filter.map(|filter| filter.event_format).unwrap_or_default();
         let lazy_load_members = Self::room_filter_requests_lazy_members(room_filter);
         let since_ts = Self::event_since_ts(since_token);
+        // S6: always use StreamOrdering. Timestamp-based tokens are converted
+        // to 0 for a full resync, eliminating the OriginServerTs path.
         let since_stream_ordering = since_token
             .as_ref()
-            .filter(|t| t.stream_id < Self::TIMESTAMP_TOKEN_MIN && t.stream_id > 0)
-            .map(|t| t.stream_id);
-        let (changed_members_by_room, state_change_ts_by_room) = if is_incremental {
-            let state_ts_result = if let Some(stream_ord) = since_stream_ordering {
-                self.event_reader
-                    .get_state_change_timestamps_batch(room_ids, SinceFilter::StreamOrdering(stream_ord))
-                    .await
-                    .map_err(ApiError::from)?
-            } else {
-                self.event_reader
-                    .get_state_change_timestamps_batch(room_ids, SinceFilter::OriginServerTs(since_ts))
-                    .await
-                    .map_err(ApiError::from)?
-            };
-            if lazy_load_members {
-                let changed_members = if let Some(stream_ord) = since_stream_ordering {
-                    self.event_reader
-                        .get_membership_state_keys_since_batch(room_ids, SinceFilter::StreamOrdering(stream_ord))
-                        .await
-                        .map_err(ApiError::from)?
+            .map(|t| {
+                if t.stream_id > 0 && t.stream_id < Self::TIMESTAMP_TOKEN_MIN {
+                    t.stream_id
                 } else {
-                    self.event_reader
-                        .get_membership_state_keys_since_batch(room_ids, SinceFilter::OriginServerTs(since_ts))
-                        .await
-                        .map_err(ApiError::from)?
-                };
+                    0
+                }
+            });
+        let (changed_members_by_room, state_change_ts_by_room) = if is_incremental {
+            let state_ts_result = self
+                .event_reader
+                .get_state_change_timestamps_batch(
+                    room_ids,
+                    SinceFilter::StreamOrdering(since_stream_ordering.unwrap_or(0)),
+                )
+                .await
+                .map_err(ApiError::from)?;
+            if lazy_load_members {
+                let changed_members = self
+                    .event_reader
+                    .get_membership_state_keys_since_batch(
+                        room_ids,
+                        SinceFilter::StreamOrdering(since_stream_ordering.unwrap_or(0)),
+                    )
+                    .await
+                    .map_err(ApiError::from)?;
                 (changed_members, state_ts_result)
             } else {
                 (HashMap::<String, HashSet<String>>::new(), state_ts_result)
@@ -318,6 +319,17 @@ impl SyncService {
         let BuildRoomSyncRequest { room_id, user_id, device_id, events, since_token, is_incremental, room_filter } =
             request;
         let since_ts = Self::event_since_ts(&since_token.cloned());
+        // S6: always use StreamOrdering for membership state key queries.
+        let since_stream_ord = since_token
+            .as_ref()
+            .map(|t| {
+                if t.stream_id > 0 && t.stream_id < Self::TIMESTAMP_TOKEN_MIN {
+                    t.stream_id
+                } else {
+                    0
+                }
+            })
+            .unwrap_or(0);
         let (
             changed_member_ids,
             state_list,
@@ -331,7 +343,7 @@ impl SyncService {
                     self.event_reader
                         .get_membership_state_keys_since_batch(
                             &[room_id.to_string()],
-                            SinceFilter::OriginServerTs(since_ts),
+                            SinceFilter::StreamOrdering(since_stream_ord),
                         )
                         .await
                         .map(|mut room_map| room_map.remove(room_id).unwrap_or_default())

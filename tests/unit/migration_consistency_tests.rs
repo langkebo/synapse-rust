@@ -28,7 +28,7 @@ fn test_v10_primary_and_deploy_migrations_match() {
     // exist. Content comparison is skipped because they represent different
     // migration epochs (v10 consolidated tables that v7 had as incremental).
     let primary_baseline = primary.join("00000000_unified_schema_v10.sql");
-    let deploy_baseline = deploy.join("00000000_unified_schema_v7.sql");
+    let deploy_baseline = deploy.join("00000000_unified_schema_v07.sql");
     assert!(primary_baseline.exists(), "missing primary v10 baseline");
     assert!(deploy_baseline.exists(), "missing deploy v7 baseline");
 }

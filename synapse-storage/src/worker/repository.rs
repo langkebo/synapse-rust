@@ -465,6 +465,28 @@ impl WorkerStorage {
         Ok(rows)
     }
 
+    /// PERF-05: 按 task_id 直查单个待领任务。
+    /// 替代「拉 1000 条 pending 到内存再 find」的模式——任务数超过 1000 时
+    /// 旧模式不仅慢，还会错误地报告目标任务不存在。
+    pub async fn get_pending_task_by_id(&self, task_id: &str) -> Result<Option<WorkerTaskAssignment>, sqlx::Error> {
+        sqlx::query_as::<_, WorkerTaskAssignment>(
+            r#"
+            SELECT id, task_id, task_type,
+                      COALESCE(task_data, '{}'::jsonb) as task_data,
+                      assigned_worker_id,
+                      status, priority,
+                      created_ts, assigned_ts,
+                      completed_ts, result,
+                      error_message
+            FROM worker_task_assignments
+            WHERE task_id = $1 AND status = 'pending'
+            "#,
+        )
+        .bind(task_id)
+        .fetch_optional(&*self.pool)
+        .await
+    }
+
     pub async fn claim_next_pending_task(&self, worker_id: &str) -> Result<Option<WorkerTaskAssignment>, sqlx::Error> {
         let now = current_timestamp_millis();
 

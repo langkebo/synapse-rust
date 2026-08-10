@@ -23,7 +23,6 @@ pub fn create_server_router(_state: AppState) -> Router<crate::web::routes::AppS
         .route("/_synapse/admin/v1/health", get(get_health))
         .route("/_synapse/admin/v1/config", get(get_config))
         .route("/_synapse/admin/v1/experimental_features", get(get_experimental_features))
-        .route("/_synapse/admin/v1/backups", get(get_backups))
         .route("/_synapse/admin/v1/jitsi/config", get(get_jitsi_config))
         .route("/_synapse/admin/v1/invite/blocklist", get(get_invite_blocklist_admin))
         .route("/_synapse/admin/v1/invite/allowlist", get(get_invite_allowlist_admin))
@@ -43,7 +42,6 @@ pub fn admin_server_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
         (Method::GET, "/_synapse/admin/v1/health"),
         (Method::GET, "/_synapse/admin/v1/config"),
         (Method::GET, "/_synapse/admin/v1/experimental_features"),
-        (Method::GET, "/_synapse/admin/v1/backups"),
         (Method::GET, "/_synapse/admin/v1/jitsi/config"),
         (Method::GET, "/_synapse/admin/v1/invite/blocklist"),
         (Method::GET, "/_synapse/admin/v1/invite/allowlist"),
@@ -84,18 +82,6 @@ pub async fn get_admin_whoami(admin: AdminUser, State(ctx): State<AdminContext>)
         "is_admin": admin.role == "super_admin" || admin.role == "admin",
         "role": admin.role
     })))
-}
-
-#[allow(clippy::unused_async)]
-pub async fn get_backups(
-    _admin: AdminUser,
-    State(_ctx): State<AdminContext>,
-    axum::extract::Query(_params): axum::extract::Query<std::collections::HashMap<String, String>>,
-) -> Result<Json<Value>, ApiError> {
-    // Backups are managed by external infrastructure (pg_dump, WAL-G, etc.),
-    // not by the homeserver itself. Return 501 to distinguish "endpoint
-    // recognized but intentionally not implemented" from "endpoint unknown".
-    Err(ApiError::not_implemented("Admin server endpoint 'backups' is not implemented in this deployment; backups are managed by external infrastructure"))
 }
 
 #[allow(clippy::unused_async)]
@@ -390,4 +376,19 @@ pub async fn get_invite_allowlist_admin(
     Ok(Json(json!({
         "allowlist": allowlist
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backups_route_not_in_manifest() {
+        let manifest = admin_server_route_manifest();
+        let has_backups = manifest.iter().any(|e| e.path == "/_synapse/admin/v1/backups");
+        assert!(
+            !has_backups,
+            "backups endpoint should not be registered — backups are managed by external infrastructure"
+        );
+    }
 }

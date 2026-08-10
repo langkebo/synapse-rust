@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::time::Instant;
@@ -85,6 +86,54 @@ impl Default for CacheStats {
     }
 }
 
+/// S21/PERF-01: Atomic counters for cache statistics, replacing
+/// `RwLock<CacheStats>`. The read path (`get`) previously held three
+/// write locks simultaneously (cache + stats + hot_keys), serializing
+/// all reads. Atomic counters allow stats updates without any lock.
+struct AtomicCacheStats {
+    hits: AtomicU64,
+    misses: AtomicU64,
+    evictions: AtomicU64,
+    total_entries: AtomicUsize,
+}
+
+impl AtomicCacheStats {
+    fn new() -> Self {
+        Self {
+            hits: AtomicU64::new(0),
+            misses: AtomicU64::new(0),
+            evictions: AtomicU64::new(0),
+            total_entries: AtomicUsize::new(0),
+        }
+    }
+
+    fn record_hit(&self) {
+        self.hits.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn record_miss(&self) {
+        self.misses.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn record_evictions(&self, count: u64) {
+        self.evictions.fetch_add(count, Ordering::Relaxed);
+    }
+
+    fn set_total_entries(&self, total: usize) {
+        self.total_entries.store(total, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self) -> CacheStats {
+        let hits = self.hits.load(Ordering::Relaxed);
+        let misses = self.misses.load(Ordering::Relaxed);
+        let evictions = self.evictions.load(Ordering::Relaxed);
+        let total_entries = self.total_entries.load(Ordering::Relaxed);
+        let total = hits + misses;
+        let hit_rate = if total == 0 { 0.0 } else { hits as f64 / total as f64 };
+        CacheStats { hits, misses, evictions, total_entries, memory_usage_bytes: 0, hit_rate }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum CacheWarmupStrategy {
     Lazy,
@@ -122,7 +171,8 @@ pub struct QueryCache {
     memberships: RwLock<HashMap<String, CacheEntry<serde_json::Value>>>,
     devices: RwLock<HashMap<String, CacheEntry<serde_json::Value>>>,
     tokens: RwLock<HashMap<String, CacheEntry<serde_json::Value>>>,
-    stats: RwLock<CacheStats>,
+    /// S21: Atomic counters — no lock contention on the read path.
+    stats: AtomicCacheStats,
     hot_keys: RwLock<HashMap<String, u32>>,
 }
 
@@ -137,7 +187,7 @@ impl QueryCache {
             memberships: RwLock::new(HashMap::new()),
             devices: RwLock::new(HashMap::new()),
             tokens: RwLock::new(HashMap::new()),
-            stats: RwLock::new(CacheStats::default()),
+            stats: AtomicCacheStats::new(),
             hot_keys: RwLock::new(HashMap::new()),
         }
     }
@@ -208,35 +258,62 @@ impl QueryCache {
     where
         T: Clone,
     {
-        let mut cache = cache.write().await;
-        let cache_len = cache.len();
-        if let Some(entry) = cache.get_mut(key) {
-            if !entry.is_expired() {
-                entry.touch();
-                let mut stats = self.stats.write().await;
-                stats.hits += 1;
-                stats.total_entries = cache_len;
-                stats.hit_rate = Self::calculate_hit_rate_direct(&stats);
-                if track_access {
-                    let mut hot_keys = self.hot_keys.write().await;
-                    // Prevent unbounded growth: if the tracking map has grown
-                    // too large, reset it. This is safe because hot_keys is
-                    // advisory data for cache warm-up heuristics only.
-                    if hot_keys.len() >= HOT_KEYS_MAX_ENTRIES {
-                        hot_keys.clear();
+        // S21/PERF-01: Read path no longer holds three write locks.
+        // Phase 1: read lock for initial lookup (concurrent readers OK).
+        {
+            let cache_read = cache.read().await;
+            if let Some(entry) = cache_read.get(key) {
+                if !entry.is_expired() {
+                    let value = entry.value.clone();
+                    let cache_len = cache_read.len();
+                    // Drop read lock before touching (phase 2).
+                    drop(cache_read);
+
+                    // Phase 2: write lock only to touch (short critical section).
+                    let mut cache_write = cache.write().await;
+                    if let Some(entry) = cache_write.get_mut(key) {
+                        entry.touch();
                     }
-                    *hot_keys.entry(key.to_string()).or_insert(0) += 1;
+                    drop(cache_write);
+
+                    // Phase 3: atomic stats — no lock needed.
+                    self.stats.record_hit();
+                    self.stats.set_total_entries(cache_len);
+
+                    // Phase 4: hot_keys — advisory, use try_write to avoid
+                    // blocking if another reader holds it.
+                    if track_access {
+                        if let Ok(mut hot_keys) = self.hot_keys.try_write() {
+                            if hot_keys.len() >= HOT_KEYS_MAX_ENTRIES {
+                                hot_keys.clear();
+                            }
+                            *hot_keys.entry(key.to_string()).or_insert(0) += 1;
+                        }
+                    }
+
+                    return Some(value);
                 }
-                return Some(entry.value.clone());
             }
-            cache.remove(key);
-            let mut stats = self.stats.write().await;
-            stats.evictions += 1;
-        } else {
-            let mut stats = self.stats.write().await;
-            stats.misses += 1;
-            stats.total_entries = cache_len;
         }
+
+        // Entry not found or expired — handle removal under write lock.
+        let mut cache_write = cache.write().await;
+        let cache_len = cache_write.len();
+        if let Some(entry) = cache_write.get(key) {
+            if entry.is_expired() {
+                cache_write.remove(key);
+                drop(cache_write);
+                self.stats.record_evictions(1);
+                self.stats.record_miss();
+                self.stats.set_total_entries(cache_len.saturating_sub(1));
+                return None;
+            }
+        }
+        drop(cache_write);
+
+        // Entry doesn't exist at all.
+        self.stats.record_miss();
+        self.stats.set_total_entries(cache_len);
         None
     }
 
@@ -271,25 +348,19 @@ impl QueryCache {
             cache.remove(&key);
         }
 
-        let mut stats = self.stats.write().await;
-        stats.evictions += to_remove as u64;
-    }
-
-    fn calculate_hit_rate_direct(stats: &CacheStats) -> f64 {
-        let total = stats.hits + stats.misses;
-        if total == 0 {
-            0.0
-        } else {
-            stats.hits as f64 / total as f64
-        }
+        // S21: atomic, no lock needed.
+        self.stats.record_evictions(to_remove as u64);
     }
 
     async fn record_batch_access_stats(&self, hits: u64, misses: u64, total_entries: usize) {
-        let mut stats = self.stats.write().await;
-        stats.hits += hits;
-        stats.misses += misses;
-        stats.total_entries = total_entries;
-        stats.hit_rate = Self::calculate_hit_rate_direct(&stats);
+        // S21: atomic counters — no lock needed.
+        if hits > 0 {
+            self.stats.hits.fetch_add(hits, Ordering::Relaxed);
+        }
+        if misses > 0 {
+            self.stats.misses.fetch_add(misses, Ordering::Relaxed);
+        }
+        self.stats.set_total_entries(total_entries);
     }
 
     async fn update_total_entries(&self) {
@@ -300,8 +371,8 @@ impl QueryCache {
             + self.devices.read().await.len()
             + self.tokens.read().await.len();
 
-        let mut stats = self.stats.write().await;
-        stats.total_entries = total;
+        // S21: atomic, no lock needed.
+        self.stats.set_total_entries(total);
     }
 
     pub async fn invalidate_room(&self, room_id: &str) {
@@ -340,12 +411,13 @@ impl QueryCache {
         self.tokens.write().await.clear();
         self.hot_keys.write().await.clear();
 
-        let mut stats = self.stats.write().await;
-        stats.total_entries = 0;
+        // S21: atomic, no lock needed.
+        self.stats.set_total_entries(0);
     }
 
     pub async fn get_stats(&self) -> CacheStats {
-        self.stats.read().await.clone()
+        // S21: atomic snapshot — no lock needed.
+        self.stats.snapshot()
     }
 
     pub async fn get_hot_keys(&self, limit: usize) -> Vec<(String, u32)> {
@@ -374,8 +446,8 @@ impl QueryCache {
         map.retain(|_, entry| !entry.is_expired());
         let removed = before_count.saturating_sub(map.len());
 
-        let mut stats = self.stats.write().await;
-        stats.evictions += removed as u64;
+        // S21: atomic, no lock needed.
+        self.stats.record_evictions(removed as u64);
     }
 
     pub async fn configure_warmup(&self, config: CacheWarmupConfig) {

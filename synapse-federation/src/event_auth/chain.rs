@@ -45,6 +45,18 @@ impl EventAuthChain {
                     if event.room_id != room_id {
                         return false;
                     }
+                    // FED-04: 授权链中的事件必须是授权事件类型
+                    if !Self::is_auth_event(&event.event_type) {
+                        return false;
+                    }
+                    // FED-04: 非 create 根的事件必须被事件集合中某个事件的
+                    // auth_events 引用，否则视为被伪造塞入链中
+                    if event.event_type != "m.room.create" {
+                        let referenced = events.values().any(|e| e.auth_events.iter().any(|id| id == event_id));
+                        if !referenced {
+                            return false;
+                        }
+                    }
                     seen_events.insert(event_id.clone());
                 }
                 None => {
@@ -327,5 +339,65 @@ mod tests {
         events
             .insert("$create".into(), make_event_data("$create", "!r:ex.com", "m.room.create", vec![], "@a:ex.com", 1));
         assert!(chain.verify_auth_chain(&events, "!r:ex.com", &["$create".into()]));
+    }
+
+    // ------------------------------------------------------------------
+    // S3 / FED-04: 授权链必须校验事件类型与 auth_events 引用有效性
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn verify_auth_chain_rejects_non_auth_event_type() {
+        // 攻击者把普通消息事件塞进授权链 —— 必须拒绝
+        let chain = EventAuthChain::new();
+        let mut events = HashMap::new();
+        events.insert(
+            "$msg".into(),
+            make_event_data("$msg", "!r:ex.com", "m.room.message", vec![], "@a:ex.com", 2),
+        );
+        assert!(!chain.verify_auth_chain(&events, "!r:ex.com", &["$msg".into()]));
+    }
+
+    #[test]
+    fn verify_auth_chain_rejects_unreferenced_auth_event() {
+        // 授权事件不被任何事件的 auth_events 引用（且非 create 根）—— 必须拒绝
+        let chain = EventAuthChain::new();
+        let mut events = HashMap::new();
+        events.insert(
+            "$create".into(),
+            make_event_data("$create", "!r:ex.com", "m.room.create", vec![], "@a:ex.com", 1),
+        );
+        events.insert(
+            "$orphan_pl".into(),
+            make_event_data("$orphan_pl", "!r:ex.com", "m.room.power_levels", vec![], "@attacker:evil.com", 5),
+        );
+        assert!(!chain.verify_auth_chain(&events, "!r:ex.com", &["$create".into(), "$orphan_pl".into()]));
+    }
+
+    #[test]
+    fn verify_auth_chain_accepts_referenced_auth_events() {
+        // create + 被引用的 power_levels/member（目标事件 $msg 引用整条链）—— 合法链必须接受
+        let chain = EventAuthChain::new();
+        let mut events = HashMap::new();
+        events.insert(
+            "$create".into(),
+            make_event_data("$create", "!r:ex.com", "m.room.create", vec![], "@a:ex.com", 1),
+        );
+        events.insert(
+            "$pl".into(),
+            make_event_data("$pl", "!r:ex.com", "m.room.power_levels", vec!["$create"], "@a:ex.com", 2),
+        );
+        events.insert(
+            "$member".into(),
+            make_event_data("$member", "!r:ex.com", "m.room.member", vec!["$create", "$pl"], "@a:ex.com", 3),
+        );
+        events.insert(
+            "$msg".into(),
+            make_event_data("$msg", "!r:ex.com", "m.room.message", vec!["$create", "$pl", "$member"], "@a:ex.com", 4),
+        );
+        assert!(chain.verify_auth_chain(
+            &events,
+            "!r:ex.com",
+            &["$create".into(), "$pl".into(), "$member".into()]
+        ));
     }
 }

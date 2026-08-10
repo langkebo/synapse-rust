@@ -75,14 +75,28 @@ impl StateResolutionService {
 
         let resolved = chain.resolve_state_with_auth_chain(&event_data, &event_ids);
 
-        let resolved_ids: std::collections::HashSet<&str> =
-            resolved.keys().map(|s| s.split(':').next().unwrap_or("")).collect();
+        // FED-03: resolved 的键是 "{event_type}:{state_key}" 状态槽位，
+        // 必须用「该事件的 (type, state_key) 槽位且内容即胜出内容」做精确归属，
+        // 不能用 split(':') 前缀匹配（那会把所有事件错误地 rejected/accepted）。
+        let mut accepted: Vec<String> = Vec::new();
+        let mut rejected: Vec<String> = Vec::new();
 
-        let accepted: Vec<String> =
-            event_ids.iter().filter(|eid| resolved_ids.contains(*eid)).map(|s| s.to_string()).collect();
-
-        let rejected: Vec<String> =
-            event_ids.iter().filter(|eid| !resolved_ids.contains(*eid)).map(|s| s.to_string()).collect();
+        for eid in &event_ids {
+            let event = &event_data[*eid];
+            let won = match (event.state_key.as_ref().and_then(|v| v.as_str()), event.content.as_ref()) {
+                (Some(state_key), Some(content)) => {
+                    let slot = format!("{}:{}", event.event_type, state_key);
+                    resolved.get(&slot).is_some_and(|winning| *winning == content)
+                }
+                // 非状态事件不参与状态解析结果
+                _ => false,
+            };
+            if won {
+                accepted.push((*eid).to_string());
+            } else {
+                rejected.push((*eid).to_string());
+            }
+        }
 
         Ok(ResolutionResult { accepted_events: accepted, rejected_events: rejected })
     }
@@ -274,5 +288,96 @@ mod tests {
     fn test_state_resolution_service_default() {
         let service = StateResolutionService::new();
         let _ = service;
+    }
+
+    // ------------------------------------------------------------------
+    // S4 / FED-03: accepted/rejected 必须按 event_id 精确归属，
+    // 不得用 split(':') 前缀匹配
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_resolve_accepts_single_state_event_by_exact_id() {
+        let events = vec![json!({
+            "event_id": "$event1",
+            "room_id": "!room:server",
+            "type": "m.room.member",
+            "state_key": "@user:server",
+            "auth_events": [],
+            "prev_events": [],
+            "content": {"membership": "join"}
+        })];
+
+        let resolution = StateResolutionService::resolve(&events).expect("resolve");
+        assert_eq!(
+            resolution.accepted_events,
+            vec!["$event1".to_string()],
+            "唯一状态事件必须被 accepted（精确 event_id 归属）"
+        );
+        assert!(resolution.rejected_events.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_conflict_accepts_only_winning_event() {
+        let events = vec![
+            json!({
+                "event_id": "$pl1",
+                "room_id": "!room:server",
+                "type": "m.room.power_levels",
+                "state_key": "",
+                "auth_events": [],
+                "prev_events": [],
+                "content": {"users": {"@alice:server": 100}, "users_default": 0}
+            }),
+            json!({
+                "event_id": "$pl2",
+                "room_id": "!room:server",
+                "type": "m.room.power_levels",
+                "state_key": "",
+                "auth_events": [],
+                "prev_events": [],
+                "content": {"users": {"@bob:server": 100}, "users_default": 0}
+            }),
+        ];
+
+        let resolution = StateResolutionService::resolve(&events).expect("resolve");
+        assert_eq!(resolution.accepted_events.len(), 1, "冲突状态只能有一个胜者");
+        assert_eq!(resolution.rejected_events.len(), 1, "败者必须被 rejected");
+        // 确定性平票裁决：双方时间戳相同（均为 0）时 event_id 字典序小者胜，
+        // 与 event_auth::state_resolution::detect_conflicts 的约定一致。
+        assert_eq!(resolution.accepted_events[0], "$pl1");
+        assert_eq!(resolution.rejected_events[0], "$pl2");
+    }
+
+    /// 防 flaky 回归：resolve 内部经过 HashMap，迭代顺序随机；
+    /// 无论迭代顺序如何，同一输入的解析结果必须恒定。
+    #[test]
+    fn test_resolve_is_deterministic_across_iterations() {
+        let events = vec![
+            json!({
+                "event_id": "$pl1",
+                "room_id": "!room:server",
+                "type": "m.room.power_levels",
+                "state_key": "",
+                "auth_events": [],
+                "prev_events": [],
+                "content": {"users": {"@alice:server": 100}, "users_default": 0}
+            }),
+            json!({
+                "event_id": "$pl2",
+                "room_id": "!room:server",
+                "type": "m.room.power_levels",
+                "state_key": "",
+                "auth_events": [],
+                "prev_events": [],
+                "content": {"users": {"@bob:server": 100}, "users_default": 0}
+            }),
+        ];
+
+        let first = StateResolutionService::resolve(&events).expect("resolve");
+        for _ in 0..50 {
+            let again = StateResolutionService::resolve(&events).expect("resolve");
+            assert_eq!(again.accepted_events, first.accepted_events, "accepted 必须跨迭代恒定");
+            assert_eq!(again.rejected_events, first.rejected_events, "rejected 必须跨迭代恒定");
+        }
     }
 }

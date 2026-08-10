@@ -26,7 +26,7 @@ async fn test_create_or_update_token_insert_then_update() {
     let device_id = unique_id("DEV");
 
     let token =
-        storage.create_or_update_token(&user_id, &device_id, None).await.expect("create_or_update_token should insert");
+        storage.create_or_update_token(&user_id, &device_id, None, 0).await.expect("create_or_update_token should insert");
     assert_eq!(token.user_id, user_id);
     assert_eq!(token.device_id, device_id);
     assert!(token.conn_id.is_none());
@@ -34,7 +34,7 @@ async fn test_create_or_update_token_insert_then_update() {
 
     // Calling again with the same (user, device, conn) should update the existing row
     let updated =
-        storage.create_or_update_token(&user_id, &device_id, None).await.expect("create_or_update_token should update");
+        storage.create_or_update_token(&user_id, &device_id, None, 0).await.expect("create_or_update_token should update");
     assert!(updated.pos > first_pos, "pos should advance on update, got {} -> {}", first_pos, updated.pos);
 
     storage.delete_connection_data(&user_id, &device_id, None).await.expect("cleanup");
@@ -49,7 +49,7 @@ async fn test_create_or_update_token_with_conn_id() {
     let conn_id = unique_id("conn");
 
     let token = storage
-        .create_or_update_token(&user_id, &device_id, Some(&conn_id))
+        .create_or_update_token(&user_id, &device_id, Some(&conn_id), 0)
         .await
         .expect("create_or_update_token with conn_id should succeed");
     assert_eq!(token.conn_id.as_deref(), Some(conn_id.as_str()));
@@ -75,7 +75,7 @@ async fn test_get_token_returns_inserted_token() {
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
 
-    storage.create_or_update_token(&user_id, &device_id, None).await.unwrap();
+    storage.create_or_update_token(&user_id, &device_id, None, 0).await.unwrap();
     let fetched = storage.get_token(&user_id, &device_id, None).await.expect("get_token should succeed");
     assert!(fetched.is_some());
     assert_eq!(fetched.unwrap().user_id, user_id);
@@ -90,7 +90,7 @@ async fn test_validate_pos_valid_and_invalid() {
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
 
-    let token = storage.create_or_update_token(&user_id, &device_id, None).await.unwrap();
+    let token = storage.create_or_update_token(&user_id, &device_id, None, 0).await.unwrap();
     let valid_pos = token.pos.to_string();
     assert!(storage.validate_pos(&user_id, &device_id, None, &valid_pos).await.expect("validate_pos valid"));
     // A wrong pos should not validate
@@ -559,7 +559,7 @@ async fn test_cleanup_expired_tokens_removes_only_expired() {
     let device_id = unique_id("DEV");
 
     // Create a valid (non-expired) token
-    storage.create_or_update_token(&user_id, &device_id, None).await.unwrap();
+    storage.create_or_update_token(&user_id, &device_id, None, 0).await.unwrap();
 
     // Manually expire one token row
     let past_ts = current_timestamp_millis() - 1000;
@@ -827,7 +827,7 @@ async fn test_delete_connection_data_removes_all() {
     let device_id = unique_id("DEV");
 
     // Seed token, list, and room
-    storage.create_or_update_token(&user_id, &device_id, None).await.unwrap();
+    storage.create_or_update_token(&user_id, &device_id, None, 0).await.unwrap();
     let sort = vec!["by_recency".to_string()];
     let ranges = vec![(0u32, 10u32)];
     storage.save_list(&user_id, &device_id, None, "main", &sort, None, None, &ranges).await.unwrap();

@@ -67,22 +67,35 @@ pub fn thirdparty_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
 }
 
 async fn get_protocols(
-    State(_ctx): State<RoomContext>,
+    State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Ok(Json(serde_json::json!({})))
+    let services = ctx
+        .app_service_manager
+        .get_all_active()
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to query application service protocols", &e))?;
+
+    Ok(Json(synapse_services::application_service::ApplicationServiceManager::aggregate_protocols(&services)))
 }
 
 async fn get_protocol(
-    State(_ctx): State<RoomContext>,
+    State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Path(_protocol): Path<String>,
+    Path(protocol): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Ok(Json(serde_json::json!({
-        "instances": [],
-        "user_fields": [],
-        "location_fields": []
-    })))
+    let services = ctx
+        .app_service_manager
+        .get_all_active()
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to query application service protocols", &e))?;
+
+    let protocols = synapse_services::application_service::ApplicationServiceManager::aggregate_protocols(&services);
+
+    match protocols.get(&protocol) {
+        Some(detail) => Ok(Json(detail.clone())),
+        None => Err(ApiError::not_found(format!("Protocol '{protocol}' is not registered"))),
+    }
 }
 
 #[derive(Debug, Deserialize)]

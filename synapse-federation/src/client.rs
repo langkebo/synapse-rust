@@ -24,6 +24,87 @@ fn effective_cache_ttl_secs(keys: &ServerKeys, now_ms: i64) -> u64 {
     let remaining_secs = ((keys.valid_until_ts - now_ms) / 1000).max(0) as u64;
     KEY_CACHE_TTL_SECS.min(remaining_secs)
 }
+
+/// FED-01: 远程服务器密钥在缓存前必须验证自签名。
+///
+/// 矩阵密钥响应要求服务器用自己的 ed25519 私钥对响应体签名；
+/// 不验签就缓存会让 MITM 注入伪造的 verify_keys，进而伪造任意联邦请求签名。
+/// 至少要求一条 verify_key 持有有效的自签名，否则拒绝。
+fn verify_server_keys_self_signature(keys: &ServerKeys) -> Result<(), FederationClientError> {
+    let verify_keys = keys
+        .verify_keys
+        .as_object()
+        .ok_or_else(|| FederationClientError::InvalidResponse("verify_keys must be an object".into()))?;
+    if verify_keys.is_empty() {
+        return Err(FederationClientError::InvalidResponse("verify_keys must not be empty".into()));
+    }
+
+    let self_sigs = keys
+        .signatures
+        .get(&keys.server_name)
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| {
+            FederationClientError::Authentication(format!(
+                "server keys for {} lack a self-signature",
+                keys.server_name
+            ))
+        })?;
+
+    // 待验签内容：完整响应去掉 signatures/unsigned 后的 canonical JSON
+    let mut value = serde_json::to_value(keys)
+        .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
+    synapse_common::remove_signatures_and_unsigned(&mut value);
+    let message = synapse_common::canonical_json_bytes(&value)
+        .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
+
+    let mut any_valid = false;
+    for (key_id, key_data) in verify_keys {
+        if key_id.split(':').next() != Some("ed25519") {
+            continue;
+        }
+        let Some(public_key_b64) =
+            key_data.get("key").and_then(|v| v.as_str()).or_else(|| key_data.as_str())
+        else {
+            continue;
+        };
+        let Some(signature_b64) = self_sigs.get(key_id).and_then(|v| v.as_str()) else {
+            continue;
+        };
+
+        // Matrix 使用 unpadded base64，但对 padded 变体宽容
+        let pub_bytes = STANDARD_NO_PAD
+            .decode(public_key_b64)
+            .or_else(|_| base64::engine::general_purpose::STANDARD.decode(public_key_b64));
+        let sig_bytes = STANDARD_NO_PAD
+            .decode(signature_b64)
+            .or_else(|_| base64::engine::general_purpose::STANDARD.decode(signature_b64));
+        let (Ok(pub_bytes), Ok(sig_bytes)) = (pub_bytes, sig_bytes) else {
+            continue;
+        };
+        let (Ok(pub_arr), Ok(sig_arr)) =
+            (<[u8; 32]>::try_from(pub_bytes.as_slice()), <[u8; 64]>::try_from(sig_bytes.as_slice()))
+        else {
+            continue;
+        };
+        let Ok(verifying_key) = ed25519_dalek::VerifyingKey::from_bytes(&pub_arr) else {
+            continue;
+        };
+        let signature = ed25519_dalek::Signature::from_bytes(&sig_arr);
+        if verifying_key.verify_strict(&message, &signature).is_ok() {
+            any_valid = true;
+            break;
+        }
+    }
+
+    if any_valid {
+        Ok(())
+    } else {
+        Err(FederationClientError::Authentication(format!(
+            "no valid self-signature on server keys for {}",
+            keys.server_name
+        )))
+    }
+}
 const DEFAULT_FEDERATION_PORT: u16 = 8448;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,13 +180,6 @@ pub struct StateIdsResponse {
     pub origin: String,
     pub pdu_ids: Vec<String>,
     pub auth_chain_ids: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EventResponse {
-    pub origin: String,
-    pub origin_server_ts: i64,
-    pub pdu: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -422,6 +496,9 @@ impl FederationClient {
         let response = self.send_signed_request("GET", path, destination, None).await?;
         let keys: ServerKeys = self.handle_response(response).await?;
 
+        // FED-01: 验签通过前不得写入缓存
+        verify_server_keys_self_signature(&keys)?;
+
         self.key_cache
             .write()
             .await
@@ -540,12 +617,6 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
-    pub async fn get_event(&self, destination: &str, event_id: &str) -> Result<EventResponse, FederationClientError> {
-        let path = format!("/_matrix/federation/v1/event/{}", urlencoding::encode(event_id));
-        let response = self.send_signed_request("GET", &path, destination, None).await?;
-        self.handle_response(response).await
-    }
-
     pub async fn get_state(&self, destination: &str, room_id: &str) -> Result<StateResponse, FederationClientError> {
         let path = format!("/_matrix/federation/v1/state/{}", urlencoding::encode(room_id));
         let response = self.send_signed_request("GET", &path, destination, None).await?;
@@ -596,21 +667,6 @@ impl FederationClient {
         let body_str =
             serde_json::to_string(&body).map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
         let response = self.send_signed_request("POST", &path, destination, Some(&body_str)).await?;
-        self.handle_response(response).await
-    }
-
-    pub async fn get_event_auth(
-        &self,
-        destination: &str,
-        room_id: &str,
-        event_id: &str,
-    ) -> Result<serde_json::Value, FederationClientError> {
-        let path = format!(
-            "/_matrix/federation/v1/get_event_auth/{}/{}",
-            urlencoding::encode(room_id),
-            urlencoding::encode(event_id)
-        );
-        let response = self.send_signed_request("GET", &path, destination, None).await?;
         self.handle_response(response).await
     }
 
@@ -921,6 +977,72 @@ mod tests {
         let json = r#"{"server": {"name": "synapse-rust", "version": "0.1.0"}}"#;
         let resp: VersionResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.server.name, "synapse-rust");
+    }
+
+    // ------------------------------------------------------------------
+    // S2 / FED-01: 远程服务器密钥缓存前必须验证自签名，防 MITM 注入伪造密钥
+    // ------------------------------------------------------------------
+
+    fn make_signed_server_keys(
+        signing_key: &ed25519_dalek::SigningKey,
+        server: &str,
+    ) -> ServerKeys {
+        use base64::Engine;
+        use ed25519_dalek::Signer;
+        let key_id = "ed25519:test";
+        let pub_b64 =
+            base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().as_bytes());
+        let mut value = serde_json::json!({
+            "server_name": server,
+            "verify_keys": { key_id: { "key": pub_b64 } },
+            "old_verify_keys": {},
+            "valid_until_ts": current_timestamp_millis() + 86_400_000,
+        });
+        let mut for_signing = value.clone();
+        synapse_common::remove_signatures_and_unsigned(&mut for_signing);
+        let msg = synapse_common::canonical_json_bytes(&for_signing).expect("canonical json");
+        let sig =
+            base64::engine::general_purpose::STANDARD.encode(signing_key.sign(&msg).to_bytes());
+        value["signatures"] = serde_json::json!({ server: { key_id: sig } });
+        serde_json::from_value(value).expect("ServerKeys")
+    }
+
+    #[test]
+    fn server_keys_valid_self_signature_accepted() {
+        let sk = ed25519_dalek::SigningKey::from_bytes(&[3u8; 32]);
+        let keys = make_signed_server_keys(&sk, "remote.example");
+        assert!(
+            verify_server_keys_self_signature(&keys).is_ok(),
+            "validly self-signed server keys must be accepted"
+        );
+    }
+
+    #[test]
+    fn server_keys_forged_self_signature_rejected() {
+        let victim_key = ed25519_dalek::SigningKey::from_bytes(&[3u8; 32]);
+        let attacker_key = ed25519_dalek::SigningKey::from_bytes(&[4u8; 32]);
+        // 公钥是受害者的，签名却是攻击者私钥签的 —— MITM 注入场景
+        let keys = {
+            let mut keys = make_signed_server_keys(&victim_key, "remote.example");
+            let forged = make_signed_server_keys(&attacker_key, "remote.example");
+            keys.signatures = forged.signatures;
+            keys
+        };
+        assert!(
+            verify_server_keys_self_signature(&keys).is_err(),
+            "forged self-signature must be rejected"
+        );
+    }
+
+    #[test]
+    fn server_keys_missing_self_signature_rejected() {
+        let sk = ed25519_dalek::SigningKey::from_bytes(&[3u8; 32]);
+        let mut keys = make_signed_server_keys(&sk, "remote.example");
+        keys.signatures = serde_json::json!({});
+        assert!(
+            verify_server_keys_self_signature(&keys).is_err(),
+            "key response without self-signature must be rejected"
+        );
     }
 
     #[test]

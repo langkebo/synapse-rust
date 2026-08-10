@@ -128,7 +128,7 @@ async fn test_create_or_update_token_creates_new() {
     setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
 
-    let token = storage.create_or_update_token("@alice:localhost", "DEVICE1", None).await.unwrap();
+    let token = storage.create_or_update_token("@alice:localhost", "DEVICE1", None, 0).await.unwrap();
 
     assert_eq!(token.user_id, "@alice:localhost");
     assert_eq!(token.device_id, "DEVICE1");
@@ -145,7 +145,7 @@ async fn test_create_or_update_token_with_conn_id() {
     setup_test_database(&pool).await;
     let storage = SlidingSyncStorage::new(pool.clone());
 
-    let token = storage.create_or_update_token("@bob:localhost", "DEVICE2", Some("conn1")).await.unwrap();
+    let token = storage.create_or_update_token("@bob:localhost", "DEVICE2", Some("conn1"), 0).await.unwrap();
 
     assert_eq!(token.conn_id, Some("conn1".to_string()));
 }
@@ -158,9 +158,9 @@ async fn test_create_or_update_token_upserts_existing() {
     let suffix = unique_id();
     let user_id = format!("@upsert_user_{suffix}:localhost");
 
-    let token1 = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
+    let token1 = storage.create_or_update_token(&user_id, "DEV1", None, 0).await.unwrap();
 
-    let token2 = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
+    let token2 = storage.create_or_update_token(&user_id, "DEV1", None, 0).await.unwrap();
 
     assert_eq!(token1.id, token2.id);
     assert!(token2.pos > token1.pos);
@@ -174,7 +174,7 @@ async fn test_get_token_returns_created() {
     let suffix = unique_id();
     let user_id = format!("@get_token_{suffix}:localhost");
 
-    storage.create_or_update_token(&user_id, "DEV1", Some("c1")).await.unwrap();
+    storage.create_or_update_token(&user_id, "DEV1", Some("c1"), 0).await.unwrap();
 
     let fetched = storage.get_token(&user_id, "DEV1", Some("c1")).await.unwrap();
 
@@ -204,9 +204,9 @@ async fn test_get_token_null_conn_id_distinction() {
     let suffix = unique_id();
     let user_id = format!("@null_conn_{suffix}:localhost");
 
-    storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
+    storage.create_or_update_token(&user_id, "DEV1", None, 0).await.unwrap();
 
-    storage.create_or_update_token(&user_id, "DEV1", Some("conn_x")).await.unwrap();
+    storage.create_or_update_token(&user_id, "DEV1", Some("conn_x"), 0).await.unwrap();
 
     let null_token = storage.get_token(&user_id, "DEV1", None).await.unwrap().unwrap();
     assert!(null_token.conn_id.is_none());
@@ -223,7 +223,7 @@ async fn test_validate_pos_valid() {
     let suffix = unique_id();
     let user_id = format!("@valid_pos_{suffix}:localhost");
 
-    let token = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
+    let token = storage.create_or_update_token(&user_id, "DEV1", None, 0).await.unwrap();
 
     let is_valid = storage.validate_pos(&user_id, "DEV1", None, &token.pos.to_string()).await.unwrap();
 
@@ -238,7 +238,7 @@ async fn test_validate_pos_invalid() {
     let suffix = unique_id();
     let user_id = format!("@invalid_pos_{suffix}:localhost");
 
-    storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
+    storage.create_or_update_token(&user_id, "DEV1", None, 0).await.unwrap();
 
     let is_valid = storage.validate_pos(&user_id, "DEV1", None, "999999").await.unwrap();
 
@@ -1035,7 +1035,7 @@ async fn test_cleanup_expired_tokens() {
     let suffix = unique_id();
     let user_id = format!("@cleanup_{suffix}:localhost");
 
-    let token = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
+    let token = storage.create_or_update_token(&user_id, "DEV1", None, 0).await.unwrap();
 
     let past_expiry = current_timestamp_millis() - 1000;
     sqlx::query("UPDATE sliding_sync_tokens SET expires_at = $1 WHERE id = $2")
@@ -1060,7 +1060,7 @@ async fn test_cleanup_expired_tokens_preserves_valid() {
     let suffix = unique_id();
     let user_id = format!("@preserve_{suffix}:localhost");
 
-    storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
+    storage.create_or_update_token(&user_id, "DEV1", None, 0).await.unwrap();
 
     let deleted = storage.cleanup_expired_tokens().await.unwrap();
     assert_eq!(deleted, 0);
@@ -1078,7 +1078,7 @@ async fn test_list_room_token_sync_basic() {
     let user_id = format!("@token_sync_{suffix}:localhost");
     let room_id = format!("!room_{suffix}:localhost");
 
-    storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
+    storage.create_or_update_token(&user_id, "DEV1", None, 0).await.unwrap();
 
     storage
         .upsert_room(
@@ -1119,8 +1119,8 @@ async fn test_list_room_token_sync_with_cursor() {
     let suffix = unique_id();
     let room_id = format!("!cursor_room_{suffix}:localhost");
 
-    storage.create_or_update_token(&format!("@user1_{suffix}:localhost"), "DEV1", None).await.unwrap();
-    storage.create_or_update_token(&format!("@user2_{suffix}:localhost"), "DEV1", None).await.unwrap();
+    storage.create_or_update_token(&format!("@user1_{suffix}:localhost"), "DEV1", None, 0).await.unwrap();
+    storage.create_or_update_token(&format!("@user2_{suffix}:localhost"), "DEV1", None, 0).await.unwrap();
 
     storage
         .upsert_room(
@@ -1287,8 +1287,8 @@ async fn test_conn_id_isolation_between_tokens() {
     let suffix = unique_id();
     let user_id = format!("@conn_iso_{suffix}:localhost");
 
-    let token_none = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
-    let token_conn = storage.create_or_update_token(&user_id, "DEV1", Some("conn1")).await.unwrap();
+    let token_none = storage.create_or_update_token(&user_id, "DEV1", None, 0).await.unwrap();
+    let token_conn = storage.create_or_update_token(&user_id, "DEV1", Some("conn1"), 0).await.unwrap();
 
     assert_ne!(token_none.id, token_conn.id);
     assert!(token_none.conn_id.is_none());

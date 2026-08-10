@@ -146,6 +146,21 @@ pub const fn millis(duration_ms: u64) -> Duration {
     Duration::from_millis(duration_ms)
 }
 
+/// 同步请求服务端外层超时相对客户端 `timeout` 参数的宽余量（毫秒）。
+///
+/// 客户端长轮询 `timeout` 到期后会自行重试；服务端必须略晚于客户端超时，
+/// 否则客户端永远收不到「超时空响应」而只能看到连接被截断。
+pub const SYNC_SERVER_TIMEOUT_BUFFER_MS: u64 = 15_000;
+
+/// S13/N6: 同步链路统一的服务端外层超时 = 客户端 timeout + 固定宽余量。
+///
+/// `/sync`（handlers/sync.rs）与 `/rooms/{id}/sync`（room_sync_with_timeout）
+/// 必须使用同一公式；此前后者硬编码 60s，客户端 timeout=120s 会被提前截断。
+/// 饱和加法防止恶意/异常的超大 timeout 溢出。
+pub const fn sync_server_timeout(client_timeout_ms: u64) -> Duration {
+    Duration::from_millis(client_timeout_ms.saturating_add(SYNC_SERVER_TIMEOUT_BUFFER_MS))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,6 +169,23 @@ mod tests {
     fn test_duration_constants() {
         assert_eq!(secs(30), Duration::from_secs(30));
         assert_eq!(millis(500), Duration::from_millis(500));
+    }
+
+    #[test]
+    fn test_sync_server_timeout_adds_buffer() {
+        // 客户端 timeout=30s → 服务端 45s
+        assert_eq!(sync_server_timeout(30_000), Duration::from_secs(45));
+        // 客户端 timeout=120s 不再被 60s 硬编码截断
+        assert_eq!(sync_server_timeout(120_000), Duration::from_secs(135));
+        // 客户端 timeout=0（短轮询）仍有宽余量
+        assert_eq!(sync_server_timeout(0), Duration::from_secs(15));
+    }
+
+    #[test]
+    fn test_sync_server_timeout_saturates_on_huge_input() {
+        // u64::MAX 毫秒本就超出 Duration 可表示范围，饱和加法保证不 panic、不溢出回绕
+        let d = sync_server_timeout(u64::MAX - 1);
+        assert!(d >= Duration::from_millis(u64::MAX - 1));
     }
 
     #[test]

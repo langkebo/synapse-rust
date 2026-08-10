@@ -112,6 +112,58 @@ async fn test_media_routes_share_content_across_versions() {
     assert!(json["m.upload.size"].as_i64().unwrap_or(0) > 0);
 }
 
+/// S27 / G-2: PUT /_matrix/media/v3/upload/{server}/{media_id}（MSC2246 异步上传）
+/// 此前漏配 DefaultBodyLimit，落回 Axum 默认 2MB —— 超过 2MB 的合法上传被 413 拒绝。
+/// 本测试上传 ~3MB，必须成功（修复前返回 413）。
+#[tokio::test]
+async fn test_media_upload_with_id_accepts_over_2mb_body() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+    let token = register_user(&app, &format!("media_put_limit_{}", rand::random::<u32>())).await;
+
+    // 先通过普通上传拿到本地 server_name
+    let probe_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/media/v1/upload?filename=probe.bin")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/octet-stream")
+        .body(Body::from(vec![1u8, 2, 3]))
+        .unwrap();
+    let probe_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), probe_request).await.unwrap();
+    assert_eq!(probe_response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(probe_response.into_body(), 2048).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let (server_name, _) = parse_mxc_uri(json["content_uri"].as_str().unwrap());
+
+    // 3MB 负载（大于 Axum 默认 2MB、小于路由 50MB 上限）
+    let payload = vec![0xABu8; 3 * 1024 * 1024];
+    let media_id = format!("putlimit{}", rand::random::<u64>());
+    let put_request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/media/v3/upload/{}/{}", server_name, media_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/octet-stream")
+        .body(Body::from(payload.clone()))
+        .unwrap();
+
+    let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request).await.unwrap();
+    let status = put_response.status();
+    assert_ne!(status, StatusCode::PAYLOAD_TOO_LARGE, "S27 回归：3MB 的 MSC2246 上传被 413 拒绝");
+    assert_eq!(status, StatusCode::OK, "3MB 的 upload_with_id 必须成功");
+
+    // 下载校验内容完整
+    let download_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/media/v3/download/{}/{}", server_name, media_id))
+        .body(Body::empty())
+        .unwrap();
+    let download_response = ServiceExt::<Request<Body>>::oneshot(app, download_request).await.unwrap();
+    assert_eq!(download_response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(download_response.into_body(), 4 * 1024 * 1024).await.unwrap();
+    assert_eq!(body.as_ref(), payload.as_slice());
+}
+
 #[tokio::test]
 async fn test_media_preview_and_delete_boundaries() {
     // P2-11: preview_url endpoint requires msc4452_enabled=true to return 200.

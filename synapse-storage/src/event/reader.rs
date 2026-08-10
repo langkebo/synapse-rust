@@ -218,6 +218,25 @@ pub trait EventReader: Send + Sync {
     ) -> Result<Vec<serde_json::Value>, sqlx::Error>;
 
     async fn check_room_has_encryption(&self, room_id: &str) -> Result<bool, sqlx::Error>;
+
+    // ── incremental-sync watermarks (S14) ────────────────────────────────
+
+    /// Returns the newest `limit` events in `room_id` whose `stream_ordering`
+    /// is strictly greater than `after`, ordered ascending by stream position.
+    ///
+    /// Used by sliding sync incremental timelines: the client has already seen
+    /// everything at or below the watermark, so only newer events are sent.
+    async fn get_room_events_after_stream_ordering(
+        &self,
+        room_id: &str,
+        after: i64,
+        limit: i64,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error>;
+
+    /// Returns the current maximum `stream_ordering` across all events
+    /// (0 when the events table is empty). Snapshot taken at the start of a
+    /// sync becomes the watermark stored on the sliding-sync token.
+    async fn get_max_stream_ordering(&self) -> Result<i64, sqlx::Error>;
 }
 
 // ── EventReader delegation impl for Postgres EventStorage ───────────────
@@ -461,6 +480,19 @@ impl crate::event::reader::EventReader for super::EventStorage {
 
     async fn check_room_has_encryption(&self, room_id: &str) -> Result<bool, sqlx::Error> {
         self.check_room_has_encryption(room_id).await
+    }
+
+    async fn get_room_events_after_stream_ordering(
+        &self,
+        room_id: &str,
+        after: i64,
+        limit: i64,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        self.get_room_events_after_stream_ordering(room_id, after, limit).await
+    }
+
+    async fn get_max_stream_ordering(&self) -> Result<i64, sqlx::Error> {
+        self.get_max_stream_ordering().await
     }
 
     // ── unread counts / room state copy (moved from RoomStorage) ───────

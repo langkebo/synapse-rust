@@ -451,4 +451,36 @@ impl ApplicationServiceManager {
             _ => Ok(false),
         }
     }
+
+    /// Aggregate protocols from a list of application services into a Matrix
+    /// spec-compliant protocol map.
+    ///
+    /// Returns a JSON object mapping protocol ID to a Protocol object with
+    /// `instances`, `user_fields`, and `location_fields`.
+    /// Each protocol is deduplicated — if multiple AS declare the same protocol,
+    /// it appears only once.
+    pub fn aggregate_protocols(services: &[ApplicationService]) -> serde_json::Value {
+        use serde_json::json;
+        use std::collections::BTreeSet;
+
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        let mut map = serde_json::Map::new();
+
+        for service in services {
+            for protocol in &service.protocols {
+                if seen.insert(protocol.clone()) {
+                    map.insert(
+                        protocol.clone(),
+                        json!({
+                            "instances": [],
+                            "user_fields": [],
+                            "location_fields": []
+                        }),
+                    );
+                }
+            }
+        }
+
+        serde_json::Value::Object(map)
+    }
 }

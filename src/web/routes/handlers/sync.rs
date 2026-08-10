@@ -143,9 +143,9 @@ pub(crate) async fn sync(
 
 async fn execute_sync(params: SyncParams) -> Result<Json<Value>, ApiError> {
     // Server-side timeout = client's requested timeout + 15s buffer (covers
-    // response serialization overhead). This avoids hard-coding 60s and
-    // mismatching client timeout parameters.
-    let server_timeout = std::time::Duration::from_millis(params.timeout.saturating_add(15_000));
+    // response serialization overhead). S13/N6: 与 room_sync_with_timeout 共用
+    // 同一公式，禁止再出现不一致的硬编码外层超时。
+    let server_timeout = synapse_common::constants::sync_server_timeout(params.timeout);
 
     let sync_result = tokio::time::timeout(
         server_timeout,

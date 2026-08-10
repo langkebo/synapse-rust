@@ -72,6 +72,11 @@ impl ExtensionServices {
             user_service,
         } = deps;
 
+        // S24: DirectoryService 委托到数据库持久化别名，重启不丢失
+        let directory_service = Arc::new(crate::directory_service::DirectoryService::with_storage(
+            rooms.room_storage.clone(),
+        ));
+
         #[cfg(feature = "friends")]
         let friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi> =
             Arc::new(synapse_storage::FriendRoomStorage::new(infra.pool.clone()));
@@ -185,7 +190,6 @@ impl ExtensionServices {
             );
         }
 
-        let directory_service = Arc::new(crate::directory_service::DirectoryService::new());
 
         let uia_service = Arc::new(crate::uia_service::UiaService::new(infra.cache.clone(), ui_auth_session_timeout));
 

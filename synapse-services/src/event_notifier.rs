@@ -1,10 +1,11 @@
 use crate::event_broadcaster_trait::{BroadcastError, EventBroadcaster};
 use dashmap::DashMap;
 use deadpool_redis::Pool;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Notify;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 const EVENT_NOTIFY_CHANNEL: &str = "synapse:events:notify";
 
@@ -87,25 +88,6 @@ impl EventNotifier {
         self
     }
 
-    /// Wait until at least one of the given rooms receives a notification, or
-    /// the timeout elapses.
-    pub async fn wait_for_room(&self, room_ids: &[String], timeout: tokio::time::Duration) {
-        if room_ids.is_empty() {
-            tokio::time::sleep(timeout).await;
-            return;
-        }
-
-        let notifiers: Vec<Arc<Notify>> =
-            room_ids.iter().map(|room_id| self.get_or_create_room_notify(room_id)).collect();
-
-        let futures: Vec<_> = notifiers.iter().map(|n| Box::pin(n.notified())).collect();
-
-        tokio::select! {
-            _ = futures::future::select_all(futures) => {}
-            _ = tokio::time::sleep(timeout) => {}
-        }
-    }
-
     /// Returns the notification slots a sync connection for `user_id` should
     /// watch: the user's own slot (to-device messages, device-list changes)
     /// plus one slot per joined room (timeline events, receipts, typing).
@@ -137,33 +119,167 @@ impl EventNotifier {
         slots
     }
 
-    /// Wait until the given user receives a notification, or the timeout
-    /// elapses.
-    pub async fn wait_for_user(&self, user_id: &str, timeout: tokio::time::Duration) {
-        let notify = self.get_or_create_user_notify(user_id);
-        tokio::select! {
-            _ = notify.notified() => {}
-            _ = tokio::time::sleep(timeout) => {}
-        }
-    }
-
     /// Notify all connections waiting for events in the given room.
     pub fn notify_room(&self, room_id: &str) {
-        if let Some(notify) = self.room_notifiers.get(room_id) {
-            notify.notify_waiters();
-        }
-
+        self.notify_room_local(room_id);
         self.publish_redis(EventNotifyKind::Room, room_id);
     }
 
     /// Notify all connections waiting for data for the given user (e.g.
     /// to-device messages).
     pub fn notify_user(&self, user_id: &str) {
+        self.notify_user_local(user_id);
+        self.publish_redis(EventNotifyKind::User, user_id);
+    }
+
+    /// Local-only wake-up: triggers `notify_waiters()` on the room's `Notify`
+    /// without publishing to Redis. Used by the Redis subscriber to handle
+    /// cross-instance messages without creating a publish loop.
+    fn notify_room_local(&self, room_id: &str) {
+        if let Some(notify) = self.room_notifiers.get(room_id) {
+            notify.notify_waiters();
+        }
+    }
+
+    /// Local-only wake-up for a user slot (see [`notify_room_local`]).
+    fn notify_user_local(&self, user_id: &str) {
         if let Some(notify) = self.user_notifiers.get(user_id) {
             notify.notify_waiters();
         }
+    }
 
-        self.publish_redis(EventNotifyKind::User, user_id);
+    /// Handle a Redis pub/sub message received from another server instance.
+    ///
+    /// Skips self-echo (when `sender_instance == self.instance_id`) to avoid
+    /// double-notification — the local `notify_room`/`notify_user` call that
+    /// triggered the Redis publish has already woken local waiters.
+    ///
+    /// For messages from *other* instances, wakes local waiters via
+    /// `notify_room_local`/`notify_user_local` (no Redis re-publish).
+    pub fn handle_redis_message(&self, msg: &EventNotifyMessage) {
+        // Skip self-echo: the local notify_room/notify_user that triggered
+        // the Redis publish has already woken local waiters.
+        if msg.sender_instance == self.instance_id {
+            return;
+        }
+
+        match msg.kind {
+            EventNotifyKind::Room => self.notify_room_local(&msg.key),
+            EventNotifyKind::User => self.notify_user_local(&msg.key),
+        }
+    }
+
+    /// Start a background Redis pub/sub subscriber that listens for event
+    /// notifications from other server instances and wakes local waiters.
+    ///
+    /// This is the receiving end of the cross-instance fan-out. When instance
+    /// B writes an event and calls `notify_room`, the message is published to
+    /// Redis; this subscriber on instance A receives it and calls
+    /// `handle_redis_message` to wake instance A's waiting sync connections.
+    ///
+    /// # Behaviour when Redis is not configured
+    ///
+    /// If `with_redis` was never called, this method is a no-op and returns
+    /// `Ok(())`. Single-instance deployments don't need cross-instance
+    /// fan-out.
+    ///
+    /// # Reconnection
+    ///
+    /// If the Redis connection drops, the subscriber retries after 1 second.
+    pub fn start_redis_subscriber(&self) -> Result<(), String> {
+        let Some(redis_url) = &self.redis_url else {
+            debug!("EventNotifier: Redis not configured, skipping subscriber startup");
+            return Ok(());
+        };
+
+        let client = redis::Client::open(redis_url.as_str()).map_err(|e| format!("Failed to create Redis client: {e}"))?;
+
+        let channel = EVENT_NOTIFY_CHANNEL.to_string();
+        let instance_id = self.instance_id.clone();
+        let room_notifiers = self.room_notifiers.clone();
+        let user_notifiers = self.user_notifiers.clone();
+
+        info!(
+            channel = %channel,
+            instance_id = %instance_id,
+            "Starting EventNotifier Redis subscriber for cross-instance fan-out"
+        );
+
+        tokio::spawn(async move {
+            loop {
+                match Self::subscribe_and_listen(&client, &channel, &instance_id, &room_notifiers, &user_notifiers).await {
+                    Ok(_) => {
+                        debug!("EventNotifier subscription ended normally, reconnecting...");
+                    }
+                    Err(e) => {
+                        warn!("EventNotifier subscription error: {e}, reconnecting in 1s...");
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    /// Inner subscribe-and-listen loop for the Redis subscriber.
+    ///
+    /// Connects, subscribes to the channel, and processes messages until the
+    /// connection drops. Returns `Ok(())` on normal disconnect, `Err` on
+    /// connection failure.
+    async fn subscribe_and_listen(
+        client: &redis::Client,
+        channel: &str,
+        instance_id: &str,
+        room_notifiers: &Arc<DashMap<String, Arc<Notify>>>,
+        user_notifiers: &Arc<DashMap<String, Arc<Notify>>>,
+    ) -> Result<(), String> {
+        let mut pubsub = client.get_async_pubsub().await.map_err(|e| format!("Failed to get async pubsub: {e}"))?;
+
+        pubsub.subscribe(channel).await.map_err(|e| format!("Failed to subscribe to channel: {e}"))?;
+
+        debug!("EventNotifier subscribed to channel: {}", channel);
+
+        let mut message_stream = pubsub.on_message();
+
+        while let Some(msg) = message_stream.next().await {
+            let payload: Vec<u8> = match msg.get_payload() {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!("Failed to get pub/sub message payload: {e}");
+                    continue;
+                }
+            };
+
+            let notify_msg: EventNotifyMessage = match serde_json::from_slice(&payload) {
+                Ok(m) => m,
+                Err(e) => {
+                    warn!("Failed to decode EventNotifyMessage: {e}");
+                    continue;
+                }
+            };
+
+            // Skip self-echo
+            if notify_msg.sender_instance == instance_id {
+                continue;
+            }
+
+            // Wake local waiters
+            match notify_msg.kind {
+                EventNotifyKind::Room => {
+                    if let Some(notify) = room_notifiers.get(&notify_msg.key) {
+                        notify.notify_waiters();
+                    }
+                }
+                EventNotifyKind::User => {
+                    if let Some(notify) = user_notifiers.get(&notify_msg.key) {
+                        notify.notify_waiters();
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn get_or_create_room_notify(&self, room_id: &str) -> Arc<Notify> {
@@ -257,10 +373,10 @@ mod tests {
         let notifier = EventNotifier::new();
         let room_id = "!test:example.com".to_string();
 
-        let notifier_clone = notifier.clone();
-        let room_id_clone = room_id.clone();
+        let slots = notifier.slots_for("@waiter:example.com", std::slice::from_ref(&room_id));
+        let room_slot = slots[1].clone();
         let handle = tokio::spawn(async move {
-            notifier_clone.wait_for_room(&[room_id_clone], tokio::time::Duration::from_secs(5)).await;
+            tokio::time::timeout(tokio::time::Duration::from_secs(5), room_slot.notified()).await
         });
 
         // Give the waiter time to register
@@ -268,7 +384,7 @@ mod tests {
 
         notifier.notify_room(&room_id);
 
-        handle.await.unwrap();
+        handle.await.unwrap().expect("waiter should be woken before timeout");
     }
 
     #[tokio::test]
@@ -276,17 +392,17 @@ mod tests {
         let notifier = EventNotifier::new();
         let user_id = "@alice:example.com".to_string();
 
-        let notifier_clone = notifier.clone();
-        let user_id_clone = user_id.clone();
+        let slots = notifier.slots_for(&user_id, &[]);
+        let user_slot = slots[0].clone();
         let handle = tokio::spawn(async move {
-            notifier_clone.wait_for_user(&user_id_clone, tokio::time::Duration::from_secs(5)).await;
+            tokio::time::timeout(tokio::time::Duration::from_secs(5), user_slot.notified()).await
         });
 
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
         notifier.notify_user(&user_id);
 
-        handle.await.unwrap();
+        handle.await.unwrap().expect("waiter should be woken before timeout");
     }
 
     #[test]
@@ -348,14 +464,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_wait_for_room_timeout() {
+    async fn test_slot_wait_timeout() {
         let notifier = EventNotifier::new();
         let room_id = "!timeout:example.com".to_string();
 
+        let slots = notifier.slots_for("@waiter:example.com", std::slice::from_ref(&room_id));
+        let room_slot = slots[1].clone();
+
         let start = tokio::time::Instant::now();
-        notifier.wait_for_room(&[room_id], tokio::time::Duration::from_millis(50)).await;
+        let result =
+            tokio::time::timeout(tokio::time::Duration::from_millis(50), room_slot.notified()).await;
         let elapsed = start.elapsed();
 
+        assert!(result.is_err(), "no notification should fire; the wait must time out");
         assert!(elapsed >= tokio::time::Duration::from_millis(40));
     }
 
@@ -470,5 +591,104 @@ mod tests {
     fn test_event_notifier_broadcast_subscriber_count() {
         let notifier = EventNotifier::new();
         assert_eq!(notifier.broadcast_subscriber_count(), 0);
+    }
+
+    // ========== S8: handle_redis_message tests ==========
+
+    /// S8: A Redis message from another instance for a room must wake the
+    /// local room waiter. This is the core cross-instance fan-out scenario.
+    #[tokio::test]
+    async fn s8_handle_redis_message_from_other_instance_wakes_room_waiter() {
+        let notifier_a = EventNotifier::new().with_instance_id("instance-A".to_string());
+        let room_id = "!cross:example.com".to_string();
+
+        // Register a waiter on instance A for this room
+        let slots = notifier_a.slots_for("@alice:example.com", std::slice::from_ref(&room_id));
+        let room_slot = slots[1].clone();
+        let waiter = tokio::spawn(async move {
+            tokio::time::timeout(tokio::time::Duration::from_secs(2), room_slot.notified()).await
+        });
+
+        // Give the waiter time to register
+        tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+
+        // Simulate a Redis message from instance B
+        let msg = EventNotifyMessage {
+            kind: EventNotifyKind::Room,
+            key: room_id,
+            sender_instance: "instance-B".to_string(),
+        };
+        notifier_a.handle_redis_message(&msg);
+
+        let result = waiter.await.unwrap();
+        assert!(result.is_ok(), "waiter must be woken by cross-instance room notification");
+    }
+
+    /// S8: A Redis message from another instance for a user must wake the
+    /// local user waiter (e.g. to-device messages).
+    #[tokio::test]
+    async fn s8_handle_redis_message_from_other_instance_wakes_user_waiter() {
+        let notifier_a = EventNotifier::new().with_instance_id("instance-A".to_string());
+        let user_id = "@bob:example.com".to_string();
+
+        let slots = notifier_a.slots_for(&user_id, &[]);
+        let user_slot = slots[0].clone();
+        let waiter = tokio::spawn(async move {
+            tokio::time::timeout(tokio::time::Duration::from_secs(2), user_slot.notified()).await
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+
+        let msg = EventNotifyMessage {
+            kind: EventNotifyKind::User,
+            key: user_id,
+            sender_instance: "instance-B".to_string(),
+        };
+        notifier_a.handle_redis_message(&msg);
+
+        let result = waiter.await.unwrap();
+        assert!(result.is_ok(), "waiter must be woken by cross-instance user notification");
+    }
+
+    /// S8: A Redis message from self (echo) must NOT wake local waiters.
+    /// The local notify_room/notify_user call that triggered the publish has
+    /// already woken local waiters; re-waking would be redundant (though
+    /// harmless for Notify, it wastes CPU on busy systems).
+    ///
+    /// More importantly, skipping self-echo prevents potential notification
+    /// storms in edge cases where multiple local waiters re-trigger writes.
+    #[tokio::test]
+    async fn s8_handle_redis_message_skips_self_echo() {
+        let notifier = EventNotifier::new().with_instance_id("instance-A".to_string());
+        let room_id = "!echo:example.com".to_string();
+
+        let slots = notifier.slots_for("@alice:example.com", std::slice::from_ref(&room_id));
+        let room_slot = slots[1].clone();
+        let waiter = tokio::spawn(async move {
+            tokio::time::timeout(tokio::time::Duration::from_millis(200), room_slot.notified()).await
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+
+        // Simulate a Redis echo: same instance_id
+        let msg = EventNotifyMessage {
+            kind: EventNotifyKind::Room,
+            key: room_id,
+            sender_instance: "instance-A".to_string(),
+        };
+        notifier.handle_redis_message(&msg);
+
+        let result = waiter.await.unwrap();
+        assert!(result.is_err(), "self-echo must NOT wake local waiters");
+    }
+
+    /// S8: `start_redis_subscriber` must be a safe no-op when Redis is not
+    /// configured. The container always calls this method; it must not panic
+    /// or error when `with_redis` was never called.
+    #[test]
+    fn s8_start_redis_subscriber_noop_without_redis() {
+        let notifier = EventNotifier::new();
+        let result = notifier.start_redis_subscriber();
+        assert!(result.is_ok(), "start_redis_subscriber without Redis must return Ok(())");
     }
 }

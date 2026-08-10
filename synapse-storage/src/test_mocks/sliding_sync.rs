@@ -23,11 +23,19 @@ pub struct InMemorySlidingSyncStore {
         std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<(String, String), serde_json::Value>>>,
     receipts: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, serde_json::Value>>>,
     next_id: std::sync::Arc<std::sync::atomic::AtomicI64>,
+    /// S12: when true, `materialize_room_from_activity` returns a simulated
+    /// sqlx::Error so tests can verify error-handling paths.
+    fail_materialize: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl InMemorySlidingSyncStore {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// S12: Set whether `materialize_room_from_activity` should return an error.
+    pub fn set_fail_materialize(&self, fail: bool) {
+        self.fail_materialize.store(fail, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn key(user_id: &str, device_id: &str, conn_id: Option<&str>) -> (String, String, Option<String>) {
@@ -42,6 +50,7 @@ impl crate::sliding_sync::SlidingSyncStoreApi for InMemorySlidingSyncStore {
         user_id: &str,
         device_id: &str,
         conn_id: Option<&str>,
+        event_stream_pos: i64,
     ) -> Result<crate::sliding_sync::SlidingSyncToken, sqlx::Error> {
         let key = Self::key(user_id, device_id, conn_id);
         let now = current_timestamp_millis();
@@ -55,6 +64,7 @@ impl crate::sliding_sync::SlidingSyncStoreApi for InMemorySlidingSyncStore {
             pos: token_id,
             created_ts: now,
             expires_at: Some(now + 1_800_000),
+            event_stream_pos,
         };
         self.tokens.write().await.insert(key, token.clone());
         Ok(token)
@@ -259,6 +269,12 @@ impl crate::sliding_sync::SlidingSyncStoreApi for InMemorySlidingSyncStore {
         room_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Option<crate::sliding_sync::SlidingSyncRoom>, sqlx::Error> {
+        // S12: support error injection for testing error-handling paths.
+        if self.fail_materialize.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(sqlx::Error::Configuration(
+                "S12 test: simulated materialize failure".into(),
+            ));
+        }
         // For the mock, simply delegate to get_room — real impl queries
         // activity tables, but tests seed data via upsert_room.
         self.get_room(user_id, device_id, room_id, conn_id).await

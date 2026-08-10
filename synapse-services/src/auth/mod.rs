@@ -75,9 +75,14 @@ impl AuthService {
         security: &SecurityConfig,
         server_name: &str,
     ) -> Self {
-        Self::new_with_lifetime(pool, cache, metrics, security, server_name, security.expiry_time)
+        // S23: Test convenience — creates a local UserService for test isolation.
+        // Production code must use new_with_lifetime() with a shared UserService.
+        let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
+        let user_service = Arc::new(UserService::new(user_storage.clone()));
+        Self::new_with_lifetime(pool, cache, metrics, security, server_name, security.expiry_time, user_service, user_storage)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_lifetime(
         pool: &Arc<sqlx::PgPool>,
         cache: Arc<CacheManager>,
@@ -85,11 +90,12 @@ impl AuthService {
         security: &SecurityConfig,
         server_name: &str,
         access_token_lifetime: i64,
+        user_service: Arc<UserService>,
+        user_storage: Arc<dyn UserStore>,
     ) -> Self {
         let server_name_for_storage = server_name.to_string();
-        let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
         Self {
-            user_service: Arc::new(UserService::new(user_storage.clone())),
+            user_service,
             user_storage,
             device_storage: Arc::new(DeviceStorage::new(pool)),
             token_storage: AccessTokenStorage::new(pool),

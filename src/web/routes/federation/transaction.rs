@@ -457,9 +457,7 @@ pub(super) async fn send_transaction(
                                         // the same way as transaction PDUs — a
                                         // compromised peer could otherwise inject
                                         // forged events into the DAG.
-                                        if let Err(e) =
-                                            crate::federation::signing::check_pdu_size_limits(missing_pdu)
-                                        {
+                                        if let Err(e) = crate::federation::signing::check_pdu_size_limits(missing_pdu) {
                                             ::tracing::warn!(
                                                 target: "security_audit",
                                                 event = "federation_missing_event_size_exceeded",

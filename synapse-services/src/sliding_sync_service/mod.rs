@@ -351,6 +351,24 @@ impl SlidingSyncService {
             }
         }
 
+        // ── S14/SS-10: 增量 timeline 水位线 ────────────────────────────────
+        // prev_event_stream_pos：上一轮同步（token 行）记录的事件流水快照，
+        // 本轮增量同步的 timeline 只下发 stream_ordering 大于它的事件。
+        // stream_snapshot：本轮读阶段开始时的最大流水号，在同步结束时写回
+        // token 行，作为下一轮的水位线。在读阶段开始前取快照可保证：
+        // 快照之后到达的事件要么被本轮读到（stream_ordering > 上一轮水位线
+        // 仍成立），要么留待下一轮 —— 不会漏发。
+        let prev_event_stream_pos: Option<i64> = if is_initial {
+            None
+        } else {
+            self.storage
+                .get_token(user_id, device_id, conn_id)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to load token watermark", &e))?
+                .map(|token| token.event_stream_pos)
+        };
+        let stream_snapshot: i64 = self.event_reader.get_max_stream_ordering().await.unwrap_or(0);
+
         for (list_key, list_data) in &request.lists {
             let ranges: Vec<(u32, u32)> =
                 list_data.ranges.iter().filter_map(|r| if r.len() >= 2 { Some((r[0], r[1])) } else { None }).collect();
@@ -380,9 +398,36 @@ impl SlidingSyncService {
         }
 
         if is_initial {
-            if let Ok(joined_rooms) = self.member_storage.get_joined_rooms(user_id).await {
-                for room_id in &joined_rooms {
-                    let _ = self.storage.materialize_room_from_activity(user_id, device_id, room_id, conn_id).await;
+            // S12: Previously `if let Ok` + `let _ =` silently swallowed all
+            // errors from both get_joined_rooms and materialize_room_from_activity.
+            // Now we log warnings so failures are visible in production without
+            // crashing the sync (materialization is best-effort — the room will
+            // be materialized on the next incremental sync or room subscription).
+            match self.member_storage.get_joined_rooms(user_id).await {
+                Ok(joined_rooms) => {
+                    for room_id in &joined_rooms {
+                        if let Err(e) = self
+                            .storage
+                            .materialize_room_from_activity(user_id, device_id, room_id, conn_id)
+                            .await
+                        {
+                            tracing::warn!(
+                                user_id = %user_id,
+                                device_id = %device_id,
+                                room_id = %room_id,
+                                error = %e,
+                                "S12: Failed to materialize room during initial sync"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        user_id = %user_id,
+                        device_id = %device_id,
+                        error = %e,
+                        "S12: Failed to get joined rooms for initial sync materialization"
+                    );
                 }
             }
         }
@@ -424,7 +469,7 @@ impl SlidingSyncService {
             .map_err(|e| ApiError::internal_with_log("Failed to build lists response", &e))?;
 
         let mut rooms_response = self
-            .build_rooms_response(user_id, device_id, conn_id, &request)
+            .build_rooms_response(user_id, device_id, conn_id, &request, prev_event_stream_pos)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to build rooms response", &e))?;
 
@@ -459,17 +504,23 @@ impl SlidingSyncService {
         // is an incremental request, carries no new extensions/account-data, and
         // the list membership did not change. We deliberately do NOT require
         // `rooms_response` to be empty: a client that subscribes to a list always
-        // receives room summaries (and, until timelines are made pos-aware, the
-        // most-recent N timeline events) on every sync. Those are static or
+        // receives room summaries on every sync. Those are static or
         // already-seen and must not defeat the long-poll — genuinely new data is
         // instead signalled by the event notifier, which wakes this request the
         // instant an event lands for this user or one of their rooms (see the
         // `tokio::select!` below). Requiring an empty `rooms_response` here was
         // the bug that let every real (list-using) client busy-loop, because the
         // room summaries meant `rooms_response` was never empty.
+        //
+        // S14 例外：增量 timeline 现在只含水位线之后的新事件。非空 timeline
+        // 意味着有「客户端两次请求之间落库」的新事件 —— 它们先于本请求写入，
+        // 通知早已发出（当时无 waiter），park 不会被唤醒。若仍按空闲处理，
+        // 超时分支会丢弃 rooms_response 并把水位线回写过这些事件，造成
+        // 客户端永久丢消息。因此带新事件的增量响应必须立即返回。
         let is_idle = !is_initial
             && extensions_response.is_none()
-            && !Self::has_list_operations(&lists_response);
+            && !Self::has_list_operations(&lists_response)
+            && !Self::has_new_timeline_events(&rooms_response);
 
         // Time spent parked. Reported back to `sync()` so the latency metric
         // measures real work only — otherwise every idle long-poll would count
@@ -521,7 +572,7 @@ impl SlidingSyncService {
                     .map_err(|e| ApiError::internal_with_log("Failed to rebuild lists response", &e))?;
 
                 rooms_response = self
-                    .build_rooms_response(user_id, device_id, conn_id, &request)
+                    .build_rooms_response(user_id, device_id, conn_id, &request, prev_event_stream_pos)
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to rebuild rooms response", &e))?;
 
@@ -558,7 +609,7 @@ impl SlidingSyncService {
 
         let new_token = self
             .storage
-            .create_or_update_token(user_id, device_id, conn_id)
+            .create_or_update_token(user_id, device_id, conn_id, stream_snapshot)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update token", &e))?;
 
@@ -572,15 +623,6 @@ impl SlidingSyncService {
             },
             idle_wait_ms,
         ))
-    }
-
-    async fn invalidate_room_cache(&self, user_id: &str, device_id: &str, room_id: &str, conn_id: Option<&str>) {
-        let cache_key = if let Some(cid) = conn_id {
-            format!("sliding_sync:room:{user_id}:{device_id}:{cid}:{room_id}")
-        } else {
-            format!("sliding_sync:room:{user_id}:{device_id}::{room_id}")
-        };
-        let _ = self.cache.delete(&cache_key).await;
     }
 
     /// Build the connection tracker key from (user_id, device_id, conn_id).
@@ -604,6 +646,25 @@ impl SlidingSyncService {
                         .and_then(|ops| ops.as_array())
                         .map(|a| !a.is_empty())
                         .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    /// S14: Returns true when any room in the rooms response carries a
+    /// non-empty `timeline` array. Post-S14 incremental timelines only contain
+    /// events newer than the client's watermark, so a non-empty timeline means
+    /// genuinely new, undelivered data. Such a response must be returned
+    /// immediately — parking on the notifier would never wake (the events were
+    /// persisted before this request registered its waiters), and the timeout
+    /// branch would drop the rooms payload while the token write-back advances
+    /// the watermark past those events, permanently losing them for the client.
+    fn has_new_timeline_events(rooms: &serde_json::Value) -> bool {
+        rooms
+            .as_object()
+            .map(|obj| {
+                obj.values().any(|room| {
+                    room.get("timeline").and_then(|timeline| timeline.as_array()).map(|a| !a.is_empty()).unwrap_or(false)
                 })
             })
             .unwrap_or(false)

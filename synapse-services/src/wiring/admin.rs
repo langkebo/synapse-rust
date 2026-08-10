@@ -106,9 +106,9 @@ impl AdminServices {
         credential_auth: &Arc<dyn CredentialAuth>,
         _room_auth: &Arc<dyn RoomAuth>,
         user_storage: &Arc<dyn UserStore>,
+        user_service: Arc<UserService>,
         shutdown_token: &tokio_util::sync::CancellationToken,
     ) -> Self {
-        let user_service = Arc::new(UserService::new(user_storage.clone()));
 
         let admin_registration_service = crate::admin_registration_service::AdminRegistrationService::new(
             token_auth.clone(),

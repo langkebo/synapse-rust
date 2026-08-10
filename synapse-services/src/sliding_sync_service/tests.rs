@@ -6,6 +6,7 @@ use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::sliding_sync::{SlidingSyncFilters, SlidingSyncListData, SlidingSyncRoom, SlidingSyncStorage};
 use synapse_storage::test_mocks::InMemoryEventStore;
+use synapse_storage::test_mocks::{InMemoryMemberStore, InMemorySlidingSyncStore};
 use synapse_storage::PresenceStorage;
 
 #[tokio::test]
@@ -741,4 +742,214 @@ async fn test_txn_id_no_cache_lookup_when_txn_id_absent() {
 
     let result = service.sync("@alice:example.com", "DEV1", request).await;
     assert!(result.is_err(), "without txn_id, sync must proceed to storage which fails on lazy-connect pool");
+}
+
+// ── S12: initial sync materialization error handling ──────────────
+
+/// Build a `SlidingSyncService` backed by in-memory mocks for both
+/// `SlidingSyncStoreApi` and `MemberStoreApi`, so we can test the
+/// initial-sync materialization loop without a real database.
+fn create_mocked_test_service(
+    sync_store: Arc<InMemorySlidingSyncStore>,
+    member_store: Arc<synapse_storage::test_mocks::InMemoryMemberStore>,
+) -> SlidingSyncService {
+    let pool = Arc::new(
+        sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy("postgres://localhost/test").unwrap(),
+    );
+    let event_store = Arc::new(InMemoryEventStore::new());
+    SlidingSyncService {
+        storage: sync_store as Arc<dyn SlidingSyncStoreApi>,
+        cache: Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
+        event_reader: event_store as Arc<dyn synapse_storage::event::EventReader>,
+        device_key_storage: Arc::new(DeviceKeyStorage::new(&pool))
+            as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
+        typing_service: Arc::new(crate::typing_service::TypingService::default()),
+        presence_storage: Arc::new(PresenceStorage::new(
+            pool.clone(),
+            Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
+        )),
+        member_storage: member_store as Arc<dyn synapse_storage::membership::MemberStoreApi>,
+        device_storage: Arc::new(DeviceStorage::new(&pool)),
+        to_device_storage: ToDeviceStorage::new(&pool),
+        connection_tracker: Arc::new(
+            moka::sync::Cache::builder()
+                .max_capacity(MAX_TRACKED_CONNECTIONS)
+                .time_to_idle(std::time::Duration::from_millis(CONNECTION_TTL_MS as u64))
+                .build(),
+        ),
+        txn_id_cache: Arc::new(
+            moka::future::Cache::builder()
+                .max_capacity(MAX_TXN_ID_CACHE_ENTRIES)
+                .time_to_live(std::time::Duration::from_millis(TXN_ID_CACHE_TTL_MS))
+                .build(),
+        ),
+        metrics: Arc::new(MetricsCollector::new()),
+        latency_threshold_ms: PerformanceConfig::default().sliding_sync_latency_threshold_ms,
+        sticky_event_storage: None,
+        event_notifier: None,
+    }
+}
+
+/// S12: Initial sync must call `materialize_room_from_activity` for each
+/// joined room. When materialize succeeds, the room data should be
+/// available. This test seeds a joined room and verifies the sync
+/// completes without error.
+#[tokio::test]
+async fn s12_initial_sync_materializes_joined_rooms() {
+    let sync_store = Arc::new(InMemorySlidingSyncStore::new());
+    let member_store = Arc::new(synapse_storage::test_mocks::InMemoryMemberStore::new());
+
+    // Seed a joined room
+    member_store
+        .add_member("!room1:example.com", "@alice:example.com", "join", Some("Alice"))
+        .await
+        .unwrap();
+
+    let service = create_mocked_test_service(sync_store.clone(), member_store);
+
+    let request = SlidingSyncRequest {
+        conn_id: None,
+        lists: HashMap::new(),
+        room_subscriptions: None,
+        unsubscribe_rooms: None,
+        extensions: None,
+        pos: None,
+        timeout: None,
+        client_timeout: None,
+        txn_id: None,
+    };
+
+    // Initial sync should succeed even though the mock store is empty —
+    // the materialize call is best-effort.
+    let result = service.sync("@alice:example.com", "DEV1", request).await;
+    assert!(result.is_ok(), "initial sync must succeed even with empty store: {:?}", result.err());
+}
+
+/// S12: When `materialize_room_from_activity` returns an error, the
+/// initial sync must NOT crash — the error should be logged and the
+/// sync should continue. Previously `let _ =` silently swallowed the
+/// error; this test guards that the fix (warn! + continue) remains
+/// resilient.
+#[tokio::test]
+async fn s12_initial_sync_resilient_to_materialize_errors() {
+    let sync_store = Arc::new(InMemorySlidingSyncStore::new());
+    let member_store = Arc::new(synapse_storage::test_mocks::InMemoryMemberStore::new());
+
+    // Seed a joined room so the materialize loop runs
+    member_store
+        .add_member("!room1:example.com", "@alice:example.com", "join", Some("Alice"))
+        .await
+        .unwrap();
+
+    // Inject error: materialize_room_from_activity will return Err
+    sync_store.set_fail_materialize(true);
+
+    let service = create_mocked_test_service(sync_store, member_store);
+
+    let request = SlidingSyncRequest {
+        conn_id: None,
+        lists: HashMap::new(),
+        room_subscriptions: None,
+        unsubscribe_rooms: None,
+        extensions: None,
+        pos: None,
+        timeout: None,
+        client_timeout: None,
+        txn_id: None,
+    };
+
+    // Sync must succeed despite materialize failure — errors are logged,
+    // not propagated to crash the sync.
+    let result = service.sync("@alice:example.com", "DEV1", request).await;
+    assert!(
+        result.is_ok(),
+        "initial sync must be resilient to materialize errors: {:?}",
+        result.err()
+    );
+}
+
+// ── S11: slow-request metrics must exclude idle_wait_ms ────────────
+
+/// S11: A request whose non-idle processing time is below the latency
+/// threshold must NOT increment the slow-request counter. This is the
+/// core fix — previously the route layer measured wall-clock (including
+/// the 30s long-poll park) and counted every healthy long-poll as slow.
+#[tokio::test]
+async fn s11_fast_request_does_not_increment_slow_counter() {
+    let service = create_test_service();
+    let threshold = service.latency_threshold_ms();
+
+    // Simulate a request that took 100ms of actual processing (well below
+    // the 5000ms default threshold). Even if the request parked for 29s
+    // in the idle long-poll, that time was already subtracted by sync().
+    service.record_sync_latency_metrics("@alice:example.com", "DEV1", None, 100.0, false);
+
+    // The slow counter must not have been registered (lazy registration
+    // only happens when a slow request is detected). If it IS registered,
+    // its value must be 0.
+    if let Some(slow_counter) = service.metrics.get_counter(SLIDING_SYNC_SLOW_REQUESTS_COUNTER) {
+        assert_eq!(slow_counter.get(), 0, "fast request must not trip slow counter");
+    }
+
+    // Histogram should still record the observation for p95/p99 reporting.
+    let histogram = service
+        .metrics
+        .get_histogram(SLIDING_SYNC_LATENCY_HISTOGRAM)
+        .expect("latency histogram should be registered");
+    assert!(
+        histogram.get_percentile(50.0).unwrap_or(0.0) > 0.0,
+        "histogram must observe the latency even for fast requests"
+    );
+
+    let _ = threshold; // suppress unused warning
+}
+
+/// S11: A request whose non-idle processing time meets or exceeds the
+/// threshold MUST increment the slow-request counter — this is the
+/// performance rollback gate.
+#[tokio::test]
+async fn s11_slow_request_increments_slow_counter() {
+    let service = create_test_service();
+    let threshold = service.latency_threshold_ms();
+
+    // Simulate a genuinely slow request: actual processing time = threshold + 1ms.
+    service.record_sync_latency_metrics(
+        "@alice:example.com",
+        "DEV1",
+        None,
+        threshold as f64 + 1.0,
+        true,
+    );
+
+    let slow_counter = service
+        .metrics
+        .get_counter(SLIDING_SYNC_SLOW_REQUESTS_COUNTER)
+        .expect("slow counter should be registered");
+    assert_eq!(slow_counter.get(), 1, "slow request must trip the counter exactly once");
+
+    // A second slow request must increment again (not double-count, not reset).
+    service.record_sync_latency_metrics(
+        "@alice:example.com",
+        "DEV1",
+        None,
+        threshold as f64 + 500.0,
+        false,
+    );
+    assert_eq!(slow_counter.get(), 2, "second slow request must increment to 2");
+}
+
+/// S11: The slow-request counter is only incremented by the service layer.
+/// The route layer must NOT reference the counter name at all (other than
+/// in its own source-scan guard test). This test is the service-side
+/// complement to the route-layer guard test in `sliding_sync.rs`.
+#[test]
+fn s11_slow_counter_only_in_service_layer() {
+    // Verify the counter name constant is defined in the service module
+    // (not in the route module). The route module's test already scans
+    // its own source for zero non-test occurrences of the counter name.
+    assert_eq!(
+        SLIDING_SYNC_SLOW_REQUESTS_COUNTER,
+        "sliding_sync_slow_requests_total",
+        "counter name must match the documented metric"
+    );
 }

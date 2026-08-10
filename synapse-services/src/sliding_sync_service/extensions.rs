@@ -162,30 +162,11 @@ impl SlidingSyncService {
             }
 
             let member_list: Vec<String> = all_members.into_iter().collect();
-            let presences = self.presence_storage.get_presences(&member_list).await?;
-
-            let mut presence_events = Vec::with_capacity(presences.len().min(32));
-            for (uid, (presence, status_msg)) in presences {
-                presence_events.push(serde_json::json!({
-                    "sender": uid,
-                    "type": "m.presence",
-                    "content": {
-                        "presence": presence,
-                        "status_msg": status_msg,
-                        "last_active_ago": 0, // Mocked for now
-                    }
-                }));
-            }
-
-            // `get_presences` returns a HashMap, so iteration order is not
-            // stable across calls. Sort by sender so the serialized payload is
-            // deterministic — otherwise the de-duplication below would see a
-            // "different" payload on every sync and never suppress echoes.
-            presence_events.sort_by(|a, b| {
-                let sa = a.get("sender").and_then(|v| v.as_str()).unwrap_or("");
-                let sb = b.get("sender").and_then(|v| v.as_str()).unwrap_or("");
-                sa.cmp(sb)
-            });
+            // SS-07: 需要 last_active_ts 计算真实的 last_active_ago，
+            // 因此走 get_presence_snapshots 而非丢弃时间戳的 get_presences。
+            let snapshots = self.presence_storage.get_presence_snapshots(&member_list).await?;
+            let now_ts = synapse_common::current_timestamp_millis();
+            let (presence_events, canonical_events) = Self::build_presence_events(&snapshots, now_ts);
 
             // De-duplicate the presence extension across incremental syncs.
             //
@@ -198,20 +179,22 @@ impl SlidingSyncService {
             // presence data, so the client's sliding-sync loop has nothing to
             // react to and backs off instead of busy-looping.
             //
-            // Caveat: `get_raw` only consults the in-process cache (`set_raw`
-            // also writes Redis). Without sticky sessions a client that lands
-            // on a different instance misses the cache and receives one extra
-            // presence echo. That is a cosmetic regression, not a correctness
-            // one — the loop itself is broken by the long-poll below, which
-            // needs no shared state.
+            // S7: 去重状态走 `get_raw_shared`（L1 未命中回源 Redis 并回填）。
+            // 此前用只读 L1 的同步 `get_raw`：跨实例路由/进程重启/本地驱逐后
+            // 误判 changed=true → presence 回声 → extensions 非空 → is_idle
+            // 失效 → 忙循环复发。这正是 S7 要关掉的复发开关。
             let cache_key = Self::presence_cache_key(user_id, device_id, conn_id);
             let payload = serde_json::json!({ "events": presence_events });
-            let payload_str = serde_json::to_string(&payload).unwrap_or_default();
+            // SS-07: 去重比较用时间无关的规范化载荷（last_active_ts），
+            // 否则 last_active_ago 每毫秒都变，去重永远不命中、回声复发。
+            let payload_str =
+                serde_json::to_string(&serde_json::json!({ "events": canonical_events })).unwrap_or_default();
 
             let changed = since_pos.is_none()
                 || self
                     .cache
-                    .get_raw(&cache_key)
+                    .get_raw_shared(&cache_key)
+                    .await
                     .map(|prev| prev != payload_str)
                     .unwrap_or(true);
 
@@ -226,6 +209,57 @@ impl SlidingSyncService {
         } else {
             Ok(Some(serde_json::Value::Object(response_extensions)))
         }
+    }
+
+    /// SS-07: 由 presence 快照构建 extensions 事件。
+    ///
+    /// 返回 `(wire_events, canonical_events)`：
+    /// - `wire_events` 是下发给客户端的 m.presence 事件，`last_active_ago`
+    ///   由 `now_ts - last_active_ts` 实时计算（offline 或无时间戳时为 null）；
+    /// - `canonical_events` 携带原始 `last_active_ts`，用于增量 sync 的去重
+    ///   比较——若用 wire 事件比较，`last_active_ago` 随时间漂移会导致
+    ///   每次 sync 都判定 changed，presence 回声复发（S7 的复发开关）。
+    ///
+    /// 两个列表都按 sender 排序：HashMap 迭代序不稳定，不排序会让序列化
+    /// 结果每次不同，去重同样永不命中。
+    pub(crate) fn build_presence_events(
+        snapshots: &std::collections::HashMap<String, synapse_storage::presence::PresenceSnapshot>,
+        now_ts: i64,
+    ) -> (Vec<Value>, Vec<Value>) {
+        let mut wire_events = Vec::with_capacity(snapshots.len().min(32));
+        let mut canonical_events = Vec::with_capacity(snapshots.len().min(32));
+        for (uid, snap) in snapshots {
+            let last_active_ago = if snap.presence == "offline" {
+                None
+            } else {
+                snap.last_active_ts.map(|ts| (now_ts - ts).max(0))
+            };
+            wire_events.push(serde_json::json!({
+                "sender": uid,
+                "type": "m.presence",
+                "content": {
+                    "presence": snap.presence,
+                    "status_msg": snap.status_msg,
+                    "last_active_ago": last_active_ago,
+                }
+            }));
+            canonical_events.push(serde_json::json!({
+                "sender": uid,
+                "presence": snap.presence,
+                "status_msg": snap.status_msg,
+                "last_active_ts": snap.last_active_ts,
+            }));
+        }
+        let sort_by_sender = |events: &mut Vec<Value>| {
+            events.sort_by(|a, b| {
+                let sa = a.get("sender").and_then(|v| v.as_str()).unwrap_or("");
+                let sb = b.get("sender").and_then(|v| v.as_str()).unwrap_or("");
+                sa.cmp(sb)
+            });
+        };
+        sort_by_sender(&mut wire_events);
+        sort_by_sender(&mut canonical_events);
+        (wire_events, canonical_events)
     }
 
     async fn build_e2ee_extension(
@@ -244,14 +278,15 @@ impl SlidingSyncService {
         let stream_cache_key = Self::e2ee_device_list_stream_cache_key(user_id, device_id, conn_id);
         let shared_users_cache_key = Self::e2ee_shared_users_cache_key(user_id, device_id, conn_id);
         let since_stream_id = if since_pos.is_some() {
-            self.cache.get_raw(&stream_cache_key).and_then(|raw| raw.parse::<i64>().ok()).unwrap_or(0)
+            // S7: L1 未命中回源 Redis，避免跨实例后 since 回退 0 全量重发 device list
+            self.cache.get_raw_shared(&stream_cache_key).await.and_then(|raw| raw.parse::<i64>().ok()).unwrap_or(0)
         } else {
             0
         };
         let current_stream_id = self.get_current_device_list_stream_id().await?;
         let changed = self.get_changed_device_lists_since(user_id, since_stream_id).await?;
         let previous_shared_users =
-            if since_pos.is_some() { self.load_cached_shared_users(&shared_users_cache_key) } else { Vec::new() };
+            if since_pos.is_some() { self.load_cached_shared_users(&shared_users_cache_key).await } else { Vec::new() };
         let current_shared_users = self.get_current_shared_users(user_id).await?;
         let left = Self::compute_left_shared_users(&previous_shared_users, &current_shared_users);
 
@@ -357,9 +392,13 @@ impl SlidingSyncService {
         Ok(users)
     }
 
-    fn load_cached_shared_users(&self, cache_key: &str) -> Vec<String> {
+    /// S7: 改为 async 并走 `get_raw_shared`——L1 未命中时回源 Redis。
+    /// 此前同步 `get_raw` 在跨实例/重启后返回 None，previous 视为空集，
+    /// `left` 永远算不出来（漏报离开共享房间的用户），属正确性问题。
+    async fn load_cached_shared_users(&self, cache_key: &str) -> Vec<String> {
         self.cache
-            .get_raw(cache_key)
+            .get_raw_shared(cache_key)
+            .await
             .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
             .map(|mut users| {
                 users.sort();
@@ -462,5 +501,77 @@ mod tests {
     fn e2ee_shared_users_cache_key_without_conn_id() {
         let key = SlidingSyncService::e2ee_shared_users_cache_key("bob", "DEV2", None);
         assert_eq!(key, "sliding_sync:e2ee:shared_users:bob:DEV2:");
+    }
+
+    fn presence_snapshot(user: &str, presence: &str, status_msg: Option<&str>, last_active_ts: Option<i64>) -> synapse_storage::presence::PresenceSnapshot {
+        synapse_storage::presence::PresenceSnapshot {
+            user_id: user.to_string(),
+            presence: presence.to_string(),
+            status_msg: status_msg.map(|s| s.to_string()),
+            last_active_ts,
+        }
+    }
+
+    #[test]
+    fn ss07_presence_events_compute_real_last_active_ago() {
+        let mut snapshots = std::collections::HashMap::new();
+        snapshots.insert("@a:x".to_string(), presence_snapshot("@a:x", "online", Some("hi"), Some(1_000_000)));
+        let (wire, _) = SlidingSyncService::build_presence_events(&snapshots, 1_060_000);
+        assert_eq!(wire.len(), 1);
+        let content = &wire[0]["content"];
+        assert_eq!(content["presence"], serde_json::json!("online"));
+        assert_eq!(content["status_msg"], serde_json::json!("hi"));
+        assert_eq!(content["last_active_ago"], serde_json::json!(60_000));
+    }
+
+    #[test]
+    fn ss07_offline_presence_has_null_last_active_ago() {
+        let mut snapshots = std::collections::HashMap::new();
+        snapshots.insert("@a:x".to_string(), presence_snapshot("@a:x", "offline", None, Some(1_000_000)));
+        let (wire, _) = SlidingSyncService::build_presence_events(&snapshots, 2_000_000);
+        assert_eq!(wire[0]["content"]["last_active_ago"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn ss07_missing_last_active_ts_has_null_last_active_ago() {
+        let mut snapshots = std::collections::HashMap::new();
+        snapshots.insert("@a:x".to_string(), presence_snapshot("@a:x", "online", None, None));
+        let (wire, _) = SlidingSyncService::build_presence_events(&snapshots, 2_000_000);
+        assert_eq!(wire[0]["content"]["last_active_ago"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn ss07_future_last_active_ts_clamps_to_zero() {
+        let mut snapshots = std::collections::HashMap::new();
+        snapshots.insert("@a:x".to_string(), presence_snapshot("@a:x", "online", None, Some(5_000_000)));
+        let (wire, _) = SlidingSyncService::build_presence_events(&snapshots, 2_000_000);
+        assert_eq!(wire[0]["content"]["last_active_ago"], serde_json::json!(0));
+    }
+
+    #[test]
+    fn ss07_canonical_payload_is_time_independent() {
+        // 去重比较的载荷不得随 now 变化，否则增量 sync 每次都判定 changed，
+        // presence 回声复发（S7 回归）。
+        let mut snapshots = std::collections::HashMap::new();
+        snapshots.insert("@a:x".to_string(), presence_snapshot("@a:x", "online", Some("hi"), Some(1_000_000)));
+        let (_, canonical_t1) = SlidingSyncService::build_presence_events(&snapshots, 1_060_000);
+        let (_, canonical_t2) = SlidingSyncService::build_presence_events(&snapshots, 9_999_000);
+        assert_eq!(
+            serde_json::to_string(&canonical_t1).unwrap(),
+            serde_json::to_string(&canonical_t2).unwrap()
+        );
+    }
+
+    #[test]
+    fn ss07_wire_and_canonical_events_sorted_by_sender() {
+        let mut snapshots = std::collections::HashMap::new();
+        for u in ["@c:x", "@a:x", "@b:x"] {
+            snapshots.insert(u.to_string(), presence_snapshot(u, "online", None, Some(1_000)));
+        }
+        let (wire, canonical) = SlidingSyncService::build_presence_events(&snapshots, 2_000);
+        let senders: Vec<&str> = wire.iter().map(|e| e["sender"].as_str().unwrap()).collect();
+        assert_eq!(senders, vec!["@a:x", "@b:x", "@c:x"]);
+        let canonical_senders: Vec<&str> = canonical.iter().map(|e| e["sender"].as_str().unwrap()).collect();
+        assert_eq!(canonical_senders, vec!["@a:x", "@b:x", "@c:x"]);
     }
 }

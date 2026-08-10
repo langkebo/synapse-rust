@@ -26,13 +26,6 @@ pub struct CrossSigningKeys {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CrossSigningUpload {
-    pub master_key: serde_json::Value,
-    pub self_signing_key: serde_json::Value,
-    pub user_signing_key: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceKeyInfo {
     pub user_id: String,
     pub device_id: String,
@@ -67,21 +60,6 @@ pub struct DeviceSignature {
     pub target_key_id: String,
     pub signature: String,
     pub created_ts: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CrossSigningSetupRequest {
-    pub master_key: Option<serde_json::Value>,
-    pub self_signing_key: Option<serde_json::Value>,
-    pub user_signing_key: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CrossSigningSetupResponse {
-    pub master_key: serde_json::Value,
-    pub self_signing_key: serde_json::Value,
-    pub user_signing_key: serde_json::Value,
-    pub master_key_signature: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -182,31 +160,6 @@ mod tests {
         assert_eq!(keys.user_id, "@test:example.com");
         assert!(keys.master_key.starts_with("master"));
         assert!(keys.self_signing_key.starts_with("self"));
-    }
-
-    #[test]
-    fn test_cross_signing_upload() {
-        let upload = CrossSigningUpload {
-            master_key: serde_json::json!({
-                "user_id": "@test:example.com",
-                "usage": ["master_key"],
-                "keys": {"ed25519:KEY": "public_key"}
-            }),
-            self_signing_key: serde_json::json!({
-                "user_id": "@test:example.com",
-                "usage": ["self_signing_key"],
-                "keys": {"ed25519:KEY": "public_key"}
-            }),
-            user_signing_key: serde_json::json!({
-                "user_id": "@test:example.com",
-                "usage": ["user_signing_key"],
-                "keys": {"ed25519:KEY": "public_key"}
-            }),
-        };
-
-        assert!(upload.master_key.is_object());
-        assert!(upload.self_signing_key.is_object());
-        assert!(upload.user_signing_key.is_object());
     }
 
     #[test]

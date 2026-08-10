@@ -124,10 +124,7 @@ pub(super) async fn key_query_batch(
 
         // Remote server: fetch from origin. Use "*" for "all keys".
         // Extract a specific key_id if the criteria object has one.
-        let key_id = criteria
-            .as_object()
-            .and_then(|obj| obj.keys().next())
-            .map_or("*", |k| k.as_str());
+        let key_id = criteria.as_object().and_then(|obj| obj.keys().next()).map_or("*", |k| k.as_str());
 
         match fetch_remote_server_keys_response(&ctx, server_name, key_id).await {
             Ok(response) => {
@@ -288,10 +285,6 @@ pub(super) async fn query_auth(State(_ctx): State<FederationContext>) -> Result<
     Err(ApiError::unrecognized(
         "Non-standard /_synapse/federation/v1/query/auth endpoint is not supported. Use /_matrix/federation/v1/get_event_auth/{room_id}/{event_id} instead.",
     ))
-}
-
-pub(super) async fn event_auth(State(_ctx): State<FederationContext>) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::not_found("Federation event_auth is not implemented; use supported auth-chain endpoints".to_string()))
 }
 
 async fn resolve_server_keys(ctx: &FederationContext) -> Result<Value, ApiError> {

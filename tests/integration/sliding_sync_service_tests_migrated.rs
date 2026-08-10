@@ -39,13 +39,20 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
             token TEXT NOT NULL,
             pos BIGINT NOT NULL,
             created_ts BIGINT NOT NULL,
-            expires_at BIGINT
+            expires_at BIGINT,
+            event_stream_pos BIGINT NOT NULL DEFAULT 0
         )
         "#,
     )
     .execute(pool.as_ref())
     .await
     .expect("Failed to create sliding_sync_tokens table");
+
+    // S14: 兼容先于本列创建的测试库（CREATE TABLE IF NOT EXISTS 不会补列）
+    sqlx::query("ALTER TABLE sliding_sync_tokens ADD COLUMN IF NOT EXISTS event_stream_pos BIGINT NOT NULL DEFAULT 0")
+        .execute(pool.as_ref())
+        .await
+        .expect("Failed to ensure sliding_sync_tokens.event_stream_pos");
 
     sqlx::query(
         r#"
@@ -308,7 +315,10 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 }
 
 fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
-    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    create_service_with_cache(pool, Arc::new(CacheManager::new(&CacheConfig::default())))
+}
+
+fn create_service_with_cache(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> SlidingSyncService {
     let storage = Arc::new(SlidingSyncStorage::new(pool.clone()));
     let event_storage = Arc::new(EventStorage::new(pool, "localhost".to_string()));
     let typing_service = Arc::new(TypingService::default());
@@ -332,6 +342,83 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
         PerformanceConfig::default(),
         None,
     )
+}
+
+// ── 存储层便捷封装 ────────────────────────────────────────────────────────
+// S10/N2 清理后，SlidingSyncService 删除了这些生产无调用方的便捷方法
+// （其附带的 invalidate_room_cache 本属永落空空操作）。测试改为直调存储层，
+// 语义与被删除的封装一致。
+
+#[allow(clippy::too_many_arguments)]
+async fn update_room_state(
+    pool: &Arc<sqlx::PgPool>,
+    user_id: &str,
+    device_id: &str,
+    room_id: &str,
+    conn_id: Option<&str>,
+    bump_stamp: i64,
+    highlight_count: i32,
+    notification_count: i32,
+    is_dm: bool,
+    is_encrypted: bool,
+    name: Option<&str>,
+    avatar: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    SlidingSyncStorage::new(pool.clone())
+        .upsert_room(
+            user_id,
+            device_id,
+            room_id,
+            conn_id,
+            None,
+            bump_stamp,
+            highlight_count,
+            notification_count,
+            is_dm,
+            is_encrypted,
+            false,
+            false,
+            name,
+            avatar,
+            bump_stamp,
+        )
+        .await
+        .map(|_| ())
+}
+
+async fn bump_room(
+    pool: &Arc<sqlx::PgPool>,
+    user_id: &str,
+    device_id: &str,
+    room_id: &str,
+    conn_id: Option<&str>,
+    bump_stamp: i64,
+) -> Result<(), sqlx::Error> {
+    SlidingSyncStorage::new(pool.clone()).bump_room(user_id, device_id, room_id, conn_id, bump_stamp).await
+}
+
+async fn update_notification_counts(
+    pool: &Arc<sqlx::PgPool>,
+    user_id: &str,
+    device_id: &str,
+    room_id: &str,
+    conn_id: Option<&str>,
+    highlight_count: i32,
+    notification_count: i32,
+) -> Result<(), sqlx::Error> {
+    SlidingSyncStorage::new(pool.clone())
+        .update_notification_counts(user_id, device_id, room_id, conn_id, highlight_count, notification_count)
+        .await
+}
+
+async fn remove_room(
+    pool: &Arc<sqlx::PgPool>,
+    user_id: &str,
+    device_id: &str,
+    room_id: &str,
+    conn_id: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    SlidingSyncStorage::new(pool.clone()).delete_room(user_id, device_id, room_id, conn_id).await
 }
 
 #[tokio::test]
@@ -508,13 +595,13 @@ async fn test_incremental_sync_with_invalid_pos_returns_error() {
 async fn test_update_room_state() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-    let service = create_service(&pool);
+    let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@update_{suffix}:localhost");
     let room_id = format!("!room_{suffix}:localhost");
 
-    service
-        .update_room_state(
+    update_room_state(
+        &pool,
             &user_id,
             "DEV1",
             &room_id,
@@ -545,20 +632,20 @@ async fn test_update_room_state() {
 async fn test_bump_room() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-    let service = create_service(&pool);
+    let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@bump_{suffix}:localhost");
     let room_id = format!("!room_{suffix}:localhost");
 
-    service.update_room_state(&user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None).await.unwrap();
+    update_room_state(&pool, &user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None).await.unwrap();
 
-    service.bump_room(&user_id, "DEV1", &room_id, None, 3000).await.unwrap();
+    bump_room(&pool, &user_id, "DEV1", &room_id, None, 3000).await.unwrap();
 
     let storage = SlidingSyncStorage::new(pool.clone());
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
     assert_eq!(room.bump_stamp, Some(3000));
 
-    service.bump_room(&user_id, "DEV1", &room_id, None, 2000).await.unwrap();
+    bump_room(&pool, &user_id, "DEV1", &room_id, None, 2000).await.unwrap();
 
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
     assert_eq!(room.bump_stamp, Some(3000));
@@ -568,14 +655,14 @@ async fn test_bump_room() {
 async fn test_update_notification_counts() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-    let service = create_service(&pool);
+    let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@notif_{suffix}:localhost");
     let room_id = format!("!room_{suffix}:localhost");
 
-    service.update_room_state(&user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None).await.unwrap();
+    update_room_state(&pool, &user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None).await.unwrap();
 
-    service.update_notification_counts(&user_id, "DEV1", &room_id, None, 7, 15).await.unwrap();
+    update_notification_counts(&pool, &user_id, "DEV1", &room_id, None, 7, 15).await.unwrap();
 
     let storage = SlidingSyncStorage::new(pool.clone());
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
@@ -587,14 +674,14 @@ async fn test_update_notification_counts() {
 async fn test_remove_room() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-    let service = create_service(&pool);
+    let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@remove_{suffix}:localhost");
     let room_id = format!("!room_{suffix}:localhost");
 
-    service.update_room_state(&user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None).await.unwrap();
+    update_room_state(&pool, &user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None).await.unwrap();
 
-    service.remove_room(&user_id, "DEV1", &room_id, None).await.unwrap();
+    remove_room(&pool, &user_id, "DEV1", &room_id, None).await.unwrap();
 
     let storage = SlidingSyncStorage::new(pool.clone());
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap();
@@ -610,7 +697,7 @@ async fn test_cleanup_expired_tokens() {
     let user_id = format!("@cleanup_{suffix}:localhost");
 
     let storage = SlidingSyncStorage::new(pool.clone());
-    let token = storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
+    let token = storage.create_or_update_token(&user_id, "DEV1", None, 0).await.unwrap();
 
     let past_expiry = current_timestamp_millis() - 1000;
     sqlx::query("UPDATE sliding_sync_tokens SET expires_at = $1 WHERE id = $2")
@@ -634,10 +721,10 @@ async fn test_get_room_token_sync() {
     let room_id = format!("!room_{suffix}:localhost");
 
     let storage = SlidingSyncStorage::new(pool.clone());
-    storage.create_or_update_token(&user_id, "DEV1", None).await.unwrap();
+    storage.create_or_update_token(&user_id, "DEV1", None, 0).await.unwrap();
 
-    service
-        .update_room_state(&user_id, "DEV1", &room_id, None, 1000, 1, 3, false, false, Some("Sync Room"), None)
+    update_room_state(
+        &pool,&user_id, "DEV1", &room_id, None, 1000, 1, 3, false, false, Some("Sync Room"), None)
         .await
         .unwrap();
 
@@ -656,8 +743,8 @@ async fn test_sync_with_room_subscriptions() {
     let user_id = format!("@sub_{suffix}:localhost");
     let room_id = format!("!room_{suffix}:localhost");
 
-    service
-        .update_room_state(&user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, Some("Sub Room"), None)
+    update_room_state(
+        &pool,&user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, Some("Sub Room"), None)
         .await
         .unwrap();
 
@@ -705,7 +792,7 @@ async fn test_sync_with_unsubscribe_rooms() {
     let user_id = format!("@unsub_{suffix}:localhost");
     let room_id = format!("!room_{suffix}:localhost");
 
-    service.update_room_state(&user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None).await.unwrap();
+    update_room_state(&pool, &user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None).await.unwrap();
 
     let mut lists = HashMap::new();
     lists.insert(
@@ -749,8 +836,8 @@ async fn test_sync_with_filters() {
     let suffix = unique_id();
     let user_id = format!("@filter_{suffix}:localhost");
 
-    service
-        .update_room_state(
+    update_room_state(
+        &pool,
             &user_id,
             "DEV1",
             &format!("!dm_{suffix}:localhost"),
@@ -765,8 +852,8 @@ async fn test_sync_with_filters() {
         )
         .await
         .unwrap();
-    service
-        .update_room_state(
+    update_room_state(
+        &pool,
             &user_id,
             "DEV1",
             &format!("!group_{suffix}:localhost"),
@@ -822,8 +909,8 @@ async fn test_sync_multiple_lists() {
     let suffix = unique_id();
     let user_id = format!("@multi_{suffix}:localhost");
 
-    service
-        .update_room_state(
+    update_room_state(
+        &pool,
             &user_id,
             "DEV1",
             &format!("!room1_{suffix}:localhost"),
@@ -911,17 +998,17 @@ async fn test_sync_with_empty_lists() {
 async fn test_update_room_state_with_conn_id_isolation() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-    let service = create_service(&pool);
+    let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@conn_iso_{suffix}:localhost");
     let room_id = format!("!room_{suffix}:localhost");
 
-    service
-        .update_room_state(&user_id, "DEV1", &room_id, None, 1000, 1, 2, false, false, Some("No Conn"), None)
+    update_room_state(
+        &pool,&user_id, "DEV1", &room_id, None, 1000, 1, 2, false, false, Some("No Conn"), None)
         .await
         .unwrap();
-    service
-        .update_room_state(&user_id, "DEV1", &room_id, Some("conn1"), 1000, 3, 4, false, false, Some("With Conn"), None)
+    update_room_state(
+        &pool,&user_id, "DEV1", &room_id, Some("conn1"), 1000, 3, 4, false, false, Some("With Conn"), None)
         .await
         .unwrap();
 
@@ -938,18 +1025,18 @@ async fn test_update_room_state_with_conn_id_isolation() {
 async fn test_remove_room_different_conn_id_no_cross_delete() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-    let service = create_service(&pool);
+    let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@cross_del_{suffix}:localhost");
     let room_id = format!("!room_{suffix}:localhost");
 
-    service.update_room_state(&user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None).await.unwrap();
-    service
-        .update_room_state(&user_id, "DEV1", &room_id, Some("conn1"), 1000, 0, 0, false, false, None, None)
+    update_room_state(&pool, &user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None).await.unwrap();
+    update_room_state(
+        &pool,&user_id, "DEV1", &room_id, Some("conn1"), 1000, 0, 0, false, false, None, None)
         .await
         .unwrap();
 
-    service.remove_room(&user_id, "DEV1", &room_id, None).await.unwrap();
+    remove_room(&pool, &user_id, "DEV1", &room_id, None).await.unwrap();
 
     let storage = SlidingSyncStorage::new(pool.clone());
     let room_none = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap();
@@ -1087,14 +1174,14 @@ async fn test_sync_without_extensions_returns_none() {
 async fn test_update_room_state_preserves_higher_bump_stamp() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-    let service = create_service(&pool);
+    let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@bump_preserve_{suffix}:localhost");
     let room_id = format!("!room_{suffix}:localhost");
 
-    service.update_room_state(&user_id, "DEV1", &room_id, None, 5000, 0, 0, false, false, None, None).await.unwrap();
+    update_room_state(&pool, &user_id, "DEV1", &room_id, None, 5000, 0, 0, false, false, None, None).await.unwrap();
 
-    service.update_room_state(&user_id, "DEV1", &room_id, None, 3000, 1, 1, false, false, None, None).await.unwrap();
+    update_room_state(&pool, &user_id, "DEV1", &room_id, None, 3000, 1, 1, false, false, None, None).await.unwrap();
 
     let storage = SlidingSyncStorage::new(pool.clone());
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
@@ -1105,13 +1192,13 @@ async fn test_update_room_state_preserves_higher_bump_stamp() {
 async fn test_update_room_state_preserves_name_when_null() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-    let service = create_service(&pool);
+    let _ = create_service(&pool);
     let suffix = unique_id();
     let user_id = format!("@name_preserve_{suffix}:localhost");
     let room_id = format!("!room_{suffix}:localhost");
 
-    service
-        .update_room_state(
+    update_room_state(
+        &pool,
             &user_id,
             "DEV1",
             &room_id,
@@ -1127,7 +1214,7 @@ async fn test_update_room_state_preserves_name_when_null() {
         .await
         .unwrap();
 
-    service.update_room_state(&user_id, "DEV1", &room_id, None, 2000, 1, 1, false, false, None, None).await.unwrap();
+    update_room_state(&pool, &user_id, "DEV1", &room_id, None, 2000, 1, 1, false, false, None, None).await.unwrap();
 
     let storage = SlidingSyncStorage::new(pool.clone());
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
@@ -1204,12 +1291,12 @@ async fn test_p1_5_room_subscription_change_reflected_immediately() {
     let room_b = format!("!roomB_{suffix}:localhost");
 
     // 物化两个房间
-    service
-        .update_room_state(&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
+    update_room_state(
+        &pool,&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
         .await
         .unwrap();
-    service
-        .update_room_state(&user_id, "DEV1", &room_b, None, 2000, 0, 0, false, false, Some("Room B"), None)
+    update_room_state(
+        &pool,&user_id, "DEV1", &room_b, None, 2000, 0, 0, false, false, Some("Room B"), None)
         .await
         .unwrap();
 
@@ -1265,8 +1352,8 @@ async fn test_p1_5_unsubscribe_rooms_takes_effect_immediately() {
     let user_id = format!("@p15_unsub_{suffix}:localhost");
     let room_a = format!("!roomA_{suffix}:localhost");
 
-    service
-        .update_room_state(&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
+    update_room_state(
+        &pool,&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
         .await
         .unwrap();
 
@@ -1317,8 +1404,8 @@ async fn test_p1_5_required_state_change_reflected_immediately() {
     let user_id = format!("@p15_rs_{suffix}:localhost");
     let room_a = format!("!roomA_{suffix}:localhost");
 
-    service
-        .update_room_state(&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
+    update_room_state(
+        &pool,&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
         .await
         .unwrap();
 
@@ -1410,8 +1497,8 @@ async fn test_p1_5_timeline_limit_change_reflected_immediately() {
     let user_id = format!("@p15_tl_{suffix}:localhost");
     let room_a = format!("!roomA_{suffix}:localhost");
 
-    service
-        .update_room_state(&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
+    update_room_state(
+        &pool,&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
         .await
         .unwrap();
 
@@ -1587,5 +1674,176 @@ async fn test_p1_6_failed_response_not_cached_under_txn_id() {
         response2.is_ok(),
         "P1-6: failed response must NOT be cached — second request with same txn_id but valid params should succeed, got error: {:?}",
         response2.err()
+    );
+}
+
+// ── S14/SS-10: 增量 timeline 水位线回写 ────────────────────────────────────
+//
+// 验收路径（对应优化方案 S14）：
+//   1. 初始同步把「读阶段开始时的最大 stream_ordering」快照写入 token 行；
+//   2. 客户端离线期间到达的新事件，增量同步只下发水位线之后的事件
+//      （不得重复下发已收事件，也不得丢弃）；
+//   3. 增量同步结束时把新的最大流水号回写 token 行，作为下一轮水位线；
+//   4. 无新事件时再次增量同步不重复下发。
+
+async fn insert_wm_message_event(pool: &Arc<sqlx::PgPool>, event_id: &str, room_id: &str, user_id: &str, ts: i64) {
+    sqlx::query(
+        r#"
+        INSERT INTO events (event_id, room_id, user_id, sender, event_type, content, state_key, depth, origin_server_ts, processed_at, not_before, is_redacted, status, origin)
+        VALUES ($1, $2, $3, $3, 'm.room.message', '{"msgtype":"m.text","body":"wm"}', NULL, 1, $4, $4, 0, FALSE, 'processed', 'localhost')
+        "#,
+    )
+    .bind(event_id)
+    .bind(room_id)
+    .bind(user_id)
+    .bind(ts)
+    .execute(pool.as_ref())
+    .await
+    .expect("insert watermark test event");
+}
+
+async fn wm_max_stream_ordering(pool: &Arc<sqlx::PgPool>) -> i64 {
+    sqlx::query_scalar("SELECT COALESCE(MAX(stream_ordering), 0) FROM events")
+        .fetch_one(pool.as_ref())
+        .await
+        .expect("max stream_ordering")
+}
+
+fn make_wm_request(room_id: &str, pos: Option<String>) -> SlidingSyncRequest {
+    SlidingSyncRequest {
+        conn_id: None,
+        lists: HashMap::new(),
+        room_subscriptions: Some(serde_json::json!({ room_id: { "timeline_limit": 10 } })),
+        unsubscribe_rooms: None,
+        extensions: None,
+        pos,
+        // timeout=0：空闲长轮询立即返回，避免测试在 park 上空等
+        timeout: Some(0),
+        client_timeout: None,
+        txn_id: None,
+    }
+}
+
+fn wm_timeline_event_ids(response: &synapse_storage::sliding_sync::SlidingSyncResponse, room_id: &str) -> Vec<String> {
+    response
+        .rooms
+        .get(room_id)
+        .and_then(|room| room.get("timeline"))
+        .and_then(|timeline| timeline.as_array())
+        .map(|events| {
+            events.iter().filter_map(|e| e.get("event_id").and_then(|id| id.as_str()).map(str::to_string)).collect()
+        })
+        .unwrap_or_default()
+}
+
+#[tokio::test]
+async fn test_s14_watermark_writeback_across_incremental_syncs() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+    let service = create_service(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@wm_{suffix}:localhost");
+    let room_id = format!("!wm_{suffix}:localhost");
+
+    update_room_state(&pool, &user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, Some("WM Room"), None)
+        .await
+        .unwrap();
+
+    // E1：初始同步前已存在的事件
+    let e1 = format!("$wm_e1_{suffix}:localhost");
+    insert_wm_message_event(&pool, &e1, &room_id, &user_id, 1000).await;
+    let snapshot1 = wm_max_stream_ordering(&pool).await;
+
+    // 1) 初始同步：timeline 含 E1，token 行写入读快照
+    let resp1 = service.sync(&user_id, "DEV1", make_wm_request(&room_id, None)).await.unwrap();
+    assert!(wm_timeline_event_ids(&resp1, &room_id).contains(&e1), "初始同步应下发已存在事件 E1");
+
+    let storage = SlidingSyncStorage::new(pool.clone());
+    let token1 = storage.get_token(&user_id, "DEV1", None).await.unwrap().expect("token row should exist");
+    assert_eq!(token1.event_stream_pos, snapshot1, "初始同步应把读阶段快照写入 token 行作为水位线");
+
+    // E2：客户端两次请求之间（“离线期间”）到达的新事件
+    let e2 = format!("$wm_e2_{suffix}:localhost");
+    insert_wm_message_event(&pool, &e2, &room_id, &user_id, 2000).await;
+    let snapshot2 = wm_max_stream_ordering(&pool).await;
+    assert!(snapshot2 > snapshot1, "E2 的 stream_ordering 应推进最大流水号");
+
+    // 2) 增量同步：timeline 只含 E2，不重复下发 E1
+    let resp2 = service.sync(&user_id, "DEV1", make_wm_request(&room_id, Some(resp1.pos.clone()))).await.unwrap();
+    let timeline2 = wm_timeline_event_ids(&resp2, &room_id);
+    assert!(timeline2.contains(&e2), "增量同步必须下发水位线之后的新事件 E2，got: {:?}", timeline2);
+    assert!(!timeline2.contains(&e1), "增量同步不得重复下发已收事件 E1，got: {:?}", timeline2);
+
+    // 3) 水位线回写：token 行更新为新快照，pos 同步前进
+    let token2 = storage.get_token(&user_id, "DEV1", None).await.unwrap().expect("token row should exist");
+    assert_eq!(token2.event_stream_pos, snapshot2, "增量同步结束应把新快照回写为下一轮水位线");
+    assert!(token2.pos > token1.pos, "pos 应随每轮同步前进");
+
+    // 4) 无新事件再次增量：不重复下发 E2
+    let resp3 = service.sync(&user_id, "DEV1", make_wm_request(&room_id, Some(resp2.pos.clone()))).await.unwrap();
+    let timeline3 = wm_timeline_event_ids(&resp3, &room_id);
+    assert!(timeline3.is_empty(), "无新事件时增量 timeline 必须为空（不重复下发 E2），got: {:?}", timeline3);
+}
+
+// ── S7: presence 去重状态跨实例存活（L1 丢失后回源 Redis）──────────────────
+//
+// 回归场景：两个「实例」（各自独立 L1、共享同一 Redis）。实例 A 完成初始同步
+// 写入 presence 去重状态后，客户端被路由到实例 B 做增量同步。修复前 B 的
+// 同步 get_raw 只读 L1 → 误判 changed=true → presence 回声 → extensions
+// 非空 → is_idle 失效 → 忙循环复发。修复后 B 回源 Redis，去重仍然生效。
+#[tokio::test]
+async fn test_s7_presence_dedup_survives_local_cache_loss() {
+    use deadpool_redis::{Config as RedisPoolConfig, Runtime};
+
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+
+    let redis_pool =
+        RedisPoolConfig::from_url("redis://127.0.0.1:6379").create_pool(Some(Runtime::Tokio1)).expect("redis pool");
+    match tokio::time::timeout(std::time::Duration::from_millis(800), redis_pool.get()).await {
+        Ok(Ok(conn)) => drop(conn),
+        _ => {
+            eprintln!("skip: local redis unavailable");
+            return;
+        }
+    }
+
+    let make_cache = || Arc::new(CacheManager::with_redis_pool(redis_pool.clone(), &CacheConfig::default()));
+    let service_a = create_service_with_cache(&pool, make_cache());
+    let service_b = create_service_with_cache(&pool, make_cache());
+
+    let suffix = unique_id();
+    let user_id = format!("@s7_{suffix}:localhost");
+    let conn_id = format!("s7conn_{suffix}");
+
+    let make_req = |pos: Option<String>| SlidingSyncRequest {
+        conn_id: Some(conn_id.clone()),
+        lists: HashMap::new(),
+        room_subscriptions: None,
+        unsubscribe_rooms: None,
+        extensions: Some(serde_json::json!({ "presence": { "enabled": true } })),
+        pos,
+        timeout: Some(0),
+        client_timeout: None,
+        txn_id: None,
+    };
+
+    // 初始同步（实例 A）：presence 负载随响应下发，去重状态写 L1_A + Redis
+    let resp1 = service_a.sync(&user_id, "DEV1", make_req(None)).await.unwrap();
+    let ext1 = resp1.extensions.as_ref().expect("initial sync should carry extensions");
+    assert!(ext1["presence"].get("events").is_some(), "初始同步必须包含 presence 事件负载");
+
+    // 同实例增量（基线）：payload 未变 → 不再携带 events
+    let resp2 = service_a.sync(&user_id, "DEV1", make_req(Some(resp1.pos.clone()))).await.unwrap();
+    let ext2 = resp2.extensions.as_ref().expect("extensions should be present");
+    assert!(ext2["presence"].get("events").is_none(), "同实例增量不应回声 presence，got: {:?}", ext2["presence"]);
+
+    // 跨实例增量（B 的 L1 无该键）：修复前回声，修复后回源 Redis 无回声
+    let resp3 = service_b.sync(&user_id, "DEV1", make_req(Some(resp2.pos.clone()))).await.unwrap();
+    let ext3 = resp3.extensions.as_ref().expect("extensions should be present");
+    assert!(
+        ext3["presence"].get("events").is_none(),
+        "跨实例后 presence 去重必须仍然生效（S7 复发开关），got: {:?}",
+        ext3["presence"]
     );
 }

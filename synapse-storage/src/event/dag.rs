@@ -1,6 +1,6 @@
 //! DAG traversal methods for [`EventStorage`].
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 
 use sqlx::Row;
 
@@ -50,45 +50,40 @@ impl EventStorage {
             return Ok(Vec::new());
         }
 
-        let earliest_set: HashSet<&str> = earliest_events.iter().map(|s| s.as_str()).collect();
+        // S18/STO-01: Replace per-event BFS loop (one DB query per DAG node,
+        // hundreds of round-trips for deep DAGs) with a single recursive CTE
+        // that walks the entire sub-graph in one query.
+        //
+        // The CTE starts from prev_event_id edges of latest_events, recursively
+        // follows prev_event_id edges, and skips earliest_events (WHERE clause
+        // excludes them from both base and recursive cases). UNION (not UNION
+        // ALL) deduplicates for defensive cycle prevention — Matrix DAGs are
+        // acyclic, but malformed data or bugs could create cycles.
+        let collected: Vec<String> = sqlx::query_scalar(
+            r"
+            WITH RECURSIVE dag_walk AS (
+                SELECT ee.prev_event_id AS event_id
+                FROM event_edges ee
+                WHERE ee.event_id = ANY($1)
+                  AND ee.prev_event_id <> ALL($2)
 
-        // BFS backwards from latest_events via event_edges.prev_event_id,
-        // stopping at earliest_events.  Collect visited event IDs that are
-        // neither in earliest_events nor in latest_events.
-        let mut visited: HashSet<String> = HashSet::new();
-        let mut queue: VecDeque<String> = latest_events.iter().cloned().collect();
-        let mut collected: Vec<String> = Vec::new();
+                UNION
 
-        for id in latest_events {
-            visited.insert(id.clone());
-        }
-
-        while let Some(current) = queue.pop_front() {
-            if collected.len() as i64 >= limit {
-                break;
-            }
-
-            // Walk prev_event_id edges for `current`.
-            let prev_ids: Vec<String> = sqlx::query_scalar(
-                r"
-                SELECT prev_event_id FROM event_edges
-                WHERE event_id = $1
-                ",
+                SELECT ee.prev_event_id
+                FROM event_edges ee
+                INNER JOIN dag_walk dw ON ee.event_id = dw.event_id
+                WHERE ee.prev_event_id <> ALL($2)
             )
-            .bind(&current)
-            .fetch_all(&*self.pool)
-            .await?;
-
-            for prev_id in prev_ids {
-                if earliest_set.contains(prev_id.as_str()) {
-                    continue;
-                }
-                if visited.insert(prev_id.clone()) {
-                    collected.push(prev_id.clone());
-                    queue.push_back(prev_id);
-                }
-            }
-        }
+            SELECT DISTINCT event_id FROM dag_walk
+            WHERE event_id <> ALL($1)
+            LIMIT $3
+            ",
+        )
+        .bind(latest_events)
+        .bind(earliest_events)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
 
         if collected.is_empty() {
             return Ok(Vec::new());

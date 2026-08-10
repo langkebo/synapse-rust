@@ -321,8 +321,7 @@ pub fn create_federation_router(state: &AppState) -> Router<AppState> {
         .route("/_synapse/federation/v1/keys/query", post(keys::legacy_keys_query))
         .route("/_synapse/federation/v1/keys/upload", post(keys::keys_upload))
         .route("/_synapse/federation/v1/room_auth/{room_id}", get(events::get_room_auth))
-        .route("/_synapse/federation/v1/query/auth", get(keys::query_auth))
-        .route("/_synapse/federation/v1/event_auth", get(keys::event_auth));
+        .route("/_synapse/federation/v1/query/auth", get(keys::query_auth));
 
     // Layer order (innermost to outermost): auth first (populates
     // FederationRequestAuth), then per-origin rate limiting (consumes it).
@@ -387,7 +386,6 @@ fn federation_protected_relative_routes() -> Vec<(axum::http::Method, &'static s
         (Method::POST, "/_synapse/federation/v1/keys/upload"),
         (Method::GET, "/_synapse/federation/v1/room_auth/{room_id}"),
         (Method::GET, "/_synapse/federation/v1/query/auth"),
-        (Method::GET, "/_synapse/federation/v1/event_auth"),
     ]
 }
 
@@ -469,5 +467,15 @@ mod tests {
 
         assert_eq!(invite["signed"]["mxid"], "@alice:example.com");
         assert_eq!(invite["signed"]["token"], "invite-token");
+    }
+
+    #[test]
+    fn event_auth_route_not_in_manifest() {
+        let manifest = federation_route_manifest();
+        let has_event_auth = manifest.iter().any(|e| e.path == "/_synapse/federation/v1/event_auth");
+        assert!(
+            !has_event_auth,
+            "non-standard /_synapse/federation/v1/event_auth should not be registered — use /_matrix/federation/v1/get_event_auth/{{room_id}}/{{event_id}} instead"
+        );
     }
 }

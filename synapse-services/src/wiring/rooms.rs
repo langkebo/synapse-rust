@@ -136,6 +136,10 @@ impl RoomSyncServices {
                 metrics: infra.metrics.clone(),
                 performance: infra.config.performance.clone(),
                 cache: infra.cache.clone(),
+                // S6: wire the same EventNotifier instance used by sliding sync
+                // so that v2 /sync long-polling is woken by the same producers
+                // (NotifyingEventWriter) that already call notify_room/notify_user.
+                event_notifier: Some(event_notifier.clone()),
             }));
 
         let typing_service = Arc::new(crate::typing_service::TypingService::new(infra.cache.clone()));

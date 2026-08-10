@@ -88,6 +88,7 @@ pub struct RoomContext {
     pub burn_after_read: Arc<synapse_services::burn_after_read_service::BurnAfterReadService>,
     /// MSC4140 — Delayed event storage for scheduling cancellable delayed messages.
     pub delayed_event_storage: Arc<dyn synapse_storage::delayed_events::DelayedEventStorageApi>,
+    pub app_service_manager: Arc<synapse_services::application_service::ApplicationServiceManager>,
 }
 
 impl FromRef<AppState> for RoomContext {
@@ -134,6 +135,7 @@ impl FromRef<AppState> for RoomContext {
             #[cfg(feature = "burn-after-read")]
             burn_after_read: state.services.extensions.burn_after_read.clone(),
             delayed_event_storage: state.services.admin.modules.delayed_event_storage.clone(),
+            app_service_manager: state.services.admin.modules.app_service_manager.clone(),
         }
     }
 }

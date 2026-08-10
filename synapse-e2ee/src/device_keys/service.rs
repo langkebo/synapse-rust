@@ -216,12 +216,14 @@ impl DeviceKeyService {
                 match verify_device_keys_signature(&device_keys_value) {
                     Ok(true) => {}
                     Ok(false) | Err(_) => {
+                        // E2EE-05: 验签失败的设备密钥不得存储分发（MITM 风险）
                         ::tracing::warn!(
                             target: "e2ee",
                             user_id = %user_id,
                             device_id = %device_id,
-                            "Device key signature verification failed; storing keys anyway for compatibility"
+                            "Device key signature verification failed; rejecting upload"
                         );
+                        return Err(ApiError::bad_request("Invalid device key signature".to_string()));
                     }
                 }
             }
@@ -296,26 +298,36 @@ impl DeviceKeyService {
                                 &user_id, &device_id, &algorithm, key_id, key_data, ed25519_pk,
                             ) {
                                 Ok(true) => {}
+                                // E2EE-05: 签名无效/缺失的 OTK 不得存储
                                 Ok(false) => {
                                     tracing::warn!(
-                                        "Invalid signature on one-time key {} for user {} device {}; storing anyway",
+                                        "Invalid signature on one-time key {} for user {} device {}; rejecting upload",
                                         key_id,
                                         user_id,
                                         device_id
                                     );
+                                    return Err(ApiError::bad_request(
+                                        "Invalid one-time key signature".to_string(),
+                                    ));
                                 }
                                 Err(CryptoError::SignatureVerificationFailed) => {
                                     tracing::warn!(
-                                        "Missing or malformed signature on one-time key {} for user {} device {}; storing anyway",
+                                        "Missing or malformed signature on one-time key {} for user {} device {}; rejecting upload",
                                         key_id, user_id, device_id
                                     );
+                                    return Err(ApiError::bad_request(
+                                        "Invalid one-time key signature".to_string(),
+                                    ));
                                 }
                                 Err(e) => {
                                     tracing::warn!(
-                                        "Signature verification error on one-time key {}: {}; storing anyway",
+                                        "Signature verification error on one-time key {}: {}; rejecting upload",
                                         key_id,
                                         e
                                     );
+                                    return Err(ApiError::bad_request(
+                                        "Invalid one-time key signature".to_string(),
+                                    ));
                                 }
                             }
                         } else {
@@ -385,24 +397,34 @@ impl DeviceKeyService {
                                     &user_id, &device_id, &algorithm, key_id, key_data, ed25519_pk,
                                 ) {
                                     Ok(true) => {}
+                                    // E2EE-05: 签名无效/缺失的回退密钥不得存储
                                     Ok(false) => {
                                         tracing::warn!(
-                                            "Invalid signature on fallback key {} for user {} device {}; storing anyway",
+                                            "Invalid signature on fallback key {} for user {} device {}; rejecting upload",
                                             key_id, user_id, device_id
                                         );
+                                        return Err(ApiError::bad_request(
+                                            "Invalid fallback key signature".to_string(),
+                                        ));
                                     }
                                     Err(CryptoError::SignatureVerificationFailed) => {
                                         tracing::warn!(
-                                            "Missing or malformed signature on fallback key {} for user {} device {}; storing anyway",
+                                            "Missing or malformed signature on fallback key {} for user {} device {}; rejecting upload",
                                             key_id, user_id, device_id
                                         );
+                                        return Err(ApiError::bad_request(
+                                            "Invalid fallback key signature".to_string(),
+                                        ));
                                     }
                                     Err(e) => {
                                         tracing::warn!(
-                                            "Signature verification error on fallback key {}: {}; storing anyway",
+                                            "Signature verification error on fallback key {}: {}; rejecting upload",
                                             key_id,
                                             e
                                         );
+                                        return Err(ApiError::bad_request(
+                                            "Invalid fallback key signature".to_string(),
+                                        ));
                                     }
                                 }
                             } else {
@@ -568,31 +590,58 @@ impl DeviceKeyService {
 
     pub async fn upload_signatures(
         &self,
-        _user_id: &str,
+        user_id: &str,
         body: serde_json::Value,
     ) -> Result<serde_json::Value, ApiError> {
-        let failures = serde_json::Map::new();
+        let mut failures = serde_json::Map::new();
 
-        if let Some(signatures) = body.get("signatures") {
-            if let Some(sig_map) = signatures.as_object() {
-                for (target_user_id, user_sigs) in sig_map {
-                    if let Some(user_sig_map) = user_sigs.as_object() {
-                        for (target_key_id, sig_data) in user_sig_map {
-                            if let Some(sig_obj) = sig_data.as_object() {
-                                for (signing_user_id, signing_key_sigs) in sig_obj {
-                                    if let Some(key_sigs) = signing_key_sigs.as_object() {
-                                        for (signing_key_id, signature) in key_sigs {
-                                            let _ = self
-                                                .storage
-                                                .store_signature(
-                                                    target_user_id,
-                                                    target_key_id,
-                                                    signing_user_id,
-                                                    signing_key_id,
-                                                    signature.as_str().unwrap_or(""),
-                                                )
-                                                .await;
-                                        }
+        // Matrix spec 请求体直接是签名映射；兼容历史包一层 "signatures" 的写法
+        let signatures = body.get("signatures").cloned().unwrap_or(body);
+
+        if let Some(sig_map) = signatures.as_object() {
+            for (target_user_id, user_sigs) in sig_map {
+                if let Some(user_sig_map) = user_sigs.as_object() {
+                    for (target_key_id, sig_data) in user_sig_map {
+                        if let Some(sig_obj) = sig_data.as_object() {
+                            for (signing_user_id, signing_key_sigs) in sig_obj {
+                                // E2EE-06: 只允许已认证用户上传以自己名义的签名，
+                                // 防止攻击者伪造他人的交叉签名关系
+                                if signing_user_id != user_id {
+                                    tracing::warn!(
+                                        target: "e2ee",
+                                        auth_user = %user_id,
+                                        signing_user = %signing_user_id,
+                                        target_user = %target_user_id,
+                                        target_key = %target_key_id,
+                                        "Rejecting signature uploaded on behalf of another user"
+                                    );
+                                    failures
+                                        .entry(target_user_id.clone())
+                                        .or_insert_with(|| serde_json::json!({}))
+                                        .as_object_mut()
+                                        .map(|m| {
+                                            m.insert(
+                                                target_key_id.clone(),
+                                                serde_json::json!({
+                                                    "errcode": "M_FORBIDDEN",
+                                                    "error": "Cannot upload signatures on behalf of other users"
+                                                }),
+                                            )
+                                        });
+                                    continue;
+                                }
+                                if let Some(key_sigs) = signing_key_sigs.as_object() {
+                                    for (signing_key_id, signature) in key_sigs {
+                                        let _ = self
+                                            .storage
+                                            .store_signature(
+                                                target_user_id,
+                                                target_key_id,
+                                                signing_user_id,
+                                                signing_key_id,
+                                                signature.as_str().unwrap_or(""),
+                                            )
+                                            .await;
                                     }
                                 }
                             }
@@ -676,6 +725,7 @@ mod tests {
 
     use super::{DeviceKeyService, KeyQueryRequest};
     use crate::device_keys::models::DeviceKey;
+    use crate::device_keys::storage::DeviceKeyStoreApi;
     use crate::test_mocks::InMemoryDeviceKeyStore;
     use chrono::Utc;
     use std::sync::Arc;
@@ -747,5 +797,158 @@ mod tests {
             .and_then(|v| v.as_object())
             .expect("entry for queried user should exist (possibly empty)");
         assert!(alice_entry.is_empty(), "expected empty device_keys for unknown user, got: {alice_entry:?}");
+    }
+
+    // ------------------------------------------------------------------
+    // S1 / E2EE-05/06: 验签失败的密钥必须被拒绝，而不是 warn 后继续存储
+    // ------------------------------------------------------------------
+
+    use super::{KeyUploadRequest, KeyUploadResponse};
+    use crate::device_keys::models::DeviceKeys;
+    use base64::Engine;
+    use ed25519_dalek::{Signer, SigningKey};
+
+    fn matrix_sign(value: &mut serde_json::Value, user_id: &str, key_id: &str, signing_key: &SigningKey) {
+        let mut for_signing = value.clone();
+        crate::signed_json::remove_signatures_and_unsigned(&mut for_signing);
+        let msg = crate::signed_json::canonical_json_bytes(&for_signing).expect("canonical json");
+        let sig = base64::engine::general_purpose::STANDARD.encode(signing_key.sign(&msg).to_bytes());
+        value["signatures"] = serde_json::json!({ user_id: { key_id: sig } });
+    }
+
+    fn device_keys_request(device_keys: DeviceKeys) -> KeyUploadRequest {
+        KeyUploadRequest { device_keys: Some(device_keys), one_time_keys: None, fallback_keys: None }
+    }
+
+    #[tokio::test]
+    async fn upload_keys_rejects_invalid_device_key_signature() {
+        let store = InMemoryDeviceKeyStore::new();
+        let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store);
+        let service = DeviceKeyService::new(storage, make_test_cache());
+
+        let user_id = "@alice:example.com";
+        let device_id = "DEVICE_A";
+        let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+        let attacker_key = SigningKey::from_bytes(&[9u8; 32]);
+        let ed_key_id = format!("ed25519:{device_id}");
+        let ed_pub = base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().as_bytes());
+
+        // 用攻击者的私钥签名 —— 与设备公钥不匹配，验签必失败
+        let mut dk = serde_json::json!({
+            "user_id": user_id,
+            "device_id": device_id,
+            "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
+            "keys": { ed_key_id.clone(): ed_pub }
+        });
+        matrix_sign(&mut dk, user_id, &ed_key_id, &attacker_key);
+
+        let device_keys: DeviceKeys = serde_json::from_value(dk).expect("deserialize");
+        let result = service.upload_keys(device_keys_request(device_keys), user_id, device_id).await;
+
+        assert!(result.is_err(), "invalid device key signature must be rejected, got: {result:?}");
+    }
+
+    #[tokio::test]
+    async fn upload_keys_accepts_valid_device_key_signature() {
+        let store = InMemoryDeviceKeyStore::new();
+        let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store.clone());
+        let service = DeviceKeyService::new(storage, make_test_cache());
+
+        let user_id = "@alice:example.com";
+        let device_id = "DEVICE_A";
+        let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+        let ed_key_id = format!("ed25519:{device_id}");
+        let ed_pub = base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().as_bytes());
+
+        let mut dk = serde_json::json!({
+            "user_id": user_id,
+            "device_id": device_id,
+            "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
+            "keys": { ed_key_id.clone(): ed_pub }
+        });
+        matrix_sign(&mut dk, user_id, &ed_key_id, &signing_key);
+
+        let device_keys: DeviceKeys = serde_json::from_value(dk).expect("deserialize");
+        let result: Result<KeyUploadResponse, _> =
+            service.upload_keys(device_keys_request(device_keys), user_id, device_id).await;
+
+        assert!(result.is_ok(), "valid device key signature must be accepted, got: {result:?}");
+        let stored = store.get_device_key(user_id, device_id, "ed25519").await.expect("query");
+        assert!(stored.is_some(), "validly signed device key must be stored");
+    }
+
+    #[tokio::test]
+    async fn upload_keys_rejects_invalid_signed_one_time_key() {
+        let store = InMemoryDeviceKeyStore::new();
+        let user_id = "@alice:example.com";
+        let device_id = "DEVICE_A";
+        let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+        let ed_pub = base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().as_bytes());
+
+        // 预置设备 ed25519 密钥，使 OTK 验签路径可执行
+        let mut device_key = make_device_key(user_id, device_id, "ed25519");
+        device_key.public_key = ed_pub;
+        store.seed_key(device_key).await;
+
+        let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store.clone());
+        let service = DeviceKeyService::new(storage, make_test_cache());
+
+        let bad_sig = base64::engine::general_purpose::STANDARD.encode([0xFFu8; 64]);
+        let request = KeyUploadRequest {
+            device_keys: None,
+            one_time_keys: Some(serde_json::json!({
+                "signed_curve25519:AAAA": {
+                    "key": "curve_public_key",
+                    "signatures": { user_id: { format!("ed25519:{device_id}"): bad_sig } }
+                }
+            })),
+            fallback_keys: None,
+        };
+
+        let result = service.upload_keys(request, user_id, device_id).await;
+        assert!(result.is_err(), "invalid OTK signature must be rejected, got: {result:?}");
+        let stored = store.get_device_key(user_id, device_id, "signed_curve25519").await.expect("query");
+        assert!(stored.is_none(), "invalidly signed OTK must NOT be stored");
+    }
+
+    #[tokio::test]
+    async fn upload_signatures_rejects_signatures_from_other_users() {
+        let store = InMemoryDeviceKeyStore::new();
+        let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store.clone());
+        let service = DeviceKeyService::new(storage, make_test_cache());
+
+        // 已认证用户 @alice 上传"以 @mallory 名义"的签名 —— 必须进入 failures 且不得存储
+        let body = serde_json::json!({
+            "@bob:example.com": {
+                "ed25519:BOB_DEVICE": {
+                    "@mallory:example.com": { "ed25519:MALLORY_KEY": "forged_signature" }
+                }
+            }
+        });
+
+        let response = service.upload_signatures("@alice:example.com", body).await.expect("upload_signatures");
+        let failures = response.get("failures").and_then(|f| f.as_object()).expect("failures object");
+        assert!(!failures.is_empty(), "forged third-party signature must appear in failures");
+        assert_eq!(store.signature_count().await, 0, "forged signature must NOT be stored");
+    }
+
+    #[tokio::test]
+    async fn upload_signatures_accepts_own_signatures() {
+        let store = InMemoryDeviceKeyStore::new();
+        let storage: Arc<dyn super::DeviceKeyStoreApi> = Arc::new(store.clone());
+        let service = DeviceKeyService::new(storage, make_test_cache());
+
+        let body = serde_json::json!({
+            "@bob:example.com": {
+                "ed25519:BOB_DEVICE": {
+                    "@alice:example.com": { "ed25519:ALICE_KEY": "alice_signature" }
+                }
+            }
+        });
+
+        let response = service.upload_signatures("@alice:example.com", body).await.expect("upload_signatures");
+        let failures = response.get("failures").and_then(|f| f.as_object()).expect("failures object");
+        assert!(failures.is_empty(), "own signature must not fail, got: {failures:?}");
+        assert_eq!(store.signature_count().await, 1, "own signature must be stored");
     }
 }

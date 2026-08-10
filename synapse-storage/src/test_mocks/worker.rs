@@ -296,6 +296,13 @@ impl crate::worker::WorkerStoreApi for InMemoryWorkerStore {
         Ok(result)
     }
 
+    async fn get_pending_task_by_id(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<crate::worker::WorkerTaskAssignment>, sqlx::Error> {
+        Ok(self.tasks.read().await.iter().find(|t| t.task_id == task_id && t.status == "pending").cloned())
+    }
+
     async fn claim_next_pending_task(
         &self,
         worker_id: &str,

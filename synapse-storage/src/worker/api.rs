@@ -37,6 +37,7 @@ pub trait WorkerStoreApi: Send + Sync {
     fn record_load_stats(&self, worker_id: &str, stats: &WorkerLoadStatsUpdate) -> Result<(), sqlx::Error>;
     async fn assign_task(&self, request: AssignTaskRequest) -> Result<WorkerTaskAssignment, sqlx::Error>;
     async fn get_pending_tasks(&self, limit: i64) -> Result<Vec<WorkerTaskAssignment>, sqlx::Error>;
+    async fn get_pending_task_by_id(&self, task_id: &str) -> Result<Option<WorkerTaskAssignment>, sqlx::Error>;
     async fn claim_next_pending_task(&self, worker_id: &str) -> Result<Option<WorkerTaskAssignment>, sqlx::Error>;
     async fn claim_next_pending_task_for_types(
         &self,
@@ -149,6 +150,10 @@ impl WorkerStoreApi for WorkerStorage {
 
     async fn get_pending_tasks(&self, limit: i64) -> Result<Vec<WorkerTaskAssignment>, sqlx::Error> {
         self.get_pending_tasks(limit).await
+    }
+
+    async fn get_pending_task_by_id(&self, task_id: &str) -> Result<Option<WorkerTaskAssignment>, sqlx::Error> {
+        self.get_pending_task_by_id(task_id).await
     }
 
     async fn claim_next_pending_task(&self, worker_id: &str) -> Result<Option<WorkerTaskAssignment>, sqlx::Error> {

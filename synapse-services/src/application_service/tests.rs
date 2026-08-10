@@ -406,3 +406,67 @@ fn test_should_disable_service_uses_kind_specific_thresholds() {
     assert!(!ApplicationServiceManager::should_disable_service(TransactionFailureKind::Retryable, 7));
     assert!(ApplicationServiceManager::should_disable_service(TransactionFailureKind::Retryable, 8));
 }
+
+fn make_service_with_protocols(as_id: &str, protocols: Vec<&str>) -> ApplicationService {
+    ApplicationService {
+        id: 1,
+        as_id: as_id.to_string(),
+        url: "http://localhost:9999".to_string(),
+        as_token: "token".to_string(),
+        hs_token: "hs_token".to_string(),
+        sender_localpart: format!("@{as_id}:example.com"),
+        is_enabled: true,
+        is_rate_limited: false,
+        protocols: protocols.into_iter().map(String::from).collect(),
+        namespaces: serde_json::json!({}),
+        created_ts: 1,
+        updated_ts: None,
+        description: None,
+        api_key: None,
+        config: serde_json::json!({}),
+    }
+}
+
+#[test]
+fn aggregate_protocols_returns_map_from_registered_protocols() {
+    let services = vec![
+        make_service_with_protocols("irc-bridge", vec!["irc"]),
+        make_service_with_protocols("gitter-bridge", vec!["gitter"]),
+    ];
+
+    let result = ApplicationServiceManager::aggregate_protocols(&services);
+
+    assert!(result.is_object(), "result must be a JSON object");
+    assert!(result.get("irc").is_some(), "irc protocol must be present");
+    assert!(result.get("gitter").is_some(), "gitter protocol must be present");
+}
+
+#[test]
+fn aggregate_protocols_deduplicates_shared_protocol() {
+    let services = vec![
+        make_service_with_protocols("irc-bridge-1", vec!["irc"]),
+        make_service_with_protocols("irc-bridge-2", vec!["irc"]),
+    ];
+
+    let result = ApplicationServiceManager::aggregate_protocols(&services);
+
+    let irc = result.get("irc").expect("irc protocol must be present");
+    assert!(irc.is_object(), "protocol entry must be an object");
+    assert!(irc.get("instances").is_some(), "must have instances field");
+    assert!(irc.get("user_fields").is_some(), "must have user_fields field");
+    assert!(irc.get("location_fields").is_some(), "must have location_fields field");
+}
+
+#[test]
+fn aggregate_protocols_returns_empty_object_when_no_services() {
+    let result = ApplicationServiceManager::aggregate_protocols(&[]);
+    assert!(result.as_object().unwrap().is_empty(), "empty services should yield empty protocol map");
+}
+
+#[test]
+fn aggregate_protocols_skips_services_with_no_protocols() {
+    let services = vec![make_service_with_protocols("noop-bridge", vec![])];
+
+    let result = ApplicationServiceManager::aggregate_protocols(&services);
+    assert!(result.as_object().unwrap().is_empty(), "service with no protocols should not contribute entries");
+}

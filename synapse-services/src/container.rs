@@ -178,6 +178,12 @@ impl ServiceContainer {
         metrics: &Arc<MetricsCollector>,
         config: &Config,
     ) -> StoragePhase {
+        // S23: Create UserStorage + UserService once, share with AuthService.
+        // Previously AuthService::new_with_lifetime() created its own UserStorage
+        // and UserService internally, bypassing DI and producing duplicate instances.
+        let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
+        let user_service = Arc::new(UserService::new(user_storage.clone()));
+
         // Auth — must be initialized first; downstream services depend on it.
         // Produce all four trait-object lenses from the same concrete AuthService
         // so consumers can depend on the narrowest trait they need.
@@ -188,13 +194,14 @@ impl ServiceContainer {
             &config.security,
             &config.server.name,
             config.access_token_lifetime_seconds(),
+            user_service.clone(),
+            user_storage.clone(),
         ));
         let token_auth: Arc<dyn TokenAuth> = auth_concrete.clone();
         let credential_auth: Arc<dyn CredentialAuth> = auth_concrete.clone();
         let room_auth: Arc<dyn RoomAuth> = auth_concrete.clone();
 
-        // Core storage
-        let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
+        // Core storage (user_storage and user_service already created above for S23 DI)
         let device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi> = Arc::new(DeviceStorage::new(pool));
         let threepid_storage: Arc<dyn ThreepidStoreApi> = Arc::new(ThreepidStorage::new(pool));
         let presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi> =
@@ -212,7 +219,7 @@ impl ServiceContainer {
             Arc::new(InviteBlocklistStorage::new(pool.clone()));
         let sticky_event_storage: Arc<dyn StickyEventStoreApi> = Arc::new(StickyEventStorage::new(pool.clone()));
 
-        let user_service = Arc::new(UserService::new(user_storage.clone()));
+        // user_service already created above (S23 DI sharing)
 
         StoragePhase {
             validator: auth_concrete.validator.clone(),
@@ -260,6 +267,7 @@ impl ServiceContainer {
             &storage.credential_auth,
             &storage.room_auth,
             &storage.user_storage,
+            storage.user_service.clone(),
             &infra.shutdown_token,
         )
         .await;
@@ -289,7 +297,29 @@ impl ServiceContainer {
         // `RoomSyncServices` gives it to the sliding-sync service (the waiter)
         // and `CoreServices` re-exports it to the route layer (the notifier).
         // Two separate instances would silently never wake each other.
-        let event_notifier = crate::event_notifier::EventNotifier::new();
+        //
+        // S8: When Redis is enabled, wire cross-instance fan-out so that
+        // notifications from other server instances wake local waiters.
+        let event_notifier = if config.redis.enabled {
+            let redis_url = config.redis_url();
+            let redis_cfg = deadpool_redis::Config::from_url(&redis_url);
+            match redis_cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1)) {
+                Ok(pool) => {
+                    let notifier = crate::event_notifier::EventNotifier::new()
+                        .with_redis(pool, redis_url);
+                    if let Err(e) = notifier.start_redis_subscriber() {
+                        ::tracing::warn!("Failed to start EventNotifier Redis subscriber: {e}. Cross-instance fan-out disabled.");
+                    }
+                    notifier
+                }
+                Err(e) => {
+                    ::tracing::warn!("Failed to create Redis pool for EventNotifier: {e}. Falling back to local-only notifications.");
+                    crate::event_notifier::EventNotifier::new()
+                }
+            }
+        } else {
+            crate::event_notifier::EventNotifier::new()
+        };
 
         // Rooms — receives member_storage + the 4 injected services directly
         let rooms = wiring::RoomSyncServices::new(
@@ -320,6 +350,7 @@ impl ServiceContainer {
             &storage.credential_auth,
             &storage.room_auth,
             &storage.user_storage,
+            storage.user_service.clone(),
             &infra.server_metrics,
             event_broadcaster,
             event_notifier,

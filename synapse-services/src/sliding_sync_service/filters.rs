@@ -87,8 +87,12 @@ impl SlidingSyncService {
         since_pos: Option<&str>,
     ) -> Vec<serde_json::Value> {
         let cache_key = Self::list_snapshot_cache_key(user_id, device_id, conn_id, list_key);
-        let previous_snapshot =
-            self.cache.get_raw(&cache_key).and_then(|raw| serde_json::from_str::<SlidingListWindowSnapshot>(&raw).ok());
+        // S7: 走 L1+L2 共享读，避免跨实例/重启后快照丢失导致全量 SYNC ops 回声
+        let previous_snapshot = self
+            .cache
+            .get_raw_shared(&cache_key)
+            .await
+            .and_then(|raw| serde_json::from_str::<SlidingListWindowSnapshot>(&raw).ok());
 
         let ops = if let (Some(_), Some(previous)) = (since_pos, previous_snapshot.as_ref()) {
             Self::build_incremental_ops(previous, current_ranges)
@@ -111,6 +115,7 @@ impl SlidingSyncService {
         device_id: &str,
         conn_id: Option<&str>,
         request: &SlidingSyncRequest,
+        since_stream: Option<i64>,
     ) -> Result<serde_json::Value, sqlx::Error> {
         let mut rooms_json = serde_json::Map::new();
         let mut room_configs: HashMap<String, RoomSubscriptionConfig> = HashMap::new();
@@ -132,6 +137,7 @@ impl SlidingSyncService {
                                 &room,
                                 room_configs.get(room_id).unwrap_or(&RoomSubscriptionConfig::default()),
                                 request.pos.is_none(),
+                                since_stream,
                             )
                             .await?;
                         rooms_json.insert(room_id.clone(), payload);
@@ -171,6 +177,7 @@ impl SlidingSyncService {
                                     &room,
                                     room_configs.get(&room_id).unwrap_or(&RoomSubscriptionConfig::default()),
                                     request.pos.is_none(),
+                                    since_stream,
                                 )
                                 .await?;
                             rooms_json.insert(room_id, payload);
@@ -189,11 +196,14 @@ impl SlidingSyncService {
         room: &SlidingSyncRoom,
         config: &RoomSubscriptionConfig,
         initial: bool,
+        since_stream: Option<i64>,
     ) -> Result<serde_json::Value, sqlx::Error> {
         let mut room_json = Self::room_to_json(room);
         let required_state_events =
             self.build_required_state_events(&room.room_id, config.required_state.as_ref()).await?;
-        let (timeline, limited, prev_batch) = self.build_timeline(&room.room_id, config.timeline_limit).await?;
+        // S14: 增量同步按水位线过滤 timeline；初始同步取最新 N 条
+        let (timeline, limited, prev_batch) =
+            self.build_timeline(&room.room_id, config.timeline_limit, if initial { None } else { since_stream }).await?;
 
         let state_value = json!(required_state_events);
         room_json["required_state"] = state_value.clone();

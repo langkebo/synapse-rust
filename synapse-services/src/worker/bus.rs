@@ -43,16 +43,18 @@ pub struct WorkerBus {
     subscribers: Arc<RwLock<Vec<broadcast::Sender<BusMessage>>>>,
     command_tx: mpsc::Sender<BusMessage>,
     command_rx: Option<mpsc::Receiver<BusMessage>>,
-    connected: RwLock<bool>,
+    // PERF-03: 以下状态字段使用 Arc 共享 —— Clone 直接共享而非快照，
+    // 彻底消除 blocking_read 在异步上下文 panic 的隐患
+    connected: Arc<RwLock<bool>>,
     /// Redis client for publishing and subscribing.
     /// `None` when Redis is not configured or connection failed (in-memory mode).
-    redis_client: RwLock<Option<Arc<Client>>>,
+    redis_client: Arc<RwLock<Option<Arc<Client>>>>,
     /// Redis connection pool for publishing.
-    redis_pool: RwLock<Option<Arc<deadpool_redis::Pool>>>,
+    redis_pool: Arc<RwLock<Option<Arc<deadpool_redis::Pool>>>>,
     /// Handle for the subscriber task, so we can abort it on disconnect.
-    subscriber_task: RwLock<Option<tokio::task::JoinHandle<()>>>,
+    subscriber_task: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
     /// Channels that the subscriber task listens on.
-    subscribed_channels: RwLock<Vec<String>>,
+    subscribed_channels: Arc<RwLock<Vec<String>>>,
 }
 
 impl WorkerBus {
@@ -66,11 +68,11 @@ impl WorkerBus {
             subscribers: Arc::new(RwLock::new(Vec::new())),
             command_tx,
             command_rx: Some(command_rx),
-            connected: RwLock::new(false),
-            redis_client: RwLock::new(None),
-            redis_pool: RwLock::new(None),
-            subscriber_task: RwLock::new(None),
-            subscribed_channels: RwLock::new(Vec::new()),
+            connected: Arc::new(RwLock::new(false)),
+            redis_client: Arc::new(RwLock::new(None)),
+            redis_pool: Arc::new(RwLock::new(None)),
+            subscriber_task: Arc::new(RwLock::new(None)),
+            subscribed_channels: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -303,18 +305,22 @@ impl WorkerBus {
                         use redis::AsyncCommands;
                         let result: Result<(), redis::RedisError> = conn.publish(&full_channel, &encoded).await;
                         if let Err(e) = result {
-                            debug!(
+                            // WORK-05: 跨实例消息静默丢弃会表现为「另一台实例
+                            // 收不到事件」的诡异故障，至少 warn 留痕。
+                            warn!(
                                 error = %e,
                                 channel = %full_channel,
-                                "Failed to publish to Redis pub/sub"
+                                payload_bytes = encoded.len(),
+                                "Failed to publish to Redis pub/sub; cross-instance message lost"
                             );
                         }
                     }
                     Err(e) => {
-                        debug!(
+                        warn!(
                             error = %e,
                             channel = %full_channel,
-                            "Failed to get Redis connection for publish"
+                            payload_bytes = encoded.len(),
+                            "Failed to get Redis connection for publish; cross-instance message lost"
                         );
                     }
                 }
@@ -365,8 +371,15 @@ impl WorkerBus {
         Ok(rx)
     }
 
-    pub fn unsubscribe(&self, _channels: &[&str]) -> Result<(), ApiError> {
-        debug!("Unsubscribed from channels");
+    // WORK-01: 此前是空操作（只打日志），调用方以为退订成功，
+    // 实际 subscribed_channels 只增不减，Redis 订阅任务持续接收无用频道。
+    pub async fn unsubscribe(&self, channels: &[&str]) -> Result<(), ApiError> {
+        let mut subscribed = self.subscribed_channels.write().await;
+        for ch in channels {
+            let full_channel = format!("{}:{}", self.config.channel_prefix, ch);
+            subscribed.retain(|c| c != &full_channel);
+        }
+        debug!("Unsubscribed from channels: {:?}", channels);
         Ok(())
     }
 
@@ -455,6 +468,9 @@ pub struct BusStats {
 
 impl Clone for WorkerBus {
     fn clone(&self) -> Self {
+        // PERF-03: 状态字段全部 Arc 共享，零锁拷贝；
+        // 不再有 blocking_read —— 异步上下文中 Clone 安全。
+        // 注意：克隆体与原实例共享连接状态与订阅任务句柄。
         Self {
             config: self.config.clone(),
             server_name: self.server_name.clone(),
@@ -462,11 +478,11 @@ impl Clone for WorkerBus {
             subscribers: Arc::clone(&self.subscribers),
             command_tx: self.command_tx.clone(),
             command_rx: None,
-            connected: RwLock::new(*self.connected.blocking_read()),
-            redis_client: RwLock::new(self.redis_client.blocking_read().clone()),
-            redis_pool: RwLock::new(self.redis_pool.blocking_read().clone()),
-            subscriber_task: RwLock::new(None),
-            subscribed_channels: RwLock::new(self.subscribed_channels.blocking_read().clone()),
+            connected: Arc::clone(&self.connected),
+            redis_client: Arc::clone(&self.redis_client),
+            redis_pool: Arc::clone(&self.redis_pool),
+            subscriber_task: Arc::clone(&self.subscriber_task),
+            subscribed_channels: Arc::clone(&self.subscribed_channels),
         }
     }
 }
@@ -503,6 +519,48 @@ impl synapse_common::traits::EventBroadcaster for WorkerBus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // PERF-03: Clone 不得使用 blocking_read —— 在 tokio 异步上下文中会直接 panic
+    #[tokio::test]
+    async fn worker_bus_clone_inside_async_context_does_not_panic() {
+        let bus = WorkerBus::new(RedisBusConfig::default(), "test.server".to_string(), "worker1".to_string());
+        let cloned = bus.clone();
+        assert!(!cloned.is_connected().await, "fresh bus must start disconnected");
+    }
+
+    #[tokio::test]
+    async fn worker_bus_clone_shares_connection_state() {
+        // 克隆体必须共享连接状态（Arc 语义），否则 clone 后状态快照过期
+        let bus = WorkerBus::new(RedisBusConfig::default(), "test.server".to_string(), "worker1".to_string());
+        bus.connect().await.expect("connect falls back to in-memory mode");
+        let cloned = bus.clone();
+        assert!(cloned.is_connected().await, "clone must observe connected state");
+    }
+
+    // WORK-01: unsubscribe 必须真正移除频道，不能是空操作
+    #[tokio::test]
+    async fn work01_unsubscribe_removes_channels() {
+        let bus = WorkerBus::new(RedisBusConfig::default(), "test.server".to_string(), "worker1".to_string());
+        bus.connect().await.expect("connect falls back to in-memory mode");
+        let _rx = bus.subscribe(&["room:1", "room:2"]).await.expect("subscribe should succeed");
+        assert_eq!(bus.subscribed_channels.read().await.len(), 2);
+
+        bus.unsubscribe(&["room:1"]).await.expect("unsubscribe should succeed");
+
+        let remaining = bus.subscribed_channels.read().await.clone();
+        assert_eq!(remaining, vec!["synapse:room:2".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn work01_unsubscribe_unknown_channel_is_noop() {
+        let bus = WorkerBus::new(RedisBusConfig::default(), "test.server".to_string(), "worker1".to_string());
+        bus.connect().await.expect("connect falls back to in-memory mode");
+        let _rx = bus.subscribe(&["room:1"]).await.expect("subscribe should succeed");
+
+        bus.unsubscribe(&["room:unknown"]).await.expect("unsubscribe should succeed");
+
+        assert_eq!(bus.subscribed_channels.read().await.len(), 1);
+    }
 
     #[test]
     fn test_redis_bus_config_default() {

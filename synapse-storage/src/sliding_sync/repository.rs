@@ -18,6 +18,7 @@ impl SlidingSyncStorage {
         user_id: &str,
         device_id: &str,
         conn_id: Option<&str>,
+        event_stream_pos: i64,
     ) -> Result<SlidingSyncToken, sqlx::Error> {
         self.ensure_schema()?;
         let now = current_timestamp_millis();
@@ -25,13 +26,16 @@ impl SlidingSyncStorage {
 
         let token = uuid::Uuid::new_v4().to_string();
 
+        // S14: event_stream_pos 记录本轮同步开始时的事件流水快照，
+        // 下一轮增量同步据此过滤 timeline（只下发更新的）。
         sqlx::query_as::<_, SlidingSyncToken>(
             r"
-            INSERT INTO sliding_sync_tokens (user_id, device_id, token, conn_id, pos, created_ts, expires_at)
-            VALUES ($1, $2, $3, $4, nextval('sliding_sync_pos_seq'), $5, $6)
+            INSERT INTO sliding_sync_tokens (user_id, device_id, token, conn_id, pos, created_ts, expires_at, event_stream_pos)
+            VALUES ($1, $2, $3, $4, nextval('sliding_sync_pos_seq'), $5, $6, $7)
             ON CONFLICT (user_id, device_id, COALESCE(conn_id, ''::text)) DO UPDATE SET
                 pos = nextval('sliding_sync_pos_seq'),
-                expires_at = EXCLUDED.expires_at
+                expires_at = EXCLUDED.expires_at,
+                event_stream_pos = EXCLUDED.event_stream_pos
             RETURNING *
             ",
         )
@@ -41,6 +45,7 @@ impl SlidingSyncStorage {
         .bind(conn_id)
         .bind(now)
         .bind(expires_at)
+        .bind(event_stream_pos)
         .fetch_one(&*self.pool)
         .await
     }
@@ -54,7 +59,7 @@ impl SlidingSyncStorage {
         self.ensure_schema()?;
         sqlx::query_as::<_, SlidingSyncToken>(
             r"
-            SELECT id, user_id, device_id, conn_id, token, pos, created_ts, expires_at FROM sliding_sync_tokens
+            SELECT id, user_id, device_id, conn_id, token, pos, created_ts, expires_at, event_stream_pos FROM sliding_sync_tokens
             WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL))
             ",
         )
@@ -348,6 +353,7 @@ impl SlidingSyncStorage {
     ) -> Result<Option<SlidingSyncRoom>, sqlx::Error> {
         self.ensure_schema()?;
 
+        // Query 1: membership check (short-circuits if not a member)
         let is_member = sqlx::query_scalar::<_, bool>(
             r"
             SELECT EXISTS(
@@ -367,6 +373,8 @@ impl SlidingSyncStorage {
         }
 
         let now = current_timestamp_millis();
+
+        // Query 2: bump_stamp (latest event timestamp)
         let bump_stamp = sqlx::query_scalar::<_, Option<i64>>(
             r"
             SELECT MAX(origin_server_ts)
@@ -379,48 +387,48 @@ impl SlidingSyncStorage {
         .await?
         .unwrap_or(now);
 
+        // Query 3: existing room data (for preserving counts/flags)
         let existing_room = self.get_room(user_id, device_id, room_id, conn_id).await?;
 
-        let room_info = sqlx::query_scalar::<_, Option<String>>(
+        // S12: Query 4 — combined name + avatar (was 2 separate queries).
+        // Both columns come from the same `rooms` table, so one round-trip suffices.
+        let room_meta = sqlx::query_as::<_, (Option<String>, Option<String>)>(
             r"
-            SELECT name FROM rooms WHERE room_id = $1
+            SELECT name, avatar_url FROM rooms WHERE room_id = $1
             ",
         )
         .bind(room_id)
         .fetch_optional(&*self.pool)
-        .await?
-        .flatten();
-
-        let avatar_info = sqlx::query_scalar::<_, Option<String>>(
-            r"
-            SELECT avatar_url FROM rooms WHERE room_id = $1
-            ",
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.pool)
-        .await?
-        .flatten();
-
-        self.upsert_room(
-            user_id,
-            device_id,
-            room_id,
-            conn_id,
-            None,
-            bump_stamp,
-            existing_room.as_ref().map_or(0, |room| room.highlight_count),
-            existing_room.as_ref().map_or(0, |room| room.notification_count),
-            existing_room.as_ref().is_some_and(|room| room.is_dm),
-            existing_room.as_ref().is_some_and(|room| room.is_encrypted),
-            existing_room.as_ref().is_some_and(|room| room.is_tombstoned),
-            existing_room.as_ref().is_some_and(|room| room.is_invited),
-            room_info.as_deref().or(existing_room.as_ref().and_then(|room| room.name.as_deref())),
-            avatar_info.as_deref().or(existing_room.as_ref().and_then(|room| room.avatar.as_deref())),
-            now,
-        )
         .await?;
+        let (room_info, avatar_info) = match room_meta {
+            Some((name, avatar)) => (name, avatar),
+            None => (None, None),
+        };
 
-        self.get_room(user_id, device_id, room_id, conn_id).await
+        // Query 5: upsert + return (was upsert + separate get_room).
+        // `upsert_room` uses `RETURNING *`, so the result already contains
+        // the full row — no need for a 6th query to read it back.
+        let room = self
+            .upsert_room(
+                user_id,
+                device_id,
+                room_id,
+                conn_id,
+                None,
+                bump_stamp,
+                existing_room.as_ref().map_or(0, |room| room.highlight_count),
+                existing_room.as_ref().map_or(0, |room| room.notification_count),
+                existing_room.as_ref().is_some_and(|room| room.is_dm),
+                existing_room.as_ref().is_some_and(|room| room.is_encrypted),
+                existing_room.as_ref().is_some_and(|room| room.is_tombstoned),
+                existing_room.as_ref().is_some_and(|room| room.is_invited),
+                room_info.as_deref().or(existing_room.as_ref().and_then(|room| room.name.as_deref())),
+                avatar_info.as_deref().or(existing_room.as_ref().and_then(|room| room.avatar.as_deref())),
+                now,
+            )
+            .await?;
+
+        Ok(Some(room))
     }
 
     pub(crate) fn push_room_filters(query: &mut QueryBuilder<Postgres>, filters: Option<&SlidingSyncFilters>) {
@@ -808,6 +816,10 @@ impl SlidingSyncStorage {
     ) -> Result<(), sqlx::Error> {
         self.ensure_schema()?;
 
+        // C-1: 三条 DELETE 必须在同一事务中，否则部分失败会留下
+        // "token 已删（被判 initial）但 lists 残留（陈旧 range）"的不一致状态
+        let mut tx = self.pool.begin().await?;
+
         sqlx::query!(
             r#"
             DELETE FROM sliding_sync_tokens
@@ -817,7 +829,7 @@ impl SlidingSyncStorage {
             device_id,
             conn_id
         )
-        .execute(&*self.pool)
+        .execute(&mut *tx)
         .await?;
 
         sqlx::query!(
@@ -829,7 +841,7 @@ impl SlidingSyncStorage {
             device_id,
             conn_id
         )
-        .execute(&*self.pool)
+        .execute(&mut *tx)
         .await?;
 
         sqlx::query!(
@@ -841,8 +853,10 @@ impl SlidingSyncStorage {
             device_id,
             conn_id
         )
-        .execute(&*self.pool)
+        .execute(&mut *tx)
         .await?;
+
+        tx.commit().await?;
 
         Ok(())
     }

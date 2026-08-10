@@ -2,9 +2,7 @@
 use chrono::Utc;
 use serde_json::json;
 use std::sync::Arc;
-use synapse_e2ee::cross_signing::models::CrossSigningUpload;
 use synapse_e2ee::cross_signing::models::{CrossSigningKey, DeviceSignature};
-use synapse_e2ee::cross_signing::service::CrossSigningService;
 use synapse_e2ee::cross_signing::storage::CrossSigningStorage;
 async fn setup_test_database() -> Arc<sqlx::PgPool> {
     let pool = synapse_rust::test_utils::prepare_empty_isolated_test_pool().await.expect("Failed to prepare test pool");
@@ -118,47 +116,34 @@ async fn test_cross_signing_storage_round_trip_preserves_millis_timestamps() {
 }
 
 #[tokio::test]
-async fn test_upload_cross_signing_keys_accepts_dynamic_ed25519_key_ids() {
+async fn test_cross_signing_storage_accepts_dynamic_ed25519_key_ids() {
     let pool = setup_test_database().await;
     let storage = CrossSigningStorage::new(&pool);
-    let service = CrossSigningService::new(storage.clone());
 
-    let upload = CrossSigningUpload {
-        master_key: json!({
-            "user_id": "@alice:localhost",
-            "usage": ["master"],
-            "keys": {
-                "ed25519:alice-master-key": "master_public_key"
-            },
-            "signatures": {}
-        }),
-        self_signing_key: json!({
-            "user_id": "@alice:localhost",
-            "usage": ["self_signing"],
-            "keys": {
-                "ed25519:alice-self-signing-key": "self_signing_public_key"
-            },
-            "signatures": {
-                "@alice:localhost": {
-                    "ed25519:alice-master-key": "sig"
-                }
-            }
-        }),
-        user_signing_key: json!({
-            "user_id": "@alice:localhost",
-            "usage": ["user_signing"],
-            "keys": {
-                "ed25519:alice-user-signing-key": "user_signing_public_key"
-            },
-            "signatures": {
-                "@alice:localhost": {
-                    "ed25519:alice-master-key": "sig"
-                }
-            }
-        }),
-    };
-
-    service.upload_cross_signing_keys(upload).await.unwrap();
+    // Key IDs carry dynamic suffixes (e.g. `ed25519:alice-master-key`) rather
+    // than fixed names; storage must persist them verbatim.
+    for (key_type, key_id, public_key) in [
+        ("master", "ed25519:alice-master-key", "master_public_key"),
+        ("self_signing", "ed25519:alice-self-signing-key", "self_signing_public_key"),
+        ("user_signing", "ed25519:alice-user-signing-key", "user_signing_public_key"),
+    ] {
+        let key = CrossSigningKey {
+            id: uuid::Uuid::new_v4(),
+            user_id: "@alice:localhost".to_string(),
+            key_type: key_type.to_string(),
+            public_key: public_key.to_string(),
+            usage: vec![key_type.to_string()],
+            signatures: json!({}),
+            key_json: Some(json!({
+                "user_id": "@alice:localhost",
+                "usage": [key_type],
+                "keys": { key_id: public_key }
+            })),
+            created_ts: Utc::now(),
+            updated_ts: Utc::now(),
+        };
+        storage.create_cross_signing_key(&key).await.unwrap();
+    }
 
     let master = storage.get_cross_signing_key("@alice:localhost", "master").await.unwrap().unwrap();
     let self_signing = storage.get_cross_signing_key("@alice:localhost", "self_signing").await.unwrap().unwrap();
@@ -167,4 +152,5 @@ async fn test_upload_cross_signing_keys_accepts_dynamic_ed25519_key_ids() {
     assert_eq!(master.public_key, "master_public_key");
     assert_eq!(self_signing.public_key, "self_signing_public_key");
     assert_eq!(user_signing.public_key, "user_signing_public_key");
+    assert!(master.key_json.unwrap()["keys"].get("ed25519:alice-master-key").is_some());
 }

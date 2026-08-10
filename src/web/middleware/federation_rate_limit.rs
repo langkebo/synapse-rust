@@ -50,8 +50,24 @@ pub async fn federation_rate_limit_middleware(
     {
         Ok(d) => d,
         Err(e) => {
-            tracing::warn!("Federation rate limiter error, allowing request: {}", e);
-            return next.run(request).await;
+            // S17/SEC-02: 不再无条件放行 —— 由 fail_open_on_error 配置决定，
+            // 与主限流器（rate_limit.rs）语义对齐。
+            if federation_rate_limit_error_should_allow(config.fail_open_on_error) {
+                tracing::warn!(
+                    origin = %origin,
+                    endpoint = %endpoint_bucket,
+                    error = %e,
+                    "Federation rate limiter error, allowing request (fail_open_on_error=true)"
+                );
+                return next.run(request).await;
+            }
+            tracing::error!(
+                origin = %origin,
+                endpoint = %endpoint_bucket,
+                error = %e,
+                "Federation rate limiter backend unavailable, rejecting request (fail_open_on_error=false)"
+            );
+            return ApiError::internal("Federation rate limit backend unavailable".to_string()).into_response();
         }
     };
 
@@ -67,6 +83,11 @@ pub async fn federation_rate_limit_middleware(
     }
 
     next.run(request).await
+}
+
+/// S17/SEC-02: 联邦限流后端故障时是否放行，由 `fail_open_on_error` 配置决定。
+fn federation_rate_limit_error_should_allow(fail_open_on_error: bool) -> bool {
+    fail_open_on_error
 }
 
 /// Collapse a federation path into a coarse endpoint bucket for rate limiting.
@@ -114,6 +135,20 @@ fn federation_endpoint_bucket(path: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ------------------------------------------------------------------
+    // S17 / SEC-02: Redis 故障时的决策必须受 fail_open_on_error 配置控制
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_federation_rate_limit_error_fail_open_allows() {
+        assert!(federation_rate_limit_error_should_allow(true), "fail-open 必须放行");
+    }
+
+    #[test]
+    fn test_federation_rate_limit_error_fail_closed_rejects() {
+        assert!(!federation_rate_limit_error_should_allow(false), "fail-closed 必须拒绝");
+    }
 
     #[test]
     fn test_federation_endpoint_bucket() {

@@ -130,6 +130,85 @@ async fn event_redact_content_replaces_with_empty_json() {
     assert_eq!(redacted.content, serde_json::json!({}));
 }
 
+// ── S14: 增量 timeline 水位线（EventReader stream-ordering API）──────────
+//
+// 增量 sliding sync 的 timeline 只允许下发 stream_ordering 大于上一轮
+// 水位线的事件，否则客户端每次增量同步都会重复收到已收事件（SS-10）。
+
+fn make_stream_event(event_id: &str, room_id: &str, stream_ordering: i64) -> crate::event::RoomEvent {
+    crate::event::RoomEvent {
+        event_id: event_id.into(),
+        room_id: room_id.into(),
+        user_id: "@alice:example.com".into(),
+        event_type: "m.room.message".into(),
+        content: serde_json::json!({"body": event_id}),
+        state_key: None,
+        depth: 0,
+        origin_server_ts: 1_700_000_000_000 + stream_ordering,
+        processed_ts: 1_700_000_000_000 + stream_ordering,
+        not_before: 0,
+        status: None,
+        reference_image: None,
+        origin: "self".into(),
+        stream_ordering: Some(stream_ordering),
+        redacts: None,
+    }
+}
+
+#[tokio::test]
+async fn get_room_events_after_stream_ordering_returns_only_newer_events_asc() {
+    use crate::event::reader::EventReader;
+    let store = InMemoryEventStore::new();
+    store
+        .seed_events(vec![
+            make_stream_event("$e1", "!r:example.com", 10),
+            make_stream_event("$e2", "!r:example.com", 20),
+            make_stream_event("$e3", "!r:example.com", 30),
+        ])
+        .await;
+
+    let events = store.get_room_events_after_stream_ordering("!r:example.com", 10, 100).await.unwrap();
+    let ids: Vec<&str> = events.iter().map(|e| e.event_id.as_str()).collect();
+    assert_eq!(ids, vec!["$e2", "$e3"], "水位线之后的事件按 stream_ordering 升序返回");
+
+    // 水位线等于最大 stream_ordering 时不得返回任何事件（增量无新消息 → 空 timeline）
+    let none = store.get_room_events_after_stream_ordering("!r:example.com", 30, 100).await.unwrap();
+    assert!(none.is_empty(), "无新事件时增量 timeline 必须为空");
+}
+
+#[tokio::test]
+async fn get_room_events_after_stream_ordering_limit_keeps_newest() {
+    use crate::event::reader::EventReader;
+    let store = InMemoryEventStore::new();
+    store
+        .seed_events(vec![
+            make_stream_event("$e1", "!r:example.com", 10),
+            make_stream_event("$e2", "!r:example.com", 20),
+            make_stream_event("$e3", "!r:example.com", 30),
+        ])
+        .await;
+
+    // 超过 limit 时保留最新的 N 条（客户端要的是最新消息，缺口由 prev_batch 回翻）
+    let events = store.get_room_events_after_stream_ordering("!r:example.com", 0, 2).await.unwrap();
+    let ids: Vec<&str> = events.iter().map(|e| e.event_id.as_str()).collect();
+    assert_eq!(ids, vec!["$e2", "$e3"], "超限时必须保留最新 N 条而非最旧 N 条");
+}
+
+#[tokio::test]
+async fn get_max_stream_ordering_returns_max_or_zero() {
+    use crate::event::reader::EventReader;
+    let store = InMemoryEventStore::new();
+    assert_eq!(store.get_max_stream_ordering().await.unwrap(), 0, "空存储返回 0");
+
+    store
+        .seed_events(vec![
+            make_stream_event("$e1", "!r:example.com", 10),
+            make_stream_event("$e3", "!r:example.com", 30),
+        ])
+        .await;
+    assert_eq!(store.get_max_stream_ordering().await.unwrap(), 30);
+}
+
 // ── EventReader state event tests ────────────────────────────────
 
 #[tokio::test]
@@ -1021,7 +1100,7 @@ async fn room_summary_queue_lifecycle() {
 #[tokio::test]
 async fn sliding_sync_token_create_and_get() {
     let store = InMemorySlidingSyncStore::new();
-    let token = store.create_or_update_token("@alice:ex.com", "DEV1", Some("conn1")).await.unwrap();
+    let token = store.create_or_update_token("@alice:ex.com", "DEV1", Some("conn1"), 0).await.unwrap();
     assert_eq!(token.user_id, "@alice:ex.com");
     assert!(token.token.starts_with("sst_"));
 
@@ -1177,7 +1256,7 @@ async fn sliding_sync_notification_counts_and_bump() {
 #[tokio::test]
 async fn sliding_sync_token_cleanup() {
     let store = InMemorySlidingSyncStore::new();
-    store.create_or_update_token("@alice:ex.com", "DEV1", Some("conn1")).await.unwrap();
+    store.create_or_update_token("@alice:ex.com", "DEV1", Some("conn1"), 0).await.unwrap();
     // Token has a future expiry, so cleanup should remove none
     let removed = store.cleanup_expired_tokens().await.unwrap();
     assert_eq!(removed, 0);
@@ -1187,7 +1266,7 @@ async fn sliding_sync_token_cleanup() {
 #[tokio::test]
 async fn sliding_sync_delete_connection_data() {
     let store = InMemorySlidingSyncStore::new();
-    store.create_or_update_token("@alice:ex.com", "DEV1", Some("conn1")).await.unwrap();
+    store.create_or_update_token("@alice:ex.com", "DEV1", Some("conn1"), 0).await.unwrap();
     store.save_list("@alice:ex.com", "DEV1", Some("conn1"), "l1", &[], None, None, &[(0, 5)]).await.unwrap();
 
     store.delete_connection_data("@alice:ex.com", "DEV1", Some("conn1")).await.unwrap();

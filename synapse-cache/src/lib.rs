@@ -895,6 +895,34 @@ impl CacheManager {
         self.local.get_raw(key)
     }
 
+    /// S7: Like `get_raw`, but falls back to L2 (Redis) on an L1 miss and
+    /// backfills L1 on a hit.
+    ///
+    /// `set_raw` writes both L1 and L2, while synchronous `get_raw` only reads
+    /// L1. Callers whose state must survive cross-instance routing, restarts,
+    /// or local eviction (e.g. the sliding-sync presence/e2ee/to-device
+    /// de-duplication keys) should use this async variant; a spurious L1 miss
+    /// there is misread as "changed" and re-introduces the sync↔presence
+    /// busy-loop the de-dup was meant to break.
+    pub async fn get_raw_shared(&self, key: &str) -> Option<String> {
+        // L1: Local Cache
+        if let Some(val) = self.local.get_raw(key) {
+            return Some(val);
+        }
+
+        // L2: Redis Cache
+        if self.use_redis {
+            if let Some(redis) = &self.redis {
+                if let Some(val) = redis.get(key).await {
+                    // Populate L1 so subsequent synchronous reads hit locally.
+                    self.local.set_raw(key, &val);
+                    return Some(val);
+                }
+            }
+        }
+        None
+    }
+
     pub async fn delete(&self, key: &str) {
         self.local.remove(key);
         if let Some(redis) = &self.redis {
@@ -1288,6 +1316,72 @@ mod tests {
 
         let result: Option<String> = manager.get::<String>("nonexistent").await.unwrap();
         assert!(result.is_none());
+    }
+
+    // ── S7: get_raw_shared —— L1 未命中时回源 L2(Redis) 并回填 L1 ──────────
+    //
+    // presence/e2ee/to-device/list-snapshot 的去重状态通过 set_raw 双写
+    // L1+L2，但同步 get_raw 只读 L1。跨实例/重启/本地驱逐后 L1 未命中会被
+    // 误判为「已变化」，回声击穿空闲长轮询（忙循环复发开关）。
+
+    /// 构造带 Redis 的 CacheManager；本地 Redis 不可达时返回 None（测试跳过）。
+    async fn redis_backed_manager(tag: &str) -> Option<(CacheManager, deadpool_redis::Pool, String)> {
+        let pool = deadpool_redis::Config::from_url("redis://127.0.0.1:6379")
+            .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+            .ok()?;
+        let probe = tokio::time::timeout(std::time::Duration::from_millis(800), pool.get()).await.ok()?.ok()?;
+        drop(probe);
+        let manager = CacheManager::with_redis_pool(pool.clone(), &CacheConfig::default());
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let key = format!("s7_get_raw_shared:{tag}:{}:{nanos}", std::process::id());
+        Some((manager, pool, key))
+    }
+
+    #[tokio::test]
+    async fn test_get_raw_shared_without_redis_local_miss_returns_none() {
+        let manager = CacheManager::new(&CacheConfig::default());
+        assert!(manager.get_raw_shared("s7:no_such_key").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_raw_shared_local_hit() {
+        let manager = CacheManager::new(&CacheConfig::default());
+        manager.set_raw("s7:local_hit", "v1", 60).await;
+        assert_eq!(manager.get_raw_shared("s7:local_hit").await.as_deref(), Some("v1"));
+    }
+
+    #[tokio::test]
+    async fn test_get_raw_shared_falls_back_to_redis_and_backfills_local() {
+        use redis::AsyncCommands;
+        let Some((manager, pool, key)) = redis_backed_manager("fallback").await else {
+            eprintln!("skip: local redis unavailable");
+            return;
+        };
+
+        // 绕过 manager 直写 Redis，模拟「另一个实例写入 / 本实例重启后 L1 为空」
+        {
+            let mut conn = pool.get().await.expect("redis conn");
+            let _: () = conn.set_ex(&key, "shared_value", 60).await.expect("seed redis");
+        }
+        assert!(manager.get_raw(&key).is_none(), "前置条件：L1 必须未命中");
+
+        let result = manager.get_raw_shared(&key).await;
+        assert_eq!(result.as_deref(), Some("shared_value"), "L1 未命中必须回源 Redis");
+
+        // 回源后应回填 L1，后续同步读直接命中
+        assert_eq!(manager.get_raw(&key).as_deref(), Some("shared_value"), "回源后必须回填 L1");
+
+        let mut conn = pool.get().await.expect("redis conn");
+        let _: () = conn.del(&key).await.expect("cleanup");
+    }
+
+    #[tokio::test]
+    async fn test_get_raw_shared_redis_miss_returns_none() {
+        let Some((manager, _pool, key)) = redis_backed_manager("miss").await else {
+            eprintln!("skip: local redis unavailable");
+            return;
+        };
+        assert!(manager.get_raw_shared(&key).await.is_none(), "L1/L2 均未命中必须返回 None");
     }
 
     #[tokio::test]

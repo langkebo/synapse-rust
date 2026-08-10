@@ -227,7 +227,7 @@ impl EventStorage {
             SELECT 1
             FROM events
             WHERE room_id = ANY($1)
-              AND origin_server_ts > $2
+              AND stream_ordering > $2
             LIMIT 1
             ",
         )
