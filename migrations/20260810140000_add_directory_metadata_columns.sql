@@ -23,12 +23,11 @@ ALTER TABLE room_directory ADD COLUMN IF NOT EXISTS join_rule TEXT NOT NULL DEFA
 ALTER TABLE room_directory ADD COLUMN IF NOT EXISTS world_readable BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE room_directory ADD COLUMN IF NOT EXISTS guest_can_join BOOLEAN NOT NULL DEFAULT FALSE;
 
--- member_count: cached member count for directory listing display
-ALTER TABLE room_directory ADD COLUMN IF NOT EXISTS member_count INTEGER NOT NULL DEFAULT 0;
+-- member_count: cached member count for directory listing display.
+-- Uses BIGINT to match the Rust `i64` type in RoomDirectoryEntryRow; sqlx maps
+-- PostgreSQL INTEGER -> i32 and BIGINT -> i64, so a mismatch here causes a
+-- runtime ColumnDecode error when querying the directory.
+ALTER TABLE room_directory ADD COLUMN IF NOT EXISTS member_count BIGINT NOT NULL DEFAULT 0;
 
 -- updated_ts: last metadata update timestamp (nullable, set on upsert)
 ALTER TABLE room_directory ADD COLUMN IF NOT EXISTS updated_ts BIGINT;
-
--- Index for filtering public rooms by join_rule in directory listing queries
-CREATE INDEX IF NOT EXISTS idx_room_directory_join_rule
-ON room_directory(join_rule) WHERE join_rule = 'public';

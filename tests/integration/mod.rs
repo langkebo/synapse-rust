@@ -66,7 +66,9 @@ mod worker_task_recovery_tests;
 #[cfg(feature = "beacons")]
 mod beacon_storage_tests_migrated;
 mod cross_signing_storage_tests_migrated;
+mod directory_storage_tests;
 mod device_storage_tests_migrated;
+mod event_report_rate_limit_tests;
 mod event_storage_tests_migrated;
 mod feature_flags_storage_tests_migrated;
 mod federation_blacklist_storage_tests_migrated;
