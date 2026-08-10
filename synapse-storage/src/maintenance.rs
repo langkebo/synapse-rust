@@ -3,6 +3,13 @@ use sqlx::{Pool, Postgres};
 use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
+/// S20: Check if a sqlx::Error is a PostgreSQL "active SQL transaction" error
+/// (SQLSTATE 25P11) — used to detect VACUUM-in-transaction-block without
+/// fragile error string matching.
+fn is_active_transaction_error(e: &sqlx::Error) -> bool {
+    e.as_database_error().is_some_and(|db_err| db_err.code().is_some_and(|c| c == "25P11"))
+}
+
 pub struct DatabaseMaintenance {
     pool: Pool<Postgres>,
 }
@@ -89,8 +96,7 @@ impl DatabaseMaintenance {
                     result.execution_time_ms += start.elapsed().as_millis() as i64;
                 }
                 Err(e) => {
-                    let err_str = e.to_string();
-                    if err_str.contains("VACUUM cannot run inside a transaction block") {
+                    if is_active_transaction_error(&e) {
                         debug!("VACUUM {} 跳过: 需要独立连接", table);
                     } else {
                         warn!("VACUUM {} 失败: {}", table, e);

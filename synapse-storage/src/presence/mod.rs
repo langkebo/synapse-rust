@@ -9,6 +9,13 @@ use synapse_cache::{CacheKeyBuilder, CacheManager, CacheTtl};
 use synapse_common::current_timestamp_millis;
 use tracing;
 
+/// S20: Check if a sqlx::Error is a PostgreSQL "undefined column" error
+/// (SQLSTATE 42703) rather than matching error message strings, which are
+/// fragile across PostgreSQL versions and locales.
+fn is_undefined_column_error(e: &sqlx::Error) -> bool {
+    e.as_database_error().is_some_and(|db_err| db_err.code().is_some_and(|c| c == "42703"))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PresenceSnapshot {
     pub user_id: String,
@@ -353,8 +360,7 @@ impl PresenceStorage {
         match result {
             Ok(_) => Ok(()),
             Err(e) => {
-                let err_msg = e.to_string();
-                if err_msg.contains("column \"subscriber_id\" does not exist") {
+                if is_undefined_column_error(&e) {
                     return sqlx::query(
                         r"
                         INSERT INTO presence_subscriptions (user_id, friend_id, created_ts)
@@ -389,8 +395,7 @@ impl PresenceStorage {
         match result {
             Ok(_) => Ok(()),
             Err(e) => {
-                let err_msg = e.to_string();
-                if err_msg.contains("column \"subscriber_id\" does not exist") {
+                if is_undefined_column_error(&e) {
                     return sqlx::query(
                         r"
                         DELETE FROM presence_subscriptions
@@ -423,8 +428,7 @@ impl PresenceStorage {
         match result {
             Ok(rows) => Ok(rows.into_iter().map(|row| row.0).collect()),
             Err(e) => {
-                let err_msg = e.to_string();
-                if err_msg.contains("column \"subscriber_id\" does not exist") {
+                if is_undefined_column_error(&e) {
                     let fallback_result = sqlx::query_as::<_, (String,)>(
                         r"
                         SELECT friend_id FROM presence_subscriptions
@@ -458,8 +462,7 @@ impl PresenceStorage {
         match result {
             Ok(rows) => Ok(rows.into_iter().map(|row| row.0).collect()),
             Err(e) => {
-                let err_msg = e.to_string();
-                if err_msg.contains("column \"subscriber_id\" does not exist") {
+                if is_undefined_column_error(&e) {
                     let fallback_result = sqlx::query_as::<_, (String,)>(
                         r"
                         SELECT user_id FROM presence_subscriptions
