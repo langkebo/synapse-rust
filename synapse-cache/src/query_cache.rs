@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BinaryHeap, HashMap};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -131,6 +131,41 @@ impl AtomicCacheStats {
         let total = hits + misses;
         let hit_rate = if total == 0 { 0.0 } else { hits as f64 / total as f64 };
         CacheStats { hits, misses, evictions, total_entries, memory_usage_bytes: 0, hit_rate }
+    }
+}
+
+/// PERF-04: Eviction candidate for the BinaryHeap-based LRU eviction.
+///
+/// `BinaryHeap` is a max-heap by default. To evict the entry with the smallest
+/// `last_accessed` (the least-recently-used), we reverse the comparison on
+/// `last_accessed` so the heap pops the oldest entry first. The `key` field
+/// serves as a tiebreaker to guarantee a total ordering when two entries share
+/// the same timestamp, satisfying the `Ord`/`Eq` consistency requirement.
+struct EvictionCandidate {
+    key: String,
+    last_accessed: Instant,
+}
+
+impl Ord for EvictionCandidate {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Min-heap: smallest last_accessed has highest priority for eviction.
+        // Reverse the timestamp comparison so BinaryHeap (max-heap) pops the
+        // oldest entry first. Key tiebreaker ensures a total order.
+        other.last_accessed.cmp(&self.last_accessed).then_with(|| self.key.cmp(&other.key))
+    }
+}
+
+impl PartialOrd for EvictionCandidate {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for EvictionCandidate {}
+
+impl PartialEq for EvictionCandidate {
+    fn eq(&self, other: &Self) -> bool {
+        self.last_accessed == other.last_accessed && self.key == other.key
     }
 }
 
@@ -338,18 +373,30 @@ impl QueryCache {
             return;
         }
 
-        let mut entries: Vec<_> = cache.iter_mut().collect();
-        entries.sort_by_key(|(_, entry)| entry.last_accessed);
+        let to_remove = (cache.len() / 10).min(100);
 
-        let to_remove = (entries.len() / 10).min(100);
-        let keys_to_remove: Vec<String> = entries.into_iter().take(to_remove).map(|(k, _)| k.clone()).collect();
+        // PERF-04: Build a min-heap in O(n) via BinaryHeap::from_iter and pop
+        // the k oldest entries in O(k log n), replacing the previous
+        // O(n log n) sort_by_key. The heap uses EvictionCandidate's reversed
+        // Ord so that pop() returns the least-recently-used entry first.
+        let mut heap: BinaryHeap<EvictionCandidate> = cache
+            .iter()
+            .map(|(key, entry)| EvictionCandidate { key: key.clone(), last_accessed: entry.last_accessed })
+            .collect();
 
-        for key in keys_to_remove {
-            cache.remove(&key);
+        let mut removed = 0;
+        while removed < to_remove {
+            match heap.pop() {
+                Some(candidate) => {
+                    cache.remove(&candidate.key);
+                    removed += 1;
+                }
+                None => break,
+            }
         }
 
         // S21: atomic, no lock needed.
-        self.stats.record_evictions(to_remove as u64);
+        self.stats.record_evictions(removed as u64);
     }
 
     async fn record_batch_access_stats(&self, hits: u64, misses: u64, total_entries: usize) {
@@ -743,5 +790,81 @@ mod tests {
         assert_eq!(results[&"!room1:server".to_string()], Some(value1));
         assert_eq!(results[&"!room2:server".to_string()], Some(value2));
         assert_eq!(results[&"!room3:server".to_string()], None);
+    }
+
+    /// PERF-04: Verify that cache eviction correctly removes the least-recently-
+    /// used entries when capacity is exceeded. The eviction must use BinaryHeap
+    /// (O(n) build + O(k log n) pop) instead of sort_by_key (O(n log n)).
+    #[tokio::test(start_paused = true)]
+    async fn test_cache_eviction_handles_large_capacity_efficiently() {
+        let cache = QueryCache::new(QueryCacheConfig {
+            room_ttl: Duration::from_secs(1800),
+            user_ttl: Duration::from_secs(1800),
+            event_ttl: Duration::from_secs(600),
+            membership_ttl: Duration::from_secs(900),
+            device_ttl: Duration::from_secs(1800),
+            token_ttl: Duration::from_secs(300),
+            max_entries: 100,
+            max_memory_mb: 100,
+            eviction_threshold: 0.85,
+            warm_on_startup: false,
+        });
+
+        // Fill to capacity, advancing time to create distinct last_accessed
+        // timestamps so LRU ordering is deterministic.
+        for i in 0..100 {
+            cache.set_room(&format!("key-{i}"), serde_json::json!({"i": i})).await;
+            tokio::time::advance(Duration::from_millis(1)).await;
+        }
+
+        // Adding one more entry triggers eviction (len >= max_entries).
+        cache.set_room("key-overflow", serde_json::json!({"overflow": true})).await;
+
+        // Eviction should remove 10% of entries (10 out of 100).
+        let stats = cache.get_stats().await;
+        assert_eq!(stats.evictions, 10, "should evict 10% of entries on overflow");
+
+        // Verify LRU eviction: the oldest entry (key-0, inserted first) must be
+        // evicted, while the newly inserted entry must be present.
+        assert!(cache.get_room("key-0").await.is_none(), "oldest entry (key-0) should be evicted");
+        assert!(cache.get_room("key-overflow").await.is_some(), "new entry (key-overflow) should exist");
+
+        // A recently-accessed entry near the end should survive eviction.
+        assert!(cache.get_room("key-99").await.is_some(), "recent entry (key-99) should survive eviction");
+    }
+
+    /// PERF-04: Verify that BinaryHeap-based eviction correctly handles the
+    /// tie-breaking case where multiple entries share the same last_accessed
+    /// timestamp. The heap must still evict the correct number of entries.
+    #[tokio::test(start_paused = true)]
+    async fn test_cache_eviction_with_equal_timestamps() {
+        let cache = QueryCache::new(QueryCacheConfig {
+            room_ttl: Duration::from_secs(1800),
+            user_ttl: Duration::from_secs(1800),
+            event_ttl: Duration::from_secs(600),
+            membership_ttl: Duration::from_secs(900),
+            device_ttl: Duration::from_secs(1800),
+            token_ttl: Duration::from_secs(300),
+            max_entries: 20,
+            max_memory_mb: 100,
+            eviction_threshold: 0.85,
+            warm_on_startup: false,
+        });
+
+        // Insert 20 entries without advancing time — all share the same
+        // last_accessed timestamp. This exercises the Ord tiebreaker.
+        for i in 0..20 {
+            cache.set_room(&format!("key-{i:02}"), serde_json::json!({"i": i})).await;
+        }
+
+        // Trigger eviction.
+        cache.set_room("key-overflow", serde_json::json!({"overflow": true})).await;
+
+        // Eviction should remove 10% of entries (2 out of 20).
+        let stats = cache.get_stats().await;
+        assert_eq!(stats.evictions, 2, "should evict 10% of entries (2 out of 20)");
+
+        // The overflow entry must exist.
+        assert!(cache.get_room("key-overflow").await.is_some(), "new entry should exist");
     }
 }
