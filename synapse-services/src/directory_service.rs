@@ -31,13 +31,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_common::error::ApiError;
 use synapse_common::ApiResult;
+use synapse_storage::directory::{DirectoryStoreApi, RoomDirectoryEntry};
 use synapse_storage::RoomStoreApi;
 use tokio::sync::RwLock;
 
 /// 公共目录中的房间信息
 ///
 /// 包含房间的基本元数据，用于公共房间列表展示。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DirectoryRoom {
     /// 房间 ID（例如：!room:example.com）
     pub room_id: String,
@@ -55,15 +56,52 @@ pub struct DirectoryRoom {
     pub guest_can_join: bool,
 }
 
+/// Convert a service-level [`DirectoryRoom`] to a storage-level
+/// [`RoomDirectoryEntry`].
+impl From<&DirectoryRoom> for RoomDirectoryEntry {
+    fn from(room: &DirectoryRoom) -> Self {
+        RoomDirectoryEntry {
+            room_id: room.room_id.clone(),
+            name: room.name.clone(),
+            topic: room.topic.clone(),
+            avatar_url: room.avatar_url.clone(),
+            canonical_alias: None,
+            join_rule: "public".to_string(),
+            world_readable: room.world_readable,
+            guest_can_join: room.guest_can_join,
+            member_count: room.member_count,
+        }
+    }
+}
+
+/// Convert a storage-level [`RoomDirectoryEntry`] back to a service-level
+/// [`DirectoryRoom`].
+impl From<RoomDirectoryEntry> for DirectoryRoom {
+    fn from(entry: RoomDirectoryEntry) -> Self {
+        DirectoryRoom {
+            room_id: entry.room_id,
+            name: entry.name,
+            topic: entry.topic,
+            avatar_url: entry.avatar_url,
+            member_count: entry.member_count,
+            world_readable: entry.world_readable,
+            guest_can_join: entry.guest_can_join,
+        }
+    }
+}
+
 pub struct DirectoryService {
     /// 别名到房间 ID 的映射（仅当 storage 为 None 时使用）
     aliases: Arc<RwLock<HashMap<String, String>>>,
     /// 房间 ID 到别名列表的映射（仅当 storage 为 None 时使用）
     room_aliases: Arc<RwLock<HashMap<String, Vec<String>>>>,
-    /// 公共房间列表
+    /// 公共房间列表（仅当 directory_storage 为 None 时使用）
     public_rooms: Arc<RwLock<HashMap<String, DirectoryRoom>>>,
     /// 持久化存储后端。Some 时所有别名操作委托到数据库；None 时降级为内存 HashMap
     room_storage: Option<Arc<dyn RoomStoreApi>>,
+    /// 公共房间目录持久化后端 (ARCH-06)。Some 时所有公共房间操作委托到数据库；
+    /// None 时降级为内存 HashMap
+    directory_storage: Option<Arc<dyn DirectoryStoreApi>>,
 }
 
 impl DirectoryService {
@@ -80,6 +118,7 @@ impl DirectoryService {
             room_aliases: Arc::new(RwLock::new(HashMap::new())),
             public_rooms: Arc::new(RwLock::new(HashMap::new())),
             room_storage: None,
+            directory_storage: None,
         }
     }
 
@@ -93,27 +132,83 @@ impl DirectoryService {
             room_aliases: Arc::new(RwLock::new(HashMap::new())),
             public_rooms: Arc::new(RwLock::new(HashMap::new())),
             room_storage: Some(room_storage),
+            directory_storage: None,
+        }
+    }
+
+    /// 创建带公共房间目录持久化后端的目录服务实例 (ARCH-06)。
+    ///
+    /// 当 `directory_storage` 为 Some 时，所有公共房间操作
+    /// （add/remove/list/search）委托到数据库，服务器重启后公共房间
+    /// 目录数据不会丢失。
+    pub fn with_directory_storage(directory_storage: Arc<dyn DirectoryStoreApi>) -> Self {
+        Self {
+            aliases: Arc::new(RwLock::new(HashMap::new())),
+            room_aliases: Arc::new(RwLock::new(HashMap::new())),
+            public_rooms: Arc::new(RwLock::new(HashMap::new())),
+            room_storage: None,
+            directory_storage: Some(directory_storage),
+        }
+    }
+
+    /// 创建同时带别名存储和公共房间目录存储的目录服务实例 (ARCH-06)。
+    ///
+    /// 用于生产环境：别名操作委托到 `room_storage`，公共房间目录操作
+    /// 委托到 `directory_storage`，两者均持久化到数据库。
+    pub fn with_storages(
+        room_storage: Arc<dyn RoomStoreApi>,
+        directory_storage: Arc<dyn DirectoryStoreApi>,
+    ) -> Self {
+        Self {
+            aliases: Arc::new(RwLock::new(HashMap::new())),
+            room_aliases: Arc::new(RwLock::new(HashMap::new())),
+            public_rooms: Arc::new(RwLock::new(HashMap::new())),
+            room_storage: Some(room_storage),
+            directory_storage: Some(directory_storage),
         }
     }
 
     /// 添加公共房间到目录
     ///
+    /// 当 `directory_storage` 为 Some 时，委托到数据库持久化 (ARCH-06)；
+    /// 否则写入内存 HashMap。
+    ///
     /// # 参数
     ///
     /// * `room` - 要添加的房间信息
-    pub async fn add_public_room(&self, room: DirectoryRoom) {
+    pub async fn add_public_room(&self, room: DirectoryRoom) -> ApiResult<()> {
+        if let Some(storage) = &self.directory_storage {
+            let entry = RoomDirectoryEntry::from(&room);
+            storage
+                .upsert_directory_entry(&entry)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to persist public room to directory storage", &e))?;
+            return Ok(());
+        }
         let mut rooms = self.public_rooms.write().await;
         rooms.insert(room.room_id.clone(), room);
+        Ok(())
     }
 
     /// 从目录移除公共房间
     ///
+    /// 当 `directory_storage` 为 Some 时，委托到数据库持久化 (ARCH-06)；
+    /// 否则从内存 HashMap 移除。
+    ///
     /// # 参数
     ///
     /// * `room_id` - 要移除的房间 ID
-    pub async fn remove_public_room(&self, room_id: &str) {
+    pub async fn remove_public_room(&self, room_id: &str) -> ApiResult<()> {
+        if let Some(storage) = &self.directory_storage {
+            storage
+                .remove_from_directory(room_id)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to remove public room from directory storage", &e))?;
+            return Ok(());
+        }
         let mut rooms = self.public_rooms.write().await;
         rooms.remove(room_id);
+        Ok(())
     }
 
     /// 获取房间的所有别名
@@ -186,12 +281,27 @@ impl DirectoryService {
     }
 
     pub async fn get_public_rooms(&self, limit: i32, _since: Option<&str>) -> ApiResult<Vec<DirectoryRoom>> {
+        if let Some(storage) = &self.directory_storage {
+            let entries = storage
+                .list_public_rooms(limit as i64, 0)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to list public rooms from directory storage", &e))?;
+            return Ok(entries.into_iter().map(DirectoryRoom::from).collect());
+        }
         let rooms = self.public_rooms.read().await;
         let result: Vec<DirectoryRoom> = rooms.values().take(limit as usize).cloned().collect();
         Ok(result)
     }
 
     pub async fn search_public_rooms(&self, filter: Option<&str>, limit: i32) -> ApiResult<Vec<DirectoryRoom>> {
+        if let Some(storage) = &self.directory_storage {
+            let filter_str = filter.unwrap_or("");
+            let entries = storage
+                .search_public_rooms(filter_str, limit as i64)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to search public rooms in directory storage", &e))?;
+            return Ok(entries.into_iter().map(DirectoryRoom::from).collect());
+        }
         let rooms = self.public_rooms.read().await;
 
         let mut result: Vec<DirectoryRoom> = Vec::new();
@@ -266,13 +376,10 @@ mod tests {
             .add_public_room(DirectoryRoom {
                 room_id: "!room1:example.com".to_string(),
                 name: Some("Room 1".to_string()),
-                topic: None,
-                avatar_url: None,
-                member_count: 10,
-                world_readable: true,
-                guest_can_join: true,
+                ..Default::default()
             })
-            .await;
+            .await
+            .unwrap();
 
         let rooms = service.get_public_rooms(10, None).await.unwrap();
         assert_eq!(rooms.len(), 1);
@@ -287,24 +394,22 @@ mod tests {
                 room_id: "!room1:example.com".to_string(),
                 name: Some("Test Room".to_string()),
                 topic: Some("A test topic".to_string()),
-                avatar_url: None,
                 member_count: 10,
-                world_readable: true,
-                guest_can_join: true,
+                ..Default::default()
             })
-            .await;
+            .await
+            .unwrap();
 
         service
             .add_public_room(DirectoryRoom {
                 room_id: "!room2:example.com".to_string(),
                 name: Some("Another Room".to_string()),
-                topic: None,
-                avatar_url: None,
                 member_count: 5,
-                world_readable: true,
                 guest_can_join: false,
+                ..Default::default()
             })
-            .await;
+            .await
+            .unwrap();
 
         let rooms = service.search_public_rooms(Some("test"), 10).await.unwrap();
         assert_eq!(rooms.len(), 1);
@@ -406,5 +511,106 @@ mod tests {
         svc.remove_room_alias("#fallback:example.com").await.unwrap();
         let after = svc.get_room_id_by_alias("#fallback:example.com").await.unwrap();
         assert_eq!(after, None);
+    }
+
+    // ── ARCH-06: 公共房间目录持久化测试 ──────────────────────────────────
+
+    use synapse_storage::test_mocks::InMemoryDirectoryStore;
+
+    #[tokio::test]
+    async fn arch06_directory_data_persisted_across_service_instances() {
+        // ARCH-06: 公共房间目录数据通过存储后端持久化，新 DirectoryService
+        // 实例（模拟重启）后数据不丢失
+        let dir_store = Arc::new(InMemoryDirectoryStore::new());
+
+        // 第一个 DirectoryService 实例添加公共房间
+        let svc1 = DirectoryService::with_directory_storage(dir_store.clone());
+        svc1.add_public_room(DirectoryRoom {
+            room_id: "!room:example.com".to_string(),
+            name: Some("Public Room".to_string()),
+            member_count: 42,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+        // 模拟重启：创建新的 DirectoryService，共享同一个存储后端
+        let svc2 = DirectoryService::with_directory_storage(dir_store.clone());
+        let rooms = svc2.get_public_rooms(10, None).await.unwrap();
+
+        assert_eq!(rooms.len(), 1, "ARCH-06: room must survive service restart");
+        assert_eq!(rooms[0].room_id, "!room:example.com");
+        assert_eq!(rooms[0].name, Some("Public Room".to_string()));
+        assert_eq!(rooms[0].member_count, 42);
+    }
+
+    #[tokio::test]
+    async fn arch06_remove_public_room_persists_to_storage() {
+        // ARCH-06: 删除公共房间也持久化到存储
+        let dir_store = Arc::new(InMemoryDirectoryStore::new());
+
+        let svc1 = DirectoryService::with_directory_storage(dir_store.clone());
+        svc1.add_public_room(DirectoryRoom {
+            room_id: "!removable:example.com".to_string(),
+            name: Some("Removable Room".to_string()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+        // 通过第二个实例删除
+        let svc2 = DirectoryService::with_directory_storage(dir_store.clone());
+        svc2.remove_public_room("!removable:example.com").await.unwrap();
+
+        // 第三个实例验证已删除
+        let svc3 = DirectoryService::with_directory_storage(dir_store.clone());
+        let rooms = svc3.get_public_rooms(10, None).await.unwrap();
+        assert!(rooms.is_empty(), "ARCH-06: removed room must not appear in directory after deletion");
+    }
+
+    #[tokio::test]
+    async fn arch06_search_public_rooms_from_storage() {
+        // ARCH-06: 搜索公共房间从存储后端读取
+        let dir_store = Arc::new(InMemoryDirectoryStore::new());
+
+        let svc = DirectoryService::with_directory_storage(dir_store.clone());
+        svc.add_public_room(DirectoryRoom {
+            room_id: "!alpha:example.com".to_string(),
+            name: Some("Alpha Test".to_string()),
+            topic: Some("Testing search".to_string()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        svc.add_public_room(DirectoryRoom {
+            room_id: "!beta:example.com".to_string(),
+            name: Some("Beta Room".to_string()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+        // 新实例搜索
+        let svc2 = DirectoryService::with_directory_storage(dir_store.clone());
+        let rooms = svc2.search_public_rooms(Some("test"), 10).await.unwrap();
+        assert_eq!(rooms.len(), 1, "ARCH-06: search must filter from storage");
+        assert_eq!(rooms[0].room_id, "!alpha:example.com");
+    }
+
+    #[tokio::test]
+    async fn arch06_in_memory_fallback_still_works() {
+        // ARCH-06: 无目录存储时降级为内存模式（向后兼容）
+        let svc = DirectoryService::new();
+        svc.add_public_room(DirectoryRoom {
+            room_id: "!fallback:example.com".to_string(),
+            name: Some("Fallback Room".to_string()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+        let rooms = svc.get_public_rooms(10, None).await.unwrap();
+        assert_eq!(rooms.len(), 1);
+        assert_eq!(rooms[0].room_id, "!fallback:example.com");
     }
 }

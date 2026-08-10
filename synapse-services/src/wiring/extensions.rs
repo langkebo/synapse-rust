@@ -72,9 +72,13 @@ impl ExtensionServices {
             user_service,
         } = deps;
 
-        // S24: DirectoryService 委托到数据库持久化别名，重启不丢失
-        let directory_service = Arc::new(crate::directory_service::DirectoryService::with_storage(
+        // S24 + ARCH-06: DirectoryService delegates both alias operations and
+        // public-room directory operations to database-backed storage so that
+        // all directory data survives server restarts.
+        let directory_storage = Arc::new(synapse_storage::directory::DirectoryStorage::new(&infra.pool));
+        let directory_service = Arc::new(crate::directory_service::DirectoryService::with_storages(
             rooms.room_storage.clone(),
+            directory_storage,
         ));
 
         #[cfg(feature = "friends")]

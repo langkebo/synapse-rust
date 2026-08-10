@@ -26,6 +26,8 @@ pub mod auth;
 pub mod background_update;
 pub mod dehydrated_device;
 pub mod delayed_events;
+/// Directory storage domain — public-room directory persistence (ARCH-06).
+pub mod directory;
 pub mod device;
 /// E2EE storage domain group — re-exports e2ee modules under `e2ee::`.
 pub mod e2ee;
