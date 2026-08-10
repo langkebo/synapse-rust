@@ -4,6 +4,7 @@
 
 pub mod client;
 pub mod client_api;
+pub mod dead_letter_queue;
 pub mod device_sync;
 pub mod edu;
 pub mod event_auth;
@@ -19,6 +20,9 @@ pub mod state_resolution;
 pub mod test_mocks;
 
 pub use client::FederationClient;
+pub use dead_letter_queue::{
+    DeadLetterQueueApi, DeadLetterQueueError, DlqEntry, InMemoryDeadLetterQueue, PgDeadLetterQueue,
+};
 pub use device_sync::DeviceSyncManager;
 pub use event_auth::EventAuthChain;
 pub use event_broadcaster::EventBroadcaster;

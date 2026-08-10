@@ -7,7 +7,7 @@ use synapse_common::config::Config;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_federation::client_api::FederationClientApi;
-use synapse_federation::{DeviceSyncManager, EventAuthChain, FederationClient, KeyRotationManager};
+use synapse_federation::{DeviceSyncManager, EventAuthChain, FederationClient, KeyRotationManager, PgDeadLetterQueue};
 
 #[derive(Clone)]
 pub struct FederationServices {
@@ -45,8 +45,13 @@ impl FederationServices {
             Arc::new(KeyRotationStorage::new(pool.clone())),
         ));
 
-        let federation_client =
-            Arc::new(FederationClient::new(server_name.clone(), Arc::new(key_rotation_manager.clone())));
+        // FED-07: Wire the dead letter queue into the federation client so
+        // that failed transactions are persisted for audit and manual retry.
+        let dlq = Arc::new(PgDeadLetterQueue::new(pool.clone()));
+        let federation_client = Arc::new(
+            FederationClient::new(server_name.clone(), Arc::new(key_rotation_manager.clone()))
+                .with_dlq(dlq),
+        );
 
         let device_sync_manager = DeviceSyncManager::new(pool, Some(cache.clone()), task_queue.clone());
 
