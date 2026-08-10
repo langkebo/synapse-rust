@@ -31,7 +31,6 @@ burn-after-read = []
 privacy-ext = []
 external-services = []
 builtin-oidc = []
-geo-ip = []
 openapi-docs = ["dep:utoipa"]
 
 [dependencies]

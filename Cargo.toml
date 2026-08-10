@@ -53,7 +53,6 @@ burn-after-read = ["synapse-services/burn-after-read"]
 privacy-ext = ["synapse-services/privacy-ext", "synapse-storage/privacy-ext"]
 external-services = ["synapse-services/external-services"]
 builtin-oidc = ["synapse-services/builtin-oidc"]
-geo-ip = ["synapse-services/geo-ip"]
 
 # Meta-feature: enable all extensions (default for backwards compatibility)
 all-extensions = [
@@ -61,7 +60,7 @@ all-extensions = [
     "saml-sso", "cas-sso",
     "beacons", "voip-tracking", "widgets", "server-notifications",
     "burn-after-read", "privacy-ext", "external-services",
-    "builtin-oidc", "geo-ip"
+    "builtin-oidc"
 ]
 
 # OpenAPI documentation generation (Swagger UI at /_swagger)

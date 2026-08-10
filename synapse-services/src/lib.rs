@@ -207,9 +207,6 @@ pub mod burn_after_read_service;
 #[cfg(feature = "external-services")]
 pub mod external_service_integration;
 
-#[cfg(feature = "geo-ip")]
-pub mod geo_ip;
-
 // Worker module (moved from main crate)
 pub mod worker;
 

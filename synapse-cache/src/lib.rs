@@ -264,6 +264,54 @@ pub struct LocalCache {
     /// D-1: per-key 过期截止时间。moka 0.12 没有 insert_with_ttl，
     /// 用旁路 deadline 表实现「L1 与 L2 Redis 相同的 per-key TTL」。
     deadlines: Arc<parking_lot::Mutex<HashMap<String, std::time::Instant>>>,
+    /// D-2: 独立命名空间缓存，防止高流量域（如 presence）驱逐
+    /// 安全关键数据（如 device_keys、token）。每个命名空间有独立
+    /// 的 moka 容量和 deadline 表。
+    namespaces: Arc<HashMap<&'static str, NamespaceCache>>,
+}
+
+/// D-2: 独立命名空间缓存实例，拥有独立的 moka Cache 和 deadline 表。
+#[derive(Clone, Debug)]
+struct NamespaceCache {
+    cache: Cache<String, String>,
+    deadlines: Arc<parking_lot::Mutex<HashMap<String, std::time::Instant>>>,
+}
+
+/// D-2: 将缓存键路由到对应的命名空间。
+/// 返回 None 表示使用通用缓存实例。
+fn route_key(key: &str) -> Option<&'static str> {
+    // presence 数据：高写入频率、短 TTL（60s），不应驱逐其他数据
+    if key.starts_with("user:") && key.ends_with(":presence") {
+        return Some("presence");
+    }
+    // sliding_sync 去重/扩展数据：高写入量、中等 TTL
+    if key.starts_with("sliding_sync:") {
+        return Some("sliding_sync");
+    }
+    // device_keys：安全关键数据，不应被 presence 洪水驱逐
+    if key.starts_with("device_keys_bulk:") {
+        return Some("device_keys");
+    }
+    // room_state：中等写入量、中等 TTL
+    if key.starts_with("room_state:") {
+        return Some("room_state");
+    }
+    None
+}
+
+impl NamespaceCache {
+    fn new(max_capacity: u64, ttl_secs: u64) -> Self {
+        let deadlines = Arc::new(parking_lot::Mutex::new(HashMap::new()));
+        let deadlines_for_listener = Arc::clone(&deadlines);
+        let cache = Cache::builder()
+            .max_capacity(max_capacity)
+            .time_to_live(std::time::Duration::from_secs(ttl_secs))
+            .eviction_listener(move |key: Arc<String>, _value, _cause| {
+                deadlines_for_listener.lock().remove(key.as_str());
+            })
+            .build();
+        Self { cache, deadlines }
+    }
 }
 
 impl LocalCache {
@@ -278,7 +326,19 @@ impl LocalCache {
                 deadlines_for_listener.lock().remove(key.as_str());
             })
             .build();
-        Self { cache, deadlines }
+
+        // D-2: 为高流量域创建独立 moka 实例，防止跨域驱逐
+        let mut namespaces = HashMap::new();
+        // presence: 高写入频率（每个用户每 60s 更新），短 TTL，容量 20K
+        namespaces.insert("presence", NamespaceCache::new(20_000, 120));
+        // sliding_sync: 去重键/扩展数据，中高写入量，容量 10K
+        namespaces.insert("sliding_sync", NamespaceCache::new(10_000, 7200));
+        // device_keys: 安全关键数据，不应被洪泛驱逐，容量 10K
+        namespaces.insert("device_keys", NamespaceCache::new(10_000, 600));
+        // room_state: 中等写入量，容量 20K
+        namespaces.insert("room_state", NamespaceCache::new(20_000, 1200));
+
+        Self { cache, deadlines, namespaces: Arc::new(namespaces) }
     }
 
     pub fn get(&self, token: &str) -> Option<Claims> {
@@ -298,6 +358,14 @@ impl LocalCache {
     }
 
     pub fn set_raw(&self, key: &str, value: &str) {
+        // D-2: 路由到独立命名空间缓存（如有）
+        if let Some(ns_name) = route_key(key) {
+            if let Some(ns) = self.namespaces.get(ns_name) {
+                ns.deadlines.lock().remove(key);
+                ns.cache.insert(key.to_string(), value.to_string());
+                return;
+            }
+        }
         // 无 per-key TTL 的普通写入：清除旧 deadline，回落到 builder 级 TTL
         self.deadlines.lock().remove(key);
         self.cache.insert(key.to_string(), value.to_string());
@@ -306,11 +374,34 @@ impl LocalCache {
     /// D-1: 带独立 TTL 的写入。此前所有条目共用 builder 级 TTL，
     /// 调用方传入的 ttl 只作用于 L2 Redis，L1 与 L2 过期时间不一致。
     pub fn set_raw_with_ttl(&self, key: &str, value: &str, ttl: std::time::Duration) {
+        // D-2: 路由到独立命名空间缓存（如有）
+        if let Some(ns_name) = route_key(key) {
+            if let Some(ns) = self.namespaces.get(ns_name) {
+                ns.deadlines.lock().insert(key.to_string(), std::time::Instant::now() + ttl);
+                ns.cache.insert(key.to_string(), value.to_string());
+                return;
+            }
+        }
         self.deadlines.lock().insert(key.to_string(), std::time::Instant::now() + ttl);
         self.cache.insert(key.to_string(), value.to_string());
     }
 
     pub fn get_raw(&self, key: &str) -> Option<String> {
+        // D-2: 路由到独立命名空间缓存（如有）
+        if let Some(ns_name) = route_key(key) {
+            if let Some(ns) = self.namespaces.get(ns_name) {
+                // D-1: per-key 过期判定
+                let deadline = ns.deadlines.lock().get(key).copied();
+                if let Some(deadline) = deadline {
+                    if std::time::Instant::now() >= deadline {
+                        ns.cache.remove(key);
+                        ns.deadlines.lock().remove(key);
+                        return None;
+                    }
+                }
+                return ns.cache.get(key);
+            }
+        }
         // D-1: per-key 过期判定（moka 自身只认 builder 级 TTL）
         let deadline = self.deadlines.lock().get(key).copied();
         if let Some(deadline) = deadline {
@@ -324,6 +415,14 @@ impl LocalCache {
     }
 
     pub fn remove(&self, token: &str) {
+        // D-2: 路由到独立命名空间缓存（如有）
+        if let Some(ns_name) = route_key(token) {
+            if let Some(ns) = self.namespaces.get(ns_name) {
+                ns.deadlines.lock().remove(token);
+                ns.cache.remove(token);
+                return;
+            }
+        }
         self.deadlines.lock().remove(token);
         self.cache.remove(token);
     }
@@ -810,7 +909,23 @@ impl CacheManager {
     }
 
     pub fn get_keys_with_prefix(&self, prefix: &str) -> Vec<String> {
-        self.local.cache.iter().filter(|(k, _)| k.starts_with(prefix)).map(|(k, _)| k.to_string()).collect()
+        let mut keys: Vec<String> = self
+            .local
+            .cache
+            .iter()
+            .filter(|(k, _)| k.starts_with(prefix))
+            .map(|(k, _)| k.to_string())
+            .collect();
+        // D-2: 也搜索命名空间缓存
+        for ns in self.local.namespaces.values() {
+            keys.extend(
+                ns.cache
+                    .iter()
+                    .filter(|(k, _)| k.starts_with(prefix))
+                    .map(|(k, _)| k.to_string()),
+            );
+        }
+        keys
     }
 
     pub fn get_local_raw(&self, key: &str) -> Option<String> {
@@ -822,28 +937,49 @@ impl CacheManager {
     }
 
     pub fn invalidate_local_pattern(&self, pattern: &str) {
+        let matcher = |k: &str| {
+            if pattern.contains('*') {
+                let prefix = pattern.trim_end_matches('*');
+                k.starts_with(prefix)
+            } else {
+                k.contains(pattern)
+            }
+        };
+
+        // D-2: 通用缓存实例
         let keys_to_remove: Vec<String> = self
             .local
             .cache
             .iter()
-            .filter(|(k, _)| {
-                if pattern.contains('*') {
-                    let prefix = pattern.trim_end_matches('*');
-                    k.starts_with(prefix)
-                } else {
-                    k.contains(pattern)
-                }
-            })
+            .filter(|(k, _)| matcher(k))
             .map(|(k, _)| k.to_string())
             .collect();
-
         for key in keys_to_remove {
             self.local.remove(&key);
+        }
+
+        // D-2: 命名空间缓存实例
+        for ns in self.local.namespaces.values() {
+            let ns_keys: Vec<String> = ns
+                .cache
+                .iter()
+                .filter(|(k, _)| matcher(k))
+                .map(|(k, _)| k.to_string())
+                .collect();
+            for key in ns_keys {
+                ns.deadlines.lock().remove(&key);
+                ns.cache.remove(&key);
+            }
         }
     }
 
     pub fn invalidate_local_all(&self) {
         self.local.cache.invalidate_all();
+        // D-2: 同时清空所有命名空间缓存
+        for ns in self.local.namespaces.values() {
+            ns.cache.invalidate_all();
+            ns.deadlines.lock().clear();
+        }
     }
 
     pub async fn broadcast_invalidation(&self, key: &str, invalidation_type: InvalidationType) -> Result<(), ApiError> {
@@ -877,6 +1013,11 @@ impl CacheManager {
             }
             InvalidationType::All => {
                 self.local.cache.invalidate_all();
+                // D-2: 同时清空所有命名空间缓存
+                for ns in self.local.namespaces.values() {
+                    ns.cache.invalidate_all();
+                    ns.deadlines.lock().clear();
+                }
             }
         }
     }
@@ -1007,6 +1148,11 @@ impl CacheManager {
             }
             InvalidationType::All => {
                 self.local.cache.invalidate_all();
+                // D-2: 同时清空所有命名空间缓存
+                for ns in self.local.namespaces.values() {
+                    ns.cache.invalidate_all();
+                    ns.deadlines.lock().clear();
+                }
             }
         }
         if let Err(e) = self.broadcast_invalidation(key, invalidation_type).await {
@@ -1709,6 +1855,84 @@ mod tests {
         };
         assert_eq!(claims.user_id, "@user:example.com");
         assert_eq!(claims.device_id, Some("DEVICE456".to_string()));
+    }
+
+    // ── D-2: 命名空间缓存隔离测试 ──────────────────────────────────
+
+    #[test]
+    fn d2_route_key_presence() {
+        assert_eq!(route_key("user:@alice:example.com:presence"), Some("presence"));
+        assert_eq!(route_key("user:@bob:test.org:presence"), Some("presence"));
+        assert_eq!(route_key("user:@alice:example.com:profile"), None);
+    }
+
+    #[test]
+    fn d2_route_key_sliding_sync() {
+        assert_eq!(route_key("sliding_sync:presence:@alice:dev1"), Some("sliding_sync"));
+        assert_eq!(route_key("sliding_sync:e2ee:@alice:dev1"), Some("sliding_sync"));
+        assert_eq!(route_key("sliding_sync:filter:abc123"), Some("sliding_sync"));
+    }
+
+    #[test]
+    fn d2_route_key_device_keys() {
+        assert_eq!(route_key("device_keys_bulk:@alice:example.com"), Some("device_keys"));
+    }
+
+    #[test]
+    fn d2_route_key_room_state() {
+        assert_eq!(route_key("room_state:!abc:example.com"), Some("room_state"));
+    }
+
+    #[test]
+    fn d2_route_key_general() {
+        assert_eq!(route_key("token:abc123"), None);
+        assert_eq!(route_key("user:@alice:profile"), None);
+        assert_eq!(route_key("some_random_key"), None);
+    }
+
+    #[test]
+    fn d2_namespace_isolation_presence_does_not_evict_general() {
+        let cache = LocalCache::new(&CacheConfig::default());
+
+        cache.set_raw("token:abc", "token_val");
+        cache.set_raw("user:@alice:profile", "profile_val");
+
+        for i in 0..100 {
+            cache.set_raw(&format!("user:@user{i}:test:presence"), "presence_val");
+        }
+
+        cache.cache.run_pending_tasks();
+        assert!(cache.get_raw("token:abc").is_some(), "general cache must survive presence flood");
+        assert!(cache.get_raw("user:@alice:profile").is_some(), "general cache must survive presence flood");
+        assert!(cache.get_raw("user:@user0:test:presence").is_some());
+        assert!(cache.get_raw("user:@user99:test:presence").is_some());
+    }
+
+    #[test]
+    fn d2_invalidate_all_clears_namespaces() {
+        let cache = LocalCache::new(&CacheConfig::default());
+
+        cache.set_raw("token:abc", "token_val");
+        cache.set_raw("user:@alice:test:presence", "presence_val");
+        cache.set_raw("sliding_sync:presence:@bob:dev1", "sync_val");
+
+        assert!(cache.get_raw("token:abc").is_some());
+        assert!(cache.get_raw("user:@alice:test:presence").is_some());
+        assert!(cache.get_raw("sliding_sync:presence:@bob:dev1").is_some());
+
+        cache.cache.invalidate_all();
+        for ns in cache.namespaces.values() {
+            ns.cache.invalidate_all();
+            ns.deadlines.lock().clear();
+        }
+        cache.cache.run_pending_tasks();
+        for ns in cache.namespaces.values() {
+            ns.cache.run_pending_tasks();
+        }
+
+        assert!(cache.get_raw("token:abc").is_none());
+        assert!(cache.get_raw("user:@alice:test:presence").is_none());
+        assert!(cache.get_raw("sliding_sync:presence:@bob:dev1").is_none());
     }
 }
 

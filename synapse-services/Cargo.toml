@@ -33,7 +33,6 @@ burn-after-read = ["synapse-common/burn-after-read", "synapse-storage/burn-after
 privacy-ext = ["synapse-common/privacy-ext", "synapse-storage/privacy-ext"]
 external-services = ["synapse-common/external-services", "synapse-storage/external-services"]
 builtin-oidc = ["synapse-common/builtin-oidc", "synapse-storage/builtin-oidc"]
-geo-ip = ["synapse-common/geo-ip", "synapse-storage/geo-ip"]
 
 [dependencies]
 synapse-common = { path = "../synapse-common" }
