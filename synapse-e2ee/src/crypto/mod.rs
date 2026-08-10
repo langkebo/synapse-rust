@@ -2,7 +2,7 @@ use synapse_common::ApiError;
 mod aes;
 mod ed25519;
 
-pub use aes::{Aes256GcmCipher, Aes256GcmKey, Aes256GcmNonce};
+pub use aes::{Aes256GcmCipher, Aes256GcmKey, Aes256GcmNonce, NonceTracker};
 pub use ed25519::{Ed25519KeyPair, Ed25519PublicKey};
 
 use thiserror::Error;

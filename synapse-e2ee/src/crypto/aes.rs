@@ -3,23 +3,22 @@ use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
 use base64::Engine;
 #[cfg(test)]
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
-#[cfg(test)]
 use dashmap::DashSet;
 use generic_array::GenericArray;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-#[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
-#[cfg(test)]
 use std::sync::Arc;
 use typenum::U32;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
-#[cfg(test)]
+/// Maximum number of nonces retained in the tracker before pruning.
 const NONCE_HISTORY_SIZE: usize = 10000;
-#[cfg(test)]
+/// Maximum counter value before overflow (32-bit counter space).
 const NONCE_COUNTER_MAX: u64 = (1u64 << 32) - 1;
 
-#[derive(Debug, Clone)]
+// E2EE-03: 密钥材料在 Clone/Drop 时必须零化，与 Ed25519SecretKey 对齐
+#[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
 pub struct Aes256GcmKey {
     bytes: [u8; 32],
 }
@@ -236,7 +235,12 @@ impl AsRef<[u8]> for XChaCha20Poly1305Ciphertext {
     }
 }
 
-#[cfg(test)]
+/// Tracks used nonces to detect and prevent nonce reuse in AES-256-GCM.
+///
+/// AES-256-GCM nonce reuse is catastrophic: reusing a nonce with the same key
+/// reveals the authentication key and allows forgery. This tracker maintains
+/// a bounded set of recently-used nonces and raises `NonceReuseDetected` on
+/// collision.
 #[derive(Debug)]
 pub struct NonceTracker {
     used_nonces: DashSet<Vec<u8>>,
@@ -244,7 +248,6 @@ pub struct NonceTracker {
     max_history_size: usize,
 }
 
-#[cfg(test)]
 impl NonceTracker {
     pub fn new() -> Self {
         Self { used_nonces: DashSet::new(), counter: AtomicU64::new(0), max_history_size: NONCE_HISTORY_SIZE }
@@ -299,21 +302,24 @@ impl NonceTracker {
     }
 }
 
-#[cfg(test)]
 impl Default for NonceTracker {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(test)]
+/// Generates nonces using a counter-based scheme with collision detection.
+///
+/// The nonce is composed of 4 random bytes (device prefix) followed by an
+/// 8-byte big-endian counter. This provides deterministic uniqueness within
+/// a single generator instance while the `NonceTracker` provides defense-in-depth
+/// against any accidental reuse.
 #[derive(Debug)]
 pub struct SecureNonceGenerator {
     counter: AtomicU64,
     tracker: Arc<NonceTracker>,
 }
 
-#[cfg(test)]
 #[allow(dead_code)]
 impl SecureNonceGenerator {
     pub fn new(tracker: Arc<NonceTracker>) -> Self {
@@ -336,6 +342,7 @@ impl SecureNonceGenerator {
         Ok(Aes256GcmNonce { bytes: nonce_bytes })
     }
 
+    #[cfg(test)]
     pub fn generate_xchacha_nonce(&self) -> Result<XChaCha20Poly1305Nonce, CryptoError> {
         let counter = self.counter.fetch_add(1, Ordering::SeqCst);
         if counter >= NONCE_COUNTER_MAX {
@@ -359,23 +366,40 @@ impl SecureNonceGenerator {
     pub fn reset_counter(&self) {
         self.counter.store(0, Ordering::SeqCst);
     }
+
+    /// Borrow the underlying `NonceTracker` for inspection.
+    pub fn tracker(&self) -> &NonceTracker {
+        &self.tracker
+    }
 }
 
-#[derive(Debug, Default)]
+/// AES-256-GCM cipher with built-in nonce reuse detection.
+///
+/// The default constructor wires up a `SecureNonceGenerator` backed by a
+/// `NonceTracker` so that every encryption operation uses a counter-based
+/// nonce with collision detection. This is critical for AES-256-GCM where
+/// nonce reuse with the same key is catastrophic.
+#[derive(Debug, Clone)]
 pub struct Aes256GcmCipher {
-    #[cfg(test)]
     nonce_generator: Option<Arc<SecureNonceGenerator>>,
 }
 
+impl Default for Aes256GcmCipher {
+    fn default() -> Self {
+        let tracker = Arc::new(NonceTracker::new());
+        let nonce_generator = Arc::new(SecureNonceGenerator::new(tracker));
+        Self { nonce_generator: Some(nonce_generator) }
+    }
+}
+
 impl Aes256GcmCipher {
-    #[cfg(test)]
     pub fn with_nonce_tracker(tracker: Arc<NonceTracker>) -> Self {
         let nonce_generator = Arc::new(SecureNonceGenerator::new(tracker));
         Self { nonce_generator: Some(nonce_generator) }
     }
 
-    #[cfg(test)]
-    fn split_encrypted_data(encrypted: &[u8]) -> Result<(Aes256GcmNonce, &[u8]), CryptoError> {
+    /// Split encrypted data (nonce || ciphertext) into its components.
+    pub fn split_encrypted_data(encrypted: &[u8]) -> Result<(Aes256GcmNonce, &[u8]), CryptoError> {
         if encrypted.len() < 12 {
             return Err(CryptoError::InvalidNonceLength);
         }
@@ -384,21 +408,16 @@ impl Aes256GcmCipher {
         Ok((nonce, ciphertext))
     }
 
-    #[allow(dead_code)]
-    fn encrypt(&self, key: &Aes256GcmKey, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        let nonce = {
-            #[cfg(test)]
-            {
-                if let Some(ref gen) = self.nonce_generator {
-                    gen.generate_aes_gcm_nonce()?
-                } else {
-                    Aes256GcmNonce::generate()
-                }
-            }
-            #[cfg(not(test))]
-            {
-                Aes256GcmNonce::generate()
-            }
+    /// Encrypt plaintext using AES-256-GCM with nonce reuse detection.
+    ///
+    /// The nonce is generated via `SecureNonceGenerator` (counter-based with
+    /// collision detection) when available, falling back to random generation
+    /// only when no tracker is configured.
+    pub fn encrypt_with_nonce(&self, key: &Aes256GcmKey, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        let nonce = if let Some(ref gen) = self.nonce_generator {
+            gen.generate_aes_gcm_nonce()?
+        } else {
+            Aes256GcmNonce::generate()
         };
 
         let cipher_key = GenericArray::<u8, U32>::from_slice(&key.bytes);
@@ -415,24 +434,23 @@ impl Aes256GcmCipher {
         Ok(result)
     }
 
-    pub fn encrypt_with_nonce(key: &Aes256GcmKey, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        let nonce = Aes256GcmNonce::generate();
-        let cipher_key = GenericArray::<u8, U32>::from_slice(&key.bytes);
-        let cipher = Aes256Gcm::new(cipher_key);
-        let nonce_bytes = Nonce::from_slice(&nonce.bytes);
-
-        let ciphertext = cipher
-            .encrypt(nonce_bytes, plaintext)
-            .map_err(|e: aes_gcm::aead::Error| CryptoError::EncryptionError(e.to_string()))?;
-
-        let mut result = Vec::with_capacity(nonce.bytes.len() + ciphertext.len());
-        result.extend_from_slice(&nonce.bytes);
-        result.extend_from_slice(&ciphertext);
-        Ok(result)
+    /// Check whether a nonce has been used by this cipher's tracker.
+    pub fn is_nonce_used(&self, nonce: &[u8]) -> bool {
+        self.nonce_generator
+            .as_ref()
+            .map(|gen| gen.tracker().is_nonce_used(nonce))
+            .unwrap_or(false)
     }
 
-    #[allow(dead_code)]
-    fn decrypt(key: &Aes256GcmKey, nonce: &Aes256GcmNonce, encrypted: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    /// Return the total number of nonces generated by this cipher's tracker.
+    pub fn nonce_counter(&self) -> u64 {
+        self.nonce_generator
+            .as_ref()
+            .map(|gen| gen.tracker().counter())
+            .unwrap_or(0)
+    }
+
+    pub fn decrypt(key: &Aes256GcmKey, nonce: &Aes256GcmNonce, encrypted: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let cipher_key = GenericArray::<u8, U32>::from_slice(&key.bytes);
         let cipher = Aes256Gcm::new(cipher_key);
         let nonce_bytes = Nonce::from_slice(&nonce.bytes);
@@ -527,7 +545,7 @@ impl E2eeCryptoProvider {
     }
 
     pub fn encrypt_aes(&self, key: &Aes256GcmKey, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        self.aes_cipher.encrypt(key, plaintext)
+        self.aes_cipher.encrypt_with_nonce(key, plaintext)
     }
 
     pub fn decrypt_aes(
@@ -599,6 +617,20 @@ mod tests {
         assert_ne!(&key1.bytes, &key2.bytes);
     }
 
+    // E2EE-03: AES 密钥材料必须与 Ed25519 私钥一样实现零化
+    #[test]
+    fn test_aes256_gcm_key_implements_zeroize_on_drop() {
+        fn assert_zeroize_on_drop<T: ZeroizeOnDrop>() {}
+        assert_zeroize_on_drop::<Aes256GcmKey>();
+    }
+
+    #[test]
+    fn test_aes256_gcm_key_zeroize_clears_bytes() {
+        let mut key = Aes256GcmKey::from_bytes([0xABu8; 32]);
+        key.zeroize();
+        assert_eq!(&key.bytes, &[0u8; 32]);
+    }
+
     #[test]
     fn test_aes256_gcm_nonce_generate() {
         let nonce = Aes256GcmNonce::generate();
@@ -641,7 +673,7 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Hello, World! This is a secret message.";
 
-        let encrypted = Aes256GcmCipher::default().encrypt(&key, plaintext.as_ref()).unwrap();
+        let encrypted = Aes256GcmCipher::default().encrypt_with_nonce(&key, plaintext.as_ref()).unwrap();
         assert!(encrypted.len() > 12);
 
         let (nonce, ciphertext) = Aes256GcmCipher::split_encrypted_data(&encrypted).unwrap();
@@ -655,8 +687,8 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Test message";
 
-        let encrypted1 = Aes256GcmCipher::default().encrypt(&key, plaintext.as_ref()).unwrap();
-        let encrypted2 = Aes256GcmCipher::default().encrypt(&key, plaintext.as_ref()).unwrap();
+        let encrypted1 = Aes256GcmCipher::default().encrypt_with_nonce(&key, plaintext.as_ref()).unwrap();
+        let encrypted2 = Aes256GcmCipher::default().encrypt_with_nonce(&key, plaintext.as_ref()).unwrap();
 
         assert_ne!(encrypted1[0..12], encrypted2[0..12]);
         assert_ne!(encrypted1[12..], encrypted2[12..]);
@@ -668,7 +700,7 @@ mod tests {
         let key2 = Aes256GcmKey::generate();
         let plaintext = b"Secret data";
 
-        let encrypted = Aes256GcmCipher::default().encrypt(&key1, plaintext.as_ref()).unwrap();
+        let encrypted = Aes256GcmCipher::default().encrypt_with_nonce(&key1, plaintext.as_ref()).unwrap();
         let (nonce, ciphertext) = Aes256GcmCipher::split_encrypted_data(&encrypted).unwrap();
 
         let result = Aes256GcmCipher::decrypt(&key2, &nonce, ciphertext);
@@ -680,7 +712,7 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Secret data";
 
-        let encrypted = Aes256GcmCipher::default().encrypt(&key, plaintext.as_ref()).unwrap();
+        let encrypted = Aes256GcmCipher::default().encrypt_with_nonce(&key, plaintext.as_ref()).unwrap();
         let ciphertext = &encrypted[12..];
 
         let wrong_nonce = Aes256GcmNonce::generate();
@@ -693,7 +725,7 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Secret data";
 
-        let mut encrypted = Aes256GcmCipher::default().encrypt(&key, plaintext.as_ref()).unwrap();
+        let mut encrypted = Aes256GcmCipher::default().encrypt_with_nonce(&key, plaintext.as_ref()).unwrap();
         encrypted[12] ^= 0xff;
 
         let (nonce, ciphertext) = Aes256GcmCipher::split_encrypted_data(&encrypted).unwrap();
@@ -707,7 +739,7 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = b"";
 
-        let encrypted = Aes256GcmCipher::default().encrypt(&key, plaintext.as_ref()).unwrap();
+        let encrypted = Aes256GcmCipher::default().encrypt_with_nonce(&key, plaintext.as_ref()).unwrap();
         assert_eq!(encrypted.len(), 28);
 
         let (nonce, ciphertext) = Aes256GcmCipher::split_encrypted_data(&encrypted).unwrap();
@@ -721,7 +753,7 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = vec![0x42u8; 10000];
 
-        let encrypted = Aes256GcmCipher::default().encrypt(&key, &plaintext).unwrap();
+        let encrypted = Aes256GcmCipher::default().encrypt_with_nonce(&key, &plaintext).unwrap();
         assert_eq!(encrypted.len(), 10028);
 
         let (nonce, ciphertext) = Aes256GcmCipher::split_encrypted_data(&encrypted).unwrap();
@@ -1002,11 +1034,12 @@ mod tests {
 
     #[test]
     fn test_encrypt_with_nonce_roundtrip() {
-        // Covers Aes256GcmCipher::encrypt_with_nonce (pub, non-cfg-test).
+        // Covers Aes256GcmCipher::encrypt_with_nonce (instance method with nonce tracking).
+        let cipher = Aes256GcmCipher::default();
         let key = Aes256GcmKey::generate();
         let plaintext = b"encrypt_with_nonce roundtrip test";
 
-        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&key, plaintext.as_ref()).unwrap();
+        let encrypted = cipher.encrypt_with_nonce(&key, plaintext.as_ref()).unwrap();
         assert!(encrypted.len() > 12);
 
         let (nonce, ciphertext) = Aes256GcmCipher::split_encrypted_data(&encrypted).unwrap();
@@ -1016,8 +1049,9 @@ mod tests {
 
     #[test]
     fn test_encrypt_with_nonce_empty_plaintext() {
+        let cipher = Aes256GcmCipher::default();
         let key = Aes256GcmKey::generate();
-        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&key, b"").unwrap();
+        let encrypted = cipher.encrypt_with_nonce(&key, b"").unwrap();
         // 12 (nonce) + 0 (ciphertext) + 16 (GCM tag)
         assert_eq!(encrypted.len(), 28);
     }
@@ -1048,4 +1082,25 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), CryptoError::InvalidNonceLength);
     }
+
+    // =========================================================================
+    // E2EE-04: Production nonce reuse detection
+    // =========================================================================
+
+    #[test]
+    fn test_default_cipher_tracks_nonces_in_production() {
+        // E2EE-04: Default cipher must include nonce reuse detection
+        // even in production (non-test) builds. The Default impl must
+        // wire up a SecureNonceGenerator backed by a NonceTracker.
+        let cipher = Aes256GcmCipher::default();
+        let key = Aes256GcmKey::generate();
+        let plaintext = b"production nonce tracking";
+
+        let encrypted = cipher.encrypt_with_nonce(&key, plaintext.as_ref()).unwrap();
+        let nonce_bytes = &encrypted[0..12];
+
+        assert!(cipher.is_nonce_used(nonce_bytes), "Default cipher must track nonce reuse");
+        assert_eq!(cipher.nonce_counter(), 1);
+    }
 }
+

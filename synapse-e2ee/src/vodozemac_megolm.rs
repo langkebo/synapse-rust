@@ -122,11 +122,19 @@ pub struct MegolmVodozemacService {
     /// 用 legacy 路径的 `Aes256GcmCipher` 加密后写入 `session_key` 列）。
     /// 当 `E2EE_DUAL_WRITE=true` 时必须设置；否则可保持 None（仅写 vodozemac 路径）。
     encryption_key: Option<[u8; 32]>,
+    /// AES-256-GCM cipher with nonce reuse detection (E2EE-04).
+    aes_cipher: crate::crypto::Aes256GcmCipher,
 }
 
 impl MegolmVodozemacService {
     pub fn new(storage: MegolmSessionStorage, cache: Arc<CacheManager>) -> Self {
-        Self { storage, cache, server_metrics: None, encryption_key: None }
+        Self {
+            storage,
+            cache,
+            server_metrics: None,
+            encryption_key: None,
+            aes_cipher: crate::crypto::Aes256GcmCipher::default(),
+        }
     }
 
     /// 设置服务器侧加密密钥（启用 Phase 2 双写时调用）
@@ -150,10 +158,10 @@ impl MegolmVodozemacService {
             return None;
         }
         let key = self.encryption_key?;
-        use crate::crypto::{Aes256GcmCipher, Aes256GcmKey};
+        use crate::crypto::Aes256GcmKey;
 
         let cipher_key = Aes256GcmKey::from_bytes(key);
-        let encrypted = Aes256GcmCipher::encrypt_with_nonce(&cipher_key, raw_session_key).ok()?;
+        let encrypted = self.aes_cipher.encrypt_with_nonce(&cipher_key, raw_session_key).ok()?;
         let json = serde_json::to_string(&encrypted).ok()?;
         Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json.as_bytes()))
     }
