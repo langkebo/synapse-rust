@@ -625,3 +625,36 @@ fn generate_email_verification_token_returns_api_error() {
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), "mock-email-token");
 }
+
+// ── ARCH-01: DI signature verification ───────────────────────────────
+//
+// Compile-time check: `new_with_lifetime` must accept device_storage,
+// token_storage, and refresh_token_storage as injected trait-object
+// parameters. If the signature reverts to creating storages internally
+// (fewer parameters), this function-pointer assignment fails to compile.
+//
+// This also verifies that `token_storage` is `Arc<dyn AccessTokenStoreApi>`
+// (not the concrete `AccessTokenStorage`) — the parameter type enforces
+// the field type because `new_with_lifetime` assigns the param directly to
+// the field.
+
+#[test]
+fn test_new_with_lifetime_accepts_all_injected_storages() {
+    let _fn: fn(
+        &Arc<sqlx::PgPool>,
+        Arc<CacheManager>,
+        Arc<MetricsCollector>,
+        &SecurityConfig,
+        &str,
+        i64,
+        Arc<crate::UserService>,
+        Arc<dyn synapse_storage::UserStore>,
+        Arc<dyn synapse_storage::device::DeviceListStoreApi>,
+        Arc<dyn synapse_storage::token::AccessTokenStoreApi>,
+        Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi>,
+    ) -> AuthService = AuthService::new_with_lifetime;
+
+    // If this compiles, all three critical writable storages (device, token,
+    // refresh_token) are accepted as injected parameters — no internal
+    // Arc::new(...Storage::new(pool)) calls for these three.
+}

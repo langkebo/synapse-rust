@@ -184,6 +184,15 @@ impl ServiceContainer {
         let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
         let user_service = Arc::new(UserService::new(user_storage.clone()));
 
+        // ARCH-01: Create the 3 critical writable storages once and inject them
+        // into AuthService. Previously new_with_lifetime() created these
+        // internally via Arc::new(...Storage::new(pool)), producing duplicate
+        // instances that bypassed the ServiceContainer's shared instances.
+        let device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi> = Arc::new(DeviceStorage::new(pool));
+        let token_storage: Arc<dyn AccessTokenStoreApi> = Arc::new(AccessTokenStorage::new(pool));
+        let refresh_token_storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi> =
+            Arc::new(synapse_storage::refresh_token::RefreshTokenStorage::new(pool));
+
         // Auth — must be initialized first; downstream services depend on it.
         // Produce all four trait-object lenses from the same concrete AuthService
         // so consumers can depend on the narrowest trait they need.
@@ -196,13 +205,16 @@ impl ServiceContainer {
             config.access_token_lifetime_seconds(),
             user_service.clone(),
             user_storage.clone(),
+            device_storage.clone(),
+            token_storage.clone(),
+            refresh_token_storage.clone(),
         ));
         let token_auth: Arc<dyn TokenAuth> = auth_concrete.clone();
         let credential_auth: Arc<dyn CredentialAuth> = auth_concrete.clone();
         let room_auth: Arc<dyn RoomAuth> = auth_concrete.clone();
 
         // Core storage (user_storage and user_service already created above for S23 DI)
-        let device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi> = Arc::new(DeviceStorage::new(pool));
+        // device_storage already created above for ARCH-01 DI sharing.
         let threepid_storage: Arc<dyn ThreepidStoreApi> = Arc::new(ThreepidStorage::new(pool));
         let presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi> =
             Arc::new(PresenceStorage::new(pool.clone(), cache.clone()));

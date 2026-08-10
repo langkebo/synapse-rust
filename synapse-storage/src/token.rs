@@ -22,6 +22,44 @@ pub trait AccessTokenStoreApi: Send + Sync {
     async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<AccessToken>, sqlx::Error>;
     async fn delete_user_token_by_id(&self, user_id: &str, token_id: i64) -> Result<bool, sqlx::Error>;
     async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error>;
+
+    // ── Methods used by AuthService (ARCH-01 DI) ─────────────────────────
+    //
+    // These were previously inherent methods on `AccessTokenStorage` only.
+    // They are now part of the trait so that `AuthService` can hold an
+    // `Arc<dyn AccessTokenStoreApi>` instead of the concrete struct,
+    // enabling dependency injection of a shared storage instance.
+
+    async fn create_token(
+        &self,
+        token: &str,
+        user_id: &str,
+        device_id: Option<&str>,
+        expires_at: Option<i64>,
+    ) -> Result<AccessToken, sqlx::Error>;
+
+    async fn delete_token(&self, token: &str) -> Result<(), sqlx::Error>;
+
+    async fn delete_user_tokens(&self, user_id: &str) -> Result<(), sqlx::Error>;
+
+    async fn delete_device_tokens(&self, device_id: &str) -> Result<(), sqlx::Error>;
+
+    async fn delete_user_device_tokens(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error>;
+
+    async fn delete_user_tokens_except_device(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error>;
+
+    async fn is_token_revoked(&self, token: &str) -> Result<bool, sqlx::Error>;
+
+    async fn add_to_blacklist(&self, token: &str, user_id: &str, reason: Option<&str>) -> Result<(), sqlx::Error>;
+
+    async fn add_hash_to_blacklist(
+        &self,
+        token_hash: &str,
+        user_id: &str,
+        reason: Option<&str>,
+    ) -> Result<(), sqlx::Error>;
+
+    async fn is_in_blacklist(&self, token: &str) -> Result<bool, sqlx::Error>;
 }
 
 #[derive(Clone)]
@@ -321,6 +359,57 @@ impl AccessTokenStoreApi for AccessTokenStorage {
 
     async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error> {
         self.cleanup_expired_tokens().await
+    }
+
+    async fn create_token(
+        &self,
+        token: &str,
+        user_id: &str,
+        device_id: Option<&str>,
+        expires_at: Option<i64>,
+    ) -> Result<AccessToken, sqlx::Error> {
+        self.create_token(token, user_id, device_id, expires_at).await
+    }
+
+    async fn delete_token(&self, token: &str) -> Result<(), sqlx::Error> {
+        self.delete_token(token).await
+    }
+
+    async fn delete_user_tokens(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_user_tokens(user_id).await
+    }
+
+    async fn delete_device_tokens(&self, device_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_device_tokens(device_id).await
+    }
+
+    async fn delete_user_device_tokens(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_user_device_tokens(user_id, device_id).await
+    }
+
+    async fn delete_user_tokens_except_device(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_user_tokens_except_device(user_id, device_id).await
+    }
+
+    async fn is_token_revoked(&self, token: &str) -> Result<bool, sqlx::Error> {
+        self.is_token_revoked(token).await
+    }
+
+    async fn add_to_blacklist(&self, token: &str, user_id: &str, reason: Option<&str>) -> Result<(), sqlx::Error> {
+        self.add_to_blacklist(token, user_id, reason).await
+    }
+
+    async fn add_hash_to_blacklist(
+        &self,
+        token_hash: &str,
+        user_id: &str,
+        reason: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        self.add_hash_to_blacklist(token_hash, user_id, reason).await
+    }
+
+    async fn is_in_blacklist(&self, token: &str) -> Result<bool, sqlx::Error> {
+        self.is_in_blacklist(token).await
     }
 }
 

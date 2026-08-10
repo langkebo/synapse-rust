@@ -42,7 +42,7 @@ pub struct AuthService {
     pub user_storage: Arc<dyn UserStore>,
     pub user_service: Arc<UserService>,
     pub device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
-    pub token_storage: AccessTokenStorage,
+    pub token_storage: Arc<dyn AccessTokenStoreApi>,
     pub refresh_token_storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi>,
     pub room_storage: RoomStorage,
     pub member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
@@ -79,7 +79,23 @@ impl AuthService {
         // Production code must use new_with_lifetime() with a shared UserService.
         let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
         let user_service = Arc::new(UserService::new(user_storage.clone()));
-        Self::new_with_lifetime(pool, cache, metrics, security, server_name, security.expiry_time, user_service, user_storage)
+        let device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi> = Arc::new(DeviceStorage::new(pool));
+        let token_storage: Arc<dyn AccessTokenStoreApi> = Arc::new(AccessTokenStorage::new(pool));
+        let refresh_token_storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi> =
+            Arc::new(synapse_storage::refresh_token::RefreshTokenStorage::new(pool));
+        Self::new_with_lifetime(
+            pool,
+            cache,
+            metrics,
+            security,
+            server_name,
+            security.expiry_time,
+            user_service,
+            user_storage,
+            device_storage,
+            token_storage,
+            refresh_token_storage,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -92,14 +108,20 @@ impl AuthService {
         access_token_lifetime: i64,
         user_service: Arc<UserService>,
         user_storage: Arc<dyn UserStore>,
+        device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
+        token_storage: Arc<dyn AccessTokenStoreApi>,
+        refresh_token_storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi>,
     ) -> Self {
         let server_name_for_storage = server_name.to_string();
         Self {
             user_service,
             user_storage,
-            device_storage: Arc::new(DeviceStorage::new(pool)),
-            token_storage: AccessTokenStorage::new(pool),
-            refresh_token_storage: Arc::new(synapse_storage::refresh_token::RefreshTokenStorage::new(pool)),
+            device_storage,
+            token_storage,
+            refresh_token_storage,
+            // These remain internal — they are read-only in auth context.
+            // Injecting them would require changes to 4+ wiring files and
+            // is tracked as a follow-up task.
             room_storage: RoomStorage::new(pool),
             member_storage: Arc::new(RoomMemberStorage::new(pool, &server_name_for_storage)),
             event_reader: Arc::new(EventStorage::new(pool, server_name_for_storage.clone())),
