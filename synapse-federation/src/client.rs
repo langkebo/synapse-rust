@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use synapse_common::current_timestamp_millis;
+use synapse_common::http_client;
 use synapse_common::ApiError;
 use tokio::sync::RwLock;
 
@@ -270,17 +271,8 @@ impl std::fmt::Debug for FederationClient {
 
 impl FederationClient {
     pub fn new(server_name: String, key_rotation_manager: Arc<KeyRotationManager>) -> Self {
-        let http_client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .connect_timeout(Duration::from_secs(10))
-            .pool_max_idle_per_host(20)
-            .pool_idle_timeout(Duration::from_secs(90))
-            .tcp_keepalive(Duration::from_secs(60))
-            .build()
-            .unwrap_or_else(|e| {
-                tracing::error!("Failed to build HTTP client, using default: {}", e);
-                Client::new()
-            });
+        // F-1/E-1: Use shared HTTP client with connection pool reuse.
+        let http_client = http_client::default_client();
 
         Self {
             http_client,
@@ -400,7 +392,7 @@ impl FederationClient {
 
     async fn resolve_via_well_known(&self, server_name: &str) -> Option<ResolvedServer> {
         let url = format!("https://{server_name}/.well-known/matrix/server");
-        let client = Client::builder().timeout(Duration::from_secs(WELL_KNOWN_TIMEOUT_SECS)).build().ok()?;
+        let client = http_client::client_with_timeout(Duration::from_secs(WELL_KNOWN_TIMEOUT_SECS));
 
         let response = client.get(&url).send().await.ok()?;
         if !response.status().is_success() {

@@ -16,7 +16,7 @@ use synapse_services::voice_service::VoiceMessageUploadParams;
 ///
 /// Lower bound is 1, upper bound is 100, default (when `None`) is 50.
 pub fn clamp_voice_list_limit(limit: Option<i64>) -> i64 {
-    limit.unwrap_or(50).min(100).max(1)
+    limit.unwrap_or(50).clamp(1, 100)
 }
 
 /// Map a `upload_voice_message` service result into the handler response.

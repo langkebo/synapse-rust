@@ -884,6 +884,7 @@ pub async fn acquire_pooled_schema() -> Result<LeasedSchema, String> {
     // tables, so the count is still correct. Skip the redundant COUNT query here
     // — under parallel test load, pg_catalog queries take 1.6-8s due to lock
     // contention, and this check was the #1 source of slow-statement warnings.
+    #[allow(clippy::never_loop)]
     while let Some(schema_name) = SCHEMA_POOL.lock().await.pop() {
         let pool = create_pool_for_schema(&database_url, &schema_name).await?;
         return Ok(LeasedSchema {

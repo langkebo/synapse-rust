@@ -445,11 +445,10 @@ async fn fetch_federation_verify_key(
         .map_err(|e| ApiError::internal_with_log("Rate limit semaphore closed", &e))?;
 
     let timeout_ms = ctx.config.federation.key_fetch_timeout_ms.max(1);
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_millis(timeout_ms))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| ApiError::internal(e.to_string()))?;
+    // F-1/E-1: Use shared HTTP client with no-redirect policy and custom timeout.
+    let client = synapse_common::http_client::no_redirect_client_with_timeout(
+        std::time::Duration::from_millis(timeout_ms),
+    );
 
     // SSRF protection: reuse the URL preview IP blacklist to block private/loopback addresses.
     // When `allow_http_key_fetch` is set (test/dev only), HTTP is used and SSRF checks are skipped.

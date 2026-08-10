@@ -164,7 +164,7 @@ pub(crate) async fn chunked_upload_start(
     Ok(Json(json!({
         "upload_id": upload_id,
         "chunk_size_limit": 10 * 1024 * 1024,
-        "max_file_size": 100 * 1024 * 1024
+        "max_file_size": ctx.config.server.max_upload_size
     })))
 }
 
