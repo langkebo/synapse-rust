@@ -1,4 +1,9 @@
 //! SSO — SAML, CAS, OIDC, builtin OIDC.
+//!
+//! ARCH-07/08 (2026-08-10): The `saml_storage` and `cas_storage` fields are
+//! "backing storage" — they are constructed here, injected into the
+//! corresponding `*_service`, and also stored on the struct. The stored
+//! copies are not accessed via the container after construction.
 
 use std::sync::Arc;
 

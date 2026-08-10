@@ -1,4 +1,11 @@
 //! Account — user identity, devices, tokens, presence.
+//!
+//! ARCH-07/08 (2026-08-10): The following storage fields are not accessed via
+//! the container after construction but are retained as "backing storage":
+//! - `qr_login_storage` — `QrLoginStorage` is accessed directly in tests;
+//!   the container copy is not re-read.
+//! - `sticky_event_storage` — consumed by `RoomSyncServices` during
+//!   construction; the container copy is not re-read.
 
 use std::sync::Arc;
 

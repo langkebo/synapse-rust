@@ -84,6 +84,24 @@ pub struct AdminModuleServices {
 }
 
 /// Aggregate admin services, decomposed into 5 domain sub-structs.
+///
+/// ARCH-07/08 (2026-08-10): The top-level `user_service` field was removed
+/// because it duplicated `ServiceContainer.account.user_service` and was never
+/// accessed via the container. The `user_service` parameter in [`new`] is
+/// still required — it is injected into individual admin sub-services during
+/// construction.
+///
+/// Several `*_storage` fields in the sub-structs below are "backing storage":
+/// they are constructed and stored here so that the corresponding `*_service`
+/// field (which wraps the storage via its own `Arc`) remains alive for the
+/// container's lifetime. The storage copies themselves are not accessed via
+/// the container after construction, but are retained for potential direct
+/// access by future route handlers. Verified unused storage fields include:
+/// `registration_token_storage`, `captcha_storage`, `audit_storage`,
+/// `feature_flag_storage`, `event_report_storage`, `background_update_storage`,
+/// `retention_storage`, `push_notification_storage`, `app_service_storage`,
+/// `app_service_event_reader`, `worker_storage`, `refresh_token_storage`,
+/// `federation_blacklist_storage`, and `media_quota_storage`.
 #[derive(Clone)]
 pub struct AdminServices {
     pub user: AdminUserServices,
@@ -91,7 +109,6 @@ pub struct AdminServices {
     pub media: AdminMediaServices,
     pub security: AdminSecurityServices,
     pub modules: AdminModuleServices,
-    pub user_service: Arc<UserService>,
 }
 
 impl AdminServices {
@@ -342,7 +359,6 @@ impl AdminServices {
                 worker_storage,
                 worker_manager,
             },
-            user_service,
         }
     }
 }

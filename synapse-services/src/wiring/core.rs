@@ -1,4 +1,10 @@
 //! Core — infra, auth, media, config, event broadcasting, push.
+//!
+//! ARCH-07/08 (2026-08-10): The `task_queue` field was removed because it
+//! duplicated `SharedInfra.task_queue` and was never accessed via the
+//! container after construction. Individual services that need the task queue
+//! (e.g. `RegistrationService`, `MediaService`) receive it directly from
+//! `SharedInfra` during construction and hold their own copy.
 
 use std::sync::Arc;
 
@@ -6,7 +12,6 @@ use synapse_cache::CacheManager;
 use synapse_common::config::Config;
 use synapse_common::metrics::MetricsCollector;
 use synapse_common::server_metrics::ServerMetrics;
-use synapse_common::task_queue::RedisTaskQueue;
 use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_storage::*;
 
@@ -23,7 +28,6 @@ pub struct CoreServices {
     pub search_service: Arc<crate::search_service::SearchService>,
     pub media_service: crate::media_service::MediaService,
     pub cache: Arc<CacheManager>,
-    pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub metrics: Arc<MetricsCollector>,
     pub server_metrics: Arc<ServerMetrics>,
     pub server_name: String,
@@ -116,7 +120,6 @@ impl CoreServices {
             search_service,
             media_service,
             cache: infra.cache.clone(),
-            task_queue: infra.task_queue.clone(),
             metrics: infra.metrics.clone(),
             server_metrics: server_metrics.clone(),
             server_name: infra.config.server.name.clone(),

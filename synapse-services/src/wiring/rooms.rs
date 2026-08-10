@@ -1,4 +1,13 @@
 //! Room & Sync assembly — room, member, event, summary, space, sync, sliding_sync.
+//!
+//! ARCH-07/08 (2026-08-10): Several storage fields below are "backing
+//! storage" — they are constructed here, injected into the corresponding
+//! service, and also stored on the struct. The stored copies are not accessed
+//! via the container after construction but are retained for potential direct
+//! access by future route handlers. Verified unused storage fields:
+//! `room_storage`, `member_storage`, `event_reader`, `event_writer`,
+//! `room_summary_storage`, `relations_storage`, `space_storage`,
+//! `thread_storage`, `room_tag_storage`.
 
 use std::sync::Arc;
 

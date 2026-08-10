@@ -1,4 +1,20 @@
 //! Extensions — feature-gated and cross-cutting domain services.
+//!
+//! ARCH-07/08 (2026-08-10): The `user_service` field was removed because it
+//! duplicated `ServiceContainer.account.user_service` and was never accessed
+//! via the container. The `user_service` in [`ExtensionServicesDeps`] is
+//! still required for constructing sub-services (e.g. `friend_room_service`,
+//! `server_notification_service`).
+//!
+//! Several feature-gated `*_storage` and service fields below are not
+//! accessed via the container after construction but are retained:
+//! - `friend_storage`, `server_notification_storage`, `widget_storage` —
+//!   backing storage for the corresponding `*_service`.
+//! - `friend_federation`, `user_lock_service` — services constructed here
+//!   but not yet wired to route handlers; retained for future use.
+//! - `ai_connection_storage` — `AppState` holds its own independent copy.
+//! - `privacy_storage` — consumed during `AccountIdentityService`
+//!   construction in `container.rs`; the stored copy is not re-read.
 
 use std::sync::Arc;
 
@@ -40,7 +56,6 @@ pub struct ExtensionServices {
     pub translation_service: Arc<crate::translation_service::TranslationService>,
     pub uia_service: Arc<crate::uia_service::UiaService>,
     pub user_lock_service: Arc<crate::user_lock_service::UserLockService>,
-    pub user_service: Arc<UserService>,
 }
 
 /// Dependency bundle for [`ExtensionServices::new`].
@@ -229,7 +244,6 @@ impl ExtensionServices {
             translation_service,
             uia_service,
             user_lock_service,
-            user_service,
         }
     }
 }

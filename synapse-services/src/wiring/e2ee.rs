@@ -1,4 +1,9 @@
 //! E2EE assembly — device keys, cross-signing, megolm, backup, verification.
+//!
+//! ARCH-07/08 (2026-08-10): The `to_device_storage` field is "backing
+//! storage" — it is constructed here, injected into `to_device_service` and
+//! `SyncService`/`SlidingSyncService`, and also stored on the struct. The
+//! stored copy is not accessed via the container after construction.
 
 use std::sync::Arc;
 
