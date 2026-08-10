@@ -28,6 +28,7 @@ use synapse_common::current_timestamp_millis;
 
 use crate::common::error::{ApiError, ApiResult};
 use synapse_federation::client_api::FederationClientApi;
+use synapse_federation::signing::{check_pdu_size_limits, verify_event_content_hash, verify_pdu_signature_with_client};
 use synapse_storage::CreateEventParams;
 
 use super::service::RoomService;
@@ -184,6 +185,49 @@ impl RoomService {
                 // Skip if already present locally.
                 let already_present = self.event_reader.get_event(event_id).await.ok().flatten().is_some();
                 if already_present {
+                    continue;
+                }
+
+                // N4: Verify PDU integrity before persisting.  Backfilled
+                // events come from a remote server and must be validated the
+                // same way as inbound transaction PDUs — a compromised peer
+                // could otherwise inject forged events into room history.
+                if let Err(e) = check_pdu_size_limits(pdu) {
+                    ::tracing::warn!(
+                        target: "security_audit",
+                        event = "backfill_pdu_size_exceeded",
+                        room_id = %room_id,
+                        candidate = %candidate,
+                        event_id = %event_id,
+                        error = %e,
+                        "Backfill PDU exceeded size limits — skipping"
+                    );
+                    continue;
+                }
+
+                if let Err(e) = verify_event_content_hash(pdu) {
+                    ::tracing::warn!(
+                        target: "security_audit",
+                        event = "backfill_pdu_hash_mismatch",
+                        room_id = %room_id,
+                        candidate = %candidate,
+                        event_id = %event_id,
+                        error = %e,
+                        "Backfill PDU content hash verification failed — skipping"
+                    );
+                    continue;
+                }
+
+                if let Err(e) = verify_pdu_signature_with_client(federation_client.as_ref(), pdu).await {
+                    ::tracing::warn!(
+                        target: "security_audit",
+                        event = "backfill_pdu_signature_invalid",
+                        room_id = %room_id,
+                        candidate = %candidate,
+                        event_id = %event_id,
+                        error = %e,
+                        "Backfill PDU sender signature verification failed — skipping"
+                    );
                     continue;
                 }
 

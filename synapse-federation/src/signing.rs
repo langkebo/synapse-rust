@@ -217,6 +217,127 @@ pub fn sign_and_hash_event(
     Ok(())
 }
 
+// ============================================================================
+// PDU sender-server signature verification (shared utility)
+// ============================================================================
+
+/// Extract the server name from a Matrix MXID.
+///
+/// Example: `@user:example.com` → `Some("example.com")`
+pub fn sender_server_name(sender: &str) -> Option<&str> {
+    sender
+        .strip_prefix('@')
+        .and_then(|user| user.rsplit_once(':').map(|(_, server)| server))
+        .filter(|server| !server.is_empty())
+}
+
+/// Verify a PDU's sender-server signature using a [`FederationClientApi`]
+/// to fetch the sender server's verify keys.
+///
+/// This is the backfill/outbound counterpart to the inbound transaction
+/// path's `verify_pdu_sender_signature` (which uses the `FederationContext`
+/// cache).  Both perform the same cryptographic check: the PDU must carry
+/// at least one valid ed25519 signature from the sender's home server.
+///
+/// The real `FederationClient::get_server_keys` already validates the
+/// server-key self-signature (FED-01), so keys returned here are trusted.
+pub async fn verify_pdu_signature_with_client(
+    federation_client: &dyn crate::client_api::FederationClientApi,
+    pdu: &Value,
+) -> Result<(), String> {
+    let sender = pdu
+        .get("sender")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing sender on PDU".to_string())?;
+    let sender_server =
+        sender_server_name(sender).ok_or_else(|| format!("Unparseable sender mxid: {sender}"))?;
+
+    let signatures = pdu
+        .get("signatures")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| "PDU missing signatures field".to_string())?;
+    let server_sigs = signatures
+        .get(sender_server)
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| format!("PDU has no signatures from sender server {sender_server}"))?;
+    if server_sigs.is_empty() {
+        return Err(format!("PDU signatures.{sender_server} is empty"));
+    }
+
+    // Compute signed bytes: canonical JSON without signatures/unsigned.
+    let mut signing_payload = pdu.clone();
+    if let Some(obj) = signing_payload.as_object_mut() {
+        obj.remove("signatures");
+        obj.remove("unsigned");
+    }
+    let signed_bytes = synapse_common::canonical_json_bytes(&signing_payload)
+        .map_err(|e| format!("Canonical JSON error for PDU signature verification: {e}"))?;
+
+    // Fetch server keys — try cache first, then fetch from remote.
+    let server_keys = match federation_client.get_cached_key(sender_server).await {
+        Some(keys) => keys,
+        None => federation_client
+            .get_server_keys(sender_server)
+            .await
+            .map_err(|e| format!("Failed to fetch server keys for {sender_server}: {e}"))?,
+    };
+
+    let verify_keys = server_keys
+        .verify_keys
+        .as_object()
+        .ok_or_else(|| "Server keys verify_keys is not an object".to_string())?;
+
+    let mut last_error: Option<String> = None;
+    for (key_id, sig_value) in server_sigs {
+        let Some(signature) = sig_value.as_str() else {
+            continue;
+        };
+
+        let Some(key_data) = verify_keys.get(key_id) else {
+            last_error = Some(format!("No verify key for {key_id} on {sender_server}"));
+            continue;
+        };
+
+        let public_key_b64 = key_data
+            .get("key")
+            .and_then(|v| v.as_str())
+            .or_else(|| key_data.as_str())
+            .ok_or_else(|| format!("Invalid verify key format for {key_id}"))?;
+
+        let pub_bytes = base64::engine::general_purpose::STANDARD_NO_PAD
+            .decode(public_key_b64)
+            .or_else(|_| base64::engine::general_purpose::STANDARD.decode(public_key_b64))
+            .map_err(|e| format!("Invalid public key base64: {e}"))?;
+
+        let pub_arr: [u8; 32] = pub_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "Public key must be 32 bytes".to_string())?;
+
+        let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&pub_arr)
+            .map_err(|e| format!("Invalid verifying key: {e}"))?;
+
+        let sig_bytes = base64::engine::general_purpose::STANDARD_NO_PAD
+            .decode(signature)
+            .or_else(|_| base64::engine::general_purpose::STANDARD.decode(signature))
+            .map_err(|e| format!("Invalid signature base64: {e}"))?;
+
+        let sig_arr: [u8; 64] = sig_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "Signature must be 64 bytes".to_string())?;
+
+        let sig = ed25519_dalek::Signature::from_bytes(&sig_arr);
+
+        match verifying_key.verify_strict(&signed_bytes, &sig) {
+            Ok(()) => return Ok(()),
+            Err(e) => last_error = Some(format!("Signature verification failed for {key_id}: {e}")),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "No verifiable PDU signature".to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -499,5 +620,145 @@ mod tests {
         assert_eq!(canonical_json(&serde_json::json!(42)).unwrap(), "42");
         assert_eq!(canonical_json(&serde_json::json!("hello")).unwrap(), "\"hello\"");
         assert_eq!(canonical_json(&serde_json::json!([1, 2, 3])).unwrap(), "[1,2,3]");
+    }
+
+    // ── sender_server_name tests ─────────────────────────────────────
+
+    #[test]
+    fn test_sender_server_name_valid() {
+        assert_eq!(sender_server_name("@user:example.com"), Some("example.com"));
+        assert_eq!(sender_server_name("@alice:matrix.org"), Some("matrix.org"));
+    }
+
+    #[test]
+    fn test_sender_server_name_invalid() {
+        assert_eq!(sender_server_name("not_an_mxid"), None);
+        assert_eq!(sender_server_name("@no_colon"), None);
+        assert_eq!(sender_server_name("@user:"), None); // empty server name
+        assert_eq!(sender_server_name(""), None);
+    }
+
+    // ── verify_pdu_signature_with_client tests ───────────────────────
+
+    use crate::client::ServerKeys;
+    use crate::test_mocks::MockFederationClient;
+
+    /// Helper: build a ServerKeys struct from a signing key's public key.
+    fn make_server_keys(server_name: &str, key_id: &str, signing_key: &SigningKey) -> ServerKeys {
+        let pub_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing_key.verifying_key().to_bytes());
+        ServerKeys {
+            server_name: server_name.to_string(),
+            verify_keys: serde_json::json!({ key_id: { "key": pub_b64 } }),
+            old_verify_keys: serde_json::json!({}),
+            signatures: serde_json::json!({}),
+            valid_until_ts: synapse_common::current_timestamp_millis() + 3_600_000,
+        }
+    }
+
+    /// Helper: sign a PDU with the given key, matching the Matrix spec's
+    /// signing algorithm (canonical JSON without signatures/unsigned).
+    fn sign_pdu(server_name: &str, key_id: &str, secret_b64: &str, pdu: &mut Value) {
+        sign_json(server_name, key_id, secret_b64, pdu).unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_verify_pdu_signature_valid() {
+        let (secret_b64, signing_key) = generate_test_key();
+        let server_name = "example.com";
+        let key_id = "ed25519:1";
+
+        let mut pdu = serde_json::json!({
+            "event_id": "$evt:example.com",
+            "type": "m.room.message",
+            "room_id": "!room:example.com",
+            "sender": "@user:example.com",
+            "content": {"body": "hello"},
+            "origin": "example.com",
+            "origin_server_ts": 1000,
+        });
+        sign_pdu(server_name, key_id, &secret_b64, &mut pdu);
+
+        let mock = MockFederationClient::new("local.test");
+        mock.seed_server_keys(server_name, make_server_keys(server_name, key_id, &signing_key))
+            .await;
+
+        let result = verify_pdu_signature_with_client(&mock, &pdu).await;
+        assert!(result.is_ok(), "valid PDU signature should verify: {:?}", result.err());
+    }
+
+    #[tokio::test]
+    async fn test_verify_pdu_signature_tampered_content() {
+        let (secret_b64, signing_key) = generate_test_key();
+        let server_name = "example.com";
+        let key_id = "ed25519:1";
+
+        let mut pdu = serde_json::json!({
+            "event_id": "$evt:example.com",
+            "type": "m.room.message",
+            "room_id": "!room:example.com",
+            "sender": "@user:example.com",
+            "content": {"body": "hello"},
+            "origin": "example.com",
+            "origin_server_ts": 1000,
+        });
+        sign_pdu(server_name, key_id, &secret_b64, &mut pdu);
+
+        // Tamper with the content after signing.
+        pdu["content"]["body"] = serde_json::Value::String("tampered".to_string());
+
+        let mock = MockFederationClient::new("local.test");
+        mock.seed_server_keys(server_name, make_server_keys(server_name, key_id, &signing_key))
+            .await;
+
+        let result = verify_pdu_signature_with_client(&mock, &pdu).await;
+        assert!(result.is_err(), "tampered PDU should fail signature verification");
+    }
+
+    #[tokio::test]
+    async fn test_verify_pdu_signature_missing_signatures() {
+        let pdu = serde_json::json!({
+            "event_id": "$evt:example.com",
+            "type": "m.room.message",
+            "room_id": "!room:example.com",
+            "sender": "@user:example.com",
+            "content": {"body": "hello"},
+        });
+
+        let mock = MockFederationClient::new("local.test");
+        let result = verify_pdu_signature_with_client(&mock, &pdu).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("signatures"));
+    }
+
+    #[tokio::test]
+    async fn test_verify_pdu_signature_wrong_server_key() {
+        let (secret_b64, _) = generate_test_key();
+        let server_name = "example.com";
+        let key_id = "ed25519:1";
+
+        let mut pdu = serde_json::json!({
+            "event_id": "$evt:example.com",
+            "type": "m.room.message",
+            "room_id": "!room:example.com",
+            "sender": "@user:example.com",
+            "content": {"body": "hello"},
+            "origin": "example.com",
+            "origin_server_ts": 1000,
+        });
+        sign_pdu(server_name, key_id, &secret_b64, &mut pdu);
+
+        // Use a different key pair for the server keys.
+        let wrong_secret: [u8; 32] = [
+            99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 81, 80, 79, 78, 77, 76, 75, 74, 73,
+            72, 71, 70, 69, 68,
+        ];
+        let wrong_signing_key = SigningKey::from_bytes(&wrong_secret);
+
+        let mock = MockFederationClient::new("local.test");
+        mock.seed_server_keys(server_name, make_server_keys(server_name, key_id, &wrong_signing_key))
+            .await;
+
+        let result = verify_pdu_signature_with_client(&mock, &pdu).await;
+        assert!(result.is_err(), "PDU signed with different key should fail");
     }
 }

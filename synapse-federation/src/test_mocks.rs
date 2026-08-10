@@ -18,7 +18,7 @@ use synapse_common::current_timestamp_millis;
 use tokio::sync::RwLock;
 
 use crate::client::{
-    BackfillResponse, DirectoryResponse, EventResponse, FederationClientError, FederationTransaction, InviteResponse,
+    BackfillResponse, DirectoryResponse, FederationClientError, FederationTransaction, InviteResponse,
     MakeJoinResponse, MakeLeaveResponse, ProfileResponse, ResolvedServer, SendJoinResponse, SendLeaveResponse,
     ServerKeys, StateIdsResponse, StateResponse, UserDevicesResponse, VersionResponse,
 };
@@ -218,10 +218,6 @@ impl crate::client_api::FederationClientApi for MockFederationClient {
             .ok_or_else(|| FederationClientError::InvalidResponse(format!("invite not seeded for {room_id}")))
     }
 
-    async fn get_event(&self, _destination: &str, _event_id: &str) -> Result<EventResponse, FederationClientError> {
-        Err(FederationClientError::InvalidResponse("mock: get_event not configured".into()))
-    }
-
     async fn get_state(&self, _destination: &str, _room_id: &str) -> Result<StateResponse, FederationClientError> {
         Err(FederationClientError::InvalidResponse("mock: get_state not configured".into()))
     }
@@ -259,15 +255,6 @@ impl crate::client_api::FederationClientApi for MockFederationClient {
         _min_depth: Option<i64>,
     ) -> Result<serde_json::Value, FederationClientError> {
         Err(FederationClientError::InvalidResponse("mock: get_missing_events not configured".into()))
-    }
-
-    async fn get_event_auth(
-        &self,
-        _destination: &str,
-        _room_id: &str,
-        _event_id: &str,
-    ) -> Result<serde_json::Value, FederationClientError> {
-        Err(FederationClientError::InvalidResponse("mock: get_event_auth not configured".into()))
     }
 
     async fn get_user_devices(
@@ -369,8 +356,8 @@ impl crate::client_api::FederationClientApi for MockFederationClient {
         Err(FederationClientError::InvalidResponse("mock: media_thumbnail not configured".into()))
     }
 
-    async fn get_cached_key(&self, _server_name: &str) -> Option<ServerKeys> {
-        None
+    async fn get_cached_key(&self, server_name: &str) -> Option<ServerKeys> {
+        self.server_keys.read().await.get(server_name).cloned()
     }
 
     async fn health_check(&self, _destination: &str) -> bool {

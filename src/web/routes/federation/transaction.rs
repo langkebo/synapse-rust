@@ -450,6 +450,59 @@ pub(super) async fn send_transaction(
                                         {
                                             continue;
                                         }
+
+                                        // N4: Verify PDU integrity before
+                                        // persisting.  Missing events come from
+                                        // a remote server and must be validated
+                                        // the same way as transaction PDUs — a
+                                        // compromised peer could otherwise inject
+                                        // forged events into the DAG.
+                                        if let Err(e) =
+                                            crate::federation::signing::check_pdu_size_limits(missing_pdu)
+                                        {
+                                            ::tracing::warn!(
+                                                target: "security_audit",
+                                                event = "federation_missing_event_size_exceeded",
+                                                request_id = %request_id,
+                                                txn_id = %txn_id,
+                                                origin = origin,
+                                                event_id = missing_event_id,
+                                                error = %e,
+                                                "Missing event PDU exceeded size limits — skipping"
+                                            );
+                                            continue;
+                                        }
+
+                                        if let Err(e) =
+                                            crate::federation::signing::verify_event_content_hash(missing_pdu)
+                                        {
+                                            ::tracing::warn!(
+                                                target: "security_audit",
+                                                event = "federation_missing_event_hash_mismatch",
+                                                request_id = %request_id,
+                                                txn_id = %txn_id,
+                                                origin = origin,
+                                                event_id = missing_event_id,
+                                                error = %e,
+                                                "Missing event PDU content hash verification failed — skipping"
+                                            );
+                                            continue;
+                                        }
+
+                                        if let Err(e) = verify_pdu_sender_signature(&ctx, missing_pdu).await {
+                                            ::tracing::warn!(
+                                                target: "security_audit",
+                                                event = "federation_missing_event_signature_invalid",
+                                                request_id = %request_id,
+                                                txn_id = %txn_id,
+                                                origin = origin,
+                                                event_id = missing_event_id,
+                                                error = %e,
+                                                "Missing event PDU sender signature verification failed — skipping"
+                                            );
+                                            continue;
+                                        }
+
                                         let missing_room_id =
                                             missing_pdu.get("room_id").and_then(|v| v.as_str()).unwrap_or(room_id);
                                         let missing_user_id =
