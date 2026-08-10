@@ -4,6 +4,29 @@ use super::SlidingSyncService;
 use serde_json::{json, Value};
 use synapse_common::error::ApiError;
 
+/// SS-12: Extracted from 6 identical inline checks across all sliding-sync
+/// extensions. Returns `true` when the named extension is requested.
+///
+/// An extension entry is considered enabled when it is either:
+/// - a bare `true` boolean, or
+/// - an object whose `enabled` field is `true` (defaulting to `true` when the
+///   object is present but `enabled` is omitted, matching MSC3886 sliding-sync
+///   semantics).
+///
+/// Returns `false` when the entry is absent or explicitly disabled.
+fn is_extension_enabled(request_extensions: &serde_json::Value, name: &str) -> bool {
+    request_extensions
+        .get(name)
+        .and_then(|v| {
+            if v.as_bool() == Some(true) {
+                Some(true)
+            } else {
+                v.as_object().map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
+            }
+        })
+        .unwrap_or(false)
+}
+
 impl SlidingSyncService {
     pub(super) async fn build_extensions_response(
         &self,
@@ -20,16 +43,7 @@ impl SlidingSyncService {
 
         let mut response_extensions = request_extensions.as_object().cloned().unwrap_or_default();
 
-        let account_data_enabled = request_extensions
-            .get("account_data")
-            .and_then(|v| {
-                if v.as_bool() == Some(true) {
-                    Some(true)
-                } else {
-                    v.as_object().map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
-                }
-            })
-            .unwrap_or(false);
+        let account_data_enabled = is_extension_enabled(request_extensions, "account_data");
 
         if account_data_enabled {
             let room_ids: Vec<String> =
@@ -47,16 +61,7 @@ impl SlidingSyncService {
             );
         }
 
-        let receipts_enabled = request_extensions
-            .get("receipts")
-            .and_then(|v| {
-                if v.as_bool() == Some(true) {
-                    Some(true)
-                } else {
-                    v.as_object().map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
-                }
-            })
-            .unwrap_or(false);
+        let receipts_enabled = is_extension_enabled(request_extensions, "receipts");
 
         if receipts_enabled {
             let room_ids: Vec<String> =
@@ -70,16 +75,7 @@ impl SlidingSyncService {
             );
         }
 
-        let typing_enabled = request_extensions
-            .get("typing")
-            .and_then(|v| {
-                if v.as_bool() == Some(true) {
-                    Some(true)
-                } else {
-                    v.as_object().map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
-                }
-            })
-            .unwrap_or(false);
+        let typing_enabled = is_extension_enabled(request_extensions, "typing");
 
         if typing_enabled {
             let room_ids: Vec<String> =
@@ -104,47 +100,21 @@ impl SlidingSyncService {
         }
 
         let to_device_request = request_extensions.get("to_device");
-        let to_device_enabled = to_device_request
-            .and_then(|v| {
-                if v.as_bool() == Some(true) {
-                    Some(true)
-                } else {
-                    v.as_object().map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
-                }
-            })
-            .unwrap_or(false);
+        let to_device_enabled = is_extension_enabled(request_extensions, "to_device");
 
         if to_device_enabled {
             let to_device = self.build_to_device_extension(user_id, device_id, to_device_request).await?;
             response_extensions.insert("to_device".to_string(), to_device);
         }
 
-        let e2ee_enabled = request_extensions
-            .get("e2ee")
-            .and_then(|v| {
-                if v.as_bool() == Some(true) {
-                    Some(true)
-                } else {
-                    v.as_object().map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
-                }
-            })
-            .unwrap_or(false);
+        let e2ee_enabled = is_extension_enabled(request_extensions, "e2ee");
 
         if e2ee_enabled {
             let e2ee = self.build_e2ee_extension(user_id, device_id, conn_id, since_pos).await?;
             response_extensions.insert("e2ee".to_string(), e2ee);
         }
 
-        let presence_enabled = request_extensions
-            .get("presence")
-            .and_then(|v| {
-                if v.as_bool() == Some(true) {
-                    Some(true)
-                } else {
-                    v.as_object().map(|obj| obj.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true))
-                }
-            })
-            .unwrap_or(false);
+        let presence_enabled = is_extension_enabled(request_extensions, "presence");
 
         if presence_enabled {
             let room_ids: Vec<String> =
