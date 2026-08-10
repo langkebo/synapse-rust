@@ -227,6 +227,17 @@ struct CachedKeys {
     cached_at: std::time::Instant,
 }
 
+/// FED-06: Cached server resolution with TTL. DNS changes are detected
+/// after `SERVER_RESOLUTION_TTL_SECS` seconds instead of being cached forever.
+struct CachedResolvedServer {
+    resolved: ResolvedServer,
+    cached_at: std::time::Instant,
+}
+
+/// FED-06: TTL for server resolution cache (5 minutes). After this period,
+/// DNS changes will be detected on the next resolution attempt.
+const SERVER_RESOLUTION_TTL_SECS: u64 = 300;
+
 #[derive(Debug, thiserror::Error)]
 pub enum FederationClientError {
     #[error("Connection error: {0}")]
@@ -258,7 +269,7 @@ pub struct FederationClient {
     server_name: String,
     key_rotation_manager: Arc<KeyRotationManager>,
     key_cache: Arc<RwLock<HashMap<String, CachedKeys>>>,
-    server_resolution_cache: Arc<RwLock<HashMap<String, ResolvedServer>>>,
+    server_resolution_cache: Arc<RwLock<HashMap<String, CachedResolvedServer>>>,
     /// FED-07: Optional dead letter queue for persisting failed transactions.
     dlq: Option<Arc<dyn DeadLetterQueueApi>>,
 }
@@ -347,10 +358,15 @@ impl FederationClient {
     }
 
     pub async fn resolve_server(&self, server_name: &str) -> Result<ResolvedServer, FederationClientError> {
+        // FED-06: Check cache with TTL — expired entries are treated as misses
+        // so DNS changes are detected within SERVER_RESOLUTION_TTL_SECS.
         {
             let cache = self.server_resolution_cache.read().await;
-            if let Some(resolved) = cache.get(server_name) {
-                return Ok(resolved.clone());
+            if let Some(cached) = cache.get(server_name) {
+                let age = cached.cached_at.elapsed();
+                if age.as_secs() < SERVER_RESOLUTION_TTL_SECS {
+                    return Ok(cached.resolved.clone());
+                }
             }
         }
 
@@ -385,7 +401,10 @@ impl FederationClient {
         self.server_resolution_cache
             .write()
             .await
-            .insert(server_name.to_string(), resolved.clone());
+            .insert(server_name.to_string(), CachedResolvedServer {
+                resolved: resolved.clone(),
+                cached_at: std::time::Instant::now(),
+            });
 
         Ok(resolved)
     }
