@@ -354,7 +354,13 @@ pub(crate) async fn send_message(
         return Ok(Json(serde_json::json!({ "delay_id": delayed.id })));
     }
 
-    let result = ctx.room_service.messaging().send_message(&room_id, &auth_user.user_id, &event_type, &body).await?;
+    // ISSUE-03: txn 去重的唯一事实源是 DB 唯一约束（room_event_txn_dedup），
+    // 上方缓存仅为快路径；缓存丢失/过期时重试仍返回同一 event_id。
+    let result = ctx
+        .room_service
+        .messaging()
+        .send_message_with_txn(&room_id, &auth_user.user_id, &event_type, &body, &txn_id)
+        .await?;
 
     if !txn_id.is_empty() {
         let cache_key = format!("txn:{}:{}:{}", auth_user.user_id, room_id, txn_id);

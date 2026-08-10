@@ -227,6 +227,20 @@ impl EventWriter for NotifyingEventWriter {
         self.notifier.notify_room(room_id);
         Ok(())
     }
+
+    async fn record_event_txn(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        txn_id: &str,
+        event_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        self.inner.record_event_txn(user_id, room_id, txn_id, event_id).await
+    }
+
+    async fn delete_event_by_id(&self, event_id: &str) -> Result<(), sqlx::Error> {
+        self.inner.delete_event_by_id(event_id).await
+    }
 }
 
 #[cfg(all(test, feature = "test-utils"))]

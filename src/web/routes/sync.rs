@@ -59,15 +59,30 @@ pub fn sync_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
     const MODULE: &str = "sync";
 
     let mut out = Vec::new();
+
+    // B-4: /sync routes are exempt from IP-level rate limiting because the
+    // handler implements its own per-user+device rate limiter. Marking them
+    // here lets `create_router` auto-derive the exemption list from the ledger
+    // instead of hardcoding paths in the middleware.
+    out.extend(
+        expand_under_prefixes(MODULE, &["/_matrix/client/r0"], &[(Method::GET, "/sync")])
+            .into_iter()
+            .map(|e| e.with_rate_limit_exempt(true)),
+    );
     out.extend(expand_under_prefixes(
         MODULE,
         &["/_matrix/client/r0"],
-        &[(Method::GET, "/sync"), (Method::GET, "/events"), (Method::GET, "/joined_rooms")],
+        &[(Method::GET, "/events"), (Method::GET, "/joined_rooms")],
     ));
+    out.extend(
+        expand_under_prefixes(MODULE, &["/_matrix/client/v3"], &[(Method::GET, "/sync")])
+            .into_iter()
+            .map(|e| e.with_rate_limit_exempt(true)),
+    );
     out.extend(expand_under_prefixes(
         MODULE,
         &["/_matrix/client/v3"],
-        &[(Method::GET, "/sync"), (Method::GET, "/events"), (Method::GET, "/joined_rooms"), (Method::GET, "/my_rooms")],
+        &[(Method::GET, "/events"), (Method::GET, "/joined_rooms"), (Method::GET, "/my_rooms")],
     ));
     out
 }

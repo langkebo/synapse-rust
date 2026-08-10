@@ -9,19 +9,6 @@ use axum::response::{IntoResponse, Response};
 use axum::{body::Body, middleware::Next};
 use std::net::SocketAddr;
 
-fn is_sync_rate_limit_exempt_path(path: &str) -> bool {
-    matches!(
-        path,
-        "/_matrix/client/r0/sync"
-            | "/_matrix/client/v1/sync"
-            | "/_matrix/client/v3/sync"
-            // SS-01: v4/sync 是 sliding sync 路由，处理器内已有 per-user+device 限流
-            | "/_matrix/client/v4/sync"
-            | "/_matrix/client/unstable/org.matrix.msc3575/sync"
-            | "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"
-    )
-}
-
 pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Request<Body>, next: Next) -> Response {
     let config = ctx.config.rate_limit.clone();
     let file_config = ctx.rate_limit_config();
@@ -35,7 +22,9 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
     let exempt_paths = file_config.as_ref().map_or(&config.exempt_paths, |c| &c.exempt_paths);
     let exempt_path_prefixes = file_config.as_ref().map_or(&config.exempt_path_prefixes, |c| &c.exempt_path_prefixes);
 
-    if is_sync_rate_limit_exempt_path(path)
+    // B-4: Check the auto-derived exempt list from the route ledger first,
+    // then fall back to config-based exempt_paths and exempt_path_prefixes.
+    if ctx.rate_limit_exempt_paths.iter().any(|p| *p == path)
         || exempt_paths.iter().any(|p: &String| p == path)
         || exempt_path_prefixes.iter().any(|p: &String| !p.is_empty() && path.starts_with(p))
     {
@@ -187,19 +176,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_sync_rate_limit_exempt_path() {
-        assert!(is_sync_rate_limit_exempt_path("/_matrix/client/r0/sync"));
-        assert!(is_sync_rate_limit_exempt_path("/_matrix/client/v1/sync"));
-        assert!(is_sync_rate_limit_exempt_path("/_matrix/client/v3/sync"));
-        // SS-01: v4/sync 由 sliding_sync 处理器承接（内部已有 per-user+device 限流），
-        // 必须豁免 IP 级限流，否则构成双重限流
-        assert!(is_sync_rate_limit_exempt_path("/_matrix/client/v4/sync"));
-        assert!(is_sync_rate_limit_exempt_path("/_matrix/client/unstable/org.matrix.msc3575/sync"));
-        assert!(is_sync_rate_limit_exempt_path("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"));
-        assert!(!is_sync_rate_limit_exempt_path("/_matrix/client/v3/events"));
-    }
-
-    #[test]
     fn test_extract_client_ip_forwarded() {
         let mut headers = axum::http::HeaderMap::new();
         let priority = vec!["forwarded".to_string()];
@@ -270,7 +246,23 @@ mod tests {
         };
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-        let state = AppState::new(services, cache);
+
+        // B-4: Auto-derive exempt paths from route manifests, mirroring what
+        // `create_router` does at startup.
+        let mut exempt_paths: Vec<&'static str> = Vec::new();
+        exempt_paths.extend(
+            crate::web::routes::sync::sync_route_manifest()
+                .into_iter()
+                .filter(|e| e.rate_limit_exempt)
+                .map(|e| e.path),
+        );
+        exempt_paths.extend(
+            crate::web::routes::sliding_sync::sliding_sync_route_manifest()
+                .into_iter()
+                .filter(|e| e.rate_limit_exempt)
+                .map(|e| e.path),
+        );
+        let state = AppState::new(services, cache).with_rate_limit_exempt_paths(exempt_paths);
 
         let app = Router::new()
             .route("/_matrix/client/v3/sync", get(ok_handler))

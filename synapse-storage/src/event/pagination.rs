@@ -271,6 +271,94 @@ impl EventStorage {
             .collect())
     }
 
+    /// ISSUE-06: 复合游标分页 —— 以 `(origin_server_ts, stream_ordering)`
+    /// 元组精确定位页边界，同毫秒事件不再被跳过或重复。
+    ///
+    /// `from` 为 `Some((ts, Some(stream)))` 时使用元组比较；
+    /// `Some((ts, None))`（legacy `t{ts}` token）保持旧的严格时间戳语义；
+    /// `None` 取最新/最旧一页。
+    pub async fn get_room_events_paginated_cursor(
+        &self,
+        room_id: &str,
+        from: Option<(i64, Option<i64>)>,
+        limit: i64,
+        direction: &str,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        if matches!(from, Some((_, None))) {
+            // legacy `t{ts}` token：保持旧的严格时间戳语义
+            let from_ts = from.map(|(ts, _)| ts);
+            return self.get_room_events_paginated(room_id, from_ts, limit, direction).await;
+        }
+
+        let events = match (direction, from) {
+            ("f", Some((ts, Some(stream)))) => {
+                sqlx::query_as(&format!(
+                    "SELECT {ROOM_EVENT_COLS}
+                    FROM events
+                    WHERE room_id = $1
+                      AND (origin_server_ts > $2 OR (origin_server_ts = $2 AND stream_ordering > $3))
+                    ORDER BY origin_server_ts ASC, stream_ordering ASC
+                    LIMIT $4
+                    "
+                ))
+                .bind(room_id)
+                .bind(ts)
+                .bind(stream)
+                .bind(limit)
+                .fetch_all(&*self.pool)
+                .await?
+            }
+            ("f", None) => {
+                sqlx::query_as(&format!(
+                    "SELECT {ROOM_EVENT_COLS}
+                    FROM events
+                    WHERE room_id = $1
+                    ORDER BY origin_server_ts ASC, stream_ordering ASC
+                    LIMIT $2
+                    "
+                ))
+                .bind(room_id)
+                .bind(limit)
+                .fetch_all(&*self.pool)
+                .await?
+            }
+            (_, Some((ts, Some(stream)))) => {
+                sqlx::query_as(&format!(
+                    "SELECT {ROOM_EVENT_COLS}
+                    FROM events
+                    WHERE room_id = $1
+                      AND (origin_server_ts < $2 OR (origin_server_ts = $2 AND stream_ordering < $3))
+                    ORDER BY origin_server_ts DESC, stream_ordering DESC
+                    LIMIT $4
+                    "
+                ))
+                .bind(room_id)
+                .bind(ts)
+                .bind(stream)
+                .bind(limit)
+                .fetch_all(&*self.pool)
+                .await?
+            }
+            (_, Some((_, None))) => unreachable!("legacy ts-only tokens are delegated above"),
+            (_, None) => {
+                sqlx::query_as(&format!(
+                    "SELECT {ROOM_EVENT_COLS}
+                    FROM events
+                    WHERE room_id = $1
+                    ORDER BY origin_server_ts DESC, stream_ordering DESC
+                    LIMIT $2
+                    "
+                ))
+                .bind(room_id)
+                .bind(limit)
+                .fetch_all(&*self.pool)
+                .await?
+            }
+        };
+
+        Ok(events)
+    }
+
     pub async fn get_room_events_paginated_with_filter(
         &self,
         room_id: &str,

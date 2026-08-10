@@ -87,6 +87,19 @@ impl PresenceService {
             .map_err(|e| ApiError::internal_with_log("Failed to set presence", &e))
     }
 
+    /// C-3: Batch set presence for multiple users in a single SQL statement.
+    /// Each entry is `(user_id, presence, status_msg)`.
+    #[tracing::instrument(skip(self, entries))]
+    pub async fn set_presence_batch(
+        &self,
+        entries: &[(String, String, Option<String>)],
+    ) -> ApiResult<()> {
+        self.storage
+            .set_presence_batch(entries)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to batch set presence", &e))
+    }
+
     #[tracing::instrument(skip(self))]
     pub async fn add_subscription(&self, subscriber_id: &str, target_id: &str) -> ApiResult<()> {
         self.storage
@@ -245,6 +258,58 @@ mod tests {
         let result = svc.get_presence_with_meta("@carol:example.com").await.unwrap().unwrap();
         assert_eq!(result.0, "offline", "presence should reflect the latest set");
         assert_eq!(result.1.as_deref(), Some("final"));
+    }
+
+    #[tokio::test]
+    async fn set_presence_batch_inserts_all_entries() {
+        let svc = test_service();
+        let entries = vec![
+            ("@alice:example.com".to_string(), "online".to_string(), Some("working".to_string())),
+            ("@bob:example.com".to_string(), "away".to_string(), None),
+            ("@carol:example.com".to_string(), "offline".to_string(), Some("done".to_string())),
+        ];
+        svc.set_presence_batch(&entries).await.unwrap();
+
+        let alice = svc.get_presence_with_meta("@alice:example.com").await.unwrap().unwrap();
+        assert_eq!(alice.0, "online");
+        assert_eq!(alice.1.as_deref(), Some("working"));
+
+        let bob = svc.get_presence_with_meta("@bob:example.com").await.unwrap().unwrap();
+        assert_eq!(bob.0, "away");
+        assert!(bob.1.is_none());
+
+        let carol = svc.get_presence_with_meta("@carol:example.com").await.unwrap().unwrap();
+        assert_eq!(carol.0, "offline");
+        assert_eq!(carol.1.as_deref(), Some("done"));
+    }
+
+    #[tokio::test]
+    async fn set_presence_batch_empty_is_noop() {
+        let svc = test_service();
+        let entries: Vec<(String, String, Option<String>)> = vec![];
+        svc.set_presence_batch(&entries).await.unwrap();
+        // No error, no panic
+    }
+
+    #[tokio::test]
+    async fn set_presence_batch_upserts_existing_entries() {
+        let svc = test_service();
+        // Seed via single set
+        svc.set_presence("@alice:example.com", "online", Some("initial")).await.unwrap();
+
+        // Batch upsert
+        let entries = vec![
+            ("@alice:example.com".to_string(), "offline".to_string(), Some("updated".to_string())),
+            ("@bob:example.com".to_string(), "online".to_string(), None),
+        ];
+        svc.set_presence_batch(&entries).await.unwrap();
+
+        let alice = svc.get_presence_with_meta("@alice:example.com").await.unwrap().unwrap();
+        assert_eq!(alice.0, "offline", "should be updated by batch");
+        assert_eq!(alice.1.as_deref(), Some("updated"));
+
+        let bob = svc.get_presence_with_meta("@bob:example.com").await.unwrap().unwrap();
+        assert_eq!(bob.0, "online");
     }
 
     #[tokio::test]

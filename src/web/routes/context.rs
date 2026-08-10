@@ -19,6 +19,10 @@ pub struct CoreContext {
     pub config: synapse_common::config::Config,
     pub cache: Arc<CacheManager>,
     pub rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
+    /// B-4: Paths auto-derived from the route ledger that the rate limit
+    /// middleware should skip (sync/sliding-sync endpoints with their own
+    /// per-user+device rate limiting).
+    pub rate_limit_exempt_paths: Arc<Vec<&'static str>>,
 }
 
 impl CoreContext {
@@ -38,6 +42,7 @@ impl FromRef<AppState> for CoreContext {
             config: state.services.core.config.clone(),
             cache: state.cache.clone(),
             rate_limit_config_manager: state.rate_limit_config_manager().cloned(),
+            rate_limit_exempt_paths: state.rate_limit_exempt_paths.clone(),
         }
     }
 }

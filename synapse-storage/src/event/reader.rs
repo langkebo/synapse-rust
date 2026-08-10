@@ -27,6 +27,18 @@ pub trait EventReader: Send + Sync {
         direction: &str,
     ) -> Result<Vec<RoomEvent>, sqlx::Error>;
 
+    /// ISSUE-06: composite-cursor pagination. `(origin_server_ts,
+    /// stream_ordering)` tuple locates the page boundary exactly, so
+    /// same-millisecond events are neither skipped nor duplicated.
+    /// `Some((ts, None))` keeps the legacy strict-timestamp semantics.
+    async fn get_room_events_paginated_cursor(
+        &self,
+        room_id: &str,
+        from: Option<(i64, Option<i64>)>,
+        limit: i64,
+        direction: &str,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error>;
+
     async fn get_room_events_batch(
         &self,
         room_ids: &[String],
@@ -237,6 +249,15 @@ pub trait EventReader: Send + Sync {
     /// (0 when the events table is empty). Snapshot taken at the start of a
     /// sync becomes the watermark stored on the sliding-sync token.
     async fn get_max_stream_ordering(&self) -> Result<i64, sqlx::Error>;
+
+    /// ISSUE-03: durable txn dedup lookup — the event previously recorded
+    /// for `(user_id, room_id, txn_id)`, if any.
+    async fn get_event_id_by_txn(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        txn_id: &str,
+    ) -> Result<Option<String>, sqlx::Error>;
 }
 
 // ── EventReader delegation impl for Postgres EventStorage ───────────────
@@ -263,6 +284,16 @@ impl crate::event::reader::EventReader for super::EventStorage {
         direction: &str,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
         self.get_room_events_paginated(room_id, from, limit, direction).await
+    }
+
+    async fn get_room_events_paginated_cursor(
+        &self,
+        room_id: &str,
+        from: Option<(i64, Option<i64>)>,
+        limit: i64,
+        direction: &str,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        self.get_room_events_paginated_cursor(room_id, from, limit, direction).await
     }
 
     async fn get_room_events_batch(
@@ -493,6 +524,15 @@ impl crate::event::reader::EventReader for super::EventStorage {
 
     async fn get_max_stream_ordering(&self) -> Result<i64, sqlx::Error> {
         self.get_max_stream_ordering().await
+    }
+
+    async fn get_event_id_by_txn(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        txn_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        self.get_event_id_by_txn(user_id, room_id, txn_id).await
     }
 
     // ── unread counts / room state copy (moved from RoomStorage) ───────

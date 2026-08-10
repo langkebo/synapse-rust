@@ -71,10 +71,11 @@ pub(crate) async fn room_initial_sync(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let from = params
-        .get("from")
-        .and_then(|value| crate::common::parse_stream_token(value).or_else(|| value.parse::<i64>().ok()))
-        .unwrap_or(0);
+    let from = params.get("from").and_then(|value| {
+        crate::common::parse_pagination_token(value)
+            .or_else(|| crate::common::parse_stream_token(value).map(|ts| (ts, None)))
+            .or_else(|| value.parse::<i64>().ok().map(|ts| (ts, None)))
+    });
     let limit = params.get("limit").and_then(|value| value.parse::<i64>().ok()).unwrap_or(10).clamp(1, 100);
 
     let state_events = ctx

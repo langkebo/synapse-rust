@@ -3,7 +3,7 @@
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
 use synapse_common::current_timestamp_millis;
-use synapse_common::{generate_event_id, generate_stream_token_from_ts, parse_stream_token};
+use synapse_common::{generate_event_id, generate_pagination_token};
 use synapse_storage::CreateEventParams;
 
 use super::service::MessagingService;
@@ -198,11 +198,84 @@ impl MessagingService {
         }))
     }
 
-    pub async fn get_room_messages(
+    /// ISSUE-03: 带持久化 txn 去重的发送入口。
+    ///
+    /// 去重语义：`room_event_txn_dedup` 表的 PRIMARY KEY (user_id, room_id,
+    /// txn_id) 是唯一事实源，路由层的 1h TTL 缓存只是快路径。缓存丢失、
+    /// 过期或并发双 PUT 时，重试仍返回同一 `event_id`，房间内不产生重复事件。
+    ///
+    /// 竞态处理：先查后建存在窗口，两个并发相同 txn 的请求可能各自创建事件；
+    /// `record_event_txn` 的 ON CONFLICT 保证只有一个获胜，落败方删除自己
+    /// 刚创建的重复事件并返回获胜方的 event_id。
+    pub async fn send_message_with_txn(
         &self,
         room_id: &str,
         user_id: &str,
-        from: i64,
+        event_type: &str,
+        content: &serde_json::Value,
+        txn_id: &str,
+    ) -> ApiResult<serde_json::Value> {
+        if txn_id.is_empty() {
+            return self.send_message(room_id, user_id, event_type, content).await;
+        }
+
+        if let Some(existing) = self
+            .event_reader
+            .get_event_id_by_txn(user_id, room_id, txn_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to look up txn dedup record", &e))?
+        {
+            return Ok(json!({ "event_id": existing }));
+        }
+
+        let result = self.send_message(room_id, user_id, event_type, content).await?;
+        let event_id = result.get("event_id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        if event_id.is_empty() {
+            return Ok(result);
+        }
+
+        let inserted = self
+            .event_writer
+            .record_event_txn(user_id, room_id, txn_id, &event_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to record txn dedup marker", &e))?;
+
+        if !inserted {
+            // 并发相同 txn：本地事件落败，返回获胜方的 event_id
+            if let Some(winner) = self
+                .event_reader
+                .get_event_id_by_txn(user_id, room_id, txn_id)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to resolve txn race winner", &e))?
+            {
+                if winner != event_id {
+                    ::tracing::warn!(
+                        room_id = %room_id,
+                        user_id = %user_id,
+                        txn_id = %txn_id,
+                        loser_event_id = %event_id,
+                        winner_event_id = %winner,
+                        "Concurrent duplicate txn detected; dropping losing event"
+                    );
+                    if let Err(e) = self.event_writer.delete_event_by_id(&event_id).await {
+                        ::tracing::warn!(
+                            event_id = %event_id,
+                            error = %e,
+                            "Failed to delete losing duplicate event after txn race"
+                        );
+                    }
+                    return Ok(json!({ "event_id": winner }));
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub async fn get_room_messages(        &self,
+        room_id: &str,
+        user_id: &str,
+        from: Option<(i64, Option<i64>)>,
         limit: i64,
         direction: &str,
     ) -> ApiResult<serde_json::Value> {
@@ -225,22 +298,23 @@ impl MessagingService {
 
         let normalized_direction = if direction == "f" { "f" } else { "b" };
 
-        let start_token = if from > 0 {
-            generate_stream_token_from_ts(Some(from))
-        } else {
-            let max_ts = self
-                .event_reader
-                .get_max_origin_server_ts_for_room(room_id)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to get room stream", &e))?;
-            generate_stream_token_from_ts(Some(max_ts))
+        // ISSUE-06：start token 直接回显客户端传来的游标（复合形式优先）；
+        // 无游标时用房间最新事件时间戳作为起点。
+        let start_token = match from {
+            Some((ts, stream)) => generate_pagination_token(ts, stream),
+            None => {
+                let max_ts = self
+                    .event_reader
+                    .get_max_origin_server_ts_for_room(room_id)
+                    .await
+                    .map_err(|e| ApiError::internal_with_log("Failed to get room stream", &e))?;
+                generate_pagination_token(max_ts, None)
+            }
         };
-
-        let from_ts = if from > 0 { parse_stream_token(&start_token).or(Some(from)) } else { None };
 
         let events = self
             .event_reader
-            .get_room_events_paginated(room_id, from_ts, limit, normalized_direction)
+            .get_room_events_paginated_cursor(room_id, from, limit, normalized_direction)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get messages", &e))?;
 
@@ -257,9 +331,10 @@ impl MessagingService {
             })
             .collect();
 
+        // 页尾事件带出 stream_ordering，生成复合游标，同毫秒事件不再丢失（ISSUE-06）
         let end_token = events
             .last()
-            .map_or_else(|| start_token.clone(), |event| generate_stream_token_from_ts(Some(event.origin_server_ts)));
+            .map_or_else(|| start_token.clone(), |event| generate_pagination_token(event.origin_server_ts, event.stream_ordering));
 
         Ok(json!({
             "chunk": event_list,

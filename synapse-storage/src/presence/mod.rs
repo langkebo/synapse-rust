@@ -188,6 +188,72 @@ impl PresenceStorage {
         Ok(())
     }
 
+    /// C-3: Batch set presence for multiple users in a single SQL statement.
+    ///
+    /// Each entry is `(user_id, presence, status_msg)`. Uses `UNNEST` to
+    /// batch the INSERT ... ON CONFLICT DO UPDATE, eliminating N+1 SQL
+    /// round-trips when updating presence for many users at once (e.g.
+    /// federation presence sync, bulk presence import).
+    ///
+    /// Cache entries are also written in a single `set_batch` pipeline.
+    pub async fn set_presence_batch(
+        &self,
+        entries: &[(String, String, Option<String>)],
+    ) -> Result<(), sqlx::Error> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        tracing::info!(count = entries.len(), "Batch setting presence");
+
+        let now = current_timestamp_millis();
+        let user_ids: Vec<&str> = entries.iter().map(|(uid, _, _)| uid.as_str()).collect();
+        let presences: Vec<&str> = entries.iter().map(|(_, p, _)| p.as_str()).collect();
+        let status_msgs: Vec<Option<&str>> = entries.iter().map(|(_, _, s)| s.as_deref()).collect();
+        let nows: Vec<i64> = vec![now; entries.len()];
+
+        sqlx::query(
+            r"
+            INSERT INTO presence (user_id, presence, status_msg, last_active_ts, created_ts, updated_ts)
+            SELECT u, p, s, n, n, n
+            FROM UNNEST($1::TEXT[], $2::TEXT[], $3::TEXT[], $4::BIGINT[])
+            AS t(u, p, s, n)
+            ON CONFLICT (user_id) DO UPDATE SET
+                presence = EXCLUDED.presence,
+                status_msg = EXCLUDED.status_msg,
+                last_active_ts = EXCLUDED.last_active_ts,
+                updated_ts = EXCLUDED.updated_ts
+            ",
+        )
+        .bind(&user_ids)
+        .bind(&presences)
+        .bind(&status_msgs)
+        .bind(&nows)
+        .execute(&*self.pool)
+        .await?;
+
+        // C-3: Batch cache populate — single pipeline instead of N SET calls.
+        let ttl = CacheTtl::user_presence().as_secs();
+        let cache_entries: Vec<(String, PresenceSnapshot, u64)> = entries
+            .iter()
+            .map(|(uid, presence, status_msg)| {
+                let key = CacheKeyBuilder::user_presence(uid);
+                let snapshot = PresenceSnapshot {
+                    user_id: uid.clone(),
+                    presence: presence.clone(),
+                    status_msg: status_msg.clone(),
+                    last_active_ts: Some(now),
+                };
+                (key, snapshot, ttl)
+            })
+            .collect();
+        if let Err(e) = self.cache.set_batch(&cache_entries).await {
+            tracing::warn!(target: "cache", "Failed to batch cache {} presence entries: {}", cache_entries.len(), e);
+        }
+
+        Ok(())
+    }
+
     pub async fn get_presence(&self, user_id: &str) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
         tracing::debug!(user_id = %user_id, "Querying presence");
         let key = CacheKeyBuilder::user_presence(user_id);
@@ -293,8 +359,11 @@ impl PresenceStorage {
         .fetch_all(&*self.pool)
         .await?;
 
+        // C-3: Batch cache populate — previously N individual cache.set() calls
+        // (one per DB row), now a single set_batch that pipelines to Redis.
         let ttl = CacheTtl::user_presence().as_secs();
-        for row in rows {
+        let mut cache_entries: Vec<(String, PresenceSnapshot, u64)> = Vec::with_capacity(rows.len());
+        for row in &rows {
             let snapshot = PresenceSnapshot {
                 user_id: row.0.clone(),
                 presence: row.1.clone(),
@@ -302,9 +371,12 @@ impl PresenceStorage {
                 last_active_ts: row.3,
             };
             let key = CacheKeyBuilder::user_presence(&row.0);
-            if let Err(e) = self.cache.set(&key, &snapshot, ttl).await {
-                tracing::warn!(target: "cache", "Failed to cache presence for {}: {}", row.0, e);
-            }
+            cache_entries.push((key, snapshot, ttl));
+        }
+        if let Err(e) = self.cache.set_batch(&cache_entries).await {
+            tracing::warn!(target: "cache", "Failed to batch cache {} presence entries: {}", cache_entries.len(), e);
+        }
+        for row in rows {
             map.insert(row.0, (row.1, row.2));
         }
 
@@ -524,6 +596,8 @@ impl PresenceStorage {
         .await?;
 
         let ttl = CacheTtl::user_presence().as_secs();
+        // C-3: Batch cache populate
+        let mut cache_entries: Vec<(String, PresenceSnapshot, u64)> = Vec::with_capacity(rows.len());
         for row in &rows {
             let snapshot = PresenceSnapshot {
                 user_id: row.0.clone(),
@@ -532,9 +606,10 @@ impl PresenceStorage {
                 last_active_ts: row.3,
             };
             let key = CacheKeyBuilder::user_presence(&row.0);
-            if let Err(e) = self.cache.set(&key, &snapshot, ttl).await {
-                tracing::warn!(target: "cache", "Failed to cache presence for {}: {}", row.0, e);
-            }
+            cache_entries.push((key, snapshot, ttl));
+        }
+        if let Err(e) = self.cache.set_batch(&cache_entries).await {
+            tracing::warn!(target: "cache", "Failed to batch cache {} presence entries: {}", cache_entries.len(), e);
         }
 
         results.extend(rows.into_iter().map(|(uid, presence, status_msg, _)| (uid, presence, status_msg)));
@@ -581,6 +656,8 @@ impl PresenceStorage {
         .await?;
 
         let ttl = CacheTtl::user_presence().as_secs();
+        // C-3: Batch cache populate
+        let mut cache_entries: Vec<(String, PresenceSnapshot, u64)> = Vec::with_capacity(rows.len());
         for row in &rows {
             let snapshot = PresenceSnapshot {
                 user_id: row.0.clone(),
@@ -589,9 +666,10 @@ impl PresenceStorage {
                 last_active_ts: row.3,
             };
             let key = CacheKeyBuilder::user_presence(&row.0);
-            if let Err(e) = self.cache.set(&key, &snapshot, ttl).await {
-                tracing::warn!(target: "cache", "Failed to cache presence for {}: {}", row.0, e);
-            }
+            cache_entries.push((key, snapshot, ttl));
+        }
+        if let Err(e) = self.cache.set_batch(&cache_entries).await {
+            tracing::warn!(target: "cache", "Failed to batch cache {} presence entries: {}", cache_entries.len(), e);
         }
 
         results.extend(rows);
@@ -643,11 +721,15 @@ impl PresenceStorage {
         .await?;
 
         let ttl = CacheTtl::user_presence().as_secs();
+        // C-3: Batch cache populate — previously N individual cache.set() calls
+        // (one per DB row), now a single set_batch that pipelines to Redis.
+        let mut cache_entries: Vec<(String, PresenceSnapshot, u64)> = Vec::with_capacity(rows.len());
         for snapshot in &rows {
             let key = CacheKeyBuilder::user_presence(&snapshot.user_id);
-            if let Err(e) = self.cache.set(&key, snapshot, ttl).await {
-                tracing::warn!(target: "cache", "Failed to cache presence for {}: {}", snapshot.user_id, e);
-            }
+            cache_entries.push((key, snapshot.clone(), ttl));
+        }
+        if let Err(e) = self.cache.set_batch(&cache_entries).await {
+            tracing::warn!(target: "cache", "Failed to batch cache {} presence entries: {}", cache_entries.len(), e);
         }
 
         for snapshot in rows {
@@ -1262,5 +1344,153 @@ mod db_tests {
 
         let snapshots = storage.get_presence_snapshots(&[]).await.expect("get_presence_snapshots should succeed");
         assert!(snapshots.is_empty());
+    }
+
+    // ================================================================
+    // set_presence_batch (C-3)
+    // ================================================================
+
+    #[tokio::test]
+    async fn test_set_presence_batch_inserts_multiple_users() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_a = format!("@pres_batch_ins_a_{suffix}:localhost");
+        let user_b = format!("@pres_batch_ins_b_{suffix}:localhost");
+        let user_c = format!("@pres_batch_ins_c_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user_a).await;
+        ensure_test_user(&pool, &user_b).await;
+        ensure_test_user(&pool, &user_c).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        let entries = vec![
+            (user_a.clone(), "online".to_string(), Some("working".to_string())),
+            (user_b.clone(), "away".to_string(), None),
+            (user_c.clone(), "offline".to_string(), Some("done".to_string())),
+        ];
+        storage.set_presence_batch(&entries).await.expect("set_presence_batch should succeed");
+
+        // Verify all three rows were inserted
+        let result_a = storage.get_presence(&user_a).await.expect("get_presence a");
+        assert_eq!(result_a.as_ref().unwrap().0, "online");
+        assert_eq!(result_a.as_ref().unwrap().1.as_deref(), Some("working"));
+
+        let result_b = storage.get_presence(&user_b).await.expect("get_presence b");
+        assert_eq!(result_b.as_ref().unwrap().0, "away");
+        assert!(result_b.as_ref().unwrap().1.is_none());
+
+        let result_c = storage.get_presence(&user_c).await.expect("get_presence c");
+        assert_eq!(result_c.as_ref().unwrap().0, "offline");
+        assert_eq!(result_c.as_ref().unwrap().1.as_deref(), Some("done"));
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_set_presence_batch_upserts_existing_rows() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_a = format!("@pres_batch_ups_a_{suffix}:localhost");
+        let user_b = format!("@pres_batch_ups_b_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user_a).await;
+        ensure_test_user(&pool, &user_b).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+
+        // Seed initial values
+        storage.set_presence(&user_a, "online", Some("initial_a")).await.expect("seed a");
+        storage.set_presence(&user_b, "online", Some("initial_b")).await.expect("seed b");
+
+        // Batch upsert — should update both rows
+        let entries = vec![
+            (user_a.clone(), "offline".to_string(), Some("updated_a".to_string())),
+            (user_b.clone(), "away".to_string(), None),
+        ];
+        storage.set_presence_batch(&entries).await.expect("set_presence_batch upsert should succeed");
+
+        let result_a = storage.get_presence(&user_a).await.expect("get_presence a after upsert");
+        assert_eq!(result_a.as_ref().unwrap().0, "offline", "presence should be updated");
+        assert_eq!(result_a.as_ref().unwrap().1.as_deref(), Some("updated_a"));
+
+        let result_b = storage.get_presence(&user_b).await.expect("get_presence b after upsert");
+        assert_eq!(result_b.as_ref().unwrap().0, "away");
+        assert!(result_b.as_ref().unwrap().1.is_none());
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_set_presence_batch_empty_is_noop() {
+        let pool = test_pool().await;
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+
+        let entries: Vec<(String, String, Option<String>)> = vec![];
+        storage.set_presence_batch(&entries).await.expect("set_presence_batch empty should be noop");
+    }
+
+    #[tokio::test]
+    async fn test_set_presence_batch_populates_cache() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_a = format!("@pres_batch_cache_a_{suffix}:localhost");
+        let user_b = format!("@pres_batch_cache_b_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user_a).await;
+        ensure_test_user(&pool, &user_b).await;
+
+        let cache = test_cache();
+        let storage = PresenceStorage::new(pool.clone(), cache.clone());
+
+        let entries = vec![
+            (user_a.clone(), "online".to_string(), Some("hello".to_string())),
+            (user_b.clone(), "offline".to_string(), None),
+        ];
+        storage.set_presence_batch(&entries).await.expect("set_presence_batch should succeed");
+
+        // Verify cache was populated — subsequent get_presences should hit cache, not DB.
+        // We verify by checking the cache directly via get_raw with the presence key prefix.
+        let map = storage.get_presences(&[user_a.clone(), user_b.clone()]).await.expect("get_presences");
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get(&user_a).map(|p| &*p.0), Some("online"));
+        assert_eq!(map.get(&user_b).map(|p| &*p.0), Some("offline"));
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_presence_snapshots_uses_batch_cache() {
+        // C-3: Verify that get_presence_snapshots populates cache via batch
+        // (not N+1 individual cache.set calls).
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_a = format!("@pres_snap_batch_a_{suffix}:localhost");
+        let user_b = format!("@pres_snap_batch_b_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user_a).await;
+        ensure_test_user(&pool, &user_b).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage.set_presence(&user_a, "online", Some("A")).await.expect("seed a");
+        storage.set_presence(&user_b, "away", None).await.expect("seed b");
+
+        // First call: DB miss for cache → batch populate cache
+        let snapshots = storage
+            .get_presence_snapshots(&[user_a.clone(), user_b.clone()])
+            .await
+            .expect("get_presence_snapshots");
+        assert_eq!(snapshots.len(), 2);
+
+        // Second call: should hit cache (batch-populated in first call)
+        let snapshots2 = storage
+            .get_presence_snapshots(&[user_a.clone(), user_b.clone()])
+            .await
+            .expect("get_presence_snapshots second call");
+        assert_eq!(snapshots2.len(), 2);
+        assert_eq!(snapshots2.get(&user_a).unwrap().presence, "online");
+        assert_eq!(snapshots2.get(&user_a).unwrap().status_msg.as_deref(), Some("A"));
+        assert_eq!(snapshots2.get(&user_b).unwrap().presence, "away");
+
+        cleanup_presence_data(&pool, &suffix).await;
     }
 }

@@ -15,6 +15,27 @@ pub struct BusMessage {
     pub payload: Vec<u8>,
 }
 
+/// WORK-01: Commands sent to the subscriber task for dynamic channel management.
+/// Redis UNSUBSCRIBE must be sent on the same connection that subscribed,
+/// so we use a command channel to instruct the subscriber task.
+#[derive(Debug, Clone)]
+enum SubCommand {
+    /// Unsubscribe from a Redis Pub/Sub channel (full channel name with prefix)
+    Unsubscribe(String),
+}
+
+/// WORK-05: Record of a failed Redis publish after all retries exhausted.
+/// Stored in an in-memory ring buffer for inspection and manual replay.
+#[derive(Debug, Clone)]
+pub struct FailedPublish {
+    pub channel: String,
+    pub payload: Vec<u8>,
+    pub error: String,
+    pub failed_at: i64,
+}
+
+const FAILED_PUBLISH_RING_SIZE: usize = 256;
+
 #[derive(Debug, Clone)]
 pub struct RedisBusConfig {
     pub url: String,
@@ -55,11 +76,17 @@ pub struct WorkerBus {
     subscriber_task: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
     /// Channels that the subscriber task listens on.
     subscribed_channels: Arc<RwLock<Vec<String>>>,
+    /// WORK-01: Command channel for sending unsubscribe requests to the subscriber task.
+    sub_command_tx: mpsc::Sender<SubCommand>,
+    sub_command_rx: std::sync::Mutex<Option<mpsc::Receiver<SubCommand>>>,
+    /// WORK-05: In-memory ring buffer for failed Redis publishes.
+    failed_publishes: Arc<RwLock<std::collections::VecDeque<FailedPublish>>>,
 }
 
 impl WorkerBus {
     pub fn new(config: RedisBusConfig, server_name: String, instance_name: String) -> Self {
         let (command_tx, command_rx) = mpsc::channel(1000);
+        let (sub_command_tx, sub_command_rx) = mpsc::channel(100);
 
         Self {
             config,
@@ -73,6 +100,9 @@ impl WorkerBus {
             redis_pool: Arc::new(RwLock::new(None)),
             subscriber_task: Arc::new(RwLock::new(None)),
             subscribed_channels: Arc::new(RwLock::new(Vec::new())),
+            sub_command_tx,
+            sub_command_rx: std::sync::Mutex::new(Some(sub_command_rx)),
+            failed_publishes: Arc::new(RwLock::new(std::collections::VecDeque::with_capacity(FAILED_PUBLISH_RING_SIZE))),
         }
     }
 
@@ -154,17 +184,27 @@ impl WorkerBus {
         let instance_name = self.instance_name.clone();
         let channel_prefix = self.config.channel_prefix.clone();
         let subscribers = self.subscribers.clone();
-
-        // Subscribe to the broadcast channel and any worker-specific channels
-        let broadcast_channel = format!("{}:broadcast", channel_prefix);
-
-        let subscribed_channels = self.subscribed_channels.read().await.clone();
-        let channels: Vec<String> = std::iter::once(broadcast_channel).chain(subscribed_channels.into_iter()).collect();
+        // WORK-01: Share subscribed_channels so the task reads the current list on each reconnect
+        let subscribed_channels_arc = self.subscribed_channels.clone();
+        // WORK-01: Take the command receiver to listen for unsubscribe requests
+        let mut sub_command_rx = self
+            .sub_command_rx
+            .lock()
+            .unwrap()
+            .take()
+            .expect("sub_command_rx already taken — spawn_subscriber_task called twice?");
 
         let join_handle = tokio::spawn(async move {
             use futures::StreamExt;
 
             loop {
+                // Read the current subscribed channels on each (re)connect so
+                // that unsubscribe takes effect after reconnect.
+                let broadcast_channel = format!("{}:broadcast", channel_prefix);
+                let current_channels = subscribed_channels_arc.read().await.clone();
+                let channels: Vec<String> =
+                    std::iter::once(broadcast_channel).chain(current_channels.into_iter()).collect();
+
                 let pubsub = match client.get_async_pubsub().await {
                     Ok(pubsub) => pubsub,
                     Err(e) => {
@@ -206,36 +246,69 @@ impl WorkerBus {
                 );
 
                 let mut message_stream = pubsub.on_message();
+                let mut reconnect_delay = std::time::Duration::from_secs(5);
 
-                while let Some(msg) = message_stream.next().await {
-                    let payload: Vec<u8> = match msg.get_payload() {
-                        Ok(p) => p,
-                        Err(e) => {
-                            debug!(error = %e, "Failed to get Redis pubsub payload");
-                            continue;
+                loop {
+                    tokio::select! {
+                        msg = message_stream.next() => {
+                            match msg {
+                                Some(msg) => {
+                                    let payload: Vec<u8> = match msg.get_payload() {
+                                        Ok(p) => p,
+                                        Err(e) => {
+                                            debug!(error = %e, "Failed to get Redis pubsub payload");
+                                            continue;
+                                        }
+                                    };
+
+                                    let bus_message = BusMessage {
+                                        channel: msg.get_channel_name().to_string(),
+                                        sender: instance_name.clone(),
+                                        timestamp: current_timestamp_millis(),
+                                        payload,
+                                    };
+
+                                    // Forward to local in-memory subscribers
+                                    let subs = subscribers.read().await;
+                                    for tx in subs.iter() {
+                                        let _ = tx.send(bus_message.clone());
+                                    }
+                                }
+                                None => {
+                                    // Stream ended (connection lost)
+                                    reconnect_delay = std::time::Duration::from_secs(5);
+                                    break;
+                                }
+                            }
                         }
-                    };
-
-                    let bus_message = BusMessage {
-                        channel: msg.get_channel_name().to_string(),
-                        sender: instance_name.clone(),
-                        timestamp: current_timestamp_millis(),
-                        payload,
-                    };
-
-                    // Forward to local in-memory subscribers
-                    let subs = subscribers.read().await;
-                    for tx in subs.iter() {
-                        let _ = tx.send(bus_message.clone());
+                        cmd = sub_command_rx.recv() => {
+                            match cmd {
+                                Some(SubCommand::Unsubscribe(ch)) => {
+                                    debug!(
+                                        channel = %ch,
+                                        instance = %instance_name,
+                                        "WORK-01: Received unsubscribe command, reconnecting to apply channel changes"
+                                    );
+                                    // Break inner loop to drop message_stream (which borrows pubsub).
+                                    // On reconnect, the subscriber reads the updated subscribed_channels
+                                    // list and only subscribes to remaining channels.
+                                    reconnect_delay = std::time::Duration::from_secs(1);
+                                    break;
+                                }
+                                None => {
+                                    // Command channel closed — continue processing messages
+                                }
+                            }
+                        }
                     }
                 }
 
-                // Stream ended (connection lost) — retry
                 warn!(
                     instance = %instance_name,
-                    "Redis pubsub stream ended — reconnecting in 5s"
+                    delay_ms = reconnect_delay.as_millis(),
+                    "Redis pubsub stream ended or channel change — reconnecting"
                 );
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                tokio::time::sleep(reconnect_delay).await;
             }
         });
 
@@ -299,10 +372,12 @@ impl WorkerBus {
             let pool = Arc::clone(pool);
             let full_channel = full_channel.clone();
             let encoded = encoded.clone();
+            // WORK-05: Clone the DLQ Arc so the spawned task can store failed messages
+            let failed_publishes = Arc::clone(&self.failed_publishes);
             tokio::spawn(async move {
                 // WORK-05: 跨实例消息静默丢弃会表现为「另一台实例收不到事件」
                 // 的诡异故障。先按指数退避重试（100ms → 200ms → 400ms），
-                // 全部失败再 warn 留痕，而不是单次失败即丢消息。
+                // 全部失败后存入内存 DLQ 环形缓冲，不再静默丢弃。
                 const MAX_ATTEMPTS: u32 = 3;
                 let mut last_err: Option<String> = None;
                 for attempt in 1..=MAX_ATTEMPTS {
@@ -337,12 +412,26 @@ impl WorkerBus {
                         }
                     }
                 }
+                // WORK-05: All retries exhausted — store in DLQ for inspection and replay
+                let failed = FailedPublish {
+                    channel: full_channel.clone(),
+                    payload: encoded.clone(),
+                    error: last_err.clone().unwrap_or_else(|| "unknown".to_string()),
+                    failed_at: current_timestamp_millis(),
+                };
+                {
+                    let mut dlq = failed_publishes.write().await;
+                    if dlq.len() >= FAILED_PUBLISH_RING_SIZE {
+                        dlq.pop_front();
+                    }
+                    dlq.push_back(failed);
+                }
                 warn!(
                     error = last_err.as_deref().unwrap_or("unknown"),
                     channel = %full_channel,
                     payload_bytes = encoded.len(),
                     attempts = MAX_ATTEMPTS,
-                    "Failed to publish to Redis pub/sub after retries; cross-instance message lost"
+                    "WORK-05: Failed to publish to Redis after retries — message stored in DLQ for replay"
                 );
             });
         }
@@ -391,14 +480,36 @@ impl WorkerBus {
         Ok(rx)
     }
 
-    // WORK-01: 此前是空操作（只打日志），调用方以为退订成功，
-    // 实际 subscribed_channels 只增不减，Redis 订阅任务持续接收无用频道。
+    // WORK-01: unsubscribe 现在通过命令通道通知订阅任务真正退订 Redis Pub/Sub。
+    // 订阅任务收到命令后会断开当前连接并重连，重连时读取更新后的 subscribed_channels
+    // 列表，只订阅剩余频道，从而实现真正的 Redis 退订。
     pub async fn unsubscribe(&self, channels: &[&str]) -> Result<(), ApiError> {
-        let mut subscribed = self.subscribed_channels.write().await;
-        for ch in channels {
-            let full_channel = format!("{}:{}", self.config.channel_prefix, ch);
-            subscribed.retain(|c| c != &full_channel);
+        let removed_channels: Vec<String> = {
+            let mut subscribed = self.subscribed_channels.write().await;
+            let mut removed = Vec::new();
+            for ch in channels {
+                let full_channel = format!("{}:{}", self.config.channel_prefix, ch);
+                let before = subscribed.len();
+                subscribed.retain(|c| c != &full_channel);
+                if subscribed.len() < before {
+                    removed.push(full_channel);
+                }
+            }
+            removed
+        };
+
+        // Send unsubscribe commands to the subscriber task so it reconnects
+        // with the updated channel list, properly dropping the Redis subscription.
+        for ch in &removed_channels {
+            if let Err(e) = self.sub_command_tx.send(SubCommand::Unsubscribe(ch.clone())).await {
+                warn!(
+                    channel = %ch,
+                    error = %e,
+                    "WORK-01: Failed to send unsubscribe command to subscriber task"
+                );
+            }
         }
+
         debug!("Unsubscribed from channels: {:?}", channels);
         Ok(())
     }
@@ -475,6 +586,69 @@ impl WorkerBus {
             redis_enabled: has_redis,
         }
     }
+
+    /// WORK-05: Returns the number of failed Redis publishes in the DLQ.
+    pub async fn failed_publish_count(&self) -> usize {
+        self.failed_publishes.read().await.len()
+    }
+
+    /// WORK-05: Retrieves a snapshot of failed publishes for inspection.
+    pub async fn list_failed_publishes(&self) -> Vec<FailedPublish> {
+        self.failed_publishes.read().await.iter().cloned().collect()
+    }
+
+    /// WORK-05: Attempts to replay all failed publishes in the DLQ.
+    /// Successfully replayed messages are removed from the DLQ.
+    /// Returns the number of messages successfully replayed.
+    pub async fn retry_failed_publishes(&self) -> Result<usize, ApiError> {
+        let entries: Vec<FailedPublish> = {
+            let mut dlq = self.failed_publishes.write().await;
+            dlq.drain(..).collect()
+        };
+
+        let mut succeeded = 0;
+        let mut still_failed = Vec::new();
+
+        for entry in entries {
+            match self.try_republish(&entry.channel, &entry.payload).await {
+                Ok(()) => succeeded += 1,
+                Err(_) => still_failed.push(entry),
+            }
+        }
+
+        // Re-add still-failed entries to the DLQ
+        if !still_failed.is_empty() {
+            let mut dlq = self.failed_publishes.write().await;
+            for entry in still_failed {
+                if dlq.len() >= FAILED_PUBLISH_RING_SIZE {
+                    dlq.pop_front();
+                }
+                dlq.push_back(entry);
+            }
+        }
+
+        Ok(succeeded)
+    }
+
+    /// Helper: attempt to publish a raw message to a Redis channel without
+    /// spawning a background task. Used by `retry_failed_publishes`.
+    async fn try_republish(&self, full_channel: &str, payload: &[u8]) -> Result<(), ApiError> {
+        let redis_pool = self.redis_pool.read().await;
+        let pool = redis_pool.as_ref().ok_or_else(|| ApiError::internal("Redis not connected"))?;
+
+        let mut conn = pool
+            .get()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Redis pool error", &e))?;
+
+        use redis::AsyncCommands;
+        conn
+            .publish::<_, _, ()>(full_channel, payload)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Redis publish failed", &e))?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -503,6 +677,9 @@ impl Clone for WorkerBus {
             redis_pool: Arc::clone(&self.redis_pool),
             subscriber_task: Arc::clone(&self.subscriber_task),
             subscribed_channels: Arc::clone(&self.subscribed_channels),
+            sub_command_tx: self.sub_command_tx.clone(),
+            sub_command_rx: std::sync::Mutex::new(None),
+            failed_publishes: Arc::clone(&self.failed_publishes),
         }
     }
 }
@@ -691,5 +868,69 @@ mod tests {
         let decoded = parse_replication_command(&encoded).unwrap();
 
         assert_eq!(decoded, cmd);
+    }
+
+    // WORK-05: DLQ starts empty
+    #[tokio::test]
+    async fn work05_dlq_starts_empty() {
+        let bus = WorkerBus::new(RedisBusConfig::default(), "test.server".to_string(), "worker1".to_string());
+        assert_eq!(bus.failed_publish_count().await, 0, "DLQ must start empty");
+        assert!(bus.list_failed_publishes().await.is_empty(), "list_failed_publishes must return empty");
+    }
+
+    // WORK-05: Clone shares DLQ state (Arc semantics)
+    #[tokio::test]
+    async fn work05_dlq_shared_across_clone() {
+        let bus = WorkerBus::new(RedisBusConfig::default(), "test.server".to_string(), "worker1".to_string());
+        let cloned = bus.clone();
+
+        // Manually insert a failed publish into the DLQ via the original
+        {
+            let mut dlq = bus.failed_publishes.write().await;
+            dlq.push_back(FailedPublish {
+                channel: "synapse:test".to_string(),
+                payload: vec![1, 2, 3],
+                error: "test error".to_string(),
+                failed_at: 12345,
+            });
+        }
+
+        // The clone should see the same entry
+        assert_eq!(cloned.failed_publish_count().await, 1, "clone must share DLQ state via Arc");
+    }
+
+    // WORK-05: DLQ ring buffer evicts oldest entries when full
+    #[tokio::test]
+    async fn work05_dlq_ring_buffer_eviction() {
+        let bus = WorkerBus::new(RedisBusConfig::default(), "test.server".to_string(), "worker1".to_string());
+
+        // Fill beyond capacity
+        {
+            let mut dlq = bus.failed_publishes.write().await;
+            for i in 0..(FAILED_PUBLISH_RING_SIZE + 10) {
+                if dlq.len() >= FAILED_PUBLISH_RING_SIZE {
+                    dlq.pop_front();
+                }
+                dlq.push_back(FailedPublish {
+                    channel: format!("synapse:ch-{i}"),
+                    payload: vec![i as u8],
+                    error: "error".to_string(),
+                    failed_at: i as i64,
+                });
+            }
+        }
+
+        let count = bus.failed_publish_count().await;
+        assert_eq!(count, FAILED_PUBLISH_RING_SIZE, "DLQ must not exceed ring size");
+
+        let entries = bus.list_failed_publishes().await;
+        // Oldest entries should have been evicted; the first entry should be ch-10
+        assert_eq!(entries[0].channel, "synapse:ch-10", "oldest entries must be evicted first");
+        // Latest entry should be the last one inserted
+        assert_eq!(
+            entries.last().unwrap().channel,
+            format!("synapse:ch-{}", FAILED_PUBLISH_RING_SIZE + 9),
+            "latest entry must be the most recent"
+        );
     }
 }

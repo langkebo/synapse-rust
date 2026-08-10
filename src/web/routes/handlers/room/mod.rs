@@ -12,17 +12,21 @@ pub(crate) use members::*;
 pub(crate) use receipts::*;
 pub(crate) use state::*;
 
-use crate::common::{parse_stream_token, ApiError};
+use crate::common::{parse_pagination_token, parse_stream_token, ApiError};
 use crate::web::routes::context::RoomContext;
 use crate::web::routes::{ensure_room_member_ctx, ensure_room_member_strict_ctx, AuthenticatedUser};
 use serde::{Deserialize, Serialize};
 
-fn parse_room_messages_from_token(params: &serde_json::Value) -> i64 {
-    params
-        .get("from")
-        .and_then(|v| v.as_str())
-        .and_then(|token| parse_stream_token(token).or_else(|| token.parse().ok()))
-        .unwrap_or(0)
+/// 解析 /messages 的 `from` 游标（ISSUE-06）。
+///
+/// 支持三种形式：复合 `t{ts}_{stream}`、legacy `t{ts}`、裸整数时间戳。
+/// 无 `from` 参数时返回 `None`（从最新/最旧一页开始）。
+fn parse_room_messages_from_token(params: &serde_json::Value) -> Option<(i64, Option<i64>)> {
+    params.get("from").and_then(|v| v.as_str()).and_then(|token| {
+        parse_pagination_token(token)
+            .or_else(|| parse_stream_token(token).map(|ts| (ts, None)))
+            .or_else(|| token.parse().ok().map(|ts| (ts, None)))
+    })
 }
 
 pub(crate) async fn ensure_room_view_access(

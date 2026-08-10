@@ -522,6 +522,31 @@ impl RedisCache {
         .await
     }
 
+    /// C-3: Batch set multiple keys in a single Redis pipeline round-trip.
+    ///
+    /// Each entry is `(key, value, ttl)`. All SET commands are pipelined so
+    /// the network cost is O(1) round-trip regardless of entry count, instead
+    /// of O(N) when calling `set()` in a loop.
+    pub async fn set_batch(&self, entries: &[(String, String, u64)]) -> Result<(), CacheError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        self.with_circuit_breaker("MSET", |mut conn| async move {
+            let mut pipe = redis::pipe();
+            for (key, value, ttl) in entries {
+                if *ttl > 0 {
+                    pipe.cmd("SET").arg(key).arg(value).arg("EX").arg(*ttl);
+                } else {
+                    pipe.cmd("SET").arg(key).arg(value);
+                }
+            }
+            pipe.query_async::<()>(&mut conn)
+                .await
+                .map_err(|e| CacheError::OperationFailed(e.to_string()))
+        })
+        .await
+    }
+
     pub async fn delete(&self, key: &str) -> Result<(), CacheError> {
         use redis::AsyncCommands;
         self.with_circuit_breaker("DELETE", |mut conn| async move {
@@ -1078,6 +1103,48 @@ impl CacheManager {
         Ok(())
     }
 
+    /// C-3: Batch set multiple key-value pairs with a single Redis pipeline.
+    ///
+    /// Eliminates N+1 cache writes: presence batch updates, room member
+    /// batch caching, etc. can now populate L1 + L2 in O(1) Redis round-trip
+    /// instead of O(N) individual SET calls.
+    ///
+    /// Each tuple is `(key, serialized_value, ttl)`. Values must already be
+    /// serialized by the caller (typically via `serde_json::to_string`).
+    pub async fn set_batch_serialized(&self, entries: &[(String, String, u64)]) -> Result<(), ApiError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        // L1: set all local entries synchronously
+        for (key, value, _ttl) in entries {
+            self.local.set_raw(key, value);
+        }
+        // L2: single Redis pipeline round-trip
+        if self.use_redis {
+            if let Some(redis) = &self.redis {
+                let _ = redis.set_batch(entries).await;
+            }
+        }
+        Ok(())
+    }
+
+    /// C-3: Batch set multiple typed values with a single Redis pipeline.
+    ///
+    /// Convenience wrapper that serializes each value before calling
+    /// `set_batch_serialized`.
+    pub async fn set_batch<T: Serialize>(&self, entries: &[(String, T, u64)]) -> Result<(), ApiError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let serialized: Vec<(String, String, u64)> = entries
+            .iter()
+            .filter_map(|(key, value, ttl)| {
+                serde_json::to_string(value).ok().map(|v| (key.clone(), v, *ttl))
+            })
+            .collect();
+        self.set_batch_serialized(&serialized).await
+    }
+
     /// Get a value from the cache, or fetch and cache it on miss with single-flight protection.
     ///
     /// This prevents cache stampede when a hot key expires: only one fetch
@@ -1341,6 +1408,54 @@ mod tests {
 
         let _ = manager.delete("test_key").await;
         assert!(manager.get::<String>("test_key").await.unwrap().is_none());
+    }
+
+    // C-3: Batch set/get eliminates N+1 cache writes.
+    #[tokio::test]
+    async fn c3_set_batch_serialized_writes_all_keys_to_local_cache() {
+        let manager = CacheManager::new(&CacheConfig::default());
+        let entries = vec![
+            ("c3:batch:k1".to_string(), "v1".to_string(), 60u64),
+            ("c3:batch:k2".to_string(), "v2".to_string(), 60u64),
+            ("c3:batch:k3".to_string(), "v3".to_string(), 60u64),
+        ];
+        manager.set_batch_serialized(&entries).await.expect("set_batch_serialized");
+
+        manager.local.cache.run_pending_tasks();
+        assert_eq!(manager.get_raw("c3:batch:k1").as_deref(), Some("v1"));
+        assert_eq!(manager.get_raw("c3:batch:k2").as_deref(), Some("v2"));
+        assert_eq!(manager.get_raw("c3:batch:k3").as_deref(), Some("v3"));
+    }
+
+    #[tokio::test]
+    async fn c3_set_batch_typed_writes_and_reads_back() {
+        let manager = CacheManager::new(&CacheConfig::default());
+        let entries: Vec<(String, String, u64)> = vec![
+            ("c3:typed:a".to_string(), "alpha".to_string(), 60),
+            ("c3:typed:b".to_string(), "beta".to_string(), 60),
+        ];
+        manager.set_batch(&entries).await.expect("set_batch");
+
+        let keys = vec!["c3:typed:a".to_string(), "c3:typed:b".to_string()];
+        let results: Vec<Option<String>> = manager.get_batch(&keys).await.expect("get_batch");
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].as_deref(), Some("alpha"));
+        assert_eq!(results[1].as_deref(), Some("beta"));
+    }
+
+    #[tokio::test]
+    async fn c3_set_batch_empty_is_noop() {
+        let manager = CacheManager::new(&CacheConfig::default());
+        let entries: Vec<(String, String, u64)> = vec![];
+        manager.set_batch(&entries).await.expect("set_batch empty should be noop");
+        // No panic, no error
+    }
+
+    #[tokio::test]
+    async fn c3_set_batch_serialized_empty_is_noop() {
+        let manager = CacheManager::new(&CacheConfig::default());
+        let entries: Vec<(String, String, u64)> = vec![];
+        manager.set_batch_serialized(&entries).await.expect("set_batch_serialized empty should be noop");
     }
 
     // PERF-08: broadcast_invalidation 必须同时失效本地 L1——Redis 订阅端

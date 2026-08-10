@@ -19,6 +19,11 @@ pub struct AppState {
     pub federation_inbound_edu_origin_semaphores: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
     pub federation_presence_backoff_until: Arc<RwLock<HashMap<String, i64>>>,
     rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
+    /// B-4: Paths auto-derived from the route ledger (`rate_limit_exempt = true`
+    /// entries) that the IP-level rate limit middleware should skip. Populated
+    /// by `create_router` after ledger validation. Empty when the server is not
+    /// assembled through `create_router` (e.g. in unit tests).
+    pub rate_limit_exempt_paths: Arc<Vec<&'static str>>,
     /// Optional graceful-shutdown signal. When set, the `POST /_synapse/admin/v1/restart`
     /// endpoint triggers it so the process manager (Docker / systemd) can restart
     /// the homeserver cleanly.
@@ -88,6 +93,7 @@ impl AppState {
             federation_inbound_edu_origin_semaphores: Arc::new(Mutex::new(HashMap::new())),
             federation_presence_backoff_until: Arc::new(RwLock::new(HashMap::new())),
             rate_limit_config_manager: None,
+            rate_limit_exempt_paths: Arc::new(Vec::new()),
             shutdown_signal: None,
             #[cfg(feature = "openclaw-routes")]
             ai_connection_storage: Arc::new(synapse_storage::ai_connection::AiConnectionStorage::new(pool.clone())),
@@ -108,6 +114,13 @@ impl AppState {
 
     pub fn with_rate_limit_config(mut self, manager: Arc<RateLimitConfigManager>) -> Self {
         self.rate_limit_config_manager = Some(manager);
+        self
+    }
+
+    /// B-4: Set the auto-derived rate limit exempt paths collected from the
+    /// route ledger. Called by `create_router` after ledger validation.
+    pub fn with_rate_limit_exempt_paths(mut self, paths: Vec<&'static str>) -> Self {
+        self.rate_limit_exempt_paths = Arc::new(paths);
         self
     }
 

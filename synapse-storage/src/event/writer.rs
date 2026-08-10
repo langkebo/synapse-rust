@@ -99,6 +99,20 @@ pub trait EventWriter: Send + Sync {
         origin_server_ts: i64,
         sender: &str,
     ) -> Result<(), sqlx::Error>;
+
+    /// ISSUE-03: durably record `txn_id → event_id`. Returns `true` when
+    /// inserted, `false` when the `(user_id, room_id, txn_id)` triple was
+    /// already taken (caller must resolve the winner via the reader).
+    async fn record_event_txn(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        txn_id: &str,
+        event_id: &str,
+    ) -> Result<bool, sqlx::Error>;
+
+    /// Best-effort removal of a losing duplicate event after a txn race.
+    async fn delete_event_by_id(&self, event_id: &str) -> Result<(), sqlx::Error>;
 }
 
 // ── EventWriter delegation impl for Postgres EventStorage ───────────────
@@ -208,5 +222,19 @@ impl crate::event::writer::EventWriter for super::EventStorage {
         sender: &str,
     ) -> Result<(), sqlx::Error> {
         self.upsert_power_levels_event(event_id, room_id, user_id, content, origin_server_ts, sender).await
+    }
+
+    async fn record_event_txn(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        txn_id: &str,
+        event_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        self.record_event_txn(user_id, room_id, txn_id, event_id).await
+    }
+
+    async fn delete_event_by_id(&self, event_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_event_by_id(event_id).await
     }
 }

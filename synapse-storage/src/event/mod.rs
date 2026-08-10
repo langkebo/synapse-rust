@@ -10,6 +10,7 @@ pub(crate) mod redaction;
 pub(crate) mod search;
 pub(crate) mod signature;
 pub mod state;
+pub(crate) mod txn_dedup;
 pub(crate) mod unread;
 pub(crate) mod writer;
 

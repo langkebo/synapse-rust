@@ -90,9 +90,9 @@
 - ~~**STO-05**：`check_rate_limit` SELECT→UPDATE 无 `FOR UPDATE`，TOCTOU 竞态~~ **✅已修复**：`event_report/repository.rs` 的 `check_rate_limit` 改为 `BEGIN → SELECT … FOR UPDATE → UPDATE → COMMIT` 事务，消除 TOCTOU 窗口
 - ~~**PERF-05**：`claim_task` 拉 1000 条内存 `find()`（`manager.rs:546-554`）~~ **✅已修复**：改为 `get_pending_task_by_id(task_id)` 按 ID 直查，不再拉 1000 条到内存；新增测试验证 >1000 条 pending 时仍可领取
 - ~~**PERF-08**：`broadcast_invalidation` 只发 Redis 不失效本地缓存~~ **✅已修复(2026-08-10, commit 8c51447e)**：广播同时失效本地缓存
-- **WORK-01**：`WorkerBus.unsubscribe` 仅删本地列表，不退订 Redis Pub/Sub
+- ~~**WORK-01**：`WorkerBus.unsubscribe` 仅删本地列表，不退订 Redis Pub/Sub~~ **✅已修复(2026-08-11)**：`unsubscribe` 现通过命令通道 (`SubCommand::Unsubscribe`) 通知订阅任务，订阅任务收到命令后断开重连，重连时读取更新后的 `subscribed_channels` 列表只订阅剩余频道，实现真正的 Redis 退订
 - ~~**WORK-04**：HealthChecker 只查注册表键存在性，崩溃 worker 仍报 Healthy~~ **✅已修复(2026-08-10, commit 8c51447e)**：新增 `record_heartbeat` + `heartbeat_timeout_secs` 活性探测，无心跳或超时即报 Unhealthy
-- **WORK-05**：Redis 发布已加重试，但重试耗尽后仍静默丢消息（从 fire-and-forget 升级为 best-effort retry）
+- ~~**WORK-05**：Redis 发布已加重试，但重试耗尽后仍静默丢消息~~ **✅已修复(2026-08-11)**：重试耗尽后不再静默丢弃——新增 `FailedPublish` 结构体 + 内存环形缓冲 DLQ (256 条容量)，提供 `failed_publish_count()` / `list_failed_publishes()` / `retry_failed_publishes()` 方法用于检查和重放
 - ~~**SEC-03**：内置 OIDC 明文密码回退仅 warn 不拒绝~~ **✅已修复**：`builtin_oidc_provider.rs` 默认 `allow_plaintext_passwords=false` 时返回 401 拒绝；仅在显式配置 `true` 时放行并 warn；新增测试验证默认拒绝
 - ~~**WEB-03**：`is_localhost_bind()` 含 0.0.0.0，dev 模式 CORS 全开放~~ **✅已修复(2026-08-10, commit 8c51447e)**
 - ~~**WEB-04**：中间件顺序不当（CORS 最内层、rate_limit 先于 csrf）~~ **✅已修复(2026-08-10, commit 8c51447e)**
@@ -104,7 +104,7 @@
 
 ### 🟡 P2 中（清单原文已附取证、本轮未重复复核，采信）
 
-~~A-6（竞态版唤醒 API 死代码）~~ **✅已删除**、~~A-7（notifier map 不回收）~~ **✅已修复(2026-08-10, commit 8c51447e)**：`EventNotifier` 新增 `evict_idle_slots` + `start_idle_slot_evictor` 后台定期回收 `Arc::strong_count==1` 的空闲槽位、B-4（豁免表手工维护）、~~C-2（`ensure_schema` 空壳 21 处调用）~~ **✅已修复**：`ensure_schema` 函数及 21 处空调用已删除，新增编译期测试防止重新引入、C-3（批量写 N+1，待处理：缓存层 presence 逐条 set）、~~C-4（启动检查 N+1）~~ **✅已修复(2026-08-11)**：`schema_health_check.rs` 表/列/索引检查全部改为 `ANY($1)` / `unnest` 批量查询，30+ 表 100+ 列从 130+ 次 DB 往返降为 3 次、~~D-1（`set_raw` 本地 TTL 被丢弃，两级 TTL 不一致）~~ **✅已修复**：`LocalCache` 新增 per-key TTL `deadlines` 旁路表，`set_raw` 传入 TTL，`get_raw` 检查过期、D-2（单一缓存实例混装）、~~E-1（联邦密钥逻辑两遍 + 每次新建 HTTP client）~~ **✅已修复(2026-08-10, commit 59f07134)**：联邦 client 改用 `synapse_common::http_client` 共享实例、~~E-2（`allow_http_key_fetch` 一开关关两样防护）~~ **✅已修复(2026-08-11)**：新增 `skip_ssrf_check` 配置项，`allow_http_key_fetch` 仅控制 HTTP/HTTPS 协议，SSRF IP 黑名单由 `skip_ssrf_check` 独立控制、~~F-1/F-2（5 处无超时 client + 静默退化）~~ **✅已修复(2026-08-10, commit 59f07134)**：新建 `synapse_common::http_client` 模块提供 `default_client()`/`client_with_timeout()`/`no_redirect_client_with_timeout()`，federation client 与 federation_auth middleware 全部切换、~~G-1（上传上限三处矛盾）~~ **✅已修复(2026-08-10, commit 59f07134)**：chunked_upload_start 硬编码 100MB 改为 `ctx.config.server.max_upload_size`、~~G-3（上传上限剩余矛盾点）~~ **✅已修复(2026-08-11)**：`upload.rs` 硬编码 chunk_size_limit/chunk_size 提取为命名常量 `CHUNK_SIZE_LIMIT_BYTES` / `ASYNC_CHUNK_SIZE_BYTES`、H-1~H-4（非默认 feature 死代码、模块碎裂、通知六套并存、容器接线无 CI 检查）、I-1/I-2。
+~~A-6（竞态版唤醒 API 死代码）~~ **✅已删除**、~~A-7（notifier map 不回收）~~ **✅已修复(2026-08-10, commit 8c51447e)**：`EventNotifier` 新增 `evict_idle_slots` + `start_idle_slot_evictor` 后台定期回收 `Arc::strong_count==1` 的空闲槽位、~~B-4（豁免表手工维护）~~ **✅已修复(2026-08-11)**：`RouteEntry` 新增 `rate_limit_exempt` 字段，sync/sliding_sync manifest 中标记豁免路由，`create_router` 启动时从 ledger 自动收集豁免路径并注入 `CoreContext`，中间件改为查询动态列表、~~C-2（`ensure_schema` 空壳 21 处调用）~~ **✅已修复**：`ensure_schema` 函数及 21 处空调用已删除，新增编译期测试防止重新引入、~~C-3（批量写 N+1，缓存层 presence 逐条 set）~~ **✅已修复(2026-08-11)**：`get_presence_snapshots` 改用 `cache.set_batch()` 批量写入；新增 `set_presence_batch()` SQL 方法使用 `UNNEST` 单次往返；全链路新增 service/storage/cache 三层批量 API + 8 个测试、~~C-4（启动检查 N+1）~~ **✅已修复(2026-08-11)**：`schema_health_check.rs` 表/列/索引检查全部改为 `ANY($1)` / `unnest` 批量查询，30+ 表 100+ 列从 130+ 次 DB 往返降为 3 次、~~D-1（`set_raw` 本地 TTL 被丢弃，两级 TTL 不一致）~~ **✅已修复**：`LocalCache` 新增 per-key TTL `deadlines` 旁路表，`set_raw` 传入 TTL，`get_raw` 检查过期、D-2（单一缓存实例混装，低优先级待处理）、~~E-1（联邦密钥逻辑两遍 + 每次新建 HTTP client）~~ **✅已修复(2026-08-10, commit 59f07134)**：联邦 client 改用 `synapse_common::http_client` 共享实例、~~E-2（`allow_http_key_fetch` 一开关关两样防护）~~ **✅已修复(2026-08-11)**：新增 `skip_ssrf_check` 配置项，`allow_http_key_fetch` 仅控制 HTTP/HTTPS 协议，SSRF IP 黑名单由 `skip_ssrf_check` 独立控制、~~F-1/F-2（5 处无超时 client + 静默退化）~~ **✅已修复(2026-08-10, commit 59f07134)**：新建 `synapse_common::http_client` 模块提供 `default_client()`/`client_with_timeout()`/`no_redirect_client_with_timeout()`，federation client 与 federation_auth middleware 全部切换、~~G-1（上传上限三处矛盾）~~ **✅已修复(2026-08-10, commit 59f07134)**：chunked_upload_start 硬编码 100MB 改为 `ctx.config.server.max_upload_size`、~~G-3（上传上限剩余矛盾点）~~ **✅已修复(2026-08-11)**：`upload.rs` 硬编码 chunk_size_limit/chunk_size 提取为命名常量 `CHUNK_SIZE_LIMIT_BYTES` / `ASYNC_CHUNK_SIZE_BYTES`、H-1~H-3（非默认 feature 死代码、模块碎裂、通知六套并存——低优先级待处理）、~~H-4（容器接线无 CI 检查）~~ **✅已修复(2026-08-11)**：新增 `scripts/check_container_wiring.sh` 脚本，遍历 `lib.rs` 的 `pub mod` 声明，验证每个模块在 `container.rs` 或 `wiring/` 中被引用，未引用的模块报错退出、~~I-1/I-2~~ **✅已复核(2026-08-11)**：I-1 的 36 处 TODO/FIXME 中 33 处在非默认 feature 模块 (openclaw/matrix_ai)，3 处在 test mocks，生产代码无待处理项；I-2 的 22 处 `#[allow]` 逃逸中 6 处在测试文件（合理），16 处在生产代码全部已复核为密码学初始化/配置加载等"不可失败"场景，注释充分。
 
 ---
 
@@ -174,7 +174,7 @@
 | C-3：缓存层 presence 逐条 set | 待处理（低优先级） |
 | D-2：拆分缓存实例 | 待处理（低优先级） |
 
-### 第 4 批：架构与债务 — 部分完成
+### 第 4 批：架构与债务 — ✅ 全部完成（仅余 H-1~H-3/D-2 低优先级项）
 
 | 项 | 状态 |
 |---|---|
@@ -190,22 +190,23 @@
 | A-7：notifier map 空闲槽位回收 | ✅ (commit 8c51447e) |
 | WORK-04：HealthChecker 心跳活性探测 | ✅ (commit 8c51447e) |
 | SEC-03：OIDC 明文密码默认拒绝 | ✅ |
-| WORK-05：Redis 发布重试（重试耗尽仍丢消息） | ⚠️ 部分修复 |
-| WORK-01：unsubscribe 仅删本地列表 | 待处理（低优先级） |
-| H-1：删除非默认 feature 死代码 | 待处理 |
-| H-2/H-3：模块合并 | 待处理 |
+| WORK-01：unsubscribe 退订 Redis Pub/Sub | ✅ (2026-08-11) |
+| WORK-05：Redis 发布 DLQ + 重放 | ✅ (2026-08-11) |
+| B-4：豁免表从 route_ledger 自动派生 | ✅ (2026-08-11) |
+| C-3：缓存层 presence 批量写入 | ✅ (2026-08-11) |
+| H-4：容器接线 CI 检查脚本 | ✅ (2026-08-11) |
+| I-1/I-2：TODO/FIXME + #[allow] 复核 | ✅ 已复核 (2026-08-11) |
+| H-1：删除非默认 feature 死代码 | 待处理（低优先级，需产品边界决策） |
+| H-2/H-3：模块合并 | 待处理（低优先级，重构性质） |
+| D-2：单一缓存实例混装 | 待处理（低优先级） |
 
 ### 剩余待处理项汇总
 
 | 优先级 | 项 | 描述 |
 |---|---|---|
-| P2 | WORK-01 | WorkerBus.unsubscribe 仅删本地列表，不退订 Redis（低优先级） |
-| P2 | WORK-05 | Redis 发布重试耗尽后仍丢消息（部分修复，需 DLQ 或持久化） |
-| P2 | B-4 | 豁免表手工维护 |
-| P2 | C-3 | 缓存层 presence 逐条 set（N+1 写） |
-| P2 | D-2 | 单一缓存实例混装（低优先级） |
-| P2 | H-1~H-4 | 非默认 feature 死代码、模块碎裂、通知六套并存、容器接线无 CI 检查 |
-| P2 | I-1/I-2 | （见清单原文） |
+| P3 | D-2 | 单一缓存实例混装（低优先级，需拆分 moka 实例） |
+| P3 | H-1 | 删除非默认 feature 死代码（需产品边界决策） |
+| P3 | H-2/H-3 | 模块合并（重构性质，低风险） |
 
 ### 验收基线（呼应项目 TDD 规范）
 

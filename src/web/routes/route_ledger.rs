@@ -70,11 +70,16 @@ pub struct RouteEntry {
     pub query_params: &'static [&'static str],
     /// Optional auth requirement: "user", "admin", "optional", "federation", or "none".
     pub auth: Option<&'static str>,
+    /// B-4: When `true`, the IP-level rate limit middleware skips this route.
+    /// Used for sync/sliding-sync endpoints that implement their own
+    /// per-user+device rate limiting inside the handler to avoid double
+    /// limiting. Auto-collected by `create_router` from the route ledger.
+    pub rate_limit_exempt: bool,
 }
 
 impl RouteEntry {
     pub const fn new(method: Method, path: &'static str, registered_by: &'static str) -> Self {
-        Self { method, path, registered_by, query_params: &[], auth: None }
+        Self { method, path, registered_by, query_params: &[], auth: None, rate_limit_exempt: false }
     }
 
     pub const fn with_auth(mut self, auth: &'static str) -> Self {
@@ -84,6 +89,12 @@ impl RouteEntry {
 
     pub const fn with_query_params(mut self, query_params: &'static [&'static str]) -> Self {
         self.query_params = query_params;
+        self
+    }
+
+    /// B-4: Mark this route as exempt from the IP-level rate limit middleware.
+    pub const fn with_rate_limit_exempt(mut self, exempt: bool) -> Self {
+        self.rate_limit_exempt = exempt;
         self
     }
 }
@@ -313,5 +324,90 @@ mod tests {
                 RegisteredByCount { registered_by: "mod_c", entries: 1 },
             ]
         );
+    }
+
+    // ------------------------------------------------------------------
+    // B-4: Rate limit exemption auto-derivation tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn rate_limit_exempt_defaults_to_false() {
+        let entry = RouteEntry::new(Method::GET, "/foo", "m1");
+        assert!(!entry.rate_limit_exempt);
+    }
+
+    #[test]
+    fn with_rate_limit_exempt_sets_flag() {
+        let entry = RouteEntry::new(Method::GET, "/foo", "m1").with_rate_limit_exempt(true);
+        assert!(entry.rate_limit_exempt);
+
+        let entry = RouteEntry::new(Method::GET, "/foo", "m1").with_rate_limit_exempt(false);
+        assert!(!entry.rate_limit_exempt);
+    }
+
+    #[test]
+    fn collect_exempt_paths_from_ledger() {
+        // B-4: Verify that only entries marked `rate_limit_exempt = true`
+        // appear in the collected list, mirroring what `create_router` does.
+        let mut ledger = RouteLedger::new();
+        ledger.extend([
+            RouteEntry::new(Method::GET, "/sync", "sync").with_rate_limit_exempt(true),
+            RouteEntry::new(Method::GET, "/events", "sync"),
+            RouteEntry::new(Method::POST, "/v1/sync", "sliding_sync").with_rate_limit_exempt(true),
+            RouteEntry::new(Method::GET, "/rooms", "room"),
+        ]);
+
+        let exempt_paths: Vec<&'static str> = ledger
+            .iter()
+            .filter(|e| e.rate_limit_exempt)
+            .map(|e| e.path)
+            .collect();
+
+        assert_eq!(exempt_paths, vec!["/sync", "/v1/sync"]);
+        // Non-exempt routes must NOT appear
+        assert!(!exempt_paths.contains(&"/events"));
+        assert!(!exempt_paths.contains(&"/rooms"));
+    }
+
+    #[test]
+    fn collect_exempt_paths_from_real_manifests() {
+        // B-4: Verify that the sync and sliding_sync manifests produce the
+        // expected exempt paths — the same 6 paths that were previously
+        // hardcoded in `is_sync_rate_limit_exempt_path`.
+        let mut all_entries = Vec::new();
+        all_entries.extend(crate::web::routes::sync::sync_route_manifest());
+        all_entries.extend(crate::web::routes::sliding_sync::sliding_sync_route_manifest());
+
+        let exempt_paths: Vec<&str> = all_entries
+            .iter()
+            .filter(|e| e.rate_limit_exempt)
+            .map(|e| e.path)
+            .collect();
+
+        // All 6 sync/sliding-sync paths must be exempt
+        let expected = [
+            "/_matrix/client/r0/sync",
+            "/_matrix/client/v3/sync",
+            "/_matrix/client/v1/sync",
+            "/_matrix/client/v4/sync",
+            "/_matrix/client/unstable/org.matrix.msc3575/sync",
+            "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync",
+        ];
+        for path in &expected {
+            assert!(
+                exempt_paths.contains(path),
+                "expected {path} to be rate-limit-exempt but it was not found in {:?}",
+                exempt_paths
+            );
+        }
+
+        // Non-sync routes from the sync manifest must NOT be exempt
+        let non_exempt: Vec<&str> = all_entries
+            .iter()
+            .filter(|e| !e.rate_limit_exempt)
+            .map(|e| e.path)
+            .collect();
+        assert!(non_exempt.contains(&"/_matrix/client/r0/events"), "events should not be exempt");
+        assert!(non_exempt.contains(&"/_matrix/client/v3/joined_rooms"), "joined_rooms should not be exempt");
     }
 }

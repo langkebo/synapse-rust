@@ -5,11 +5,12 @@ use synapse_common::current_timestamp_millis;
 #[derive(Clone, Default)]
 pub struct InMemoryEventStore {
     events: Arc<RwLock<HashMap<String, crate::event::RoomEvent>>>, // event_id → event
+    txn_dedup: Arc<RwLock<HashMap<(String, String, String), String>>>, // (user, room, txn) → event_id
 }
 
 impl InMemoryEventStore {
     pub fn new() -> Self {
-        Self { events: Arc::new(RwLock::new(HashMap::new())) }
+        Self { events: Arc::new(RwLock::new(HashMap::new())), txn_dedup: Arc::new(RwLock::new(HashMap::new())) }
     }
 
     pub async fn create_event(
@@ -264,6 +265,30 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
         let events = self.events.read().await;
         let mut matched: Vec<_> = events.values().filter(|e| e.room_id == room_id).cloned().collect();
         matched.sort_by_key(|e| std::cmp::Reverse(e.origin_server_ts));
+        matched.truncate(limit as usize);
+        Ok(matched)
+    }
+
+    async fn get_room_events_paginated_cursor(
+        &self,
+        room_id: &str,
+        from: Option<(i64, Option<i64>)>,
+        limit: i64,
+        direction: &str,
+    ) -> Result<Vec<crate::event::RoomEvent>, sqlx::Error> {
+        let Some((ts, Some(stream))) = from else {
+            let from_ts = from.map(|(ts, _)| ts);
+            return crate::event::reader::EventReader::get_room_events_paginated(self, room_id, from_ts, limit, direction).await;
+        };
+        let events = self.events.read().await;
+        let mut matched: Vec<_> = events.values().filter(|e| e.room_id == room_id).cloned().collect();
+        if direction == "f" {
+            matched.retain(|e| (e.origin_server_ts, e.stream_ordering.unwrap_or(0)) > (ts, stream));
+            matched.sort_by_key(|e| (e.origin_server_ts, e.stream_ordering.unwrap_or(0)));
+        } else {
+            matched.retain(|e| (e.origin_server_ts, e.stream_ordering.unwrap_or(0)) < (ts, stream));
+            matched.sort_by_key(|e| std::cmp::Reverse((e.origin_server_ts, e.stream_ordering.unwrap_or(0))));
+        }
         matched.truncate(limit as usize);
         Ok(matched)
     }
@@ -842,6 +867,16 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
         Ok(events.values().filter_map(|e| e.stream_ordering).max().unwrap_or(0))
     }
 
+    async fn get_event_id_by_txn(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        txn_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let dedup = self.txn_dedup.read().await;
+        Ok(dedup.get(&(user_id.to_string(), room_id.to_string(), txn_id.to_string())).cloned())
+    }
+
     // ── unread counts / room state copy (moved from RoomStorage) ───────
 
     async fn get_unread_counts(
@@ -1058,6 +1093,27 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
                 redacts: None,
             },
         );
+        Ok(())
+    }
+
+    async fn record_event_txn(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        txn_id: &str,
+        event_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let mut dedup = self.txn_dedup.write().await;
+        let key = (user_id.to_string(), room_id.to_string(), txn_id.to_string());
+        if dedup.contains_key(&key) {
+            return Ok(false);
+        }
+        dedup.insert(key, event_id.to_string());
+        Ok(true)
+    }
+
+    async fn delete_event_by_id(&self, event_id: &str) -> Result<(), sqlx::Error> {
+        self.events.write().await.remove(event_id);
         Ok(())
     }
 }

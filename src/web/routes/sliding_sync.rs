@@ -30,7 +30,10 @@ pub fn sliding_sync_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
         (Method::POST, "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"),
     ]
     .into_iter()
-    .map(|(m, p)| RouteEntry::new(m, p, "sliding_sync"))
+    // B-4: All sliding sync endpoints implement their own per-user+device
+    // rate limiter inside the handler. Mark them as exempt from IP-level
+    // rate limiting so the exemption list is auto-derived from the ledger.
+    .map(|(m, p)| RouteEntry::new(m, p, "sliding_sync").with_rate_limit_exempt(true))
     .collect()
 }
 

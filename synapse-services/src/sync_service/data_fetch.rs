@@ -182,43 +182,145 @@ impl SyncService {
         Ok(result)
     }
 
+    /// ISSUE-01: presence 扇出目标列表 —— 用户自己 + 共享房间（join）用户 +
+    /// 显式订阅（presence_subscriptions）目标。
+    ///
+    /// 目标列表走 60s 缓存：`get_shared_room_users` 是 room_memberships
+    /// 自 join，在长轮询热路径上每次执行太贵；成员关系变化最坏 60s 后
+    /// 反映到 presence 扇出，可接受。
+    async fn presence_fanout_targets(&self, user_id: &str) -> ApiResult<Vec<String>> {
+        let cache_key = format!("sync_v2:presence_targets:{user_id}");
+        if let Ok(Some(cached)) = self.cache.get::<Vec<String>>(&cache_key).await {
+            return Ok(cached);
+        }
+
+        // presence 是 best-effort：成员关系查询失败不应让整个 /sync 500，
+        // 降级为只扇出用户自己（修复前的旧行为），并记 warn 日志。
+        let mut set: HashSet<String> = match self.member_storage.get_shared_room_users(user_id).await {
+            Ok(users) => users.into_iter().collect(),
+            Err(e) => {
+                ::tracing::warn!("Failed to get shared room users for presence, falling back to self only: {e}");
+                HashSet::new()
+            }
+        };
+
+        // 显式订阅关系（订阅失败不阻断共享房间扇出）
+        match self.presence_storage.get_subscriptions(user_id).await {
+            Ok(subs) => set.extend(subs),
+            Err(e) => ::tracing::warn!("Failed to get presence subscriptions for {user_id}: {e}"),
+        }
+
+        set.insert(user_id.to_string());
+
+        let mut targets: Vec<String> = set.into_iter().collect();
+        targets.sort();
+
+        if let Err(e) = self.cache.set(&cache_key, &targets, 60).await {
+            ::tracing::warn!("Failed to cache presence fanout targets: {e}");
+        }
+
+        Ok(targets)
+    }
+
+    /// ISSUE-01: v2 sync presence 扇出 —— 除用户自己外，下发共享房间与显式
+    /// 订阅用户的状态变更，否则联系人列表的在线状态除自己外永不刷新。
+    ///
+    /// 增量去重（与 sliding sync S7 同一复发开关）：以用户粒度缓存上次下发
+    /// 的规范化状态（`last_active_ts`，时间无关），增量 sync 只下发状态实际
+    /// 变化或新增的目标；无变化时返回空，避免 250ms 轮询下 presence 回声
+    /// 自激。初始 sync（since=None）永远全量并播种去重缓存。
     pub(crate) async fn get_presence_events(
         &self,
         user_id: &str,
-        _since: &Option<SyncToken>,
+        since: &Option<SyncToken>,
     ) -> ApiResult<Vec<serde_json::Value>> {
-        let presence = self
-            .presence_storage
-            .get_presence_with_meta(user_id)
-            .await
-            .map_err(map_internal!("Failed to get presence for sync"))?;
+        let targets = self.presence_fanout_targets(user_id).await?;
 
-        let Some((presence, status_msg, last_active_ts)) = presence else {
-            return Ok(Vec::new());
+        // best-effort：快照查询失败本轮不下发 presence（下一轮 sync 再试），
+        // 不让整个 /sync 失败。
+        let snapshots = match self.presence_storage.get_presence_snapshots(&targets).await {
+            Ok(snapshots) => snapshots,
+            Err(e) => {
+                ::tracing::warn!("Failed to get presence snapshots for sync: {e}");
+                return Ok(Vec::new());
+            }
         };
 
         let now = current_timestamp_millis();
-        let last_active_ago = if presence == "offline" { None } else { last_active_ts.map(|ts| (now - ts).max(0)) };
-        let currently_active = if presence == "online" {
-            Some(last_active_ts.is_some_and(|ts| (now - ts) <= 5 * 60 * 1000))
-        } else if presence == "offline" {
-            None
+
+        // 规范化状态（时间无关）：用于增量去重比较。若用 wire 载荷比较，
+        // last_active_ago 每毫秒漂移会导致永远判定 changed、回声复发。
+        let canonical: HashMap<String, (String, Option<String>, Option<i64>)> = snapshots
+            .iter()
+            .map(|(uid, snap)| (uid.clone(), (snap.presence.clone(), snap.status_msg.clone(), snap.last_active_ts)))
+            .collect();
+
+        let dedup_cache_key = format!("sync_v2:presence:{user_id}");
+        let changed_senders: Option<HashSet<String>> = if since.is_some() {
+            let prev: Option<HashMap<String, (String, Option<String>, Option<i64>)>> =
+                self.cache.get(&dedup_cache_key).await.ok().flatten();
+            let changed: HashSet<String> = match &prev {
+                // 温缓存：只发状态变化或新增的目标
+                Some(prev) => canonical
+                    .iter()
+                    .filter(|(uid, state)| prev.get(*uid) != Some(state))
+                    .map(|(uid, _)| uid.clone())
+                    .collect(),
+                // 冷缓存（首次增量 / 缓存过期）：全量扇出
+                None => canonical.keys().cloned().collect(),
+            };
+            if let Err(e) = self.cache.set(&dedup_cache_key, &canonical, 1800).await {
+                ::tracing::warn!("Failed to update presence dedup cache: {e}");
+            }
+            if changed.is_empty() {
+                return Ok(Vec::new());
+            }
+            Some(changed)
         } else {
-            Some(false)
+            // 初始 sync：全量下发，同时播种去重缓存，避免紧接的增量 sync 重发
+            if let Err(e) = self.cache.set(&dedup_cache_key, &canonical, 1800).await {
+                ::tracing::warn!("Failed to seed presence dedup cache: {e}");
+            }
+            None
         };
 
-        Ok(vec![json!({
-            "content": {
-                "avatar_url": null,
-                "displayname": null,
-                "last_active_ago": last_active_ago,
-                "presence": presence,
-                "status_msg": status_msg,
-                "currently_active": currently_active
-            },
-            "sender": user_id,
-            "type": "m.presence"
-        })])
+        // 排序保证输出稳定（HashMap 迭代序不稳定）
+        let mut sorted: Vec<_> = snapshots.iter().collect();
+        sorted.sort_by(|a, b| a.0.cmp(b.0));
+
+        let mut events: Vec<serde_json::Value> = Vec::with_capacity(sorted.len());
+        for (uid, snap) in sorted {
+            if let Some(changed) = &changed_senders {
+                if !changed.contains(uid) {
+                    continue;
+                }
+            }
+
+            let last_active_ago =
+                if snap.presence == "offline" { None } else { snap.last_active_ts.map(|ts| (now - ts).max(0)) };
+            let currently_active = if snap.presence == "online" {
+                Some(snap.last_active_ts.is_some_and(|ts| (now - ts) <= 5 * 60 * 1000))
+            } else if snap.presence == "offline" {
+                None
+            } else {
+                Some(false)
+            };
+
+            events.push(json!({
+                "content": {
+                    "avatar_url": null,
+                    "displayname": null,
+                    "last_active_ago": last_active_ago,
+                    "presence": snap.presence,
+                    "status_msg": snap.status_msg,
+                    "currently_active": currently_active
+                },
+                "sender": uid,
+                "type": "m.presence"
+            }));
+        }
+
+        Ok(events)
     }
 
     pub(crate) async fn get_account_data_events(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
@@ -643,6 +745,7 @@ mod tests {
     use std::sync::Arc;
     use synapse_storage::account_data::AccountDataStoreApi;
     use synapse_storage::device::{Device, DeviceListStoreApi};
+    use synapse_storage::presence::PresenceStoreApi;
     use synapse_storage::test_mocks::InMemoryDeviceListStore;
 
     /// [`AccountDataStoreApi`] test double that counts how many times
@@ -963,5 +1066,144 @@ mod tests {
             1,
             "the global device-list max stream id must be read from storage exactly once across two syncs",
         );
+    }
+
+    // ── ISSUE-01: presence 扇出（共享房间 + 显式订阅 + 增量去重） ──────────
+
+    fn joined_member(room_id: &str, user_id: &str) -> synapse_storage::membership::RoomMember {
+        synapse_storage::membership::RoomMember {
+            room_id: room_id.to_string(),
+            user_id: user_id.to_string(),
+            sender: None,
+            membership: "join".to_string(),
+            event_id: None,
+            event_type: None,
+            display_name: None,
+            avatar_url: None,
+            is_banned: None,
+            invite_token: None,
+            updated_ts: None,
+            joined_ts: None,
+            left_ts: None,
+            reason: None,
+            banned_by: None,
+            ban_reason: None,
+            banned_ts: None,
+            join_reason: None,
+        }
+    }
+
+    fn sync_service_with_presence_and_members(
+        presence_store: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
+        member_store: Arc<dyn synapse_storage::membership::MemberStoreApi>,
+    ) -> SyncService {
+        let pool: Arc<sqlx::PgPool> = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost/synapse")
+                .expect("lazy pool"),
+        );
+        let cache = Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default()));
+
+        SyncService::from_deps(SyncServiceDeps {
+            presence_storage: presence_store,
+            member_storage: member_store,
+            event_reader: Arc::new(synapse_storage::event::EventStorage::new(&pool, "localhost".to_string())),
+            room_storage: Arc::new(synapse_storage::room::RoomStorage::new(&pool)),
+            room_account_data_storage: Arc::new(synapse_storage::room_account_data::RoomAccountDataStorage::new(&pool)),
+            account_data_storage: Arc::new(synapse_storage::account_data::AccountDataStorage::new(&pool)),
+            filter_storage: Arc::new(synapse_storage::filter::FilterStorage::new(&pool)),
+            device_storage: Arc::new(synapse_storage::test_mocks::InMemoryDeviceListStore::new()),
+            device_key_storage: Arc::new(synapse_e2ee::device_keys::DeviceKeyStorage::new(&pool))
+                as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
+            key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage::new(pool.clone()),
+            to_device_storage: synapse_e2ee::to_device::ToDeviceStorage::new(&pool),
+            metrics: Arc::new(synapse_common::MetricsCollector::new()),
+            performance: synapse_common::config::PerformanceConfig::default(),
+            cache,
+            event_notifier: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn presence_events_include_shared_room_users_on_initial_sync() {
+        let presence = Arc::new(synapse_storage::test_mocks::InMemoryPresenceStore::new());
+        presence.set_presence("@alice:localhost", "online", None).await.unwrap();
+        presence.set_presence("@bob:localhost", "online", Some("hi")).await.unwrap();
+        // carol 不与 alice 共享房间，不应出现
+        presence.set_presence("@carol:localhost", "online", None).await.unwrap();
+
+        let member = Arc::new(synapse_storage::test_mocks::InMemoryMemberStore::new());
+        member
+            .seed_members(vec![
+                joined_member("!r1:localhost", "@alice:localhost"),
+                joined_member("!r1:localhost", "@bob:localhost"),
+            ])
+            .await;
+
+        let sync = sync_service_with_presence_and_members(presence, member);
+        let events = sync.get_presence_events("@alice:localhost", &None).await.expect("presence events");
+
+        let senders: HashSet<&str> = events.iter().filter_map(|e| e["sender"].as_str()).collect();
+        assert!(senders.contains("@alice:localhost"), "own presence must be included: {senders:?}");
+        assert!(senders.contains("@bob:localhost"), "shared-room user presence must be included: {senders:?}");
+        assert!(!senders.contains("@carol:localhost"), "non-shared user must not leak: {senders:?}");
+        for e in &events {
+            assert_eq!(e["type"], "m.presence");
+        }
+    }
+
+    #[tokio::test]
+    async fn presence_events_include_explicit_subscriptions() {
+        let presence = Arc::new(synapse_storage::test_mocks::InMemoryPresenceStore::new());
+        presence.set_presence("@alice:localhost", "online", None).await.unwrap();
+        presence.set_presence("@dave:localhost", "away", None).await.unwrap();
+        presence.add_subscription("@alice:localhost", "@dave:localhost").await.unwrap();
+
+        let member = Arc::new(synapse_storage::test_mocks::InMemoryMemberStore::new());
+        // dave 与 alice 无共享房间，仅靠订阅关系可见
+        member.seed_members(vec![joined_member("!r1:localhost", "@alice:localhost")]).await;
+
+        let sync = sync_service_with_presence_and_members(presence, member);
+        let events = sync.get_presence_events("@alice:localhost", &None).await.expect("presence events");
+
+        let senders: HashSet<&str> = events.iter().filter_map(|e| e["sender"].as_str()).collect();
+        assert!(senders.contains("@dave:localhost"), "subscribed user presence must be included: {senders:?}");
+    }
+
+    #[tokio::test]
+    async fn presence_events_incremental_dedups_unchanged_and_emits_changes() {
+        let presence = Arc::new(synapse_storage::test_mocks::InMemoryPresenceStore::new());
+        presence.set_presence("@alice:localhost", "online", None).await.unwrap();
+        presence.set_presence("@bob:localhost", "online", None).await.unwrap();
+
+        let member = Arc::new(synapse_storage::test_mocks::InMemoryMemberStore::new());
+        member
+            .seed_members(vec![
+                joined_member("!r1:localhost", "@alice:localhost"),
+                joined_member("!r1:localhost", "@bob:localhost"),
+            ])
+            .await;
+
+        let sync = sync_service_with_presence_and_members(presence.clone(), member);
+        let since = Some(SyncToken::parse("s100").expect("valid sync token"));
+
+        // 第一次增量（缓存冷）：全量下发
+        let first = sync.get_presence_events("@alice:localhost", &since).await.expect("first incremental");
+        assert_eq!(first.len(), 2, "cold cache must fan out all targets");
+
+        // 第二次增量（无变化）：不下发
+        let second = sync.get_presence_events("@alice:localhost", &since).await.expect("second incremental");
+        assert!(second.is_empty(), "unchanged presence must be deduped, got {second:?}");
+
+        // bob 下线后：只下发 bob
+        presence.set_presence("@bob:localhost", "offline", None).await.unwrap();
+        let third = sync.get_presence_events("@alice:localhost", &since).await.expect("third incremental");
+        assert_eq!(third.len(), 1, "only the changed target must be emitted: {third:?}");
+        assert_eq!(third[0]["sender"], "@bob:localhost");
+        assert_eq!(third[0]["content"]["presence"], "offline");
+
+        // 初始 sync（since=None）永远全量，不受去重缓存影响
+        let initial = sync.get_presence_events("@alice:localhost", &None).await.expect("initial sync");
+        assert_eq!(initial.len(), 2, "initial sync must bypass dedup and send all");
     }
 }

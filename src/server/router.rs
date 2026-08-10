@@ -3,7 +3,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::common::config::Config;
-use crate::web::middleware::{request_debug_middleware, request_timeout_middleware};
+use crate::web::middleware::{payload_too_large_json_middleware, request_debug_middleware, request_timeout_middleware};
 use crate::web::routes::create_router;
 use crate::web::AppState;
 
@@ -15,4 +15,7 @@ pub fn build_router(app_state: AppState, config: &Config) -> Router {
         .layer(axum::middleware::from_fn(request_debug_middleware))
         .layer(axum::middleware::from_fn(request_timeout_middleware))
         .layer(TraceLayer::new_for_http())
+        // ISSUE-07: 最外层兜底——body limit 层产生的裸 413（text/plain）
+        // 统一改写为 M_TOO_LARGE JSON，客户端可识别 errcode
+        .layer(axum::middleware::from_fn(payload_too_large_json_middleware))
 }

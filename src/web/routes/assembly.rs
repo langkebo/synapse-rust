@@ -369,6 +369,23 @@ pub fn create_router(state: AppState) -> Router {
         }
     }
 
+    // B-4: Auto-derive the rate limit exemption list from route metadata.
+    // Routes marked `rate_limit_exempt = true` in their manifest (sync and
+    // sliding-sync endpoints) are collected here so the rate limit middleware
+    // can skip them without hardcoding paths.
+    let rate_limit_exempt_paths: Vec<&'static str> = ledger
+        .iter()
+        .filter(|e| e.rate_limit_exempt)
+        .map(|e| e.path)
+        .collect();
+    tracing::info!(
+        target: "synapse_rust::routes",
+        count = rate_limit_exempt_paths.len(),
+        paths = ?rate_limit_exempt_paths,
+        "auto-derived rate limit exempt paths from route ledger"
+    );
+    let state = state.with_rate_limit_exempt_paths(rate_limit_exempt_paths);
+
     let mut router = Router::new()
         .without_v07_checks()
         .route(

@@ -9,6 +9,13 @@ pub trait PresenceStoreApi: Send + Sync {
 
     async fn set_presence(&self, user_id: &str, presence: &str, status_msg: Option<&str>) -> Result<(), sqlx::Error>;
 
+    /// C-3: Batch set presence for multiple users in a single SQL statement.
+    /// Each entry is `(user_id, presence, status_msg)`.
+    async fn set_presence_batch(
+        &self,
+        entries: &[(String, String, Option<String>)],
+    ) -> Result<(), sqlx::Error>;
+
     async fn set_typing(&self, room_id: &str, user_id: &str, typing: bool) -> Result<(), sqlx::Error>;
 
     async fn get_presences(
@@ -48,6 +55,13 @@ impl PresenceStoreApi for super::PresenceStorage {
 
     async fn set_presence(&self, user_id: &str, presence: &str, status_msg: Option<&str>) -> Result<(), sqlx::Error> {
         self.set_presence(user_id, presence, status_msg).await
+    }
+
+    async fn set_presence_batch(
+        &self,
+        entries: &[(String, String, Option<String>)],
+    ) -> Result<(), sqlx::Error> {
+        self.set_presence_batch(entries).await
     }
 
     async fn set_typing(&self, room_id: &str, user_id: &str, typing: bool) -> Result<(), sqlx::Error> {

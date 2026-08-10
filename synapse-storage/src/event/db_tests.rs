@@ -199,6 +199,49 @@ async fn test_get_room_events_paginated() {
     let _ = storage.delete_room_events(&room_id).await;
 }
 
+/// ISSUE-03: txn 去重的 DB 持久化 —— 同一 (user, room, txn) 只能记录一次，
+/// 缓存失效后仍能查到原始 event_id。
+#[tokio::test]
+async fn test_record_event_txn_dedups_and_lookups() {
+    let pool = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!txn_{}:example.com", uuid::Uuid::new_v4());
+    let user_id = "@txnuser:example.com";
+
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, user_id).await;
+
+    // 未知三元组 → None
+    let miss = storage.get_event_id_by_txn(user_id, &room_id, "txn-unknown").await.expect("lookup should succeed");
+    assert!(miss.is_none());
+
+    // 首次记录成功
+    let inserted = storage
+        .record_event_txn(user_id, &room_id, "txn-1", "$evt_txn_1:example.com")
+        .await
+        .expect("record should succeed");
+    assert!(inserted, "first record_event_txn must insert");
+
+    // 重复记录 → false（ON CONFLICT DO NOTHING），且不覆盖原 event_id
+    let dup = storage
+        .record_event_txn(user_id, &room_id, "txn-1", "$evt_txn_1_dup:example.com")
+        .await
+        .expect("dup record should succeed");
+    assert!(!dup, "duplicate record_event_txn must not insert");
+
+    let found = storage.get_event_id_by_txn(user_id, &room_id, "txn-1").await.expect("lookup should succeed");
+    assert_eq!(found.as_deref(), Some("$evt_txn_1:example.com"), "lookup must return the original event_id");
+
+    // 不同 room / user / txn 互不影响
+    let other_txn = storage
+        .record_event_txn(user_id, &room_id, "txn-2", "$evt_txn_2:example.com")
+        .await
+        .expect("other txn should succeed");
+    assert!(other_txn);
+
+    let _ = sqlx::query("DELETE FROM room_event_txn_dedup WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
+}
+
 #[tokio::test]
 async fn test_delete_room_events() {
     let pool = test_pool().await;

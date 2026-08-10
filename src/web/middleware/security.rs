@@ -116,9 +116,22 @@ pub async fn request_debug_middleware(request: Request<Body>, next: Next) -> Res
     response
 }
 
+/// ISSUE-07: 裸 413 兜底映射 —— tower_http `RequestBodyLimitLayer` 与 axum
+/// `DefaultBodyLimit` 拒绝超大请求体时返回 text/plain 裸 413，客户端 SDK
+/// 解析不到 errcode，只能报 "Unknown error"。此处统一改写为标准 Matrix
+/// 错误 JSON（M_TOO_LARGE），与 `ApiError::too_large` 的响应格式一致。
+pub async fn payload_too_large_json_middleware(request: Request<Body>, next: Next) -> Response {
+    let response = next.run(request).await;
+
+    if response.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE {
+        return ApiError::too_large("Uploaded content exceeds the maximum allowed size".to_string()).into_response();
+    }
+
+    response
+}
+
 pub async fn request_timeout_middleware(request: Request<Body>, next: Next) -> Response {
     let timeout_secs = resolve_request_timeout_secs(&request);
-
     let result = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), next.run(request)).await;
 
     match result {
@@ -229,6 +242,48 @@ mod tests {
         assert_eq!(parse_timeout_query_secs(Some("timeout=30001")), Some(31));
         assert_eq!(parse_timeout_query_secs(Some("timeout=abc")), None);
         assert_eq!(parse_timeout_query_secs(None), None);
+    }
+
+    // ISSUE-07: body limit 层产生的裸 413（text/plain）必须被改写为
+    // M_TOO_LARGE JSON，客户端 SDK 才能识别 errcode。
+    #[tokio::test]
+    async fn test_payload_too_large_returns_matrix_json_error() {
+        async fn plain_413_handler() -> (StatusCode, &'static str) {
+            (StatusCode::PAYLOAD_TOO_LARGE, "length limit exceeded")
+        }
+
+        let app = Router::new()
+            .route("/_matrix/media/v3/upload", axum::routing::post(plain_413_handler))
+            .layer(middleware::from_fn(payload_too_large_json_middleware));
+        let request = Request::builder()
+            .method(axum::http::Method::POST)
+            .uri("/_matrix/media/v3/upload")
+            .body(Body::empty())
+            .expect("request should build");
+
+        let response = app.oneshot(request).await.expect("request should succeed");
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+        let body = axum::body::to_bytes(response.into_body(), 4096).await.expect("body should be readable");
+        let json: serde_json::Value = serde_json::from_slice(&body).expect("body must be JSON, not text/plain");
+        assert_eq!(json["errcode"], "M_TOO_LARGE");
+        assert!(json["error"].as_str().is_some_and(|s| !s.is_empty()));
+    }
+
+    // ISSUE-07: 非 413 响应不得被改写。
+    #[tokio::test]
+    async fn test_payload_too_large_middleware_passes_through_other_statuses() {
+        async fn ok_handler() -> StatusCode {
+            StatusCode::OK
+        }
+
+        let app = Router::new()
+            .route("/ok", get(ok_handler))
+            .layer(middleware::from_fn(payload_too_large_json_middleware));
+        let request = Request::builder().method(axum::http::Method::GET).uri("/ok").body(Body::empty()).expect("request");
+
+        let response = app.oneshot(request).await.expect("request should succeed");
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test(start_paused = true)]
