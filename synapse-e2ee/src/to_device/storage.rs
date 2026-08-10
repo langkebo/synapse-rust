@@ -293,11 +293,21 @@ impl ToDeviceStorage {
     }
 
     pub async fn get_and_delete_messages(&self, user_id: &str, device_id: &str) -> Result<Vec<Value>, ApiError> {
+        // E2EE-10: Wrap DELETE...RETURNING in a CTE so we can apply
+        // ORDER BY stream_id ASC to the returned rows.  PostgreSQL's
+        // DELETE ... RETURNING does not guarantee row order; without
+        // this, to-device messages may be delivered out of sequence,
+        // causing race conditions in key exchange protocols.
         let rows = sqlx::query(
             r"
-            DELETE FROM to_device_messages
-            WHERE recipient_user_id = $1 AND recipient_device_id = $2
-            RETURNING id, stream_id, sender_user_id, event_type, content, message_id, created_ts
+            WITH deleted AS (
+                DELETE FROM to_device_messages
+                WHERE recipient_user_id = $1 AND recipient_device_id = $2
+                RETURNING id, stream_id, sender_user_id, event_type, content, message_id, created_ts
+            )
+            SELECT id, stream_id, sender_user_id, event_type, content, message_id, created_ts
+            FROM deleted
+            ORDER BY stream_id ASC
             ",
         )
         .bind(user_id)

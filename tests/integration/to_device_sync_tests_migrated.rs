@@ -456,3 +456,68 @@ async fn test_record_transaction_atomic_dedup() {
     let fourth = storage.record_transaction("@user2:localhost", "DEVICE1", "mid1").await.unwrap();
     assert!(fourth, "different sender should be Ok(true)");
 }
+
+/// E2EE-10: To-device messages must be delivered in stream_id order.
+///
+/// This test inserts messages with out-of-order stream_ids (bypassing
+/// nextval) to simulate a scenario where physical insertion order does
+/// not match stream_id order. Without `ORDER BY stream_id ASC` in
+/// `get_and_delete_messages`, PostgreSQL's `DELETE ... RETURNING`
+/// returns rows in unspecified order — potentially delivering messages
+/// out of sequence, which causes race conditions in key exchange.
+#[tokio::test]
+async fn test_to_device_messages_ordered_by_stream_id() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+
+    let to_device_storage = ToDeviceStorage::new(&pool);
+
+    let user_id = "@alice:localhost";
+    let device_id = "ALICEDEVICE";
+
+    // Create the device first, otherwise add_message would skip it
+    DeviceStorage::new(&pool)
+        .create_device(device_id, user_id, Some("Alice phone"))
+        .await
+        .unwrap();
+
+    // Insert messages with out-of-order stream_ids to simulate concurrent
+    // or reordered insertion. Direct SQL bypasses nextval() to create a
+    // scenario where physical insertion order does not match stream_id order.
+    let now = chrono::Utc::now().timestamp_millis();
+    for (stream_id, seq) in [(30i64, 3i64), (10, 1), (20, 2)] {
+        sqlx::query(
+            r#"
+            INSERT INTO to_device_messages (
+                sender_user_id, sender_device_id,
+                recipient_user_id, recipient_device_id,
+                event_type, content, message_id, stream_id, created_ts
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8)
+            "#,
+        )
+        .bind("@bob:localhost")
+        .bind("BOBDEVICE")
+        .bind(user_id)
+        .bind(device_id)
+        .bind("m.room_key")
+        .bind(serde_json::json!({"seq": seq}))
+        .bind(stream_id)
+        .bind(now)
+        .execute(&*pool)
+        .await
+        .unwrap();
+    }
+
+    // Fetch and delete messages — they must be returned in stream_id order
+    let messages = to_device_storage
+        .get_and_delete_messages(user_id, device_id)
+        .await
+        .unwrap();
+
+    // Messages must be returned in stream_id order: seq 1, 2, 3
+    assert_eq!(messages.len(), 3, "expected 3 to-device messages");
+    assert_eq!(messages[0]["content"]["seq"], 1, "first message must have seq=1 (stream_id=10)");
+    assert_eq!(messages[1]["content"]["seq"], 2, "second message must have seq=2 (stream_id=20)");
+    assert_eq!(messages[2]["content"]["seq"], 3, "third message must have seq=3 (stream_id=30)");
+}

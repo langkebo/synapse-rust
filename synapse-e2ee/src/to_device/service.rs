@@ -112,4 +112,66 @@ mod tests {
         let messages = json!({});
         assert!(messages.as_object().unwrap().is_empty());
     }
+
+    /// E2EE-10: serde_json::Map (backed by BTreeMap without `preserve_order`)
+    /// iterates keys in deterministic alphabetical order. This means that
+    /// within a single `send_messages` call, the iteration order over the
+    /// `messages` JSON map is deterministic — but not the sender's intended
+    /// order.
+    ///
+    /// This is acceptable because:
+    /// 1. Each (recipient_user_id, recipient_device_id) pair appears at most
+    ///    once per `send_messages` call (JSON map structure prevents duplicates).
+    /// 2. Cross-call ordering is guaranteed by `stream_id` (assigned via
+    ///    `nextval('to_device_stream_id_seq')`), which is monotonically
+    ///    increasing and globally unique.
+    /// 3. All retrieval paths (`get_messages`, `get_messages_since`,
+    ///    `get_and_delete_messages`) ORDER BY stream_id ASC.
+    #[test]
+    fn test_to_device_message_map_iteration_is_deterministic() {
+        let messages = json!({
+            "@zoe:example.com": {"DEVICE_Z": {"type": "m.room_key", "content": {"seq": 3}}},
+            "@alice:example.com": {"DEVICE_A": {"type": "m.room_key", "content": {"seq": 1}}},
+            "@bob:example.com": {"DEVICE_B": {"type": "m.room_key", "content": {"seq": 2}}}
+        });
+
+        let map = messages.as_object().unwrap();
+        let keys: Vec<&str> = map.keys().map(String::as_str).collect();
+
+        // BTreeMap iterates in sorted (alphabetical) key order — deterministic
+        // regardless of insertion order in the json! macro.
+        assert_eq!(keys, vec!["@alice:example.com", "@bob:example.com", "@zoe:example.com"]);
+
+        // Each recipient appears exactly once — no intra-call duplication.
+        for (_, devices) in map {
+            let device_map = devices.as_object().unwrap();
+            // Each recipient has exactly one device in this test.
+            assert_eq!(device_map.len(), 1);
+        }
+    }
+
+    /// E2EE-10: Verify that the ToDeviceMessage struct carries all fields
+    /// needed for correct delivery, including sender identity for stream_id
+    /// assignment via `add_message`.
+    #[test]
+    fn test_to_device_message_struct_fields() {
+        use super::super::storage::ToDeviceMessage;
+        use serde_json::json;
+
+        let msg = ToDeviceMessage {
+            sender_user_id: "@alice:example.com",
+            sender_device_id: "DEVICE_A",
+            recipient_user_id: "@bob:example.com",
+            recipient_device_id: "DEVICE_B",
+            event_type: "m.room_key",
+            message_id: Some("txn_001"),
+            content: json!({"algorithm": "m.megolm.v1.aes-sha2"}),
+        };
+
+        assert_eq!(msg.sender_user_id, "@alice:example.com");
+        assert_eq!(msg.recipient_user_id, "@bob:example.com");
+        assert_eq!(msg.event_type, "m.room_key");
+        assert_eq!(msg.message_id, Some("txn_001"));
+        assert!(msg.content.is_object());
+    }
 }
