@@ -86,14 +86,14 @@
 
 ### 🟡 P2 中（技术债，本轮已复核确认的）
 
-- **SS-07**：presence 扩展 `last_active_ago` 硬编码 0（`extensions.rs:175`，注释自认 Mock）
-- **STO-05**：`check_rate_limit` SELECT→UPDATE 无 `FOR UPDATE`，TOCTOU 竞态
-- **PERF-05**：`claim_task` 拉 1000 条内存 `find()`（`manager.rs:546-554`）
+- ~~**SS-07**：presence 扩展 `last_active_ago` 硬编码 0（`extensions.rs:175`，注释自认 Mock）~~ **✅已修复**：改用 `get_presence_snapshots` 获取 `last_active_ts`，`last_active_ago` 由 `now_ts - last_active_ts` 实时计算；offline/无时间戳时为 null；新增 4 个测试
+- ~~**STO-05**：`check_rate_limit` SELECT→UPDATE 无 `FOR UPDATE`，TOCTOU 竞态~~ **✅已修复**：`event_report/repository.rs` 的 `check_rate_limit` 改为 `BEGIN → SELECT … FOR UPDATE → UPDATE → COMMIT` 事务，消除 TOCTOU 窗口
+- ~~**PERF-05**：`claim_task` 拉 1000 条内存 `find()`（`manager.rs:546-554`）~~ **✅已修复**：改为 `get_pending_task_by_id(task_id)` 按 ID 直查，不再拉 1000 条到内存；新增测试验证 >1000 条 pending 时仍可领取
 - ~~**PERF-08**：`broadcast_invalidation` 只发 Redis 不失效本地缓存~~ **✅已修复(2026-08-10, commit 8c51447e)**：广播同时失效本地缓存
 - **WORK-01**：`WorkerBus.unsubscribe` 仅删本地列表，不退订 Redis Pub/Sub
 - ~~**WORK-04**：HealthChecker 只查注册表键存在性，崩溃 worker 仍报 Healthy~~ **✅已修复(2026-08-10, commit 8c51447e)**：新增 `record_heartbeat` + `heartbeat_timeout_secs` 活性探测，无心跳或超时即报 Unhealthy
 - **WORK-05**：Redis 发布已加重试，但重试耗尽后仍静默丢消息（从 fire-and-forget 升级为 best-effort retry）
-- **SEC-03**：内置 OIDC 明文密码回退仅 warn 不拒绝
+- ~~**SEC-03**：内置 OIDC 明文密码回退仅 warn 不拒绝~~ **✅已修复**：`builtin_oidc_provider.rs` 默认 `allow_plaintext_passwords=false` 时返回 401 拒绝；仅在显式配置 `true` 时放行并 warn；新增测试验证默认拒绝
 - ~~**WEB-03**：`is_localhost_bind()` 含 0.0.0.0，dev 模式 CORS 全开放~~ **✅已修复(2026-08-10, commit 8c51447e)**
 - ~~**WEB-04**：中间件顺序不当（CORS 最内层、rate_limit 先于 csrf）~~ **✅已修复(2026-08-10, commit 8c51447e)**
 - ~~**E2EE-04**：生产无 nonce 重用检测~~ **✅已修复(2026-08-10, commit 6588148b)**：移除 `#[cfg(test)]` 门控，NonceTracker + SecureNonceGenerator 生产启用；`encrypt_with_nonce` 改为实例方法使用计数器生成 + 碰撞检测
@@ -104,7 +104,7 @@
 
 ### 🟡 P2 中（清单原文已附取证、本轮未重复复核，采信）
 
-~~A-6（竞态版唤醒 API 死代码）~~、~~A-7（notifier map 不回收）~~ **✅已修复(2026-08-10, commit 8c51447e)**：`EventNotifier` 新增 `evict_idle_slots` + `start_idle_slot_evictor` 后台定期回收 `Arc::strong_count==1` 的空闲槽位、B-4（豁免表手工维护）、C-2（`ensure_schema` 空壳 21 处调用）、C-3（批量写 N+1，待处理）、~~C-4（启动检查 N+1）~~ **✅已修复(2026-08-11)**：`schema_health_check.rs` 表/列/索引检查全部改为 `ANY($1)` / `unnest` 批量查询，30+ 表 100+ 列从 130+ 次 DB 往返降为 3 次、D-1（`set_raw` 本地 TTL 被丢弃，两级 TTL 不一致）、D-2（单一缓存实例混装）、~~E-1（联邦密钥逻辑两遍 + 每次新建 HTTP client）~~ **✅已修复(2026-08-10, commit 59f07134)**：联邦 client 改用 `synapse_common::http_client` 共享实例、~~E-2（`allow_http_key_fetch` 一开关关两样防护）~~ **✅已修复(2026-08-11)**：新增 `skip_ssrf_check` 配置项，`allow_http_key_fetch` 仅控制 HTTP/HTTPS 协议，SSRF IP 黑名单由 `skip_ssrf_check` 独立控制、~~F-1/F-2（5 处无超时 client + 静默退化）~~ **✅已修复(2026-08-10, commit 59f07134)**：新建 `synapse_common::http_client` 模块提供 `default_client()`/`client_with_timeout()`/`no_redirect_client_with_timeout()`，federation client 与 federation_auth middleware 全部切换、~~G-1（上传上限三处矛盾）~~ **✅已修复(2026-08-10, commit 59f07134)**：chunked_upload_start 硬编码 100MB 改为 `ctx.config.server.max_upload_size`、~~G-3（上传上限剩余矛盾点）~~ **✅已修复(2026-08-11)**：`upload.rs` 硬编码 chunk_size_limit/chunk_size 提取为命名常量 `CHUNK_SIZE_LIMIT_BYTES` / `ASYNC_CHUNK_SIZE_BYTES`、H-1~H-4（非默认 feature 死代码、模块碎裂、通知六套并存、容器接线无 CI 检查）、I-1/I-2。
+~~A-6（竞态版唤醒 API 死代码）~~ **✅已删除**、~~A-7（notifier map 不回收）~~ **✅已修复(2026-08-10, commit 8c51447e)**：`EventNotifier` 新增 `evict_idle_slots` + `start_idle_slot_evictor` 后台定期回收 `Arc::strong_count==1` 的空闲槽位、B-4（豁免表手工维护）、~~C-2（`ensure_schema` 空壳 21 处调用）~~ **✅已修复**：`ensure_schema` 函数及 21 处空调用已删除，新增编译期测试防止重新引入、C-3（批量写 N+1，待处理：缓存层 presence 逐条 set）、~~C-4（启动检查 N+1）~~ **✅已修复(2026-08-11)**：`schema_health_check.rs` 表/列/索引检查全部改为 `ANY($1)` / `unnest` 批量查询，30+ 表 100+ 列从 130+ 次 DB 往返降为 3 次、~~D-1（`set_raw` 本地 TTL 被丢弃，两级 TTL 不一致）~~ **✅已修复**：`LocalCache` 新增 per-key TTL `deadlines` 旁路表，`set_raw` 传入 TTL，`get_raw` 检查过期、D-2（单一缓存实例混装）、~~E-1（联邦密钥逻辑两遍 + 每次新建 HTTP client）~~ **✅已修复(2026-08-10, commit 59f07134)**：联邦 client 改用 `synapse_common::http_client` 共享实例、~~E-2（`allow_http_key_fetch` 一开关关两样防护）~~ **✅已修复(2026-08-11)**：新增 `skip_ssrf_check` 配置项，`allow_http_key_fetch` 仅控制 HTTP/HTTPS 协议，SSRF IP 黑名单由 `skip_ssrf_check` 独立控制、~~F-1/F-2（5 处无超时 client + 静默退化）~~ **✅已修复(2026-08-10, commit 59f07134)**：新建 `synapse_common::http_client` 模块提供 `default_client()`/`client_with_timeout()`/`no_redirect_client_with_timeout()`，federation client 与 federation_auth middleware 全部切换、~~G-1（上传上限三处矛盾）~~ **✅已修复(2026-08-10, commit 59f07134)**：chunked_upload_start 硬编码 100MB 改为 `ctx.config.server.max_upload_size`、~~G-3（上传上限剩余矛盾点）~~ **✅已修复(2026-08-11)**：`upload.rs` 硬编码 chunk_size_limit/chunk_size 提取为命名常量 `CHUNK_SIZE_LIMIT_BYTES` / `ASYNC_CHUNK_SIZE_BYTES`、H-1~H-4（非默认 feature 死代码、模块碎裂、通知六套并存、容器接线无 CI 检查）、I-1/I-2。
 
 ---
 
@@ -126,7 +126,7 @@
 ### 第 0 批：清理过期信息（立即，零代码风险）
 
 1. ✅ 在审计报告 HTML 顶部标注 E2EE-01/02/08/11、FED-02 已修复/证伪，防止他人按旧报告开工。
-2. 删除或接线不可达代码：`cross_signing::upload_cross_signing_keys`（E2EE-07）、federation client 的 `backfill/get_event/get_missing_events`（FED-05）、`assemble/` 整模块（ARCH-05，已降级为重构中间产物）、`wait_for_room/wait_for_user`（A-6）。
+2. ✅ 删除或接线不可达代码：`cross_signing::upload_cross_signing_keys`（E2EE-07，已删除）、federation client 的 `backfill/get_event/get_missing_events`（FED-05，已有调用方，不再是死代码）、`assemble/` 整模块（ARCH-05，已降级为重构中间产物）、`wait_for_room/wait_for_user`（A-6，已删除）。
 
 ### 第 1 批：安全止血 ✅ 全部完成
 
@@ -158,19 +158,21 @@
 | S21 | QueryCache 读路径不持写锁 | ✅ |
 | S17 | 联邦限流加 fail_open_on_error 配置 | ✅ |
 
-### 第 3 批：存储与缓存正确性 — 部分完成
+### 第 3 批：存储与缓存正确性 — ✅ 全部完成
 
 | 项 | 状态 |
 |---|---|
 | S18：DAG BFS 改递归 CTE | ✅ |
 | S19：add_receipt/delete_connection_data 包事务 | ✅ |
 | S20：列存在性改 SQLSTATE 判断 | ✅ |
-| STO-05：check_rate_limit FOR UPDATE | 待处理 |
-| C-2：删 ensure_schema 空壳 | 待处理 |
-| D-1/D-2：LocalCache TTL + 拆实例 | 待处理 |
-| PERF-05：claim_task 改直查 | 待处理 |
+| STO-05：check_rate_limit FOR UPDATE | ✅ |
+| C-2：删 ensure_schema 空壳 | ✅ |
+| D-1：LocalCache per-key TTL | ✅ |
+| PERF-05：claim_task 改直查 | ✅ |
 | ~~PERF-08：广播同时本地失效~~ | ✅ (commit 8c51447e) |
 | ~~C-4：启动检查批量查询~~ | ✅ (2026-08-11) |
+| C-3：缓存层 presence 逐条 set | 待处理（低优先级） |
+| D-2：拆分缓存实例 | 待处理（低优先级） |
 
 ### 第 4 批：架构与债务 — 部分完成
 
@@ -187,8 +189,9 @@
 | FED-06：server_resolution_cache 加 TTL | ✅ (commit 84152265) |
 | A-7：notifier map 空闲槽位回收 | ✅ (commit 8c51447e) |
 | WORK-04：HealthChecker 心跳活性探测 | ✅ (commit 8c51447e) |
+| SEC-03：OIDC 明文密码默认拒绝 | ✅ |
 | WORK-05：Redis 发布重试（重试耗尽仍丢消息） | ⚠️ 部分修复 |
-| WORK-01：unsubscribe 不退订 Redis | 待处理 |
+| WORK-01：unsubscribe 仅删本地列表 | 待处理（低优先级） |
 | H-1：删除非默认 feature 死代码 | 待处理 |
 | H-2/H-3：模块合并 | 待处理 |
 
@@ -196,20 +199,13 @@
 
 | 优先级 | 项 | 描述 |
 |---|---|---|
-| P2 | SS-07 | presence `last_active_ago` 硬编码 0 |
-| P2 | STO-05 | `check_rate_limit` TOCTOU 竞态 |
-| P2 | PERF-05 | `claim_task` 拉 1000 条内存 find() |
-| P2 | WORK-01 | WorkerBus.unsubscribe 仅删本地列表，不退订 Redis |
+| P2 | WORK-01 | WorkerBus.unsubscribe 仅删本地列表，不退订 Redis（低优先级） |
 | P2 | WORK-05 | Redis 发布重试耗尽后仍丢消息（部分修复，需 DLQ 或持久化） |
-| P2 | SEC-03 | OIDC 明文密码回退仅 warn |
 | P2 | B-4 | 豁免表手工维护 |
-| P2 | C-2 | `ensure_schema` 空壳 21 处调用 |
-| P2 | C-3 | 批量写 N+1 |
-| P2 | D-1 | `set_raw` 本地 TTL 被丢弃 |
-| P2 | D-2 | 单一缓存实例混装 |
+| P2 | C-3 | 缓存层 presence 逐条 set（N+1 写） |
+| P2 | D-2 | 单一缓存实例混装（低优先级） |
 | P2 | H-1~H-4 | 非默认 feature 死代码、模块碎裂、通知六套并存、容器接线无 CI 检查 |
 | P2 | I-1/I-2 | （见清单原文） |
-| P0(第0批) | 第0批-2 | 删除不可达代码（E2EE-07/FED-05/A-6） |
 
 ### 验收基线（呼应项目 TDD 规范）
 
