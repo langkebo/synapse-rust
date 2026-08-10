@@ -66,10 +66,11 @@ fn get_session_max_age_days() -> i64 {
 
 /// Serialise a `GroupSessionPickle` to a base64-encoded string for
 /// storage in the `MegolmSession::session_key` column.
-#[allow(clippy::expect_used)]
-fn pickle_to_string(pickle: &GroupSessionPickle) -> String {
-    let json = serde_json::to_vec(pickle).expect("GroupSessionPickle should serialize");
-    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json)
+/// E2EE-09: 序列化失败返回错误而非 panic。
+fn pickle_to_string(pickle: &GroupSessionPickle) -> Result<String, ApiError> {
+    let json = serde_json::to_vec(pickle)
+        .map_err(|e| ApiError::internal(format!("GroupSessionPickle serialize failed: {e}")))?;
+    Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json))
 }
 
 /// Deserialise a `GroupSessionPickle` from a base64-encoded string.
@@ -80,10 +81,11 @@ fn pickle_from_string(s: &str) -> Result<GroupSessionPickle, ApiError> {
 }
 
 /// Serialise an `InboundGroupSessionPickle` to a base64-encoded string.
-#[allow(clippy::expect_used)]
-fn inbound_pickle_to_string(pickle: &InboundGroupSessionPickle) -> String {
-    let json = serde_json::to_vec(pickle).expect("InboundGroupSessionPickle should serialize");
-    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json)
+/// E2EE-09: 序列化失败返回错误而非 panic。
+fn inbound_pickle_to_string(pickle: &InboundGroupSessionPickle) -> Result<String, ApiError> {
+    let json = serde_json::to_vec(pickle)
+        .map_err(|e| ApiError::internal(format!("InboundGroupSessionPickle serialize failed: {e}")))?;
+    Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json))
 }
 
 /// Deserialise an `InboundGroupSessionPickle` from a base64-encoded string.
@@ -176,7 +178,7 @@ impl MegolmVodozemacService {
         let outbound = GroupSession::new(SessionConfig::default());
 
         // Serialise the group session to a pickle for storage.
-        let pickle_str = pickle_to_string(&outbound.pickle());
+        let pickle_str = pickle_to_string(&outbound.pickle())?;
         let session_key_b64 = outbound.session_key().to_base64();
 
         // 解码 session_key 为 32 字节原始对称密钥
@@ -244,7 +246,7 @@ impl MegolmVodozemacService {
             .map_err(|_| ApiError::decryption_error("Invalid session key".to_string()))?;
 
         let inbound = InboundGroupSession::new(&key, SessionConfig::default());
-        let pickle_str = inbound_pickle_to_string(&inbound.pickle());
+        let pickle_str = inbound_pickle_to_string(&inbound.pickle())?;
 
         let session = MegolmSession {
             id: uuid::Uuid::new_v4(),
@@ -316,10 +318,10 @@ impl MegolmVodozemacService {
     }
 
     /// Encrypt a single plaintext message using the vodozemac outbound session.
-    #[allow(clippy::expect_used)]
     pub async fn encrypt(&self, session_id: &str, plaintext: &[u8]) -> Result<Vec<u8>, ApiError> {
         let mut out = self.encrypt_many(session_id, std::slice::from_ref(&plaintext)).await?;
-        Ok(out.pop().expect("encrypt_many returns one ciphertext per input plaintext"))
+        out.pop()
+            .ok_or_else(|| ApiError::internal("encrypt_many returned no ciphertexts for a single plaintext input"))
     }
 
     /// Bulk-encrypt N messages under one round-trip.
@@ -342,7 +344,7 @@ impl MegolmVodozemacService {
 
         // Persist the updated pickle and counter atomically.
         let now_ms = current_timestamp_millis();
-        let new_pickle_str = pickle_to_string(&outbound.pickle());
+        let new_pickle_str = pickle_to_string(&outbound.pickle())?;
         let new_index =
             self.storage.increment_message_index(session_id, plaintexts.len() as i64, now_ms).await?.ok_or_else(
                 || {
@@ -418,7 +420,7 @@ impl MegolmVodozemacService {
             .map_err(|e| ApiError::decryption_error(format!("vodozemac megolm decrypt failed: {e}")))?;
 
         // Persist the updated pickle.
-        let new_pickle_str = inbound_pickle_to_string(&inbound.pickle());
+        let new_pickle_str = inbound_pickle_to_string(&inbound.pickle())?;
 
         // Phase 2: 持久化新 pickle 到 vodozemac_pickle 列（best-effort）
         let now_ms = current_timestamp_millis();
@@ -644,7 +646,7 @@ mod tests {
         let msg = outbound.encrypt(plaintext);
 
         let pickle = outbound.pickle();
-        let pickle_str = pickle_to_string(&pickle);
+        let pickle_str = pickle_to_string(&pickle).expect("pickle serialize");
         let restored_pickle = pickle_from_string(&pickle_str).expect("pickle roundtrip");
         let mut restored = GroupSession::from_pickle(restored_pickle);
 
@@ -744,10 +746,40 @@ mod tests {
     fn vodozemac_pickle_roundtrip_through_storage_format() {
         let outbound = GroupSession::new(SessionConfig::default());
         let pickle = outbound.pickle();
-        let pickle_str = pickle_to_string(&pickle);
+        let pickle_str = pickle_to_string(&pickle).expect("pickle serialize");
 
         // 模拟 storage get_session 读取
         let restored = pickle_from_string(&pickle_str).expect("pickle from storage");
         let _restored_session = GroupSession::from_pickle(restored);
+    }
+
+    // ========================================================================
+    // E2EE-09: .expect() removal — verify error propagation instead of panic
+    // ========================================================================
+
+    /// `pickle_to_string` must return `Result` (not panic) so that a
+    /// serialization failure in production code propagates as an
+    /// `ApiError` instead of crashing the server.
+    #[test]
+    fn test_pickle_to_string_returns_result_on_valid_pickle() {
+        let outbound = GroupSession::new(SessionConfig::default());
+        let result = pickle_to_string(&outbound.pickle());
+        assert!(result.is_ok(), "pickle_to_string should return Ok for a valid GroupSessionPickle");
+        let encoded = result.unwrap();
+        assert!(!encoded.is_empty(), "encoded pickle string should be non-empty");
+    }
+
+    /// `inbound_pickle_to_string` must return `Result` (not panic) so
+    /// that a serialization failure in the decrypt path propagates as
+    /// an `ApiError` instead of crashing the server.
+    #[test]
+    fn test_inbound_pickle_to_string_returns_result_on_valid_pickle() {
+        let outbound = GroupSession::new(SessionConfig::default());
+        let key = outbound.session_key();
+        let inbound = InboundGroupSession::new(&key, SessionConfig::default());
+        let result = inbound_pickle_to_string(&inbound.pickle());
+        assert!(result.is_ok(), "inbound_pickle_to_string should return Ok for a valid InboundGroupSessionPickle");
+        let encoded = result.unwrap();
+        assert!(!encoded.is_empty(), "encoded inbound pickle string should be non-empty");
     }
 }
