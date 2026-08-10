@@ -20,6 +20,35 @@ pub fn parse_stream_token(token: &str) -> Option<i64> {
     token.strip_prefix('t').and_then(|s| s.parse().ok())
 }
 
+/// Generate a composite `/messages` pagination token: `t{ts}` or
+/// `t{ts}_{stream_ordering}`.
+///
+/// The `stream_ordering` suffix disambiguates events that share the same
+/// `origin_server_ts` millisecond, so paginating across a page boundary no
+/// longer skips same-millisecond events (ISSUE-06). Tokens without the
+/// suffix remain valid and keep their legacy strict-timestamp semantics.
+pub fn generate_pagination_token(ts: i64, stream_ordering: Option<i64>) -> String {
+    match stream_ordering {
+        Some(stream) => format!("t{ts}_{stream}"),
+        None => format!("t{ts}"),
+    }
+}
+
+/// Parse a `/messages` pagination token into `(origin_server_ts,
+/// Option<stream_ordering>)`. Accepts both the composite `t{ts}_{stream}`
+/// form and the legacy `t{ts}` form.
+pub fn parse_pagination_token(token: &str) -> Option<(i64, Option<i64>)> {
+    let rest = token.strip_prefix('t')?;
+    match rest.split_once('_') {
+        Some((ts_part, stream_part)) => {
+            let ts = ts_part.parse().ok()?;
+            let stream = stream_part.parse().ok()?;
+            Some((ts, Some(stream)))
+        }
+        None => rest.parse().ok().map(|ts| (ts, None)),
+    }
+}
+
 pub fn is_expired(expires_at: Option<i64>) -> bool {
     expires_at.is_some_and(|exp| exp < current_timestamp_millis())
 }
@@ -34,6 +63,36 @@ pub fn calculate_ttl(expires_at: Option<i64>) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_pagination_token_composite() {
+        assert_eq!(parse_pagination_token("t12345_678"), Some((12345, Some(678))));
+    }
+
+    #[test]
+    fn test_parse_pagination_token_legacy() {
+        assert_eq!(parse_pagination_token("t12345"), Some((12345, None)));
+        assert_eq!(parse_pagination_token("12345"), None);
+        assert_eq!(parse_pagination_token("invalid"), None);
+        assert_eq!(parse_pagination_token(""), None);
+        assert_eq!(parse_pagination_token("t12345_"), None);
+        assert_eq!(parse_pagination_token("t12345_abc"), None);
+    }
+
+    #[test]
+    fn test_generate_pagination_token() {
+        assert_eq!(generate_pagination_token(12345, Some(678)), "t12345_678");
+        assert_eq!(generate_pagination_token(12345, None), "t12345");
+    }
+
+    #[test]
+    fn test_pagination_token_roundtrip() {
+        let token = generate_pagination_token(9876543210, Some(42));
+        assert_eq!(parse_pagination_token(&token), Some((9876543210, Some(42))));
+
+        let legacy = generate_pagination_token(9876543210, None);
+        assert_eq!(parse_pagination_token(&legacy), Some((9876543210, None)));
+    }
 
     #[test]
     fn test_current_timestamp_millis() {

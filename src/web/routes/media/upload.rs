@@ -10,6 +10,12 @@ use axum::{
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
+// G-3: Named constants for chunk advisory sizes returned to clients.
+// These are protocol advisories, not server-enforced limits; the actual
+// per-chunk body limit is set in media/mod.rs via DefaultBodyLimit.
+const CHUNK_SIZE_LIMIT_BYTES: i64 = 10 * 1024 * 1024; // 10 MB
+const ASYNC_CHUNK_SIZE_BYTES: i64 = 5 * 1024 * 1024; // 5 MB
+
 // ---------------------------------------------------------------------------
 // Shared upload helpers
 // ---------------------------------------------------------------------------
@@ -163,7 +169,7 @@ pub(crate) async fn chunked_upload_start(
 
     Ok(Json(json!({
         "upload_id": upload_id,
-        "chunk_size_limit": 10 * 1024 * 1024,
+        "chunk_size_limit": CHUNK_SIZE_LIMIT_BYTES,
         "max_file_size": ctx.config.server.max_upload_size
     })))
 }
@@ -316,7 +322,7 @@ pub(crate) async fn get_upload_provider(
             "supports_resume": true,
             // G-1: 上限来自权威配置 server.max_upload_size，不再硬编码 50MB
             "max_file_size": ctx.config.server.max_upload_size,
-            "chunk_size": 5 * 1024 * 1024,
+            "chunk_size": ASYNC_CHUNK_SIZE_BYTES,
         })),
     ))
 }

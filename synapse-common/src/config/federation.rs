@@ -68,6 +68,17 @@ pub struct FederationConfig {
     #[serde(default)]
     pub allow_http_key_fetch: bool,
 
+    /// E-2: 是否跳过联邦密钥拉取的 SSRF 防护（默认 false）。
+    ///
+    /// 此前 `allow_http_key_fetch` 同时控制 HTTP 协议和 SSRF 防护，
+    /// 开发环境启用 HTTP 时会意外关闭 SSRF 防护。现在两者独立：
+    /// - `allow_http_key_fetch` 仅控制 HTTP/HTTPS 协议
+    /// - `skip_ssrf_check` 仅控制 SSRF IP 黑名单检查
+    ///
+    /// 仅在本地 mock 测试（全部流量到 localhost）时才设为 true。
+    #[serde(default)]
+    pub skip_ssrf_check: bool,
+
     /// 是否处理入站联邦 EDUs（默认 false）
     #[serde(default)]
     pub process_inbound_edus: bool,

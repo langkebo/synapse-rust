@@ -408,9 +408,11 @@ async fn fetch_remote_server_keys_response(
     ));
 
     // SSRF protection: reuse the URL preview IP blacklist to block private/loopback addresses.
-    // When `allow_http_key_fetch` is set (test/dev only), HTTP is used and SSRF checks are skipped.
+    // E-2: `allow_http_key_fetch` controls only the HTTP scheme; SSRF protection
+    // is independently controlled by `skip_ssrf_check` (both default false).
     let allow_http = ctx.config.federation.allow_http_key_fetch;
-    let ip_blacklist = if allow_http { &[][..] } else { &ctx.config.url_preview.ip_range_blacklist };
+    let skip_ssrf = ctx.config.federation.skip_ssrf_check;
+    let ip_blacklist = if skip_ssrf { &[][..] } else { &ctx.config.url_preview.ip_range_blacklist };
 
     let scheme = if allow_http { "http" } else { "https" };
     let urls = [

@@ -2,7 +2,7 @@
 
 > 输入：`synapse-rust-问题清单.md`（2026-08-10，下称「清单」）+ `project-audit-2026/project-audit-2026.html`（2026-08-09，下称「审计」）
 > 方法：对两份报告逐条交叉比对，高危与冲突条目全部打开源码复核（3 路并行取证，行号以当前源码为准）。
-> 日期：2026-08-10（初版），2026-08-11 更新（同步 F-1/E-1/G-1/B-1/E2EE-04/E2EE-09 修复状态）
+> 日期：2026-08-10（初版），2026-08-11 更新（同步 F-1/E-1/G-1/B-1/E2EE-04/E2EE-09/E-2/G-3/C-4/FED-06/WORK-04/A-7/PERF-08/WEB-03/WEB-04 修复状态）
 
 ---
 
@@ -89,22 +89,22 @@
 - **SS-07**：presence 扩展 `last_active_ago` 硬编码 0（`extensions.rs:175`，注释自认 Mock）
 - **STO-05**：`check_rate_limit` SELECT→UPDATE 无 `FOR UPDATE`，TOCTOU 竞态
 - **PERF-05**：`claim_task` 拉 1000 条内存 `find()`（`manager.rs:546-554`）
-- **PERF-08**：`broadcast_invalidation` 只发 Redis 不失效本地缓存
-- **WORK-01**：`WorkerBus.unsubscribe` 空操作，调用方被欺骗
-- **WORK-04**：HealthChecker 只查注册表键存在性，崩溃 worker 仍报 Healthy
-- **WORK-05**：Redis 发布 fire-and-forget，失败仅 `debug!` 静默丢消息
+- ~~**PERF-08**：`broadcast_invalidation` 只发 Redis 不失效本地缓存~~ **✅已修复(2026-08-10, commit 8c51447e)**：广播同时失效本地缓存
+- **WORK-01**：`WorkerBus.unsubscribe` 仅删本地列表，不退订 Redis Pub/Sub
+- ~~**WORK-04**：HealthChecker 只查注册表键存在性，崩溃 worker 仍报 Healthy~~ **✅已修复(2026-08-10, commit 8c51447e)**：新增 `record_heartbeat` + `heartbeat_timeout_secs` 活性探测，无心跳或超时即报 Unhealthy
+- **WORK-05**：Redis 发布已加重试，但重试耗尽后仍静默丢消息（从 fire-and-forget 升级为 best-effort retry）
 - **SEC-03**：内置 OIDC 明文密码回退仅 warn 不拒绝
-- **WEB-03**：`is_localhost_bind()` 含 0.0.0.0，dev 模式 CORS 全开放
-- **WEB-04**：中间件顺序不当（CORS 最内层、rate_limit 先于 csrf）
+- ~~**WEB-03**：`is_localhost_bind()` 含 0.0.0.0，dev 模式 CORS 全开放~~ **✅已修复(2026-08-10, commit 8c51447e)**
+- ~~**WEB-04**：中间件顺序不当（CORS 最内层、rate_limit 先于 csrf）~~ **✅已修复(2026-08-10, commit 8c51447e)**
 - ~~**E2EE-04**：生产无 nonce 重用检测~~ **✅已修复(2026-08-10, commit 6588148b)**：移除 `#[cfg(test)]` 门控，NonceTracker + SecureNonceGenerator 生产启用；`encrypt_with_nonce` 改为实例方法使用计数器生成 + 碰撞检测
 - ~~**E2EE-09**：megolm pickle 三处 `expect()`~~ **✅已修复(2026-08-10, commit 3e3b1a32)**：三处 `.expect()` 替换为 `?` 错误传播
-- **FED-06**：server_resolution_cache 无 TTL，DNS 变更不感知
+- ~~**FED-06**：server_resolution_cache 无 TTL，DNS 变更不感知~~ **✅已修复(2026-08-10, commit 84152265)**：新增 `CachedResolvedServer` 结构含 `cached_at` 时间戳，TTL 300s 后过期重解析
 - ~~**B-1**：两套同名限流配置类型并存且都在用~~ **✅已修复(2026-08-10, commit 8c51447e)**：`config/rate_limit.rs` 改为 re-export `rate_limit_config.rs` 的类型，消除重复定义
 - **ARCH-05**：`assemble/` 整模块孤儿代码（`lib.rs` 未声明 mod，不参与编译）——降级为重构中间产物，不计为问题
 
 ### 🟡 P2 中（清单原文已附取证、本轮未重复复核，采信）
 
-~~A-6（竞态版唤醒 API 死代码）~~、A-7（notifier map 不回收）、B-4（豁免表手工维护）、C-2（`ensure_schema` 空壳 21 处调用）、C-3/C-4（批量写/启动检查 N+1）、D-1（`set_raw` 本地 TTL 被丢弃，两级 TTL 不一致）、D-2（单一缓存实例混装）、~~E-1（联邦密钥逻辑两遍 + 每次新建 HTTP client）~~ **✅已修复(2026-08-10, commit 59f07134)**：联邦 client 改用 `synapse_common::http_client` 共享实例、E-2（`allow_http_key_fetch` 一开关关两样防护）、~~F-1/F-2（5 处无超时 client + 静默退化）~~ **✅已修复(2026-08-10, commit 59f07134)**：新建 `synapse_common::http_client` 模块提供 `default_client()`/`client_with_timeout()`/`no_redirect_client_with_timeout()`，federation client 与 federation_auth middleware 全部切换、~~G-1（上传上限三处矛盾）~~ **✅已修复(2026-08-10, commit 59f07134)**：chunked_upload_start 硬编码 100MB 改为 `ctx.config.server.max_upload_size`、H-1~H-4（非默认 feature 死代码、模块碎裂、通知六套并存、容器接线无 CI 检查）、I-1/I-2。
+~~A-6（竞态版唤醒 API 死代码）~~、~~A-7（notifier map 不回收）~~ **✅已修复(2026-08-10, commit 8c51447e)**：`EventNotifier` 新增 `evict_idle_slots` + `start_idle_slot_evictor` 后台定期回收 `Arc::strong_count==1` 的空闲槽位、B-4（豁免表手工维护）、C-2（`ensure_schema` 空壳 21 处调用）、C-3（批量写 N+1，待处理）、~~C-4（启动检查 N+1）~~ **✅已修复(2026-08-11)**：`schema_health_check.rs` 表/列/索引检查全部改为 `ANY($1)` / `unnest` 批量查询，30+ 表 100+ 列从 130+ 次 DB 往返降为 3 次、D-1（`set_raw` 本地 TTL 被丢弃，两级 TTL 不一致）、D-2（单一缓存实例混装）、~~E-1（联邦密钥逻辑两遍 + 每次新建 HTTP client）~~ **✅已修复(2026-08-10, commit 59f07134)**：联邦 client 改用 `synapse_common::http_client` 共享实例、~~E-2（`allow_http_key_fetch` 一开关关两样防护）~~ **✅已修复(2026-08-11)**：新增 `skip_ssrf_check` 配置项，`allow_http_key_fetch` 仅控制 HTTP/HTTPS 协议，SSRF IP 黑名单由 `skip_ssrf_check` 独立控制、~~F-1/F-2（5 处无超时 client + 静默退化）~~ **✅已修复(2026-08-10, commit 59f07134)**：新建 `synapse_common::http_client` 模块提供 `default_client()`/`client_with_timeout()`/`no_redirect_client_with_timeout()`，federation client 与 federation_auth middleware 全部切换、~~G-1（上传上限三处矛盾）~~ **✅已修复(2026-08-10, commit 59f07134)**：chunked_upload_start 硬编码 100MB 改为 `ctx.config.server.max_upload_size`、~~G-3（上传上限剩余矛盾点）~~ **✅已修复(2026-08-11)**：`upload.rs` 硬编码 chunk_size_limit/chunk_size 提取为命名常量 `CHUNK_SIZE_LIMIT_BYTES` / `ASYNC_CHUNK_SIZE_BYTES`、H-1~H-4（非默认 feature 死代码、模块碎裂、通知六套并存、容器接线无 CI 检查）、I-1/I-2。
 
 ---
 
@@ -169,7 +169,8 @@
 | C-2：删 ensure_schema 空壳 | 待处理 |
 | D-1/D-2：LocalCache TTL + 拆实例 | 待处理 |
 | PERF-05：claim_task 改直查 | 待处理 |
-| PERF-08：广播同时本地失效 | 待处理 |
+| ~~PERF-08：广播同时本地失效~~ | ✅ (commit 8c51447e) |
+| ~~C-4：启动检查批量查询~~ | ✅ (2026-08-11) |
 
 ### 第 4 批：架构与债务 — 部分完成
 
@@ -181,7 +182,13 @@
 | E-1：联邦密钥拉取合一 + Client 全局复用 | ✅ (commit 59f07134) |
 | F-1：五处 client 统一超时工厂 | ✅ (commit 59f07134) |
 | G-1：上传上限统一读 config | ✅ (commit 59f07134) |
-| WORK-01/04/05：unsubscribe/健康检查/发布重试 | 待处理 |
+| E-2：SSRF 防护与 HTTP 协议开关分离 | ✅ (2026-08-11) |
+| G-3：上传上限剩余硬编码提取为常量 | ✅ (2026-08-11) |
+| FED-06：server_resolution_cache 加 TTL | ✅ (commit 84152265) |
+| A-7：notifier map 空闲槽位回收 | ✅ (commit 8c51447e) |
+| WORK-04：HealthChecker 心跳活性探测 | ✅ (commit 8c51447e) |
+| WORK-05：Redis 发布重试（重试耗尽仍丢消息） | ⚠️ 部分修复 |
+| WORK-01：unsubscribe 不退订 Redis | 待处理 |
 | H-1：删除非默认 feature 死代码 | 待处理 |
 | H-2/H-3：模块合并 | 待处理 |
 
@@ -192,22 +199,14 @@
 | P2 | SS-07 | presence `last_active_ago` 硬编码 0 |
 | P2 | STO-05 | `check_rate_limit` TOCTOU 竞态 |
 | P2 | PERF-05 | `claim_task` 拉 1000 条内存 find() |
-| P2 | PERF-08 | `broadcast_invalidation` 不失效本地缓存 |
-| P2 | WORK-01 | WorkerBus.unsubscribe 空操作 |
-| P2 | WORK-04 | HealthChecker 只查键存在性 |
-| P2 | WORK-05 | Redis 发布 fire-and-forget |
+| P2 | WORK-01 | WorkerBus.unsubscribe 仅删本地列表，不退订 Redis |
+| P2 | WORK-05 | Redis 发布重试耗尽后仍丢消息（部分修复，需 DLQ 或持久化） |
 | P2 | SEC-03 | OIDC 明文密码回退仅 warn |
-| P2 | WEB-03 | `is_localhost_bind()` 含 0.0.0.0 |
-| P2 | WEB-04 | 中间件顺序不当 |
-| P2 | FED-06 | server_resolution_cache 无 TTL |
-| P2 | A-7 | notifier map 不回收 |
 | P2 | B-4 | 豁免表手工维护 |
 | P2 | C-2 | `ensure_schema` 空壳 21 处调用 |
-| P2 | C-3/C-4 | 批量写/启动检查 N+1 |
+| P2 | C-3 | 批量写 N+1 |
 | P2 | D-1 | `set_raw` 本地 TTL 被丢弃 |
 | P2 | D-2 | 单一缓存实例混装 |
-| P2 | E-2 | `allow_http_key_fetch` 一开关关两样防护 |
-| P2 | G-3 | 上传上限剩余矛盾点 |
 | P2 | H-1~H-4 | 非默认 feature 死代码、模块碎裂、通知六套并存、容器接线无 CI 检查 |
 | P2 | I-1/I-2 | （见清单原文） |
 | P0(第0批) | 第0批-2 | 删除不可达代码（E2EE-07/FED-05/A-6） |

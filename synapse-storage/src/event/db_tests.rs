@@ -1068,6 +1068,89 @@ async fn test_get_room_events_paginated_backward_with_from() {
     let _ = storage.delete_room_events(&room_id).await;
 }
 
+/// ISSUE-06: 同一毫秒内的多条事件在 /messages 翻页边界不得丢失或重复。
+/// 旧实现 token 只有 `t{ts}` 且用严格不等号，同毫秒事件会被跳过；
+/// 新的游标 API 以 (origin_server_ts, stream_ordering) 复合游标精确翻页。
+#[tokio::test]
+async fn test_paginated_cursor_same_millisecond_no_loss_no_dup() {
+    let pool = test_pool().await;
+    let storage = EventStorage::new(&pool, test_server_name());
+    let room_id = format!("!pagems_{}:example.com", uuid::Uuid::new_v4());
+    let user_id = "@pagems:example.com";
+
+    let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
+    ensure_test_room(&pool, &room_id).await;
+    ensure_test_user(&pool, user_id).await;
+
+    // 三条事件共享完全相同的 origin_server_ts
+    let same_ts = current_timestamp_millis();
+    let mut inserted_ids = Vec::new();
+    for i in 0..3 {
+        let params = CreateEventParams {
+            event_id: format!("$pagems_{}_{}:example.com", i, uuid::Uuid::new_v4()),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": format!("same-ms {i}")}),
+            state_key: None,
+            origin_server_ts: same_ts,
+            redacts: None,
+        };
+        let event = storage.create_event(params, None).await.unwrap();
+        assert!(event.stream_ordering.is_some(), "stream_ordering must be assigned by the DB");
+        inserted_ids.push(event.event_id.clone());
+    }
+
+    // 第一页：取最新 2 条
+    let page1 = storage
+        .get_room_events_paginated_cursor(&room_id, None, 2, "b")
+        .await
+        .expect("cursor page1 should succeed");
+    assert_eq!(page1.len(), 2, "page1 must contain 2 events");
+
+    // 用页尾（最旧一条）的复合游标翻第二页
+    let boundary = page1.last().expect("page1 non-empty");
+    let cursor = (boundary.origin_server_ts, boundary.stream_ordering);
+    let page2 = storage
+        .get_room_events_paginated_cursor(&room_id, Some(cursor), 2, "b")
+        .await
+        .expect("cursor page2 should succeed");
+
+    let mut seen: Vec<String> = page1.iter().chain(page2.iter()).map(|e| e.event_id.clone()).collect();
+    seen.sort();
+    seen.dedup();
+    assert_eq!(seen.len(), 3, "two pages must cover all 3 same-ms events without duplicates, got {seen:?}");
+    for id in &inserted_ids {
+        assert!(seen.contains(id), "event {id} must appear exactly once across pages");
+    }
+
+    // 前向翻页同样不得丢失
+    let fwd1 = storage
+        .get_room_events_paginated_cursor(&room_id, None, 2, "f")
+        .await
+        .expect("cursor fwd page1 should succeed");
+    assert_eq!(fwd1.len(), 2);
+    let fwd_boundary = fwd1.last().expect("fwd page1 non-empty");
+    let fwd_cursor = (fwd_boundary.origin_server_ts, fwd_boundary.stream_ordering);
+    let fwd2 = storage
+        .get_room_events_paginated_cursor(&room_id, Some(fwd_cursor), 2, "f")
+        .await
+        .expect("cursor fwd page2 should succeed");
+    let mut fwd_seen: Vec<String> = fwd1.iter().chain(fwd2.iter()).map(|e| e.event_id.clone()).collect();
+    fwd_seen.sort();
+    fwd_seen.dedup();
+    assert_eq!(fwd_seen.len(), 3, "forward pages must cover all 3 same-ms events without duplicates");
+
+    // legacy 语义保持：stream 为 None 时退化为旧的严格时间戳比较
+    let legacy = storage
+        .get_room_events_paginated_cursor(&room_id, Some((same_ts, None)), 10, "b")
+        .await
+        .expect("legacy cursor should succeed");
+    assert!(legacy.is_empty(), "legacy (ts-only) backward cursor keeps strict < ts semantics");
+
+    let _ = storage.delete_room_events(&room_id).await;
+}
+
 // --- timestamp lookups ---
 
 #[tokio::test]

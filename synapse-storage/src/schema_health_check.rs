@@ -295,67 +295,79 @@ pub async fn run_schema_health_check(
 }
 
 /// 检查缺失的表
+/// C-4: 批量查询——此前每张表一条 SELECT，30+ 张表产生 30+ 次 DB 往返。
+/// 现在用 ANY($1) 一次性查出存在的表，在 Rust 侧做差集。
 async fn check_missing_tables(pool: &Pool<Postgres>, expected_tables: &[&str]) -> Result<Vec<String>, sqlx::Error> {
-    let mut missing = Vec::new();
+    let existing: Vec<String> = sqlx::query_scalar(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ANY($1)",
+    )
+    .bind(expected_tables)
+    .fetch_all(pool)
+    .await?;
 
-    for table in expected_tables {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = $1 AND table_schema = 'public'",
-        )
-        .bind(table)
-        .fetch_one(pool)
-        .await?;
-
-        if count == 0 {
-            missing.push(table.to_string());
-        }
-    }
+    let existing_set: std::collections::HashSet<&str> = existing.iter().map(|s| s.as_str()).collect();
+    let missing: Vec<String> = expected_tables
+        .iter()
+        .filter(|t| !existing_set.contains(*t))
+        .map(|s| s.to_string())
+        .collect();
 
     Ok(missing)
 }
 
 /// 检查缺失的字段
+/// C-4: 批量查询——此前每个 (table, column) 对一条 SELECT，100+ 对产生 100+ 次 DB 往返。
+/// 现在用 unnest 一次性查出所有存在的列，在 Rust 侧做差集。
 async fn check_missing_columns(
     pool: &Pool<Postgres>,
     expected_columns: &[(&str, &str)],
 ) -> Result<Vec<String>, sqlx::Error> {
-    let mut missing = Vec::new();
+    let tables: Vec<&str> = expected_columns.iter().map(|(t, _)| *t).collect();
+    let columns: Vec<&str> = expected_columns.iter().map(|(_, c)| *c).collect();
 
-    for (table, column) in expected_columns {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM information_schema.columns WHERE table_name = $1 AND column_name = $2 AND table_schema = 'public'"
-        )
-        .bind(table)
-        .bind(column)
-        .fetch_one(pool)
-        .await?;
+    let existing: Vec<(String, String)> = sqlx::query_as(
+        "SELECT t.tbl, t.col FROM unnest($1::text[], $2::text[]) AS t(tbl, col) \
+         JOIN information_schema.columns c ON c.table_schema = 'public' \
+         AND c.table_name = t.tbl AND c.column_name = t.col",
+    )
+    .bind(&tables)
+    .bind(&columns)
+    .fetch_all(pool)
+    .await?;
 
-        if count == 0 {
-            missing.push(format!("{table}.{column}"));
-        }
-    }
+    let existing_set: std::collections::HashSet<(String, String)> = existing.into_iter().collect();
+    let missing: Vec<String> = expected_columns
+        .iter()
+        .filter(|(t, c)| !existing_set.contains(&(t.to_string(), c.to_string())))
+        .map(|(t, c)| format!("{t}.{c}"))
+        .collect();
 
     Ok(missing)
 }
 
 /// 检查缺失的索引
+/// C-4: 批量查询——此前每组索引一条 SELECT。现在收集所有可接受名称
+/// 一次性查询，在 Rust 侧判断每组是否有至少一个匹配。
 async fn check_missing_indexes(
     pool: &Pool<Postgres>,
     expected_indexes: &[RequiredIndex],
 ) -> Result<Vec<String>, sqlx::Error> {
-    let mut missing = Vec::new();
+    // Collect all acceptable index names across all groups
+    let all_names: Vec<&str> = expected_indexes.iter().flat_map(|e| e.acceptable_names.iter().copied()).collect();
 
-    for expected in expected_indexes {
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM pg_indexes WHERE schemaname = 'public' AND indexname = ANY($1)")
-                .bind(expected.acceptable_names)
-                .fetch_one(pool)
-                .await?;
+    let existing: Vec<String> = sqlx::query_scalar(
+        "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = ANY($1)",
+    )
+    .bind(&all_names)
+    .fetch_all(pool)
+    .await?;
 
-        if count == 0 {
-            missing.push(expected.display_name.to_string());
-        }
-    }
+    let existing_set: std::collections::HashSet<&str> = existing.iter().map(|s| s.as_str()).collect();
+    let missing: Vec<String> = expected_indexes
+        .iter()
+        .filter(|e| !e.acceptable_names.iter().any(|name| existing_set.contains(*name)))
+        .map(|e| e.display_name.to_string())
+        .collect();
 
     Ok(missing)
 }

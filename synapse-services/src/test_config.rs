@@ -147,6 +147,7 @@ pub fn build_test_config() -> Config {
             key_fetch_max_concurrency: 32,
             key_fetch_timeout_ms: 5000,
             allow_http_key_fetch: true,
+            skip_ssrf_check: true, // E-2: test config uses localhost, safe to skip SSRF
             process_inbound_edus: false,
             inbound_edus_max_per_txn: 100,
             inbound_edu_max_concurrency: 8,
