@@ -295,6 +295,7 @@ async fn test_to_device_next_batch_token_respects_limit() {
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     let user_id = "@alice:localhost";
@@ -366,6 +367,7 @@ async fn test_to_device_messages_are_deleted_after_ack() {
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     let user_id = "@alice:localhost";

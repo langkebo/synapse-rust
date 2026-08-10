@@ -406,6 +406,7 @@ async fn test_sync_success() {
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     // Create a room and send a message
@@ -464,6 +465,7 @@ async fn test_incremental_sync_does_not_replay_old_timeline() {
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     let config = CreateRoomConfig { name: Some("Incremental Room".to_string()), ..Default::default() };
@@ -511,6 +513,7 @@ async fn test_sync_offline_presence_overwrites_previous_presence_state() {
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     sync_service.sync("@alice:localhost", None, 0, false, "online", None, None).await.unwrap();
@@ -549,6 +552,7 @@ async fn test_sync_presence_events_reflect_persisted_presence_state() {
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     let response = sync_service.sync("@alice:localhost", None, 0, false, "unavailable", None, None).await.unwrap();
@@ -592,6 +596,7 @@ async fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state()
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -697,6 +702,7 @@ async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -816,6 +822,7 @@ async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -928,6 +935,7 @@ async fn test_sync_timeline_limit_preserves_chronological_order_without_false_li
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -1015,6 +1023,7 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -1194,6 +1203,7 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     let device_storage = DeviceStorage::new(&pool);
@@ -1305,6 +1315,7 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     room_service
@@ -1374,6 +1385,7 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -1466,6 +1478,7 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     room_service
@@ -1546,6 +1559,7 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -1628,6 +1642,7 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
         Arc::new(CacheManager::new(&CacheConfig::default())),
+        None,
     );
 
     room_service
