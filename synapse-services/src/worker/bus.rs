@@ -187,12 +187,19 @@ impl WorkerBus {
         // WORK-01: Share subscribed_channels so the task reads the current list on each reconnect
         let subscribed_channels_arc = self.subscribed_channels.clone();
         // WORK-01: Take the command receiver to listen for unsubscribe requests
-        let mut sub_command_rx = self
-            .sub_command_rx
-            .lock()
-            .unwrap()
-            .take()
-            .expect("sub_command_rx already taken — spawn_subscriber_task called twice?");
+        let mut sub_command_rx = match self.sub_command_rx.lock() {
+            Ok(mut guard) => match guard.take() {
+                Some(rx) => rx,
+                None => {
+                    warn!("sub_command_rx already taken — spawn_subscriber_task called twice?");
+                    return;
+                }
+            },
+            Err(e) => {
+                warn!(error = %e, "sub_command_rx mutex poisoned — cannot spawn subscriber task");
+                return;
+            }
+        };
 
         let join_handle = tokio::spawn(async move {
             use futures::StreamExt;
@@ -246,7 +253,7 @@ impl WorkerBus {
                 );
 
                 let mut message_stream = pubsub.on_message();
-                let mut reconnect_delay = std::time::Duration::from_secs(5);
+                let reconnect_delay;
 
                 loop {
                     tokio::select! {

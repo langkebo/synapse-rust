@@ -24,7 +24,7 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
 
     // B-4: Check the auto-derived exempt list from the route ledger first,
     // then fall back to config-based exempt_paths and exempt_path_prefixes.
-    if ctx.rate_limit_exempt_paths.iter().any(|p| *p == path)
+    if ctx.rate_limit_exempt_paths.contains(&path)
         || exempt_paths.iter().any(|p: &String| p == path)
         || exempt_path_prefixes.iter().any(|p: &String| !p.is_empty() && path.starts_with(p))
     {

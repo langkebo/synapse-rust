@@ -5,6 +5,7 @@ use synapse_common::current_timestamp_millis;
 #[derive(Clone, Default)]
 pub struct InMemoryEventStore {
     events: Arc<RwLock<HashMap<String, crate::event::RoomEvent>>>, // event_id → event
+    #[allow(clippy::type_complexity)]
     txn_dedup: Arc<RwLock<HashMap<(String, String, String), String>>>, // (user, room, txn) → event_id
 }
 

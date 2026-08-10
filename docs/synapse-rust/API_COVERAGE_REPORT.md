@@ -1,8 +1,10 @@
-# synapse-rust API 覆盖率分析 (v1.2)
+# synapse-rust API 覆盖率分析 (v1.3)
 
 > 基于 element-hq/synapse v1.153.0 对比（基线已于 2026-06-18 从 v1.149.1 更新）
 >
-> **v1.150~v1.153 新增端点覆盖状态**：quarantined media changes、event reports API、MSC4163/3266/4311/4242/4450/4445 等规范能力已在 SUPPORTED_MATRIX_SURFACE.md 中记录支持状态。下一轮覆盖率审计应逐端点验证实现完整性。
+> **v1.150~v1.153 新增端点覆盖状态**：quarantined media changes、event reports API、MSC4163/3266/4311/4242/4450/4445 等规范能力，其路由契约以 [`ROUTE_CONTRACT.md`](./ROUTE_CONTRACT.md) 为权威清单（从 `src/web/routes/**` 真实注册面提取，逐模块列出 `(method, path)` 与 manifest 覆盖状态）。下一轮覆盖率审计应逐端点验证实现完整性。
+>
+> ⚠️ 本文件为**人工维护的覆盖率分析**，与 `ROUTE_CONTRACT.md`（机器抽取）可能存在时序偏差。两者冲突时以代码与 `ROUTE_CONTRACT.md` 为准。HEAD 真实注册路由条目约 **883**（含 v1/r0/v3 多版本前缀），下表按"逻辑端点"口径统计，二者不可直接相加。
 
 ## 一、当前状态
 
@@ -104,7 +106,7 @@ Admin API: ~174 路由
 ---
 
 *创建日期: 2026-03-19*
-*最后更新: 2026-03-22*
+*最后更新: 2026-08-10（契约索引与 ROUTE_CONTRACT.md 刷新）*
 
 ## 三、2026-05-28 修复进展
 

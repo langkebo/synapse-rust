@@ -7,6 +7,9 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::*;
 use synapse_storage::event::SinceFilter;
 
+/// Canonical presence state used for incremental dedup comparison.
+type PresenceCanonical = HashMap<String, (String, Option<String>, Option<i64>)>;
+
 impl SyncService {
     pub(crate) async fn update_presence(&self, user_id: &str, set_presence: &str) -> ApiResult<()> {
         self.presence_storage.set_presence(user_id, set_presence, None).await.ok();
@@ -250,14 +253,14 @@ impl SyncService {
 
         // 规范化状态（时间无关）：用于增量去重比较。若用 wire 载荷比较，
         // last_active_ago 每毫秒漂移会导致永远判定 changed、回声复发。
-        let canonical: HashMap<String, (String, Option<String>, Option<i64>)> = snapshots
+        let canonical: PresenceCanonical = snapshots
             .iter()
             .map(|(uid, snap)| (uid.clone(), (snap.presence.clone(), snap.status_msg.clone(), snap.last_active_ts)))
             .collect();
 
         let dedup_cache_key = format!("sync_v2:presence:{user_id}");
         let changed_senders: Option<HashSet<String>> = if since.is_some() {
-            let prev: Option<HashMap<String, (String, Option<String>, Option<i64>)>> =
+            let prev: Option<PresenceCanonical> =
                 self.cache.get(&dedup_cache_key).await.ok().flatten();
             let changed: HashSet<String> = match &prev {
                 // 温缓存：只发状态变化或新增的目标
