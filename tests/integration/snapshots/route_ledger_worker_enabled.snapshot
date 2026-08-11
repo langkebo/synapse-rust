@@ -1,5 +1,5 @@
 # route-ledger snapshot: worker-enabled
-count: 1295
+count: 1298
 
 DELETE /_matrix/admin/v1/external_services/{as_id} [external_service]
 DELETE /_matrix/client/r0/devices/{device_id} [device]
@@ -578,6 +578,7 @@ GET /_matrix/media/v3/preview_url [media]
 GET /_matrix/media/v3/thumbnail/{server_name}/{media_id} [media]
 GET /_matrix/server_version [assembly::create_router]
 GET /_matrix/static/client/login/ [assembly::auth_router]
+GET /_matrix/vendor/v1/my_rooms [vendor]
 GET /_synapse/admin/info [admin::server]
 GET /_synapse/admin/v1/account/{user_id} [admin::user]
 GET /_synapse/admin/v1/account_data_callbacks [module]
@@ -1041,6 +1042,8 @@ POST /_matrix/media/v1/upload/chunk/complete [media]
 POST /_matrix/media/v1/upload/chunk/start [media]
 POST /_matrix/media/v3/delete/{server_name}/{media_id} [media]
 POST /_matrix/media/v3/upload [media]
+POST /_matrix/vendor/v1/search_recipients [vendor]
+POST /_matrix/vendor/v1/search_rooms [vendor]
 POST /_synapse/admin/v1/account/{user_id} [admin::user]
 POST /_synapse/admin/v1/account_data_callbacks [module]
 POST /_synapse/admin/v1/account_validity [module]

@@ -77,6 +77,7 @@ fn base_route_manifest() -> RouteLedger {
     ledger.extend(app_service::app_service_route_manifest());
     ledger.extend(crate::web::routes::handlers::thread::thread_route_manifest());
     ledger.extend(crate::web::routes::handlers::search::search_route_manifest());
+    ledger.extend(vendor_route_manifest());
     ledger
 }
 
@@ -289,6 +290,27 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
     out
 }
 
+/// Manifest for ISSUE-13 vendor-prefixed private endpoints.
+///
+/// Private/non-standard endpoints (`/my_rooms`, `/search_rooms`,
+/// `/search_recipients`) are migrated from `/_matrix/client/v3` to
+/// `/_matrix/vendor/v1` so they no longer pollute the standard Matrix
+/// client-server API namespace. The legacy `/_matrix/client/v3/{path}`
+/// routes are kept for backward compatibility (see the deprecation warning
+/// in [`create_router`]) but new clients should use the vendor prefix.
+fn vendor_route_manifest() -> Vec<RouteEntry> {
+    use crate::web::routes::route_ledger::expand_under_prefixes;
+    expand_under_prefixes(
+        "vendor",
+        &["/_matrix/vendor/v1"],
+        &[
+            (Method::GET, "/my_rooms"),
+            (Method::POST, "/search_rooms"),
+            (Method::POST, "/search_recipients"),
+        ],
+    )
+}
+
 // Handlers extracted to dedicated modules:
 // - get_client_config       → handlers::client_config::get_client_config
 // - dehydrated_device       → handlers::dehydrated_device::*
@@ -321,6 +343,19 @@ fn create_voip_compat_router() -> Router<AppState> {
             .route("/rooms/{room_id}/call/{call_id}", get(voip::get_call_session));
     }
     router
+}
+
+/// ISSUE-13: Vendor-prefixed router for private/non-standard endpoints.
+///
+/// Maps the same handlers as the legacy `/_matrix/client/v3/{path}` routes
+/// under the new `/_matrix/vendor/v1` prefix. The old routes remain
+/// registered (via `create_sync_router` and `create_search_router`) for
+/// backward compatibility — see the deprecation warning in [`create_router`].
+fn create_vendor_router() -> Router<AppState> {
+    Router::new()
+        .route("/my_rooms", get(get_my_rooms))
+        .route("/search_rooms", post(handlers::search::search::search_rooms))
+        .route("/search_recipients", post(handlers::search::search::search_recipients))
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -362,6 +397,16 @@ pub fn create_router(state: AppState) -> Router {
                     report.r0_route_count,
                 );
             }
+            // ISSUE-13: Private endpoints migrated to /_matrix/vendor/v1.
+            // The legacy /_matrix/client/v3/{my_rooms,search_rooms,search_recipients}
+            // routes remain for backward compatibility but are deprecated.
+            ::tracing::warn!(
+                target: "synapse_rust::web::routes::route_ledger",
+                "ISSUE-13: Private endpoints (/my_rooms, /search_rooms, /search_recipients) \
+                 are now served under /_matrix/vendor/v1/. The legacy \
+                 /_matrix/client/v3/ aliases are deprecated and will be removed \
+                 in a future release. Clients should migrate to the vendor prefix.",
+            );
         }
         Err(err) => {
             tracing::error!("route manifest contains duplicate entries — refusing to start:\n{err}");
@@ -503,6 +548,8 @@ pub fn create_router(state: AppState) -> Router {
         .nest("/_matrix/client/v1", create_client_media_config_router())
         .nest("/_matrix/client/r0", create_client_media_config_router())
         .nest("/_matrix/client/v3", create_client_media_config_router())
+        // ISSUE-13: Private/non-standard endpoints under vendor prefix.
+        .nest("/_matrix/vendor/v1", create_vendor_router())
         .merge(dm::create_dm_router(state.clone()))
         .merge(typing::create_typing_router(state.clone()))
         .merge(ephemeral::create_ephemeral_router(state.clone()))
