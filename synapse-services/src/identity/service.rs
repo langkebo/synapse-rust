@@ -1,6 +1,7 @@
 use super::models::*;
 use super::storage::IdentityStorage;
 use crate::ApiResult;
+use futures::future;
 use reqwest::Client;
 use synapse_common::error::ApiError;
 
@@ -188,20 +189,35 @@ impl IdentityService {
     }
 
     pub async fn hash_lookup(&self, addresses: &[String], mediums: &[String]) -> ApiResult<Vec<serde_json::Value>> {
-        let mut results = Vec::new();
+        // P3: Run all (address × medium) lookups concurrently with join_all.
+        // Each lookup is an independent DB query — no ordering dependency.
+        let addresses: Vec<String> = addresses.to_vec();
+        let mediums: Vec<String> = mediums.to_vec();
 
-        for address in addresses {
-            for medium in mediums {
-                if let Ok(Some(_user_id)) = self.lookup_3pid(medium, address).await {
-                    results.push(serde_json::json!({
+        let futures: Vec<_> = addresses
+            .iter()
+            .flat_map(|address| mediums.iter().map(move |medium| (address.clone(), medium.clone())))
+            .map(|(address, medium)| async move {
+                let result = self.lookup_3pid(&medium, &address).await;
+                (address, medium, result)
+            })
+            .collect();
+
+        let results = future::join_all(futures).await;
+
+        Ok(results
+            .into_iter()
+            .filter_map(|(address, medium, result)| {
+                if let Ok(Some(_user_id)) = result {
+                    Some(serde_json::json!({
                         "address": address,
                         "medium": medium,
-                    }));
+                    }))
+                } else {
+                    None
                 }
-            }
-        }
-
-        Ok(results)
+            })
+            .collect())
     }
 
     pub async fn invite_3pid(

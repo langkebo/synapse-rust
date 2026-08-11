@@ -150,21 +150,37 @@ impl EventBroadcaster {
 
                     _ = interval.tick() => {
                         if !batches.is_empty() {
-                            let destinations: Vec<String> = batches.keys().cloned().collect();
                             let c = match &client {
                                 Some(c) => c,
                                 None => continue,
                             };
-                            for dest in &destinations {
-                                send_batch(
-                                    c,
-                                    &retry_queue,
-                                    &pool_opt,
-                                    &backoff,
-                                    &batches,
-                                    dest,
-                                ).await;
-                                batches.remove(dest);
+
+                            // P3: Send batches to all destinations concurrently
+                            // via tokio::spawn. Each send_batch is an independent
+                            // outbound HTTP request to a different server.
+                            // We drain from the shared batches map so the next tick
+                            // starts with a clean slate; spawned tasks hold their
+                            // own owned copy of the batch data.
+                            let destinations: Vec<(String, TransactionBatch)> =
+                                std::mem::take(&mut batches).into_iter().collect();
+
+                            for (dest, batch) in destinations {
+                                let c = Arc::clone(c);
+                                let retry_q = retry_queue.clone();
+                                let pool = pool_opt.clone();
+                                let backoff_list = backoff.clone();
+                                tokio::spawn(async move {
+                                    let mut local_batches: HashMap<String, TransactionBatch> = HashMap::new();
+                                    local_batches.insert(dest.clone(), batch);
+                                    send_batch(
+                                        &c,
+                                        &retry_q,
+                                        &pool,
+                                        &backoff_list,
+                                        &local_batches,
+                                        &dest,
+                                    ).await;
+                                });
                             }
                         }
                     }
