@@ -196,6 +196,12 @@ pub trait PushNotificationStoreApi: Send + Sync {
     async fn get_user_push_rules(&self, user_id: &str) -> Result<Vec<PushRule>, ApiError>;
     async fn delete_push_rule(&self, user_id: &str, scope: &str, kind: &str, rule_id: &str) -> Result<(), ApiError>;
     async fn queue_notification(&self, request: QueueNotificationRequest) -> Result<PushNotificationQueue, ApiError>;
+    /// P2: Batch-insert multiple push notifications in a single SQL statement.
+    /// Reduces N DB round-trips to 1 for multi-device notification delivery.
+    async fn queue_notifications_batch(
+        &self,
+        requests: &[QueueNotificationRequest],
+    ) -> Result<Vec<PushNotificationQueue>, ApiError>;
     async fn get_pending_notifications(&self, limit: i32) -> Result<Vec<PushNotificationQueue>, ApiError>;
     async fn mark_notification_sent(&self, id: i64) -> Result<(), ApiError>;
     async fn mark_notification_failed(&self, id: i64, error: &str, retry: bool) -> Result<(), ApiError>;
@@ -450,6 +456,76 @@ impl PushNotificationStorage {
         Ok(row)
     }
 
+    /// P2: Batch-insert push notifications using a single multi-row INSERT.
+    /// Each request becomes one row; all rows share the same timestamp for
+    /// consistent ordering semantics.
+    pub async fn queue_notifications_batch(
+        &self,
+        requests: &[QueueNotificationRequest],
+    ) -> Result<Vec<PushNotificationQueue>, ApiError> {
+        if requests.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let now_ms = current_timestamp_millis();
+
+        let mut query_builder: sqlx::QueryBuilder<'_, sqlx::Postgres> = sqlx::QueryBuilder::new(
+            r#"
+            INSERT INTO push_notification_queue (
+                user_id, device_id, event_id, room_id, notification_type, content, priority, status, next_attempt_at, created_ts
+            ) "#,
+        );
+
+        for (i, _req) in requests.iter().enumerate() {
+            if i == 0 {
+                query_builder.push(" VALUES ");
+            } else {
+                query_builder.push(", ");
+            }
+            let bi = i * 10;
+            query_builder
+                .push("($")
+                .push((bi + 1).to_string())
+                .push(", $")
+                .push((bi + 2).to_string())
+                .push(", $")
+                .push((bi + 3).to_string())
+                .push(", $")
+                .push((bi + 4).to_string())
+                .push(", $")
+                .push((bi + 5).to_string())
+                .push(", $")
+                .push((bi + 6).to_string())
+                .push(", $")
+                .push((bi + 7).to_string())
+                .push(", 'pending', $")
+                .push((bi + 8).to_string())
+                .push(", $")
+                .push((bi + 9).to_string())
+                .push(")");
+        }
+
+        query_builder.push(" RETURNING *");
+
+        let mut q = query_builder.build_query_as::<PushNotificationQueue>();
+        for req in requests {
+            q = q.bind(&req.user_id)
+                .bind(&req.device_id)
+                .bind(&req.event_id)
+                .bind(&req.room_id)
+                .bind(&req.notification_type)
+                .bind(&req.content)
+                .bind(req.priority)
+                .bind(now_ms)  // next_attempt_at
+                .bind(now_ms); // created_ts
+        }
+
+        let rows = q.fetch_all(&*self.pool).await
+            .map_err(|e| ApiError::internal_with_log("Failed to batch-queue notifications", &e))?;
+
+        Ok(rows)
+    }
+
     pub async fn get_pending_notifications(&self, limit: i32) -> Result<Vec<PushNotificationQueue>, ApiError> {
         let now_ms = current_timestamp_millis();
 
@@ -657,6 +733,12 @@ impl PushNotificationStoreApi for PushNotificationStorage {
     }
     async fn queue_notification(&self, request: QueueNotificationRequest) -> Result<PushNotificationQueue, ApiError> {
         self.queue_notification(request).await
+    }
+    async fn queue_notifications_batch(
+        &self,
+        requests: &[QueueNotificationRequest],
+    ) -> Result<Vec<PushNotificationQueue>, ApiError> {
+        self.queue_notifications_batch(requests).await
     }
     async fn get_pending_notifications(&self, limit: i32) -> Result<Vec<PushNotificationQueue>, ApiError> {
         self.get_pending_notifications(limit).await

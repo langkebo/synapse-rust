@@ -4,6 +4,7 @@ use super::providers::{
     WebPushProvider,
 };
 use super::queue::{PushQueue, QueueConfig};
+use futures::stream::{self, StreamExt};
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use std::time::Instant;
@@ -198,17 +199,18 @@ impl PushNotificationService {
         let priority = request.priority.unwrap_or(5);
         let data = request.data.clone().unwrap_or(serde_json::json!({}));
 
-        for device in devices {
-            let content = serde_json::json!({
-                "title": &request.title,
-                "body": &request.body,
-                "data": &data,
-                "push_type": &device.push_type,
-                "push_token": &device.push_token,
-            });
-
-            self.storage
-                .queue_notification(QueueNotificationRequest {
+        // P2: Build batch insertion requests instead of N individual INSERTs.
+        let batch_requests: Vec<QueueNotificationRequest> = devices
+            .iter()
+            .map(|device| {
+                let content = serde_json::json!({
+                    "title": &request.title,
+                    "body": &request.body,
+                    "data": &data,
+                    "push_type": &device.push_type,
+                    "push_token": &device.push_token,
+                });
+                QueueNotificationRequest {
                     user_id: request.user_id.clone(),
                     device_id: device.device_id.clone(),
                     event_id: request.event_id.clone(),
@@ -216,9 +218,11 @@ impl PushNotificationService {
                     notification_type: request.notification_type.clone(),
                     content,
                     priority,
-                })
-                .await?;
-        }
+                }
+            })
+            .collect();
+
+        self.storage.queue_notifications_batch(&batch_requests).await?;
 
         info!(
             user_id = %request.user_id,
@@ -233,10 +237,26 @@ impl PushNotificationService {
 
     pub async fn process_pending_notifications(&self, batch_size: i32) -> Result<u64, ApiError> {
         let notifications = self.storage.get_pending_notifications(batch_size).await?;
-        let mut processed = 0u64;
 
-        for notification in notifications {
-            match self.send_to_provider(&notification).await {
+        // P2: Process notifications concurrently with bounded parallelism
+        // (max 8 concurrent provider calls). Each send_to_provider call is an
+        // independent outbound HTTP request — no ordering dependency between
+        // different user/device pairs.
+        const MAX_CONCURRENT_SENDS: usize = 8;
+
+        let results: Vec<(PushNotificationQueue, Result<(), ApiError>)> =
+            stream::iter(notifications.into_iter())
+                .map(|notification| async {
+                    let result = self.send_to_provider(&notification).await;
+                    (notification, result)
+                })
+                .buffer_unordered(MAX_CONCURRENT_SENDS)
+                .collect()
+                .await;
+
+        let mut processed = 0u64;
+        for (notification, result) in results {
+            match result {
                 Ok(_) => {
                     self.storage.mark_notification_sent(notification.id).await?;
                     processed += 1;
