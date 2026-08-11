@@ -1,3 +1,4 @@
+use futures::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
@@ -405,12 +406,37 @@ impl SlidingSyncService {
             // be materialized on the next incremental sync or room subscription).
             match self.member_storage.get_joined_rooms(user_id).await {
                 Ok(joined_rooms) => {
-                    for room_id in &joined_rooms {
-                        if let Err(e) = self
-                            .storage
-                            .materialize_room_from_activity(user_id, device_id, room_id, conn_id)
-                            .await
-                        {
+                    // P3: Materialize rooms concurrently with bounded parallelism
+                    // instead of sequential for-loop.  Each materialize_room_from_activity
+                    // call is an independent write to the sliding-sync store, so
+                    // running them concurrently with buffer_unordered(8) reduces
+                    // initial sync latency for users in many rooms.
+                    const MAX_CONCURRENT_MATERIALIZE: usize = 8;
+
+                    let storage = Arc::clone(&self.storage);
+                    let user_id = user_id.to_string();
+                    let device_id = device_id.to_string();
+                    let conn_id = conn_id.map(|s| s.to_string());
+
+                    let results: Vec<(String, Result<Option<_>, _>)> = stream::iter(joined_rooms.into_iter())
+                        .map(|room_id| {
+                            let storage = Arc::clone(&storage);
+                            let user_id = user_id.clone();
+                            let device_id = device_id.clone();
+                            let conn_id = conn_id.clone();
+                            async move {
+                                let result = storage
+                                    .materialize_room_from_activity(&user_id, &device_id, &room_id, conn_id.as_deref())
+                                    .await;
+                                (room_id, result)
+                            }
+                        })
+                        .buffer_unordered(MAX_CONCURRENT_MATERIALIZE)
+                        .collect()
+                        .await;
+
+                    for (room_id, result) in results {
+                        if let Err(e) = result {
                             tracing::warn!(
                                 user_id = %user_id,
                                 device_id = %device_id,

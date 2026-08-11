@@ -127,6 +127,8 @@ pub async fn federation_auth_middleware(
 
     // S1 修复：签名时间戳校验。X-Matrix 头中的 `ts` 参数指示签名时间，
     // 超出容差窗口的请求必须被拒绝，防止合法签名请求被无限重放。
+    // N2：Matrix 规范中 ts 为可选参数，但为了审计可见性，当 replay_protection
+    // 启用而 ts 缺失时，记录 warn 日志（Time-of-check 降级为仅靠 replay cache）。
     if let Some(ts) = params.ts {
         let tolerance_ms = ctx.config.federation.signing_ts_tolerance_ms;
         if tolerance_ms > 0 {
@@ -143,6 +145,13 @@ pub async fn federation_auth_middleware(
                 return ApiError::unauthorized("Federation signature timestamp out of tolerance".to_string()).into_response();
             }
         }
+    } else if ctx.config.federation.replay_protection_enabled {
+        tracing::warn!(
+            target: "security_audit",
+            event = "federation_timestamp_missing",
+            origin = %params.origin,
+            "Federation request is missing X-Matrix `ts` parameter; timestamp check skipped, relying solely on replay-protection cache"
+        );
     }
 
     // S1 修复：重放保护。验签通过后，将签名哈希记入 ReplayProtectionCache，
