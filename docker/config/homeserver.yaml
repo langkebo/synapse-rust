@@ -50,7 +50,7 @@ rate_limit:
       burst_size: 40
 
 database:
-  host: "db"
+  host: "postgres"
   port: 5432
   username: "${DB_USER:-synapse}"
   password: "${DB_PASSWORD:?DB_PASSWORD is required}"
@@ -88,7 +88,7 @@ federation:
   signing_key: "${FEDERATION_SIGNING_KEY:?FEDERATION_SIGNING_KEY is required}"
   key_id: "${FEDERATION_KEY_ID:-ed25519:local}"
   signing_key_master_key: "${FEDERATION_MASTER_KEY:-}"
-  allow_plaintext_signing_keys: ${FEDERATION_ALLOW_PLAINTEXT:-true}
+  allow_plaintext_signing_keys: true
   trusted_key_servers:
     - server_name: "matrix.org"
   key_refresh_interval: 86400
@@ -179,7 +179,7 @@ voip:
     - "turn:matrix.test:3478?transport=udp"
     - "turn:matrix.test:3478?transport=tcp"
     - "turns:matrix.test:5349?transport=tcp"
-  turn_shared_secret: "${TURN_SHARED_SECRET:?TURN_SHARED_SECRET is required}"
+  turn_shared_secret: "${TURN_SHARED_SECRET:-dummy}"
   turn_user_lifetime: "1h"
   turn_allow_guests: false
   stun_uris:
