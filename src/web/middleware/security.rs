@@ -22,11 +22,16 @@ pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::
     let duration = start.elapsed();
     let status = response.status();
 
+    // S8: Use uri.path() to avoid logging access_token in query parameters.
+    // Full URI (with query) is not logged; sensitive params like ?access_token=
+    // are stripped by recording path-only. If query-level diagnostics are needed,
+    // enable them explicitly at TRACE level with a redaction filter.
+    let log_path = uri.path();
     tracing::info!(
         "Request: {} {} {} {} {:?} {}ms",
         if authenticated { "authenticated" } else { "anonymous" },
         method,
-        uri,
+        log_path,
         status.as_u16(),
         headers,
         duration.as_millis()

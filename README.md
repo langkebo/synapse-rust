@@ -148,19 +148,16 @@ cargo run --release
 
 ## 文档
 
-- Matrix/Synapse 对标审查与优化方案：`docs/synapse-rust/MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md`
-- Matrix 协议声明支持面：`docs/synapse-rust/SUPPORTED_MATRIX_SURFACE.md`
-- 综合审计报告（当前基线）：`docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md`
-- 技术债务优化计划：`docs/synapse-rust/TECHNICAL_DEBT_OPTIMIZATION_PLAN_2026-06-11.md`
-- 测试语义与 CI 门禁：`TESTING.md`
+- 路由契约清单（权威）：`docs/synapse-rust/ROUTE_CONTRACT.md`
+- API 覆盖率报告（vs Synapse v1.153.0）：`docs/synapse-rust/API_COVERAGE_REPORT.md`
+- 上游 Synapse 能力差距分析：`docs/synapse-rust/ELEMENT_SYNAPSE_GAP_ANALYSIS_2026-07-28.md`
+- 依赖升级追踪：`docs/synapse-rust/DEPENDENCY_UPGRADE_TRACKER.md`
+- 管理员注册指南：`docs/synapse-rust/admin-registration-guide.md`
+- 代码审查报告（最新）：`artifacts/code_review_report_2026-08-11.md`
 - 文档索引：`docs/INDEX.md`
+- 测试语义与 CI 门禁：`TESTING.md`
 - API 文档：启用 `openapi-docs` feature 后访问 `/_swagger`（Swagger UI）或 `/_api-doc/openapi.json`（OpenAPI JSON）
-- API 覆盖率报告：`docs/synapse-rust/API_COVERAGE_REPORT.md`
-- 数据库迁移计划：`docs/db/MIGRATION_CONSOLIDATION_PLAN_2026-05-07.md`
-- 升级与回滚指引：`migrations/README.md`
-- 运维手册：`docs/synapse-rust/OPERATIONS.md`
-- 迁移索引：`docs/db/MIGRATION_INDEX.md`
-- 迁移治理：`docs/db/MIGRATION_GOVERNANCE.md`
+- 数据库迁移指引：`migrations/README.md`
 
 ## 私密聊天功能集成指南 (Private Chat Features)
 
@@ -249,7 +246,7 @@ client.sendReadReceipt(event);
 > ⚠️ 任务追踪已整合到 GitHub Issues 和项目看板
 
 - **任务看板**: [HuLa Project Board](https://github.com/hu-matrix/hula/projects)
-- **综合审计报告**: [COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md](docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md)
-- **协议支持面**: [SUPPORTED_MATRIX_SURFACE.md](docs/synapse-rust/SUPPORTED_MATRIX_SURFACE.md)
+- **代码审查报告**: [code_review_report_2026-08-11.md](artifacts/code_review_report_2026-08-11.md)
+- **API 覆盖率**: [API_COVERAGE_REPORT.md](docs/synapse-rust/API_COVERAGE_REPORT.md)
 - **文档索引**: [INDEX.md](docs/INDEX.md)
 - **测试接线清单**: [.trae/specs/analyze-synapse-gap-and-optimization/test-execution-inventory.md](.trae/specs/analyze-synapse-gap-and-optimization/test-execution-inventory.md)

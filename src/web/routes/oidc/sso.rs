@@ -67,8 +67,20 @@ fn is_safe_redirect_url(url: &str, allowlist: &[String]) -> bool {
                 // No allowlist configured — only same-origin paths permitted
                 return false;
             }
-            let url_str = parsed.as_str();
-            return allowlist.iter().any(|allowed| url_str.starts_with(allowed));
+            // S9: Use structured host comparison instead of starts_with(…)
+            // to prevent bypass like https://app.example.com.evil.com matching
+            // allowlist entry https://app.example.com.
+            let parsed_host = parsed.host_str().unwrap_or("");
+            return allowlist.iter().any(|allowed| {
+                if let Ok(allowed_url) = url::Url::parse(allowed) {
+                    if let Some(allowed_host) = allowed_url.host_str() {
+                        return parsed_host == allowed_host;
+                    }
+                }
+                // Fallback: if allowed entry is not a valid URL, treat as literal
+                // hostname (e.g. "app.example.com" without scheme)
+                parsed_host == allowed.as_str()
+            });
         }
     }
 

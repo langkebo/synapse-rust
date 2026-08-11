@@ -43,6 +43,19 @@ pub async fn federation_auth_middleware(
         None => return ApiError::unauthorized("Missing federation signature".to_string()).into_response(),
     };
 
+    // S6: Validate origin format before any further processing.
+    // Reject malformed origins (empty, too long, invalid characters) early.
+    if let Err(reason) = synapse_common::security::SecurityValidator::validate_origin(&params.origin) {
+        ::tracing::warn!(
+            target: "security_audit",
+            event = "federation_invalid_origin",
+            origin = %params.origin,
+            reason = %reason,
+            "Federation request rejected: invalid origin format"
+        );
+        return ApiError::unauthorized("Invalid federation origin".to_string()).into_response();
+    }
+
     if let Some(ref dest) = params.destination {
         if !is_local_federation_destination(&ctx, dest) {
             ::tracing::warn!(

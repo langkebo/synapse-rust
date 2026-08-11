@@ -35,21 +35,21 @@ builtin-oidc = ["synapse-common/builtin-oidc"]
 synapse-common = { path = "../synapse-common" }
 synapse-cache = { path = "../synapse-cache" }
 
-tokio = { version = "1.49", features = ["full", "test-util"] }
-async-trait = "0.1"
+tokio = { workspace = true, features = ["full", "test-util"] }
+async-trait = { workspace = true }
 
-sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros"] }
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros"] }
 
-deadpool-redis = "0.20"
-redis = { version = "0.29", features = ["tokio-rustls-comp"] }
+deadpool-redis = { workspace = true }
+redis = { workspace = true, features = ["tokio-rustls-comp"] }
 
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { workspace = true, features = ["serde"] }
 
-uuid = { version = "1", features = ["v4", "serde"] }
-tracing = { version = "0.1", features = ["attributes"] }
+uuid = { workspace = true, features = ["v4", "serde"] }
+tracing = { workspace = true, features = ["attributes"] }
 
-base64 = "0.22"
-rand = "0.9"
+base64 = { workspace = true }
+rand = { workspace = true }

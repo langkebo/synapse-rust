@@ -1,6 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::context::MediaContext;
-use crate::web::routes::{AuthenticatedUser, OptionalAuthenticatedUser};
+use crate::web::routes::AuthenticatedUser;
 use axum::{
     extract::{Json, Query, State},
     http::{header, HeaderValue},
@@ -24,7 +24,7 @@ pub(crate) async fn media_config(
 
 pub(crate) async fn preview_url(
     State(ctx): State<MediaContext>,
-    _auth_user: OptionalAuthenticatedUser,
+    _auth_user: AuthenticatedUser,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     // P2-11: MSC4452 endpoint-level 403 enforcement (Synapse v1.154 #19715).

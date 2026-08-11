@@ -205,6 +205,44 @@ members = [
     "synapse-services",
 ]
 
+# DC4: Centralized dependency version management.
+# All crate members inherit versions from here; features are still declared
+# per crate to avoid unnecessary compilation when feature sets differ (e.g. sqlx).
+[workspace.dependencies]
+tokio = { version = "1.49", features = ["full"] }
+tokio-util = { version = "0.7" }
+async-trait = "0.1"
+axum = { version = "0.8" }
+tower = "0.5"
+tower-http = { version = "0.6" }
+hyper = "1"
+http = "1"
+sqlx = { version = "0.8" }
+redis = { version = "0.29" }
+deadpool-redis = "0.20"
+serde = { version = "1.0" }
+serde_json = "1.0"
+serde_yaml = "0.9"
+rand = "0.9"
+sha1 = "0.10"
+sha2 = { version = "0.10" }
+hmac = "0.12"
+base64 = "0.22"
+chrono = { version = "0.4" }
+thiserror = "2.0"
+uuid = { version = "1" }
+futures = "0.3"
+bytes = "1"
+regex = "1.10"
+url = "2.5"
+urlencoding = "2.1"
+reqwest = { version = "0.12" }
+tracing = { version = "0.1" }
+tracing-subscriber = { version = "0.3" }
+moka = { version = "0.12" }
+parking_lot = "0.12"
+zeroize = "1"
+
 [[test]]
 name = "integration"
 path = "tests/integration/mod.rs"
