@@ -2,11 +2,13 @@ use crate::common::ApiError;
 use crate::web::routes::context::MediaContext;
 use crate::web::{AuthenticatedUser, OptionalAuthenticatedUser};
 use axum::{
+    body::Body,
     extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
 };
 use serde_json::{json, Value};
+use tokio_util::io::ReaderStream;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -143,38 +145,6 @@ pub(crate) fn media_error_response(error: &ApiError) -> (StatusCode, HeaderMap, 
 // Remote media fetch helpers
 // ---------------------------------------------------------------------------
 
-/// Fetch remote media via federation and wrap it into a `MediaResponsePayload`.
-async fn fetch_remote_media_via_federation(
-    ctx: &MediaContext,
-    server_name: &str,
-    media_id: &str,
-    response_filename: Option<&str>,
-) -> Result<synapse_services::media::MediaResponsePayload, ApiError> {
-    let federation_client = ctx.federation_client.clone();
-    let resp = federation_client
-        .media_download(server_name, server_name, media_id)
-        .await
-        .map_err(|e| ApiError::not_found(format!("Remote media not reachable: {e}")))?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        let body = resp.text().await.unwrap_or_else(|e| format!("Failed to read remote media response: {e}"));
-        return Err(ApiError::not_found(format!("Remote media fetch failed: {status} {body}")));
-    }
-
-    let content_type = resp
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .map_or_else(|| "application/octet-stream".to_string(), |s| s.to_string());
-
-    let content =
-        resp.bytes().await.map_err(|e| ApiError::internal(format!("Failed to read remote media body: {e}")))?.to_vec();
-
-    let headers = build_proxy_media_headers(content_type, content.len(), response_filename);
-    Ok(synapse_services::media::MediaResponsePayload { content, headers })
-}
-
 /// Fetch remote thumbnail via federation.
 async fn fetch_remote_thumbnail_via_federation(
     ctx: &MediaContext,
@@ -213,19 +183,80 @@ async fn fetch_remote_thumbnail_via_federation(
 }
 
 // ---------------------------------------------------------------------------
-// Download and thumbnail common helpers
+// S3: Streaming download helpers (replaces full-buffer download_media_common)
 // ---------------------------------------------------------------------------
 
-pub(crate) async fn download_media_common(
+/// Fetch remote media via federation and return a **streaming** response.
+///
+/// Uses `resp.bytes_stream()` to forward the remote body in chunks rather than
+/// buffering the entire response into a `Vec<u8>`.
+async fn fetch_remote_media_stream_via_federation(
     ctx: &MediaContext,
     server_name: &str,
     media_id: &str,
     response_filename: Option<&str>,
-) -> Result<synapse_services::media::MediaResponsePayload, ApiError> {
-    if server_name == ctx.server_name {
-        return ctx.media_domain_service.download_media(server_name, media_id, response_filename).await;
+) -> Result<(HeaderMap, Body), ApiError> {
+    let federation_client = ctx.federation_client.clone();
+    let resp = federation_client
+        .media_download(server_name, server_name, media_id)
+        .await
+        .map_err(|e| ApiError::not_found(format!("Remote media not reachable: {e}")))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_else(|e| format!("Failed to read remote media response: {e}"));
+        return Err(ApiError::not_found(format!("Remote media fetch failed: {status} {body}")));
     }
-    fetch_remote_media_via_federation(ctx, server_name, media_id, response_filename).await
+
+    let content_type = resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map_or_else(|| "application/octet-stream".to_string(), |s| s.to_string());
+
+    let content_length: usize = resp
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
+    let headers = build_proxy_media_headers(content_type, content_length, response_filename);
+    let header_map = media_response_headers(&headers);
+
+    // Stream the remote body directly — no buffering into Vec<u8>.
+    let body = Body::from_stream(resp.bytes_stream());
+    Ok((header_map, body))
+}
+
+/// Streaming variant of [`download_media_common`].
+///
+/// For local media: opens the file and streams it via `ReaderStream`.
+/// For remote media: forwards the federation response body as a stream.
+///
+/// Returns `(StatusCode, HeaderMap, Body)` ready to be converted into a
+/// `Response` via `IntoResponse`.
+pub(crate) async fn download_media_stream_common(
+    ctx: &MediaContext,
+    server_name: &str,
+    media_id: &str,
+    response_filename: Option<&str>,
+) -> Result<(StatusCode, HeaderMap, Body), ApiError> {
+    if server_name == ctx.server_name {
+        // Local media: stream from file handle.
+        let payload = ctx
+            .media_domain_service
+            .download_media_stream(server_name, media_id, response_filename)
+            .await?;
+        let headers = media_response_headers(&payload.headers);
+        let body = Body::from_stream(ReaderStream::new(payload.file));
+        Ok((StatusCode::OK, headers, body))
+    } else {
+        // Remote media: stream from federation response.
+        let (headers, body) =
+            fetch_remote_media_stream_via_federation(ctx, server_name, media_id, response_filename).await?;
+        Ok((StatusCode::OK, headers, body))
+    }
 }
 
 pub(crate) fn thumbnail_request_params(params: &Value) -> (u32, u32, &str) {
@@ -258,29 +289,27 @@ pub(crate) async fn thumbnail_response_common(
 }
 
 // ---------------------------------------------------------------------------
-// Download handlers
+// Download handlers (S3: streaming — no full buffering into Vec<u8>)
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn download_media(
     State(ctx): State<MediaContext>,
     auth_user: OptionalAuthenticatedUser,
     Path((server_name, media_id)): Path<(String, String)>,
-) -> Result<impl IntoResponse, ApiError> {
+) -> Result<Response, ApiError> {
     let _ = auth_user;
-    let response = download_media_common(&ctx, &server_name, &media_id, None).await?;
-    let headers = media_response_headers(&response.headers);
-    Ok((StatusCode::OK, headers, response.content))
+    let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, None).await?;
+    Ok((status, headers, body).into_response())
 }
 
 pub(crate) async fn download_media_with_filename(
     State(ctx): State<MediaContext>,
     auth_user: OptionalAuthenticatedUser,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
-) -> Result<impl IntoResponse, ApiError> {
+) -> Result<Response, ApiError> {
     let _ = auth_user;
-    let response = download_media_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
-    let headers = media_response_headers(&response.headers);
-    Ok((StatusCode::OK, headers, response.content))
+    let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
+    Ok((status, headers, body).into_response())
 }
 
 /// Signed media download — verifies HMAC signature before serving.
@@ -288,7 +317,7 @@ pub(crate) async fn download_media_signed(
     State(ctx): State<MediaContext>,
     Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
-) -> Result<impl IntoResponse, ApiError> {
+) -> Result<Response, ApiError> {
     let signature = params
         .get("signature")
         .and_then(|v| v.as_str())
@@ -300,9 +329,8 @@ pub(crate) async fn download_media_signed(
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
     }
 
-    let response = download_media_common(&ctx, &server_name, &media_id, None).await?;
-    let headers = media_response_headers(&response.headers);
-    Ok((StatusCode::OK, headers, response.content))
+    let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, None).await?;
+    Ok((status, headers, body).into_response())
 }
 
 /// Signed media download with filename.
@@ -310,7 +338,7 @@ pub(crate) async fn download_media_signed_with_filename(
     State(ctx): State<MediaContext>,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
     Query(params): Query<Value>,
-) -> Result<impl IntoResponse, ApiError> {
+) -> Result<Response, ApiError> {
     let signature = params
         .get("signature")
         .and_then(|v| v.as_str())
@@ -322,54 +350,51 @@ pub(crate) async fn download_media_signed_with_filename(
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
     }
 
-    let response = download_media_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
-    let headers = media_response_headers(&response.headers);
-    Ok((StatusCode::OK, headers, response.content))
+    let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
+    Ok((status, headers, body).into_response())
 }
 
 pub(crate) async fn download_media_authenticated(
     State(ctx): State<MediaContext>,
     _auth_user: AuthenticatedUser,
     Path((server_name, media_id)): Path<(String, String)>,
-) -> Result<impl IntoResponse, ApiError> {
-    let response = download_media_common(&ctx, &server_name, &media_id, None).await?;
-    let headers = media_response_headers(&response.headers);
-    Ok((StatusCode::OK, headers, response.content))
+) -> Result<Response, ApiError> {
+    let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, None).await?;
+    Ok((status, headers, body).into_response())
 }
 
 pub(crate) async fn download_media_authenticated_with_filename(
     State(ctx): State<MediaContext>,
     _auth_user: AuthenticatedUser,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
-) -> Result<impl IntoResponse, ApiError> {
-    let response = download_media_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
-    let headers = media_response_headers(&response.headers);
-    Ok((StatusCode::OK, headers, response.content))
+) -> Result<Response, ApiError> {
+    let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
+    Ok((status, headers, body).into_response())
 }
 
 pub(crate) async fn download_media_v1(
     State(ctx): State<MediaContext>,
     Path((server_name, media_id)): Path<(String, String)>,
-) -> impl IntoResponse {
-    match download_media_common(&ctx, &server_name, &media_id, None).await {
-        Ok(response) => {
-            let headers = media_response_headers(&response.headers);
-            (StatusCode::OK, headers, response.content)
+) -> Response {
+    match download_media_stream_common(&ctx, &server_name, &media_id, None).await {
+        Ok((status, headers, body)) => (status, headers, body).into_response(),
+        Err(error) => {
+            let (status, headers, body) = media_error_response(&error);
+            (status, headers, body).into_response()
         }
-        Err(error) => media_error_response(&error),
     }
 }
 
 pub(crate) async fn download_media_v1_with_filename(
     State(ctx): State<MediaContext>,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
-) -> impl IntoResponse {
-    match download_media_common(&ctx, &server_name, &media_id, Some(&filename)).await {
-        Ok(response) => {
-            let headers = media_response_headers(&response.headers);
-            (StatusCode::OK, headers, response.content)
+) -> Response {
+    match download_media_stream_common(&ctx, &server_name, &media_id, Some(&filename)).await {
+        Ok((status, headers, body)) => (status, headers, body).into_response(),
+        Err(error) => {
+            let (status, headers, body) = media_error_response(&error);
+            (status, headers, body).into_response()
         }
-        Err(error) => media_error_response(&error),
     }
 }
 

@@ -28,6 +28,7 @@ mod key_rotation_service_tests;
 mod ledger_export_tests;
 mod media_api_tests;
 mod media_quota_api_tests;
+mod media_service_tests;
 mod megolm_dual_write_metrics_tests;
 mod migration_consistency_tests;
 mod module_api_tests;

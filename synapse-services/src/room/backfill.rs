@@ -77,6 +77,28 @@ pub async fn check_backfill_cooldown(room_id: &str) -> bool {
     true
 }
 
+/// P1a 修复：批量存在性检查（替代循环内逐 PDU `get_event` 的 N+1 查询）。
+///
+/// 收集 PDU 中的全部有效 `event_id`，一次 `find_missing_event_ids`
+/// （底层 `WHERE event_id = ANY($1)`）得出本地缺失集合。持久化循环用该
+/// 集合做 O(1) 去重，并在持久化成功后从集合移除对应 ID，以保持
+/// "批内重复 PDU 静默跳过"的原语义。
+async fn compute_missing_event_ids(
+    event_reader: &Arc<dyn synapse_storage::event::EventReader>,
+    pdus: &[serde_json::Value],
+) -> ApiResult<std::collections::HashSet<String>> {
+    let event_ids: Vec<String> =
+        pdus.iter().filter_map(|pdu| pdu.get("event_id").and_then(|v| v.as_str()).map(String::from)).collect();
+    if event_ids.is_empty() {
+        return Ok(std::collections::HashSet::new());
+    }
+    let missing = event_reader
+        .find_missing_event_ids(&event_ids)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to batch-check existing events for backfill", &e))?;
+    Ok(missing.into_iter().collect())
+}
+
 impl RoomService {
     /// Fetch historical events for `room_id` from federated peers and persist
     /// them locally (including DAG metadata via `create_event_with_graph`).
@@ -171,6 +193,10 @@ impl RoomService {
             // 4. Persist each PDU.  Skip events we already have locally —
             //    `create_event_with_graph` will fail on the unique event_id
             //    constraint, so we check first to avoid noisy error logs.
+            //
+            //    P1a 修复：一次性批量查询缺失集合（此前循环内逐 PDU 一次
+            //    `get_event`，100 个 PDU = 100 次串行 DB 往返）。
+            let mut missing_ids = compute_missing_event_ids(&self.event_reader, &response.pdus).await?;
             let mut persisted = 0usize;
             for pdu in &response.pdus {
                 let Some(event_id) = pdu.get("event_id").and_then(|v| v.as_str()) else {
@@ -182,9 +208,9 @@ impl RoomService {
                     continue;
                 };
 
-                // Skip if already present locally.
-                let already_present = self.event_reader.get_event(event_id).await.ok().flatten().is_some();
-                if already_present {
+                // Skip if already present locally (O(1) 内存判断；持久化成功后
+                // 从集合移除，保持批内重复 PDU 静默跳过的原语义).
+                if !missing_ids.contains(event_id) {
                     continue;
                 }
 
@@ -273,6 +299,8 @@ impl RoomService {
                     );
                     continue;
                 }
+                // 持久化成功：从缺失集合移除，批内重复 PDU 将静默跳过。
+                missing_ids.remove(event_id);
                 persisted += 1;
             }
 
@@ -297,5 +325,76 @@ impl RoomService {
             "Backfill exhausted all candidates without receiving PDUs"
         );
         Ok(BackfillOutcome { source_server: None, persisted_events: 0, candidates_tried: tried })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! P1a 修复的 TDD 测试：backfill 去重从"逐 PDU 一次 `get_event`"（N+1）
+    //! 改为一次 `find_missing_event_ids` 批量查询。
+
+    use super::*;
+    use synapse_storage::event::{EventReader, RoomEvent};
+    use synapse_storage::test_mocks::InMemoryEventStore;
+
+    fn seeded_event(event_id: &str) -> RoomEvent {
+        RoomEvent {
+            event_id: event_id.to_string(),
+            room_id: "!room:test.server".to_string(),
+            user_id: "@alice:test.server".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({}),
+            state_key: None,
+            depth: 1,
+            origin_server_ts: 1_700_000_000_000,
+            processed_ts: 1_700_000_000_000,
+            not_before: 0,
+            status: None,
+            reference_image: None,
+            origin: "test.server".to_string(),
+            stream_ordering: None,
+            redacts: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_event_ids_computed_in_one_batch() {
+        let store = InMemoryEventStore::new();
+        store.seed_events(vec![seeded_event("$existing1"), seeded_event("$existing2")]).await;
+        let reader: Arc<dyn EventReader> = Arc::new(store);
+
+        let pdus = vec![
+            serde_json::json!({"event_id": "$existing1"}), // 已存在 → 不在缺失集
+            serde_json::json!({"event_id": "$new1"}),      // 缺失
+            serde_json::json!({"event_id": "$new2"}),      // 缺失
+            serde_json::json!({"no_event_id": true}),      // 无 event_id → 不进入缺失集（循环内单独跳过）
+            serde_json::json!({"event_id": "$new1"}),      // 批内重复 → 仍在缺失集（持久化后由循环移除）
+        ];
+
+        let missing = compute_missing_event_ids(&reader, &pdus).await.expect("batch query must succeed");
+
+        assert!(missing.contains("$new1"));
+        assert!(missing.contains("$new2"));
+        assert!(!missing.contains("$existing1"));
+        assert!(!missing.contains("$existing2"));
+        assert_eq!(missing.len(), 2, "缺失集应恰好包含两个新事件（批内重复只计一次）");
+    }
+
+    #[tokio::test]
+    async fn missing_event_ids_empty_when_all_present() {
+        let store = InMemoryEventStore::new();
+        store.seed_events(vec![seeded_event("$a"), seeded_event("$b")]).await;
+        let reader: Arc<dyn EventReader> = Arc::new(store);
+
+        let pdus = vec![serde_json::json!({"event_id": "$a"}), serde_json::json!({"event_id": "$b"})];
+        let missing = compute_missing_event_ids(&reader, &pdus).await.unwrap();
+        assert!(missing.is_empty());
+    }
+
+    #[tokio::test]
+    async fn missing_event_ids_empty_input_short_circuits() {
+        let reader: Arc<dyn EventReader> = Arc::new(InMemoryEventStore::new());
+        let missing = compute_missing_event_ids(&reader, &[]).await.unwrap();
+        assert!(missing.is_empty());
     }
 }

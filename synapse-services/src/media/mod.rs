@@ -43,6 +43,22 @@ pub struct MediaResponsePayload {
     pub headers: MediaResponseHeaders,
 }
 
+/// Streaming media response — the file is streamed from disk instead of
+/// being loaded entirely into memory as `Vec<u8>`.
+///
+/// This struct is the S3 optimization: it carries an open `tokio::fs::File`
+/// handle and the HTTP headers that the web layer needs to build the response.
+/// The web layer converts the file to a streaming body via
+/// `Body::from_stream(ReaderStream::new(file))`.
+pub struct MediaStreamPayload {
+    /// Open file handle positioned at byte 0, ready for streaming.
+    pub file: tokio::fs::File,
+    /// Total content length (file size in bytes).
+    pub content_length: u64,
+    /// HTTP headers (content-type, disposition, CSP, etc.).
+    pub headers: MediaResponseHeaders,
+}
+
 #[derive(Clone)]
 pub struct MediaDomainService {
     media_service: MediaService,
@@ -359,6 +375,76 @@ impl MediaDomainService {
         let headers = build_media_response_headers(content_type, content.len(), response_filename);
 
         Ok(MediaResponsePayload { content, headers })
+    }
+
+    /// Stream-oriented variant of [`download_media`].
+    ///
+    /// Instead of reading the entire file into a `Vec<u8>`, this method opens
+    /// the file with `tokio::fs::File` and returns a [`MediaStreamPayload`]
+    /// containing the file handle plus pre-built HTTP headers.  The web layer
+    /// converts the handle to a streaming HTTP body, avoiding OOM on large
+    /// media downloads.
+    ///
+    /// Content-type is resolved from stored metadata when available; otherwise
+    /// a small prefix (first 1 KB) is read for magic-byte detection and the
+    /// file is seeked back to position 0 before returning.
+    pub async fn download_media_stream(
+        &self,
+        server_name: &str,
+        media_id: &str,
+        response_filename: Option<&str>,
+    ) -> Result<MediaStreamPayload, ApiError> {
+        let file_path = self
+            .media_service
+            .get_media_file_path(server_name, media_id)
+            .await
+            .ok_or_else(|| ApiError::not_found("Media not found".to_string()))?;
+
+        let file = tokio::fs::File::open(&file_path)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to open media file: {e}")))?;
+
+        let content_length = file
+            .metadata()
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        let metadata = self.media_service.get_media_metadata(server_name, media_id).await.unwrap_or(Value::Null);
+
+        let stored_content_type =
+            metadata.get("content_type").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
+
+        let stored_filename =
+            metadata.get("filename").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
+        let response_filename = response_filename.or(stored_filename.as_deref());
+
+        // Determine content type: prefer stored metadata, fall back to
+        // magic-byte detection from a small prefix read.
+        let content_type = if let Some(ct) = stored_content_type {
+            ct
+        } else {
+            // Read up to 1 KB for type detection, then seek back to start.
+            use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
+
+            let mut file_for_detection = file;
+            let mut prefix = vec![0u8; 1024];
+            let n = file_for_detection.read(&mut prefix).await.unwrap_or(0);
+            prefix.truncate(n);
+            let _ = file_for_detection.seek(SeekFrom::Start(0)).await;
+
+            guess_content_type(stored_filename.as_deref().unwrap_or(media_id), &prefix).to_string()
+        };
+
+        let headers = build_media_response_headers(content_type, content_length as usize, response_filename);
+
+        // Re-open the file to ensure a clean handle at position 0.
+        // (The detection read may have consumed bytes even after seek.)
+        let file = tokio::fs::File::open(&file_path)
+            .await
+            .map_err(|e| ApiError::internal(format!("Failed to reopen media file for streaming: {e}")))?;
+
+        Ok(MediaStreamPayload { file, content_length, headers })
     }
 
     pub async fn get_thumbnail(

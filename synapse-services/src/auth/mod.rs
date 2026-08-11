@@ -9,6 +9,8 @@ mod register;
 pub mod room_auth;
 mod session;
 #[cfg(test)]
+pub(crate) mod test_harness;
+#[cfg(test)]
 mod tests;
 mod token;
 pub mod token_auth;
@@ -35,6 +37,10 @@ use crate::UserService;
 const TOKEN_CACHE_TTL_SECS: u64 = 300; // 5 min - must be short to respect revocation
 const USER_ACTIVE_CACHE_TTL_SECS: u64 = 60;
 const ADMIN_CACHE_TTL_SECS: u64 = 60;
+/// S4: 撤销/黑名单检查结果的缓存 TTL（秒）。所有撤销写入路径
+/// （logout / logout_all / change_password / deactivate_user / revoke_device(s)）
+/// 都会主动失效对应标记，该 TTL 仅作为异常路径的兜底上限。
+const REVOCATION_CHECK_CACHE_TTL_SECS: u64 = 30;
 const DEFAULT_POWER_LEVEL: i64 = 50;
 
 #[derive(Clone)]

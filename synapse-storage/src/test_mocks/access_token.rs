@@ -71,7 +71,7 @@ impl AccessTokenStoreApi for InMemoryAccessTokenStore {
         device_id: Option<&str>,
         expires_at: Option<i64>,
     ) -> Result<AccessToken, sqlx::Error> {
-        let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst).max(1);
+        let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let token_hash = Self::hash_token(token);
         let access_token = AccessToken {
             id,

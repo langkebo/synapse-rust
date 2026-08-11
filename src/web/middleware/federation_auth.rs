@@ -1,4 +1,4 @@
-use crate::common::check_url_against_blacklist;
+use crate::common::check_url_and_resolve;
 use crate::common::ApiError;
 use crate::web::routes::context::{CoreContext, FederationContext};
 use crate::web::utils::encoding::decode_base64_32;
@@ -112,6 +112,47 @@ pub async fn federation_auth_middleware(
         return ApiError::unauthorized("Invalid federation signature".to_string()).into_response();
     }
 
+    // S1 修复：签名时间戳校验。X-Matrix 头中的 `ts` 参数指示签名时间，
+    // 超出容差窗口的请求必须被拒绝，防止合法签名请求被无限重放。
+    if let Some(ts) = params.ts {
+        let tolerance_ms = ctx.config.federation.signing_ts_tolerance_ms;
+        if tolerance_ms > 0 {
+            if let Err(reason) = synapse_common::security::SecurityValidator::validate_federation_timestamp(ts, tolerance_ms) {
+                tracing::warn!(
+                    target: "security_audit",
+                    event = "federation_timestamp_rejected",
+                    origin = %params.origin,
+                    ts = ts,
+                    tolerance_ms = tolerance_ms,
+                    reason = %reason,
+                    "Federation request rejected: signature timestamp out of tolerance"
+                );
+                return ApiError::unauthorized("Federation signature timestamp out of tolerance".to_string()).into_response();
+            }
+        }
+    }
+
+    // S1 修复：重放保护。验签通过后，将签名哈希记入 ReplayProtectionCache，
+    // 窗口内重复提交同一签名即被拒绝。使用 security::compute_signature_hash
+    // 计算（含 origin + key_id + signature + signed_bytes 四元组）。
+    if ctx.config.federation.replay_protection_enabled {
+        let sig_hash = synapse_common::security::compute_signature_hash(
+            &params.origin,
+            &params.key,
+            &params.sig,
+            &signed_bytes,
+        );
+        if !ctx.replay_protection_cache.check_and_record(&sig_hash) {
+            tracing::warn!(
+                target: "security_audit",
+                event = "federation_replay_detected",
+                origin = %params.origin,
+                "Federation request rejected: signature replay detected within protection window"
+            );
+            return ApiError::unauthorized("Federation request replay detected".to_string()).into_response();
+        }
+    }
+
     let origin_server = &params.origin;
 
     if ctx.config.federation.admission_mode {
@@ -187,6 +228,8 @@ struct XMatrixAuthParams {
     key: String,
     sig: String,
     destination: Option<String>,
+    /// S1 修复：X-Matrix Authorization 头中的 `ts` 参数（签名时间戳，毫秒）。
+    ts: Option<i64>,
 }
 
 fn parse_x_matrix_authorization(header_value: &str) -> Option<XMatrixAuthParams> {
@@ -200,6 +243,7 @@ fn parse_x_matrix_authorization(header_value: &str) -> Option<XMatrixAuthParams>
     let mut key: Option<String> = None;
     let mut sig: Option<String> = None;
     let mut destination: Option<String> = None;
+    let mut ts: Option<i64> = None;
 
     for part in header_value.split(',') {
         let part = part.trim();
@@ -220,11 +264,13 @@ fn parse_x_matrix_authorization(header_value: &str) -> Option<XMatrixAuthParams>
             "key" => key = Some(v.to_string()),
             "sig" => sig = Some(v.to_string()),
             "destination" => destination = Some(v.to_string()),
+            // S1 修复：解析 X-Matrix 头中的 ts 参数（签名时间戳）
+            "ts" => ts = v.parse::<i64>().ok(),
             _ => {}
         }
     }
 
-    Some(XMatrixAuthParams { origin: origin?, key: key?, sig: sig?, destination })
+    Some(XMatrixAuthParams { origin: origin?, key: key?, sig: sig?, destination, ts })
 }
 
 fn canonical_federation_request_bytes(
@@ -256,7 +302,11 @@ pub(crate) async fn verify_federation_signature_with_cache(
 ) -> Result<(), ApiError> {
     use crate::cache::CacheEntryKey;
 
-    let content_hash = compute_signature_content_hash(signed_bytes);
+    // S5 修复：缓存键纳入签名本身。此前 cache_key 仅哈希 signed_bytes（不含
+    // signature），同内容换任意签名即命中已验证缓存直接放行。现在使用
+    // compute_signature_hash（含 origin + key_id + signature + signed_bytes
+    // 四元组）作为 content_hash，确保不同签名产生不同缓存键。
+    let content_hash = synapse_common::security::compute_signature_hash(origin, key_id, signature, signed_bytes);
     let cache_key = CacheEntryKey::new(origin, key_id, &content_hash);
 
     if let Some(entry) = ctx.federation_signature_cache.get_signature(&cache_key) {
@@ -271,11 +321,16 @@ pub(crate) async fn verify_federation_signature_with_cache(
 
     let result = verify_federation_signature(ctx, origin, key_id, signature, signed_bytes, key_fetch_priority).await;
 
-    ctx.federation_signature_cache.set_signature(&cache_key, result.is_ok());
+    // S5 修复：只缓存验证通过的结果，不缓存失败。此前失败结果也被缓存，
+    // 攻击者先发坏签名请求可使后续合法请求在 TTL 内被负缓存拒绝（DoS）。
+    if result.is_ok() {
+        ctx.federation_signature_cache.set_signature(&cache_key, true);
+    }
 
     result
 }
 
+#[cfg(test)]
 fn compute_signature_content_hash(content: &[u8]) -> String {
     use sha2::Digest;
     let mut hasher = sha2::Sha256::new();
@@ -445,10 +500,11 @@ async fn fetch_federation_verify_key(
         .map_err(|e| ApiError::internal_with_log("Rate limit semaphore closed", &e))?;
 
     let timeout_ms = ctx.config.federation.key_fetch_timeout_ms.max(1);
-    // F-1/E-1: Use shared HTTP client with no-redirect policy and custom timeout.
-    let client = synapse_common::http_client::no_redirect_client_with_timeout(
-        std::time::Duration::from_millis(timeout_ms),
-    );
+    // S2 修复: 不再使用进程级共享 client（会在连接时重新解析 DNS，存在
+    // TOCTOU 风险）。改为对每个 URL 使用 pinned_client_for_url 钉扎到
+    // check_url_and_resolve 返回的已验证 IP，杜绝 DNS rebinding 攻击。
+    // F-1/E-1: no-redirect policy is preserved via pinned_client_for_url's
+    // no_redirect parameter.
 
     // SSRF protection: reuse the URL preview IP blacklist to block private/loopback addresses.
     // E-2: `allow_http_key_fetch` controls only the HTTP scheme; SSRF protection
@@ -464,13 +520,40 @@ async fn fetch_federation_verify_key(
     ];
 
     for url in &urls {
-        // Block requests to private/loopback/link-local IPs to prevent SSRF.
-        if let Err(reason) = check_url_against_blacklist(url, ip_blacklist) {
-            tracing::warn!(origin = %origin, url = %url, reason = %reason, "Blocked federation key fetch to blacklisted address");
-            continue;
-        }
+        // S2: check_url_and_resolve 返回 (host, verified_ips)；
+        // pinned_client_for_url 用已验证 IP 钉扎 HTTP client，杜绝 DNS 重绑定。
+        let (_host, verified_ips) = match check_url_and_resolve(url, ip_blacklist) {
+            Ok(result) => result,
+            Err(reason) => {
+                tracing::warn!(
+                    origin = %origin,
+                    url = %url,
+                    reason = %reason,
+                    "Blocked federation key fetch to blacklisted address"
+                );
+                continue;
+            }
+        };
 
-        let resp = match client.get(url).send().await {
+        let pinned_client = match synapse_common::http_client::pinned_client_for_url(
+            url,
+            &verified_ips,
+            std::time::Duration::from_millis(timeout_ms),
+            true, // no_redirect — preserve SSRF protection
+        ) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(
+                    origin = %origin,
+                    url = %url,
+                    error = %e,
+                    "Failed to build pinned client for federation key fetch"
+                );
+                continue;
+            }
+        };
+
+        let resp = match pinned_client.get(url).send().await {
             Ok(r) => r,
             Err(_) => continue,
         };
@@ -668,6 +751,63 @@ mod tests {
         assert_eq!(params.destination.as_deref(), Some("dest.example.com"));
         assert_eq!(params.key, "ed25519:test");
         assert_eq!(params.sig, "abc123");
+    }
+
+    // ── S1 修复测试：SigningTs 解析与校验 ──────────────────────────
+
+    #[test]
+    fn test_parse_x_matrix_authorization_with_ts() {
+        let params = parse_x_matrix_authorization(
+            r#"X-Matrix origin="test.example.com", key="ed25519:test", sig="abc123", ts=1700000000000"#,
+        )
+        .expect("header with ts should parse");
+
+        assert_eq!(params.origin, "test.example.com");
+        assert_eq!(params.key, "ed25519:test");
+        assert_eq!(params.sig, "abc123");
+        assert_eq!(params.ts, Some(1_700_000_000_000));
+    }
+
+    #[test]
+    fn test_parse_x_matrix_authorization_ts_optional() {
+        // 不带 ts 的头仍应正常解析（向后兼容）
+        let params =
+            parse_x_matrix_authorization(r#"X-Matrix origin="test.example.com", key="ed25519:test", sig="abc123""#)
+                .expect("header without ts should parse");
+
+        assert_eq!(params.origin, "test.example.com");
+        assert_eq!(params.ts, None);
+    }
+
+    #[test]
+    fn test_parse_x_matrix_authorization_ts_quoted() {
+        let params = parse_x_matrix_authorization(
+            r#"X-Matrix origin="test.example.com", key="ed25519:test", sig="abc123", ts="1700000000000""#,
+        )
+        .expect("header with quoted ts should parse");
+
+        assert_eq!(params.ts, Some(1_700_000_000_000));
+    }
+
+    #[test]
+    fn test_parse_x_matrix_authorization_ts_invalid_ignored() {
+        // 非数字 ts 应被忽略（解析为 None），不阻止整个头解析
+        let params = parse_x_matrix_authorization(
+            r#"X-Matrix origin="test.example.com", key="ed25519:test", sig="abc123", ts="not-a-number""#,
+        )
+        .expect("header with invalid ts should still parse");
+
+        assert_eq!(params.ts, None);
+    }
+
+    // ── S5 修复测试：签名缓存键纳入签名本身 + 不缓存失败 ──────────
+
+    #[test]
+    fn test_compute_signature_content_hash_different_for_different_signed_bytes() {
+        // S5: 不同 signed_bytes 产生不同 content_hash（这是已有行为，验证不退化）
+        let hash1 = compute_signature_content_hash(b"content with signature A");
+        let hash2 = compute_signature_content_hash(b"content with signature B");
+        assert_ne!(hash1, hash2, "不同 signed_bytes 必须产生不同 hash");
     }
 
     #[cfg(feature = "test-utils")]

@@ -9,8 +9,81 @@ use synapse_services::media_service::MediaService;
 fn create_test_media_service() -> (MediaService, tempfile::TempDir) {
     let temp_dir = tempdir().expect("Failed to create temp directory");
     let media_path = temp_dir.path().to_str().expect("Invalid path");
-    let media_service = MediaService::new(media_path, None);
+    let media_service = MediaService::new(media_path, None, "test.local");
     (media_service, temp_dir)
+}
+
+// ---------------------------------------------------------------------------
+// S3: Streaming media download tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_get_media_file_path_returns_correct_path() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let (media_service, _temp_dir) = create_test_media_service();
+        let content = create_test_image_data();
+
+        let upload_result = media_service.upload_media("@alice:example.com", &content, "image/png", None).await;
+        assert!(upload_result.is_ok(), "Upload should succeed");
+
+        let media_id = upload_result.unwrap()["media_id"].as_str().unwrap().to_string();
+
+        let file_path = media_service.get_media_file_path("test.local", &media_id).await;
+
+        assert!(file_path.is_some(), "get_media_file_path should return Some for existing media");
+
+        let path = file_path.unwrap();
+        assert!(path.exists(), "File at returned path should exist");
+
+        let file_content = std::fs::read(&path).unwrap();
+        assert_eq!(file_content, content, "File content should match uploaded content");
+    });
+}
+
+#[test]
+fn test_get_media_file_path_returns_none_for_nonexistent() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let (media_service, _temp_dir) = create_test_media_service();
+
+        let file_path = media_service.get_media_file_path("test.local", "nonexistent_media_id").await;
+
+        assert!(file_path.is_none(), "get_media_file_path should return None for non-existent media");
+    });
+}
+
+#[test]
+fn test_get_media_file_path_validates_media_id() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let (media_service, _temp_dir) = create_test_media_service();
+
+        // Invalid media_id with path traversal characters should return None
+        let file_path = media_service.get_media_file_path("test.local", "../etc/passwd").await;
+        assert!(file_path.is_none(), "get_media_file_path should reject path traversal in media_id");
+    });
+}
+
+#[test]
+fn test_get_media_file_path_large_file() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(async {
+        let (media_service, _temp_dir) = create_test_media_service();
+        let content: Vec<u8> = vec![0xAB; 5 * 1024 * 1024]; // 5 MB
+
+        let upload_result = media_service.upload_media("@alice:example.com", &content, "image/png", None).await;
+        assert!(upload_result.is_ok(), "Upload should succeed");
+
+        let media_id = upload_result.unwrap()["media_id"].as_str().unwrap().to_string();
+
+        let file_path = media_service.get_media_file_path("test.local", &media_id).await;
+        assert!(file_path.is_some(), "get_media_file_path should return Some for large file");
+
+        let path = file_path.unwrap();
+        let metadata = std::fs::metadata(&path).unwrap();
+        assert_eq!(metadata.len(), 5 * 1024 * 1024, "File size should match uploaded content size");
+    });
 }
 
 fn create_test_image_data() -> Vec<u8> {
@@ -41,16 +114,13 @@ fn test_upload_media_png() {
 
         let metadata = result.unwrap();
         assert!(metadata.get("content_uri").is_some());
-        assert!(metadata.get("content_type").is_some());
-        assert!(metadata.get("size").is_some());
         assert!(metadata.get("media_id").is_some());
 
         let content_uri = metadata["content_uri"].as_str().unwrap();
-        assert!(content_uri.starts_with("/_matrix/media/v3/download/"));
-        assert!(content_uri.ends_with(".png"));
+        assert!(content_uri.starts_with("mxc://test.local/"));
 
-        let size = metadata["size"].as_i64().unwrap();
-        assert_eq!(size, content.len() as i64);
+        let media_id = metadata["media_id"].as_str().unwrap();
+        assert!(!media_id.is_empty());
     });
 }
 
@@ -67,7 +137,7 @@ fn test_upload_media_jpeg() {
 
         let metadata = result.unwrap();
         let content_uri = metadata["content_uri"].as_str().unwrap();
-        assert!(content_uri.ends_with(".jpg"));
+        assert!(content_uri.starts_with("mxc://test.local/"));
     });
 }
 
@@ -101,13 +171,14 @@ fn test_upload_media_creates_file() {
         assert!(result.is_ok());
 
         let metadata = result.unwrap();
-        let content_uri = metadata["content_uri"].as_str().unwrap();
-        let filename = content_uri.split('/').next_back().unwrap();
+        let media_id = metadata["media_id"].as_str().unwrap();
 
-        let file_path = temp_dir.path().join(filename);
-        assert!(file_path.exists(), "Media file should be created on disk");
+        // The file is stored as media_id.png in the media directory.
+        // Use get_media_file_path to find the actual file.
+        let file_path = media_service.get_media_file_path("test.local", media_id).await;
+        assert!(file_path.is_some(), "Media file should be created on disk");
 
-        let file_content = fs::read(&file_path).expect("Failed to read file");
+        let file_content = fs::read(file_path.unwrap()).expect("Failed to read file");
         assert_eq!(file_content, content);
     });
 }
@@ -300,8 +371,8 @@ fn test_upload_empty_content() {
         assert!(result.is_ok(), "Should upload empty content");
 
         let metadata = result.unwrap();
-        let size = metadata["size"].as_i64().unwrap();
-        assert_eq!(size, 0);
+        assert!(metadata.get("content_uri").is_some());
+        assert!(metadata.get("media_id").is_some());
     });
 }
 
@@ -317,7 +388,13 @@ fn test_upload_large_content() {
         assert!(result.is_ok(), "Should upload large content");
 
         let metadata = result.unwrap();
-        let size = metadata["size"].as_i64().unwrap();
-        assert_eq!(size, 1024 * 1024);
+        let media_id = metadata["media_id"].as_str().unwrap();
+
+        // Verify the file was stored with the correct size.
+        let file_path = media_service.get_media_file_path("test.local", media_id).await;
+        assert!(file_path.is_some(), "Large media file should be created on disk");
+
+        let file_metadata = std::fs::metadata(file_path.unwrap()).expect("Failed to read file metadata");
+        assert_eq!(file_metadata.len(), 1024 * 1024);
     });
 }

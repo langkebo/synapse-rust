@@ -1,5 +1,6 @@
 use super::AuthService;
 use super::ADMIN_CACHE_TTL_SECS;
+use super::REVOCATION_CHECK_CACHE_TTL_SECS;
 use super::TOKEN_CACHE_TTL_SECS;
 use super::USER_ACTIVE_CACHE_TTL_SECS;
 use chrono::{Duration, Utc};
@@ -43,24 +44,37 @@ impl AuthService {
             }
         }
 
-        if self
-            .token_storage
-            .is_in_blacklist(token)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check token blacklist", &e))?
-        {
-            ::tracing::debug!(target: "token_validation", "Token found in blacklist");
-            return Err(ApiError::unauthorized("Token has been revoked".to_string()));
-        }
+        // S4 修复：撤销/黑名单状态短 TTL 缓存。此前每个认证请求都在此固定
+        // 执行 2 次串行 DB 查询（is_in_blacklist + is_token_revoked），挂在
+        // 全站最热路径（sync、发消息等所有 C-S 调用）上。撤销状态变更频率
+        // 远低于请求频率：DB 检查通过后写入 `token:revocation_ok:{hash}`
+        // 标记（TTL 30s），命中即跳过 DB；所有撤销写入路径（logout /
+        // logout_all / change_password / deactivate_user / revoke_device(s)）
+        // 主动删除对应标记保证即时生效，TTL 作为异常路径的兜底上限。
+        // 注意：拒绝结果（已撤销/已拉黑）不缓存，避免负缓存放大。
+        let revocation_ok_key = Self::revocation_ok_key(token);
+        if self.cache.get_raw(&revocation_ok_key).is_none() {
+            if self
+                .token_storage
+                .is_in_blacklist(token)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to check token blacklist", &e))?
+            {
+                ::tracing::debug!(target: "token_validation", "Token found in blacklist");
+                return Err(ApiError::unauthorized("Token has been revoked".to_string()));
+            }
 
-        if self
-            .token_storage
-            .is_token_revoked(token)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check token status", &e))?
-        {
-            ::tracing::debug!(target: "token_validation", "Token has been revoked in database");
-            return Err(ApiError::unauthorized("Token has been revoked".to_string()));
+            if self
+                .token_storage
+                .is_token_revoked(token)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to check token status", &e))?
+            {
+                ::tracing::debug!(target: "token_validation", "Token has been revoked in database");
+                return Err(ApiError::unauthorized("Token has been revoked".to_string()));
+            }
+
+            self.cache.set_raw(&revocation_ok_key, "1", REVOCATION_CHECK_CACHE_TTL_SECS).await;
         }
 
         let claims = self.decode_token(token).map_err(|e| {
@@ -278,6 +292,42 @@ impl AuthService {
         synapse_common::crypto::hash_token_legacy(token)
     }
 
+    /// S4：撤销检查缓存键（按 token 哈希，避免在缓存键中暴露原始 token）。
+    pub(crate) fn revocation_ok_key(token: &str) -> String {
+        Self::revocation_ok_key_for_hash(&Self::hash_token(token))
+    }
+
+    pub(crate) fn revocation_ok_key_for_hash(token_hash: &str) -> String {
+        format!("token:revocation_ok:{token_hash}")
+    }
+
+    /// S4：单 token 撤销（logout）后调用，立即失效其撤销检查标记。
+    pub(crate) async fn invalidate_revocation_ok_by_hash(&self, token_hash: &str) {
+        self.cache.delete(&Self::revocation_ok_key_for_hash(token_hash)).await;
+    }
+
+    /// S4：用户级撤销（logout_all / change_password / deactivate_user /
+    /// revoke_device(s)）后调用，清除该用户全部 access token 的撤销检查标记。
+    /// 枚举失败不阻断主流程——标记在 TTL（30s）内自然过期兜底。
+    pub(crate) async fn invalidate_revocation_ok_for_user(&self, user_id: &str) {
+        match self.token_storage.get_user_tokens(user_id).await {
+            Ok(tokens) => {
+                for token in tokens {
+                    self.invalidate_revocation_ok_by_hash(&token.token_hash).await;
+                }
+            }
+            Err(e) => {
+                ::tracing::warn!(
+                    target: "security_audit",
+                    event = "revocation_cache_invalidation_failed",
+                    user_id = %user_id,
+                    error = %e,
+                    "Failed to enumerate tokens for revocation-cache invalidation; entries expire within TTL"
+                );
+            }
+        }
+    }
+
     pub(crate) fn decode_token(&self, token: &str) -> Result<super::Claims, jsonwebtoken::errors::Error> {
         let mut validation = Validation::new(Algorithm::HS256);
         validation.leeway = 5;
@@ -288,5 +338,82 @@ impl AuthService {
         validation.set_issuer(&[&self.server_name]);
         validation.set_audience(&[&self.server_name]);
         jsonwebtoken::decode(token, &DecodingKey::from_secret(&self.jwt_secret), &validation).map(|e| e.claims)
+    }
+}
+
+#[cfg(test)]
+mod s4_revocation_cache_tests {
+    //! S4 修复的 TDD 测试：令牌撤销/黑名单检查结果的短 TTL 缓存。
+    //!
+    //! 背景：此前 `validate_token` 在任何缓存判断之前，对每个认证请求固定
+    //! 执行 2 次串行 DB 查询（is_in_blacklist + is_token_revoked），挂在全站
+    //! 最热路径上。修复后：DB 检查通过的结果写入 `token:revocation_ok:{hash}`
+    //! 标记（短 TTL），命中即跳过 DB；所有撤销写入路径主动失效标记。
+
+    use super::super::test_harness::build_test_auth_service;
+    use synapse_storage::token::AccessTokenStoreApi;
+
+    #[tokio::test]
+    async fn revocation_checks_are_cached_after_first_db_pass() {
+        let h = build_test_auth_service();
+        let token = h.service.generate_access_token("@alice:example.com", "DEV1", false).await.unwrap();
+
+        // 首次校验：走 DB 检查，通过后写入撤销检查标记。
+        h.service.validate_token(&token).await.unwrap();
+        let key = super::AuthService::revocation_ok_key(&token);
+        assert!(h.cache.get_raw(&key).is_some(), "S4: 首次校验通过后必须写入撤销检查标记");
+
+        // 绕过 logout 直接在 mock 存储中拉黑（无失效钩子）。
+        // 若实现仍每次查库，本次校验必然失败；命中缓存则通过——证明 DB 检查被跳过。
+        h.token_store.add_to_blacklist(&token, "@alice:example.com", None).await.unwrap();
+        h.service
+            .validate_token(&token)
+            .await
+            .unwrap_or_else(|e| panic!("S4: 标记命中时应跳过 DB 撤销检查，却得到错误: {e:?}"));
+    }
+
+    #[tokio::test]
+    async fn logout_invalidates_revocation_cache_immediately() {
+        let h = build_test_auth_service();
+        let token = h.service.generate_access_token("@alice:example.com", "DEV1", false).await.unwrap();
+        h.service.validate_token(&token).await.unwrap();
+        assert!(h.cache.get_raw(&super::AuthService::revocation_ok_key(&token)).is_some());
+
+        h.service.logout(&token, None).await.unwrap();
+
+        assert!(
+            h.cache.get_raw(&super::AuthService::revocation_ok_key(&token)).is_none(),
+            "S4: logout 后撤销检查标记必须立即失效"
+        );
+        let result = h.service.validate_token(&token).await;
+        assert!(result.is_err(), "logout 后 token 必须立即失效，却因缓存残留而通过");
+    }
+
+    #[tokio::test]
+    async fn logout_all_invalidates_revocation_cache_for_all_user_tokens() {
+        let h = build_test_auth_service();
+        let token_a = h.service.generate_access_token("@alice:example.com", "DEV-A", false).await.unwrap();
+        let token_b = h.service.generate_access_token("@alice:example.com", "DEV-B", false).await.unwrap();
+        h.service.validate_token(&token_a).await.unwrap();
+        h.service.validate_token(&token_b).await.unwrap();
+
+        h.service.logout_all("@alice:example.com").await.unwrap();
+
+        assert!(h.service.validate_token(&token_a).await.is_err(), "logout_all 后 token_a 必须失效");
+        assert!(h.service.validate_token(&token_b).await.is_err(), "logout_all 后 token_b 必须失效");
+    }
+
+    #[tokio::test]
+    async fn blacklisted_token_rejected_and_no_marker_written() {
+        let h = build_test_auth_service();
+        let token = h.service.generate_access_token("@alice:example.com", "DEV1", false).await.unwrap();
+        h.token_store.add_to_blacklist(&token, "@alice:example.com", None).await.unwrap();
+
+        let result = h.service.validate_token(&token).await;
+        assert!(result.is_err(), "已拉黑的 token 必须被拒绝");
+        assert!(
+            h.cache.get_raw(&super::AuthService::revocation_ok_key(&token)).is_none(),
+            "S4: 被撤销的 token 不得写入撤销检查标记（负结果不缓存）"
+        );
     }
 }

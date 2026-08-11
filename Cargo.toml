@@ -68,6 +68,7 @@ openapi-docs = ["dep:utoipa", "dep:utoipa-swagger-ui"]
 
 [dependencies]
 tokio = { version = "1.49", features = ["full", "test-util"] }
+tokio-util = { version = "0.7", features = ["io"] }
 async-trait = "0.1"
 
 axum = { version = "0.8", optional = true, features = ["macros"] }
@@ -120,7 +121,7 @@ regex = "1.10"
 url = "2.5"
 urlencoding = "2.1"
 
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 validator = { version = "0.20.0", features = ["derive"] }
 infer = "0.19.0"
 synapse-common = { path = "synapse-common" }

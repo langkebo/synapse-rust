@@ -67,6 +67,10 @@ impl AuthService {
             "Password changed; access and refresh tokens revoked"
         );
 
+        // S4: 同步失效该用户全部 token 的撤销检查标记，保证密码修改即时生效
+        // （except-device 变体会多失效当前设备一次，代价仅为一次额外 DB 检查）。
+        self.invalidate_revocation_ok_for_user(user_id).await;
+
         Ok(())
     }
 
@@ -99,6 +103,8 @@ impl AuthService {
 
         self.cache.delete(&format!("user:active:{user_id}")).await;
         self.cache.delete(&format!("user:admin:{user_id}")).await;
+        // S4: 同步失效该用户全部 token 的撤销检查标记，保证停用即时生效。
+        self.invalidate_revocation_ok_for_user(user_id).await;
 
         ::tracing::info!(
             target: "security_audit",
@@ -145,6 +151,10 @@ impl AuthService {
             device_id = device_id,
             "Device deleted; tokens revoked"
         );
+
+        // S4: 同步失效该用户全部 token 的撤销检查标记（按用户粒度失效，
+        // 代价仅为被保留设备下一次请求多一次 DB 检查）。
+        self.invalidate_revocation_ok_for_user(user_id).await;
 
         Ok(rows)
     }
@@ -198,6 +208,9 @@ impl AuthService {
             count = device_ids.len(),
             "Devices deleted; tokens revoked"
         );
+
+        // S4: 同步失效该用户全部 token 的撤销检查标记。
+        self.invalidate_revocation_ok_for_user(user_id).await;
 
         Ok(rows)
     }

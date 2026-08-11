@@ -72,11 +72,25 @@ allow = [
     "NCSA",
     "AGPL-3.0-only",
 ]
+# webpki-roots 是 Mozilla 根证书数据文件，采用 CDLA-Permissive-2.0
+# （社区数据许可-宽松版），仅用于 TLS 根证书分发，业界惯例按 crate 例外放行。
+# 2026-08-11 修复：此前该许可未在任何 allow/exception 中，导致
+# `cargo deny check licenses`（CI supply_chain_gate）失败。
+exceptions = [
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-roots" },
+]
 confidence-threshold = 0.8
 unused-allowed-license = "allow"
 
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# 注：.cargo/config.toml 将 crates.io 的下载层重定向到 rsproxy.cn 镜像以加速
+# （Cargo.lock 仍记录规范 crates.io 源，checksum 强制校验，镜像无法替换内容）。
+# 此处将镜像 URL 显式列入白名单，使来源策略与实际行为一致；
+# 如对镜像信任有顾虑，可移除 .cargo/config.toml 的 source 替换直连 crates.io。
+allow-registry = [
+    "https://github.com/rust-lang/crates.io-index",
+    "https://rsproxy.cn/index/",
+]
 allow-git = []

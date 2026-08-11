@@ -150,10 +150,33 @@ pub struct FederationConfig {
     #[serde(default = "default_event_broadcast_batch_size")]
     pub event_broadcast_batch_size: usize,
 
+    /// S1 修复：联邦请求签名时间戳（SigningTs）容差（毫秒），默认 86400000（24h）。
+    ///
+    /// X-Matrix Authorization 头中的 `ts` 参数指示请求签名时间。服务端拒绝
+    /// `|ts - now|` 超过此容差的请求，防止合法签名请求被无限重放。
+    /// 设为 0 则跳过校验（不推荐，仅用于测试）。
+    #[serde(default = "default_signing_ts_tolerance_ms")]
+    pub signing_ts_tolerance_ms: i64,
+
+    /// S1 修复：是否启用联邦重放保护（基于 ReplayProtectionCache）。
+    ///
+    /// 启用后，每个成功验签的请求的签名哈希被记入重放保护缓存，窗口内
+    /// 重复提交同一签名即被拒绝。默认 true。
+    #[serde(default = "default_replay_protection_enabled")]
+    pub replay_protection_enabled: bool,
+
     /// Per-origin federation rate limiting. When enabled, each remote server
     /// is rate-limited independently based on its authenticated `origin`.
     #[serde(default)]
     pub rate_limit: FederationRateLimitConfig,
+}
+
+fn default_signing_ts_tolerance_ms() -> i64 {
+    86_400_000 // 24h
+}
+
+fn default_replay_protection_enabled() -> bool {
+    true
 }
 
 /// Per-origin federation rate limit configuration.
@@ -187,7 +210,11 @@ impl Default for FederationRateLimitConfig {
 }
 
 fn default_federation_rate_limit_enabled() -> bool {
-    false
+    // S7 修复（2026-08-11）：联邦按源站限流默认开启。
+    // 此前默认 false，入站联邦（事件鉴权/状态决议/签名/写库）默认无节流，
+    // 易遭 DoS。per_second=50 / burst=200 已有合理默认；显式 "enabled": false
+    // 仍为合法配置（受信私有联邦场景）。
+    true
 }
 
 fn default_federation_rate_limit_per_second() -> u32 {
@@ -296,9 +323,24 @@ mod tests {
         // 缺字段（旧配置文件）→ 默认 fail-closed
         let config: FederationRateLimitConfig = serde_json::from_str("{}").unwrap();
         assert!(!config.fail_open_on_error);
-        assert!(!config.enabled);
+        // S7 修复：联邦按源站限流默认开启（此前默认关闭，入站联邦无节流，易遭 DoS）
+        assert!(config.enabled, "S7: 联邦按源站限流必须默认开启");
         assert_eq!(config.per_second, 50);
         assert_eq!(config.burst_size, 200);
+    }
+
+    #[test]
+    fn federation_rate_limit_enabled_defaults_to_true() {
+        // S7 修复：默认开启，与客户端限流/背压体系对齐
+        let config = FederationRateLimitConfig::default();
+        assert!(config.enabled, "S7: 联邦按源站限流必须默认开启");
+    }
+
+    #[test]
+    fn federation_rate_limit_explicit_opt_out_still_supported() {
+        // 显式关闭仍是合法配置（如受信私有联邦），只是不再是默认值
+        let config: FederationRateLimitConfig = serde_json::from_str(r#"{"enabled": false}"#).unwrap();
+        assert!(!config.enabled);
     }
 
     #[test]

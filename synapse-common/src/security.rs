@@ -202,21 +202,47 @@ pub fn is_ip_in_blacklist(ip: &IpAddr, blacklist: &[String]) -> bool {
 }
 
 pub fn check_url_against_blacklist(url: &str, blacklist: &[String]) -> Result<(), String> {
-    let parsed = url::Url::parse(url).map_err(|e| format!("Invalid URL: {e}"))?;
-    let host = parsed.host_str().ok_or_else(|| format!("URL has no host: {url}"))?;
+    check_url_and_resolve(url, blacklist).map(|_| ())
+}
 
+/// S2 修复（SSRF DNS rebinding / TOCTOU）：解析主机并校验所有解析结果
+/// 不在黑名单中，返回**校验通过的 IP 列表**。调用方必须将返回的 IP 通过
+/// `http_client::pinned_client_for_url` 钉扎到 HTTP 客户端，确保"连接时
+/// 使用的地址 == 校验时的地址"，杜绝攻击者在校验与连接之间切换 DNS 记录。
+///
+/// 与旧行为的两处差异（均为安全收紧）：
+/// - 解析失败（DNS 错误/无记录）现在返回 Err（fail-closed），旧实现静默放行；
+/// - 返回解析结果而非丢弃，供钉扎复用。
+pub fn resolve_host_checked(host: &str, blacklist: &[String]) -> Result<Vec<IpAddr>, String> {
     if let Ok(ip) = host.parse::<IpAddr>() {
         if is_ip_in_blacklist(&ip, blacklist) {
             return Err(format!("IP {ip} is in blacklist"));
         }
-    } else if let Ok(addrs) = dns_lookup::lookup_host(host) {
-        for addr in addrs {
-            if is_ip_in_blacklist(&addr, blacklist) {
-                return Err(format!("Host {host} resolves to blacklisted IP {addr}"));
-            }
-        }
+        return Ok(vec![ip]);
     }
-    Ok(())
+    match dns_lookup::lookup_host(host) {
+        Ok(addrs) => {
+            let addrs: Vec<IpAddr> = addrs.collect();
+            if addrs.is_empty() {
+                return Err(format!("Host {host} resolved to no addresses"));
+            }
+            for addr in &addrs {
+                if is_ip_in_blacklist(addr, blacklist) {
+                    return Err(format!("Host {host} resolves to blacklisted IP {addr}"));
+                }
+            }
+            Ok(addrs)
+        }
+        Err(e) => Err(format!("Failed to resolve host {host}: {e}")),
+    }
+}
+
+/// S2 修复：校验 URL 并返回 (host, 已验证 IP 列表)，供调用方做 IP 钉扎。
+pub fn check_url_and_resolve(url: &str, blacklist: &[String]) -> Result<(String, Vec<IpAddr>), String> {
+    let parsed = url::Url::parse(url).map_err(|e| format!("Invalid URL: {e}"))?;
+    let host = parsed.host_str().ok_or_else(|| format!("URL has no host: {url}"))?;
+    let ips = resolve_host_checked(host, blacklist)?;
+    Ok((host.to_string(), ips))
 }
 
 #[cfg(test)]
@@ -589,5 +615,137 @@ mod tests {
         assert!(result.is_err());
         let err_msg = result.unwrap_err();
         assert!(err_msg.contains("blacklist"));
+    }
+
+    // ------------------------------------------------------------------
+    // S2 修复（DNS rebinding / TOCTOU）：解析与校验必须返回已验证 IP 列表，
+    // 供 HTTP 客户端钉扎，杜绝"检查时解析 ≠ 连接时解析"。
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_resolve_host_checked_ip_literal_allowed_returns_ip() {
+        let blacklist = vec!["10.0.0.0/8".to_string(), "127.0.0.0/8".to_string()];
+        let ips = resolve_host_checked("8.8.8.8", &blacklist).expect("public IP literal must pass");
+        assert_eq!(ips, vec!["8.8.8.8".parse::<IpAddr>().unwrap()]);
+    }
+
+    #[test]
+    fn test_resolve_host_checked_ip_literal_blacklisted_rejected() {
+        let blacklist = vec!["127.0.0.0/8".to_string()];
+        let result = resolve_host_checked("127.0.0.1", &blacklist);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("blacklist"));
+    }
+
+    #[test]
+    fn test_resolve_host_checked_localhost_rejected_by_loopback_blacklist() {
+        // localhost 经 /etc/hosts 解析为 127.0.0.1，无需外部网络。
+        let blacklist = vec!["127.0.0.0/8".to_string()];
+        let result = resolve_host_checked("localhost", &blacklist);
+        assert!(result.is_err(), "localhost 解析到回环地址必须被黑名单拒绝");
+    }
+
+    #[test]
+    fn test_resolve_host_checked_localhost_allowed_returns_loopback() {
+        // 空黑名单：localhost 解析成功且返回 127.0.0.1（供钉扎）。
+        let blacklist: Vec<String> = vec![];
+        let ips = resolve_host_checked("localhost", &blacklist).expect("localhost resolves via hosts file");
+        assert!(ips.contains(&"127.0.0.1".parse::<IpAddr>().unwrap()));
+    }
+
+    #[test]
+    fn test_check_url_and_resolve_returns_host_and_pinned_ips() {
+        let blacklist = vec!["10.0.0.0/8".to_string()];
+        let (host, ips) =
+            check_url_and_resolve("https://8.8.8.8/_matrix/key/v2/server", &blacklist).expect("must pass");
+        assert_eq!(host, "8.8.8.8");
+        assert_eq!(ips.len(), 1);
+    }
+
+    #[test]
+    fn test_check_url_and_resolve_rejects_blacklisted_host() {
+        let blacklist = vec!["127.0.0.0/8".to_string()];
+        assert!(check_url_and_resolve("http://127.0.0.1:8080/admin", &blacklist).is_err());
+        assert!(check_url_and_resolve("http://localhost/internal", &blacklist).is_err());
+    }
+
+    #[test]
+    fn test_check_url_and_resolve_rejects_invalid_url() {
+        let blacklist: Vec<String> = vec![];
+        assert!(check_url_and_resolve("not-a-url", &blacklist).is_err());
+    }
+
+    // ── S2 TOCTOU 防护集成测试 ──────────────────────────────────────
+    // 验证 check_url_and_resolve → pinned_client_for_url 的完整流程：
+    // 解析阶段返回的已验证 IP 列表必须直接传入钉扎 client，杜绝
+    // "检查时 DNS 解析 ≠ 连接时 DNS 解析" 的 TOCTOU 窗口。
+
+    #[test]
+    fn test_s2_toctou_protection_ip_literal_flow() {
+        // 完整流程：IP 字面量 URL → check_url_and_resolve → pinned_client_for_url
+        // 此流程确保解析和连接使用同一 IP，不存在 DNS 重绑定窗口。
+        let blacklist = vec!["10.0.0.0/8".to_string(), "127.0.0.0/8".to_string()];
+        let url = "https://8.8.8.8/_matrix/key/v2/server";
+
+        // Step 1: 解析并校验
+        let (host, verified_ips) = check_url_and_resolve(url, &blacklist).expect("must resolve");
+
+        // Step 2: 钉扎 client 使用已验证 IP（不再 DNS 解析）
+        let client = crate::http_client::pinned_client_for_url(
+            url,
+            &verified_ips,
+            std::time::Duration::from_secs(10),
+            true,
+        )
+        .expect("pinned client must construct with verified IPs");
+
+        // 验证：host 和 IP 一致（IP 字面量场景）
+        assert_eq!(host, "8.8.8.8");
+        assert_eq!(verified_ips.len(), 1);
+        let _ = format!("{:?}", client); // client 构造成功即满足钉扎契约
+    }
+
+    #[test]
+    fn test_s2_toctou_protection_localhost_blocked_in_flow() {
+        // 黑名单包含回环地址时，localhost 的完整流程必须在解析阶段被拦截，
+        // 不会到达 pinned_client_for_url（即不会发起任何连接）。
+        let blacklist = vec!["127.0.0.0/8".to_string()];
+        let url = "https://localhost/_matrix/key/v2/server";
+
+        let result = check_url_and_resolve(url, &blacklist);
+        assert!(result.is_err(), "localhost 必须在解析阶段被黑名单拦截");
+        // 如果 result 是 Err，调用方不会进入 pinned_client_for_url，
+        // TOCTOU 窗口不存在。
+    }
+
+    #[test]
+    fn test_s2_toctou_protection_multiple_ips_all_pass_blacklist() {
+        // 多 IP 解析：check_url_and_resolve 返回的每个 IP 都通过了黑名单校验。
+        // 使用 IP 字面量模拟多 IP 场景（实际 DNS 解析返回多个 A 记录时同理）。
+        let blacklist = vec!["10.0.0.0/8".to_string()];
+
+        // 8.8.8.8 是公共 DNS，不在 10.0.0.0/8 黑名单中
+        let (host, ips) =
+            check_url_and_resolve("https://8.8.8.8/_matrix/key/v2/server", &blacklist).expect("must pass");
+
+        assert_eq!(host, "8.8.8.8");
+        assert!(!ips.is_empty(), "必须返回至少一个已验证 IP");
+
+        // 所有返回的 IP 都不应在黑名单中
+        for ip in &ips {
+            assert!(!is_ip_in_blacklist(ip, &blacklist), "已验证 IP 不应在黑名单中");
+        }
+    }
+
+    #[test]
+    fn test_s2_toctou_protection_skip_ssrf_returns_empty_blacklist() {
+        // skip_ssrf_check=true 时使用空黑名单，所有 IP 通过校验。
+        // 这模拟开发/测试环境跳过 SSRF 检查的场景。
+        let empty_blacklist: Vec<String> = vec![];
+        let (host, ips) =
+            check_url_and_resolve("https://8.8.8.8/_matrix/key/v2/server", &empty_blacklist).expect("must pass");
+
+        assert_eq!(host, "8.8.8.8");
+        assert!(!ips.is_empty());
     }
 }

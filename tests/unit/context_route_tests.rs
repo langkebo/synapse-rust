@@ -401,6 +401,7 @@ fn test_federation_context_public_fields_are_accessible() {
         let _ = &ctx.media_service;
         let _ = &ctx.account_data_service;
         let _ = &ctx.federation_signature_cache;
+        let _ = &ctx.replay_protection_cache;
         let _ = &ctx.federation_key_fetch_general_semaphore;
         let _ = &ctx.federation_key_fetch_priority_semaphore;
         let _ = &ctx.admin_federation_service;

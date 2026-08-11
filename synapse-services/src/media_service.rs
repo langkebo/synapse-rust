@@ -364,6 +364,21 @@ impl MediaService {
         .unwrap_or(None)
     }
 
+    /// Returns the file system path for a media item **without** reading the
+    /// file content into memory.  This is the streaming-friendly alternative
+    /// to [`get_media`]; the caller can open the returned path with
+    /// `tokio::fs::File::open` and stream it via `ReaderStream`.
+    ///
+    /// Returns `None` if the media_id fails validation or no matching file is
+    /// found on disk.
+    pub async fn get_media_file_path(&self, _server_name: &str, media_id: &str) -> Option<std::path::PathBuf> {
+        if Self::validate_media_id(media_id).is_err() {
+            return None;
+        }
+        let file_name = self.find_media_file_name(media_id).await.ok().flatten()?;
+        Some(self.media_path.join(file_name))
+    }
+
     pub async fn download_media(&self, _server_name: &str, media_id: &str) -> Result<Vec<u8>, ApiError> {
         Self::validate_media_id(media_id)?;
         self.get_media(_server_name, media_id).await.ok_or(ApiError::not_found("Media not found".to_string()))

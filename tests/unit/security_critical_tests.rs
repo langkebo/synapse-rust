@@ -307,36 +307,13 @@ fn test_revoked_token_always_rejected() {
     assert!(is_revoked, "Revoked token must be rejected even if not expired");
 }
 
-#[test]
-fn test_power_level_boundary_exact_threshold() {
-    let power_levels = json!({"ban": 50});
-
-    let ban_threshold = power_levels.get("ban").and_then(|v| v.as_i64()).unwrap_or(50);
-
-    let user_at_threshold: i64 = 50;
-    let user_below_threshold: i64 = 49;
-    let user_above_threshold: i64 = 51;
-
-    assert!(user_at_threshold >= ban_threshold, "User at exact threshold should be allowed");
-    assert!(user_below_threshold < ban_threshold, "User below threshold should be blocked");
-    assert!(user_above_threshold > ban_threshold, "User above threshold should be allowed");
-}
-
-#[test]
-fn test_kick_cannot_target_higher_power_user() {
-    let actor_power: i64 = 50;
-    let target_power: i64 = 75;
-
-    assert!(actor_power <= target_power, "User with power 50 should NOT be able to kick user with power 75");
-}
-
-#[test]
-fn test_ban_cannot_target_room_creator() {
-    let creator_user_id = "@creator:example.com";
-    let target_user_id = creator_user_id;
-
-    assert_eq!(target_user_id, creator_user_id, "Room creator should be protected from ban");
-}
+// T1 修复：以下三个假测试（test_power_level_boundary_exact_threshold、
+// test_kick_cannot_target_higher_power_user、test_ban_cannot_target_room_creator）
+// 已删除。它们仅内联重算整数比较（如 `let actor_power = 50; let target_power = 75;
+// assert!(actor_power <= target_power)`），从不调用真实服务，断言方向也与真实踢人
+// 语义不等价。真实测试已迁移至 `synapse-services/src/auth/power_levels.rs::tests`，
+// 共 25 项测试通过内存 mock（InMemoryMemberStore / InMemoryEventStore）构造房间状态，
+// 覆盖全部 13 个授权判定函数的放行/拒绝路径。
 
 #[test]
 fn test_key_rotation_endpoints_admin_only() {

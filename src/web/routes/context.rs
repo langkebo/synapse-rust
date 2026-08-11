@@ -547,6 +547,8 @@ pub struct FederationContext {
     pub media_service: synapse_services::media_service::MediaService,
     pub account_data_service: Arc<synapse_services::account_data_service::AccountDataService>,
     pub federation_signature_cache: Arc<FederationSignatureCache>,
+    /// S1 修复：联邦重放保护缓存。
+    pub replay_protection_cache: Arc<synapse_common::security::ReplayProtectionCache>,
     pub federation_key_fetch_general_semaphore: Arc<Semaphore>,
     pub federation_key_fetch_priority_semaphore: Arc<Semaphore>,
     pub admin_federation_service: Arc<synapse_services::admin_federation_service::AdminFederationService>,
@@ -588,6 +590,7 @@ impl FromRef<AppState> for FederationContext {
             media_service: state.services.core.media_service.clone(),
             account_data_service: state.services.core.account_data_service.clone(),
             federation_signature_cache: state.federation_signature_cache.clone(),
+            replay_protection_cache: state.replay_protection_cache.clone(),
             federation_key_fetch_general_semaphore: state.federation_key_fetch_general_semaphore.clone(),
             federation_key_fetch_priority_semaphore: state.federation_key_fetch_priority_semaphore.clone(),
             admin_federation_service: state.services.admin.federation.admin_federation_service.clone(),

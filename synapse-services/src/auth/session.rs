@@ -23,6 +23,8 @@ impl AuthService {
         // always hit the blacklist/revoked checks in the DB. This also frees the
         // cache memory and keeps the cache consistent with the DB state.
         self.cache.delete_token(access_token).await;
+        // S4: 同步失效撤销检查标记，保证 logout 即时生效（不等 TTL）。
+        self.invalidate_revocation_ok_by_hash(&Self::hash_token(access_token)).await;
 
         if let Some(d_id) = device_id {
             self.token_storage
@@ -75,6 +77,10 @@ impl AuthService {
                 );
             }
         }
+
+        // S4: 在删除 token 之前失效撤销检查标记，因为 invalidate_revocation_ok_for_user
+        // 需要枚举用户 token 来计算哈希键。删除后枚举返回空集，标记会残留至 TTL 过期。
+        self.invalidate_revocation_ok_for_user(user_id).await;
 
         self.token_storage
             .delete_user_tokens(user_id)

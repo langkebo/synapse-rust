@@ -15,11 +15,11 @@ registry = "sparse+https://rsproxy.cn/index/"
 [net]
 git-fetch-with-cli = true
 
-[profile.release]
-# 优化编译速度和内存使用
-opt-level = 2
-lto = "thin"
-codegen-units = 4
+# 2026-08-11: 移除此处的 [profile.release] 覆盖段（opt-level=2 / lto=thin /
+# codegen-units=4）。它会静默降级根 Cargo.toml 声明的 release 配置
+# （opt-level=3 / lto=true / codegen-units=1 / panic=abort / strip=true），
+# 导致发布产物更慢更大。发布构建以根 Cargo.toml 为唯一真相源；
+# 若 CI 需要快速构建，请在 CI 中用显式 --profile 或环境变量控制。
 
 [profile.dev]
 incremental = true

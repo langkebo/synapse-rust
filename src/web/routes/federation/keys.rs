@@ -1,4 +1,4 @@
-use crate::common::check_url_against_blacklist;
+use crate::common::check_url_and_resolve;
 use crate::common::*;
 use crate::web::middleware::FederationRequestAuth;
 use crate::web::routes::context::FederationContext;
@@ -399,17 +399,17 @@ async fn fetch_remote_server_keys_response(
         .map_err(|e| ApiError::internal_with_log("Federation key fetch semaphore closed", &e))?;
 
     let timeout_ms = ctx.config.federation.key_fetch_timeout_ms.max(1);
-    // E-1: 复用进程级共享 client（按 timeout 缓存、禁止重定向以保留 SSRF 防护、
-    // 带连接池），不再每次请求新建。
+    // S2 修复: 不再使用进程级共享 client（会在连接时重新解析 DNS，存在
+    // TOCTOU 风险）。改为对每个 URL 使用 pinned_client_for_url 钉扎到
+    // check_url_and_resolve 返回的已验证 IP。
     // TODO(E-1): 此处密钥抓取逻辑与 synapse-federation/src/client.rs 的
     // `get_server_keys` 重复实现，后续应合一为单一实现。
-    let client = synapse_common::http_client::no_redirect_client_with_timeout(std::time::Duration::from_millis(
-        timeout_ms,
-    ));
 
     // SSRF protection: reuse the URL preview IP blacklist to block private/loopback addresses.
     // E-2: `allow_http_key_fetch` controls only the HTTP scheme; SSRF protection
     // is independently controlled by `skip_ssrf_check` (both default false).
+    // S2 修复: 使用 check_url_and_resolve 获取已验证 IP，通过 pinned_client_for_url
+    // 钉扎到已验证地址，杜绝 DNS rebinding TOCTOU 攻击。
     let allow_http = ctx.config.federation.allow_http_key_fetch;
     let skip_ssrf = ctx.config.federation.skip_ssrf_check;
     let ip_blacklist = if skip_ssrf { &[][..] } else { &ctx.config.url_preview.ip_range_blacklist };
@@ -421,13 +421,30 @@ async fn fetch_remote_server_keys_response(
     ];
 
     for url in &urls {
-        // Block requests to private/loopback/link-local IPs to prevent SSRF.
-        if let Err(reason) = check_url_against_blacklist(url, ip_blacklist) {
-            ::tracing::warn!(server_name = %server_name, url = %url, reason = %reason, "Blocked federation key fetch to blacklisted address");
-            continue;
-        }
+        // S2: check_url_and_resolve 返回 (host, verified_ips)；
+        // pinned_client_for_url 用已验证 IP 钉扎 HTTP client，杜绝 DNS 重绑定。
+        let (_host, verified_ips) = match check_url_and_resolve(url, ip_blacklist) {
+            Ok(result) => result,
+            Err(reason) => {
+                ::tracing::warn!(server_name = %server_name, url = %url, reason = %reason, "Blocked federation key fetch to blacklisted address");
+                continue;
+            }
+        };
 
-        let response = match client.get(url).send().await {
+        let pinned_client = match synapse_common::http_client::pinned_client_for_url(
+            url,
+            &verified_ips,
+            std::time::Duration::from_millis(timeout_ms),
+            true, // no_redirect — preserve SSRF protection
+        ) {
+            Ok(c) => c,
+            Err(e) => {
+                ::tracing::warn!(server_name = %server_name, url = %url, error = %e, "Failed to build pinned client for federation key fetch");
+                continue;
+            }
+        };
+
+        let response = match pinned_client.get(url).send().await {
             Ok(response) if response.status().is_success() => response,
             _ => continue,
         };

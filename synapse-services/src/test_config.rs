@@ -162,6 +162,8 @@ pub fn build_test_config() -> Config {
             signing_key_master_key: None,
             allow_plaintext_signing_keys: false,
             event_broadcast_batch_size: 100,
+            signing_ts_tolerance_ms: 86_400_000,
+            replay_protection_enabled: true,
             rate_limit: FederationRateLimitConfig::default(),
         },
         security: SecurityConfig {

@@ -135,13 +135,16 @@ async fn upload_keys(
         .or(auth_user.device_id.clone())
         .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
 
-    // Validate: reject completely empty uploads (no device_keys AND no one_time_keys)
-    // But allow individual fields to be empty objects — clients commonly send
-    // {"device_keys":{...}, "one_time_keys":{}} when only uploading device keys.
+    // Validate: reject completely empty uploads (no device_keys, no one_time_keys,
+    // AND no fallback_keys). But allow individual fields to be empty objects —
+    // clients commonly send {"device_keys":{...}, "one_time_keys":{}} when only
+    // uploading device keys, or {"fallback_keys":{...}} when only uploading
+    // fallback keys (ISSUE-02 regression test scenario).
     let has_device_keys = body.get("device_keys").is_some();
     let has_one_time_keys = body.get("one_time_keys").is_some();
+    let has_fallback_keys = body.get("fallback_keys").is_some();
 
-    if !has_device_keys && !has_one_time_keys {
+    if !has_device_keys && !has_one_time_keys && !has_fallback_keys {
         // P-050: Matrix spec makes the request body optional for
         // /keys/upload. An empty body ({}) should return 200 with the
         // current one_time_key_counts rather than 400 M_BAD_JSON.

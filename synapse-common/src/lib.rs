@@ -140,7 +140,8 @@ pub use room_versions::{
     resolve_room_version, RoomVersionCapability, RoomVersionDisposition, DEFAULT_ROOM_VERSION, SUPPORTED_ROOM_VERSIONS,
 };
 pub use security::{
-    check_url_against_blacklist, compute_signature_hash, is_ip_in_blacklist, ConstantTimeComparison,
+    check_url_against_blacklist, check_url_and_resolve, compute_signature_hash, is_ip_in_blacklist,
+    resolve_host_checked, ConstantTimeComparison,
     ReplayProtectionCache, ReplayProtectionConfig, ReplayProtectionStats, SecurityValidator,
 };
 #[cfg(test)]

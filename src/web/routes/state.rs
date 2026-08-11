@@ -1,6 +1,7 @@
 use crate::cache::{CacheManager, FederationSignatureCache, SignatureCacheConfig};
 use crate::common::health::{CacheHealthCheck, DatabaseHealthCheck, HealthChecker};
 use crate::common::{RateLimitConfigFile, RateLimitConfigManager, SyncRateLimitConfigFile};
+use synapse_common::security::{ReplayProtectionCache, ReplayProtectionConfig};
 use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_services::ServiceContainer;
@@ -12,6 +13,8 @@ pub struct AppState {
     pub cache: Arc<CacheManager>,
     pub health_checker: Arc<HealthChecker>,
     pub federation_signature_cache: Arc<FederationSignatureCache>,
+    /// S1 修复：联邦重放保护缓存，用于在时间窗口内去重已验签的请求签名。
+    pub replay_protection_cache: Arc<ReplayProtectionCache>,
     pub federation_key_fetch_priority_semaphore: Arc<Semaphore>,
     pub federation_key_fetch_general_semaphore: Arc<Semaphore>,
     pub federation_inbound_edu_semaphore: Arc<Semaphore>,
@@ -59,6 +62,13 @@ impl AppState {
                 services.core.config.federation.key_rotation_grace_period_ms,
             )));
 
+        // S1 修复：初始化联邦重放保护缓存。
+        let replay_protection_cache = Arc::new(ReplayProtectionCache::new(ReplayProtectionConfig {
+            enabled: services.core.config.federation.replay_protection_enabled,
+            cache_size: 10_000,
+            window_secs: 300,
+        }));
+
         // Wire federation signature cache to key rotation manager so that
         // cached signature verification results are invalidated on key rotation.
         services.federation.key_rotation_manager.set_signature_cache(federation_signature_cache.clone());
@@ -86,6 +96,7 @@ impl AppState {
             cache,
             health_checker: Arc::new(health_checker),
             federation_signature_cache,
+            replay_protection_cache,
             federation_key_fetch_priority_semaphore: Arc::new(Semaphore::new(key_fetch_max_concurrency)),
             federation_key_fetch_general_semaphore: Arc::new(Semaphore::new(key_fetch_general_max_concurrency)),
             federation_inbound_edu_semaphore: Arc::new(Semaphore::new(inbound_edu_max_concurrency)),
