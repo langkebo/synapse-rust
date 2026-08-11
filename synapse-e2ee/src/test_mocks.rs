@@ -104,6 +104,8 @@ pub struct InMemoryDeviceKeyStore {
     keys: Arc<RwLock<HashMap<(String, String, String), DeviceKey>>>,
     /// Tracks which `key_id`s are fallback keys (`DeviceKey` has no `is_fallback` field)
     fallback_key_ids: Arc<RwLock<HashSet<String>>>,
+    /// Tracks which fallback `key_id`s have been claimed (mirrors `fallback_used` column)
+    used_fallback_key_ids: Arc<RwLock<HashSet<String>>>,
     /// device_lists_stream entries (for `get_key_changes_with_left`)
     device_list_stream: Arc<RwLock<Vec<DeviceListStreamEntry>>>,
     /// `(target_user_id, target_key_id, signing_user_id, signing_key_id)` → signature
@@ -171,13 +173,17 @@ impl DeviceKeyStoreApi for InMemoryDeviceKeyStore {
         let mut key_copy = key.clone();
         key_copy.updated_ts = chrono::Utc::now();
         self.keys.write().await.insert(k, key_copy);
-        self.fallback_key_ids.write().await.insert(key.key_id.clone());
+        let mut fb_ids = self.fallback_key_ids.write().await;
+        fb_ids.insert(key.key_id.clone());
+        // New/replaced fallback key resets used state (mirrors fallback_used = FALSE)
+        self.used_fallback_key_ids.write().await.remove(&key.key_id);
         Ok(())
     }
 
     async fn delete_fallback_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         let mut keys = self.keys.write().await;
         let mut fallback_ids = self.fallback_key_ids.write().await;
+        let mut used_ids = self.used_fallback_key_ids.write().await;
         let to_remove: Vec<(String, String, String)> = keys
             .keys()
             .filter(|(uid, did, kid)| uid == user_id && did == device_id && fallback_ids.contains(kid))
@@ -186,6 +192,7 @@ impl DeviceKeyStoreApi for InMemoryDeviceKeyStore {
         for k in to_remove {
             keys.remove(&k);
             fallback_ids.remove(&k.2);
+            used_ids.remove(&k.2);
         }
         Ok(())
     }
@@ -193,9 +200,15 @@ impl DeviceKeyStoreApi for InMemoryDeviceKeyStore {
     async fn get_unused_fallback_key_types(&self, user_id: &str, device_id: &str) -> Result<Vec<String>, ApiError> {
         let keys = self.keys.read().await;
         let fallback_ids = self.fallback_key_ids.read().await;
+        let used_ids = self.used_fallback_key_ids.read().await;
         let mut algos: Vec<String> = keys
             .iter()
-            .filter(|((uid, did, kid), _)| uid == user_id && did == device_id && fallback_ids.contains(kid))
+            .filter(|((uid, did, kid), _)| {
+                uid == user_id
+                    && did == device_id
+                    && fallback_ids.contains(kid)
+                    && !used_ids.contains(kid)
+            })
             .map(|(_, key)| {
                 if key.algorithm.starts_with("signed_curve25519") {
                     "signed_curve25519".to_string()
@@ -375,7 +388,7 @@ impl DeviceKeyStoreApi for InMemoryDeviceKeyStore {
                 return Ok(Some(key));
             }
         }
-        // Fall back to fallback key (not consumed, matching Postgres behavior)
+        // Fall back to fallback key (not consumed, but marked as used)
         let fb_key = keys
             .iter()
             .find(|((uid, did, kid), key)| {
@@ -384,6 +397,8 @@ impl DeviceKeyStoreApi for InMemoryDeviceKeyStore {
             .map(|(k, _)| k.clone());
         if let Some(k) = fb_key {
             if let Some(key) = keys.get(&k) {
+                // Mark fallback key as used (mirrors fallback_used = TRUE in Postgres)
+                self.used_fallback_key_ids.write().await.insert(k.2.clone());
                 return Ok(Some(key.clone()));
             }
         }

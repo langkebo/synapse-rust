@@ -320,16 +320,58 @@ mod tests {
         let fbk = make_test_key(user, device, algo, "fallback:1");
         store.create_fallback_key(&fbk).await.unwrap();
 
-        // Claim multiple times — fallback should still be available
-        for i in 0..3 {
-            let claimed = store.claim_one_time_key(user, device, algo).await.unwrap();
-            assert!(claimed.is_some(), "claim #{i}: fallback key should still be available");
-            assert_eq!(claimed.unwrap().key_id, "fallback:1");
-        }
-
-        // Verify the fallback key is still in the store
+        // Before claim, fallback key is unused
         let unused = store.get_unused_fallback_key_types(user, device).await.unwrap();
-        assert!(!unused.is_empty(), "fallback key should not be consumed");
+        assert!(!unused.is_empty(), "fallback key should be unused before claim");
+        assert!(unused.contains(&algo.to_string()));
+
+        // First claim — fallback key returned and marked as used
+        let claimed = store.claim_one_time_key(user, device, algo).await.unwrap();
+        assert!(claimed.is_some(), "first claim: fallback key should be returned");
+        assert_eq!(claimed.unwrap().key_id, "fallback:1");
+
+        // After claim, fallback key is marked as used → disappears from unused list
+        let unused = store.get_unused_fallback_key_types(user, device).await.unwrap();
+        assert!(unused.is_empty(), "fallback key should be marked used after claim");
+
+        // Fallback key is NOT deleted — can still be claimed again (by other sessions)
+        let claimed = store.claim_one_time_key(user, device, algo).await.unwrap();
+        assert!(claimed.is_some(), "second claim: fallback key should still be available (not deleted)");
+        assert_eq!(claimed.unwrap().key_id, "fallback:1");
+
+        // Still marked as used
+        let unused = store.get_unused_fallback_key_types(user, device).await.unwrap();
+        assert!(unused.is_empty(), "fallback key should remain used after repeated claims");
+    }
+
+    #[tokio::test]
+    async fn test_fallback_used_resets_on_reupload() {
+        let store = InMemoryDeviceKeyStore::new();
+        let user = "@heidi:example.com";
+        let device = "DEV007";
+        let algo = "signed_curve25519";
+
+        // Seed a fallback key
+        let fbk = make_test_key(user, device, algo, "fallback:1");
+        store.create_fallback_key(&fbk).await.unwrap();
+
+        // Claim it — marks as used
+        store.claim_one_time_key(user, device, algo).await.unwrap();
+        let unused = store.get_unused_fallback_key_types(user, device).await.unwrap();
+        assert!(unused.is_empty(), "after claim, fallback should be used");
+
+        // Client sees empty unused list → uploads new fallback key
+        let new_fbk = make_test_key(user, device, algo, "fallback:2");
+        store.create_fallback_key(&new_fbk).await.unwrap();
+
+        // New fallback key should appear in unused list
+        let unused = store.get_unused_fallback_key_types(user, device).await.unwrap();
+        assert!(!unused.is_empty(), "new fallback key should be unused");
+        assert!(unused.contains(&algo.to_string()));
+
+        // Old fallback key is still claimable (not deleted), new one is returned first
+        // Actually, mock returns the first match — both are valid. The key point is
+        // that the unused list correctly reflects the new key.
     }
 
     #[tokio::test]

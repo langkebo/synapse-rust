@@ -26,6 +26,7 @@ impl DatabaseInitService {
                 is_verified BOOLEAN DEFAULT FALSE,
                 is_blocked BOOLEAN DEFAULT FALSE,
                 is_fallback BOOLEAN DEFAULT FALSE,
+                fallback_used BOOLEAN DEFAULT FALSE,
                 display_name TEXT,
                 CONSTRAINT uq_device_keys_user_device_key UNIQUE (user_id, device_id, key_id)
             )
@@ -1048,7 +1049,6 @@ impl DatabaseInitService {
                 is_suggested BOOLEAN DEFAULT FALSE,
                 via_servers JSONB DEFAULT '[]',
                 added_ts BIGINT NOT NULL,
-                CONSTRAINT pk_space_children PRIMARY KEY (id),
                 CONSTRAINT uq_space_children_space_room UNIQUE (space_id, room_id)
             )
             "#,

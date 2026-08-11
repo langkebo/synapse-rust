@@ -619,6 +619,7 @@ CREATE TABLE IF NOT EXISTS device_keys (
     is_verified BOOLEAN DEFAULT FALSE,
     is_blocked BOOLEAN DEFAULT FALSE,
     is_fallback BOOLEAN NOT NULL DEFAULT FALSE,
+    fallback_used BOOLEAN NOT NULL DEFAULT FALSE,
     display_name TEXT,
     CONSTRAINT pk_device_keys PRIMARY KEY (id),
     CONSTRAINT uq_device_keys_user_device_key UNIQUE (user_id, device_id, key_id)
@@ -3602,7 +3603,7 @@ CREATE INDEX IF NOT EXISTS idx_room_stats_local ON room_stats_current(local_user
 
 -- Device keys
 CREATE INDEX IF NOT EXISTS idx_device_keys_user_device ON device_keys(user_id, device_id);
-CREATE INDEX IF NOT EXISTS idx_device_keys_fallback ON device_keys(user_id, device_id) WHERE is_fallback = TRUE;
+CREATE INDEX IF NOT EXISTS idx_device_keys_fallback ON device_keys(user_id, device_id) WHERE is_fallback = TRUE AND fallback_used = FALSE;
 
 -- Cross signing keys
 CREATE INDEX IF NOT EXISTS idx_cross_signing_keys_user ON cross_signing_keys(user_id);

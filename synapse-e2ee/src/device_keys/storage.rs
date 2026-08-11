@@ -69,6 +69,12 @@ pub trait DeviceKeyStoreApi: Send + Sync {
     async fn create_device_key(&self, key: &DeviceKey) -> Result<(), ApiError>;
     async fn create_fallback_key(&self, key: &DeviceKey) -> Result<(), ApiError>;
     async fn delete_fallback_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError>;
+    /// Returns algorithms of fallback keys that have NOT been claimed yet.
+    ///
+    /// Per Matrix spec, once a fallback key is claimed (OTK stock exhausted),
+    /// it is marked as `fallback_used = TRUE` and disappears from this list.
+    /// The client sees the algorithm disappear and uploads a new fallback key.
+    /// The old fallback key is NOT deleted (can be reused by other sessions).
     async fn get_unused_fallback_key_types(&self, user_id: &str, device_id: &str) -> Result<Vec<String>, ApiError>;
     async fn get_device_key(
         &self,
@@ -268,8 +274,8 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
 
         sqlx::query(
             r"
-            INSERT INTO device_keys (user_id, device_id, algorithm, key_id, public_key, signatures, display_name, key_data, added_ts, created_ts, updated_ts, ts_updated_ms, is_fallback)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9, $9, TRUE)
+            INSERT INTO device_keys (user_id, device_id, algorithm, key_id, public_key, signatures, display_name, key_data, added_ts, created_ts, updated_ts, ts_updated_ms, is_fallback, fallback_used)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9, $9, TRUE, FALSE)
             ON CONFLICT (user_id, device_id, key_id) DO UPDATE
             SET public_key = EXCLUDED.public_key,
                 signatures = EXCLUDED.signatures,
@@ -277,7 +283,8 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
                 updated_ts = EXCLUDED.updated_ts,
                 ts_updated_ms = EXCLUDED.ts_updated_ms,
                 key_data = EXCLUDED.key_data,
-                is_fallback = TRUE
+                is_fallback = TRUE,
+                fallback_used = FALSE
             ",
         )
         .bind(&key.user_id)
@@ -323,7 +330,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             r"
             SELECT DISTINCT algorithm
             FROM device_keys
-            WHERE user_id = $1 AND device_id = $2 AND is_fallback = TRUE
+            WHERE user_id = $1 AND device_id = $2 AND is_fallback = TRUE AND fallback_used = FALSE
             ",
         )
         .bind(user_id)
@@ -700,7 +707,15 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
 
         let fallback_row: Option<DeviceKeyRow> = sqlx::query_as::<_, DeviceKeyRow>(
             r"
-            SELECT
+            WITH fb AS (
+                SELECT id FROM device_keys
+                WHERE user_id = $1 AND device_id = $2 AND algorithm = $3 AND is_fallback = TRUE
+                LIMIT 1
+            )
+            UPDATE device_keys
+            SET fallback_used = TRUE, ts_updated_ms = $4
+            WHERE id IN (SELECT id FROM fb)
+            RETURNING
                 user_id,
                 device_id,
                 algorithm,
@@ -712,14 +727,12 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
                 ts_updated_ms,
                 key_data,
                 is_fallback
-            FROM device_keys
-            WHERE user_id = $1 AND device_id = $2 AND algorithm = $3 AND is_fallback = TRUE
-            LIMIT 1
             ",
         )
         .bind(user_id)
         .bind(device_id)
         .bind(algorithm)
+        .bind(chrono::Utc::now().timestamp_millis())
         .fetch_optional(&mut *tx)
         .await
         .map_err(|e| {
