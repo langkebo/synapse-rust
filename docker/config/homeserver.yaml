@@ -85,7 +85,8 @@ federation:
   max_transaction_payload: 10485760
   signing_key: "${FEDERATION_SIGNING_KEY:?FEDERATION_SIGNING_KEY is required}"
   key_id: "${FEDERATION_KEY_ID:-ed25519:local}"
-  allow_plaintext_signing_keys: false
+  signing_key_master_key: "${FEDERATION_MASTER_KEY:-}"
+  allow_plaintext_signing_keys: ${FEDERATION_ALLOW_PLAINTEXT:-true}
   trusted_key_servers:
     - server_name: "matrix.org"
   key_refresh_interval: 86400

@@ -115,9 +115,8 @@ impl KeyRotationManager {
         master_key: Option<Vec<u8>>,
     ) -> Self {
         if master_key.is_none() {
-            tracing::warn!(
-                "No signing_key_master_key configured - federation signing keys will be stored in plaintext. \
-                 Set federation.signing_key_master_key for encrypted key storage."
+            tracing::info!(
+                "No signing_key_master_key configured — key storage policy will be determined by allow_plaintext_signing_keys."
             );
         }
         Self {
@@ -157,8 +156,8 @@ impl KeyRotationManager {
             Some(mk) => encrypt_key(secret_key, mk)
                 .map_err(|e| ApiError::internal(format!("Failed to encrypt signing key: {e}"))),
             None if allow_plaintext => {
-                tracing::warn!(
-                    "Storing federation signing key in plaintext (explicitly allowed) - configure signing_key_master_key for encryption at rest"
+                tracing::info!(
+                    "Storing federation signing key in plaintext (allow_plaintext_signing_keys=true). Consider configuring signing_key_master_key for encryption at rest."
                 );
                 Ok(secret_key.to_string())
             }

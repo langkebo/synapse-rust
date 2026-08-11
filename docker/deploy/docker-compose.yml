@@ -107,9 +107,8 @@ services:
       DB_NAME: ${POSTGRES_DB:-synapse}
       ENABLED_EXTENSIONS: ${ENABLED_EXTENSIONS:-friends,burn-after-read}
     entrypoint:
-      - /bin/sh
-      - -ec
-    command: /scripts/container-migrate.sh migrate && /scripts/container-migrate.sh validate
+      - /scripts/container-migrate.sh
+    command: ["migrate"]
     volumes:
       - ./migrations:/migrations:ro
       - ./scripts/container-migrate.sh:/scripts/container-migrate.sh:ro
