@@ -581,7 +581,9 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
             r"
             SELECT COUNT(*)
             FROM device_keys
-            WHERE user_id = $1 AND device_id = $2 AND algorithm LIKE 'signed_curve25519%'
+            WHERE user_id = $1 AND device_id = $2
+              AND algorithm LIKE 'signed_curve25519%'
+              AND (is_fallback = FALSE OR is_fallback IS NULL)
             ",
         )
         .bind(user_id)

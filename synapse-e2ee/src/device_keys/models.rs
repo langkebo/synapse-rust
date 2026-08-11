@@ -394,4 +394,49 @@ mod tests {
         assert!(claimed.is_some(), "claim #5 should still return fallback");
         assert_eq!(claimed.unwrap().key_id, "fallback:1");
     }
+
+    #[tokio::test]
+    async fn test_get_one_time_keys_count_excludes_fallback_keys() {
+        let store = InMemoryDeviceKeyStore::new();
+        let user = "@grace:example.com";
+        let device = "DEV006";
+        let algo = "signed_curve25519";
+
+        // Seed 2 regular OTKs
+        for i in 0..2 {
+            let otk = make_test_key(user, device, algo, &format!("otk:{i}"));
+            store.create_device_key(&otk).await.unwrap();
+        }
+
+        // Seed 1 fallback key
+        let fbk = make_test_key(user, device, algo, "fallback:1");
+        store.create_fallback_key(&fbk).await.unwrap();
+
+        // Count should be 2 (only regular OTKs), NOT 3 (which would include fallback)
+        let count = store.get_one_time_keys_count(user, device).await.unwrap();
+        assert_eq!(
+            count, 2,
+            "get_one_time_keys_count must exclude fallback keys — expected 2, got {count}"
+        );
+
+        // Consume one OTK
+        store.claim_one_time_key(user, device, algo).await.unwrap();
+
+        // Count should now be 1
+        let count = store.get_one_time_keys_count(user, device).await.unwrap();
+        assert_eq!(
+            count, 1,
+            "after consuming 1 OTK, count should be 1 (fallback still excluded), got {count}"
+        );
+
+        // Consume the last OTK
+        store.claim_one_time_key(user, device, algo).await.unwrap();
+
+        // Count should be 0 — fallback key must NOT be counted
+        let count = store.get_one_time_keys_count(user, device).await.unwrap();
+        assert_eq!(
+            count, 0,
+            "after all OTKs consumed, count must be 0 (fallback must NOT be counted), got {count}"
+        );
+    }
 }
