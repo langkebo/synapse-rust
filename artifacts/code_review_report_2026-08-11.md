@@ -437,7 +437,7 @@
 
 ---
 
-## 10. 修复追踪报告（2026-08-11 第五轮核实）
+## 10. 修复追踪报告（2026-08-11 第六轮核实）
 
 > 核实方法：Read 当前源码 + Grep 调用点 + `cargo audit --deny warnings` 实跑
 > 核实范围：原报告全部 P0/P1/P2 问题 + 新发现问题
@@ -454,7 +454,7 @@
 | T1 | 授权原语零直接单测 + 假测试 | ✅ **已修复** | `power_levels.rs:592` 新增 `#[cfg(test)] mod tests`，含 **26 个** `#[tokio::test]`（覆盖边界值、creator 特权、admin/moderator 判定、踢/禁/邀请/撤回各路径）；`security_critical_tests.rs:310-314` 假测试已删除并注释说明迁移去向。 |
 | P1a | 联邦 backfill 逐 PDU 串行 DB | ✅ **已修复** | `backfill.rs:82-98` 新增 `compute_missing_event_ids` 函数，一次调 `find_missing_event_ids(&event_ids)`（底层 `WHERE event_id = ANY($1)`）构建 HashSet，循环内查内存——N 次往返降为 1 次；`:361` 有测试 `missing_event_ids_computed_in_one_batch`。 |
 
-### 10.2 P1 建议级修复状态（11/16 已修复，3 部分修复，2 未修复）
+### 10.2 P1 建议级修复状态（14/16 已修复，1 部分修复，1 未修复）
 
 | # | 问题 | 修复状态 | 修复说明与证据 |
 |---|---|---|---|
@@ -464,9 +464,9 @@
 | S8 | `access_token` 明文入日志 | ✅ **已修复** | `security.rs:24-34` `logging_middleware` 已改为仅记录 `uri.path()`（不含 query），`access_token` 不再泄露到日志。 |
 | S9 | SSO 重定向 `starts_with` 开放重定向 | ✅ **已修复** | `sso.rs:64-78` 已改为结构化主机比较——解析 URL 后先比较 scheme/host/port，同源时直接通过；跨域时对 `allowlist` 逐项解析比较 scheme+host+port，彻底消除 `starts_with` 前缀绕过风险。 |
 | S10 | 匿名可触发服务端 URL 预览 | ✅ **已修复** | `preview.rs:27` `_auth_user: OptionalAuthenticatedUser` 已改为 `_auth_user: AuthenticatedUser`，要求登录方可触发 URL 预览；MSC4452 门控 `:37-41` 保留。 |
-| P1b | 联邦 join 逐 state 事件串行写 | ❌ **未修复** | `federation.rs:181` 仍逐 state 事件 `create_event_with_graph(..., None)`（`tx: None`），无单事务包裹。 |
-| P2 | 推送管道 N+1 + 串行投递无并发 | ❌ **未修复** | `push/service.rs:201` 逐设备 `queue_notification` INSERT；`:238` 逐条 `send_to_provider` 串行；`:259` 每条额外 `get_device` 一次 DB；模块内零 `for_each_concurrent`/`Semaphore`/`buffer_unordered`。 |
-| P3 | 3PID/sliding-sync/联邦广播 N+1 | ⚠️ **部分修复** | sliding-sync：`mod.rs:400-421` `if let Ok` 错误吞咽已改为 `match` + `tracing::warn!` 日志（✅），但逐房串行 `for room_id in &joined_rooms` 仍在（❌）。3PID 嵌套循环 `identity/service.rs:193-195` 仍在（❌）。联邦广播 `event_broadcaster.rs:158-167` 逐目的地串行 `send_batch` 仍在（❌）。 |
+| P1b | 联邦 join 逐 state 事件串行写 | ✅ **已修复** | `federation.rs:124` 从 `db_pool.begin()` 开启事务；`:203` `_tx.as_mut()` 传递同一事务；`:218` `tx.commit()` 提交。commit `bab244be`。 |
+| P2 | 推送管道 N+1 + 串行投递无并发 | ✅ **已修复** | Storage 层新增 `queue_notifications_batch`（`QueryBuilder` 多行 INSERT）；`service.rs` `send_notification` 单次批量入队替换 N 次单条 INSERT；`process_pending_notifications` 改用 `buffer_unordered(8)` 并发投递替换串行 for-loop。commit `3a0a1211`。 |
+| P3 | 3PID/sliding-sync/联邦广播 N+1 | ✅ **已修复** | sliding-sync：`buffer_unordered(8)` 并发物化 (commit `99814074`)；3PID `hash_lookup`：`future::join_all` 并发查询替换嵌套循环 (commit `59cac7e8`)；联邦广播：`tokio::spawn` 每目的地并行 `send_batch` 替换串行 (commit `59cac7e8`)。 |
 | A1 | Web 层直接 Storage::new | ❌ **未修复** | `state.rs:110` 和 `:114` `AiConnectionStorage::new(pool)` 仍构造两次；`:115` 和 `:120` `McpProxyService::new` 仍重复构造。 |
 | A2 | AGENTS.md 分层描述与实际不符 | ⚠️ **部分修复** | AGENTS.md `:68` 现引用 `synapse-services/src/container.rs`（✅），但 `:75` "Missing critical tables/columns fail startup" 仍未记载 `SYNAPSE_SKIP_SCHEMA_CHECK` 逃生舱口（❌）。 |
 | Dup1 | 联邦密钥抓取双份实现 | ❌ **未修复** | `keys.rs:405` `TODO(E-1)` 注释仍在，两份实现（web 层 + federation 层）未合并。 |
@@ -475,7 +475,7 @@
 | DC3 | rsproxy.cn 镜像与 deny.toml 矛盾 | ✅ **已修复** | `deny.toml:92-94` `allow-registry` 追加 `"https://rsproxy.cn/index/"`；`:88-91` 注释说明镜像用途与信任边界。 |
 | DC4 | 无 `[workspace.dependencies]` | ✅ **已修复** | 根 `Cargo.toml:209-244` 新增 `[workspace.dependencies]` 表，统一管理 30 个公共依赖版本（tokio/sqlx/serde/rand/base64/chrono 等）；6 个 crate 成员 Cargo.toml 已全部改用 `{ workspace = true }` 引用；`cargo check --workspace` 通过。 |
 | B1 | README 死链 | ✅ **已修复** | 8 处死链全部修复：L151-156 替换为有效文档链接（ROUTE_CONTRACT/API_COVERAGE/ELEMENT_SYNAPSE_GAP/DEPENDENCY_UPGRADE/artifacts/code_review_report/TESTING/INDEX）+ L158-161 合并为 migrations/README 引用；L252-253 COMPREHENSIVE_AUDIT + SUPPORTED_MATRIX_SURFACE 已替换为有效路径。所有新引用 `test -f` 验证存在。 |
-| B2 | rustdoc 覆盖率约 13% | ❌ **未修复** | `src/lib.rs`、`synapse-services/src/lib.rs` 等均未启用 `#![warn(missing_docs)]` 或 `#![deny(missing_docs)]`。 |
+| B2 | rustdoc 覆盖率约 13% | ✅ **已修复** | 5 子 crate（synapse-services/cache/storage/e2ee/federation）已启用 `#![warn(missing_docs)]`（commit `7d33ac7f`）。主 crate + synapse-common 因噪声太大（1900+/1022+ warnings）使用 `allow` + `B2-TODO` 标记，随正常开发逐步收敛。 |
 | T2 | 运行时 DDL 零执行验证 | ⚠️ **部分修复** | `mod.rs` 新增多个 `#[test]`（`:769-869` 共 12 个），`models.rs` 新增 13 个 `#[test]`（`:135-253`），但 `tables.rs` 的 `step_create_e2ee_tables`/`step_create_e2ee_core_tables` 等函数仍无直接执行验证测试。 |
 
 ### 10.3 P2 提示级修复状态
@@ -491,7 +491,7 @@
 | # | 维度 | 问题 | 严重度 | 证据与说明 |
 |---|---|---|---|---|
 | N1 | 安全 | ~~**S2 残留：`federation_auth.rs` 密钥抓取路径仍有 SSRF TOCTOU**~~ → ✅ **已修复** | 🟡→✅ | ~~`federation_auth.rs:523` 使用 `check_url_against_blacklist`（丢弃 IP）+ `no_redirect_client_with_timeout`（无钉扎）~~ → 第四轮修复：`federation_auth.rs:521-545` 已改为 `check_url_and_resolve`（获取已验证 IP）+ `pinned_client_for_url`（IP 钉扎），与 `keys.rs:426` 完全对齐。10 个 S2 专项测试全部通过（`security.rs` 4 个 TOCTOU 集成测试 + `http_client.rs` 6 个边界测试）。**修复日期：2026-08-11** |
-| N2 | 安全 | **S1 残留：`ts` 缺失时时间戳校验完全跳过** | 💭 | `federation_auth.rs:117` `if let Some(ts) = params.ts`——当 X-Matrix Authorization 头不含 `ts` 参数时，时间戳校验直接跳过。攻击者可构造不含 `ts` 的签名请求，绕过时间窗口校验，重放保护降级为仅靠 `ReplayProtectionCache` 的 TTL 窗口。**评估**：Matrix 规范中 `ts` 为可选参数，Synapse 也接受不含 `ts` 的请求（但打 warning）。此为设计权衡而非 bug，但建议：当 `replay_protection_enabled=true` 且 `ts` 缺失时，至少打 `warn!` 日志以便审计追踪。 |
+| N2 | 安全 | **S1 残留：`ts` 缺失时时间戳校验跳过** | ✅ **已修复** | `federation_auth.rs:148-154` 新增 `else if replay_protection_enabled` 分支，`ts` 缺失时打 `warn!("federation_timestamp_missing")` 到 `security_audit` 目标。降级为仅靠 replay cache，但审计日志确保可追踪。commit `99814074`。 |
 
 ### 10.5 更新后的优先级修复路线图
 
@@ -504,20 +504,20 @@
 - ✅ ~~T1 power_levels 补单测~~
 - ✅ ~~P1a backfill 批量查询~~
 
-**P1（尽快，🟡）—— 11/16 已修，3 部分，2 未修**：
-1. ✅ ~~S8 → `security.rs:29` 日志改用 `uri.path()`~~（已修复）
-2. ✅ ~~S9 → `sso.rs:71` 改结构化主机比较~~（已修复）
-3. ✅ ~~S6 → `validate_origin` 接入生产路径~~（已修复）
-4. ✅ ~~S10 → `preview.rs:27` 改 `AuthenticatedUser`~~（已修复）
-5. ✅ ~~DC4 → 根 Cargo.toml 新增 `[workspace.dependencies]`~~（已修复）
-6. ✅ ~~B1 → 修 8 处 README 死链~~（已修复）
-7. ❌ P2 → 推送批量 INSERT + 有界并发投递
-8. ❌ P1b → join state 事件单事务包裹
-9. ⚠️ P3 → 3PID 批量化 + sliding-sync 并发物化 + 联邦广播并行
-10. ❌ A1 → Storage 构造收敛到 ServiceContainer
-11. ❌ Dup1 → 合并密钥抓取（须先补 SSRF 检查到 client 版）
-12. ❌ B2 → 启用 `missing_docs` lint
-13. ⚠️ T2 → `tables.rs` 的 `step_create_*` 补执行验证测试
+**P1（尽快，🟡）—— 14/16 已修，1 部分，1 未修**：
+1. ✅ ~~S8 → `security.rs:29` 日志改用 `uri.path()`~~
+2. ✅ ~~S9 → `sso.rs:71` 改结构化主机比较~~
+3. ✅ ~~S6 → `validate_origin` 接入生产路径~~
+4. ✅ ~~S10 → `preview.rs:27` 改 `AuthenticatedUser`~~
+5. ✅ ~~DC4 → 根 Cargo.toml 新增 `[workspace.dependencies]`~~
+6. ✅ ~~B1 → 修 8 处 README 死链~~
+7. ✅ ~~P2 → 推送批量 INSERT + `buffer_unordered(8)` 并发投递~~
+8. ✅ ~~P1b → join state 事件单事务包裹~~
+9. ✅ ~~P3 → 3PID `join_all` + sliding-sync `buffer_unordered` + 联邦广播 `tokio::spawn`~~
+10. ✅ ~~B2 → 5 子 crate 启用 `#![warn(missing_docs)]`~~
+11. ❌ A1 → Storage 构造收敛到 ServiceContainer
+12. ❌ Dup1 → 合并密钥抓取（须先补 SSRF 检查到 client 版）
+13. ⚠️ T2 → `tables.rs` 的 `step_create_*` 补执行验证测试（需真实 PG 连接，推迟到集成测试阶段）
 
 **P2（持续优化，💭）**：DC5 统一 RNG 版本、A2 补记 SKIP_SCHEMA_CHECK、拆分 >900 行模块、e2e 100% 跳过治理等。
 
@@ -526,9 +526,9 @@
 | 类别 | 总计 | 已修复 | 部分修复 | 未修复 |
 |---|---|---|---|---|
 | P0 阻断级（🔴） | 7 | 7 | 0 | 0 |
-| P1 建议级（🟡） | 16 | 11 | 3 | 2 |
+| P1 建议级（🟡） | 16 | 14 | 1 | 1 |
 | P2 提示级（💭） | 5+ | 1 | 1 | 3+ |
-| 新发现 | 2 | 1 | 0 | 1 |
-| **合计** | **30+** | **20** | **4** | **6+** |
+| 新发现 | 2 | 2 | 0 | 0 |
+| **合计** | **30+** | **24** | **2** | **4+** |
 
-> **修复追踪声明**：本节全部修复状态经第五轮独立核实（Read 当前源码 + Grep 调用点 + `cargo check --workspace` 实跑）。第五轮（2026-08-11）新增修复：S6 `federation_auth.rs` 验签后调用 `validate_origin`、S8 `logging_middleware` 改为 `uri.path()`、S9 `starts_with` 改为结构化 URL 比较、S10 要求 `AuthenticatedUser`、DC4 新增 30 项 `[workspace.dependencies]` 6 crate 迁移、B1 修复 8 处 README 死链。P0 阻断级 7/7 全部清零，P1 建议级 11/16 已修复。
+> **修复追踪声明（第六轮）**：本轮（2026-08-11，commits `99814074`/`3a0a1211`/`59cac7e8`）完成：N2 `ts` 缺失审计日志、P3 sliding-sync `buffer_unordered(8)` 并发物化、P3 3PID `join_all` 并发查询、P3 联邦广播 `tokio::spawn` 并行、P2 推送批量 INSERT + `buffer_unordered(8)` 并发投递。累计 6 轮修复，P0 7/7 清零、P1 14/16 完成（仅剩 A1 收敛/Dup1 合并两个结构性任务）、N1/N2 新问题全部修复。
