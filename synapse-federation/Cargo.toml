@@ -47,3 +47,6 @@ moka = { workspace = true, features = ["future", "sync"] }
 parking_lot = { workspace = true }
 
 tracing = { workspace = true, features = ["attributes"] }
+
+[dev-dependencies]
+wiremock = "0.6"

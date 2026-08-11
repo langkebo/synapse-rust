@@ -1273,22 +1273,26 @@ mod tests {
         let (rt, client, dlq) = create_test_client_with_dlq();
 
         rt.block_on(async {
-            use tokio::io::AsyncWriteExt;
-            use tokio::net::TcpListener;
+            // Use wiremock (a real hyper-based server) to avoid the flaky
+            // raw-TCP mock that raced with hyper's HTTP/1 dispatcher and
+            // system-proxy interference in dev shells.
+            use wiremock::matchers::{method, path};
+            use wiremock::{Mock, MockServer, ResponseTemplate};
 
-            // Start a minimal HTTP server that always returns 500.
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let port = listener.local_addr().unwrap().port();
-            tokio::spawn(async move {
-                if let Ok((mut stream, _)) = listener.accept().await {
-                    let resp = b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
-                    let _ = stream.write_all(resp).await;
-                }
-            });
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/"))
+                .respond_with(ResponseTemplate::new(500))
+                .mount(&server)
+                .await;
 
-            // Send a request to the mock 500 server and get the response.
-            let response = reqwest::Client::new()
-                .get(format!("http://127.0.0.1:{port}/"))
+            // no_proxy(): dev/CI shells may export HTTP(S)_PROXY; routing a
+            // loopback request through a proxy breaks hyper's parser.
+            let response = reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .unwrap()
+                .get(server.uri())
                 .send()
                 .await
                 .unwrap();
