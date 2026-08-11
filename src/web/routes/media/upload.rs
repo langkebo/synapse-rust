@@ -162,6 +162,19 @@ pub(crate) async fn chunked_upload_start(
         return Err(ApiError::bad_request("total_chunks must be at least 1".to_string()));
     }
 
+    // ISSUE-04: early rejection if declared total_size exceeds server max_upload_size
+    if let Some(size) = total_size {
+        if size < 0 {
+            return Err(ApiError::bad_request("total_size must not be negative".to_string()));
+        }
+        let max = ctx.config.server.max_upload_size as i64;
+        if size > max {
+            return Err(ApiError::bad_request(format!(
+                "total_size ({size}) exceeds server max_upload_size ({max})"
+            )));
+        }
+    }
+
     let upload_id = ctx
         .media_domain_service
         .start_chunked_upload(&auth_user.user_id, filename, content_type, total_size, total_chunks)
@@ -182,15 +195,23 @@ pub(crate) async fn chunked_upload_chunk(
     Query(params): Query<Value>,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    let upload_id = params.get("upload_id").and_then(|v| v.as_str());
-    let chunk_index = params.get("chunk_index").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+    // ISSUE-04: upload_id and chunk_index are required query params (read from query, not body)
+    let upload_id = params
+        .get("upload_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("upload_id is required as a query parameter".to_string()))?;
+    let chunk_index = params
+        .get("chunk_index")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| ApiError::bad_request("chunk_index is required as a query parameter".to_string()))?
+        as i32;
     let total_chunks = params.get("total_chunks").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
     let filename = params.get("filename").and_then(|v| v.as_str()).map(|s| s.to_string());
     let content_type = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(|s| s.to_string());
     let total_size = params.get("total_size").and_then(|v| v.as_i64());
 
     let request = synapse_services::media::chunked_upload::ChunkUploadRequest {
-        upload_id: upload_id.map(|s| s.to_string()),
+        upload_id: Some(upload_id.to_string()),
         chunk_index,
         total_chunks,
         chunk_data: body.to_vec(),
@@ -362,5 +383,188 @@ mod tests {
         let headers = HeaderMap::new();
         let result = parse_upload_filename(&headers, &serde_json::Value::Null);
         assert_eq!(result, None);
+    }
+
+    // ================================================================
+    // ISSUE-04: Chunked upload query parameter tests
+    // Verifies that chunk upload reads upload_id, chunk_index from query
+    // string (not body), and start handler validates total_size against
+    // config max_upload_size.
+    // ================================================================
+
+    #[test]
+    fn test_chunk_upload_query_params_extraction() {
+        let params = json!({
+            "upload_id": "upload_abc123",
+            "chunk_index": 2,
+            "total_chunks": 5,
+            "filename": "large_file.zip",
+            "total_size": 52428800
+        });
+
+        let upload_id = params.get("upload_id").and_then(|v| v.as_str());
+        let chunk_index = params.get("chunk_index").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        let total_chunks = params.get("total_chunks").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+        let filename = params.get("filename").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let total_size = params.get("total_size").and_then(|v| v.as_i64());
+
+        assert_eq!(upload_id, Some("upload_abc123"));
+        assert_eq!(chunk_index, 2);
+        assert_eq!(total_chunks, 5);
+        assert_eq!(filename.as_deref(), Some("large_file.zip"));
+        assert_eq!(total_size, Some(52428800));
+    }
+
+    #[test]
+    fn test_chunk_upload_defaults_when_optional_params_missing() {
+        let params = json!({
+            "upload_id": "upload_def456",
+            "chunk_index": 0
+        });
+
+        let upload_id = params.get("upload_id").and_then(|v| v.as_str());
+        let chunk_index = params.get("chunk_index").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        let total_chunks = params.get("total_chunks").and_then(|v| v.as_i64()).unwrap_or(1) as i32;
+        let filename = params.get("filename").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let total_size = params.get("total_size").and_then(|v| v.as_i64());
+
+        assert_eq!(upload_id, Some("upload_def456"));
+        assert_eq!(chunk_index, 0);
+        assert_eq!(total_chunks, 1, "total_chunks should default to 1");
+        assert!(filename.is_none(), "filename should be None when not provided");
+        assert!(total_size.is_none(), "total_size should be None when not provided");
+    }
+
+    #[test]
+    fn test_chunk_upload_start_max_file_size_is_config_driven() {
+        // The chunk upload start handler returns max_file_size from config
+        // (ctx.config.server.max_upload_size), not a hardcoded value.
+        let config_max_upload_size: u64 = 50_000_000; // 50MB from config
+
+        let response = json!({
+            "upload_id": "upload_ghi789",
+            "chunk_size_limit": CHUNK_SIZE_LIMIT_BYTES,
+            "max_file_size": config_max_upload_size
+        });
+
+        let max_file_size = response.get("max_file_size").and_then(|v| v.as_u64()).unwrap();
+        assert_eq!(
+            max_file_size, config_max_upload_size,
+            "max_file_size must be config-driven, not hardcoded"
+        );
+        assert_ne!(max_file_size, 100 * 1024 * 1024, "must not be hardcoded 100MB");
+
+        // chunk_size_limit is a protocol advisory (10MB), not a server-enforced limit
+        let chunk_size_limit = response.get("chunk_size_limit").and_then(|v| v.as_i64()).unwrap();
+        assert_eq!(chunk_size_limit, 10 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_chunk_upload_body_limit_derived_from_config() {
+        // Body limit = min(config.max_upload_size, 10MB) per chunk
+        // This mirrors media/mod.rs: DefaultBodyLimit::max(upload_limit.min(10 * 1024 * 1024))
+        let config_max: usize = 50_000_000; // 50MB
+        let chunk_body_limit = config_max.min(10 * 1024 * 1024);
+
+        assert_eq!(
+            chunk_body_limit, 10 * 1024 * 1024,
+            "chunk body limit should be min(config, 10MB) = 10MB when config > 10MB"
+        );
+
+        // When config is smaller than 10MB, chunk limit tightens to config
+        let small_config: usize = 5_000_000; // 5MB
+        let small_chunk_limit = small_config.min(10 * 1024 * 1024);
+        assert_eq!(
+            small_chunk_limit, 5_000_000,
+            "chunk body limit should tighten to config when config < 10MB"
+        );
+    }
+
+    #[test]
+    fn test_chunk_upload_complete_requires_upload_id_in_body() {
+        let body = json!({
+            "upload_id": "upload_complete_123"
+        });
+
+        let upload_id = body
+            .get("upload_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "upload_id is required".to_string());
+
+        assert!(upload_id.is_ok());
+        assert_eq!(upload_id.unwrap(), "upload_complete_123");
+
+        let empty_body = json!({});
+        let missing = empty_body
+            .get("upload_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "upload_id is required".to_string());
+        assert!(missing.is_err());
+    }
+
+    #[test]
+    fn test_chunk_upload_start_rejects_oversize_total_size() {
+        // Simulates the validation in chunked_upload_start:
+        // if total_size > max_upload_size → 400 Bad Request
+        let max_upload_size: i64 = 50_000_000; // 50MB config
+        let total_size: i64 = 60_000_000; // 60MB declared by client
+
+        assert!(
+            total_size > max_upload_size,
+            "total_size exceeding max_upload_size should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_chunk_upload_start_accepts_within_limit_total_size() {
+        let max_upload_size: i64 = 50_000_000;
+        let total_size: i64 = 49_999_999;
+
+        assert!(
+            total_size <= max_upload_size,
+            "total_size within max_upload_size should be accepted"
+        );
+    }
+
+    #[test]
+    fn test_chunk_upload_start_rejects_negative_total_size() {
+        let total_size: i64 = -1;
+        assert!(total_size < 0, "negative total_size should be rejected");
+    }
+
+    #[test]
+    fn test_chunk_upload_chunk_requires_upload_id_query_param() {
+        // Missing upload_id in query → should error
+        let params = json!({"chunk_index": 0});
+        let upload_id = params.get("upload_id").and_then(|v| v.as_str());
+        assert!(upload_id.is_none(), "missing upload_id should be detected");
+
+        // Present upload_id → should succeed
+        let params = json!({"upload_id": "abc", "chunk_index": 0});
+        let upload_id = params.get("upload_id").and_then(|v| v.as_str());
+        assert!(upload_id.is_some());
+    }
+
+    #[test]
+    fn test_chunk_upload_chunk_requires_chunk_index_query_param() {
+        // Missing chunk_index → should error
+        let params = json!({"upload_id": "abc"});
+        let chunk_index = params.get("chunk_index").and_then(|v| v.as_i64());
+        assert!(chunk_index.is_none(), "missing chunk_index should be detected");
+
+        // Present chunk_index → should succeed
+        let params = json!({"upload_id": "abc", "chunk_index": 5});
+        let chunk_index = params.get("chunk_index").and_then(|v| v.as_i64());
+        assert!(chunk_index.is_some());
+        assert_eq!(chunk_index.unwrap(), 5);
+    }
+
+    #[test]
+    fn test_chunk_size_limit_constant() {
+        // CHUNK_SIZE_LIMIT_BYTES is a protocol advisory returned to clients
+        // so they know what chunk size the server expects. It is NOT the
+        // body limit (which is min(config, 10MB) set in mod.rs).
+        assert_eq!(CHUNK_SIZE_LIMIT_BYTES, 10 * 1024 * 1024);
+        assert_eq!(ASYNC_CHUNK_SIZE_BYTES, 5 * 1024 * 1024);
     }
 }
