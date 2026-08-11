@@ -85,6 +85,23 @@ impl AppState {
             );
             Arc::new(synapse_services::openclaw_service::OpenClawService::new(openclaw_storage, encryption_key))
         };
+        // A1 修复: AiConnectionStorage 和 McpProxyService 各构造一次，消除重复实例。
+        // 此前 AiConnectionStorage::new 被调用两次（一次直接给 ai_connection_storage 字段，
+        // 一次作为 MatrixAiConnectionService 参数），McpProxyService::new 同样被调用两次。
+        // 改为先构造再共享引用，确保 ServiceContainer 收敛前的过渡期内不会出现两套无关联实例。
+        #[cfg(feature = "openclaw-routes")]
+        let ai_connection_storage: Arc<dyn synapse_storage::ai_connection::AiConnectionStoreApi> =
+            Arc::new(synapse_storage::ai_connection::AiConnectionStorage::new(pool.clone()));
+        #[cfg(feature = "openclaw-routes")]
+        let mcp_proxy_service: Arc<synapse_services::mcp_proxy::McpProxyService> =
+            Arc::new(synapse_services::mcp_proxy::McpProxyService::new(canonical_cache));
+        #[cfg(feature = "openclaw-routes")]
+        let matrix_ai_connection_service = Arc::new(
+            synapse_services::matrix_ai_connection_service::MatrixAiConnectionService::new(
+                ai_connection_storage.clone(),
+                mcp_proxy_service.clone() as Arc<dyn synapse_services::mcp_proxy::McpProxyServiceApi>,
+            ),
+        );
         let key_fetch_max_concurrency = services.core.config.federation.key_fetch_max_concurrency.max(1);
         let key_fetch_general_max_concurrency =
             if key_fetch_max_concurrency <= 1 { 1 } else { (key_fetch_max_concurrency - 1).max(1) };
@@ -107,17 +124,11 @@ impl AppState {
             rate_limit_exempt_paths: Arc::new(Vec::new()),
             shutdown_signal: None,
             #[cfg(feature = "openclaw-routes")]
-            ai_connection_storage: Arc::new(synapse_storage::ai_connection::AiConnectionStorage::new(pool.clone())),
+            ai_connection_storage,
             #[cfg(feature = "openclaw-routes")]
-            matrix_ai_connection_service: Arc::new(
-                synapse_services::matrix_ai_connection_service::MatrixAiConnectionService::new(
-                    Arc::new(synapse_storage::ai_connection::AiConnectionStorage::new(pool)),
-                    Arc::new(synapse_services::mcp_proxy::McpProxyService::new(canonical_cache.clone()))
-                        as Arc<dyn synapse_services::mcp_proxy::McpProxyServiceApi>,
-                ),
-            ),
+            matrix_ai_connection_service,
             #[cfg(feature = "openclaw-routes")]
-            mcp_proxy_service: Arc::new(synapse_services::mcp_proxy::McpProxyService::new(canonical_cache)),
+            mcp_proxy_service,
             #[cfg(feature = "openclaw-routes")]
             openclaw_service,
         }

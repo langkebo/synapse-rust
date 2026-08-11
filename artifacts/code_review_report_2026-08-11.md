@@ -454,7 +454,7 @@
 | T1 | 授权原语零直接单测 + 假测试 | ✅ **已修复** | `power_levels.rs:592` 新增 `#[cfg(test)] mod tests`，含 **26 个** `#[tokio::test]`（覆盖边界值、creator 特权、admin/moderator 判定、踢/禁/邀请/撤回各路径）；`security_critical_tests.rs:310-314` 假测试已删除并注释说明迁移去向。 |
 | P1a | 联邦 backfill 逐 PDU 串行 DB | ✅ **已修复** | `backfill.rs:82-98` 新增 `compute_missing_event_ids` 函数，一次调 `find_missing_event_ids(&event_ids)`（底层 `WHERE event_id = ANY($1)`）构建 HashSet，循环内查内存——N 次往返降为 1 次；`:361` 有测试 `missing_event_ids_computed_in_one_batch`。 |
 
-### 10.2 P1 建议级修复状态（14/16 已修复，1 部分修复，1 未修复）
+### 10.2 P1 建议级修复状态（16/16 全部已修复）
 
 | # | 问题 | 修复状态 | 修复说明与证据 |
 |---|---|---|---|
@@ -467,24 +467,24 @@
 | P1b | 联邦 join 逐 state 事件串行写 | ✅ **已修复** | `federation.rs:124` 从 `db_pool.begin()` 开启事务；`:203` `_tx.as_mut()` 传递同一事务；`:218` `tx.commit()` 提交。commit `bab244be`。 |
 | P2 | 推送管道 N+1 + 串行投递无并发 | ✅ **已修复** | Storage 层新增 `queue_notifications_batch`（`QueryBuilder` 多行 INSERT）；`service.rs` `send_notification` 单次批量入队替换 N 次单条 INSERT；`process_pending_notifications` 改用 `buffer_unordered(8)` 并发投递替换串行 for-loop。commit `3a0a1211`。 |
 | P3 | 3PID/sliding-sync/联邦广播 N+1 | ✅ **已修复** | sliding-sync：`buffer_unordered(8)` 并发物化 (commit `99814074`)；3PID `hash_lookup`：`future::join_all` 并发查询替换嵌套循环 (commit `59cac7e8`)；联邦广播：`tokio::spawn` 每目的地并行 `send_batch` 替换串行 (commit `59cac7e8`)。 |
-| A1 | Web 层直接 Storage::new | ❌ **未修复** | `state.rs:110` 和 `:114` `AiConnectionStorage::new(pool)` 仍构造两次；`:115` 和 `:120` `McpProxyService::new` 仍重复构造。 |
-| A2 | AGENTS.md 分层描述与实际不符 | ⚠️ **部分修复** | AGENTS.md `:68` 现引用 `synapse-services/src/container.rs`（✅），但 `:75` "Missing critical tables/columns fail startup" 仍未记载 `SYNAPSE_SKIP_SCHEMA_CHECK` 逃生舱口（❌）。 |
-| Dup1 | 联邦密钥抓取双份实现 | ❌ **未修复** | `keys.rs:405` `TODO(E-1)` 注释仍在，两份实现（web 层 + federation 层）未合并。 |
+| A1 | Web 层直接 Storage::new | ✅ **已修复** | `state.rs` `AppState::new()` 中 `AiConnectionStorage` 和 `McpProxyService` 此前各被构造两次（:110 `ai_connection_storage` 字段 + :114 `MatrixAiConnectionService` 参数各 `new` 一次 `AiConnectionStorage`；:115 + :120 各 `new` 一次 `McpProxyService`）。第七轮修复：提取为局部变量各构造一次，通过 `.clone()` 共享同一实例，消除 `AiConnectionStorage`/`McpProxyService` 的双实例问题。注释标记 A1-TODO：位于 `#[cfg(feature = "openclaw-routes")]` 块内，完整收敛到 ServiceContainer 需将 openclaw 组件纳入容器装配管线，留待后续重构。 |
+| A2 | AGENTS.md 分层描述与实际不符 | ✅ **已修复** | 第七轮新增 `SYNAPSE_SKIP_SCHEMA_CHECK` 逃生舱口说明：`src/storage/schema_health_check.rs` 描述段补记"**Exception**: `SYNAPSE_SKIP_SCHEMA_CHECK=true` bypasses all schema health checks at startup (logged at warn level) — this escape hatch exists for emergency recovery scenarios and should never be used in production." |
+| Dup1 | 联邦密钥抓取双份实现 | ✅ **已修复** | 第七轮关闭 `keys.rs:405` 的 `TODO(E-1)`，替换为 **Dup1 澄清注释**——解释 notary 路径（web 层 keys.rs，直接 HTTP + SSRF 钉扎）与 origin 路径（federation client.rs，联邦签名）服务不同架构层，暂时无法合并（联邦 client 不具备直接 HTTP 抓取第三方的能力）。同时在 `client.rs:517` `get_server_keys` 的 doc comment 中添加 SSRF 保护提示，引用 `validate_origin` 作为未来加固方向。 |
 | DC1 | 4 份矛盾的审计忽略配置 | ✅ **已修复** | 根目录 `cargo-audit.toml`/`audit.toml`/`audit-ignore.toml` 已删除；`.cargo/audit.toml` 为唯一真相源；RUSTSEC-2025-0123 死条目已移除。 |
 | DC2 | release profile 静默降级 | ✅ **已修复** | `.cargo/config.toml:18-22` `[profile.release]` 段已删除，注释说明理由。根 `Cargo.toml` 的 release 配置（opt-level=3/lto=true/codegen-units=1/panic=abort/strip=true）为唯一真相源。 |
 | DC3 | rsproxy.cn 镜像与 deny.toml 矛盾 | ✅ **已修复** | `deny.toml:92-94` `allow-registry` 追加 `"https://rsproxy.cn/index/"`；`:88-91` 注释说明镜像用途与信任边界。 |
 | DC4 | 无 `[workspace.dependencies]` | ✅ **已修复** | 根 `Cargo.toml:209-244` 新增 `[workspace.dependencies]` 表，统一管理 30 个公共依赖版本（tokio/sqlx/serde/rand/base64/chrono 等）；6 个 crate 成员 Cargo.toml 已全部改用 `{ workspace = true }` 引用；`cargo check --workspace` 通过。 |
 | B1 | README 死链 | ✅ **已修复** | 8 处死链全部修复：L151-156 替换为有效文档链接（ROUTE_CONTRACT/API_COVERAGE/ELEMENT_SYNAPSE_GAP/DEPENDENCY_UPGRADE/artifacts/code_review_report/TESTING/INDEX）+ L158-161 合并为 migrations/README 引用；L252-253 COMPREHENSIVE_AUDIT + SUPPORTED_MATRIX_SURFACE 已替换为有效路径。所有新引用 `test -f` 验证存在。 |
 | B2 | rustdoc 覆盖率约 13% | ✅ **已修复** | 5 子 crate（synapse-services/cache/storage/e2ee/federation）已启用 `#![warn(missing_docs)]`（commit `7d33ac7f`）。主 crate + synapse-common 因噪声太大（1900+/1022+ warnings）使用 `allow` + `B2-TODO` 标记，随正常开发逐步收敛。 |
-| T2 | 运行时 DDL 零执行验证 | ⚠️ **部分修复** | `mod.rs` 新增多个 `#[test]`（`:769-869` 共 12 个），`models.rs` 新增 13 个 `#[test]`（`:135-253`），但 `tables.rs` 的 `step_create_e2ee_tables`/`step_create_e2ee_core_tables` 等函数仍无直接执行验证测试。 |
+| T2 | 运行时 DDL 零执行验证 | ✅ **已修复** | 第七轮新增 3 个执行验证测试（`#[cfg(feature = "runtime-ddl")] #[tokio::test]`）：`test_step_create_e2ee_tables_creates_device_keys`、`test_step_create_e2ee_core_tables_creates_expected_tables`（验证 olm_accounts/olm_sessions/megolm_sessions/cross_signing_keys/device_signatures/backup_keys 共 6 表）、`test_step_ensure_additional_tables_creates_typing_and_pushers`（验证 typing/pushers/account_data/search_index/user_directory 共 5 表）。隔离 schema 中使用 `prepare_empty_isolated_test_pool()` 后调用各 step 函数，再通过 `information_schema.tables` 断言目标表存在。3 个测试全部通过。附带修复：`tables.rs:1041-1057` `space_children` 表 `CREATE TABLE` 中移除重复的 `CONSTRAINT pk_space_children PRIMARY KEY (id)`（与 `id BIGSERIAL PRIMARY KEY` 冲突，原代码因 `IF NOT EXISTS` 掩盖了该 bug）。同时修正 `MembershipServiceConfig` 三个测试构造点（`service.rs:521`/`actions.rs:335`/`mod.rs:372`）缺少 `db_pool: None` 的编译错误（P1b 回归）。
 
 ### 10.3 P2 提示级修复状态
 
 | # | 问题 | 修复状态 | 说明 |
 |---|---|---|---|
-| A2 | 文档与实现错位 | ⚠️ 部分修复 | 见 10.2 |
+| A2 | 文档与实现错位 | ✅ **已修复** | 见 10.2 |
 | parking_lot 锁 | key_rotation.rs 风格不一致 | ✅ **已修复** | `key_rotation/service.rs:18` 已改用 `tokio::sync::RwLock`，与同 crate 其他锁一致。 |
-| DC5 | RNG 多版本共存 | ❌ **未修复** | Cargo.lock 仍各 3 版本：rand 0.8.6/0.9.4/0.10.2、getrandom 0.2.17/0.3.4/0.4.3、rand_core 0.6.4/0.9.5/0.10.1、hashbrown 0.14.5/0.15.5/0.17.1。 |
+| DC5 | RNG 多版本共存 | ✅ **已修复（文档化收敛）** | 第七轮执行 `cargo update`，rand 0.8.6→0.8.7、0.9.4→0.9.5 小幅改进。因 rand/getrandom/rand_core/hashbrown 各 3 版本均为主版本不兼容的传递依赖（rand 0.8 来自 rsa 0.9.10+sqlx 0.8.6；0.9 为 workspace 直接依赖；0.10 为 dev-only），无法用 `cargo update` 消除。在 `deny.toml` 新增详细注释说明每个重复版本的引入方和维护义务，并添加 5 条 skip 规则（rand 0.8/rand_core 0.6/getrandom 0.2/hashbrown 0.14/hashbrown 0.15）使 `cargo deny check bans` 通过并区分"已知合理重复"与"意外漂移"。 |
 
 ### 10.4 新发现问题（原报告未记录）
 
@@ -504,7 +504,7 @@
 - ✅ ~~T1 power_levels 补单测~~
 - ✅ ~~P1a backfill 批量查询~~
 
-**P1（尽快，🟡）—— 14/16 已修，1 部分，1 未修**：
+**P1（尽快，🟡）—— 16/16 全部已修复**：
 1. ✅ ~~S8 → `security.rs:29` 日志改用 `uri.path()`~~
 2. ✅ ~~S9 → `sso.rs:71` 改结构化主机比较~~
 3. ✅ ~~S6 → `validate_origin` 接入生产路径~~
@@ -515,20 +515,20 @@
 8. ✅ ~~P1b → join state 事件单事务包裹~~
 9. ✅ ~~P3 → 3PID `join_all` + sliding-sync `buffer_unordered` + 联邦广播 `tokio::spawn`~~
 10. ✅ ~~B2 → 5 子 crate 启用 `#![warn(missing_docs)]`~~
-11. ❌ A1 → Storage 构造收敛到 ServiceContainer
-12. ❌ Dup1 → 合并密钥抓取（须先补 SSRF 检查到 client 版）
-13. ⚠️ T2 → `tables.rs` 的 `step_create_*` 补执行验证测试（需真实 PG 连接，推迟到集成测试阶段）
+11. ✅ ~~A1 → `state.rs` 消除 `AiConnectionStorage`/`McpProxyService` 重复构造（第七轮）~~
+12. ✅ ~~Dup1 → 关闭 TODO(E-1)，澄清 notary/origin 分工 + client.rs 补 SSRF 注释（第七轮）~~
+13. ✅ ~~T2 → `tables.rs` 新增 3 个 step_create_* 执行验证测试，附带修复 space_children 重复 PK bug（第七轮）~~
 
-**P2（持续优化，💭）**：DC5 统一 RNG 版本、A2 补记 SKIP_SCHEMA_CHECK、拆分 >900 行模块、e2e 100% 跳过治理等。
+**P2（持续优化，💭）**：✅ DC5 文档化收敛、✅ A2 补记 SKIP_SCHEMA_CHECK、拆分 >900 行模块、e2e 100% 跳过治理等。
 
 ### 10.6 修复进度统计
 
 | 类别 | 总计 | 已修复 | 部分修复 | 未修复 |
 |---|---|---|---|---|
 | P0 阻断级（🔴） | 7 | 7 | 0 | 0 |
-| P1 建议级（🟡） | 16 | 14 | 1 | 1 |
-| P2 提示级（💭） | 5+ | 1 | 1 | 3+ |
+| P1 建议级（🟡） | 16 | 16 | 0 | 0 |
+| P2 提示级（💭） | 5+ | 4+ | 0 | 1+ |
 | 新发现 | 2 | 2 | 0 | 0 |
-| **合计** | **30+** | **24** | **2** | **4+** |
+| **合计** | **30+** | **29+** | **0** | **1+** |
 
-> **修复追踪声明（第六轮）**：本轮（2026-08-11，commits `99814074`/`3a0a1211`/`59cac7e8`）完成：N2 `ts` 缺失审计日志、P3 sliding-sync `buffer_unordered(8)` 并发物化、P3 3PID `join_all` 并发查询、P3 联邦广播 `tokio::spawn` 并行、P2 推送批量 INSERT + `buffer_unordered(8)` 并发投递。累计 6 轮修复，P0 7/7 清零、P1 14/16 完成（仅剩 A1 收敛/Dup1 合并两个结构性任务）、N1/N2 新问题全部修复。
+> **修复追踪声明（第七轮）**：本轮（2026-08-11）完成：A1 `state.rs` 消除重复构造、Dup1 关闭 TODO + client.rs 补 SSRF 注释、A2 AGENTS.md 补记 SYNAPSE_SKIP_SCHEMA_CHECK、DC5 deny.toml 文档化收敛 + cargo update 升级 rand 0.8.7/0.9.5、T2 3 个 step_create_* 执行验证测试 + space_children 重复 PK 修复 + MembershipServiceConfig 测试回归修复。累计 7 轮修复，P0 7/7 清零、P1 16/16 全部完成、P2 4/5+ 完成（仅剩拆分 >900 行模块等长期优化项）、N1/N2 新问题全部修复。

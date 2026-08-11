@@ -72,7 +72,7 @@ The codebase generally follows `route -> service -> storage`, with `AppState`/`S
 ### Storage and schema model
 - Postgres is the primary source of truth.
 - `src/storage/mod.rs` re-exports many domain-specific storages; most features have a corresponding storage module.
-- `src/storage/schema_health_check.rs` is part of startup validation. Missing critical tables/columns fail startup.
+- `src/storage/schema_health_check.rs` is part of startup validation. Missing critical tables/columns fail startup. **Exception**: `SYNAPSE_SKIP_SCHEMA_CHECK=true` bypasses all schema health checks at startup (logged at warn level) — this escape hatch exists for emergency recovery scenarios and should never be used in production.
 - Runtime DB initialization is intentionally not the default path. The expected migration flow is externalized through `docker/db_migrate.sh`; server startup only performs schema health checks unless `SYNAPSE_ENABLE_RUNTIME_DB_INIT` is explicitly enabled and `SYNAPSE_SKIP_DB_INIT` is not set.
 
 ### Configuration model

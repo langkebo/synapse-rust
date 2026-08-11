@@ -369,6 +369,7 @@ mod coverage_tests {
             cache: StdArc::new(CacheManager::new(&CacheConfig::default())),
             key_rotation_storage: None,
             app_service_manager: None,
+            db_pool: None,
         });
 
         TestService { svc, member_store, room_store, summary_store }

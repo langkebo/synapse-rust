@@ -402,8 +402,15 @@ async fn fetch_remote_server_keys_response(
     // S2 修复: 不再使用进程级共享 client（会在连接时重新解析 DNS，存在
     // TOCTOU 风险）。改为对每个 URL 使用 pinned_client_for_url 钉扎到
     // check_url_and_resolve 返回的已验证 IP。
-    // TODO(E-1): 此处密钥抓取逻辑与 synapse-federation/src/client.rs 的
-    // `get_server_keys` 重复实现，后续应合一为单一实现。
+    // Dup1 澄清: 此处的密钥抓取（notary 路径，直接 HTTP + SSRF 钉扎）与
+    // synapse-federation/src/client.rs 的 `get_server_keys`（origin 路径，联邦签名）
+    // 并非无意义重复。两者服务不同架构层：
+    //   - Notary 路径（此处）：处理来自其他服务器的 /_matrix/key/v2/query 请求，
+    //     需要抓取第三方服务器密钥（非联邦对等方），因此必须走直接 HTTP + SSRF。
+    //   - Origin 路径（client.rs）：本服务器主动向已知联邦对等方请求密钥，
+    //     走联邦签名认证，SSRF 保护由 FederationClient 的 resolve_server 承担。
+    // 两者暂时无法合并，因为联邦 client 当前不具备直接 HTTP 抓取第三方的能力；
+    // 若未来 FederationClient 支持无签名请求 + IP 钉扎，可考虑在此处委托调用。
 
     // SSRF protection: reuse the URL preview IP blacklist to block private/loopback addresses.
     // E-2: `allow_http_key_fetch` controls only the HTTP scheme; SSRF protection

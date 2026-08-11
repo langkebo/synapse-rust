@@ -332,6 +332,7 @@ mod tests {
             cache: Arc::new(CacheManager::new(&CacheConfig::default())),
             key_rotation_storage: Some(spy),
             app_service_manager: None,
+            db_pool: None,
         })
     }
 

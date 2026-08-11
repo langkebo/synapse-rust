@@ -40,9 +40,31 @@ highlight = "all"
 workspace-default-features = "allow"
 external-default-features = "allow"
 deny = []
-# Skip the (numerous) dev-only crates from the version-uniqueness check
-# to keep the warning surface useful without being noisy.
+# ── DC5: 已知的多版本并存（均为主版本不兼容，由第三方传递，无法用 cargo update 消除） ──
+#
+# 原理：Rust 的版本解析允许同一 crate 的不同主版本共存（如 rand 0.8.x 与 0.9.x），
+# 因为它们 API 不兼容。以下条目均由于关键传递依赖尚未升级到新主版本导致：
+#
+# - rand 0.8.7 : rsa 0.9.10（JWT 签名核心）/ sqlx-postgres 0.8.6（数据库驱动）
+# - rand 0.9.5 : workspace 直接依赖，用于 RNG 核心逻辑
+# - rand 0.10.2: 已列入 skip（dev-only, quickcheck）
+#
+# - getrandom 0.2.17: rand_core 0.6 → crypto-common → aead → aes-gcm（E2EE crypto）
+# - getrandom 0.3.4 : rand_core 0.9 → rand 0.9（workspace 直接依赖）
+# - getrandom 0.4.3 : 已列入 skip（dev-only, tempfile → insta）
+#
+# - rand_core 0.6.4 : getrandom 0.2 链，用于 E2EE crypto
+# - rand_core 0.9.5 : rand 0.9 链（workspace 直接依赖）
+# - rand_core 0.10.1: 已列入 skip（dev-only, quickcheck → rand 0.10）
+#
+# - hashbrown 0.14.5: dashmap 6.2 + hashlink 0.8 → config → yaml-rust2
+# - hashbrown 0.15.5: hashlink 0.10 → sqlx-core 0.8.6（数据库驱动）
+# - hashbrown 0.17.1: indexmap 2.x → h2 → hyper → axum（HTTP 框架）
+#
+# 维护义务：上游 crate 升级到新主版本后，请移除对应 skip 条目并验证。
+# 审计周期：每季度检查上游是否已迁移（rsa 0.10+、sqlx 0.9+、dashmap 7.x）。
 skip = [
+    # Dev-only 工具，其依赖树不影响生产二进制
     { name = "criterion", version = "*" },
     { name = "quickcheck", version = "*" },
     { name = "quickcheck_macros", version = "*" },
@@ -51,6 +73,18 @@ skip = [
     { name = "wiremock", version = "*" },
     { name = "tempfile", version = "*" },
     { name = "fake", version = "*" },
+    # DC5: rand/rand_core 旧主版本，由 rsa 0.9.10（JWT 签名）和 sqlx-postgres 0.8.6（数据库）传递
+    # rsa 0.9.10 依赖 num-bigint-dig → rand 0.8；sqlx-postgres 因为 uuid 特性依赖 rand 0.8
+    { name = "rand", version = "0.8" },
+    { name = "rand_core", version = "0.6" },
+    # DC5: getrandom 旧主版本，E2EE crypto 链（aead/aes-gcm → crypto-common → rand_core 0.6 → getrandom 0.2）
+    # aes-gcm 是 E2EE 核心依赖，无法替换；需等待上游升级 rand_core
+    { name = "getrandom", version = "0.2" },
+    # DC5: hashbrown 旧主版本，dashmap 6.x（并发 HashMap）和 config（YAML 配置解析）传递
+    # dashmap 6.2 依赖 hashbrown 0.14；config → yaml-rust2 → hashlink 0.8 → hashbrown 0.14
+    { name = "hashbrown", version = "0.14" },
+    # DC5: hashbrown 中主版本，sqlx-core 0.8.6 通过 hashlink 0.10 传递
+    { name = "hashbrown", version = "0.15" },
 ]
 
 [licenses]
