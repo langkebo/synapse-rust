@@ -82,6 +82,9 @@ pub struct RoomServiceConfig {
     /// that leaving a LOCAL encrypted room marks the megolm session for
     /// rotation (forward secrecy). `None` in test setups.
     pub key_rotation_storage: Option<Arc<dyn synapse_e2ee::key_rotation::KeyRotationStorageApi>>,
+    /// Optional DB pool for wrapping multi-event persistence (federation join)
+    /// in a single transaction instead of N+1 implicit transactions.
+    pub db_pool: Option<sqlx::PgPool>,
 }
 
 pub struct RoomService {
@@ -138,6 +141,7 @@ impl RoomService {
             cache: config.cache.clone(),
             key_rotation_storage: config.key_rotation_storage.clone(),
             app_service_manager: config.app_service_manager.clone(),
+            db_pool: config.db_pool.clone(),
         };
         let membership = MembershipService::new(membership_cfg);
 

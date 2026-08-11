@@ -46,6 +46,10 @@ pub struct MembershipService {
     /// (join, leave, invite, ban) are enqueued for matching application
     /// services after they are persisted.
     pub(crate) app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
+    /// Optional DB pool for wrapping multi-event persistence in a single
+    /// transaction (federation join state events, etc.). When `None`,
+    /// each `create_event_with_graph` call uses its own implicit transaction.
+    pub(crate) db_pool: Option<sqlx::PgPool>,
 }
 
 /// Configuration for constructing a [`MembershipService`].
@@ -65,6 +69,9 @@ pub struct MembershipServiceConfig {
     pub cache: Arc<CacheManager>,
     pub key_rotation_storage: Option<Arc<dyn KeyRotationStorageApi>>,
     pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
+    /// Optional DB pool for wrapping multi-event persistence in a single
+    /// transaction (federation join state events, etc.).
+    pub db_pool: Option<sqlx::PgPool>,
 }
 
 impl MembershipService {
@@ -85,6 +92,7 @@ impl MembershipService {
             cache: config.cache,
             key_rotation_storage: config.key_rotation_storage,
             app_service_manager: config.app_service_manager,
+            db_pool: config.db_pool,
         }
     }
 

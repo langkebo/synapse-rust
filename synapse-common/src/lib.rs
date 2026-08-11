@@ -1,6 +1,8 @@
 // ROUND2-ISSUE-1: test code may use unwrap/expect/unwrap_err/panic per Rust testing idiom.
 // Production lib code is still held to the strict clippy lint config in [lints.clippy].
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::unwrap_err_used, clippy::panic))]
+// B2: incrementally improve API doc coverage.
+#![warn(missing_docs)]
 
 pub mod argon2_config;
 pub mod background_job;

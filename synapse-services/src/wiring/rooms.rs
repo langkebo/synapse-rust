@@ -119,6 +119,7 @@ impl RoomSyncServices {
                 Arc::new(synapse_e2ee::key_rotation::KeyRotationStorage::new(infra.pool.clone()))
                     as Arc<dyn synapse_e2ee::key_rotation::KeyRotationStorageApi>,
             ),
+            db_pool: Some(infra.pool.as_ref().clone()),
         }));
 
         let sync_room_account_data_storage: Arc<dyn RoomAccountDataStoreApi> =

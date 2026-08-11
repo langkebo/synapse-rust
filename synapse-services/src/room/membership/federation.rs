@@ -117,7 +117,15 @@ impl MembershipService {
 
         // 5. Persist the returned state events and auth chain.
         //    We use create_event_with_graph so that event_edges is populated.
+        //    P1b: Wrap all state-event persistence in a single transaction
+        //    to avoid N+1 round-trips and ensure atomicity.
         let mut persisted_event_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        let mut _tx = if let Some(ref pool) = self.db_pool {
+            Some(pool.begin().await.map_err(|e| ApiError::internal_with_log("Failed to begin transaction for federation join", &e))?)
+        } else {
+            None
+        };
 
         for state_event in &send_join_response.state {
             if let Some(event_id) = state_event.get("event_id").and_then(|v| v.as_str()) {
@@ -192,7 +200,7 @@ impl MembershipService {
                         &prev_events,
                         &auth_events,
                         depth,
-                        None,
+                        _tx.as_mut(), // P1b: share the transaction across all state events
                     )
                     .await
                 {
@@ -203,6 +211,11 @@ impl MembershipService {
                     );
                 }
             }
+        }
+
+        // P1b: Commit the single transaction after all state events are persisted.
+        if let Some(tx) = _tx {
+            tx.commit().await.map_err(|e| ApiError::internal_with_log("Failed to commit federation join transaction", &e))?;
         }
 
         // Invalidate room-state cache after persisting federated state events.
