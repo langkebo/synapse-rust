@@ -400,13 +400,20 @@ pub fn create_router(state: AppState) -> Router {
             // ISSUE-13: Private endpoints migrated to /_matrix/vendor/v1.
             // The legacy /_matrix/client/v3/{my_rooms,search_rooms,search_recipients}
             // routes remain for backward compatibility but are deprecated.
-            ::tracing::warn!(
-                target: "synapse_rust::web::routes::route_ledger",
-                "ISSUE-13: Private endpoints (/my_rooms, /search_rooms, /search_recipients) \
-                 are now served under /_matrix/vendor/v1/. The legacy \
-                 /_matrix/client/v3/ aliases are deprecated and will be removed \
-                 in a future release. Clients should migrate to the vendor prefix.",
-            );
+            // Suppress via SYNAPSE__SERVER__SUPPRESS_VENDOR_ENDPOINT_WARNING=true.
+            let suppress_vendor_warning = std::env::var("SYNAPSE__SERVER__SUPPRESS_VENDOR_ENDPOINT_WARNING")
+                .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+                .unwrap_or(false);
+            if !suppress_vendor_warning {
+                ::tracing::warn!(
+                    target: "synapse_rust::web::routes::route_ledger",
+                    "ISSUE-13: Private endpoints (/my_rooms, /search_rooms, /search_recipients) \
+                     are now served under /_matrix/vendor/v1/. The legacy \
+                     /_matrix/client/v3/ aliases are deprecated and will be removed \
+                     in a future release. Clients should migrate to the vendor prefix. \
+                     Set `server.suppress_vendor_endpoint_warning: true` to suppress.",
+                );
+            }
         }
         Err(err) => {
             tracing::error!("route manifest contains duplicate entries — refusing to start:\n{err}");

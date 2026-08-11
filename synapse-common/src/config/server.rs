@@ -250,6 +250,17 @@ pub struct ServerConfig {
     #[serde(default)]
     pub suppress_r0_deprecation_warning: bool,
 
+    /// 是否抑制 vendor 私有端点旧别名弃用告警。
+    ///
+    /// ISSUE-13: 私有端点 (/my_rooms, /search_rooms, /search_recipients)
+    /// 已迁移至 `/_matrix/vendor/v1/`。旧的 `/_matrix/client/v3/` 别名
+    /// 保留用于向后兼容但已弃用。默认启动时打印一条 WARN 日志。
+    /// 当部署明确需要保留旧别名时，可设为 `true` 抑制该告警。
+    ///
+    /// 也可通过环境变量 `SYNAPSE__SERVER__SUPPRESS_VENDOR_ENDPOINT_WARNING` 覆盖。
+    #[serde(default)]
+    pub suppress_vendor_endpoint_warning: bool,
+
     /// 是否启动 burn-after-read 处理器。
     ///
     /// 默认 `true`。可通过标准环境变量覆盖机制

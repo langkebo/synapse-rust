@@ -20,6 +20,8 @@ server:
   session_duration: 86400000
   warmup_pool: true
   megolm_encryption_key_path: "/app/data/megolm.key"
+  suppress_r0_deprecation_warning: true
+  suppress_vendor_endpoint_warning: true
 
 rate_limit:
   enabled: true
