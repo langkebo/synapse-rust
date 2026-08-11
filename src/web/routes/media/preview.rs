@@ -44,7 +44,11 @@ pub(crate) async fn preview_url(
         params.get("url").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("URL required".to_string()))?;
 
     let blacklist = &ctx.config.url_preview.ip_range_blacklist;
-    if let Err(e) = crate::common::check_url_against_blacklist(url, blacklist) {
+    // S2: 使用 check_url_and_resolve（内部与 check_url_against_blacklist 校验一致，
+    // 但额外返回已验证 IP）。当前 preview_url 为 stub 不发起实际请求；未来实现真实
+    // 抓取时，必须将返回的 verified_ips 经 http_client::pinned_client_for_url 钉扎，
+    // 否则存在 DNS rebinding TOCTOU 风险。
+    if let Err(e) = crate::common::check_url_and_resolve(url, blacklist) {
         return Err(ApiError::forbidden(format!("URL not allowed: {e}")));
     }
 
