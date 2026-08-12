@@ -1,0 +1,77 @@
+# =============================================================================
+# Synapse-Rust API 全量测试 — 环境配置
+#
+# 优先级（低 → 高）：
+#   1. 本文件默认值
+#   2. 环境变量（API_TEST_ENV / API_TEST_BASE_URL / API_TEST_TOKEN /
+#      API_TEST_VERIFY_TLS / API_TEST_TIMEOUT / API_TEST_CONCURRENCY /
+#      API_TEST_USER / API_TEST_PASSWORD / API_TEST_ADMIN_USER /
+#      API_TEST_ADMIN_PASSWORD / API_TEST_ALLOW_WRITE）
+#   3. 命令行参数（--base-url / --token / --env ...）
+# =============================================================================
+
+# 环境名：dev | test | prod。仅用于报告标注与默认行为差异：
+#   - prod: 默认禁止一切写操作探测（即使 --allow-write 也会被降级为仅匿名探测）
+#   - dev/test: 可通过 --allow-write 开启带 token 的写操作探测（仍只发空 body）
+env: dev
+
+# 目标服务器基础 URL（测试目标）
+base_url: "https://matrix.test"
+
+# 直接指定访问令牌；留空时若配置了 auth.username/password 则尝试自动登录获取
+auth_token: ""
+
+# 认证探测使用的用户凭据（用于自动登录获取 token；可用任意有效用户替换）
+auth:
+  username: "admin"
+  password: "Admin@123"
+
+# Admin 凭据（用于 /_synapse/admin 端点的认证探测；留空则 admin 端点仅做匿名 401 探测）
+admin:
+  username: "admin"
+  password: "Admin@123"
+
+# TLS 校验开关（测试环境使用 mkcert 受信证书可保持 true；自签名环境设 false）
+verify_tls: true
+
+# 网络参数
+timeout: 10           # 单请求超时（秒）
+concurrency: 8        # 并发请求数
+request_delay: 0.0    # 可选节流：每个请求之间的固定延迟（秒）
+max_response_bytes: 4096  # 报告里保留的响应体最大字节数
+
+# 路由清单来源：
+#   - "auto": 优先运行 cargo 导出（--export-ledger 显式触发）；否则回退到 ledger_path
+#   - 也可直接指定 JSON 文件路径
+# 注意：默认 ledger.json 使用与 Docker 镜像一致的 features 导出（1292 条）；
+#       tests/unit/fixtures/ledger_export/default.json 是 default-features 构建（1242 条），
+#       仅用于单元测试 golden-file，不含 voice-extended/saml-sso/cas-sso 等扩展路由。
+ledger_path: "ledger.json"
+
+# 路径参数 → 测试值映射（用于把 /rooms/{room_id}/... 等模板路径实例化）
+# 占位符值为"确定性不存在"的资源，期望 handler 返回 4xx 而不是 5xx
+path_params:
+  user_id: "@testuser1:matrix.test"
+  room_id: "!apitest-nosuchroom:matrix.test"
+  room_alias: "#apitest-nosuchalias:matrix.test"
+  event_id: "$apitest-nosuchevent:matrix.test"
+  txn_id: "apitest-txn-00000000"
+  transaction_id: "apitest-txn-00000000"
+  device_id: "APITESTDEVICE0000"
+  filter_id: "apitest-filter-0000"
+  key_name: "com.example.apitest"
+  tag: "m.favourite"
+  scope: "global"
+  media_id: "doesnotexist"
+  server_name: "matrix.test"
+  user: "testuser1"
+  sender: "@testuser1:matrix.test"
+  thread_id: "$apitest-nosuchevent:matrix.test"
+  token: "apitest-token-0000"
+  id: "apitest-0000"
+  name: "apitest-name"
+  network_id: "apitest-network"
+  appservice_id: "apitest-as"
+
+# 报告输出目录
+report_dir: "reports"

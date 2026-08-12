@@ -553,10 +553,14 @@ impl KeyRotationStorage {
     }
 
     /// Get the last rotation timestamp for a specific key id.
+    ///
+    /// `rotated_at` is stored as a BIGINT millisecond timestamp, so it is
+    /// returned as-is (no `EXTRACT(EPOCH ...)` conversion, which would fail
+    /// with `function extract(unknown, bigint) does not exist`).
     pub async fn get_last_rotation_for_key(&self, user_id: &str, key_id: &str) -> Result<Option<i64>, ApiError> {
         let result: Option<i64> = sqlx::query_scalar(
             r"
-            SELECT EXTRACT(EPOCH FROM rotated_at) * 1000
+            SELECT rotated_at
             FROM key_rotation_log
             WHERE user_id = $1 AND (new_key_id = $2 OR old_key_id = $2)
             ORDER BY rotated_at DESC LIMIT 1
@@ -577,10 +581,13 @@ impl KeyRotationStorage {
 
     /// Get the maximum rotation timestamp for a user (returns 0 if no
     /// rotations exist).
+    ///
+    /// `rotated_at` is a BIGINT millisecond timestamp — no epoch conversion
+    /// is applied (see `get_last_rotation_for_key`).
     pub async fn get_max_rotation_ts(&self, user_id: &str) -> Result<i64, ApiError> {
         let result: i64 = sqlx::query_scalar(
             r"
-            SELECT COALESCE(EXTRACT(EPOCH FROM MAX(rotated_at)) * 1000, 0)::bigint
+            SELECT COALESCE(MAX(rotated_at), 0)
             FROM key_rotation_log
             WHERE user_id = $1
             ",

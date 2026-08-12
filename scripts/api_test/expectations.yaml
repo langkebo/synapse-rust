@@ -1,0 +1,151 @@
+# =============================================================================
+# Synapse-Rust API 全量测试 — 响应校验规则
+#
+# 两类规则：
+#   1. schemas  — 精确校验（关键公开端点）：HTTP 状态码 + 字段存在性 + 类型 + 非空约束
+#   2. overrides — 覆盖自动分类：force_public / force_auth / expect_status / skip
+#                  （少数端点需要人工指定期望，避免自动学习误判）
+#
+# 自动分类逻辑（无需逐端点配置）：
+#   - 匿名请求返回 401/403        → 该端点视为「需要认证」；匿名探测 401/403 = 鉴权正确 = PASS
+#   - 匿名请求返回 2xx 或其它 4xx  → 视为「公开端点」；2xx = PASS，4xx = 路由存活 = PASS
+#   - 任何 5xx / 超时 / 连接失败   → FAIL
+#   - 429                          → WARN（触发限流）
+# =============================================================================
+
+# ---------------- 关键端点精确校验规则 ----------------
+schemas:
+  "GET /":
+    status: 200
+    type: object
+    fields:
+      msg: string
+      version: string
+
+  "GET /_matrix/client/versions":
+    status: 200
+    type: object
+    fields:
+      versions: array
+      unstable_features: object
+    non_empty: ["versions"]          # 版本列表不允许为空
+
+  "GET /_matrix/client/v3/versions":
+    status: 200
+    type: object
+    fields:
+      versions: array
+    non_empty: ["versions"]
+
+  "GET /_matrix/client/r0/version":
+    status: 200
+    type: object
+    fields:
+      python_version: string
+      server_name: string
+      server_version: string
+
+  "GET /_matrix/server_version":
+    status: 200
+    type: object
+    fields:
+      python_version: string
+      server_name: string
+      server_version: string
+
+  "GET /_matrix/client/v3/capabilities":
+    status: 200
+    type: object
+    fields:
+      capabilities: object
+
+  "GET /_matrix/client/v3/login":
+    status: 200
+    type: object
+    fields:
+      flows: array
+    non_empty: ["flows"]
+
+  "GET /_matrix/client/v3/register":
+    status: 200
+    type: object
+    fields:
+      flows: array
+
+  "GET /.well-known/matrix/client":
+    status: 200
+    type: object
+    fields:
+      m.homeserver: object
+
+  "GET /.well-known/matrix/server":
+    status: 200
+    type: object
+    fields:
+      m.server: string
+
+  "GET /_matrix/client/v1/config/client":
+    status: 200
+    type: object
+
+  "GET /_matrix/client/v3/pushrules/":
+    force_auth: true
+    status: 200
+    type: object
+    fields:
+      global: object
+
+  "GET /_matrix/client/v3/pushrules/global/":
+    force_auth: true
+
+  "GET /_matrix/client/r0/pushrules/":
+    force_auth: true
+    status: 200
+    type: object
+    fields:
+      global: object
+
+  "GET /_matrix/client/r0/pushrules/global/":
+    force_auth: true
+
+  "GET /_matrix/client/v3/voip/config":
+    status: 200
+    type: object
+
+  "GET /_matrix/client/v3/media/config":
+    status: 200
+    type: object
+    fields:
+      m.upload.size: integer
+
+# ---------------- 特殊端点覆盖规则 ----------------
+overrides:
+  # 明文健康检查：text/plain，内容必须为 healthy
+  "GET /health":
+    force_public: true
+    expect_body_text: "healthy"
+
+  # 详细健康检查：status 必须为 healthy
+  "GET /_health":
+    force_public: true
+    expect_json_field: { status: "healthy" }
+
+  # 根路径
+  "GET /":
+    force_public: true
+
+  # 登录端点保持公开（POST 空 body 预期 400 参数校验错误）
+  "POST /_matrix/client/v3/login":
+    force_public: true
+    expect_status: [400, 401, 403]
+
+  "POST /_matrix/client/r0/login":
+    force_public: true
+    expect_status: [400, 401, 403]
+
+  "GET /_matrix/client/v3/account/whoami":
+    force_auth: true
+
+  # 联邦端点（8448 端口由 nginx 转发，本工具只测客户端 443 入口上可达的端点）
+  "GET /_matrix/federation/v1/version":
+    force_public: true

@@ -356,7 +356,14 @@ apply_pending_migrations() {
     skipped=0
     applied=0
 
-    find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' ! -name '*.conf' | sort | while IFS= read -r file; do
+    # 注意: 不能用 `find | sort | while read` 管道 — psql_with_retry 内的
+    # `cat >"$stdin_file"` 会贪婪读取 while 循环的 stdin (即 find 的输出),
+    # 导致循环在首个调用 psql_db 的文件处被耗尽中断 (applied 恒为 0,
+    # 后续迁移全部静默跳过)。改用 for + 命令替换: for 不占用 stdin,
+    # psql_db 继承的是脚本入口 stdin (调用方以 < /dev/null 启动 migrator),
+    # cat 立即 EOF, -c/-tAc 模式的 SQL 正常执行。迁移文件名均为
+    # `数字_名称.sql` 格式, 无空格无换行, 命令替换安全。
+    for file in $(find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' ! -name '*.conf' | sort); do
         # Skip ALL baseline files (v07, v10, etc.) — only the latest one is applied
         # in init_database(); older baselines must not run as incremental migrations
         # because their CREATE TABLE IF NOT EXISTS would no-op on tables already
@@ -376,8 +383,14 @@ apply_pending_migrations() {
             continue
         fi
 
-        apply_sql_file "$file"
-        applied=$((applied + 1))
+        if apply_sql_file "$file"; then
+            applied=$((applied + 1))
+        else
+            # apply_sql_file 失败时已记录 success=FALSE 并打 ERROR 日志;
+            # 这里不中断循环, 继续尝试后续迁移 (部分迁移失败不应阻断
+            # 其他独立的增量迁移)。
+            skipped=$((skipped + 1))
+        fi
     done
 
     # 结束摘要: 应用数/跳过数/表总数 便于排查迁移完整性

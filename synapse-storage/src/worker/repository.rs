@@ -633,6 +633,14 @@ impl WorkerStorage {
         Ok(())
     }
 
+    /// Returns worker statistics ordered newest-first.
+    ///
+    /// Reads from `worker_statistics`, whose schema was completed by the
+    /// `20260812120000_worker_statistics_load_metrics` migration to include the
+    /// worker identity/lifecycle columns plus realtime load metric columns.
+    /// Realtime load metrics (cpu/memory/connections/...) have no collector
+    /// yet, so those columns remain NULL and are emitted as JSON `null` for
+    /// payload compatibility.
     pub async fn get_statistics(&self, limit: i64) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query(
             r"SELECT id, worker_id, worker_name, worker_type, status,

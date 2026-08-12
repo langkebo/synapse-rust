@@ -109,18 +109,19 @@ impl MediaQuotaStorage {
     }
 
     pub async fn get_or_create_user_quota(&self, user_id: &str) -> Result<UserMediaQuota, ApiError> {
-        if let Some(quota) = self.get_user_quota(user_id).await? {
-            return Ok(quota);
-        }
-
         let default_config = self.get_default_config().await?;
         let quota_config_id = default_config.map(|c| c.id);
         let now = current_timestamp_millis();
 
+        // Atomic upsert: a check-then-insert race would otherwise trip the
+        // `uq_user_media_quota_user` unique constraint under concurrency
+        // (two uploads racing for the same new user).
         let quota = sqlx::query_as::<_, UserMediaQuota>(
             r"
             INSERT INTO user_media_quota (user_id, quota_config_id, created_ts, updated_ts)
             VALUES ($1, $2, $3, $3)
+            ON CONFLICT (user_id)
+            DO UPDATE SET updated_ts = user_media_quota.updated_ts
             RETURNING *
             ",
         )
