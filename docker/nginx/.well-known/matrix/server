@@ -1,7 +1,0 @@
-# Matrix Server Discovery for matrix.test
-# This file tells Matrix clients and servers how to find our homeserver
-
-{
-  "m.server": "matrix.test:443",
-  "m.identity_server": "https://vector.im"
-}

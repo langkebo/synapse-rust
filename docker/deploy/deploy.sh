@@ -12,7 +12,13 @@
 #   ./deploy.sh --core-only       # 仅部署核心 Matrix 功能
 #   ./deploy.sh --features LIST   # 部署指定功能（逗号分隔）
 #   ./deploy.sh --skip-build      # 跳过编译与镜像构建
+#   ./deploy.sh --install-deps    # 自动安装缺失依赖 (brew/apt/yum)
+#   ./deploy.sh --no-turn         # 跳过本地 coturn TURN 检查
 #   ./deploy.sh --image REF       # 使用指定的远程镜像（跳过本地构建，自动 pull）
+#
+# 完整流程: 环境检查 → 依赖安装(可选) → 配置检查 → SSL 证书自动生成 →
+#           /etc/hosts 检查 → 本地 coturn 检查/启动 → 备份 → 缓存清理 →
+#           镜像构建 → 数据库迁移 → 服务启动 → 健康/HTTPS 验证 → 日志检查
 #
 # 可用扩展功能:
 #   openclaw-routes, friends, voice-extended, saml-sso, cas-sso,
@@ -47,6 +53,8 @@ ROLLBACK_IN_PROGRESS=false
 SKIP_BUILD=false
 REMOTE_IMAGE=""
 USE_REMOTE_IMAGE=false
+INSTALL_DEPS=false
+CHECK_TURN=true
 
 # Extension features — order matches Cargo.toml
 ALL_EXTENSIONS=(
@@ -135,6 +143,12 @@ parse_args() {
             --skip-build)
                 SKIP_BUILD=true
                 ;;
+            --install-deps)
+                INSTALL_DEPS=true
+                ;;
+            --no-turn)
+                CHECK_TURN=false
+                ;;
             --image)
                 shift
                 REMOTE_IMAGE="${1:?'--image 需要参数，如: docker.io/vmuser232922/mysynapse:latest'}"
@@ -165,6 +179,8 @@ show_usage() {
   --core-only       仅部署核心 Matrix 功能（不含任何扩展）
   --features LIST   部署指定扩展功能（逗号分隔）
   --skip-build      跳过 cargo build 和 Docker 镜像构建
+  --install-deps    自动安装缺失的依赖 (macOS: brew / Linux: apt/yum)
+  --no-turn         跳过本地 coturn TURN 服务检查与启动
   --image REF       使用指定的远程镜像（自动 docker pull，跳过本地构建）
   --help            显示帮助信息
 
@@ -455,6 +471,7 @@ check_dependencies() {
     require_command tar
     require_command awk
     require_command grep
+    require_command openssl
 
     if ! command -v docker-compose >/dev/null 2>&1 && ! docker compose version >/dev/null 2>&1; then
         log_error "缺少 Docker Compose"
@@ -463,6 +480,252 @@ check_dependencies() {
 
     docker info >/dev/null
     log_success "依赖检查通过"
+}
+
+# =============================================================================
+# 依赖自动安装 (--install-deps)
+# =============================================================================
+install_missing_deps() {
+    DEPLOYMENT_PHASE="dependency-install"
+    log_info "检查并安装缺失依赖..."
+
+    local missing=()
+    command -v docker >/dev/null 2>&1 || missing+=(docker)
+    command -v curl >/dev/null 2>&1 || missing+=(curl)
+    command -v openssl >/dev/null 2>&1 || missing+=(openssl)
+    command -v mkcert >/dev/null 2>&1 || missing+=(mkcert)
+    if ! command -v docker-compose >/dev/null 2>&1 && ! docker compose version >/dev/null 2>&1; then
+        missing+=(docker-compose)
+    fi
+
+    if [ ${#missing[@]} -eq 0 ]; then
+        log_success "所有依赖已就绪"
+        return
+    fi
+
+    log_warning "缺少依赖: ${missing[*]}"
+
+    if [ "$(uname -s)" = "Darwin" ]; then
+        if command -v brew >/dev/null 2>&1; then
+            log_info "使用 Homebrew 安装: ${missing[*]}"
+            brew install "${missing[@]}"
+        else
+            log_error "未找到 Homebrew，请先安装: https://brew.sh"
+            exit 1
+        fi
+    elif command -v apt-get >/dev/null 2>&1; then
+        log_info "使用 apt 安装: ${missing[*]}"
+        sudo apt-get update
+        sudo apt-get install -y "${missing[@]//docker-compose/docker-compose-v2}"
+    elif command -v yum >/dev/null 2>&1; then
+        log_info "使用 yum 安装: ${missing[*]}"
+        sudo yum install -y "${missing[@]}"
+    else
+        log_error "无法自动安装依赖，请手动安装: ${missing[*]}"
+        exit 1
+    fi
+
+    require_command docker
+    command -v docker-compose >/dev/null 2>&1 || docker compose version >/dev/null 2>&1 || {
+        log_error "Docker Compose 安装失败"
+        exit 1
+    }
+    log_success "依赖安装完成"
+}
+
+# =============================================================================
+# SSL 证书检查与自动生成 (matrix.test)
+# 优先使用 mkcert（生成受本机信任的 CA 证书），回退到 openssl 自签名。
+# =============================================================================
+ensure_ssl_certs() {
+    DEPLOYMENT_PHASE="ssl-certs"
+    log_info "检查 SSL 证书..."
+
+    local cert_file="ssl/${SSL_CERT:-cert.pem}"
+    local key_file="ssl/${SSL_KEY:-key.pem}"
+    local server_name="${SERVER_NAME:-matrix.test}"
+
+    cert_valid_for_server() {
+        openssl x509 -in "$cert_file" -noout -text 2>/dev/null |
+            grep -A2 "Subject Alternative Name" |
+            grep -q "$server_name"
+    }
+
+    cert_is_self_signed() {
+        local issuer subject
+        issuer="$(openssl x509 -in "$cert_file" -noout -issuer 2>/dev/null)"
+        subject="$(openssl x509 -in "$cert_file" -noout -subject 2>/dev/null)"
+        [ -n "$issuer" ] && [ "$issuer" = "$subject" ]
+    }
+
+    if [ -f "$cert_file" ] && [ -f "$key_file" ] && cert_valid_for_server; then
+        if command -v mkcert >/dev/null 2>&1 && cert_is_self_signed; then
+            log_warning "检测到自签名证书（浏览器不信任），将用 mkcert 重新签发..."
+        else
+            log_success "SSL 证书已存在且匹配域名 $server_name"
+            return
+        fi
+    fi
+
+    if [ -f "$cert_file" ] || [ -f "$key_file" ]; then
+        log_warning "SSL 证书缺失或不匹配域名 $server_name，重新生成..."
+    fi
+    mkdir -p ssl
+
+    if command -v mkcert >/dev/null 2>&1; then
+        log_info "使用 mkcert 生成证书 ($server_name, localhost, 127.0.0.1)..."
+        # mkcert 首次使用需安装本地 CA 到系统信任库
+        if [ ! -f "$(mkcert -CAROOT 2>/dev/null)/rootCA.pem" ]; then
+            mkcert -install >/dev/null 2>&1 ||
+                log_warning "mkcert CA 安装失败，证书将不被系统浏览器信任（curl -k 仍可访问）"
+        fi
+        mkcert -cert-file "$cert_file" -key-file "$key_file" \
+            "$server_name" localhost 127.0.0.1
+    else
+        log_warning "未找到 mkcert，使用 openssl 生成自签名证书（需手动信任）..."
+        openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout "$key_file" -out "$cert_file" -days 3650 \
+            -subj "/CN=$server_name" \
+            -addext "subjectAltName=DNS:$server_name,DNS:localhost,IP:127.0.0.1" \
+            >/dev/null 2>&1
+    fi
+
+    [ -f "$cert_file" ] && [ -f "$key_file" ] || {
+        log_error "SSL 证书生成失败: $cert_file / $key_file"
+        exit 1
+    }
+    chmod 600 "$key_file"
+    log_success "SSL 证书已生成: $cert_file / $key_file"
+}
+
+# =============================================================================
+# /etc/hosts 域名映射检查 (matrix.test -> 127.0.0.1)
+# =============================================================================
+ensure_hosts_entry() {
+    DEPLOYMENT_PHASE="hosts-check"
+    log_info "检查 /etc/hosts 域名映射..."
+    local server_name="${SERVER_NAME:-matrix.test}"
+
+    if grep -Eq "(^|[[:space:]])127\.0\.0\.1([[:space:]]+.*)?${server_name}\b" /etc/hosts 2>/dev/null; then
+        log_success "/etc/hosts 已包含: 127.0.0.1 $server_name"
+        return
+    fi
+
+    log_warning "/etc/hosts 缺少域名映射: 127.0.0.1 $server_name"
+    if [ "$(id -u)" = "0" ]; then
+        echo "127.0.0.1 $server_name" >>/etc/hosts
+        log_success "已自动添加 /etc/hosts 条目"
+    else
+        log_warning "请手动执行以下命令（HTTPS 域名解析必需）:"
+        log_warning "  sudo sh -c 'echo \"127.0.0.1 $server_name\" >> /etc/hosts'"
+    fi
+}
+
+# =============================================================================
+# 本地 coturn TURN 服务检查与启动
+# 连接 /Users/ljf/Desktop/hu_ts/coturn 的本地 coturn（容器化），确保:
+#   1. coturn 容器运行中（未运行则自动 docker compose up -d 启动）
+#   2. TURN 共享密钥与 homeserver 配置一致
+# =============================================================================
+COTURN_DIR="${COTURN_DIR:-/Users/ljf/Desktop/hu_ts/coturn}"
+
+check_local_turn() {
+    DEPLOYMENT_PHASE="turn-check"
+    if [ "$CHECK_TURN" != "true" ]; then
+        log_info "跳过 TURN 检查 (--no-turn)"
+        return
+    fi
+    log_info "检查本地 coturn TURN 服务..."
+
+    local turn_ok=false
+    local turn_host="${TURN_HOST:-127.0.0.1}"
+    local turn_port="${TURN_PORT:-3478}"
+
+    # 1) 检查 coturn 容器
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'coturn'; then
+        turn_ok=true
+        log_success "coturn 容器运行中"
+    fi
+
+    # 2) 检查端口连通性（容器未命名 coturn 时的兜底）
+    if ! $turn_ok; then
+        if nc -z -w 2 "$turn_host" "$turn_port" >/dev/null 2>&1; then
+            turn_ok=true
+            log_success "coturn 端口可达: ${turn_host}:${turn_port}"
+        fi
+    fi
+
+    # 3) 未运行则自动启动
+    if ! $turn_ok; then
+        if [ -d "$COTURN_DIR" ] && [ -f "$COTURN_DIR/docker-compose.yml" ]; then
+            log_warning "coturn 未运行，尝试启动 ($COTURN_DIR)..."
+            if (cd "$COTURN_DIR" && docker compose up -d); then
+                sleep 3
+                if nc -z -w 2 "$turn_host" "$turn_port" >/dev/null 2>&1 ||
+                    docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'coturn'; then
+                    turn_ok=true
+                    log_success "coturn 已启动"
+                else
+                    log_error "coturn 启动后端口仍不可达: ${turn_host}:${turn_port}"
+                    log_error "请检查: cd $COTURN_DIR && docker compose logs coturn"
+                fi
+            else
+                log_error "coturn 启动失败，请手动检查: cd $COTURN_DIR && docker compose up -d"
+            fi
+        else
+            log_warning "未找到 coturn 配置目录: $COTURN_DIR (可用 --no-turn 跳过)"
+        fi
+    fi
+
+    # 4) 校验共享密钥一致性
+    if $turn_ok; then
+        local coturn_secret=""
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'coturn'; then
+            coturn_secret="$(
+                docker exec coturn sh -c '
+                    grep -h "static-auth-secret" /etc/coturn/turnserver.conf 2>/dev/null |
+                    grep -v "^#" | head -1 | awk -F= "{gsub(/[ \t\r]/,\"\",\$2); print \$2}"
+                ' 2>/dev/null || true
+            )"
+        fi
+        if [ -z "$coturn_secret" ] && [ -f "$COTURN_DIR/turnserver.conf" ]; then
+            coturn_secret="$(
+                grep -h "static-auth-secret" "$COTURN_DIR/turnserver.conf" 2>/dev/null |
+                grep -v "^#" | head -1 | awk -F= '{gsub(/[ \t\r]/,"",$2); print $2}'
+            )"
+        fi
+
+        local synapse_secret="${TURN_SHARED_SECRET:-dev-turn-secret}"
+        if [ -n "$coturn_secret" ] && [ "$coturn_secret" != "$synapse_secret" ]; then
+            log_warning "TURN 共享密钥不一致: coturn='$coturn_secret' vs synapse='$synapse_secret'"
+            log_warning "请修改 .env 中的 TURN_SHARED_SECRET 为 '$coturn_secret'"
+        else
+            log_success "TURN 共享密钥一致: $synapse_secret"
+        fi
+    else
+        log_warning "coturn 不可用，VoIP 通话功能将不可用（不影响其他服务）"
+    fi
+}
+
+# =============================================================================
+# HTTPS 端点验证 (https://matrix.test)
+# =============================================================================
+verify_https_endpoints() {
+    DEPLOYMENT_PHASE="verify-https"
+    log_info "验证 HTTPS 端点 (${SERVER_NAME:-matrix.test})..."
+
+    local https_port="${HTTPS_PORT:-443}"
+    local base="https://${SERVER_NAME:-matrix.test}"
+    [ "$https_port" != "443" ] && base="$base:$https_port"
+
+    curl -kfsS "$base/health" >/dev/null ||
+        { log_error "HTTPS 健康检查失败: $base/health"; return 1; }
+    curl -kfsS "$base/_matrix/client/versions" >/dev/null ||
+        { log_error "HTTPS API 检查失败: $base/_matrix/client/versions"; return 1; }
+    curl -kfsS "$base/.well-known/matrix/server" >/dev/null ||
+        { log_warning "HTTPS .well-known/matrix/server 检查失败（不影响核心功能）"; }
+
+    log_success "HTTPS 验证通过: $base"
 }
 
 check_env_file() {
@@ -811,15 +1074,22 @@ rollback_deployment() {
 }
 
 show_access_info() {
+    local https_port="${HTTPS_PORT:-443}"
+    local https_base="https://${SERVER_NAME:-matrix.test}"
+    [ "$https_port" != "443" ] && https_base="$https_base:$https_port"
+
     echo ""
     echo "=========================================="
     echo "  部署完成"
     echo "=========================================="
     echo "服务器名称: ${SERVER_NAME}"
     echo "公开 URL: ${PUBLIC_BASEURL}"
+    echo "HTTPS 客户端:   ${https_base}"
+    echo "HTTPS 联邦:     ${https_base}:${FEDERATION_PORT:-8448}"
+    echo "HTTPS 健康检查: ${https_base}/health"
     echo "HTTP 健康检查:  http://localhost:${HTTP_PORT:-80}/health"
     echo "应用健康检查:   http://localhost:${SYNAPSE_PORT:-8008}/health"
-    echo "API 检查:       http://localhost:${SYNAPSE_PORT:-8008}/_matrix/client/versions"
+    echo "TURN 服务:      ${TURN_HOST:-127.0.0.1}:${TURN_PORT:-3478} (coturn, secret=${TURN_SHARED_SECRET:-dev-turn-secret})"
     echo "部署日志:       ${LOG_FILE}"
     echo "扩展功能:       ${ENABLED_EXTENSIONS}"
     echo ""
@@ -830,10 +1100,16 @@ main() {
     setup_logging
     show_banner
     check_dependencies
+    if [ "$INSTALL_DEPS" = "true" ]; then
+        install_missing_deps
+    fi
     check_env_file
     select_features
     show_feature_summary
     create_directories
+    ensure_ssl_certs
+    ensure_hosts_entry
+    check_local_turn
     backup_current_state
     clear_project_caches
     rebuild_project
@@ -842,6 +1118,7 @@ main() {
     start_services
     verify_database
     verify_health_endpoints
+    verify_https_endpoints
     verify_logs_clean
     show_status
     show_access_info

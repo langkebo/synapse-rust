@@ -179,7 +179,8 @@ voip:
     - "turn:matrix.test:3478?transport=udp"
     - "turn:matrix.test:3478?transport=tcp"
     - "turns:matrix.test:5349?transport=tcp"
-  turn_shared_secret: "${TURN_SHARED_SECRET:-dummy}"
+  # 必须与本地 coturn 的 static-auth-secret 一致（见 /Users/ljf/Desktop/hu_ts/coturn/turnserver.conf）
+  turn_shared_secret: "${TURN_SHARED_SECRET:-dev-turn-secret}"
   turn_user_lifetime: "1h"
   turn_allow_guests: false
   stun_uris:
