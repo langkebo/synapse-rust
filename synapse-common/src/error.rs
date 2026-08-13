@@ -154,6 +154,50 @@ impl MatrixErrorCode {
             Self::UnknownPos => StatusCode::BAD_REQUEST,
         }
     }
+
+    /// 从 Matrix errcode 字符串解析变体。这是字符串→变体的单一权威来源，
+    /// 供 `Deserialize` 与 `ApiResponse::into_response` 复用，避免三处映射漂移。
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "M_FORBIDDEN" => Some(Self::Forbidden),
+            "M_UNKNOWN_TOKEN" => Some(Self::UnknownToken),
+            "M_MISSING_TOKEN" => Some(Self::MissingToken),
+            "M_BAD_JSON" => Some(Self::BadJson),
+            "M_NOT_JSON" => Some(Self::NotJson),
+            "M_NOT_FOUND" => Some(Self::NotFound),
+            "M_LIMIT_EXCEEDED" => Some(Self::LimitExceeded),
+            "M_UNKNOWN" => Some(Self::Unknown),
+            "M_UNRECOGNIZED" => Some(Self::Unrecognized),
+            "M_UNAUTHORIZED" => Some(Self::Unauthorized),
+            "M_USER_DEACTIVATED" => Some(Self::UserDeactivated),
+            "M_USER_IN_USE" => Some(Self::UserInUse),
+            "M_INVALID_USERNAME" => Some(Self::InvalidUsername),
+            "M_ROOM_IN_USE" => Some(Self::RoomInUse),
+            "M_INVALID_ROOM_STATE" => Some(Self::InvalidRoomState),
+            "M_THREEPID_IN_USE" => Some(Self::ThreepidInUse),
+            "M_THREEPID_NOT_FOUND" => Some(Self::ThreepidNotFound),
+            "M_THREEPID_AUTH_FAILED" => Some(Self::ThreepidAuthFailed),
+            "M_THREEPID_DENIED" => Some(Self::ThreepidDenied),
+            "M_SERVER_NOT_TRUSTED" => Some(Self::ServerNotTrusted),
+            "M_UNSUPPORTED_ROOM_VERSION" => Some(Self::UnsupportedRoomVersion),
+            "M_INCOMPATIBLE_ROOM_VERSION" => Some(Self::IncompatibleRoomVersion),
+            "M_BAD_STATE" => Some(Self::BadState),
+            "M_GUEST_ACCESS_FORBIDDEN" => Some(Self::GuestAccessForbidden),
+            "M_CAPTCHA_NEEDED" => Some(Self::CaptchaNeeded),
+            "M_CAPTCHA_INVALID" => Some(Self::CaptchaInvalid),
+            "M_MISSING_PARAM" => Some(Self::MissingParam),
+            "M_INVALID_PARAM" => Some(Self::InvalidParam),
+            "M_TOO_LARGE" => Some(Self::TooLarge),
+            "M_EXCLUSIVE" => Some(Self::Exclusive),
+            "M_RESOURCE_LIMIT_EXCEEDED" => Some(Self::ResourceLimitExceeded),
+            "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM" => Some(Self::CannotLeaveServerNoticeRoom),
+            "M_REQUEST_TIMEOUT" => Some(Self::RequestTimeout),
+            "M_USER_LIMIT_EXCEEDED" => Some(Self::UserLimitExceeded),
+            "M_UNSUPPORTED" => Some(Self::Unsupported),
+            "M_UNKNOWN_POS" => Some(Self::UnknownPos),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for MatrixErrorCode {
@@ -177,44 +221,8 @@ impl<'de> Deserialize<'de> for MatrixErrorCode {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        match s.as_str() {
-            "M_FORBIDDEN" => Ok(Self::Forbidden),
-            "M_UNKNOWN_TOKEN" => Ok(Self::UnknownToken),
-            "M_MISSING_TOKEN" => Ok(Self::MissingToken),
-            "M_BAD_JSON" => Ok(Self::BadJson),
-            "M_NOT_JSON" => Ok(Self::NotJson),
-            "M_NOT_FOUND" => Ok(Self::NotFound),
-            "M_LIMIT_EXCEEDED" => Ok(Self::LimitExceeded),
-            "M_UNKNOWN" => Ok(Self::Unknown),
-            "M_UNRECOGNIZED" => Ok(Self::Unrecognized),
-            "M_UNAUTHORIZED" => Ok(Self::Unauthorized),
-            "M_USER_DEACTIVATED" => Ok(Self::UserDeactivated),
-            "M_USER_IN_USE" => Ok(Self::UserInUse),
-            "M_INVALID_USERNAME" => Ok(Self::InvalidUsername),
-            "M_ROOM_IN_USE" => Ok(Self::RoomInUse),
-            "M_INVALID_ROOM_STATE" => Ok(Self::InvalidRoomState),
-            "M_THREEPID_IN_USE" => Ok(Self::ThreepidInUse),
-            "M_THREEPID_NOT_FOUND" => Ok(Self::ThreepidNotFound),
-            "M_THREEPID_AUTH_FAILED" => Ok(Self::ThreepidAuthFailed),
-            "M_THREEPID_DENIED" => Ok(Self::ThreepidDenied),
-            "M_SERVER_NOT_TRUSTED" => Ok(Self::ServerNotTrusted),
-            "M_UNSUPPORTED_ROOM_VERSION" => Ok(Self::UnsupportedRoomVersion),
-            "M_INCOMPATIBLE_ROOM_VERSION" => Ok(Self::IncompatibleRoomVersion),
-            "M_BAD_STATE" => Ok(Self::BadState),
-            "M_GUEST_ACCESS_FORBIDDEN" => Ok(Self::GuestAccessForbidden),
-            "M_CAPTCHA_NEEDED" => Ok(Self::CaptchaNeeded),
-            "M_CAPTCHA_INVALID" => Ok(Self::CaptchaInvalid),
-            "M_MISSING_PARAM" => Ok(Self::MissingParam),
-            "M_INVALID_PARAM" => Ok(Self::InvalidParam),
-            "M_TOO_LARGE" => Ok(Self::TooLarge),
-            "M_EXCLUSIVE" => Ok(Self::Exclusive),
-            "M_RESOURCE_LIMIT_EXCEEDED" => Ok(Self::ResourceLimitExceeded),
-            "M_CANNOT_LEAVE_SERVER_NOTICE_ROOM" => Ok(Self::CannotLeaveServerNoticeRoom),
-            "M_REQUEST_TIMEOUT" => Ok(Self::RequestTimeout),
-            "M_USER_LIMIT_EXCEEDED" => Ok(Self::UserLimitExceeded),
-            "M_UNSUPPORTED" => Ok(Self::Unsupported),
-            "M_UNKNOWN_POS" => Ok(Self::UnknownPos),
-            _ => Err(serde::de::Error::unknown_variant(
+        Self::from_str(&s).ok_or_else(|| {
+            serde::de::Error::unknown_variant(
                 &s,
                 &[
                     "M_FORBIDDEN",
@@ -252,9 +260,10 @@ impl<'de> Deserialize<'de> for MatrixErrorCode {
                     "M_REQUEST_TIMEOUT",
                     "M_USER_LIMIT_EXCEEDED",
                     "M_UNSUPPORTED",
+                    "M_UNKNOWN_POS",
                 ],
-            )),
-        }
+            )
+        })
     }
 }
 
@@ -1308,26 +1317,13 @@ where
         let status_code = if self.status == "ok" {
             StatusCode::OK
         } else {
-            match self.errcode.as_deref() {
-                Some("M_NOT_FOUND") => StatusCode::NOT_FOUND,
-                Some("M_FORBIDDEN") => StatusCode::FORBIDDEN,
-                Some("M_UNAUTHORIZED") | Some("M_UNKNOWN_TOKEN") | Some("M_MISSING_TOKEN") => StatusCode::UNAUTHORIZED,
-                Some("M_LIMIT_EXCEEDED") => StatusCode::TOO_MANY_REQUESTS,
-                Some("M_UNRECOGNIZED") => StatusCode::BAD_REQUEST,
-                Some("M_BAD_JSON")
-                | Some("M_NOT_JSON")
-                | Some("M_INVALID_PARAM")
-                | Some("M_MISSING_PARAM")
-                | Some("M_INVALID_USERNAME")
-                | Some("M_BAD_STATE")
-                | Some("M_INVALID_ROOM_STATE") => StatusCode::BAD_REQUEST,
-                Some("M_USER_IN_USE") => StatusCode::BAD_REQUEST,
-                Some("M_ROOM_IN_USE") | Some("M_THREEPID_IN_USE") => StatusCode::CONFLICT,
-                Some("M_TOO_LARGE") => StatusCode::PAYLOAD_TOO_LARGE,
-                Some("M_SERVER_NOT_TRUSTED") => StatusCode::BAD_GATEWAY,
-                Some("M_UNSUPPORTED") => StatusCode::METHOD_NOT_ALLOWED,
-                _ => StatusCode::INTERNAL_SERVER_ERROR,
-            }
+            // 收敛到 MatrixErrorCode::from_str + http_status() 单一映射源，
+            // 消除第三套硬编码 errcode→状态码映射的漂移（未知 errcode 落 500）。
+            self.errcode
+                .as_deref()
+                .and_then(MatrixErrorCode::from_str)
+                .map(|code| code.http_status())
+                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
         };
         (status_code, Json(self)).into_response()
     }
@@ -2027,6 +2023,125 @@ mod tests {
         ];
         for code in &conflict_codes {
             assert_eq!(code.http_status(), StatusCode::CONFLICT, "{code:?} should be CONFLICT");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // ApiResponse::into_response 与 MatrixErrorCode::http_status 收敛一致性
+    // -----------------------------------------------------------------------
+
+    /// 全量 37 个 errcode 变体：ApiResponse 的 errcode→状态码必须与
+    /// MatrixErrorCode::http_status() 完全一致，防止第三套硬编码映射漂移。
+    fn all_error_codes() -> Vec<MatrixErrorCode> {
+        vec![
+            MatrixErrorCode::Forbidden,
+            MatrixErrorCode::UnknownToken,
+            MatrixErrorCode::MissingToken,
+            MatrixErrorCode::BadJson,
+            MatrixErrorCode::NotJson,
+            MatrixErrorCode::NotFound,
+            MatrixErrorCode::LimitExceeded,
+            MatrixErrorCode::Unknown,
+            MatrixErrorCode::Unrecognized,
+            MatrixErrorCode::Unauthorized,
+            MatrixErrorCode::UserDeactivated,
+            MatrixErrorCode::UserInUse,
+            MatrixErrorCode::InvalidUsername,
+            MatrixErrorCode::RoomInUse,
+            MatrixErrorCode::InvalidRoomState,
+            MatrixErrorCode::ThreepidInUse,
+            MatrixErrorCode::ThreepidNotFound,
+            MatrixErrorCode::ThreepidAuthFailed,
+            MatrixErrorCode::ThreepidDenied,
+            MatrixErrorCode::ServerNotTrusted,
+            MatrixErrorCode::UnsupportedRoomVersion,
+            MatrixErrorCode::IncompatibleRoomVersion,
+            MatrixErrorCode::BadState,
+            MatrixErrorCode::GuestAccessForbidden,
+            MatrixErrorCode::CaptchaNeeded,
+            MatrixErrorCode::CaptchaInvalid,
+            MatrixErrorCode::MissingParam,
+            MatrixErrorCode::InvalidParam,
+            MatrixErrorCode::TooLarge,
+            MatrixErrorCode::Exclusive,
+            MatrixErrorCode::ResourceLimitExceeded,
+            MatrixErrorCode::CannotLeaveServerNoticeRoom,
+            MatrixErrorCode::Unimplemented,
+            MatrixErrorCode::RequestTimeout,
+            MatrixErrorCode::UserLimitExceeded,
+            MatrixErrorCode::Unsupported,
+            MatrixErrorCode::UnknownPos,
+        ]
+    }
+
+    #[test]
+    fn test_api_response_status_covers_previously_missing_errcodes() {
+        use axum::response::IntoResponse;
+        // 之前 ApiResponse::into_response 的硬编码 match 缺失这些 errcode（落 500），
+        // 收敛到 MatrixErrorCode::from_str + http_status() 后应正确。
+        let cases: &[(&str, StatusCode)] = &[
+            ("M_REQUEST_TIMEOUT", StatusCode::GATEWAY_TIMEOUT),
+            ("M_UNKNOWN_POS", StatusCode::BAD_REQUEST),
+            ("M_USER_LIMIT_EXCEEDED", StatusCode::TOO_MANY_REQUESTS),
+            ("M_USER_DEACTIVATED", StatusCode::FORBIDDEN),
+            ("M_GUEST_ACCESS_FORBIDDEN", StatusCode::FORBIDDEN),
+            ("M_RESOURCE_LIMIT_EXCEEDED", StatusCode::FORBIDDEN),
+            ("M_CANNOT_LEAVE_SERVER_NOTICE_ROOM", StatusCode::FORBIDDEN),
+            ("M_THREEPID_AUTH_FAILED", StatusCode::FORBIDDEN),
+            ("M_THREEPID_DENIED", StatusCode::FORBIDDEN),
+            ("M_THREEPID_NOT_FOUND", StatusCode::BAD_REQUEST),
+            ("M_EXCLUSIVE", StatusCode::CONFLICT),
+            ("M_UNSUPPORTED_ROOM_VERSION", StatusCode::BAD_REQUEST),
+            ("M_INCOMPATIBLE_ROOM_VERSION", StatusCode::BAD_REQUEST),
+            ("M_UNSUPPORTED", StatusCode::METHOD_NOT_ALLOWED),
+        ];
+        for (errcode, expected) in cases {
+            let resp = ApiResponse::<serde_json::Value>::error("x".to_string(), (*errcode).to_string());
+            assert_eq!(resp.into_response().status(), *expected, "errcode={errcode}");
+        }
+    }
+
+    #[test]
+    fn test_api_response_unknown_errcode_falls_back_to_internal_error() {
+        use axum::response::IntoResponse;
+        let resp = ApiResponse::<serde_json::Value>::error("x".to_string(), "M_NOT_A_REAL_CODE".to_string());
+        assert_eq!(resp.into_response().status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn test_api_response_status_converges_with_matrix_error_code_http_status() {
+        use axum::response::IntoResponse;
+        // 遍历所有唯一 errcode 字符串，ApiResponse 状态码必须等于
+        // MatrixErrorCode::from_str → http_status() 单一映射源。
+        // 注意 Unimplemented 与 Unrecognized 共享 "M_UNRECOGNIZED"（by-design，
+        // 见 as_str），故按唯一 errcode 去重后以 from_str 结果为准。
+        let mut seen = std::collections::HashSet::new();
+        for code in all_error_codes() {
+            let errcode = code.as_str().to_string();
+            if !seen.insert(errcode.clone()) {
+                continue;
+            }
+            let resp = ApiResponse::<serde_json::Value>::error("x".to_string(), errcode.clone());
+            let status = resp.into_response().status();
+            let expected =
+                MatrixErrorCode::from_str(&errcode).map(|c| c.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            assert_eq!(status, expected, "ApiResponse 状态码 {status} 与 from_str({errcode})→http_status {expected:?} 漂移");
+        }
+    }
+
+    /// as_str 与 from_str 互逆性：新增变体时若 from_str 漏加字符串映射，
+    /// 此测试会在 round-trip 处失败。Unimplemented 与 Unrecognized 共享
+    /// "M_UNRECOGNIZED"（by-design），单独跳过。
+    #[test]
+    fn test_matrix_error_code_as_str_round_trips_through_from_str() {
+        for code in all_error_codes() {
+            let s = code.as_str();
+            let parsed = MatrixErrorCode::from_str(s);
+            assert!(parsed.is_some(), "as_str({s}) 无法被 from_str 解析，from_str 漏了映射（{code:?}）");
+            if code == MatrixErrorCode::Unimplemented {
+                continue;
+            }
+            assert_eq!(parsed.unwrap(), code, "as_str→from_str round-trip 不对称（{code:?}）");
         }
     }
 
