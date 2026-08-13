@@ -311,6 +311,7 @@ impl SyncService {
 
             events.push(json!({
                 "content": {
+                    "user_id": uid,
                     "avatar_url": null,
                     "displayname": null,
                     "last_active_ago": last_active_ago,
@@ -1152,6 +1153,10 @@ mod tests {
         assert!(!senders.contains("@carol:localhost"), "non-shared user must not leak: {senders:?}");
         for e in &events {
             assert_eq!(e["type"], "m.presence");
+            // 契约对齐：m.presence 的 content 必须携带 user_id，SDK 依赖它
+            // 提取归属用户（而非 sender）。
+            let sender = e["sender"].as_str().expect("presence event has sender");
+            assert_eq!(e["content"]["user_id"], sender, "presence content must carry user_id");
         }
     }
 

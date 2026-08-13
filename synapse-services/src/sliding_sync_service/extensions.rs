@@ -208,6 +208,7 @@ impl SlidingSyncService {
                 "sender": uid,
                 "type": "m.presence",
                 "content": {
+                    "user_id": uid,
                     "presence": snap.presence,
                     "status_msg": snap.status_msg,
                     "last_active_ago": last_active_ago,
@@ -492,6 +493,17 @@ mod tests {
         assert_eq!(content["presence"], serde_json::json!("online"));
         assert_eq!(content["status_msg"], serde_json::json!("hi"));
         assert_eq!(content["last_active_ago"], serde_json::json!(60_000));
+    }
+
+    #[test]
+    fn ss07_presence_wire_event_has_content_user_id() {
+        // 契约对齐：Matrix m.presence 事件必须在 content 携带 user_id，
+        // SDK 的 presence 处理（processPresenceEvents / ExtensionPresence）
+        // 依赖 content.user_id 提取归属用户，而非 sender 字段。
+        let mut snapshots = std::collections::HashMap::new();
+        snapshots.insert("@a:x".to_string(), presence_snapshot("@a:x", "online", None, Some(1_000_000)));
+        let (wire, _) = SlidingSyncService::build_presence_events(&snapshots, 2_000_000);
+        assert_eq!(wire[0]["content"]["user_id"], serde_json::json!("@a:x"));
     }
 
     #[test]
