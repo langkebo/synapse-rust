@@ -141,7 +141,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     checksum TEXT,
     applied_ts BIGINT,
     execution_time_ms BIGINT,
-    success BOOLEAN NOT NULL DEFAULT TRUE,
+    is_success BOOLEAN NOT NULL DEFAULT TRUE,
     description TEXT,
     executed_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT uq_schema_migrations_version UNIQUE (version)
@@ -150,7 +150,7 @@ ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS name TEXT;
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum TEXT;
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS applied_ts BIGINT;
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS execution_time_ms BIGINT;
-ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS success BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS is_success BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS description TEXT;
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS executed_at TIMESTAMPTZ DEFAULT NOW();
 CREATE UNIQUE INDEX IF NOT EXISTS idx_schema_migrations_version ON schema_migrations(version);
@@ -182,7 +182,7 @@ table_exists() {
 
 is_migration_applied() {
     version="$1"
-    psql_db -tAc "SELECT COALESCE(bool_and(success), FALSE) FROM schema_migrations WHERE version = '$version'" 2>/dev/null | grep -q '^t$'
+    psql_db -tAc "SELECT COALESCE(bool_and(is_success), FALSE) FROM schema_migrations WHERE version = '$version'" 2>/dev/null | grep -q '^t$'
 }
 
 # ---------------------------------------------------------------------------
@@ -253,7 +253,7 @@ apply_sql_file() {
         finished_at="$(date +%s)"
         duration_ms=$(((finished_at - started_at) * 1000))
         psql_db -c "
-            INSERT INTO schema_migrations (version, name, checksum, applied_ts, execution_time_ms, success, description, executed_at)
+            INSERT INTO schema_migrations (version, name, checksum, applied_ts, execution_time_ms, is_success, description, executed_at)
             VALUES (
                 '$version',
                 '$filename',
@@ -269,7 +269,7 @@ apply_sql_file() {
                 checksum = EXCLUDED.checksum,
                 applied_ts = EXCLUDED.applied_ts,
                 execution_time_ms = EXCLUDED.execution_time_ms,
-                success = EXCLUDED.success,
+                is_success = EXCLUDED.is_success,
                 description = EXCLUDED.description,
                 executed_at = EXCLUDED.executed_at
         " >/dev/null
@@ -281,7 +281,7 @@ apply_sql_file() {
     duration_ms=$(((finished_at - started_at) * 1000))
     psql_db -c "ABORT;" >/dev/null 2>&1 || true
     psql_db -c "
-        INSERT INTO schema_migrations (version, name, checksum, applied_ts, execution_time_ms, success, description, executed_at)
+        INSERT INTO schema_migrations (version, name, checksum, applied_ts, execution_time_ms, is_success, description, executed_at)
         VALUES (
             '$version',
             '$filename',
@@ -297,7 +297,7 @@ apply_sql_file() {
             checksum = EXCLUDED.checksum,
             applied_ts = EXCLUDED.applied_ts,
             execution_time_ms = EXCLUDED.execution_time_ms,
-            success = EXCLUDED.success,
+            is_success = EXCLUDED.is_success,
             description = EXCLUDED.description,
             executed_at = EXCLUDED.executed_at
     " >/dev/null || true
@@ -386,7 +386,7 @@ apply_pending_migrations() {
         if apply_sql_file "$file"; then
             applied=$((applied + 1))
         else
-            # apply_sql_file 失败时已记录 success=FALSE 并打 ERROR 日志;
+            # apply_sql_file 失败时已记录 is_success=FALSE 并打 ERROR 日志;
             # 这里不中断循环, 继续尝试后续迁移 (部分迁移失败不应阻断
             # 其他独立的增量迁移)。
             skipped=$((skipped + 1))
@@ -465,7 +465,7 @@ list_applied_migrations() {
     ensure_database_exists
     ensure_schema_migrations_table
     psql_db -c "
-        SELECT version, COALESCE(name, description, version) AS name, success, applied_ts
+        SELECT version, COALESCE(name, description, version) AS name, is_success, applied_ts
         FROM schema_migrations
         ORDER BY COALESCE(applied_ts, 0) DESC, version DESC
     "

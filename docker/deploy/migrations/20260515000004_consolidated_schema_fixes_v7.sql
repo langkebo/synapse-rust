@@ -17,8 +17,15 @@ SET TIME ZONE 'UTC';
 -- ============================================================================
 -- 1. Add unique constraint to room_ephemeral
 -- ============================================================================
-ALTER TABLE room_ephemeral
-    ADD CONSTRAINT uq_room_ephemeral_room_event_user UNIQUE (room_id, event_type, user_id);
+-- Idempotent: the v10 baseline already creates this constraint on fresh DBs.
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'uq_room_ephemeral_room_event_user'
+    ) THEN
+        ALTER TABLE room_ephemeral
+            ADD CONSTRAINT uq_room_ephemeral_room_event_user UNIQUE (room_id, event_type, user_id);
+    END IF;
+END $$;
 
 -- ============================================================================
 -- 2. Add fields to backup_keys table
