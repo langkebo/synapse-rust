@@ -103,7 +103,11 @@ create_archive() {
     log_info "创建压缩包..."
 
     tar czf "$BACKUP_DIR/$BACKUP_NAME.tar.gz" -C "$BACKUP_DIR" "$BACKUP_NAME"
-    rm -rf "$BACKUP_DIR/$BACKUP_NAME"
+    # 清理临时目录：归档已生成，清理失败不应阻断备份/部署（环境 safe-delete
+    # hook 可能拦截 rm -rf，此时保留临时目录、仅告警）。
+    if ! rm -rf "$BACKUP_DIR/$BACKUP_NAME" 2>/dev/null; then
+        log_warning "临时备份目录清理未完成（可能被 safe-delete hook 拦截）: $BACKUP_DIR/$BACKUP_NAME"
+    fi
 
     log_success "压缩包创建完成: $BACKUP_DIR/$BACKUP_NAME.tar.gz"
 }
