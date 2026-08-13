@@ -1,13 +1,14 @@
-use regex::Regex;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
+use synapse_common::RegexCache;
 use synapse_storage::federation_blacklist::*;
 use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct FederationBlacklistService {
     storage: Arc<dyn FederationBlacklistStoreApi>,
+    regex_cache: RegexCache,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -34,7 +35,7 @@ pub struct CheckServerRequest {
 
 impl FederationBlacklistService {
     pub fn new(storage: Arc<dyn FederationBlacklistStoreApi>) -> Self {
-        Self { storage }
+        Self { storage, regex_cache: RegexCache::default() }
     }
 
     pub async fn add_to_blacklist(
@@ -130,7 +131,7 @@ impl FederationBlacklistService {
 
         let rules = self.storage.get_all_rules().await?;
         for rule in rules {
-            if Self::matches_rule(server_name, &rule)? {
+            if Self::matches_rule(&self.regex_cache, server_name, &rule)? {
                 return Ok(CheckResult {
                     is_blocked: rule.action == "block",
                     is_whitelisted: rule.action == "allow",
@@ -152,19 +153,21 @@ impl FederationBlacklistService {
         })
     }
 
-    fn matches_rule(server_name: &str, rule: &FederationBlacklistRule) -> Result<bool, ApiError> {
+    fn matches_rule(
+        cache: &RegexCache,
+        server_name: &str,
+        rule: &FederationBlacklistRule,
+    ) -> Result<bool, ApiError> {
         match rule.rule_type.as_str() {
             "domain" => Ok(server_name == rule.pattern),
-            "regex" => {
-                let re =
-                    Regex::new(&rule.pattern).map_err(|e| ApiError::internal_with_log("Invalid regex pattern", &e))?;
-                Ok(re.is_match(server_name))
-            }
+            "regex" => cache
+                .is_match(&rule.pattern, server_name)
+                .map_err(|e| ApiError::internal_with_log("Invalid regex pattern", &e)),
             "wildcard" => {
-                let pattern = rule.pattern.replace('*', ".*");
-                let re = Regex::new(&format!("^{pattern}$"))
-                    .map_err(|e| ApiError::internal_with_log("Invalid wildcard pattern", &e))?;
-                Ok(re.is_match(server_name))
+                let pattern = format!("^{}$", rule.pattern.replace('*', ".*"));
+                cache
+                    .is_match(&pattern, server_name)
+                    .map_err(|e| ApiError::internal_with_log("Invalid wildcard pattern", &e))
             }
             "cidr" => Ok(false),
             _ => Ok(false),
@@ -279,6 +282,64 @@ impl FederationBlacklistService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synapse_common::RegexCache;
+
+    fn make_rule(rule_type: &str, pattern: &str) -> FederationBlacklistRule {
+        FederationBlacklistRule {
+            id: 1,
+            rule_name: "test_rule".to_string(),
+            rule_type: rule_type.to_string(),
+            pattern: pattern.to_string(),
+            action: "block".to_string(),
+            priority: 0,
+            is_enabled: true,
+            description: None,
+            created_ts: 0,
+            updated_ts: 0,
+            created_by: "test".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_matches_rule_regex_uses_cache() {
+        let cache = RegexCache::new();
+        let rule = make_rule("regex", r"^evil\..*$");
+
+        assert!(FederationBlacklistService::matches_rule(&cache, "evil.example.com", &rule).unwrap());
+        assert!(!FederationBlacklistService::matches_rule(&cache, "good.example.com", &rule).unwrap());
+        // Same pattern matched twice → compiled exactly once, cached.
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn test_matches_rule_wildcard_uses_cache() {
+        let cache = RegexCache::new();
+        let rule = make_rule("wildcard", "*.spam.com");
+
+        assert!(FederationBlacklistService::matches_rule(&cache, "foo.spam.com", &rule).unwrap());
+        assert!(!FederationBlacklistService::matches_rule(&cache, "foo.example.com", &rule).unwrap());
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn test_matches_rule_domain_and_cidr() {
+        let cache = RegexCache::new();
+        let domain = make_rule("domain", "evil.example.com");
+        assert!(FederationBlacklistService::matches_rule(&cache, "evil.example.com", &domain).unwrap());
+        assert!(!FederationBlacklistService::matches_rule(&cache, "good.example.com", &domain).unwrap());
+
+        let cidr = make_rule("cidr", "10.0.0.0/8");
+        assert!(!FederationBlacklistService::matches_rule(&cache, "10.1.2.3", &cidr).unwrap());
+        // domain + cidr rules never compile a regex.
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn test_matches_rule_invalid_regex_returns_error() {
+        let cache = RegexCache::new();
+        let rule = make_rule("regex", "[invalid");
+        assert!(FederationBlacklistService::matches_rule(&cache, "anything", &rule).is_err());
+    }
 
     #[test]
     fn test_check_result_default() {

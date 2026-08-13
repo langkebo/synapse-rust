@@ -7,6 +7,12 @@ pub struct RegexCache {
     cache: Arc<RwLock<HashMap<String, Regex>>>,
 }
 
+impl std::fmt::Debug for RegexCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegexCache").field("len", &self.len()).finish_non_exhaustive()
+    }
+}
+
 impl RegexCache {
     pub fn new() -> Self {
         Self { cache: Arc::new(RwLock::new(HashMap::new())) }
