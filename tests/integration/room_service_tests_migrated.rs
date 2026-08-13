@@ -346,6 +346,7 @@ fn build_room_service(
         sticky_event_storage: Arc::new(StickyEventStorage::new(pool.clone())),
         cache,
         key_rotation_storage: None,
+        db_pool: None,
     })
 }
 
