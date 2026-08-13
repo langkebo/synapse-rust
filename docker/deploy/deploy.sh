@@ -964,10 +964,10 @@ wait_for_container_health() {
 run_migrations() {
     DEPLOYMENT_PHASE="database-migrate"
     log_info "执行数据库迁移 (ENABLED_EXTENSIONS=$ENABLED_EXTENSIONS)..."
-    retry 3 5 compose run --rm --no-deps -e "ENABLED_EXTENSIONS=${ENABLED_EXTENSIONS}" migrator migrate
+    retry 3 5 compose run -T --rm --no-deps -e "ENABLED_EXTENSIONS=${ENABLED_EXTENSIONS}" migrator migrate
     log_success "数据库迁移完成"
     log_info "验证数据库架构完整性..."
-    retry 3 5 compose run --rm --no-deps -e "ENABLED_EXTENSIONS=${ENABLED_EXTENSIONS}" migrator validate
+    retry 3 5 compose run -T --rm --no-deps -e "ENABLED_EXTENSIONS=${ENABLED_EXTENSIONS}" migrator validate
     log_success "数据库架构验证通过"
 }
 
