@@ -1315,6 +1315,14 @@ mod tests {
     }
 
     #[test]
+    fn test_api_error_database_with_log_carries_context() {
+        let err = ApiError::database_with_log("Failed to get profile", &"connection refused");
+        assert_eq!(err.kind, ApiErrorKind::Internal);
+        // 上下文与底层错误详情进入 message，`message()` 的响应日志不再丢上下文（审查 #18）。
+        assert_eq!(err.message, "Database error: Failed to get profile: connection refused");
+    }
+
+    #[test]
     fn test_api_error_cache() {
         let err = ApiError::cache("redis down");
         assert_eq!(err.kind, ApiErrorKind::Internal);

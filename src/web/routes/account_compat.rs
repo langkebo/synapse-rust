@@ -120,10 +120,11 @@ pub(crate) async fn get_displayname(
         return Ok(Json(json!({ "displayname": displayname })));
     }
 
-    let profile = ctx.registration_service.get_profile(&user_id).await.map_err(|e| {
-        tracing::error!("Failed to get profile: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let profile = ctx
+        .registration_service
+        .get_profile(&user_id)
+        .await
+        .map_err(|e| ApiError::database_with_log("Failed to get profile", &e))?;
 
     let displayname = profile.get("displayname").and_then(|v| v.as_str()).unwrap_or("");
     Ok(Json(json!({ "displayname": displayname })))
@@ -143,10 +144,11 @@ pub(crate) async fn get_avatar_url(
         return Ok(Json(json!({ "avatar_url": avatar_url })));
     }
 
-    let profile = ctx.registration_service.get_profile(&user_id).await.map_err(|e| {
-        tracing::error!("Failed to get profile: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let profile = ctx
+        .registration_service
+        .get_profile(&user_id)
+        .await
+        .map_err(|e| ApiError::database_with_log("Failed to get profile", &e))?;
 
     let avatar_url = profile.get("avatar_url").and_then(|v| v.as_str()).unwrap_or("");
     Ok(Json(json!({ "avatar_url": avatar_url })))
@@ -646,10 +648,10 @@ pub(crate) async fn delete_threepid(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    ctx.account_identity_service.remove_threepid(user_id, &body.medium, &body.address).await.map_err(|e| {
-        tracing::error!("Failed to delete threepid: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    ctx.account_identity_service
+        .remove_threepid(user_id, &body.medium, &body.address)
+        .await
+        .map_err(|e| ApiError::database_with_log("Failed to delete threepid", &e))?;
 
     Ok(Json(json!({})))
 }
@@ -677,10 +679,10 @@ pub(crate) async fn unbind_threepid(
         }
     }
 
-    ctx.account_identity_service.remove_threepid(user_id, &body.medium, &body.address).await.map_err(|e| {
-        tracing::error!("Failed to unbind threepid: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    ctx.account_identity_service
+        .remove_threepid(user_id, &body.medium, &body.address)
+        .await
+        .map_err(|e| ApiError::database_with_log("Failed to unbind threepid", &e))?;
 
     Ok(Json(json!({})))
 }
