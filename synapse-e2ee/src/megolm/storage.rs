@@ -4,6 +4,7 @@ use sqlx::PgPool;
 use std::str::FromStr;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 
 /// Internal row struct for `megolm_sessions` (matches DB column types exactly,
@@ -83,10 +84,7 @@ impl MegolmSessionStorage {
         .bind(session.vodozemac_pickle.as_deref())
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to create megolm session: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to create megolm session"))?;
 
         Ok(())
     }
@@ -114,10 +112,7 @@ impl MegolmSessionStorage {
         .bind(session_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to load megolm session: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to load megolm session"))?;
 
         Ok(row.map(Into::into))
     }
@@ -145,10 +140,7 @@ impl MegolmSessionStorage {
         .bind(room_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to load megolm sessions: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to load megolm sessions"))?;
 
         Ok(rows.into_iter().map(Into::into).collect())
     }
@@ -175,10 +167,7 @@ impl MegolmSessionStorage {
         .bind(session.vodozemac_pickle.as_deref())
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to update megolm session: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to update megolm session"))?;
         Ok(())
     }
 
@@ -192,10 +181,7 @@ impl MegolmSessionStorage {
         .bind(session_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to delete megolm session: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to delete megolm session"))?;
 
         Ok(())
     }
@@ -226,10 +212,7 @@ impl MegolmSessionStorage {
         .bind(now_ms)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to increment megolm message index: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to increment megolm message index"))?;
 
         Ok(row.map(|r| r.message_index))
     }
@@ -256,10 +239,7 @@ impl MegolmSessionStorage {
         .bind(now_ms)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to update vodozemac pickle: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to update vodozemac pickle"))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -294,10 +274,7 @@ impl MegolmSessionStorage {
         .bind(expires_at)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to batch upsert megolm session keys: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to batch upsert megolm session keys"))?;
 
         Ok(result.rows_affected())
     }
@@ -315,10 +292,7 @@ impl MegolmSessionStorage {
         .bind(session_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to load megolm session key: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to load megolm session key"))?;
 
         Ok(row.map(|r| r.encrypted_key))
     }
@@ -353,10 +327,7 @@ impl MegolmSessionStorage {
         .bind(now_ms)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to promote megolm session to dual: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to promote megolm session to dual"))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -397,10 +368,7 @@ impl MegolmSessionStorage {
             .bind(limit)
             .fetch_all(&*self.pool)
             .await
-            .map_err(|e| {
-                tracing::error!("Failed to list legacy megolm sessions: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?,
+            .map_err(map_database!("Failed to list legacy megolm sessions"))?,
             None => sqlx::query_as::<_, MegolmSessionRow>(
                 r"
                 SELECT
@@ -425,10 +393,7 @@ impl MegolmSessionStorage {
             .bind(limit)
             .fetch_all(&*self.pool)
             .await
-            .map_err(|e| {
-                tracing::error!("Failed to list legacy megolm sessions: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?,
+            .map_err(map_database!("Failed to list legacy megolm sessions"))?,
         };
 
         Ok(rows.into_iter().map(Into::into).collect())
@@ -445,10 +410,7 @@ impl MegolmSessionStorage {
         )
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to count megolm sessions by pickle format: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to count megolm sessions by pickle format"))?;
 
         Ok(rows.into_iter().map(|r| (r.pickle_format, r.cnt)).collect())
     }
@@ -472,10 +434,7 @@ impl MegolmSessionStorage {
         .bind(now_ms)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to cleanup expired megolm sessions: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to cleanup expired megolm sessions"))?;
 
         Ok(result.rows_affected())
     }
