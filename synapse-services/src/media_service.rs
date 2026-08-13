@@ -411,9 +411,15 @@ impl MediaService {
 
         let original_content = self.download_media(_server_name, media_id).await?;
 
-        let thumbnail = match Self::generate_thumbnail(&original_content, width, height, thumbnail_method) {
-            Ok(t) => t,
-            Err(_) => return Ok(original_content),
+        // 审查 #1：解码+缩放是重 CPU 操作，移入 spawn_blocking 避免阻塞 tokio worker。
+        let content_for_thumb = original_content.clone();
+        let thumbnail = match tokio::task::spawn_blocking(move || {
+            Self::generate_thumbnail(&content_for_thumb, width, height, thumbnail_method)
+        })
+        .await
+        {
+            Ok(Ok(t)) => t,
+            _ => return Ok(original_content),
         };
 
         if let Err(e) = tokio::fs::write(&thumbnail_path, &thumbnail).await {
@@ -438,9 +444,23 @@ impl MediaService {
         method: ThumbnailMethod,
     ) -> Result<Vec<u8>, ApiError> {
         use image::imageops::FilterType;
-        use image::ImageFormat;
+        use image::{ImageFormat, ImageReader, Limits};
 
-        let mut img = image::load_from_memory(image_data)
+        // 审查 #1：解压炸弹防护。用 ImageReader + Limits 在解码前限制单边最大
+        // 像素，高压缩比图片（如超宽 PNG）在分配完整解码图前即被拒绝，避免
+        // 内存耗尽。阈值对齐 Synapse max_image_pixels 的保守上界。
+        const MAX_IMAGE_DIMENSION: u32 = 8192;
+
+        let mut reader = ImageReader::new(std::io::Cursor::new(image_data))
+            .with_guessed_format()
+            .map_err(|e| ApiError::bad_request(format!("Unsupported image format: {e}")))?;
+        let mut limits = Limits::default();
+        limits.max_image_width = Some(MAX_IMAGE_DIMENSION);
+        limits.max_image_height = Some(MAX_IMAGE_DIMENSION);
+        reader.limits(limits);
+
+        let mut img = reader
+            .decode()
             .map_err(|e| ApiError::bad_request(format!("Invalid image data: {e}")))?;
 
         let thumbnail = match method {
@@ -475,7 +495,15 @@ impl MediaService {
         let mut generated = Vec::new();
 
         for config in &self.default_thumbnail_configs {
-            let thumbnail = Self::generate_thumbnail(&original_content, config.width, config.height, config.method)?;
+            // 审查 #1：重 CPU 解码/缩放移入 spawn_blocking，避免阻塞 tokio worker。
+            // 先复制 Copy 字段，避免闭包捕获 &self 引用导致 'static 约束失败。
+            let (cfg_width, cfg_height, cfg_method) = (config.width, config.height, config.method);
+            let content_for_thumb = original_content.clone();
+            let thumbnail = tokio::task::spawn_blocking(move || {
+                Self::generate_thumbnail(&content_for_thumb, cfg_width, cfg_height, cfg_method)
+            })
+            .await
+            .map_err(|e| ApiError::internal_with_log("Thumbnail generation task panicked", &e))??;
 
             let method_str = match config.method {
                 ThumbnailMethod::Crop => "crop",
@@ -979,5 +1007,27 @@ mod tests {
         assert!(result.is_ok());
         let json = result.unwrap();
         assert_eq!(json["url"], url);
+    }
+
+    // 审查 #1：解压炸弹防护——图片单边超过 MAX_IMAGE_DIMENSION 应被拒绝，
+    // 而非全量解码撑爆内存。
+    #[test]
+    fn test_generate_thumbnail_rejects_oversized_image() {
+        let img = image::RgbImage::from_pixel(8193, 1, image::Rgb([255u8, 0, 0]));
+        let mut buf = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).unwrap();
+
+        let result = MediaService::generate_thumbnail(&buf, 100, 100, ThumbnailMethod::Scale);
+        assert!(result.is_err(), "oversized image must be rejected");
+    }
+
+    #[test]
+    fn test_generate_thumbnail_handles_normal_image() {
+        let img = image::RgbImage::from_pixel(100, 100, image::Rgb([0u8, 255, 0]));
+        let mut buf = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).unwrap();
+
+        let result = MediaService::generate_thumbnail(&buf, 32, 32, ThumbnailMethod::Scale);
+        assert!(result.is_ok(), "normal image must succeed: {result:?}");
     }
 }
