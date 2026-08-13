@@ -813,6 +813,13 @@ backup_current_state() {
     local current_image
     current_image="$(local_image_ref)"
     if docker image inspect "$current_image" >/dev/null 2>&1; then
+        # 清理历史 rollback 标签：每次部署仅保留即将创建的最新一个，避免
+        # rollback-* 镜像无限累积（每个约 200MB）。仅按 tag 名删除，不会误删
+        # 当前 ${current_image} 指向的镜像。
+        local old_rollback
+        for old_rollback in $(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep ':rollback-' || true); do
+            docker rmi -f "$old_rollback" >/dev/null 2>&1 || true
+        done
         ROLLBACK_IMAGE_TAG="${current_image%:*}:rollback-${TIMESTAMP}"
         docker tag "$current_image" "$ROLLBACK_IMAGE_TAG"
         log_info "已保存旧镜像标签: $ROLLBACK_IMAGE_TAG"
@@ -841,15 +848,9 @@ clear_project_caches() {
     log_info "清理项目缓存与 Docker 构建缓存..."
 
     (cd "$PROJECT_ROOT" && cargo clean)
-    if command -v npm >/dev/null 2>&1; then
-        npm cache clean --force || true
-    fi
-    if command -v yarn >/dev/null 2>&1; then
-        yarn cache clean || true
-    fi
-    if command -v pnpm >/dev/null 2>&1; then
-        pnpm store prune || true
-    fi
+    # 注意：不清理 npm/yarn/pnpm 全局缓存——本项目为 Rust 后端，这些 JS 包管理器
+    # 缓存与构建无关，且 `pnpm store prune` 会触发环境 safe-delete hook
+    # （删除 ~/.cache 下大量文件），故明确移除，仅清理项目级与 Docker 缓存。
 
     docker builder prune -af >/dev/null
     docker buildx prune -af >/dev/null 2>&1 || true
