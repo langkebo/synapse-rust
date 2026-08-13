@@ -1,0 +1,139 @@
+//! MSC4108 QR 登录 token 持久化存储
+//!
+//! 已登录设备通过 `POST /v1/login/qr_token` 生成短时 login token（60s TTL），
+//! 经 MSC4108 安全通道传给新设备，新设备用 `m.login.token` 兑换 access token。
+//! token 单次使用，消费即删除（原子 DELETE ... RETURNING，防重放）。
+
+use async_trait::async_trait;
+use sqlx::{FromRow, PgPool};
+use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
+
+#[derive(Debug, Clone, FromRow)]
+pub struct LoginToken {
+    pub id: i64,
+    pub token: String,
+    pub user_id: String,
+    pub device_id: Option<String>,
+    pub created_ts: i64,
+    pub expires_at: i64,
+}
+
+#[async_trait]
+pub trait LoginTokenStoreApi: Send + Sync {
+    async fn create_login_token(
+        &self,
+        token: &str,
+        user_id: &str,
+        device_id: Option<&str>,
+        expires_at: i64,
+    ) -> Result<(), sqlx::Error>;
+    async fn consume_login_token(&self, token: &str) -> Result<Option<LoginToken>, sqlx::Error>;
+    async fn cleanup_expired_tokens(&self, now_ts: i64) -> Result<u64, sqlx::Error>;
+}
+
+#[derive(Clone)]
+pub struct LoginTokenStorage {
+    pool: Arc<PgPool>,
+}
+
+impl LoginTokenStorage {
+    pub fn new(pool: &Arc<PgPool>) -> Self {
+        Self { pool: pool.clone() }
+    }
+
+    pub async fn create_login_token(
+        &self,
+        token: &str,
+        user_id: &str,
+        device_id: Option<&str>,
+        expires_at: i64,
+    ) -> Result<(), sqlx::Error> {
+        let now = current_timestamp_millis();
+        sqlx::query(
+            r#"
+            INSERT INTO login_tokens (token, user_id, device_id, created_ts, expires_at)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(token)
+        .bind(user_id)
+        .bind(device_id)
+        .bind(now)
+        .bind(expires_at)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 原子消费：仅当 token 存在且未过期时返回并删除（单次使用 + 过期检查一体）。
+    pub async fn consume_login_token(&self, token: &str) -> Result<Option<LoginToken>, sqlx::Error> {
+        let now = current_timestamp_millis();
+        let row = sqlx::query_as::<_, LoginToken>(
+            r#"
+            DELETE FROM login_tokens
+            WHERE token = $1 AND expires_at > $2
+            RETURNING id, token, user_id, device_id, created_ts, expires_at
+            "#,
+        )
+        .bind(token)
+        .bind(now)
+        .fetch_optional(&*self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    pub async fn cleanup_expired_tokens(&self, now_ts: i64) -> Result<u64, sqlx::Error> {
+        let result =
+            sqlx::query("DELETE FROM login_tokens WHERE expires_at < $1").bind(now_ts).execute(&*self.pool).await?;
+        Ok(result.rows_affected())
+    }
+}
+
+#[async_trait]
+impl LoginTokenStoreApi for LoginTokenStorage {
+    async fn create_login_token(
+        &self,
+        token: &str,
+        user_id: &str,
+        device_id: Option<&str>,
+        expires_at: i64,
+    ) -> Result<(), sqlx::Error> {
+        self.create_login_token(token, user_id, device_id, expires_at).await
+    }
+    async fn consume_login_token(&self, token: &str) -> Result<Option<LoginToken>, sqlx::Error> {
+        self.consume_login_token(token).await
+    }
+    async fn cleanup_expired_tokens(&self, now_ts: i64) -> Result<u64, sqlx::Error> {
+        self.cleanup_expired_tokens(now_ts).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_login_token_structure() {
+        let token = LoginToken {
+            id: 1,
+            token: "abc123".to_string(),
+            user_id: "@user:localhost".to_string(),
+            device_id: Some("DEVICE123".to_string()),
+            created_ts: 1700000000000,
+            expires_at: 1700000060000,
+        };
+        assert_eq!(token.token, "abc123");
+        assert_eq!(token.user_id, "@user:localhost");
+        assert!(token.device_id.is_some());
+        assert!(token.expires_at > token.created_ts);
+    }
+
+    #[test]
+    fn test_login_token_expiry_ttl() {
+        let created_ts = 1700000000000i64;
+        let ttl_ms = 60_000;
+        let expires_at = created_ts + ttl_ms;
+        assert_eq!(expires_at, 1700000060000);
+    }
+}

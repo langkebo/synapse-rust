@@ -8,6 +8,7 @@
 //! the flat `synapse_storage::AccountDataStorage`.
 
 pub use crate::account_data::{AccountDataRecord, AccountDataStorage, AccountDataStoreApi};
+pub use crate::login_token::{LoginToken, LoginTokenStorage, LoginTokenStoreApi};
 pub use crate::qr_login::{QrLoginStorage, QrLoginStoreApi, QrTransaction};
 pub use crate::rendezvous::{
     CreateRendezvousSessionParams, RendezvousCode, RendezvousIntent, RendezvousLoginFinish, RendezvousLoginStart,

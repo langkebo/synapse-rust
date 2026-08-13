@@ -15,6 +15,7 @@ use tokio::sync::RwLock;
 /// Account storage domain group — re-exports account modules under `account::`.
 pub mod account;
 pub mod account_data;
+pub mod login_token;
 /// Admin storage domain group — re-exports admin modules under `admin::`.
 pub mod admin;
 pub mod admin_federation;

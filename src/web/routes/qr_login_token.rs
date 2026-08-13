@@ -6,59 +6,43 @@
 //! real access token via `POST /_matrix/client/v3/login` with
 //! `type: "m.login.token"`.
 //!
-//! Tokens are single-use and expire after 60 seconds.
+//! Tokens are single-use and expire after 60 seconds. Persisted to the
+//! `login_tokens` table so QR sign-in works across workers and restarts.
 
-use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
 
-const LOGIN_TOKEN_TTL: Duration = Duration::from_secs(60);
+use synapse_common::current_timestamp_millis;
+use synapse_storage::login_token::LoginTokenStoreApi;
 
-struct LoginTokenEntry {
-    user_id: String,
-    device_id: Option<String>,
-    expires_at: Instant,
-    used: bool,
-}
+use crate::common::ApiError;
 
-static LOGIN_TOKENS: LazyLock<Mutex<HashMap<String, LoginTokenEntry>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+const LOGIN_TOKEN_TTL_MS: i64 = 60_000;
 
 /// Generate a new login token for the given user.
 /// Returns the token string (a random UUID).
-pub fn generate_login_token(user_id: &str, device_id: Option<&str>) -> String {
+pub async fn generate_login_token(
+    storage: &Arc<dyn LoginTokenStoreApi>,
+    user_id: &str,
+    device_id: Option<&str>,
+) -> Result<String, ApiError> {
     let token = uuid::Uuid::new_v4().to_string();
-    let entry = LoginTokenEntry {
-        user_id: user_id.to_string(),
-        device_id: device_id.map(|s| s.to_string()),
-        expires_at: Instant::now() + LOGIN_TOKEN_TTL,
-        used: false,
-    };
-    let mut map = LOGIN_TOKENS.lock().unwrap_or_else(|e| e.into_inner());
-    cleanup_expired(&mut map);
-    map.insert(token.clone(), entry);
-    token
+    let expires_at = current_timestamp_millis() + LOGIN_TOKEN_TTL_MS;
+    storage
+        .create_login_token(&token, user_id, device_id, expires_at)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to store QR login token", &e))?;
+    Ok(token)
 }
 
 /// Validate and consume a login token (single-use).
-/// Returns `Some((user_id, device_id))` if valid, `None` otherwise.
-pub fn consume_login_token(token: &str) -> Option<(String, Option<String>)> {
-    let mut map = LOGIN_TOKENS.lock().unwrap_or_else(|e| e.into_inner());
-    cleanup_expired(&mut map);
-    let entry = map.get_mut(token)?;
-    if entry.used || entry.expires_at < Instant::now() {
-        return None;
-    }
-    entry.used = true;
-    let user_id = entry.user_id.clone();
-    let device_id = entry.device_id.clone();
-    // Remove consumed token
-    map.remove(token);
-    Some((user_id, device_id))
-}
-
-/// Remove expired tokens from the map.
-fn cleanup_expired(map: &mut HashMap<String, LoginTokenEntry>) {
-    let now = Instant::now();
-    map.retain(|_, entry| entry.expires_at > now && !entry.used);
+/// Returns `Some((user_id, device_id))` if valid, `None` if invalid/expired.
+pub async fn consume_login_token(
+    storage: &Arc<dyn LoginTokenStoreApi>,
+    token: &str,
+) -> Result<Option<(String, Option<String>)>, ApiError> {
+    let entry = storage
+        .consume_login_token(token)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to consume QR login token", &e))?;
+    Ok(entry.map(|e| (e.user_id, e.device_id)))
 }

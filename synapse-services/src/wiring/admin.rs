@@ -79,6 +79,7 @@ pub struct AdminModuleServices {
     pub external_service_integration: Arc<crate::external_service_integration::ExternalServiceIntegration>,
     pub rendezvous_storage: Arc<dyn synapse_storage::rendezvous::RendezvousStoreApi>,
     pub rendezvous_message_storage: Arc<dyn synapse_storage::rendezvous::RendezvousMessageStoreApi>,
+    pub login_token_storage: Arc<dyn synapse_storage::login_token::LoginTokenStoreApi>,
     pub worker_storage: Arc<dyn synapse_storage::worker::WorkerStoreApi>,
     pub worker_manager: Arc<crate::worker::WorkerManager>,
 }
@@ -238,6 +239,8 @@ impl AdminServices {
             Arc::new(synapse_storage::rendezvous::RendezvousStorage::new(pool.clone()));
         let rendezvous_message_storage: Arc<dyn synapse_storage::rendezvous::RendezvousMessageStoreApi> =
             Arc::new(synapse_storage::rendezvous::RendezvousMessageStorage::new(pool.clone()));
+        let login_token_storage: Arc<dyn synapse_storage::login_token::LoginTokenStoreApi> =
+            Arc::new(synapse_storage::login_token::LoginTokenStorage::new(pool));
 
         let app_service_storage: Arc<dyn synapse_storage::application_service::ApplicationServiceStoreApi> =
             Arc::new(ApplicationServiceStorage::new(pool));
@@ -356,6 +359,7 @@ impl AdminServices {
                 external_service_integration,
                 rendezvous_storage,
                 rendezvous_message_storage,
+                login_token_storage,
                 worker_storage,
                 worker_manager,
             },

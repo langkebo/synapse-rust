@@ -318,6 +318,7 @@ pub struct AuthContext {
     pub threepid_storage: Arc<dyn synapse_storage::threepid::ThreepidStoreApi>,
     pub rendezvous_storage: Arc<dyn synapse_storage::rendezvous::RendezvousStoreApi>,
     pub rendezvous_message_storage: Arc<dyn synapse_storage::rendezvous::RendezvousMessageStoreApi>,
+    pub login_token_storage: Arc<dyn synapse_storage::login_token::LoginTokenStoreApi>,
 }
 
 impl FromRef<AppState> for AuthContext {
@@ -347,6 +348,7 @@ impl FromRef<AppState> for AuthContext {
             threepid_storage: state.services.account.threepid_storage.clone(),
             rendezvous_storage: state.services.admin.modules.rendezvous_storage.clone(),
             rendezvous_message_storage: state.services.admin.modules.rendezvous_message_storage.clone(),
+            login_token_storage: state.services.admin.modules.login_token_storage.clone(),
         }
     }
 }
