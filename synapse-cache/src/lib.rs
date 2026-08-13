@@ -1069,6 +1069,7 @@ impl CacheManager {
                             self.local.set(token, &claims);
                             return Some(claims);
                         }
+                        // 过期令牌清理：删不掉仅留一条过期记录（下次校验仍会拒绝），无害。
                         let _ = redis.delete(token).await;
                         return None;
                     }
@@ -1085,6 +1086,8 @@ impl CacheManager {
         if self.use_redis {
             if let Some(redis) = &self.redis {
                 if let Ok(val) = serde_json::to_string(claims) {
+                    // 纯缓存写：Redis 写失败仅意味着本次不命中缓存（下次走 DB 校验），
+                    // DB 是令牌权威来源，fail-open 安全。
                     let _ = redis.set(token, &val, ttl).await;
                 }
             }
@@ -1094,7 +1097,12 @@ impl CacheManager {
     pub async fn delete_token(&self, token: &str) {
         self.local.remove(token);
         if let Some(redis) = &self.redis {
-            let _ = redis.delete(token).await;
+            // 安全相关：令牌撤销（登出/刷新轮换/吊销）。Redis 删除失败不能再静默
+            // 吞掉——被撤销的令牌若残留在跨实例缓存中，其它实例仍可能命中并接受，
+            // 构成 fail-open（与 #13 登录锁定 fail-closed 原则一致，改为显式记录）。
+            if let Err(e) = redis.delete(token).await {
+                ::tracing::error!(target: "cache", error = %e, "Failed to delete revoked token from Redis cache");
+            }
         }
         if let Err(e) = self.broadcast_invalidation(token, InvalidationType::Key).await {
             tracing::warn!("Failed to broadcast token invalidation: {}", e);
@@ -1117,6 +1125,7 @@ impl CacheManager {
         // D-1: L1 也按调用方 TTL 过期，与 L2 Redis 保持一致
         self.local.set_raw_with_ttl(key, value, Duration::from_secs(ttl));
         if let Some(redis) = &self.redis {
+            // 纯缓存写：Redis 写失败仅导致跨实例不命中（去重键等），非鉴权语义，fail-open 安全。
             let _ = redis.set(key, value, ttl).await;
         }
     }
@@ -1170,7 +1179,9 @@ impl CacheManager {
             InvalidationType::Key => {
                 self.local.remove(key);
                 if let Some(redis) = &self.redis {
-                    let _ = redis.delete(key).await;
+                    if let Err(e) = redis.delete(key).await {
+                        ::tracing::warn!(target: "cache", cache_key = %key, error = %e, "Failed to delete cache entry from Redis (with invalidation)");
+                    }
                 }
             }
             InvalidationType::Pattern | InvalidationType::Prefix => {
@@ -1299,6 +1310,10 @@ impl CacheManager {
         Ok(results)
     }
 
+    /// Best-effort cache write: Redis write failures are swallowed (fail-open),
+    /// which is safe for pure-cache data whose authority is the database — a
+    /// failed write only means the next read misses and falls back to DB.
+    /// Security-critical callers must use [`set_checked`](Self::set_checked).
     pub async fn set<T: Serialize>(&self, key: &str, value: T, ttl: u64) -> Result<(), ApiError> {
         if let Ok(val) = serde_json::to_string(&value) {
             self.local.set_raw(key, &val);
