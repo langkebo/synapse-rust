@@ -26,11 +26,11 @@ impl Config {
                 .to_string());
         }
 
-        if self.security.secret.len() < 32 {
-            return Err("security.secret must be at least 32 characters for adequate security. \
-                 Current length: {}. \
-                 Generate a secure secret with: openssl rand -hex 32"
-                .replace("{}", &self.security.secret.len().to_string()));
+        // 审查 #15：security.secret 是 HS256/JWT 签名密钥，除长度外还必须校验
+        // 熵，防止弱熵密钥（如 32 个 'a'）被接受后可被离线爆破伪造。
+        // 复用 SecurityValidator::validate_jwt_secret（此前为死代码，仅测试引用）。
+        if let Err(e) = crate::security::SecurityValidator::validate_jwt_secret(&self.security.secret) {
+            return Err(e);
         }
 
         if self.cors.allowed_origins.iter().any(|o| o == "*") && self.cors.allow_credentials {
@@ -116,6 +116,16 @@ mod tests {
         config.security.secret = "too-short".to_string();
         let err = config.validate().unwrap_err();
         assert!(err.contains("at least 32 characters"));
+    }
+
+    // 审查 #15：弱熵密钥（32 个 'a'）长度达标但熵不足，应被拒绝，
+    // 否则 HS256 token 可被离线爆破伪造。
+    #[test]
+    fn validate_rejects_low_entropy_secret() {
+        let mut config = Config::default();
+        config.security.secret = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(); // 32 个 'a'
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("low entropy"), "low-entropy secret must be rejected: {err}");
     }
 
     #[test]
