@@ -780,7 +780,7 @@ pub struct CacheManager {
     local: LocalCache,
     redis: Option<Arc<RedisCache>>,
     use_redis: bool,
-    rate_limit_local: Arc<parking_lot::Mutex<HashMap<String, LocalRateLimitState>>>,
+    rate_limit_local: Arc<moka::sync::Cache<String, LocalRateLimitState>>,
     invalidation_manager: Option<Arc<CacheInvalidationManager>>,
     local_cache_ttl: Duration,
     /// Per-key single-flight guards used by `get_or_fetch` to prevent cache
@@ -795,7 +795,7 @@ impl CacheManager {
             local: LocalCache::new(config),
             redis: None,
             use_redis: false,
-            rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            rate_limit_local: Arc::new(new_rate_limit_local_cache()),
             invalidation_manager: None,
             local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -824,7 +824,7 @@ impl CacheManager {
                     local: LocalCache::new(cache_config),
                     redis: Some(Arc::new(redis_cache)),
                     use_redis: true,
-                    rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+                    rate_limit_local: Arc::new(new_rate_limit_local_cache()),
                     invalidation_manager: Some(invalidation_manager),
                     local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
                     in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -836,7 +836,7 @@ impl CacheManager {
                     local: LocalCache::new(cache_config),
                     redis: None,
                     use_redis: false,
-                    rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+                    rate_limit_local: Arc::new(new_rate_limit_local_cache()),
                     invalidation_manager: None,
                     local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
                     in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -865,7 +865,7 @@ impl CacheManager {
             local: LocalCache::new(cache_config),
             redis: Some(Arc::new(redis_cache)),
             use_redis: true,
-            rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            rate_limit_local: Arc::new(new_rate_limit_local_cache()),
             invalidation_manager: Some(invalidation_manager),
             local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -884,7 +884,7 @@ impl CacheManager {
             local: LocalCache::new(cache_config),
             redis: Some(Arc::new(redis_cache)),
             use_redis: true,
-            rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            rate_limit_local: Arc::new(new_rate_limit_local_cache()),
             invalidation_manager: Some(invalidation_manager),
             local_cache_ttl: Duration::from_secs(invalidation_config.local_cache_ttl_secs),
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -1439,8 +1439,10 @@ impl CacheManager {
             }
         }
 
-        let mut map = self.rate_limit_local.lock();
-        let state = map.get(key).copied().unwrap_or(LocalRateLimitState { tokens: burst_size as f64, last_ms: now_ms });
+        let state = self
+            .rate_limit_local
+            .get(key)
+            .unwrap_or(LocalRateLimitState { tokens: burst_size as f64, last_ms: now_ms });
 
         let delta_ms = now_ms.saturating_sub(state.last_ms);
         let refill = (delta_ms as f64 / 1000.0) * (rate_per_second as f64);
@@ -1455,7 +1457,7 @@ impl CacheManager {
             tokens -= 1.0;
         }
 
-        map.insert(key.to_string(), LocalRateLimitState { tokens, last_ms: now_ms });
+        self.rate_limit_local.insert(key.to_string(), LocalRateLimitState { tokens, last_ms: now_ms });
 
         Ok(RateLimitDecision { allowed, retry_after_seconds, remaining: tokens.floor().max(0.0) as u32 })
     }
@@ -1474,6 +1476,19 @@ struct LocalRateLimitState {
     last_ms: u64,
 }
 
+/// 审查 #6：本地限流桶（Redis 不可用时的降级路径）的容量与 TTL 上限。
+/// 此前用无界 `HashMap`，攻击者用随机 IP/账号即可让桶无限增长导致 OOM。
+/// 改用带容量 + TTL 的 moka cache 自动驱逐。
+const RATE_LIMIT_LOCAL_MAX_ENTRIES: u64 = 100_000;
+const RATE_LIMIT_LOCAL_TTL_SECS: u64 = 300;
+
+fn new_rate_limit_local_cache() -> moka::sync::Cache<String, LocalRateLimitState> {
+    moka::sync::Cache::builder()
+        .max_capacity(RATE_LIMIT_LOCAL_MAX_ENTRIES)
+        .time_to_live(std::time::Duration::from_secs(RATE_LIMIT_LOCAL_TTL_SECS))
+        .build()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1490,6 +1505,28 @@ mod tests {
         let config = CacheConfig { max_capacity: 5000, time_to_live: 7200 };
         assert_eq!(config.max_capacity, 5000);
         assert_eq!(config.time_to_live, 7200);
+    }
+
+    // 审查 #6：本地限流桶改为 moka cache 后，token bucket 行为不破坏（回归）。
+    #[tokio::test]
+    async fn test_rate_limit_token_bucket_local_fallback_basic() {
+        let manager = CacheManager::new(&CacheConfig::default());
+        // burst_size=2, rate=1/s：前 2 次允许，第 3 次拒绝
+        let d1 = manager.rate_limit_token_bucket_take("test:key", 1, 2).await.unwrap();
+        assert!(d1.allowed);
+        let d2 = manager.rate_limit_token_bucket_take("test:key", 1, 2).await.unwrap();
+        assert!(d2.allowed);
+        let d3 = manager.rate_limit_token_bucket_take("test:key", 1, 2).await.unwrap();
+        assert!(!d3.allowed, "third take must be rejected after burst exhausted");
+    }
+
+    #[tokio::test]
+    async fn test_rate_limit_token_bucket_distinct_keys_isolated() {
+        let manager = CacheManager::new(&CacheConfig::default());
+        let a = manager.rate_limit_token_bucket_take("a", 1, 1).await.unwrap();
+        let b = manager.rate_limit_token_bucket_take("b", 1, 1).await.unwrap();
+        assert!(a.allowed);
+        assert!(b.allowed, "distinct keys must have independent buckets");
     }
 
     #[test]
