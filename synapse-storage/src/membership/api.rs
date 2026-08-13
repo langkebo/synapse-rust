@@ -48,6 +48,25 @@ pub trait MemberStoreApi: Send + Sync {
 
     async fn get_room_member(&self, room_id: &str, user_id: &str) -> Result<Option<RoomMember>, sqlx::Error>;
 
+    /// Fetch members for a set of users in a single room, keyed by user id.
+    ///
+    /// Default impl falls back to per-user `get_room_member`; the Postgres
+    /// backend overrides this with a single `ANY($2)` query to avoid N+1 on the
+    /// device-list "left users" path.
+    async fn get_room_members_by_user_ids(
+        &self,
+        room_id: &str,
+        user_ids: &[String],
+    ) -> Result<HashMap<String, RoomMember>, sqlx::Error> {
+        let mut result = HashMap::new();
+        for user_id in user_ids {
+            if let Some(member) = self.get_room_member(room_id, user_id).await? {
+                result.insert(user_id.clone(), member);
+            }
+        }
+        Ok(result)
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn add_member(
         &self,
@@ -173,6 +192,14 @@ impl MemberStoreApi for super::RoomMemberStorage {
 
     async fn get_room_member(&self, room_id: &str, user_id: &str) -> Result<Option<RoomMember>, sqlx::Error> {
         self.get_room_member(room_id, user_id).await
+    }
+
+    async fn get_room_members_by_user_ids(
+        &self,
+        room_id: &str,
+        user_ids: &[String],
+    ) -> Result<HashMap<String, RoomMember>, sqlx::Error> {
+        self.get_room_members_by_user_ids(room_id, user_ids).await
     }
 
     async fn add_member(

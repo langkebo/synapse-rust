@@ -434,6 +434,29 @@ impl RoomMemberStorage {
         Ok(result)
     }
 
+    /// Fetch members for a set of users in a single room using a single
+    /// `ANY($2)` query, avoiding the N+1 of per-user `get_room_member` calls.
+    pub async fn get_room_members_by_user_ids(
+        &self,
+        room_id: &str,
+        user_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, RoomMember>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let members = sqlx::query_as::<_, RoomMember>(
+            r"
+            SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
+            FROM room_memberships WHERE room_id = $1 AND user_id = ANY($2)
+            ",
+        )
+        .bind(room_id)
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(members.into_iter().map(|m| (m.user_id.clone(), m)).collect())
+    }
+
     pub async fn get_joined_members(&self, room_id: &str) -> Result<Vec<RoomMember>, sqlx::Error> {
         let members = sqlx::query_as::<_, RoomMember>(
             r"

@@ -519,6 +519,29 @@ impl SyncService {
                 latest_membership_by_user.insert(state_key.to_string(), membership.to_string());
             }
 
+            // Collect users whose current membership row must be loaded, then fetch
+            // them in a single batch query — avoids N+1 on the device-list "left
+            // users" path when a large room disbands (审查 #20).
+            let members_needing_lookup: Vec<String> = latest_membership_by_user
+                .iter()
+                .filter(|(state_key, membership)| {
+                    *state_key != user_id
+                        && *membership != "join"
+                        && *membership != "invite"
+                        && !users_with_join_in_delta.contains(*state_key)
+                })
+                .map(|(state_key, _)| state_key.clone())
+                .collect();
+
+            let members_by_user = if members_needing_lookup.is_empty() {
+                HashMap::new()
+            } else {
+                self.member_storage
+                    .get_room_members_by_user_ids(&room_id, &members_needing_lookup)
+                    .await
+                    .map_err(map_internal!("Failed to load room members for device list left users"))?
+            };
+
             for (state_key, membership) in latest_membership_by_user {
                 if state_key == user_id {
                     if membership != "join" && membership != "invite" {
@@ -534,13 +557,7 @@ impl SyncService {
                 let should_report_left = if users_with_join_in_delta.contains(&state_key) {
                     membership == "leave" || membership == "ban"
                 } else {
-                    let current_member = self
-                        .member_storage
-                        .get_room_member(&room_id, &state_key)
-                        .await
-                        .map_err(map_internal!("Failed to load room member for device list left users"))?;
-
-                    current_member.is_some_and(|member| {
+                    members_by_user.get(&state_key).is_some_and(|member| {
                         let was_joined = member.joined_ts.is_some();
                         match membership.as_str() {
                             // A ban can directly terminate sharing even if the storage row has not

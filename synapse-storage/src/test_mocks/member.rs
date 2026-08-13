@@ -475,6 +475,27 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::InMemoryMemberStore;
+    use crate::membership::api::MemberStoreApi;
+
+    #[tokio::test]
+    async fn get_room_members_by_user_ids_returns_only_matching_members() {
+        let store = InMemoryMemberStore::new();
+        store.add_member("!room:test", "@alice:test", "leave", None).await.unwrap();
+        store.add_member("!room:test", "@bob:test", "join", None).await.unwrap();
+
+        let user_ids = vec!["@alice:test".to_string(), "@bob:test".to_string(), "@missing:test".to_string()];
+        let members = store.get_room_members_by_user_ids("!room:test", &user_ids).await.unwrap();
+
+        assert_eq!(members.len(), 2, "missing user should not appear in result");
+        assert_eq!(members.get("@alice:test").unwrap().membership, "leave");
+        assert_eq!(members.get("@bob:test").unwrap().membership, "join");
+        assert!(!members.contains_key("@missing:test"));
+    }
+}
+
 // =============================================================================
 // Phase 3 complete: all storage traits extracted
 // =============================================================================
