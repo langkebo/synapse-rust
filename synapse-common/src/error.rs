@@ -489,6 +489,32 @@ impl ApiError {
         }
     }
 
+    /// Log a database error and return an Internal error whose message carries the
+    /// operation context only (the underlying DB error is logged, not exposed to the
+    /// client). This is the canonical constructor for storage-layer failures where
+    /// leaking SQL/table details to the client is undesirable.
+    pub fn database_with_context(context: &str, err: &dyn std::fmt::Display) -> Self {
+        tracing::error!(%context, %err, "database error");
+        Self {
+            kind: ApiErrorKind::Internal,
+            code: MatrixErrorCode::Unknown,
+            message: format!("Database error: {context}"),
+            cause: None,
+        }
+    }
+
+    /// Log an internal error and return an Internal error whose message carries the
+    /// operation context only (mirrors `database_with_context` for non-DB failures).
+    pub fn internal_with_context(context: &str, err: &dyn std::fmt::Display) -> Self {
+        tracing::error!(%context, %err, "internal error");
+        Self {
+            kind: ApiErrorKind::Internal,
+            code: MatrixErrorCode::Unknown,
+            message: format!("Internal error: {context}"),
+            cause: None,
+        }
+    }
+
     pub fn database(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Internal,
@@ -1320,6 +1346,40 @@ mod tests {
         assert_eq!(err.kind, ApiErrorKind::Internal);
         // 上下文与底层错误详情进入 message，`message()` 的响应日志不再丢上下文（审查 #18）。
         assert_eq!(err.message, "Database error: Failed to get profile: connection refused");
+    }
+
+    #[test]
+    fn test_api_error_database_with_context_omits_inner_error() {
+        // 阶段 0 目标（方案 D1-A）：message 携带操作上下文但不泄漏底层 sqlx 错误细节。
+        let err = ApiError::database_with_context("create_megolm_session", &"connection refused");
+        assert_eq!(err.kind, ApiErrorKind::Internal);
+        assert_eq!(err.code, MatrixErrorCode::Unknown);
+        assert_eq!(err.message, "Database error: create_megolm_session");
+        assert!(!err.message.contains("connection refused"), "底层错误不应进入 message");
+    }
+
+    #[test]
+    fn test_api_error_internal_with_context_omits_inner_error() {
+        let err = ApiError::internal_with_context("key_rotation", &"boom");
+        assert_eq!(err.kind, ApiErrorKind::Internal);
+        assert_eq!(err.code, MatrixErrorCode::Unknown);
+        assert_eq!(err.message, "Internal error: key_rotation");
+        assert!(!err.message.contains("boom"), "底层错误不应进入 message");
+    }
+
+    #[test]
+    fn test_map_database_macro_expands() {
+        // arm 3：闭包形式，供 `.map_err(map_database!("..."))` 使用。
+        let f = crate::map_database!("create_session");
+        let err = f("connection refused");
+        assert_eq!(err.kind, ApiErrorKind::Internal);
+        assert_eq!(err.message, "Database error: create_session");
+        assert!(!err.message.contains("connection refused"));
+
+        // arm 1：`result + literal` 形式。
+        let r: Result<(), &str> = Err("boom");
+        let mapped = crate::map_database!(r, "load_sessions");
+        assert_eq!(mapped.unwrap_err().message, "Database error: load_sessions");
     }
 
     #[test]
