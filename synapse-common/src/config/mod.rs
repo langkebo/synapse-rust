@@ -72,7 +72,12 @@ pub use server::default_dehydrated_device_cleanup_interval_secs;
 
 /// Main configuration class for the Matrix Homeserver, containing all configuration sub-items.
 /// Loaded via environment variables or configuration file.
+///
+/// `deny_unknown_fields` 使未知顶层配置键在加载时直接报错，而非被 serde
+/// 静默丢弃，避免运维配置了不存在的字段（如历史遗留的 `registration:`、
+/// `identity_server_url:`、`app_service:`）却误以为生效（审查 #11）。
 #[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// Server configuration
     pub server: ServerConfig,
@@ -232,6 +237,16 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_config_rejects_unknown_top_level_key() {
+        // deny_unknown_fields：未知顶层配置键应在反序列化时报 "unknown field"，
+        // 而非被 serde 静默丢弃（审查 #11，防止运维配置了不存在的字段却误以为生效）。
+        let json = serde_json::json!({"unknown_key": "x"});
+        let err = serde_json::from_value::<Config>(json).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("unknown field"), "应报 unknown field，实际：{msg}");
+    }
 
     #[test]
     fn test_config_database_url() {

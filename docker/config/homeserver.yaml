@@ -118,11 +118,6 @@ security:
   login_failure_lockout_threshold: 5
   login_lockout_duration_seconds: 300
 
-registration:
-  enabled: true
-  enable_registration_captcha: false
-  session_duration: 86400000
-
 admin_registration:
   enabled: true
   shared_secret: "${ADMIN_SECRET:?ADMIN_SECRET is required}"
@@ -169,8 +164,6 @@ cors:
     - "Origin"
     - "X-Requested-With"
   max_age_seconds: 3600
-
-identity_server_url: "https://vector.im"
 
 voip:
   turn_uris:
@@ -231,7 +224,3 @@ prometheus:
   port: 9090
   path: "/metrics"
   include_namespace: true
-
-app_service:
-  enabled: false
-  appservice: []
