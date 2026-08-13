@@ -11,6 +11,7 @@ use base64::Engine;
 use rand::RngCore;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 
 #[derive(Clone)]
@@ -150,16 +151,10 @@ impl SecureBackupService {
 
         let auth_data_str = auth_data_str.ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
-        let auth_data: SecureBackupAuthData = serde_json::from_str(&auth_data_str).map_err(|e| {
-            tracing::error!("Invalid auth data: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let auth_data: SecureBackupAuthData = serde_json::from_str(&auth_data_str).map_err(map_database!("Invalid auth data"))?;
 
         // 2. Derive key
-        let salt_bytes = base64::engine::general_purpose::STANDARD.decode(&auth_data.salt).map_err(|e| {
-            tracing::error!("Invalid salt: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let salt_bytes = base64::engine::general_purpose::STANDARD.decode(&auth_data.salt).map_err(map_database!("Invalid salt"))?;
 
         let key = Self::derive_key(passphrase, &salt_bytes, auth_data.iterations)?;
 
@@ -241,16 +236,10 @@ impl SecureBackupService {
         let auth_data_str = row.0;
         let total_keys = row.1;
 
-        let auth_data: SecureBackupAuthData = serde_json::from_str(&auth_data_str).map_err(|e| {
-            tracing::error!("Invalid auth data: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let auth_data: SecureBackupAuthData = serde_json::from_str(&auth_data_str).map_err(map_database!("Invalid auth data"))?;
 
         // 2. Derive key
-        let salt_bytes = base64::engine::general_purpose::STANDARD.decode(&auth_data.salt).map_err(|e| {
-            tracing::error!("Invalid salt: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let salt_bytes = base64::engine::general_purpose::STANDARD.decode(&auth_data.salt).map_err(map_database!("Invalid salt"))?;
 
         let key = Self::derive_key(passphrase, &salt_bytes, auth_data.iterations)?;
 
@@ -322,10 +311,7 @@ impl SecureBackupService {
 
         match result {
             Some(row) => {
-                let auth_data: SecureBackupAuthData = serde_json::from_str(&row.auth_data).map_err(|e| {
-                    tracing::error!("Invalid auth data: {e}");
-                    ApiError::database("A database error occurred".to_string())
-                })?;
+                let auth_data: SecureBackupAuthData = serde_json::from_str(&row.auth_data).map_err(map_database!("Invalid auth data"))?;
 
                 Ok(Some(SecureBackupResponse {
                     backup_id: row.backup_id,
@@ -355,10 +341,7 @@ impl SecureBackupService {
 
         let mut backups = Vec::new();
         for row in results {
-            let auth_data: SecureBackupAuthData = serde_json::from_str(&row.auth_data).map_err(|e| {
-                tracing::error!("Invalid auth data: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?;
+            let auth_data: SecureBackupAuthData = serde_json::from_str(&row.auth_data).map_err(map_database!("Invalid auth data"))?;
 
             backups.push(SecureBackupResponse {
                 backup_id: row.backup_id,
@@ -404,27 +387,18 @@ impl SecureBackupService {
     // =====================================================
 
     pub(crate) fn derive_key(passphrase: &str, salt: &[u8], _iterations: i64) -> Result<[u8; 32], ApiError> {
-        let params = Params::new(65536, 3, 4, Some(32)).map_err(|e| {
-            tracing::error!("Argon2 params error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let params = Params::new(65536, 3, 4, Some(32)).map_err(map_database!("Argon2 params error"))?;
 
         let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
 
         let mut key = [0u8; 32];
-        argon2.hash_password_into(passphrase.as_bytes(), salt, &mut key).map_err(|e| {
-            tracing::error!("Key derivation error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        argon2.hash_password_into(passphrase.as_bytes(), salt, &mut key).map_err(map_database!("Key derivation error"))?;
 
         Ok(key)
     }
 
     pub(crate) fn encrypt_aes_gcm(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, ApiError> {
-        let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| {
-            tracing::error!("Cipher error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let cipher = Aes256Gcm::new_from_slice(key).map_err(map_database!("Cipher error"))?;
 
         // Generate random nonce
         let mut nonce_bytes = [0u8; 12];
@@ -432,10 +406,7 @@ impl SecureBackupService {
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         // Encrypt
-        let ciphertext = cipher.encrypt(nonce, plaintext).map_err(|e| {
-            tracing::error!("Encryption error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let ciphertext = cipher.encrypt(nonce, plaintext).map_err(map_database!("Encryption error"))?;
 
         // Prepend nonce to ciphertext
         let mut result = nonce_bytes.to_vec();
@@ -449,10 +420,7 @@ impl SecureBackupService {
             return Err(ApiError::internal("Ciphertext too short".to_string()));
         }
 
-        let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| {
-            tracing::error!("Cipher error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let cipher = Aes256Gcm::new_from_slice(key).map_err(map_database!("Cipher error"))?;
 
         let nonce = Nonce::from_slice(&ciphertext[..12]);
         let encrypted = &ciphertext[12..];

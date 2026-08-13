@@ -7,6 +7,7 @@ use crate::device_trust::models::*;
 use crate::device_trust::storage::DeviceTrustStorage;
 use crate::verification::VerificationService;
 use std::sync::Arc;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 
 pub struct DeviceTrustService {
@@ -216,10 +217,7 @@ impl DeviceTrustService {
         let commitment = self
             .verification
             .compute_mac(std::slice::from_ref(&public_key), &[0u8; 32], "verification")
-            .map_err(|e| {
-            tracing::error!("Failed to compute commitment: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+            .map_err(map_database!("Failed to compute commitment"))?;
 
         request.commitment = Some(commitment);
         request.pubkey = Some(public_key);

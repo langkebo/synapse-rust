@@ -5,6 +5,7 @@ use crate::verification::models::{
 };
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
@@ -38,10 +39,7 @@ impl VerificationStorage {
         .bind(request.updated_ts)
         .execute(self.pool.as_ref())
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to create verification request: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to create verification request"))?;
 
         Ok(())
     }
@@ -57,7 +55,7 @@ impl VerificationStorage {
         .bind(transaction_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to get verification request: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(map_database!("Failed to get verification request"))?;
 
         if let Some((
             transaction_id,
@@ -96,10 +94,7 @@ impl VerificationStorage {
             .bind(transaction_id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| {
-                tracing::error!("Failed to update verification state: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?;
+            .map_err(map_database!("Failed to update verification state"))?;
 
         Ok(())
     }
@@ -128,7 +123,7 @@ impl VerificationStorage {
         .bind(&sas.mac)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to store SAS state: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(map_database!("Failed to store SAS state"))?;
 
         Ok(())
     }
@@ -152,10 +147,7 @@ impl VerificationStorage {
         .bind(&qr.scanned_data)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to store QR state: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to store QR state"))?;
 
         Ok(())
     }
@@ -173,10 +165,7 @@ impl VerificationStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to get pending verifications: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to get pending verifications"))?;
 
         Ok(rows
             .into_iter()
@@ -217,7 +206,7 @@ impl VerificationStorage {
         .bind(transaction_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to get SAS state: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(map_database!("Failed to get SAS state"))?;
 
         if let Some((
             tx_id,
@@ -256,10 +245,7 @@ impl VerificationStorage {
             .bind(transaction_id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| {
-                tracing::error!("Failed to delete verification request: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?;
+            .map_err(map_database!("Failed to delete verification request"))?;
 
         Ok(())
     }

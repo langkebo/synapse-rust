@@ -2,6 +2,7 @@ use super::models::{OlmDecryptedMessage, OlmEncryptedMessage, OlmMessageType, Ol
 use super::storage::OlmStorage;
 use base64::Engine;
 use std::collections::HashMap;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 use tokio::sync::RwLock;
 use vodozemac::olm::{Account, Session, SessionConfig};
@@ -128,10 +129,7 @@ impl OlmSessionManager {
         let pre_key_message = vodozemac::olm::PreKeyMessage::from_base64(message)
             .map_err(|e| ApiError::bad_request(format!("Invalid pre-key message: {e}")))?;
 
-        let result = account.create_inbound_session(their_identity_key, &pre_key_message).map_err(|e| {
-            tracing::error!("Failed to create inbound session: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let result = account.create_inbound_session(their_identity_key, &pre_key_message).map_err(map_database!("Failed to create inbound session"))?;
 
         let session_id = result.session.session_id();
 
@@ -201,10 +199,7 @@ impl OlmSessionManager {
         let message = vodozemac::olm::OlmMessage::from_parts(msg_type, &raw_ciphertext)
             .map_err(|e| ApiError::bad_request(format!("Invalid message: {e}")))?;
 
-        let plaintext = entry.session.decrypt(&message).map_err(|e| {
-            tracing::error!("Failed to decrypt: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let plaintext = entry.session.decrypt(&message).map_err(map_database!("Failed to decrypt"))?;
 
         entry.dirty = true;
 

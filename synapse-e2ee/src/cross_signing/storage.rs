@@ -2,6 +2,7 @@ use super::models::*;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
@@ -110,10 +111,7 @@ impl CrossSigningStorage {
         .bind(added_ts)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to save cross signing key: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to save cross signing key"))?;
 
         Ok(())
     }
@@ -139,10 +137,7 @@ impl CrossSigningStorage {
         .bind(key_type)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to load cross signing key: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to load cross signing key"))?;
 
         Ok(row.map(CrossSigningKeyRow::into_key))
     }
@@ -163,10 +158,7 @@ impl CrossSigningStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to load cross signing keys: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to load cross signing keys"))?;
 
         Ok(rows.into_iter().map(CrossSigningKeyRow::into_key).collect())
     }
@@ -194,10 +186,7 @@ impl CrossSigningStorage {
         .bind(user_ids)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to load cross signing keys batch: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to load cross signing keys batch"))?;
 
         let mut result: HashMap<String, Vec<CrossSigningKey>> = HashMap::new();
         for row in rows {
@@ -234,10 +223,7 @@ impl CrossSigningStorage {
         .bind(user_ids)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to load device signatures batch: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to load device signatures batch"))?;
 
         let mut result: HashMap<String, Vec<DeviceSignature>> = HashMap::new();
         for row in rows {
@@ -266,10 +252,7 @@ impl CrossSigningStorage {
         .bind(&key.key_type)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to update cross signing key: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to update cross signing key"))?;
 
         Ok(())
     }
@@ -299,10 +282,7 @@ impl CrossSigningStorage {
         .bind(added_ts)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to save device key for cross signing: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to save device key for cross signing"))?;
 
         Ok(())
     }
@@ -328,10 +308,7 @@ impl CrossSigningStorage {
         .bind(created_ts)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to save device signature: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to save device signature"))?;
 
         Ok(())
     }
@@ -354,10 +331,7 @@ impl CrossSigningStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to load user signatures: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to load user signatures"))?;
 
         Ok(rows.into_iter().map(DeviceSignatureRow::into_signature).collect())
     }
@@ -385,10 +359,7 @@ impl CrossSigningStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to load device signatures: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to load device signatures"))?;
 
         Ok(rows.into_iter().map(DeviceSignatureRow::into_signature).collect())
     }
@@ -418,10 +389,7 @@ impl CrossSigningStorage {
         .bind(signing_key_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to load signature: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to load signature"))?;
 
         Ok(row.map(DeviceSignatureRow::into_signature))
     }
@@ -435,10 +403,7 @@ impl CrossSigningStorage {
         .bind(user_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to delete cross signing keys: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to delete cross signing keys"))?;
 
         sqlx::query(
             r"
@@ -448,10 +413,7 @@ impl CrossSigningStorage {
         .bind(user_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to delete device signatures: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to delete device signatures"))?;
 
         Ok(())
     }

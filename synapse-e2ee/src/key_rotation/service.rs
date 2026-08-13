@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
@@ -194,18 +195,12 @@ impl KeyRotationService {
 
     async fn share_new_key(&self, room_id: &str, session: &MegolmSession) -> Result<(), ApiError> {
         tracing::info!("Sharing new megolm key for room {}, session {}", room_id, session.session_id);
-        self.storage.record_key_share(room_id, &session.session_id, "rotated").await.map_err(|e| {
-            tracing::warn!("Failed to record key share for rotation: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })
+        self.storage.record_key_share(room_id, &session.session_id, "rotated").await.map_err(map_database!("Failed to record key share for rotation"))
     }
 
     async fn mark_session_as_rotated(&self, room_id: &str, user_id: &str) -> Result<(), ApiError> {
         tracing::info!("Marking session as rotated for user {} in room {}", user_id, room_id);
-        self.storage.mark_rotated(user_id, room_id).await.map_err(|e| {
-            tracing::warn!("Failed to mark session as rotated: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })
+        self.storage.mark_rotated(user_id, room_id).await.map_err(map_database!("Failed to mark session as rotated"))
     }
 
     async fn should_rotate_for_room(&self, user_id: &str, room_id: &str) -> Result<bool, ApiError> {
@@ -246,10 +241,7 @@ impl KeyRotationService {
         for session in &sessions {
             self.megolm_service.share_session(&session.session_id, &[new_user_id.to_string()]).await?;
 
-            self.storage.record_key_share(room_id, &session.session_id, "new_member").await.map_err(|e| {
-                tracing::warn!("Failed to record key share for new member: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?;
+            self.storage.record_key_share(room_id, &session.session_id, "new_member").await.map_err(map_database!("Failed to record key share for new member"))?;
         }
 
         tracing::info!("Forwarded {} session keys to new member {} in room {}", sessions.len(), new_user_id, room_id);
@@ -510,10 +502,7 @@ impl KeyRotationStorage {
                 .bind(user_id)
                 .fetch_one(&*self.pool)
                 .await
-                .map_err(|e| {
-                    tracing::error!("Failed to query key rotation log: {e}");
-                    ApiError::database("A database error occurred".to_string())
-                })?;
+                .map_err(map_database!("Failed to query key rotation log"))?;
 
         Ok(result)
     }
@@ -538,10 +527,7 @@ impl KeyRotationStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to get rotation history: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to get rotation history"))?;
 
         Ok(rows
             .iter()
@@ -570,10 +556,7 @@ impl KeyRotationStorage {
         .bind(key_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to query rotation log by key_id: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?
+        .map_err(map_database!("Failed to query rotation log by key_id"))?
         .flatten();
 
         Ok(result)
@@ -595,10 +578,7 @@ impl KeyRotationStorage {
         .bind(user_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to query rotation log: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to query rotation log"))?;
 
         Ok(result)
     }
@@ -616,10 +596,7 @@ impl KeyRotationStorage {
         .bind(value)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to persist key rotation config: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to persist key rotation config"))?;
 
         Ok(())
     }
@@ -630,10 +607,7 @@ impl KeyRotationStorage {
             .bind(key)
             .fetch_optional(&*self.pool)
             .await
-            .map_err(|e| {
-                tracing::error!("Failed to query key rotation config: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?
+            .map_err(map_database!("Failed to query key rotation config"))?
             .flatten();
 
         Ok(result)

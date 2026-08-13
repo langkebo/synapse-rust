@@ -9,6 +9,7 @@ use rand::RngCore;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
 use synapse_common::traits::DehydratedDeviceProvider;
 use synapse_common::ApiError;
@@ -68,20 +69,14 @@ impl SecretStorageService {
         // Generate random AES-256-GCM session key
         let mut session_key_bytes = [0u8; 32];
         rand::rng().fill_bytes(&mut session_key_bytes);
-        let cipher = Aes256Gcm::new_from_slice(&session_key_bytes).map_err(|e| {
-            tracing::error!("Cipher init failed: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let cipher = Aes256Gcm::new_from_slice(&session_key_bytes).map_err(map_database!("Cipher init failed"))?;
 
         // Generate random nonce
         let mut nonce_bytes = [0u8; 12];
         rand::rng().fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
-        let ciphertext = cipher.encrypt(nonce, key_data.as_bytes()).map_err(|e| {
-            tracing::error!("Encryption failed: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let ciphertext = cipher.encrypt(nonce, key_data.as_bytes()).map_err(map_database!("Encryption failed"))?;
 
         let encrypted_key = format!("{}.{}", BASE64.encode(nonce_bytes), BASE64.encode(&ciphertext));
 
@@ -239,15 +234,9 @@ impl SecretStorageService {
         // raw ciphertext bytes directly. This ensures proper key extraction and
         // domain separation, preventing the ciphertext from being used as-is.
         let derived_key = derive_ssss_key(&ciphertext_bytes)?;
-        let cipher = Aes256Gcm::new_from_slice(&*derived_key).map_err(|e| {
-            tracing::error!("Cipher init failed: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let cipher = Aes256Gcm::new_from_slice(&*derived_key).map_err(map_database!("Cipher init failed"))?;
 
-        let encrypted = cipher.encrypt(nonce, secret.as_bytes()).map_err(|e| {
-            tracing::error!("Encryption failed: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let encrypted = cipher.encrypt(nonce, secret.as_bytes()).map_err(map_database!("Encryption failed"))?;
 
         Ok(BASE64.encode(&encrypted))
     }
@@ -273,20 +262,14 @@ impl SecretStorageService {
         let mut key_arr = [0u8; 32];
         key_arr.copy_from_slice(&key_bytes[..32]);
 
-        let cipher = Aes256Gcm::new_from_slice(&key_arr).map_err(|e| {
-            tracing::error!("Cipher init failed: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let cipher = Aes256Gcm::new_from_slice(&key_arr).map_err(map_database!("Cipher init failed"))?;
 
         // Generate random nonce
         let mut nonce_bytes = [0u8; 12];
         rand::rng().fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
-        let encrypted = cipher.encrypt(nonce, secret.as_bytes()).map_err(|e| {
-            tracing::error!("Encryption failed: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let encrypted = cipher.encrypt(nonce, secret.as_bytes()).map_err(map_database!("Encryption failed"))?;
 
         // Prepend nonce to ciphertext for storage
         let mut result = nonce_bytes.to_vec();

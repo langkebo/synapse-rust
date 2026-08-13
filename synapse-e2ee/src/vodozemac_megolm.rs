@@ -26,6 +26,7 @@ use crate::megolm::storage::MegolmSessionStorage;
 use std::sync::Arc;
 use std::time::Instant;
 use synapse_cache::CacheManager;
+use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
 use synapse_common::current_timestamp_utc;
 use synapse_common::server_metrics::ServerMetrics;
@@ -566,18 +567,12 @@ impl MegolmVodozemacService {
 
     /// List all sessions for a room.
     pub async fn get_room_sessions(&self, room_id: &str) -> Result<Vec<MegolmSession>, ApiError> {
-        self.storage.get_room_sessions(room_id).await.map_err(|e| {
-            ::tracing::error!("Failed to get room sessions: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })
+        self.storage.get_room_sessions(room_id).await.map_err(map_database!("Failed to get room sessions"))
     }
 
     /// Delete a session.
     pub async fn delete_session(&self, session_id: &str) -> Result<(), ApiError> {
-        self.storage.delete_session(session_id).await.map_err(|e| {
-            ::tracing::error!("Failed to delete session: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })
+        self.storage.delete_session(session_id).await.map_err(map_database!("Failed to delete session"))
     }
 
     /// Clean up expired Megolm sessions.

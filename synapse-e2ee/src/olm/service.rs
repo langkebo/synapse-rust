@@ -5,6 +5,7 @@ use super::session::OlmSessionManager;
 use super::storage::OlmStorage;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 use tokio::sync::RwLock;
 use vodozemac::olm::Account;
@@ -87,10 +88,7 @@ impl OlmService {
         if let Some(account_data) = self.storage.load_account(user_id, device_id).await? {
             let pickle =
                 vodozemac::olm::AccountPickle::from_encrypted(&account_data.serialized_account, get_pickle_key())
-                    .map_err(|e| {
-                        tracing::error!("Failed to decode account pickle: {e}");
-                        ApiError::database("A database error occurred".to_string())
-                    })?;
+                    .map_err(map_database!("Failed to decode account pickle"))?;
             let account = Account::from_pickle(pickle);
 
             {

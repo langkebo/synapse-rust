@@ -2,6 +2,7 @@ use super::models::*;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
@@ -253,10 +254,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(now_ms)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to create/update device key: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to create/update device key"))?;
 
         Ok(())
     }
@@ -298,10 +296,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(now_ms)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to create/update fallback key: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to create/update fallback key"))?;
 
         Ok(())
     }
@@ -317,10 +312,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(device_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to delete fallback keys: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to delete fallback keys"))?;
 
         Ok(())
     }
@@ -652,10 +644,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         device_id: &str,
         algorithm: &str,
     ) -> Result<Option<DeviceKey>, ApiError> {
-        let mut tx = self.pool.begin().await.map_err(|e| {
-            tracing::error!("Failed to begin transaction: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let mut tx = self.pool.begin().await.map_err(map_database!("Failed to begin transaction"))?;
 
         let row: Option<DeviceKeyRow> = sqlx::query_as::<_, DeviceKeyRow>(
             r"
@@ -685,10 +674,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(algorithm)
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to claim one-time key: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to claim one-time key"))?;
 
         if let Some(r) = row {
             if r.is_fallback.unwrap_or(false) {
@@ -698,10 +684,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
                     device_id
                 );
             }
-            tx.commit().await.map_err(|e| {
-                tracing::error!("Failed to commit transaction: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?;
+            tx.commit().await.map_err(map_database!("Failed to commit transaction"))?;
             return Ok(Some(r.into_device_key()));
         }
 
@@ -735,19 +718,13 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(chrono::Utc::now().timestamp_millis())
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to query fallback key: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to query fallback key"))?;
 
         if fallback_row.is_some() {
             tracing::warn!("No OTK available for {}:{}, using fallback key", user_id, device_id);
         }
 
-        tx.commit().await.map_err(|e| {
-            tracing::error!("Failed to commit transaction: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        tx.commit().await.map_err(map_database!("Failed to commit transaction"))?;
 
         Ok(fallback_row.map(DeviceKeyRow::into_device_key))
     }
@@ -794,10 +771,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(current_user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to get key changes: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to get key changes"))?;
 
         let changed: Vec<String> = changed_rows.into_iter().map(|row| row.get::<String, _>("user_id")).collect();
 
@@ -819,10 +793,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(current_user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to get key changes left: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to get key changes left"))?;
 
         let left: Vec<String> = left_rows.into_iter().map(|row| row.get::<String, _>("user_id")).collect();
 
@@ -857,10 +828,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(now_ms)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Failed to store signature: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("Failed to store signature"))?;
 
         Ok(())
     }
