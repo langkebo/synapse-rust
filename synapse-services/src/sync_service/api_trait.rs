@@ -40,17 +40,6 @@ pub trait SyncServiceApi: Send + Sync {
 
     async fn room_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)>;
 
-    async fn get_room_messages(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        from: &str,
-        limit: i64,
-        dir: &str,
-    ) -> ApiResult<serde_json::Value>;
-
-    async fn get_public_rooms(&self, limit: i64, since: Option<&str>) -> ApiResult<serde_json::Value>;
-
     async fn get_events(&self, user_id: &str, from: &str, timeout: u64) -> ApiResult<serde_json::Value>;
 }
 
@@ -97,21 +86,6 @@ impl SyncServiceApi for SyncService {
 
     async fn room_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)> {
         self.room_unread_counts(room_id, user_id).await
-    }
-
-    async fn get_room_messages(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        from: &str,
-        limit: i64,
-        dir: &str,
-    ) -> ApiResult<serde_json::Value> {
-        self.get_room_messages(room_id, user_id, from, limit, dir).await
-    }
-
-    async fn get_public_rooms(&self, limit: i64, since: Option<&str>) -> ApiResult<serde_json::Value> {
-        self.get_public_rooms(limit, since).await
     }
 
     async fn get_events(&self, user_id: &str, from: &str, timeout: u64) -> ApiResult<serde_json::Value> {
