@@ -15,7 +15,14 @@
 
 set -e
 
-http_code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8008/health 2>/dev/null || echo "000")
+# Resolve probe target from the env vars the Dockerfile sets
+# (SYNAPSE_HEALTHCHECK_HOST / SYNAPSE_HEALTHCHECK_PORT), falling back to
+# loopback defaults so the script is still runnable outside the container.
+host="${SYNAPSE_HEALTHCHECK_HOST:-127.0.0.1}"
+port="${SYNAPSE_HEALTHCHECK_PORT:-8008}"
+base_url="http://${host}:${port}"
+
+http_code=$(curl -s -o /dev/null -w "%{http_code}" "${base_url}/health" 2>/dev/null || echo "000")
 
 case "$http_code" in
     200)
@@ -28,7 +35,7 @@ case "$http_code" in
     *)
         # Unexpected status from /health — fall back to a basic liveness
         # check so we don't mark the container unhealthy due to a handler bug.
-        if curl -sf http://localhost:8008/_matrix/client/versions >/dev/null 2>&1; then
+        if curl -sf "${base_url}/_matrix/client/versions" >/dev/null 2>&1; then
             exit 0
         fi
         echo "Healthcheck failed: /health returned HTTP $http_code and fallback also failed"
