@@ -89,7 +89,10 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
     };
 
     if !decision.allowed {
-        tracing::warn!(
+        // Rate limiting rejecting a request is expected behaviour under load,
+        // not an operational error — log at debug to avoid diluting warn-level
+        // alerts (审查 #29). Enable via `RUST_LOG=rate_limit=debug`.
+        tracing::debug!(
             target: "rate_limit",
             ip = %ip,
             endpoint = %endpoint_id,
