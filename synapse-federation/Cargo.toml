@@ -13,7 +13,6 @@ expect_used = "deny"
 panic = "deny"
 
 [features]
-default = ["friends"]
 friends = ["synapse-common/friends"]
 test-utils = ["synapse-common/test-utils"]
 
