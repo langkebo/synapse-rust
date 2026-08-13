@@ -13,7 +13,6 @@ use synapse_services::sync_service::SyncService;
 use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
-use synapse_storage::room::RoomStorage;
 use synapse_storage::room_account_data::RoomAccountDataStorage;
 use synapse_storage::PresenceStorage;
 use synapse_storage::{AccountDataStorage, FilterStorage};
@@ -277,14 +276,12 @@ async fn test_to_device_next_batch_token_respects_limit() {
     let presence_storage = Arc::new(PresenceStorage::new(pool.clone(), cache.clone()));
     let member_storage = Arc::new(RoomMemberStorage::new(&pool, "localhost"));
     let event_storage = Arc::new(EventStorage::new(&pool, "localhost".to_string()));
-    let room_storage = Arc::new(RoomStorage::new(&pool));
     let to_device_storage = ToDeviceStorage::new(&pool);
 
     let sync_service = SyncService::new(
         presence_storage,
         member_storage,
         event_storage,
-        room_storage,
         Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
         Arc::new(FilterStorage::new(&pool)),
@@ -356,7 +353,6 @@ async fn test_to_device_messages_are_deleted_after_ack() {
         Arc::new(PresenceStorage::new(pool.clone(), Arc::new(CacheManager::new(&CacheConfig::default())))),
         Arc::new(RoomMemberStorage::new(&pool, "localhost")),
         Arc::new(EventStorage::new(&pool, "localhost".to_string())),
-        Arc::new(RoomStorage::new(&pool)),
         Arc::new(RoomAccountDataStorage::new(&pool)),
         Arc::new(AccountDataStorage::new(&pool)),
         Arc::new(FilterStorage::new(&pool)),

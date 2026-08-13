@@ -495,7 +495,6 @@ async fn test_sync_offline_presence_overwrites_previous_presence_state() {
     let presence_storage = Arc::new(PresenceStorage::new(pool.clone(), canonical_cache));
     let member_storage = Arc::new(RoomMemberStorage::new(&pool, "localhost"));
     let event_storage = Arc::new(EventStorage::new(&pool, "localhost".to_string()));
-    let room_storage = Arc::new(RoomStorage::new(&pool));
 
     let sync_service = SyncService::new(
         presence_storage.clone(),
@@ -533,7 +532,6 @@ async fn test_sync_presence_events_reflect_persisted_presence_state() {
     let presence_storage = Arc::new(PresenceStorage::new(pool.clone(), canonical_cache));
     let member_storage = Arc::new(RoomMemberStorage::new(&pool, "localhost"));
     let event_storage = Arc::new(EventStorage::new(&pool, "localhost".to_string()));
-    let room_storage = Arc::new(RoomStorage::new(&pool));
 
     let sync_service = SyncService::new(
         presence_storage,
