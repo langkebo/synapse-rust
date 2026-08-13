@@ -127,7 +127,7 @@ impl AuthService {
 
     async fn is_account_locked(&self, user_id: &str) -> ApiResult<bool> {
         let key = format!("auth:lockout:{user_id}");
-        let lockout_until: Option<i64> = self.cache.get(&key).await?;
+        let lockout_until: Option<i64> = self.cache.get_checked(&key).await?;
 
         if let Some(timestamp) = lockout_until {
             if timestamp > Utc::now().timestamp() {
@@ -156,17 +156,12 @@ impl AuthService {
         if failures >= self.login_failure_lockout_threshold as i64 {
             let lockout_until = Utc::now().timestamp() + self.login_lockout_duration_seconds as i64;
             let lockout_key = format!("auth:lockout:{user_id}");
-            if let Err(e) = self.cache.set(&lockout_key, &lockout_until, self.login_lockout_duration_seconds).await {
-                ::tracing::warn!(
-                    error = %e,
-                    user_id = %user_id,
-                    cache_key = %lockout_key,
-                    failure_count = failures,
-                    lockout_until = lockout_until,
-                    lockout_duration_seconds = self.login_lockout_duration_seconds,
-                    "Failed to set login lockout in cache"
-                );
-            }
+            // 安全关键：锁定写入必须 fail-closed，Redis 故障时返回错误让登录失败，
+            // 而非静默绕过账户锁定（审查 #13）。
+            let lockout_str = lockout_until.to_string();
+            self.cache
+                .set_checked(&lockout_key, &lockout_str, self.login_lockout_duration_seconds)
+                .await?;
 
             ::tracing::warn!(
                 target: "security_audit",

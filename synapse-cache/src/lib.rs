@@ -578,6 +578,32 @@ impl RedisCache {
         }
     }
 
+    /// Like [`get`](Self::get) but propagates Redis errors instead of treating
+    /// them as a cache miss. Security-critical callers (e.g. account lockout)
+    /// must fail closed on Redis outage rather than silently bypassing the lock.
+    pub async fn get_checked(&self, key: &str) -> Result<Option<String>, CacheError> {
+        use redis::AsyncCommands;
+        let result = self
+            .with_circuit_breaker("GET", |mut conn| async move {
+                conn.get::<_, Option<String>>(key)
+                    .await
+                    .map_err(|e| CacheError::OperationFailed(e.to_string()))
+            })
+            .await;
+
+        match result {
+            Ok(val) => {
+                if val.is_some() {
+                    self.degradation_metrics.write().record_redis_hit();
+                } else {
+                    self.degradation_metrics.write().record_redis_miss();
+                }
+                Ok(val)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     /// Batch fetch multiple keys from Redis using MGET in a single round-trip.
     ///
     /// Returns a `Vec<Option<String>>` with the same length as `keys`; missing
@@ -1187,6 +1213,38 @@ impl CacheManager {
         Ok(None)
     }
 
+    /// Like [`get`](Self::get) but propagates Redis errors instead of treating
+    /// them as a cache miss. Security-critical callers (e.g. account lockout)
+    /// must fail closed on Redis outage rather than silently bypassing the lock.
+    pub async fn get_checked<T: for<'de> Deserialize<'de>>(&self, key: &str) -> Result<Option<T>, ApiError> {
+        let key = key.to_string();
+
+        // L1: Local Cache
+        if let Some(val) = self.local.get_raw(&key) {
+            if let Ok(result) = serde_json::from_str(&val) {
+                return Ok(Some(result));
+            }
+        }
+
+        // L2: Redis Cache — propagate errors (fail closed)
+        if self.use_redis {
+            if let Some(redis) = &self.redis {
+                let val = redis
+                    .get_checked(&key)
+                    .await
+                    .map_err(|e| ApiError::internal_with_log("Redis GET failed", &e))?;
+                if let Some(val) = val {
+                    if let Ok(result) = serde_json::from_str(&val) {
+                        // Populate L1
+                        self.local.set_raw(&key, &val);
+                        return Ok(Some(result));
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// Batch fetch multiple keys from the cache (L1 local + L2 Redis MGET).
     ///
     /// Returns a `Vec<Option<T>>` with the same length as `keys`; missing keys
@@ -1246,6 +1304,22 @@ impl CacheManager {
                 if let Some(redis) = &self.redis {
                     let _ = redis.set(key, &val, ttl).await;
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// Like [`set`](Self::set) but propagates Redis errors instead of silently
+    /// swallowing them. Security-critical callers (e.g. account lockout) must
+    /// fail closed on Redis outage rather than leaving the lock unset.
+    pub async fn set_checked(&self, key: &str, value: &str, ttl: u64) -> Result<(), ApiError> {
+        self.local.set_raw(key, value);
+        if self.use_redis {
+            if let Some(redis) = &self.redis {
+                redis
+                    .set(key, value, ttl)
+                    .await
+                    .map_err(|e| ApiError::internal_with_log("Redis SET failed", &e))?;
             }
         }
         Ok(())
