@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_common::crypto::hash_token;
 use synapse_common::current_timestamp_millis;
 use synapse_storage::threepid::{CreateThreepidRequest, ThreepidStorage, ThreepidValidationSession, UserThreepid};
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -835,7 +836,7 @@ async fn test_get_validation_session() {
     let session = result.unwrap();
     assert_eq!(session.session_id, session_id);
     assert_eq!(session.client_secret, client_secret);
-    assert_eq!(session.token, token);
+    assert_eq!(session.token, hash_token(&token));
     assert!(!session.is_validated);
 }
 
@@ -935,7 +936,7 @@ async fn test_get_validation_session_by_token() {
     let result = storage.get_validation_session_by_token(&token).await.unwrap();
     assert!(result.is_some());
     let session = result.unwrap();
-    assert_eq!(session.token, token);
+    assert_eq!(session.token, hash_token(&token));
 }
 
 #[tokio::test]

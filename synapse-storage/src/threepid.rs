@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::crypto::hash_token;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 
@@ -419,6 +420,9 @@ impl ThreepidStorage {
         created_ts: i64,
         expires_at: i64,
     ) -> Result<i64, ApiError> {
+        // Store only the HMAC token hash, never the raw token, so a DB leak
+        // cannot be replayed against `submitToken` (审查 #30).
+        let token_hash = hash_token(token);
         sqlx::query_as::<_, (i64,)>(
             r"
             INSERT INTO threepid_validation_session
@@ -431,7 +435,7 @@ impl ThreepidStorage {
         .bind(medium)
         .bind(address)
         .bind(client_secret)
-        .bind(token)
+        .bind(&token_hash)
         .bind(next_link)
         .bind(created_ts)
         .bind(expires_at)
@@ -447,6 +451,7 @@ impl ThreepidStorage {
         client_secret: &str,
         token: &str,
     ) -> Result<Option<ThreepidValidationSession>, ApiError> {
+        let token_hash = hash_token(token);
         sqlx::query_as::<_, ThreepidValidationSession>(
             r"
             SELECT id, session_id, medium, address, client_secret, token,
@@ -458,7 +463,7 @@ impl ThreepidStorage {
         )
         .bind(session_id)
         .bind(client_secret)
-        .bind(token)
+        .bind(&token_hash)
         .bind(current_timestamp_millis())
         .fetch_optional(&*self.pool)
         .await
@@ -469,6 +474,7 @@ impl ThreepidStorage {
         &self,
         token: &str,
     ) -> Result<Option<ThreepidValidationSession>, ApiError> {
+        let token_hash = hash_token(token);
         sqlx::query_as::<_, ThreepidValidationSession>(
             r"
             SELECT id, session_id, medium, address, client_secret, token,
@@ -476,7 +482,7 @@ impl ThreepidStorage {
             FROM threepid_validation_session WHERE token = $1
             ",
         )
-        .bind(token)
+        .bind(&token_hash)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get validation session by token", &e))

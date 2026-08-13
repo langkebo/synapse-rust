@@ -2,14 +2,17 @@ use axum::extract::State;
 use axum::routing::{post, Router};
 use axum::Json;
 use serde::{Deserialize, Serialize};
+use synapse_common::crypto::random_string;
 use synapse_common::current_timestamp_millis;
 
 use crate::web::routes::context::AuthContext;
 use crate::web::routes::ApiError;
 
+/// 3PID verification tokens are single-use and expire after 1 hour. Generate a
+/// 24-char base62 token (~143 bits of entropy) instead of the previous 12-char
+/// base36 (~62 bits), and only its HMAC hash is persisted (审查 #30).
 fn generate_token() -> String {
-    let chars: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".chars().collect();
-    (0..12).map(|_| chars[rand::Rng::random_range(&mut rand::rng(), 0..chars.len())]).collect()
+    random_string(24)
 }
 
 pub fn create_threepid_router() -> Router<AuthContext> {
