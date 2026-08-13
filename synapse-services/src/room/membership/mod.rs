@@ -190,14 +190,14 @@ impl MembershipService {
         self.member_storage
             .get_room_members_paginated(room_id, membership, limit, from)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to get room members", &e))
+            .map_err(|e| ApiError::database_with_context("Failed to get room members", &e))
     }
 
     pub async fn get_room_member_count_admin(&self, room_id: &str) -> ApiResult<i64> {
         self.member_storage
             .get_room_member_count(room_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to count room members", &e))
+            .map_err(|e| ApiError::database_with_context("Failed to count room members", &e))
     }
 
     pub async fn admin_ban_user_membership(&self, room_id: &str, user_id: &str, banned_by: &str) -> ApiResult<()> {

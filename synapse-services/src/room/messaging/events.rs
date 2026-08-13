@@ -85,7 +85,7 @@ impl MessagingService {
         self.event_reader
             .get_state_events(room_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to get room state", &e))
+            .map_err(|e| ApiError::database_with_context("Failed to get room state", &e))
     }
 
     pub async fn get_state_events_at_or_before(
@@ -96,7 +96,7 @@ impl MessagingService {
         self.event_reader
             .get_state_events_at_or_before(room_id, origin_server_ts)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to get room state", &e))
+            .map_err(|e| ApiError::database_with_context("Failed to get room state", &e))
     }
 
     pub async fn create_event(
@@ -379,7 +379,7 @@ impl MessagingService {
         self.event_reader
             .get_room_events_paginated(room_id, from, limit, direction)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to get room messages", &e))
+            .map_err(|e| ApiError::database_with_context("Failed to get room messages", &e))
     }
 
     pub async fn get_event_context_admin(
@@ -392,7 +392,7 @@ impl MessagingService {
             .event_reader
             .get_event(event_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to get event", &e))?
+            .map_err(|e| ApiError::database_with_context("Failed to get event", &e))?
             .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
         if event.room_id != room_id {
@@ -403,13 +403,13 @@ impl MessagingService {
             .event_reader
             .get_events_before_context(room_id, event.origin_server_ts, context_limit)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to get preceding context", &e))?;
+            .map_err(|e| ApiError::database_with_context("Failed to get preceding context", &e))?;
 
         let events_after = self
             .event_reader
             .get_events_after_context(room_id, event.origin_server_ts, context_limit)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to get following context", &e))?;
+            .map_err(|e| ApiError::database_with_context("Failed to get following context", &e))?;
 
         Ok(json!({
             "event": {
@@ -443,7 +443,7 @@ impl MessagingService {
         self.event_reader
             .get_forward_extremities_count(room_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to get forward extremities", &e))
+            .map_err(|e| ApiError::database_with_context("Failed to get forward extremities", &e))
     }
 
     pub async fn count_events_by_status(&self, room_id: &str, status: &str) -> i64 {

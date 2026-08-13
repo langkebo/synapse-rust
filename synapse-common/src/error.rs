@@ -478,17 +478,6 @@ impl ApiError {
         }
     }
 
-    /// Log a database error and return a generic Internal error.
-    pub fn database_with_log(context: &str, err: &dyn std::fmt::Display) -> Self {
-        tracing::error!(%context, %err, "database error");
-        Self {
-            kind: ApiErrorKind::Internal,
-            code: MatrixErrorCode::Unknown,
-            message: format!("Database error: {context}: {err}"),
-            cause: None,
-        }
-    }
-
     /// Log a database error and return an Internal error whose message carries the
     /// operation context only (the underlying DB error is logged, not exposed to the
     /// client). This is the canonical constructor for storage-layer failures where
@@ -1338,14 +1327,6 @@ mod tests {
         let err = ApiError::database("db connection failed");
         assert_eq!(err.kind, ApiErrorKind::Internal);
         assert_eq!(err.code, MatrixErrorCode::Unknown);
-    }
-
-    #[test]
-    fn test_api_error_database_with_log_carries_context() {
-        let err = ApiError::database_with_log("Failed to get profile", &"connection refused");
-        assert_eq!(err.kind, ApiErrorKind::Internal);
-        // 上下文与底层错误详情进入 message，`message()` 的响应日志不再丢上下文（审查 #18）。
-        assert_eq!(err.message, "Database error: Failed to get profile: connection refused");
     }
 
     #[test]

@@ -157,7 +157,7 @@ impl FriendRoomService {
             .friend_storage
             .is_friend(&sender_friend_room, receiver_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to check friendship", &e))?
+            .map_err(|e| ApiError::database_with_context("Failed to check friendship", &e))?
         {
             return Err(ApiError::conflict(format!("User {receiver_id} is already your friend")));
         }
@@ -166,14 +166,14 @@ impl FriendRoomService {
             .friend_storage
             .has_any_pending_request(sender_id, receiver_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to check pending request", &e))?
+            .map_err(|e| ApiError::database_with_context("Failed to check pending request", &e))?
         {
             // Idempotent: return the existing pending request instead of 409
             if let Some(existing) = self
                 .friend_storage
                 .get_pending_friend_request(sender_id, receiver_id)
                 .await
-                .map_err(|e| ApiError::database_with_log("Failed to get existing request", &e))?
+                .map_err(|e| ApiError::database_with_context("Failed to get existing request", &e))?
             {
                 tracing::info!(
                     %request_id,
@@ -190,7 +190,7 @@ impl FriendRoomService {
                 .friend_storage
                 .get_pending_friend_request(receiver_id, sender_id)
                 .await
-                .map_err(|e| ApiError::database_with_log("Failed to get existing reverse request", &e))?
+                .map_err(|e| ApiError::database_with_context("Failed to get existing reverse request", &e))?
             {
                 tracing::info!(
                     %request_id,
@@ -212,7 +212,7 @@ impl FriendRoomService {
                     if error_msg.contains("foreign key") || error_msg.contains("no rows returned") {
                         ApiError::not_found(format!("Cannot send friend request: user not found - {receiver_id}"))
                     } else {
-                        ApiError::database_with_log("Failed to create friend request", &error_msg)
+                        ApiError::database_with_context("Failed to create friend request", &error_msg)
                     }
                 },
             )?;
@@ -263,7 +263,7 @@ impl FriendRoomService {
             .friend_storage
             .get_pending_friend_request(requester_id, user_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to get friend request", &e))?
+            .map_err(|e| ApiError::database_with_context("Failed to get friend request", &e))?
             .ok_or_else(|| ApiError::not_found(format!("No pending friend request from {requester_id}")))?;
 
         let dm_room_id = self.create_friend_dm_room(user_id, requester_id).await?;
@@ -276,16 +276,16 @@ impl FriendRoomService {
         self.friend_storage
             .update_friend_request_status(requester_id, user_id, "accepted")
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to update request status", &e))?;
+            .map_err(|e| ApiError::database_with_context("Failed to update request status", &e))?;
 
         self.presence_storage
             .add_subscription(user_id, requester_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to subscribe to presence", &e))?;
+            .map_err(|e| ApiError::database_with_context("Failed to subscribe to presence", &e))?;
         self.presence_storage
             .add_subscription(requester_id, user_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to subscribe to presence", &e))?;
+            .map_err(|e| ApiError::database_with_context("Failed to subscribe to presence", &e))?;
 
         if self.is_remote_user(requester_id) {
             let parts: Vec<&str> = requester_id.split(':').collect();
@@ -320,7 +320,7 @@ impl FriendRoomService {
             .friend_storage
             .update_friend_request_status(requester_id, user_id, "rejected")
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to reject friend request", &e))?;
+            .map_err(|e| ApiError::database_with_context("Failed to reject friend request", &e))?;
 
         if !updated {
             tracing::warn!(
@@ -342,7 +342,7 @@ impl FriendRoomService {
             .friend_storage
             .update_friend_request_status(user_id, target_id, "cancelled")
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to cancel friend request", &e))?;
+            .map_err(|e| ApiError::database_with_context("Failed to cancel friend request", &e))?;
 
         if !updated {
             tracing::warn!(
@@ -363,7 +363,7 @@ impl FriendRoomService {
             .friend_storage
             .get_incoming_friend_requests(user_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Database error", &e))?;
+            .map_err(|e| ApiError::database_with_context("Database error", &e))?;
 
         Ok(requests
             .into_iter()
@@ -384,7 +384,7 @@ impl FriendRoomService {
             .friend_storage
             .get_outgoing_friend_requests(user_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Database error", &e))?;
+            .map_err(|e| ApiError::database_with_context("Database error", &e))?;
 
         Ok(requests
             .into_iter()
@@ -411,7 +411,7 @@ impl FriendRoomService {
             .friend_storage
             .is_friend(&user_friend_room, friend_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to check friendship", &e))?
+            .map_err(|e| ApiError::database_with_context("Failed to check friendship", &e))?
         {
             return Err(ApiError::conflict(format!("User {friend_id} is already your friend")));
         }
@@ -423,7 +423,7 @@ impl FriendRoomService {
         self.presence_storage
             .add_subscription(user_id, friend_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to subscribe to presence", &e))?;
+            .map_err(|e| ApiError::database_with_context("Failed to subscribe to presence", &e))?;
 
         if self.is_remote_user(friend_id) {
             tracing::info!(user_id = %user_id, friend_id = %friend_id, remote_delivery = true, "Adding remote friend");
@@ -462,7 +462,7 @@ impl FriendRoomService {
             .friend_storage
             .is_friend(&friend_room, friend_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to check friendship", &e))?
+            .map_err(|e| ApiError::database_with_context("Failed to check friendship", &e))?
         {
             return Err(ApiError::not_found(format!("User {friend_id} is not in your friend list")));
         }
@@ -489,7 +489,7 @@ impl FriendRoomService {
             .friend_storage
             .get_friend_list_room_id(user_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Database error", &e))?
+            .map_err(|e| ApiError::database_with_context("Database error", &e))?
         else {
             return Ok(Vec::new());
         };
@@ -498,7 +498,7 @@ impl FriendRoomService {
             .friend_storage
             .get_friend_list_content(&room_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Database error", &e))?;
+            .map_err(|e| ApiError::database_with_context("Database error", &e))?;
 
         let links = content
             .and_then(|value| value.get("friends").cloned())
@@ -553,7 +553,7 @@ impl FriendRoomService {
                 .friend_storage
                 .get_effective_direct_links_fallback(user_id)
                 .await
-                .map_err(|e| ApiError::database_with_log("Failed to build effective direct map", &e))?;
+                .map_err(|e| ApiError::database_with_context("Failed to build effective direct map", &e))?;
 
             for row in rows {
                 ensure_room_in_direct_map(&mut direct_map, &row.other_user_id, &row.room_id);
@@ -680,7 +680,7 @@ impl FriendRoomService {
         self.friend_storage
             .get_existing_direct_room_id(user_id, friend_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to query existing DM room", &e))
+            .map_err(|e| ApiError::database_with_context("Failed to query existing DM room", &e))
     }
 
     pub async fn get_dm_partner_for_room(&self, user_id: &str, room_id: &str) -> ApiResult<Option<DmPartnerInfo>> {
@@ -691,7 +691,7 @@ impl FriendRoomService {
                 .user_storage
                 .get_user_profile(&partner_user_id)
                 .await
-                .map_err(|e| ApiError::database_with_log("Failed to load DM partner profile", &e))?
+                .map_err(|e| ApiError::database_with_context("Failed to load DM partner profile", &e))?
             {
                 return Ok(Some(DmPartnerInfo {
                     user_id: partner_user_id,
@@ -711,7 +711,7 @@ impl FriendRoomService {
             .friend_storage
             .get_dm_partner_for_room(room_id, user_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to load DM partner from membership", &e))?;
+            .map_err(|e| ApiError::database_with_context("Failed to load DM partner from membership", &e))?;
 
         Ok(partner.map(|row| DmPartnerInfo {
             user_id: row.user_id,
@@ -800,7 +800,7 @@ impl FriendRoomService {
             .friend_storage
             .get_friend_list_content(&room_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Database error", &e))?
+            .map_err(|e| ApiError::database_with_context("Database error", &e))?
             .unwrap_or_else(|| json!({ "friends": [], "version": 1 }));
 
         let version = content.get("version").and_then(|v| v.as_i64()).unwrap_or(1);
@@ -831,12 +831,12 @@ impl FriendRoomService {
             .user_storage
             .get_user_profiles_map(&friend_ids)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to load friend profiles", &e))?;
+            .map_err(|e| ApiError::database_with_context("Failed to load friend profiles", &e))?;
         let presence_map = self
             .presence_storage
             .get_presence_snapshots(&friend_ids)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to load presence snapshots", &e))?;
+            .map_err(|e| ApiError::database_with_context("Failed to load presence snapshots", &e))?;
 
         let mut items = Self::build_friend_entries(raw_friends, &profiles, &presence_map);
         Self::sort_friend_entries(&mut items, &request.sort_by);
@@ -903,7 +903,7 @@ impl FriendRoomService {
             .friend_storage
             .find_friend_lists_by_dm_room_id(dm_room_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to load friend DM links", &e))?;
+            .map_err(|e| ApiError::database_with_context("Failed to load friend DM links", &e))?;
 
         if links.is_empty() {
             return Ok(0);
@@ -967,9 +967,9 @@ impl FriendRoomService {
             |e| {
                 let error_msg = e.to_string();
                 if error_msg.contains("foreign key") {
-                    ApiError::database_with_log("Failed to create friend request: user not found", &error_msg)
+                    ApiError::database_with_context("Failed to create friend request: user not found", &error_msg)
                 } else {
-                    ApiError::database_with_log("Failed to create friend request", &error_msg)
+                    ApiError::database_with_context("Failed to create friend request", &error_msg)
                 }
             },
         )?;
@@ -1037,7 +1037,7 @@ impl FriendRoomService {
             .friend_storage
             .get_friend_list_content(room_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Database error", &e))?
+            .map_err(|e| ApiError::database_with_context("Database error", &e))?
             .unwrap_or_else(|| json!({ "friends": [], "version": 1 }));
 
         let friends_array = content
@@ -1084,7 +1084,7 @@ impl FriendRoomService {
             .friend_storage
             .get_friend_list_room_id(owner_user_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Database error", &e))?
+            .map_err(|e| ApiError::database_with_context("Database error", &e))?
         else {
             return Ok(false);
         };
@@ -1093,7 +1093,7 @@ impl FriendRoomService {
             .friend_storage
             .get_friend_list_content(&friend_room_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Database error", &e))?
+            .map_err(|e| ApiError::database_with_context("Database error", &e))?
             .unwrap_or_else(|| json!({ "friends": [], "version": 1 }));
 
         let now = current_timestamp_millis();

@@ -104,7 +104,7 @@ impl RoomStateService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to check room existence", &e))?;
+            .map_err(|e| ApiError::database_with_context("Failed to check room existence", &e))?;
         Ok(exists)
     }
 
@@ -172,15 +172,15 @@ impl RoomStateService {
         self.room_storage
             .get_all_rooms_with_members(limit, from, order_by)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to list rooms", &e))
+            .map_err(|e| ApiError::database_with_context("Failed to list rooms", &e))
     }
 
     pub async fn get_room_count(&self) -> ApiResult<i64> {
-        self.room_storage.get_room_count().await.map_err(|e| ApiError::database_with_log("Failed to count rooms", &e))
+        self.room_storage.get_room_count().await.map_err(|e| ApiError::database_with_context("Failed to count rooms", &e))
     }
 
     pub async fn get_room_record(&self, room_id: &str) -> ApiResult<Option<Room>> {
-        self.room_storage.get_room(room_id).await.map_err(|e| ApiError::database_with_log("Failed to get room", &e))
+        self.room_storage.get_room(room_id).await.map_err(|e| ApiError::database_with_context("Failed to get room", &e))
     }
 
     pub async fn get_room_listings_status(&self, room_id: &str) -> ApiResult<Option<(bool, bool)>> {
@@ -212,7 +212,7 @@ impl RoomStateService {
         self.member_storage
             .remove_all_members(room_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to remove room members", &e))?;
+            .map_err(|e| ApiError::database_with_context("Failed to remove room members", &e))?;
         Ok(())
     }
 
@@ -250,7 +250,7 @@ impl RoomStateService {
         self.room_storage
             .get_room_version_only(room_id)
             .await
-            .map_err(|e| ApiError::database_with_log("Failed to get room version", &e))
+            .map_err(|e| ApiError::database_with_context("Failed to get room version", &e))
     }
 
     pub async fn search_all_rooms_admin(

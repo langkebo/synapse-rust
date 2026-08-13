@@ -124,7 +124,7 @@ pub(crate) async fn get_displayname(
         .registration_service
         .get_profile(&user_id)
         .await
-        .map_err(|e| ApiError::database_with_log("Failed to get profile", &e))?;
+        .map_err(|e| ApiError::database_with_context("Failed to get profile", &e))?;
 
     let displayname = profile.get("displayname").and_then(|v| v.as_str()).unwrap_or("");
     Ok(Json(json!({ "displayname": displayname })))
@@ -148,7 +148,7 @@ pub(crate) async fn get_avatar_url(
         .registration_service
         .get_profile(&user_id)
         .await
-        .map_err(|e| ApiError::database_with_log("Failed to get profile", &e))?;
+        .map_err(|e| ApiError::database_with_context("Failed to get profile", &e))?;
 
     let avatar_url = profile.get("avatar_url").and_then(|v| v.as_str()).unwrap_or("");
     Ok(Json(json!({ "avatar_url": avatar_url })))
@@ -651,7 +651,7 @@ pub(crate) async fn delete_threepid(
     ctx.account_identity_service
         .remove_threepid(user_id, &body.medium, &body.address)
         .await
-        .map_err(|e| ApiError::database_with_log("Failed to delete threepid", &e))?;
+        .map_err(|e| ApiError::database_with_context("Failed to delete threepid", &e))?;
 
     Ok(Json(json!({})))
 }
@@ -682,7 +682,7 @@ pub(crate) async fn unbind_threepid(
     ctx.account_identity_service
         .remove_threepid(user_id, &body.medium, &body.address)
         .await
-        .map_err(|e| ApiError::database_with_log("Failed to unbind threepid", &e))?;
+        .map_err(|e| ApiError::database_with_context("Failed to unbind threepid", &e))?;
 
     Ok(Json(json!({})))
 }
