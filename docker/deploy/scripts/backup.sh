@@ -112,6 +112,31 @@ create_archive() {
     log_success "压缩包创建完成: $BACKUP_DIR/$BACKUP_NAME.tar.gz"
 }
 
+# 备份保留策略：仅保留最近 N 个备份包，防止 backups/ 目录随时间无界增长（每包约 160MB）。
+KEEP_BACKUPS="${BACKUP_KEEP_COUNT:-5}"
+
+prune_old_backups() {
+    log_info "清理过期备份（保留最近 ${KEEP_BACKUPS} 个）..."
+    local count
+    count="$(ls -1 "$BACKUP_DIR"/synapse_backup_*.tar.gz 2>/dev/null | wc -l | tr -d ' ')"
+    if [ "$count" -le "$KEEP_BACKUPS" ]; then
+        return 0
+    fi
+    # 按名称倒序（时间戳递增），跳过前 KEEP_BACKUPS 个，删除其余旧包。
+    local keep=$KEEP_BACKUPS
+    for old in $(ls -1 "$BACKUP_DIR"/synapse_backup_*.tar.gz 2>/dev/null | sort -r); do
+        if [ "$keep" -gt 0 ]; then
+            keep=$((keep - 1))
+            continue
+        fi
+        if ! rm -f "$old" 2>/dev/null; then
+            log_warning "旧备份清理未完成（可能被 safe-delete hook 拦截）: $old"
+        else
+            log_info "已删除旧备份: $(basename "$old")"
+        fi
+    done
+}
+
 # 主函数
 main() {
     log_info "开始备份..."
@@ -120,6 +145,7 @@ main() {
     backup_media
     backup_config
     create_archive
+    prune_old_backups
 
     log_success "备份完成!"
     echo "备份文件: $BACKUP_DIR/$BACKUP_NAME.tar.gz"
