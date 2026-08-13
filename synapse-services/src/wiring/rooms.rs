@@ -1,13 +1,11 @@
 //! Room & Sync assembly — room, member, event, summary, space, sync, sliding_sync.
 //!
-//! ARCH-07/08 (2026-08-10): Several storage fields below are "backing
-//! storage" — they are constructed here, injected into the corresponding
-//! service, and also stored on the struct. The stored copies are not accessed
-//! via the container after construction but are retained for potential direct
-//! access by future route handlers. Verified unused storage fields:
-//! `room_storage`, `member_storage`, `event_reader`, `event_writer`,
-//! `room_summary_storage`, `relations_storage`, `space_storage`,
-//! `thread_storage`, `room_tag_storage`.
+//! ARCH-07/08 (2026-08-10): The storage fields below are "backing storage" —
+//! constructed here and injected into the corresponding service. Only
+//! `room_storage` and `event_writer` are retained on the struct because other
+//! wiring modules (`extensions.rs`) read them after construction; the remaining
+//! storage fields are consumed during service construction and their stored
+//! copies were never read, so they were removed (审查 #23).
 
 use std::sync::Arc;
 
@@ -20,11 +18,7 @@ use crate::UserService;
 #[derive(Clone)]
 pub struct RoomSyncServices {
     pub room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
-    pub member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
-    pub event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub event_writer: Arc<dyn synapse_storage::event::EventWriter>,
-    pub room_summary_storage: Arc<dyn synapse_storage::room_summary::RoomSummaryStoreApi>,
-    pub relations_storage: Arc<dyn synapse_storage::relations::RelationsStoreApi>,
     pub room_summary_service: Arc<crate::room_summary_service::RoomSummaryService>,
     #[cfg(feature = "beacons")]
     pub beacon_service: Arc<crate::beacon_service::BeaconService>,
@@ -32,12 +26,9 @@ pub struct RoomSyncServices {
     pub sync_service: Arc<dyn crate::sync_service::SyncServiceApi>,
     pub sliding_sync_service: Arc<crate::sliding_sync_service::SlidingSyncService>,
     pub typing_service: Arc<crate::typing_service::TypingService>,
-    pub space_storage: Arc<dyn synapse_storage::space::SpaceStoreApi>,
     pub space_service: Arc<crate::space_service::SpaceService>,
     pub relations_service: Arc<crate::relations_service::RelationsService>,
-    pub thread_storage: Arc<dyn synapse_storage::thread::ThreadStoreApi>,
     pub thread_service: Arc<crate::thread_service::ThreadService>,
-    pub room_tag_storage: Arc<dyn synapse_storage::room_tag::RoomTagStoreApi>,
 }
 
 impl RoomSyncServices {
@@ -192,11 +183,7 @@ impl RoomSyncServices {
 
         Self {
             room_storage,
-            member_storage,
-            event_reader,
             event_writer,
-            room_summary_storage,
-            relations_storage,
             room_summary_service,
             #[cfg(feature = "beacons")]
             beacon_service,
@@ -204,12 +191,9 @@ impl RoomSyncServices {
             sync_service,
             sliding_sync_service,
             typing_service,
-            space_storage,
             space_service,
             relations_service,
-            thread_storage,
             thread_service,
-            room_tag_storage,
         }
     }
 }

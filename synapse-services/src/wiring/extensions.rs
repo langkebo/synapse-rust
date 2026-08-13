@@ -10,11 +10,12 @@
 //! accessed via the container after construction but are retained:
 //! - `friend_storage`, `server_notification_storage`, `widget_storage` —
 //!   backing storage for the corresponding `*_service`.
-//! - `friend_federation`, `user_lock_service` — services constructed here
-//!   but not yet wired to route handlers; retained for future use.
-//! - `ai_connection_storage` — `AppState` holds its own independent copy.
 //! - `privacy_storage` — consumed during `AccountIdentityService`
 //!   construction in `container.rs`; the stored copy is not re-read.
+//!
+//! Removed in 审查 #23 (YAGNI cleanup): `friend_federation` and
+//! `user_lock_service` (constructed but never wired to a route handler) and
+//! `ai_connection_storage` (duplicated `AppState`'s own independent copy).
 
 use std::sync::Arc;
 
@@ -33,13 +34,9 @@ pub struct ExtensionServices {
     pub friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
     #[cfg(feature = "friends")]
     pub friend_room_service: Arc<crate::friend_room_service::FriendRoomService>,
-    #[cfg(feature = "friends")]
-    pub friend_federation: Arc<synapse_federation::FriendFederation>,
     pub rtc_domain_service: Arc<crate::rtc::RtcDomainService>,
     pub directory_service: Arc<crate::directory_service::DirectoryService>,
     pub media_domain_service: Arc<crate::media::MediaDomainService>,
-    #[cfg(feature = "openclaw-routes")]
-    pub ai_connection_storage: Arc<dyn synapse_storage::ai_connection::AiConnectionStoreApi>,
     #[cfg(feature = "server-notifications")]
     pub server_notification_storage: Arc<dyn synapse_storage::server_notification::ServerNotificationStoreApi>,
     #[cfg(feature = "server-notifications")]
@@ -55,7 +52,6 @@ pub struct ExtensionServices {
     pub identity_service: Arc<crate::identity::IdentityService>,
     pub translation_service: Arc<crate::translation_service::TranslationService>,
     pub uia_service: Arc<crate::uia_service::UiaService>,
-    pub user_lock_service: Arc<crate::user_lock_service::UserLockService>,
 }
 
 /// Dependency bundle for [`ExtensionServices::new`].
@@ -113,14 +109,10 @@ impl ExtensionServices {
             infra.config.server.name.clone(),
             Arc::new(federation.key_rotation_manager.clone()),
         ));
-        #[cfg(feature = "friends")]
-        let friend_federation = Arc::new(synapse_federation::FriendFederation::new(
-            friend_room_service.clone() as Arc<dyn synapse_common::traits::FriendRoomProvider>
-        ));
         // Suppress unused-variable warnings when `friends` feature is disabled:
-        // rooms/presence_storage/federation are only consumed by the block above.
+        // rooms/presence_storage/federation/user_storage are only consumed by the block above.
         #[cfg(not(feature = "friends"))]
-        let _ = (rooms, presence_storage, federation);
+        let _ = (rooms, presence_storage, federation, user_storage);
 
         #[cfg(feature = "voip-tracking")]
         let call_session_storage: Arc<dyn synapse_storage::call_session::CallSessionStoreApi> =
@@ -152,10 +144,6 @@ impl ExtensionServices {
             #[cfg(feature = "voip-tracking")]
             rtc_sfu,
         ));
-
-        #[cfg(feature = "openclaw-routes")]
-        let ai_connection_storage: Arc<dyn synapse_storage::ai_connection::AiConnectionStoreApi> =
-            Arc::new(synapse_storage::ai_connection::AiConnectionStorage::new(infra.pool.clone()));
 
         #[cfg(feature = "server-notifications")]
         let server_notification_storage: Arc<
@@ -212,8 +200,6 @@ impl ExtensionServices {
 
         let uia_service = Arc::new(crate::uia_service::UiaService::new(infra.cache.clone(), ui_auth_session_timeout));
 
-        let user_lock_service = Arc::new(crate::user_lock_service::UserLockService::new(user_storage.clone()));
-
         Self {
             #[cfg(feature = "voice-extended")]
             voice_service,
@@ -221,13 +207,9 @@ impl ExtensionServices {
             friend_storage,
             #[cfg(feature = "friends")]
             friend_room_service,
-            #[cfg(feature = "friends")]
-            friend_federation,
             rtc_domain_service,
             directory_service,
             media_domain_service: media_domain_service.clone(),
-            #[cfg(feature = "openclaw-routes")]
-            ai_connection_storage,
             #[cfg(feature = "server-notifications")]
             server_notification_storage,
             #[cfg(feature = "server-notifications")]
@@ -243,7 +225,6 @@ impl ExtensionServices {
             identity_service,
             translation_service,
             uia_service,
-            user_lock_service,
         }
     }
 }
