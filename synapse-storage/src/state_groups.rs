@@ -9,14 +9,6 @@ use tracing;
 /// SELECT list for the `state_groups` table.
 const STATE_GROUP_COLS: &str = "id, room_id, event_id, state_hash, created_ts";
 
-/// SELECT list for the `state_group_edges` table.
-#[allow(dead_code)]
-const STATE_GROUP_EDGE_COLS: &str = "state_group_id, prev_state_group_id";
-
-/// Columns for `event_to_state_groups`.
-#[allow(dead_code)]
-const EVENT_TO_STATE_GROUP_COLS: &str = "event_id, state_group_id";
-
 /// Columns for `state_group_state`.
 const STATE_GROUP_STATE_COLS: &str = "state_group_id, event_type, state_key, event_id";
 

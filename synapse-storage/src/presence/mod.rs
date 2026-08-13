@@ -16,6 +16,9 @@ fn is_undefined_column_error(e: &sqlx::Error) -> bool {
     e.as_database_error().is_some_and(|db_err| db_err.code().is_some_and(|c| c == "42703"))
 }
 
+/// SELECT for a single user's presence row (shared by all read paths).
+const PRESENCE_SELECT_BY_USER: &str = "SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1";
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PresenceSnapshot {
     pub user_id: String,
@@ -261,11 +264,7 @@ impl PresenceStorage {
             return Ok(Some((snapshot.presence, snapshot.status_msg)));
         }
 
-        let result = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
-            r"
-            SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1
-            ",
-        )
+        let result = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(PRESENCE_SELECT_BY_USER)
         .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
@@ -295,11 +294,7 @@ impl PresenceStorage {
             return Ok(Some((snapshot.presence, snapshot.status_msg, snapshot.last_active_ts)));
         }
 
-        let result = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
-            r"
-            SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1
-            ",
-        )
+        let result = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(PRESENCE_SELECT_BY_USER)
         .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
@@ -798,9 +793,7 @@ mod db_tests {
         let storage = PresenceStorage::new(pool.clone(), test_cache());
         storage.set_presence(&user_id, "online", None).await.expect("set_presence should succeed");
 
-        let row = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
-            "SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1",
-        )
+        let row = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(PRESENCE_SELECT_BY_USER)
         .bind(&user_id)
         .fetch_one(&*pool)
         .await
@@ -824,9 +817,7 @@ mod db_tests {
         let storage = PresenceStorage::new(pool.clone(), test_cache());
         storage.set_presence(&user_id, "offline", None).await.expect("set_presence should succeed");
 
-        let row = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
-            "SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1",
-        )
+        let row = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(PRESENCE_SELECT_BY_USER)
         .bind(&user_id)
         .fetch_one(&*pool)
         .await
@@ -851,9 +842,7 @@ mod db_tests {
             .await
             .expect("set_presence should succeed");
 
-        let row = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
-            "SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1",
-        )
+        let row = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(PRESENCE_SELECT_BY_USER)
         .bind(&user_id)
         .fetch_one(&*pool)
         .await

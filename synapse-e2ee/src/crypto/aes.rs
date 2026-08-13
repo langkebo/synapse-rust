@@ -320,7 +320,6 @@ pub struct SecureNonceGenerator {
     tracker: Arc<NonceTracker>,
 }
 
-#[allow(dead_code)]
 impl SecureNonceGenerator {
     pub fn new(tracker: Arc<NonceTracker>) -> Self {
         Self { counter: AtomicU64::new(0), tracker }
@@ -359,12 +358,9 @@ impl SecureNonceGenerator {
         Ok(XChaCha20Poly1305Nonce { bytes: nonce_bytes })
     }
 
+    #[cfg(test)]
     pub fn counter(&self) -> u64 {
         self.counter.load(Ordering::SeqCst)
-    }
-
-    pub fn reset_counter(&self) {
-        self.counter.store(0, Ordering::SeqCst);
     }
 
     /// Borrow the underlying `NonceTracker` for inspection.
