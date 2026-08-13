@@ -396,7 +396,6 @@ fn test_top_level_inline_manifest_contributes_routes_to_default_profile() {
         "/_health",
         "/_matrix/client/versions",
         "/_matrix/client/v3/versions",
-        "/_matrix/client/r0/version",
         "/_matrix/server_version",
         "/_matrix/client/v1/config/client",
         "/_matrix/client/v3/pushrules/",

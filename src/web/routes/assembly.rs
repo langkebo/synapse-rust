@@ -111,7 +111,6 @@ pub fn top_level_inline_manifest() -> Vec<RouteEntry> {
         (Method::GET, "/_health"),
         (Method::GET, "/_matrix/client/versions"),
         (Method::GET, "/_matrix/client/v3/versions"),
-        (Method::GET, "/_matrix/client/r0/version"),
         (Method::GET, "/_matrix/server_version"),
         (Method::GET, "/_matrix/client/v1/config/client"),
         (Method::GET, "/_matrix/client/v3/pushrules/"),
@@ -453,7 +452,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_health", get(handlers::detailed_health_check))
         .route("/_matrix/client/versions", get(handlers::get_client_versions))
         .route("/_matrix/client/v3/versions", get(handlers::get_client_versions))
-        .route("/_matrix/client/r0/version", get(handlers::get_server_version))
         .route("/_matrix/server_version", get(handlers::get_server_version))
         .route("/_matrix/client/v1/config/client", get(handlers::client_config::get_client_config))
         .route("/_matrix/client/v3/pushrules/", get(get_push_rules_default))

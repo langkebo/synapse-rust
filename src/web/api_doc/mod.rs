@@ -264,7 +264,6 @@ pub fn swagger_ui_router(_state: AppState) -> axum::Router<AppState> {
             client_server::put_dehydrated_device_doc,
             client_server::delete_dehydrated_device_doc,
             client_server::post_dehydrated_device_events_doc,
-            client_server::get_server_version_r0_doc,
             client_server::sliding_sync_v1_doc,
             client_server::get_ephemeral_events_doc,
             client_server::redact_thread_reply_doc,

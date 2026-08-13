@@ -3270,28 +3270,6 @@ pub fn post_dehydrated_device_events_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
 
-/// `GET /_matrix/client/r0/version` — Compatibility alias for server version metadata.
-#[cfg(feature = "openapi-docs")]
-#[utoipa::path(
-    get,
-    path = "/_matrix/client/r0/version",
-    tag = "Health",
-    responses(
-        (status = 200, description = "Server implementation version",
-            body = serde_json::Value,
-            example = json!({
-                "server": {
-                    "name": "synapse-rust",
-                    "version": env!("CARGO_PKG_VERSION")
-                }
-            })
-        )
-    )
-)]
-pub fn get_server_version_r0_doc() -> axum::Json<serde_json::Value> {
-    unreachable!("This function exists only for OpenAPI documentation purposes")
-}
-
 /// `POST /_matrix/client/v1/sync` — Sliding sync entrypoint exposed on the v1 compatibility path.
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
