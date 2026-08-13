@@ -147,7 +147,7 @@ impl MatrixErrorCode {
             Self::ResourceLimitExceeded => StatusCode::FORBIDDEN,
             Self::CannotLeaveServerNoticeRoom => StatusCode::FORBIDDEN,
             Self::Unimplemented => StatusCode::NOT_IMPLEMENTED,
-            Self::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
+            Self::RequestTimeout => StatusCode::GATEWAY_TIMEOUT,
             // MSC4335: Too many users — 429 with retry-after semantics
             Self::UserLimitExceeded => StatusCode::TOO_MANY_REQUESTS,
             Self::Unsupported => StatusCode::METHOD_NOT_ALLOWED,
@@ -302,7 +302,7 @@ impl ApiErrorKind {
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             Self::NotImplemented => StatusCode::NOT_IMPLEMENTED,
-            Self::Timeout => StatusCode::REQUEST_TIMEOUT,
+            Self::Timeout => StatusCode::GATEWAY_TIMEOUT,
         }
     }
 }
@@ -1428,6 +1428,17 @@ mod tests {
         assert_eq!(decoded, MatrixErrorCode::UnknownPos);
     }
 
+    // 审查 #7：M_REQUEST_TIMEOUT 按 Matrix 规范应返回 504（Gateway Timeout），
+    // 而非 408（Request Timeout，客户端语义）。
+    #[test]
+    fn test_request_timeout_maps_to_gateway_timeout_504() {
+        let err = ApiError::request_timeout("timed out");
+        assert_eq!(err.kind, ApiErrorKind::Timeout);
+        assert_eq!(err.code.as_str(), "M_REQUEST_TIMEOUT");
+        assert_eq!(err.code.http_status(), StatusCode::GATEWAY_TIMEOUT);
+        assert_eq!(err.kind.default_http_status(), StatusCode::GATEWAY_TIMEOUT);
+    }
+
     #[test]
     fn test_matrix_error_code_unsupported_round_trip() {
         let json = serde_json::to_string(&MatrixErrorCode::Unsupported).unwrap();
@@ -1964,7 +1975,7 @@ mod tests {
         assert_eq!(MatrixErrorCode::Unauthorized.http_status(), StatusCode::UNAUTHORIZED);
         assert_eq!(MatrixErrorCode::ServerNotTrusted.http_status(), StatusCode::BAD_GATEWAY);
         assert_eq!(MatrixErrorCode::TooLarge.http_status(), StatusCode::PAYLOAD_TOO_LARGE);
-        assert_eq!(MatrixErrorCode::RequestTimeout.http_status(), StatusCode::REQUEST_TIMEOUT);
+        assert_eq!(MatrixErrorCode::RequestTimeout.http_status(), StatusCode::GATEWAY_TIMEOUT);
         assert_eq!(MatrixErrorCode::UserInUse.http_status(), StatusCode::BAD_REQUEST);
     }
 
@@ -2082,7 +2093,7 @@ mod tests {
         assert_eq!(ApiErrorKind::RateLimited.default_http_status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(ApiErrorKind::Internal.default_http_status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(ApiErrorKind::NotImplemented.default_http_status(), StatusCode::NOT_IMPLEMENTED);
-        assert_eq!(ApiErrorKind::Timeout.default_http_status(), StatusCode::REQUEST_TIMEOUT);
+        assert_eq!(ApiErrorKind::Timeout.default_http_status(), StatusCode::GATEWAY_TIMEOUT);
     }
 
     #[test]
