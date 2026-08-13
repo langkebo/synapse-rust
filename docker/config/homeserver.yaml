@@ -16,7 +16,6 @@ server:
   expire_access_token: true
   expire_access_token_lifetime: 86400
   refresh_token_sliding_window_size: 3600
-  session_duration: 86400000
   warmup_pool: true
   megolm_encryption_key_path: "/app/data/megolm.key"
   suppress_r0_deprecation_warning: true

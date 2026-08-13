@@ -167,9 +167,6 @@ pub struct ServerConfig {
     /// 刷新令牌滑动窗口大小
     pub refresh_token_sliding_window_size: i64,
 
-    /// 会话持续时间
-    pub session_duration: i64,
-
     #[serde(default = "default_warmup_pool")]
     pub warmup_pool: bool,
 
@@ -511,7 +508,6 @@ background_tasks_interval: 60
 expire_access_token: false
 expire_access_token_lifetime: 0
 refresh_token_sliding_window_size: 0
-session_duration: 0
 "#
     }
 

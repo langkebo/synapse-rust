@@ -43,7 +43,6 @@ fn create_test_config() -> Config {
             expire_access_token: true,
             expire_access_token_lifetime: 3600,
             refresh_token_sliding_window_size: 1000,
-            session_duration: 86400,
             warmup_pool: true,
             allow_public_rooms_without_auth: false,
             allow_public_rooms_over_federation: true,
