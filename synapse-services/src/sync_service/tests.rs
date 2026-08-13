@@ -1060,8 +1060,8 @@ fn test_build_room_sync_value_with_events() {
     assert_eq!(timeline_events[0]["event_id"], "$event_b");
     assert_eq!(timeline_events[1]["event_id"], "$event_a");
     assert_eq!(value["timeline"]["limited"], false);
-    // prev_batch uses first event of the reversed list (e2, ts=2000)
-    assert_eq!(value["timeline"]["prev_batch"], "t2000");
+    // prev_batch uses first event of the reversed list (e2, ts=2000, stream=1)
+    assert_eq!(value["timeline"]["prev_batch"], "t2000_1");
     assert_eq!(value["unread_notifications"]["highlight_count"], 1);
     assert_eq!(value["unread_notifications"]["notification_count"], 5);
 }
@@ -1102,7 +1102,7 @@ fn test_build_room_sync_value_prev_batch_from_first_event() {
         event_format: SyncEventFormat::Client,
     });
 
-    assert_eq!(value["timeline"]["prev_batch"], "t1500");
+    assert_eq!(value["timeline"]["prev_batch"], "t1500_1");
 }
 
 #[test]

@@ -1,4 +1,5 @@
 use serde_json::Value;
+use synapse_common::generate_pagination_token;
 use synapse_storage::event::RoomEvent;
 
 use super::SlidingSyncService;
@@ -48,8 +49,48 @@ impl SlidingSyncService {
     }
 
     fn timeline_from_events(events: Vec<RoomEvent>, limited: bool) -> (Vec<Value>, bool, Option<String>) {
-        let prev_batch = events.first().map(|event| format!("t{}", event.origin_server_ts));
+        let prev_batch = events.first().map(|event| generate_pagination_token(event.origin_server_ts, event.stream_ordering));
         let timeline = events.iter().map(sync_helpers::room_event_to_json).collect();
         (timeline, limited, prev_batch)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_room_event(stream_ordering: Option<i64>) -> RoomEvent {
+        RoomEvent {
+            event_id: "$ev1:ex.com".into(),
+            room_id: "!room:ex.com".into(),
+            user_id: "@alice:ex.com".into(),
+            event_type: "m.room.message".into(),
+            content: serde_json::json!({"body": "hello"}),
+            state_key: None,
+            depth: 5,
+            origin_server_ts: 1700000000000,
+            processed_ts: 1700000001000,
+            not_before: 0,
+            status: None,
+            reference_image: None,
+            origin: "ex.com".into(),
+            stream_ordering,
+            redacts: None,
+        }
+    }
+
+    #[test]
+    fn timeline_prev_batch_uses_composite_token() {
+        // ISSUE 2.1.1: sliding sync timeline 的 prev_batch 也应为复合 token。
+        let events = vec![make_room_event(Some(100))];
+        let (_timeline, _limited, prev_batch) = SlidingSyncService::timeline_from_events(events, false);
+        assert_eq!(prev_batch.as_deref(), Some("t1700000000000_100"));
+    }
+
+    #[test]
+    fn timeline_prev_batch_falls_back_to_legacy_when_no_stream() {
+        let events = vec![make_room_event(None)];
+        let (_timeline, _limited, prev_batch) = SlidingSyncService::timeline_from_events(events, false);
+        assert_eq!(prev_batch.as_deref(), Some("t1700000000000"));
     }
 }

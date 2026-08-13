@@ -285,7 +285,17 @@ impl SyncService {
         let mut user_device_counts = serde_json::Map::new();
 
         if !changed_users.is_empty() {
-            let counts = self.device_key_storage.get_device_counts_batch(&changed_users).await.unwrap_or_default();
+            let counts = match self.device_key_storage.get_device_counts_batch(&changed_users).await {
+                Ok(counts) => counts,
+                Err(error) => {
+                    ::tracing::warn!(
+                        user_count = changed_users.len(),
+                        error = %error,
+                        "Failed to load device counts for device list changes; omitting device_count"
+                    );
+                    HashMap::new()
+                }
+            };
             for uid in &changed_users {
                 if let Some(count) = counts.get(uid) {
                     user_device_counts.insert(
@@ -442,9 +452,10 @@ impl SyncService {
             .iter()
             .map(|event| Self::filter_event_fields(Self::event_to_json(event, event_format), event_fields))
             .collect();
-        let prev_batch = events
-            .first()
-            .map_or_else(|| format!("t{}", current_timestamp_millis()), |event| format!("t{}", event.origin_server_ts));
+        let prev_batch = events.first().map_or_else(
+            || generate_pagination_token(current_timestamp_millis(), None),
+            |event| generate_pagination_token(event.origin_server_ts, event.stream_ordering),
+        );
 
         json!({
             "state": {
@@ -662,5 +673,48 @@ mod tests {
         event.event_type = None;
         let json = SyncService::state_event_to_json(&event, SyncEventFormat::Client);
         assert_eq!(json["type"], "m.room.message");
+    }
+
+    // ── build_room_sync_value ─────────────────────────────────────────
+
+    #[test]
+    fn build_room_sync_value_prev_batch_uses_composite_token() {
+        // ISSUE 2.1.1: prev_batch 必须为复合 `t{ts}_{stream}` 格式，
+        // 与 /messages 的 generate_pagination_token 对齐，避免 backfill
+        // 时同毫秒事件被跳过。
+        let event = make_room_event(); // origin_server_ts=1700000000000, stream_ordering=Some(100)
+        let request = BuildRoomSyncValueRequest {
+            events: vec![event],
+            state_list: vec![],
+            ephemeral_events: vec![],
+            account_data_events: vec![],
+            timeline_limit: 10,
+            counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
+            event_fields: None,
+            event_format: SyncEventFormat::Client,
+        };
+        let value = SyncService::build_room_sync_value(request);
+        let prev_batch = value["timeline"]["prev_batch"].as_str().unwrap();
+        assert_eq!(prev_batch, "t1700000000000_100");
+    }
+
+    #[test]
+    fn build_room_sync_value_prev_batch_falls_back_to_legacy_when_no_stream() {
+        // 无 stream_ordering 的事件退化为 legacy `t{ts}`，保持向后兼容。
+        let mut event = make_room_event();
+        event.stream_ordering = None;
+        let request = BuildRoomSyncValueRequest {
+            events: vec![event],
+            state_list: vec![],
+            ephemeral_events: vec![],
+            account_data_events: vec![],
+            timeline_limit: 10,
+            counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
+            event_fields: None,
+            event_format: SyncEventFormat::Client,
+        };
+        let value = SyncService::build_room_sync_value(request);
+        let prev_batch = value["timeline"]["prev_batch"].as_str().unwrap();
+        assert_eq!(prev_batch, "t1700000000000");
     }
 }

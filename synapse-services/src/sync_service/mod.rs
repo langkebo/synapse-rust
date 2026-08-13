@@ -158,7 +158,6 @@ impl SyncService {
         let room_filter = response_filter.as_ref().and_then(|filter| filter.room.as_ref());
         let timeline_limit = Self::timeline_limit_from_room_filter(room_filter, self.sync_event_limit());
 
-        let since_token = since.and_then(SyncToken::parse);
         let is_incremental = since_token.is_some() && !is_full_state;
 
         let rooms_started = Instant::now();
