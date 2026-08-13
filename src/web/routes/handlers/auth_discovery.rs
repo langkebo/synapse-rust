@@ -50,7 +50,6 @@ pub async fn get_auth_metadata(State(ctx): State<AuthContext>) -> Result<Json<se
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::Unrecognized,
             message: "Authentication metadata is not available because OIDC/SSO is not enabled".to_string(),
-            source: None,
             cause: None,
         });
     }
@@ -66,7 +65,6 @@ pub async fn get_auth_issuer(State(ctx): State<AuthContext>) -> Result<Json<serd
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::Unrecognized,
             message: "Authentication issuer is not available because OIDC/SSO is not enabled".to_string(),
-            source: None,
             cause: None,
         });
     }

@@ -106,7 +106,7 @@ pub use crypto::{
 };
 pub use early_exit::{early_continue, early_exit, early_return, EarlyExit};
 pub use error::{
-    init_error_metrics, ApiError, ApiErrorCause, ApiErrorKind, ApiResponse, ApiResult, ErrorSource, MatrixErrorCode,
+    init_error_metrics, ApiError, ApiErrorCause, ApiErrorKind, ApiResponse, ApiResult, MatrixErrorCode,
 };
 pub use event_utils::{event_to_json, event_to_json_without_age, events_to_json, events_to_json_without_age};
 pub use feature_flags::{

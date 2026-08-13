@@ -317,31 +317,7 @@ impl ApiErrorKind {
 }
 
 // ---------------------------------------------------------------------------
-// ErrorSource — where the error originated
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ErrorSource {
-    /// Module path (e.g. "storage::room")
-    pub module: String,
-    /// Operation name (e.g. "get_room_messages")
-    pub operation: String,
-}
-
-impl ErrorSource {
-    pub fn new(module: impl Into<String>, operation: impl Into<String>) -> Self {
-        Self { module: module.into(), operation: operation.into() }
-    }
-}
-
-impl std::fmt::Display for ErrorSource {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}::{}]", self.module, self.operation)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// ApiError — structured error with kind / code / source / cause
+// ApiError — structured error with kind / code / cause
 // ---------------------------------------------------------------------------
 
 pub type ApiErrorCause = Arc<dyn std::error::Error + Send + Sync>;
@@ -363,8 +339,6 @@ pub struct ApiError {
     pub code: MatrixErrorCode,
     pub message: String,
     #[serde(skip)]
-    pub source: Option<ErrorSource>,
-    #[serde(skip)]
     pub cause: Option<ApiErrorCause>,
 }
 
@@ -372,10 +346,7 @@ pub struct ApiError {
 
 impl PartialEq for ApiError {
     fn eq(&self, other: &Self) -> bool {
-        self.kind == other.kind
-            && self.code == other.code
-            && self.message == other.message
-            && self.source == other.source
+        self.kind == other.kind && self.code == other.code && self.message == other.message
     }
 }
 
@@ -385,11 +356,7 @@ impl Eq for ApiError {}
 
 impl std::fmt::Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(ref src) = self.source {
-            write!(f, "{} {}: {}", src, self.code, self.message)
-        } else {
-            write!(f, "{}: {}", self.code, self.message)
-        }
+        write!(f, "{}: {}", self.code, self.message)
     }
 }
 
@@ -411,7 +378,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::BadJson,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -424,7 +390,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::UnknownPos,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -434,7 +399,6 @@ impl ApiError {
             kind: ApiErrorKind::Unauthorized,
             code: MatrixErrorCode::Unauthorized,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -444,7 +408,6 @@ impl ApiError {
             kind: ApiErrorKind::Forbidden,
             code: MatrixErrorCode::Forbidden,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -454,7 +417,6 @@ impl ApiError {
             kind: ApiErrorKind::NotFound,
             code: MatrixErrorCode::NotFound,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -464,7 +426,6 @@ impl ApiError {
             kind: ApiErrorKind::NotImplemented,
             code: MatrixErrorCode::Unimplemented,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -478,7 +439,6 @@ impl ApiError {
             kind: ApiErrorKind::NotImplemented,
             code: MatrixErrorCode::Unsupported,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -488,14 +448,13 @@ impl ApiError {
             kind: ApiErrorKind::Conflict,
             code: MatrixErrorCode::UserInUse,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
 
     /// Conflict with a specific Matrix error code.
     pub fn conflict_with(code: MatrixErrorCode, message: impl Into<String>) -> Self {
-        Self { kind: ApiErrorKind::Conflict, code, message: message.into(), source: None, cause: None }
+        Self { kind: ApiErrorKind::Conflict, code, message: message.into(), cause: None }
     }
 
     pub fn internal(message: impl Into<String>) -> Self {
@@ -503,7 +462,6 @@ impl ApiError {
             kind: ApiErrorKind::Internal,
             code: MatrixErrorCode::Unknown,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -516,7 +474,6 @@ impl ApiError {
             kind: ApiErrorKind::Internal,
             code: MatrixErrorCode::Unknown,
             message: format!("Internal error: {context}: {err}"),
-            source: None,
             cause: None,
         }
     }
@@ -528,7 +485,6 @@ impl ApiError {
             kind: ApiErrorKind::Internal,
             code: MatrixErrorCode::Unknown,
             message: format!("Database error: {context}: {err}"),
-            source: None,
             cause: None,
         }
     }
@@ -538,7 +494,6 @@ impl ApiError {
             kind: ApiErrorKind::Internal,
             code: MatrixErrorCode::Unknown,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -548,7 +503,6 @@ impl ApiError {
             kind: ApiErrorKind::Internal,
             code: MatrixErrorCode::Unknown,
             message: format!("Cache error: {}", message.into()),
-            source: None,
             cause: None,
         }
     }
@@ -558,7 +512,6 @@ impl ApiError {
             kind: ApiErrorKind::Gone,
             code: MatrixErrorCode::NotFound,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -568,7 +521,6 @@ impl ApiError {
             kind: ApiErrorKind::Unauthorized,
             code: MatrixErrorCode::UnknownToken,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -578,7 +530,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::InvalidParam,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -588,7 +539,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::InvalidParam,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -598,7 +548,6 @@ impl ApiError {
             kind: ApiErrorKind::Internal,
             code: MatrixErrorCode::Unknown,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -608,7 +557,6 @@ impl ApiError {
             kind: ApiErrorKind::RateLimited,
             code: MatrixErrorCode::LimitExceeded,
             message: "Rate limited".to_string(),
-            source: None,
             cause: None,
         }
     }
@@ -618,7 +566,6 @@ impl ApiError {
             kind: ApiErrorKind::RateLimited,
             code: MatrixErrorCode::LimitExceeded,
             message: "Rate limited".to_string(),
-            source: None,
             cause: Some(Arc::new(RetryAfterMsCause(retry_after_ms))),
         }
     }
@@ -628,7 +575,6 @@ impl ApiError {
             kind: ApiErrorKind::Unauthorized,
             code: MatrixErrorCode::MissingToken,
             message: "Missing access token".to_string(),
-            source: None,
             cause: None,
         }
     }
@@ -638,7 +584,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::NotJson,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -650,7 +595,6 @@ impl ApiError {
             kind: ApiErrorKind::Forbidden,
             code: MatrixErrorCode::UserDeactivated,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -660,7 +604,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::InvalidUsername,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -670,7 +613,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::UserInUse,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -680,7 +622,6 @@ impl ApiError {
             kind: ApiErrorKind::Conflict,
             code: MatrixErrorCode::RoomInUse,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -690,7 +631,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::InvalidRoomState,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -700,7 +640,6 @@ impl ApiError {
             kind: ApiErrorKind::Conflict,
             code: MatrixErrorCode::ThreepidInUse,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -710,7 +649,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::ThreepidNotFound,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -720,7 +658,6 @@ impl ApiError {
             kind: ApiErrorKind::Forbidden,
             code: MatrixErrorCode::ThreepidAuthFailed,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -730,7 +667,6 @@ impl ApiError {
             kind: ApiErrorKind::Forbidden,
             code: MatrixErrorCode::ThreepidDenied,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -740,7 +676,6 @@ impl ApiError {
             kind: ApiErrorKind::Forbidden,
             code: MatrixErrorCode::ServerNotTrusted,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -750,7 +685,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::UnsupportedRoomVersion,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -760,7 +694,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::IncompatibleRoomVersion,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -770,7 +703,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::BadState,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -780,7 +712,6 @@ impl ApiError {
             kind: ApiErrorKind::Forbidden,
             code: MatrixErrorCode::GuestAccessForbidden,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -790,7 +721,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::CaptchaNeeded,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -800,7 +730,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::CaptchaInvalid,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -810,7 +739,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::MissingParam,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -820,7 +748,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::InvalidParam,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -830,7 +757,6 @@ impl ApiError {
             kind: ApiErrorKind::PayloadTooLarge,
             code: MatrixErrorCode::TooLarge,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -840,7 +766,6 @@ impl ApiError {
             kind: ApiErrorKind::Conflict,
             code: MatrixErrorCode::Exclusive,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -850,7 +775,6 @@ impl ApiError {
             kind: ApiErrorKind::Forbidden,
             code: MatrixErrorCode::ResourceLimitExceeded,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -860,7 +784,6 @@ impl ApiError {
             kind: ApiErrorKind::Forbidden,
             code: MatrixErrorCode::CannotLeaveServerNoticeRoom,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -870,7 +793,6 @@ impl ApiError {
             kind: ApiErrorKind::Internal,
             code: MatrixErrorCode::Unknown,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -883,7 +805,6 @@ impl ApiError {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::Unrecognized,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -893,7 +814,6 @@ impl ApiError {
             kind: ApiErrorKind::Timeout,
             code: MatrixErrorCode::RequestTimeout,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -905,7 +825,6 @@ impl ApiError {
             kind: ApiErrorKind::Internal,
             code: MatrixErrorCode::Unknown,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -915,7 +834,6 @@ impl ApiError {
             kind: ApiErrorKind::Internal,
             code: MatrixErrorCode::Unknown,
             message: message.into(),
-            source: None,
             cause: None,
         }
     }
@@ -926,18 +844,6 @@ impl ApiError {
 // ---------------------------------------------------------------------------
 
 impl ApiError {
-    /// Attach source location information.
-    pub fn with_source(mut self, module: impl Into<String>, operation: impl Into<String>) -> Self {
-        self.source = Some(ErrorSource::new(module, operation));
-        self
-    }
-
-    /// Chain an underlying cause error.
-    pub fn with_cause(mut self, cause: impl std::error::Error + Send + Sync + 'static) -> Self {
-        self.cause = Some(Arc::new(cause));
-        self
-    }
-
     /// Override the Matrix error code (use sparingly).
     pub fn with_code(mut self, code: MatrixErrorCode) -> Self {
         self.code = code;
@@ -1006,7 +912,6 @@ impl ApiError {
                     kind = ?self.kind,
                     code = %self.code,
                     message = %self.message,
-                    source = ?self.source,
                     "Internal error returned to client"
                 );
                 "An internal error occurred".to_string()
@@ -1101,132 +1006,22 @@ impl IntoResponse for ApiError {
 }
 
 // ---------------------------------------------------------------------------
-// with_context — backward-compatible context enrichment
-// ---------------------------------------------------------------------------
-
-impl ApiError {
-    pub fn with_context(self, module: &str, operation: &str) -> Self {
-        if self.kind == ApiErrorKind::Internal || self.kind == ApiErrorKind::BadRequest {
-            let src = self.source.map_or_else(
-                || ErrorSource::new(module, operation),
-                |s| ErrorSource::new(format!("{}::{}", module, s.module), format!("{}::{}", operation, s.operation)),
-            );
-            Self { source: Some(src), ..self }
-        } else {
-            self
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Error macros (updated for struct)
-// ---------------------------------------------------------------------------
-
-#[macro_export]
-macro_rules! dbg_context {
-    ($result:expr, $module:expr, $operation:expr) => {
-        $result.map_err(|e| e.with_context($module, $operation))
-    };
-}
-
-#[macro_export]
-macro_rules! safe_unwrap {
-    ($option:expr, $msg:expr) => {
-        match $option {
-            Some(v) => Ok(v),
-            None => Err($crate::error::ApiError::internal($msg)),
-        }
-    };
-    ($option:expr, $msg:expr, $($arg:tt)*) => {
-        match $option {
-            Some(v) => Ok(v),
-            None => Err($crate::error::ApiError::internal(format!($msg, $($arg)*))),
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! safe_unwrap_ctx {
-    ($option:expr, $module:expr, $operation:expr) => {
-        match $option {
-            Some(v) => Ok(v),
-            None => {
-                Err($crate::error::ApiError::internal(format!("[{}::{}] Unexpected None value", $module, $operation)))
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! wrap_result {
-    ($result:expr, $module:expr, $operation:expr) => {
-        $result.map_err(|e| $crate::error::ApiError::internal(format!("[{}::{}] {}", $module, $operation, e)))
-    };
-}
-
-#[macro_export]
-macro_rules! bail {
-    ($msg:expr) => {
-        return Err($crate::error::ApiError::internal($msg))
-    };
-    ($msg:expr, $($arg:tt)*) => {
-        return Err($crate::error::ApiError::internal(format!($msg, $($arg)*)))
-    };
-}
-
-#[macro_export]
-macro_rules! ensure {
-    ($cond:expr, $msg:expr) => {
-        if !($cond) {
-            return Err($crate::error::ApiError::bad_request($msg));
-        }
-    };
-    ($cond:expr, $msg:expr, $($arg:tt)*) => {
-        if !($cond) {
-            return Err($crate::error::ApiError::bad_request(format!($msg, $($arg)*)));
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! ensure_forbidden {
-    ($cond:expr, $msg:expr) => {
-        if !($cond) {
-            return Err($crate::error::ApiError::forbidden($msg));
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! ensure_not_found {
-    ($cond:expr, $msg:expr) => {
-        if !($cond) {
-            return Err($crate::error::ApiError::not_found($msg));
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! ensure_unauthorized {
-    ($cond:expr, $msg:expr) => {
-        if !($cond) {
-            return Err($crate::error::ApiError::unauthorized($msg));
-        }
-    };
-}
-
-// ---------------------------------------------------------------------------
 // From impls (error conversion)
 // ---------------------------------------------------------------------------
 
 impl From<sqlx::Error> for ApiError {
     fn from(err: sqlx::Error) -> Self {
-        let error_msg = format!("{err:?}").to_lowercase();
-        if error_msg.contains("duplicate key")
-            || error_msg.contains("unique constraint")
-            || error_msg.contains("23505")
-            || error_msg.contains("violates unique constraint")
-        {
+        // Classify via the structured database error kind (SQLSTATE) instead of
+        // fragile string matching on the display text. `is_unique_violation()`
+        // is populated by the Postgres driver from the 23505 unique_violation
+        // code, so localized/custom messages can't cause false negatives or
+        // positives (审查 #19).
+        let is_unique_violation = err
+            .as_database_error()
+            .map(|e| e.is_unique_violation())
+            .unwrap_or(false);
+
+        if is_unique_violation {
             tracing::error!(%err, "duplicate database entry");
             ApiError::bad_request("A duplicate entry was found")
         } else {
@@ -1238,6 +1033,7 @@ impl From<sqlx::Error> for ApiError {
 
 impl From<redis::RedisError> for ApiError {
     fn from(err: redis::RedisError) -> Self {
+        tracing::error!(%err, "redis error");
         ApiError::cache(err.to_string())
     }
 }
@@ -1354,7 +1150,6 @@ mod tests {
         assert_eq!(err.kind, ApiErrorKind::BadRequest);
         assert_eq!(err.code, MatrixErrorCode::BadJson);
         assert_eq!(err.message, "invalid input");
-        assert!(err.source.is_none());
         assert!(err.cause.is_none());
     }
 
@@ -1537,12 +1332,6 @@ mod tests {
     }
 
     #[test]
-    fn test_api_error_display_with_source() {
-        let err = ApiError::bad_request("test message").with_source("storage::room", "get_messages");
-        assert_eq!(format!("{}", err), "[storage::room::get_messages] M_BAD_JSON: test message");
-    }
-
-    #[test]
     fn test_api_error_display_internal_message() {
         let err = ApiError::internal("something went wrong");
         assert_eq!(format!("{}", err), "M_UNKNOWN: something went wrong");
@@ -1586,39 +1375,9 @@ mod tests {
         assert_ne!(err1, err2);
     }
 
-    #[test]
-    fn test_api_error_partial_eq_same_source() {
-        let err1 = ApiError::bad_request("msg").with_source("mod", "op");
-        let err2 = ApiError::bad_request("msg").with_source("mod", "op");
-        assert_eq!(err1, err2);
-    }
-
-    #[test]
-    fn test_api_error_partial_eq_different_source() {
-        let err1 = ApiError::bad_request("msg").with_source("mod", "op1");
-        let err2 = ApiError::bad_request("msg").with_source("mod", "op2");
-        assert_ne!(err1, err2);
-    }
-
     // -----------------------------------------------------------------------
     // ApiError builder methods
     // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_api_error_with_source() {
-        let err = ApiError::bad_request("msg").with_source("my_module", "my_operation");
-        let src = err.source.expect("source should be set");
-        assert_eq!(src.module, "my_module");
-        assert_eq!(src.operation, "my_operation");
-    }
-
-    #[test]
-    fn test_api_error_with_cause() {
-        let cause = std::io::Error::new(std::io::ErrorKind::Other, "underlying cause");
-        let err = ApiError::internal("msg").with_cause(cause);
-        assert!(err.cause.is_some());
-        assert!(err.source().is_some());
-    }
 
     #[test]
     fn test_api_error_with_code() {
@@ -2157,42 +1916,6 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // ErrorSource
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_error_source_new() {
-        let source = ErrorSource::new("storage::room", "get_messages");
-        assert_eq!(source.module, "storage::room");
-        assert_eq!(source.operation, "get_messages");
-    }
-
-    #[test]
-    fn test_error_source_new_with_strings() {
-        let source = ErrorSource::new(String::from("module"), String::from("operation"));
-        assert_eq!(source.module, "module");
-        assert_eq!(source.operation, "operation");
-    }
-
-    #[test]
-    fn test_error_source_display() {
-        let source = ErrorSource::new("mod", "op");
-        assert_eq!(format!("{}", source), "[mod::op]");
-    }
-
-    #[test]
-    fn test_error_source_display_with_paths() {
-        let source = ErrorSource::new("storage::room::repository", "find_by_id");
-        assert_eq!(format!("{}", source), "[storage::room::repository::find_by_id]");
-    }
-
-    #[test]
-    fn test_error_source_debug() {
-        let source = ErrorSource::new("a", "b");
-        assert!(!format!("{:?}", source).is_empty());
-    }
-
-    // -----------------------------------------------------------------------
     // ApiErrorKind
     // -----------------------------------------------------------------------
 
@@ -2243,7 +1966,6 @@ mod tests {
         assert_send_sync::<ApiError>();
         assert_send_sync::<MatrixErrorCode>();
         assert_send_sync::<ApiErrorKind>();
-        assert_send_sync::<ErrorSource>();
         assert_send_sync::<ApiResponse<String>>();
     }
 
@@ -2310,5 +2032,65 @@ mod tests {
         assert_eq!(resp.error.as_deref(), Some("rate limited"));
         assert_eq!(resp.errcode.as_deref(), Some("M_LIMIT_EXCEEDED"));
         assert_eq!(resp.retry_after_ms, Some(5000));
+    }
+
+    // -----------------------------------------------------------------------
+    // From<sqlx::Error> structured unique-violation classification (#19)
+    // -----------------------------------------------------------------------
+
+    /// A mock sqlx database error whose SQLSTATE is a unique violation (23505)
+    /// but whose display/debug text deliberately does NOT contain the magic
+    /// substrings ("duplicate key", "unique constraint", "23505", ...) the old
+    /// string-matching logic relied on. This proves classification is driven by
+    /// the structured error kind, not by text matching.
+    #[derive(Debug)]
+    struct MockUniqueViolationError;
+
+    impl std::fmt::Display for MockUniqueViolationError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("boom")
+        }
+    }
+
+    impl std::error::Error for MockUniqueViolationError {}
+
+    impl sqlx::error::DatabaseError for MockUniqueViolationError {
+        fn message(&self) -> &str {
+            "boom"
+        }
+
+        fn code(&self) -> Option<std::borrow::Cow<'_, str>> {
+            Some("23505".into())
+        }
+
+        fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+            self
+        }
+
+        fn kind(&self) -> sqlx::error::ErrorKind {
+            sqlx::error::ErrorKind::UniqueViolation
+        }
+    }
+
+    #[test]
+    fn test_from_sqlx_unique_violation_is_structured_not_string_matched() {
+        let err: ApiError = sqlx::Error::Database(Box::new(MockUniqueViolationError)).into();
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.message, "A duplicate entry was found");
+    }
+
+    #[test]
+    fn test_from_sqlx_row_not_found_maps_to_database_error() {
+        let err: ApiError = sqlx::Error::RowNotFound.into();
+        assert_eq!(err.kind, ApiErrorKind::Internal);
+        assert_eq!(err.message, "A database error occurred");
     }
 }
