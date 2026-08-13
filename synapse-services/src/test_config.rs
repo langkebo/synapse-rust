@@ -79,7 +79,6 @@ pub fn build_test_config() -> Config {
             dehydrated_device_cleanup_interval_secs: 3600,
             expire_access_token: true,
             expire_access_token_lifetime: 3600,
-            refresh_token_lifetime: 604800,
             refresh_token_sliding_window_size: 1000,
             session_duration: 86400,
             warmup_pool: true,
@@ -94,7 +93,6 @@ pub fn build_test_config() -> Config {
             megolm_encryption_key_path: None,
             suppress_r0_deprecation_warning: true,
             enable_burn_after_read_processor: true,
-            refresh_token_ttl_secs: 2_592_000,
             ..Default::default()
         },
         database: DatabaseConfig {

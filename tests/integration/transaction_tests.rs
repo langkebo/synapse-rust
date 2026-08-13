@@ -42,7 +42,6 @@ fn create_test_config() -> Config {
             dehydrated_device_cleanup_interval_secs: 3600,
             expire_access_token: true,
             expire_access_token_lifetime: 3600,
-            refresh_token_lifetime: 604800,
             refresh_token_sliding_window_size: 1000,
             session_duration: 86400,
             warmup_pool: true,

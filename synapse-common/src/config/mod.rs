@@ -210,6 +210,23 @@ impl Config {
             3600
         }
     }
+
+    /// Canonical refresh-token lifetime in seconds.
+    ///
+    /// 历史上 refresh token 生命周期存在三处配置、默认值互相矛盾：
+    ///   - `server.refresh_token_lifetime`（7 天，死字段，从未被消费）
+    ///   - `server.refresh_token_ttl_secs`（30 天，仅喂给 RefreshTokenService）
+    ///   - `security.refresh_token_expiry`（7 天，实际生效于 AuthService）
+    ///
+    /// 现已删除前两个冗余字段，`security.refresh_token_expiry` 成为单一权威
+    /// 来源；为 0 时回退到 `DEFAULT_REFRESH_TOKEN_EXPIRY_SECS`（7 天）。
+    pub fn refresh_token_lifetime_seconds(&self) -> i64 {
+        if self.security.refresh_token_expiry > 0 {
+            self.security.refresh_token_expiry
+        } else {
+            crate::DEFAULT_REFRESH_TOKEN_EXPIRY_SECS
+        }
+    }
 }
 
 #[cfg(test)]
@@ -245,7 +262,6 @@ mod tests {
                 dehydrated_device_cleanup_interval_secs: 3600,
                 expire_access_token: true,
                 expire_access_token_lifetime: 3600,
-                refresh_token_lifetime: 604800,
                 refresh_token_sliding_window_size: 1000,
                 session_duration: 86400,
                 warmup_pool: true,
@@ -407,7 +423,6 @@ mod tests {
                 dehydrated_device_cleanup_interval_secs: 3600,
                 expire_access_token: true,
                 expire_access_token_lifetime: 3600,
-                refresh_token_lifetime: 604800,
                 refresh_token_sliding_window_size: 1000,
                 session_duration: 86400,
                 warmup_pool: true,
@@ -565,7 +580,6 @@ mod tests {
             dehydrated_device_cleanup_interval_secs: 3600,
             expire_access_token: true,
             expire_access_token_lifetime: 86400,
-            refresh_token_lifetime: 2592000,
             refresh_token_sliding_window_size: 5000,
             session_duration: 3600,
             warmup_pool: true,
@@ -682,7 +696,6 @@ mod tests {
                 dehydrated_device_cleanup_interval_secs: 3600,
                 expire_access_token: true,
                 expire_access_token_lifetime: 3600,
-                refresh_token_lifetime: 604800,
                 refresh_token_sliding_window_size: 1000,
                 session_duration: 86400,
                 warmup_pool: true,
@@ -911,6 +924,26 @@ mod tests {
 
         assert!(config.secret.len() > 16);
         assert_eq!(config.argon2_m_cost, 4096);
+    }
+
+    #[test]
+    fn test_refresh_token_lifetime_seconds_uses_security_expiry() {
+        let config = Config {
+            security: SecurityConfig {
+                refresh_token_expiry: 2_592_000,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(config.refresh_token_lifetime_seconds(), 2_592_000);
+    }
+
+    #[test]
+    fn test_refresh_token_lifetime_seconds_falls_back_to_default_when_zero() {
+        // SecurityConfig::default() 的 refresh_token_expiry 为 0，应回退到
+        // DEFAULT_REFRESH_TOKEN_EXPIRY_SECS（7 天）。
+        let config = Config::default();
+        assert_eq!(config.refresh_token_lifetime_seconds(), crate::DEFAULT_REFRESH_TOKEN_EXPIRY_SECS);
     }
 }
 

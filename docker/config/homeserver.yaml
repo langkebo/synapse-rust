@@ -15,7 +15,6 @@ server:
   background_tasks_interval: 300
   expire_access_token: true
   expire_access_token_lifetime: 86400
-  refresh_token_lifetime: 604800
   refresh_token_sliding_window_size: 3600
   session_duration: 86400000
   warmup_pool: true

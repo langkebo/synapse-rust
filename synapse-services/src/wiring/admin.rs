@@ -187,7 +187,7 @@ impl AdminServices {
             Arc::new(synapse_storage::refresh_token::RefreshTokenStorage::new(pool));
         let refresh_token_service = Arc::new(crate::refresh_token_service::RefreshTokenService::new(
             refresh_token_storage.clone(),
-            config.server.refresh_token_ttl_secs.saturating_mul(1000),
+            config.refresh_token_lifetime_seconds().saturating_mul(1000),
         ));
 
         let registration_token_storage: Arc<dyn synapse_storage::registration_token::RegistrationTokenStoreApi> =

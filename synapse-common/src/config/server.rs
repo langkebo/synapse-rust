@@ -164,9 +164,6 @@ pub struct ServerConfig {
     /// 访问令牌过期时间
     pub expire_access_token_lifetime: i64,
 
-    /// 刷新令牌生命周期
-    pub refresh_token_lifetime: i64,
-
     /// 刷新令牌滑动窗口大小
     pub refresh_token_sliding_window_size: i64,
 
@@ -267,13 +264,6 @@ pub struct ServerConfig {
     /// `SYNAPSE__SERVER__ENABLE_BURN_AFTER_READ_PROCESSOR` 覆盖。
     #[serde(default = "default_true")]
     pub enable_burn_after_read_processor: bool,
-
-    /// 刷新令牌 TTL（秒），默认 30 天。
-    ///
-    /// 仅在 `ServiceContainer` 装配 `RefreshTokenService` 时使用，
-    /// 与 `refresh_token_lifetime` 字段独立。
-    #[serde(default = "default_refresh_token_ttl_secs")]
-    pub refresh_token_ttl_secs: i64,
 }
 
 fn default_suppress_key_server_warning() -> bool {
@@ -310,10 +300,6 @@ fn default_true() -> bool {
 
 fn default_media_path() -> String {
     "./data/media".to_string()
-}
-
-fn default_refresh_token_ttl_secs() -> i64 {
-    2_592_000
 }
 
 fn default_last_active_granularity() -> u64 {
@@ -524,7 +510,6 @@ enable_registration_captcha: false
 background_tasks_interval: 60
 expire_access_token: false
 expire_access_token_lifetime: 0
-refresh_token_lifetime: 0
 refresh_token_sliding_window_size: 0
 session_duration: 0
 "#
