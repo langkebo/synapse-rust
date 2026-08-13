@@ -849,10 +849,10 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_token_from_request_query_param() {
+    fn test_extract_token_from_request_rejects_query_param() {
         let headers = HeaderMap::new();
         let uri = "/_matrix/client/v3/sync?access_token=query-token&other=value";
-        assert_eq!(crate::web::utils::auth::extract_token(&headers, uri).unwrap(), "query-token");
+        assert!(crate::web::utils::auth::extract_token(&headers, uri).is_err(), "query 参数传 token 应被禁用");
     }
 
     #[test]
@@ -864,10 +864,10 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_token_from_request_query_only() {
+    fn test_extract_token_from_request_rejects_query_only() {
         let headers = HeaderMap::new();
         let uri = "/test?access_token=abc123";
-        assert_eq!(crate::web::utils::auth::extract_token(&headers, uri).unwrap(), "abc123");
+        assert!(crate::web::utils::auth::extract_token(&headers, uri).is_err(), "仅 query 参数传 token 应被拒绝");
     }
 
     #[test]

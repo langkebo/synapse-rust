@@ -38,38 +38,20 @@ pub(crate) fn bearer_token(headers: &HeaderMap) -> Result<String, ApiError> {
     Ok(token)
 }
 
-/// Extract bearer token from Authorization header, falling back to
-/// `access_token=` query parameter if the header is missing or invalid.
-pub(crate) fn extract_token(headers: &HeaderMap, uri: &str) -> Result<String, ApiError> {
-    match bearer_token(headers) {
-        Ok(token) => Ok(token),
-        Err(header_err) => {
-            if let Some(query) = uri.split('?').nth(1) {
-                for pair in query.split('&') {
-                    if let Some(value) = pair.strip_prefix("access_token=") {
-                        return Ok(value.to_string());
-                    }
-                }
-            }
-            Err(header_err)
-        }
-    }
+/// Extract bearer token from the Authorization header only.
+///
+/// `access_token=` query parameter support was removed (审查 #14): tokens in
+/// URLs leak into reverse-proxy access logs, browser history and Referer
+/// headers. Clients must use the `Authorization: Bearer` header (Synapse
+/// parity — query-param token transport is disabled by default).
+pub(crate) fn extract_token(headers: &HeaderMap, _uri: &str) -> Result<String, ApiError> {
+    bearer_token(headers)
 }
 
 /// Like `extract_token` but returns `None` instead of an error when
 /// no token is found.
-pub(crate) fn extract_token_opt(headers: &HeaderMap, uri: &str) -> Option<String> {
-    if let Some(token) = bearer_token_opt(headers) {
-        return Some(token);
-    }
-    if let Some(query) = uri.split('?').nth(1) {
-        for pair in query.split('&') {
-            if let Some(value) = pair.strip_prefix("access_token=") {
-                return Some(value.to_string());
-            }
-        }
-    }
-    None
+pub(crate) fn extract_token_opt(headers: &HeaderMap, _uri: &str) -> Option<String> {
+    bearer_token_opt(headers)
 }
 
 #[cfg(test)]
@@ -195,10 +177,10 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_token_from_query_param() {
+    fn test_extract_token_rejects_query_param() {
         let headers = HeaderMap::new();
         let uri = "/_matrix/client/v3/sync?access_token=query-token&other=value";
-        assert_eq!(extract_token(&headers, uri).unwrap(), "query-token");
+        assert!(extract_token(&headers, uri).is_err(), "query 参数传递 token 应被禁用");
     }
 
     #[test]
@@ -210,10 +192,10 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_token_query_only() {
+    fn test_extract_token_rejects_query_only_token() {
         let headers = HeaderMap::new();
         let uri = "/test?access_token=abc123";
-        assert_eq!(extract_token(&headers, uri).unwrap(), "abc123");
+        assert!(extract_token(&headers, uri).is_err(), "仅 query 参数传 token 应被拒绝");
     }
 
     #[test]
@@ -240,10 +222,10 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_token_opt_from_query() {
+    fn test_extract_token_opt_rejects_query() {
         let headers = HeaderMap::new();
         let uri = "/test?access_token=q-token";
-        assert_eq!(extract_token_opt(&headers, uri), Some("q-token".to_string()));
+        assert_eq!(extract_token_opt(&headers, uri), None, "query 参数传 token 应返回 None");
     }
 
     #[test]
@@ -253,10 +235,10 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_token_opt_empty_bearer() {
+    fn test_extract_token_opt_empty_bearer_no_query_fallback() {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer ".parse().unwrap());
         let uri = "/test?access_token=fallback";
-        assert_eq!(extract_token_opt(&headers, uri), Some("fallback".to_string()));
+        assert_eq!(extract_token_opt(&headers, uri), None, "空 bearer 不应 fallback 到 query");
     }
 }
