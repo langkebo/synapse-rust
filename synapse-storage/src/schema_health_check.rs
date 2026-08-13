@@ -194,7 +194,13 @@ const REQUIRED_INDEXES: &[RequiredIndex] = &[
     RequiredIndex { display_name: "uq_users_username", acceptable_names: &["uq_users_username", "idx_users_username"] },
     RequiredIndex { display_name: "idx_users_created_ts", acceptable_names: &["idx_users_created_ts"] },
     RequiredIndex { display_name: "idx_devices_user_id", acceptable_names: &["idx_devices_user_id"] },
-    RequiredIndex { display_name: "idx_presence_user_status", acceptable_names: &["idx_presence_user_status"] },
+    // v10 中 presence.user_id 已由主键 pk_presence（唯一）及 idx_presence_user_id
+    // 覆盖，且所有 presence 查询均仅按 user_id 过滤，故旧的 v07 复合索引
+    // idx_presence_user_status(user_id, presence) 已被冗余收敛，此处接受其 v10 等价物。
+    RequiredIndex {
+        display_name: "idx_presence_user_status",
+        acceptable_names: &["idx_presence_user_status", "pk_presence", "idx_presence_user_id"],
+    },
     RequiredIndex {
         display_name: "idx_access_tokens_user_id",
         acceptable_names: &["idx_access_tokens_user_id", "idx_access_tokens_user"],
