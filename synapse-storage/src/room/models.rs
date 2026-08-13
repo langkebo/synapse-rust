@@ -220,7 +220,8 @@ pub(crate) struct RoomRecord {
     pub(crate) canonical_alias: Option<String>,
     #[sqlx(rename = "join_rules")]
     pub(crate) join_rule: Option<String>,
-    pub(crate) creator: Option<String>,
+    #[sqlx(rename = "creator")]
+    pub(crate) creator_user_id: Option<String>,
     pub(crate) room_version: Option<String>,
     pub(crate) is_public: Option<bool>,
     pub(crate) member_count: Option<i64>,
@@ -238,7 +239,8 @@ pub(crate) struct RoomWithMembersRecord {
     pub(crate) canonical_alias: Option<String>,
     #[sqlx(rename = "join_rules")]
     pub(crate) join_rule: Option<String>,
-    pub(crate) creator: Option<String>,
+    #[sqlx(rename = "creator")]
+    pub(crate) creator_user_id: Option<String>,
     pub(crate) room_version: Option<String>,
     pub(crate) is_public: Option<bool>,
     pub(crate) member_count: Option<i64>,
@@ -287,7 +289,7 @@ impl RoomStorage {
                 avatar_url: row.avatar_url.clone(),
                 canonical_alias: row.canonical_alias.clone(),
                 join_rule: row.join_rule.clone().unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
-                creator_user_id: row.creator.clone(),
+                creator_user_id: row.creator_user_id.clone(),
                 room_version: row.room_version.clone().unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
                 encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
                 is_public: row.is_public.unwrap_or(false),
