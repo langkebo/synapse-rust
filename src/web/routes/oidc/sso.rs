@@ -113,7 +113,16 @@ pub(crate) async fn sso_redirect(
         let nonce_value: String = OidcService::generate_state();
         let (code_verifier, code_challenge): (String, String) = OidcService::generate_pkce();
 
-        store_oidc_auth_session(&state_value, &nonce_value, &code_verifier, &code_challenge, "S256", &redirect_uri)?;
+        store_oidc_auth_session(
+            &ctx.oidc_session_storage,
+            &state_value,
+            &nonce_value,
+            &code_verifier,
+            &code_challenge,
+            "S256",
+            &redirect_uri,
+        )
+        .await?;
 
         let authorization_url: String = oidc_service
             .get_authorization_url(&state_value, &redirect_uri, Some(&code_challenge), Some("S256"))
@@ -166,7 +175,7 @@ pub(crate) async fn oidc_callback(
         code.ok_or_else(|| ApiError::bad_request("Missing 'code' parameter in OIDC callback".to_string()))?;
     let callback_state: String = callback_state
         .ok_or_else(|| ApiError::bad_request("Missing 'state' parameter in OIDC callback".to_string()))?;
-    let auth_session: OidcAuthSession = consume_oidc_auth_session(&callback_state)?;
+    let auth_session: OidcAuthSession = consume_oidc_auth_session(&ctx.oidc_session_storage, &callback_state).await?;
     validate_state_pkce_binding(&auth_session)?;
 
     // Resolve the callback URL

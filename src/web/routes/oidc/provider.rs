@@ -280,7 +280,16 @@ pub(crate) async fn oidc_authorize(
 
     // Generate PKCE code_verifier and code_challenge
     let (code_verifier, code_challenge): (String, String) = OidcService::generate_pkce();
-    store_oidc_auth_session(&state_value, &nonce_value, &code_verifier, &code_challenge, "S256", &redirect_uri)?;
+    store_oidc_auth_session(
+        &ctx.oidc_session_storage,
+        &state_value,
+        &nonce_value,
+        &code_verifier,
+        &code_challenge,
+        "S256",
+        &redirect_uri,
+    )
+    .await?;
 
     // Generate authorization URL (with PKCE)
     let authorization_url: String = oidc_service
