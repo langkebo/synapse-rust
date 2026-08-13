@@ -167,7 +167,9 @@ impl DeviceTrustService {
             "previous_action": "trust_level_changed"
         }));
 
-        let _ = self.storage.log_security_event(&event).await;
+        if let Err(e) = self.storage.log_security_event(&event).await {
+            tracing::error!(error = %e, "Failed to log security event");
+        }
 
         Ok(())
     }
@@ -232,7 +234,9 @@ impl DeviceTrustService {
             }),
         );
 
-        let _ = self.storage.log_security_event(&event).await;
+        if let Err(e) = self.storage.log_security_event(&event).await {
+            tracing::error!(error = %e, "Failed to log security event");
+        }
 
         Ok(VerificationRequestResponse {
             request_token: request.request_token,
@@ -293,7 +297,9 @@ impl DeviceTrustService {
                     "verified_by": request.requesting_device_id
                 }));
 
-            let _ = self.storage.log_security_event(&event).await;
+            if let Err(e) = self.storage.log_security_event(&event).await {
+                tracing::error!(error = %e, "Failed to log security event");
+            }
 
             Ok(VerificationRespondResponse { success: true, trust_level: Some("verified".to_string()) })
         } else {
@@ -310,7 +316,9 @@ impl DeviceTrustService {
                     "reason": "rejected_by_user"
                 }));
 
-            let _ = self.storage.log_security_event(&event).await;
+            if let Err(e) = self.storage.log_security_event(&event).await {
+                tracing::error!(error = %e, "Failed to log security event");
+            }
 
             Ok(VerificationRespondResponse { success: true, trust_level: Some("unverified".to_string()) })
         }
@@ -396,7 +404,9 @@ impl DeviceTrustService {
                 }),
             );
 
-            let _ = self.storage.log_security_event(&event).await;
+            if let Err(e) = self.storage.log_security_event(&event).await {
+                tracing::error!(error = %e, "Failed to log security event");
+            }
 
             return Ok(true);
         }

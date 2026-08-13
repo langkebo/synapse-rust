@@ -808,7 +808,15 @@ impl KeyRotationManager {
             if let Some(ref current_key) = *current {
                 if current_key.key_id == key_id {
                     drop(current);
-                    let _ = self.rotate_keys(None).await;
+                    // 审查 #5：吊销当前签名密钥后若轮换失败，服务器可能无有效
+                    // 签名密钥，破坏 federation 签名。失败需告警而非静默吞掉。
+                    if let Err(e) = self.rotate_keys(None).await {
+                        tracing::error!(
+                            key_id = %key_id,
+                            error = %e,
+                            "Failed to rotate signing keys after revocation"
+                        );
+                    }
                 }
             }
         }
