@@ -1229,7 +1229,6 @@ mod tests {
             presence_storage: Arc::new(synapse_storage::presence::PresenceStorage::new(pool.clone(), cache.clone())),
             member_storage: Arc::new(synapse_storage::membership::RoomMemberStorage::new(&pool, "localhost")),
             event_reader: Arc::new(synapse_storage::event::EventStorage::new(&pool, "localhost".to_string())),
-            room_storage: Arc::new(synapse_storage::room::RoomStorage::new(&pool)),
             room_account_data_storage: Arc::new(synapse_storage::room_account_data::RoomAccountDataStorage::new(&pool)),
             account_data_storage: Arc::new(synapse_storage::account_data::AccountDataStorage::new(&pool)),
             filter_storage: filter_store,

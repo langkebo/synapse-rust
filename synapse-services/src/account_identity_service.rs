@@ -4,6 +4,7 @@ use crate::UserService;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+#[cfg(feature = "privacy-ext")]
 use synapse_common::map_database;
 use synapse_common::error::ApiError;
 use synapse_storage::{ThreepidStoreApi, User, UserThreepid};

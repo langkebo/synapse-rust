@@ -125,7 +125,6 @@ impl RoomSyncServices {
                 presence_storage: presence_storage.clone(),
                 member_storage: member_storage.clone(),
                 event_reader: event_reader.clone(),
-                room_storage: room_storage.clone(),
                 room_account_data_storage: sync_room_account_data_storage,
                 account_data_storage: sync_account_data_storage,
                 filter_storage: Arc::new(FilterStorage::new(&infra.pool))

@@ -1896,7 +1896,6 @@ fn sync_service_for_notifier_test(
         presence_storage: Arc::new(synapse_storage::test_mocks::InMemoryPresenceStore::new()),
         member_storage: Arc::new(synapse_storage::test_mocks::InMemoryMemberStore::new()),
         event_reader: event_store as Arc<dyn synapse_storage::event::EventReader>,
-        room_storage: Arc::new(synapse_storage::room::RoomStorage::new(&pool)),
         room_account_data_storage: Arc::new(
             synapse_storage::room_account_data::RoomAccountDataStorage::new(&pool),
         ),
