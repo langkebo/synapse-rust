@@ -348,7 +348,9 @@ impl SlidingSyncService {
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to validate pos", &e))?
             {
-                return Err(ApiError::bad_request("Invalid position token"));
+                // MSC4186: 非法/过期的 pos 用专用 M_UNKNOWN_POS errcode，
+                // 客户端据此 resetup 重同步，而非把其他 400 误判为 pos 过期。
+                return Err(ApiError::unknown_pos("Invalid or expired position token"));
             }
         }
 

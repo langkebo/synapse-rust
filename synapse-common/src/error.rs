@@ -63,6 +63,10 @@ pub enum MatrixErrorCode {
     /// M_UNSUPPORTED: The server does not support this feature (e.g. presence
     /// disabled). Per Matrix spec, returned with HTTP 405 Method Not Allowed.
     Unsupported,
+    /// M_UNKNOWN_POS: A sliding-sync `pos` token was invalid or expired
+    /// (MSC4186). Distinct from `BadJson` so clients can reset their position
+    /// and resync without mistaking other 400s for pos expiry.
+    UnknownPos,
 }
 
 impl MatrixErrorCode {
@@ -104,6 +108,7 @@ impl MatrixErrorCode {
             Self::RequestTimeout => "M_REQUEST_TIMEOUT",
             Self::UserLimitExceeded => "M_USER_LIMIT_EXCEEDED",
             Self::Unsupported => "M_UNSUPPORTED",
+            Self::UnknownPos => "M_UNKNOWN_POS",
         }
     }
 
@@ -146,6 +151,7 @@ impl MatrixErrorCode {
             // MSC4335: Too many users — 429 with retry-after semantics
             Self::UserLimitExceeded => StatusCode::TOO_MANY_REQUESTS,
             Self::Unsupported => StatusCode::METHOD_NOT_ALLOWED,
+            Self::UnknownPos => StatusCode::BAD_REQUEST,
         }
     }
 }
@@ -207,6 +213,7 @@ impl<'de> Deserialize<'de> for MatrixErrorCode {
             "M_REQUEST_TIMEOUT" => Ok(Self::RequestTimeout),
             "M_USER_LIMIT_EXCEEDED" => Ok(Self::UserLimitExceeded),
             "M_UNSUPPORTED" => Ok(Self::Unsupported),
+            "M_UNKNOWN_POS" => Ok(Self::UnknownPos),
             _ => Err(serde::de::Error::unknown_variant(
                 &s,
                 &[
@@ -394,6 +401,19 @@ impl ApiError {
         Self {
             kind: ApiErrorKind::BadRequest,
             code: MatrixErrorCode::BadJson,
+            message: message.into(),
+            source: None,
+            cause: None,
+        }
+    }
+
+    /// MSC4186: Construct an `M_UNKNOWN_POS` error — the sliding-sync `pos`
+    /// token is invalid or expired. Clients branch on this errcode to reset
+    /// their position and resync, distinguishing it from other 400 responses.
+    pub fn unknown_pos(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::BadRequest,
+            code: MatrixErrorCode::UnknownPos,
             message: message.into(),
             source: None,
             cause: None,
@@ -1387,6 +1407,25 @@ mod tests {
         assert_eq!(err.code.as_str(), "M_UNSUPPORTED");
         assert_eq!(err.code.http_status(), StatusCode::METHOD_NOT_ALLOWED);
         assert_eq!(err.message, "presence disabled");
+    }
+
+    // MSC4186: M_UNKNOWN_POS constructor for expired/invalid sliding-sync pos.
+    #[test]
+    fn test_api_error_unknown_pos_construction() {
+        let err = ApiError::unknown_pos("Invalid or expired position token");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::UnknownPos);
+        assert_eq!(err.code.as_str(), "M_UNKNOWN_POS");
+        assert_eq!(err.code.http_status(), StatusCode::BAD_REQUEST);
+        assert_eq!(err.message, "Invalid or expired position token");
+    }
+
+    #[test]
+    fn test_matrix_error_code_unknown_pos_round_trip() {
+        let json = serde_json::to_string(&MatrixErrorCode::UnknownPos).unwrap();
+        assert_eq!(json, "\"M_UNKNOWN_POS\"");
+        let decoded: MatrixErrorCode = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, MatrixErrorCode::UnknownPos);
     }
 
     #[test]
