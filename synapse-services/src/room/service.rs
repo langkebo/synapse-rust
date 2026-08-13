@@ -535,8 +535,11 @@ impl RoomService {
         event_id: &str,
         event_type: &str,
         is_sticky: bool,
-    ) -> Result<(), sqlx::Error> {
-        self.sticky_event_storage.set_is_sticky_event(room_id, user_id, event_id, event_type, is_sticky).await
+    ) -> ApiResult<()> {
+        self.sticky_event_storage
+            .set_is_sticky_event(room_id, user_id, event_id, event_type, is_sticky)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to set sticky event", &e))
     }
 
     pub async fn get_is_sticky_event(
@@ -544,16 +547,22 @@ impl RoomService {
         room_id: &str,
         user_id: &str,
         event_type: &str,
-    ) -> Result<Option<synapse_storage::sticky_event::StickyEvent>, sqlx::Error> {
-        self.sticky_event_storage.get_is_sticky_event(room_id, user_id, event_type).await
+    ) -> ApiResult<Option<synapse_storage::sticky_event::StickyEvent>> {
+        self.sticky_event_storage
+            .get_is_sticky_event(room_id, user_id, event_type)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get sticky event", &e))
     }
 
     pub async fn get_all_is_sticky_events(
         &self,
         room_id: &str,
         user_id: &str,
-    ) -> Result<Vec<synapse_storage::sticky_event::StickyEvent>, sqlx::Error> {
-        self.sticky_event_storage.get_all_is_sticky_events(room_id, user_id).await
+    ) -> ApiResult<Vec<synapse_storage::sticky_event::StickyEvent>> {
+        self.sticky_event_storage
+            .get_all_is_sticky_events(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get all sticky events", &e))
     }
 
     pub async fn clear_is_sticky_event(
@@ -561,8 +570,11 @@ impl RoomService {
         room_id: &str,
         user_id: &str,
         event_type: &str,
-    ) -> Result<(), sqlx::Error> {
-        self.sticky_event_storage.clear_is_sticky_event(room_id, user_id, event_type).await
+    ) -> ApiResult<()> {
+        self.sticky_event_storage
+            .clear_is_sticky_event(room_id, user_id, event_type)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to clear sticky event", &e))
     }
 }
 

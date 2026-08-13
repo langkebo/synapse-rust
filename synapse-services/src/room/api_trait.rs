@@ -58,22 +58,22 @@ pub trait RoomServiceApi: Send + Sync {
         event_id: &str,
         event_type: &str,
         is_sticky: bool,
-    ) -> Result<(), sqlx::Error>;
+    ) -> ApiResult<()>;
 
     async fn get_is_sticky_event(
         &self,
         room_id: &str,
         user_id: &str,
         event_type: &str,
-    ) -> Result<Option<synapse_storage::sticky_event::StickyEvent>, sqlx::Error>;
+    ) -> ApiResult<Option<synapse_storage::sticky_event::StickyEvent>>;
 
     async fn get_all_is_sticky_events(
         &self,
         room_id: &str,
         user_id: &str,
-    ) -> Result<Vec<synapse_storage::sticky_event::StickyEvent>, sqlx::Error>;
+    ) -> ApiResult<Vec<synapse_storage::sticky_event::StickyEvent>>;
 
-    async fn clear_is_sticky_event(&self, room_id: &str, user_id: &str, event_type: &str) -> Result<(), sqlx::Error>;
+    async fn clear_is_sticky_event(&self, room_id: &str, user_id: &str, event_type: &str) -> ApiResult<()>;
 }
 
 #[async_trait]
@@ -146,7 +146,7 @@ impl RoomServiceApi for RoomService {
         event_id: &str,
         event_type: &str,
         is_sticky: bool,
-    ) -> Result<(), sqlx::Error> {
+    ) -> ApiResult<()> {
         self.set_is_sticky_event(room_id, user_id, event_id, event_type, is_sticky).await
     }
 
@@ -155,7 +155,7 @@ impl RoomServiceApi for RoomService {
         room_id: &str,
         user_id: &str,
         event_type: &str,
-    ) -> Result<Option<synapse_storage::sticky_event::StickyEvent>, sqlx::Error> {
+    ) -> ApiResult<Option<synapse_storage::sticky_event::StickyEvent>> {
         self.get_is_sticky_event(room_id, user_id, event_type).await
     }
 
@@ -163,11 +163,11 @@ impl RoomServiceApi for RoomService {
         &self,
         room_id: &str,
         user_id: &str,
-    ) -> Result<Vec<synapse_storage::sticky_event::StickyEvent>, sqlx::Error> {
+    ) -> ApiResult<Vec<synapse_storage::sticky_event::StickyEvent>> {
         self.get_all_is_sticky_events(room_id, user_id).await
     }
 
-    async fn clear_is_sticky_event(&self, room_id: &str, user_id: &str, event_type: &str) -> Result<(), sqlx::Error> {
+    async fn clear_is_sticky_event(&self, room_id: &str, user_id: &str, event_type: &str) -> ApiResult<()> {
         self.clear_is_sticky_event(room_id, user_id, event_type).await
     }
 }
