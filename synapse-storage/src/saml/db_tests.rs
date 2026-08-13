@@ -39,6 +39,7 @@ async fn cleanup_saml_test_data(pool: &sqlx::PgPool, suffix: &str) {
         .await
         .ok();
     sqlx::query("DELETE FROM saml_identity_providers WHERE entity_id LIKE $1").bind(&pattern).execute(pool).await.ok();
+    sqlx::query("DELETE FROM saml_pending_requests WHERE relay_state LIKE $1").bind(&pattern).execute(pool).await.ok();
 }
 
 fn make_attrs(entries: &[(&str, &str)]) -> HashMap<String, Vec<String>> {
@@ -864,6 +865,77 @@ async fn test_update_idp_metadata() {
 
     assert_eq!(updated.metadata_xml.as_deref(), Some("<xml>updated metadata</xml>"), "metadata_xml should be updated");
     assert!(updated.last_metadata_refresh_ts.is_some(), "last_metadata_refresh_ts should be set");
+
+    cleanup_saml_test_data(&pool, &suffix).await;
+}
+
+// ---------------------------------------------------------------------------
+// Pending request tests (AuthnRequest relay_state → request_id)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_save_and_consume_pending_request() {
+    let pool = test_pool().await;
+    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let relay_state = format!("relay_{suffix}");
+    let request_id = format!("id_{suffix}");
+
+    cleanup_saml_test_data(&pool, &suffix).await;
+
+    let storage = SamlStorage::new(&pool);
+    let expires_at = current_timestamp_millis() + 600_000;
+    storage
+        .save_pending_request(&relay_state, &request_id, expires_at)
+        .await
+        .expect("save_pending_request should succeed");
+
+    // 首次消费返回记录
+    let first = storage
+        .get_and_delete_pending_request(&relay_state)
+        .await
+        .expect("get_and_delete_pending_request should succeed");
+    assert!(first.is_some(), "saved pending request should be retrievable");
+    let first = first.unwrap();
+    assert_eq!(first.relay_state, relay_state);
+    assert_eq!(first.request_id, request_id);
+    assert_eq!(first.expires_at, expires_at);
+
+    // 第二次消费返回 None（原子删除，防重放）
+    let second = storage
+        .get_and_delete_pending_request(&relay_state)
+        .await
+        .expect("second get_and_delete should succeed");
+    assert!(second.is_none(), "pending request should be atomically consumed");
+
+    cleanup_saml_test_data(&pool, &suffix).await;
+}
+
+#[tokio::test]
+async fn test_save_pending_request_upserts_on_conflict() {
+    let pool = test_pool().await;
+    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let relay_state = format!("relay_{suffix}");
+
+    cleanup_saml_test_data(&pool, &suffix).await;
+
+    let storage = SamlStorage::new(&pool);
+    let expires_at = current_timestamp_millis() + 600_000;
+    storage
+        .save_pending_request(&relay_state, &format!("id_{suffix}_1"), expires_at)
+        .await
+        .expect("first save should succeed");
+    // 相同 relay_state 再次 save 应 upsert（覆盖 request_id）
+    storage
+        .save_pending_request(&relay_state, &format!("id_{suffix}_2"), expires_at)
+        .await
+        .expect("second save should succeed");
+
+    let consumed = storage
+        .get_and_delete_pending_request(&relay_state)
+        .await
+        .expect("consume should succeed")
+        .expect("record should exist");
+    assert_eq!(consumed.request_id, format!("id_{suffix}_2"), "upsert should overwrite request_id");
 
     cleanup_saml_test_data(&pool, &suffix).await;
 }

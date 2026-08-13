@@ -81,6 +81,17 @@ pub struct SamlLogoutRequest {
     pub processed_ts: Option<i64>,
 }
 
+/// SAML AuthnRequest 待处理记录：以 `relay_state` 为 key，绑定 `request_id`
+/// 用于验证 AuthnResponse 的 `InResponseTo`，防重放。
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct SamlPendingRequest {
+    pub id: i64,
+    pub relay_state: String,
+    pub request_id: String,
+    pub created_ts: i64,
+    pub expires_at: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSamlSessionRequest {
     pub session_id: String,

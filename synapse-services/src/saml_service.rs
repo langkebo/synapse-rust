@@ -3,8 +3,8 @@ use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use synapse_common::config::SamlConfig;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
@@ -14,26 +14,6 @@ use tracing::info;
 
 const SAML_REQUEST_TTL_SECONDS: u64 = 600;
 const SAML_CLOCK_SKEW_SECONDS: i64 = 300;
-
-#[derive(Debug, Clone)]
-struct SamlPendingRequest {
-    request_id: String,
-    expires_at: u64,
-}
-
-static SAML_PENDING_REQUESTS: OnceLock<Mutex<HashMap<String, SamlPendingRequest>>> = OnceLock::new();
-
-fn saml_pending_requests() -> &'static Mutex<HashMap<String, SamlPendingRequest>> {
-    SAML_PENDING_REQUESTS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn current_unix_seconds() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
-}
-
-fn cleanup_expired_saml_requests(requests: &mut HashMap<String, SamlPendingRequest>, now: u64) {
-    requests.retain(|_, request| request.expires_at >= now);
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SamlAuthRequest {
@@ -255,7 +235,7 @@ impl SamlService {
 
     pub async fn get_auth_redirect(&self, relay_state: Option<&str>) -> Result<SamlAuthRequest, ApiError> {
         let request_id = Self::generate_request_id();
-        self.store_pending_request(&request_id, relay_state)?;
+        self.store_pending_request(&request_id, relay_state).await?;
 
         let metadata = self.get_idp_metadata().await?;
 
@@ -290,7 +270,7 @@ impl SamlService {
         let issuer =
             response_issuers.first().ok_or_else(|| ApiError::bad_request("No issuer in SAML response"))?.clone();
 
-        let expected_in_response_to = self.consume_pending_request(relay_state)?;
+        let expected_in_response_to = self.consume_pending_request(relay_state).await?;
 
         // Validate (including signature verification) before trusting any assertion data.
         self.validate_response(&issuer, &decoded, expected_in_response_to.as_deref())?;
@@ -1071,36 +1051,28 @@ impl SamlService {
         Err(ApiError::unauthorized("SAML response issuer mismatch"))
     }
 
-    fn store_pending_request(&self, request_id: &str, relay_state: Option<&str>) -> Result<(), ApiError> {
+    async fn store_pending_request(&self, request_id: &str, relay_state: Option<&str>) -> Result<(), ApiError> {
         let Some(relay_state) = relay_state else {
             return Ok(());
         };
 
-        let now = current_unix_seconds();
-        let mut requests = saml_pending_requests()
-            .lock()
-            .map_err(|e| ApiError::internal_with_log("Failed to acquire SAML request lock", &e))?;
-        cleanup_expired_saml_requests(&mut requests, now);
-        requests.insert(
-            relay_state.to_string(),
-            SamlPendingRequest { request_id: request_id.to_string(), expires_at: now + SAML_REQUEST_TTL_SECONDS },
-        );
+        let expires_at = current_timestamp_millis() + (SAML_REQUEST_TTL_SECONDS as i64) * 1000;
+        self.storage.save_pending_request(relay_state, request_id, expires_at).await?;
         Ok(())
     }
 
-    fn consume_pending_request(&self, relay_state: Option<&str>) -> Result<Option<String>, ApiError> {
+    async fn consume_pending_request(&self, relay_state: Option<&str>) -> Result<Option<String>, ApiError> {
         let Some(relay_state) = relay_state else {
             return Ok(None);
         };
 
-        let now = current_unix_seconds();
-        let mut requests = saml_pending_requests()
-            .lock()
-            .map_err(|e| ApiError::internal_with_log("Failed to acquire SAML request lock", &e))?;
-        cleanup_expired_saml_requests(&mut requests, now);
-        let request =
-            requests.remove(relay_state).ok_or_else(|| ApiError::unauthorized("Unknown or expired RelayState"))?;
-        if request.expires_at < now {
+        let request = self
+            .storage
+            .get_and_delete_pending_request(relay_state)
+            .await?
+            .ok_or_else(|| ApiError::unauthorized("Unknown or expired RelayState"))?;
+        let now_ms = current_timestamp_millis();
+        if request.expires_at < now_ms {
             return Err(ApiError::unauthorized("Expired SAML request"));
         }
         Ok(Some(request.request_id))

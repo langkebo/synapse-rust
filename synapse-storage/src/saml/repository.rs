@@ -593,4 +593,50 @@ impl SamlStorage {
 
         Ok(())
     }
+
+    /// 保存 SAML AuthnRequest 待处理记录（以 relay_state 为 key）。
+    pub async fn save_pending_request(
+        &self,
+        relay_state: &str,
+        request_id: &str,
+        expires_at: i64,
+    ) -> Result<(), ApiError> {
+        let now = current_timestamp_millis();
+        sqlx::query(
+            r#"
+            INSERT INTO saml_pending_requests (relay_state, request_id, created_ts, expires_at)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (relay_state) DO UPDATE SET
+                request_id = EXCLUDED.request_id,
+                created_ts = EXCLUDED.created_ts,
+                expires_at = EXCLUDED.expires_at
+            "#,
+        )
+        .bind(relay_state)
+        .bind(request_id)
+        .bind(now)
+        .bind(expires_at)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to save SAML pending request", &e))?;
+
+        Ok(())
+    }
+
+    /// 原子消费 SAML AuthnRequest 待处理记录（DELETE ... RETURNING，防重放）。
+    pub async fn get_and_delete_pending_request(&self, relay_state: &str) -> Result<Option<SamlPendingRequest>, ApiError> {
+        let row = sqlx::query_as::<_, SamlPendingRequest>(
+            r#"
+            DELETE FROM saml_pending_requests
+            WHERE relay_state = $1
+            RETURNING id, relay_state, request_id, created_ts, expires_at
+            "#,
+        )
+        .bind(relay_state)
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to consume SAML pending request", &e))?;
+
+        Ok(row)
+    }
 }
