@@ -218,7 +218,7 @@ pub(crate) async fn get_messages(
             let room_service = ctx.room_service.clone();
             tokio::spawn(async move {
                 // Rate-limit: skip if this room was backfilled recently.
-                if !synapse_services::room::backfill::check_backfill_cooldown(&room_id_clone).await {
+                if !synapse_services::room::backfill::check_backfill_cooldown(&room_id_clone) {
                     ::tracing::debug!(
                         room_id = %room_id_clone,
                         "Best-effort /messages backfill skipped: within cooldown window"

@@ -22,8 +22,8 @@
 //! retries backward pagination rapidly.  The admin endpoint bypasses the
 //! cooldown for manual/testing use.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 use synapse_common::current_timestamp_millis;
 
 use crate::common::error::{ApiError, ApiResult};
@@ -43,8 +43,15 @@ const BACKFILL_COOLDOWN_MS: i64 = 60_000;
 
 /// Global per-room cooldown map for the `/messages` best-effort trigger.
 /// Maps `room_id` → last backfill trigger timestamp (ms since epoch).
-static BACKFILL_COOLDOWN: std::sync::LazyLock<tokio::sync::Mutex<HashMap<String, i64>>> =
-    std::sync::LazyLock::new(|| tokio::sync::Mutex::new(HashMap::new()));
+///
+/// 有界 + TTL：`time_to_live` 使条目在最后一次触发 60s 后自动淘汰，
+/// `max_capacity` 作为硬上限兜底，避免历史房间数增长导致 map 无界累积。
+static BACKFILL_COOLDOWN: LazyLock<moka::sync::Cache<String, i64>> = LazyLock::new(|| {
+    moka::sync::Cache::builder()
+        .time_to_live(Duration::from_millis(BACKFILL_COOLDOWN_MS as u64))
+        .max_capacity(10_000)
+        .build()
+});
 
 /// Result of a single backfill attempt against one candidate server.
 #[derive(Debug, Clone)]
@@ -65,15 +72,14 @@ pub struct BackfillOutcome {
 /// peer servers when a client retries backward pagination rapidly.  The
 /// admin endpoint does **not** use this check — manual triggers always fire
 /// immediately.
-pub async fn check_backfill_cooldown(room_id: &str) -> bool {
+pub fn check_backfill_cooldown(room_id: &str) -> bool {
     let now = current_timestamp_millis();
-    let mut map = BACKFILL_COOLDOWN.lock().await;
-    if let Some(&last_ts) = map.get(room_id) {
+    if let Some(last_ts) = BACKFILL_COOLDOWN.get(room_id) {
         if now - last_ts < BACKFILL_COOLDOWN_MS {
             return false;
         }
     }
-    map.insert(room_id.to_string(), now);
+    BACKFILL_COOLDOWN.insert(room_id.to_string(), now);
     true
 }
 

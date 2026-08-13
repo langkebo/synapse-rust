@@ -6,9 +6,6 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use tracing;
 
-/// SELECT list for the `state_groups` table.
-const STATE_GROUP_COLS: &str = "id, room_id, event_id, state_hash, created_ts";
-
 /// Columns for `state_group_state`.
 const STATE_GROUP_STATE_COLS: &str = "state_group_id, event_type, state_key, event_id";
 
@@ -137,25 +134,24 @@ impl StateGroupStorage {
     }
 
     pub async fn get_state_group(&self, id: i64) -> Result<Option<StateGroup>, sqlx::Error> {
-        sqlx::query_as::<_, StateGroup>(&format!("SELECT {} FROM state_groups WHERE id = $1", STATE_GROUP_COLS))
+        sqlx::query_as::<_, StateGroup>("SELECT id, room_id, event_id, state_hash, created_ts FROM state_groups WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.pool)
             .await
     }
 
     pub async fn get_state_group_by_event(&self, event_id: &str) -> Result<Option<StateGroup>, sqlx::Error> {
-        sqlx::query_as::<_, StateGroup>(&format!("SELECT {} FROM state_groups WHERE event_id = $1", STATE_GROUP_COLS))
+        sqlx::query_as::<_, StateGroup>("SELECT id, room_id, event_id, state_hash, created_ts FROM state_groups WHERE event_id = $1")
             .bind(event_id)
             .fetch_optional(&self.pool)
             .await
     }
 
     pub async fn get_room_state_groups(&self, room_id: &str, limit: i64) -> Result<Vec<StateGroup>, sqlx::Error> {
-        sqlx::query_as::<_, StateGroup>(&format!(
-            "SELECT {}
+        sqlx::query_as::<_, StateGroup>(
+            "SELECT id, room_id, event_id, state_hash, created_ts
                  FROM state_groups WHERE room_id = $1 ORDER BY id DESC LIMIT $2",
-            STATE_GROUP_COLS
-        ))
+        )
         .bind(room_id)
         .bind(limit)
         .fetch_all(&self.pool)

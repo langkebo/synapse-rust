@@ -10,7 +10,9 @@ pub struct EventReportStorage {
     pool: Arc<PgPool>,
 }
 
-const REPORT_RATE_LIMIT_SELECT: &str = r"
+// STO-05: 行锁查询 —— 在事务内按 user_id 选中报告限流行并 `FOR UPDATE`，
+// 避免「读已过期封锁 → 并发重复解锁」的 TOCTOU 窗口。
+const REPORT_RATE_LIMIT_SELECT_FOR_UPDATE: &str = r"
     SELECT
         id,
         user_id,
@@ -22,6 +24,8 @@ const REPORT_RATE_LIMIT_SELECT: &str = r"
         created_ts,
         COALESCE(updated_ts, created_ts) AS updated_ts
     FROM report_rate_limits
+    WHERE user_id = $1
+    FOR UPDATE
 ";
 
 impl EventReportStorage {
@@ -298,7 +302,7 @@ impl EventReportStorage {
         // 消除「读已过期封锁 → 并发重复解锁」的 TOCTOU 窗口。
         let mut tx = self.pool.begin().await?;
 
-        let limit = sqlx::query_as::<_, ReportRateLimit>(&format!("{REPORT_RATE_LIMIT_SELECT} WHERE user_id = $1 FOR UPDATE"))
+        let limit = sqlx::query_as::<_, ReportRateLimit>(REPORT_RATE_LIMIT_SELECT_FOR_UPDATE)
             .bind(user_id)
             .fetch_optional(&mut *tx)
             .await?;

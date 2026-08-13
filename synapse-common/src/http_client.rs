@@ -15,6 +15,9 @@ use std::time::Duration;
 const USER_AGENT: &str = "synapse-rust";
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+/// 有界防护：TIMEOUT_CLIENTS 缓存的自定义超时 client 数量上限。超时值理论上
+/// 来自有限的常量集，但为防止调用方传入不可控超时导致无界累积，超过阈值即清空重建。
+const MAX_CACHED_CLIENTS: usize = 128;
 
 static DEFAULT_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 /// 按 (timeout_ms, no_redirect) 缓存的自定义超时 client，保证连接池复用。
@@ -55,6 +58,11 @@ fn cached_client(timeout: Duration, no_redirect: bool) -> reqwest::Client {
     let key = (timeout.as_millis() as u64, no_redirect);
     let cache = TIMEOUT_CLIENTS.get_or_init(|| Mutex::new(HashMap::new()));
     let mut guard = cache.lock().unwrap_or_else(|p| p.into_inner());
+    // 有界防护：超过上限且是新 key 时清空重建（连接池可重新建立），避免无界累积。
+    if guard.len() >= MAX_CACHED_CLIENTS && !guard.contains_key(&key) {
+        tracing::warn!(cached_clients = guard.len(), "TIMEOUT_CLIENTS cache reached capacity, resetting");
+        guard.clear();
+    }
     guard
         .entry(key)
         .or_insert_with(|| {
