@@ -1,6 +1,7 @@
 use serde_json::Value;
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
+use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
@@ -46,10 +47,7 @@ impl ToDeviceStorage {
         .bind(now)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("device_exists"))?;
 
         Ok(result.is_some())
     }
@@ -75,10 +73,7 @@ impl ToDeviceStorage {
         .bind(now)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("record_transaction"))?;
         Ok(row.is_some())
     }
 
@@ -93,10 +88,7 @@ impl ToDeviceStorage {
         .bind(cutoff)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("cleanup_old_transactions"))?;
 
         Ok(result.rows_affected())
     }
@@ -138,10 +130,7 @@ impl ToDeviceStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("add_message"))?;
 
         Ok(())
     }
@@ -159,10 +148,7 @@ impl ToDeviceStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_messages"))?;
 
         let mut messages = Vec::new();
         for row in rows {
@@ -209,10 +195,7 @@ impl ToDeviceStorage {
         .bind(limit)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_messages_since"))?;
 
         let mut max_stream_id = since_stream_id;
         let mut messages = Vec::with_capacity(rows.len());
@@ -255,10 +238,7 @@ impl ToDeviceStorage {
         .bind(device_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_current_stream_id"))?;
 
         Ok(max_id.unwrap_or(0))
     }
@@ -284,10 +264,7 @@ impl ToDeviceStorage {
         .bind(since_stream_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("has_messages_since"))?;
 
         Ok(row.is_some())
     }
@@ -314,10 +291,7 @@ impl ToDeviceStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_and_delete_messages"))?;
 
         let mut messages = Vec::new();
         for row in rows {
@@ -350,10 +324,7 @@ impl ToDeviceStorage {
         .bind(ids)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("delete_messages"))?;
 
         Ok(())
     }
@@ -372,10 +343,7 @@ impl ToDeviceStorage {
         .bind(stream_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("delete_messages_up_to"))?;
 
         Ok(())
     }

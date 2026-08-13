@@ -329,10 +329,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_unused_fallback_key_types"))?;
 
         Ok(rows
             .into_iter()
@@ -377,10 +374,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(algorithm)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_device_key"))?;
 
         Ok(row.map(DeviceKeyRow::into_device_key))
     }
@@ -408,10 +402,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(device_ids)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_device_keys"))?;
 
         Ok(rows.into_iter().map(DeviceKeyRow::into_device_key).collect())
     }
@@ -439,10 +430,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_all_device_keys"))?;
 
         Ok(rows.into_iter().map(DeviceKeyRow::into_device_key).collect())
     }
@@ -477,10 +465,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(user_ids)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_all_device_keys_batch"))?;
 
         let mut result: HashMap<String, Vec<DeviceKey>> = HashMap::new();
         for row in rows {
@@ -503,10 +488,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(algorithm)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("delete_device_key"))?;
 
         Ok(())
     }
@@ -522,10 +504,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(user_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_device_count"))?;
 
         Ok(count)
     }
@@ -567,10 +546,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(device_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("delete_device_keys"))?;
 
         Ok(())
     }
@@ -589,10 +565,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(device_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_one_time_keys_count"))?;
 
         Ok(count)
     }
@@ -616,10 +589,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_one_time_keys_count_by_algorithm"))?;
 
         let mut counts = std::collections::HashMap::new();
         for row in rows {
@@ -741,10 +711,7 @@ impl DeviceKeyStoreApi for DeviceKeyStorage {
         .bind(to_ts)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_key_changes"))?;
 
         Ok(rows.into_iter().map(|row| row.get::<String, _>("user_id")).collect())
     }

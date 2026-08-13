@@ -4,6 +4,7 @@
 use crate::device_trust::models::*;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
@@ -45,10 +46,7 @@ impl DeviceTrustStorage {
         .bind(device_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_device_trust"))?;
 
         Ok(result.map(Into::into))
     }
@@ -74,10 +72,7 @@ impl DeviceTrustStorage {
         .bind(status.updated_ts)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("upsert_device_trust"))?;
 
         Ok(())
     }
@@ -112,7 +107,7 @@ impl DeviceTrustStorage {
         .bind(now_ts)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(map_database!("set_device_trust"))?;
 
         Ok(())
     }
@@ -137,10 +132,7 @@ impl DeviceTrustStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_all_devices_with_trust"))?;
 
         Ok(results.into_iter().map(Into::into).collect())
     }
@@ -165,10 +157,7 @@ impl DeviceTrustStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_verified_devices"))?;
 
         Ok(results.into_iter().map(Into::into).collect())
     }
@@ -186,10 +175,7 @@ impl DeviceTrustStorage {
         .bind(user_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("count_devices_by_trust"))?;
 
         Ok((row.verified, row.unverified, row.blocked))
     }
@@ -219,10 +205,7 @@ impl DeviceTrustStorage {
         .bind(request.completed_at)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("create_verification_request"))?;
 
         Ok(())
     }
@@ -249,10 +232,7 @@ impl DeviceTrustStorage {
         .bind(token)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_request_by_token"))?;
 
         Ok(result.map(Into::into))
     }
@@ -286,10 +266,7 @@ impl DeviceTrustStorage {
         .bind(now_ms)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_pending_request"))?;
 
         Ok(result.map(Into::into))
     }
@@ -308,10 +285,7 @@ impl DeviceTrustStorage {
         .bind(token)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("update_request_status"))?;
 
         Ok(())
     }
@@ -328,10 +302,7 @@ impl DeviceTrustStorage {
         .bind(token)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("update_request_with_data"))?;
 
         Ok(())
     }
@@ -348,10 +319,7 @@ impl DeviceTrustStorage {
         .bind(now_ms)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("cleanup_expired_requests"))?;
 
         Ok(result.rows_affected() as i64)
     }
@@ -377,10 +345,7 @@ impl DeviceTrustStorage {
         .bind(log.rotated_at)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("log_key_rotation"))?;
 
         Ok(())
     }
@@ -405,10 +370,7 @@ impl DeviceTrustStorage {
         .bind(event.created_ts)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("log_security_event"))?;
 
         Ok(())
     }
@@ -438,10 +400,7 @@ impl DeviceTrustStorage {
         .bind(limit)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_recent_security_events"))?;
 
         Ok(results.into_iter().map(Into::into).collect())
     }
@@ -477,7 +436,7 @@ impl DeviceTrustStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Database error: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(map_database!("set_cross_signing_trust"))?;
 
         Ok(())
     }
@@ -492,10 +451,7 @@ impl DeviceTrustStorage {
         .bind(user_id)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("has_cross_signing_master_key"))?;
 
         Ok(result > 0)
     }

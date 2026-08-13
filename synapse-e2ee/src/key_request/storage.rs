@@ -1,5 +1,6 @@
 use super::models::{KeyRequestInfo, KeyRequestPagination};
 use sqlx::PgPool;
+use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
@@ -35,10 +36,7 @@ impl KeyRequestStorage {
         .bind(request.is_fulfilled)
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("create_request"))?;
 
         Ok(())
     }
@@ -65,10 +63,7 @@ impl KeyRequestStorage {
         .bind(request_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })
+        .map_err(map_database!("get_request"))
     }
 
     pub async fn get_requests_for_user(&self, user_id: &str) -> Result<Vec<KeyRequestInfo>, ApiError> {
@@ -95,10 +90,7 @@ impl KeyRequestStorage {
         .bind(user_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })
+        .map_err(map_database!("get_requests_for_user"))
     }
 
     pub async fn get_all_pending_requests(&self) -> Result<Vec<KeyRequestInfo>, ApiError> {
@@ -124,10 +116,7 @@ impl KeyRequestStorage {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })
+        .map_err(map_database!("get_all_pending_requests"))
     }
 
     pub async fn fulfill_request(&self, request_id: &str, device_id: &str) -> Result<(), ApiError> {
@@ -145,10 +134,7 @@ impl KeyRequestStorage {
         .bind(now)
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("fulfill_request"))?;
 
         Ok(())
     }
@@ -164,10 +150,7 @@ impl KeyRequestStorage {
         .bind(request_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("cancel_request"))?;
 
         Ok(())
     }
@@ -187,10 +170,7 @@ impl KeyRequestStorage {
         .bind(now)
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("update_request_status"))?;
 
         Ok(())
     }
@@ -204,10 +184,7 @@ impl KeyRequestStorage {
         .bind(request_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("delete_request"))?;
 
         Ok(())
     }
@@ -222,10 +199,7 @@ impl KeyRequestStorage {
         .bind(older_than_ts)
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("delete_old_requests"))?;
 
         Ok(result.rows_affected())
     }
@@ -292,9 +266,6 @@ impl KeyRequestStorage {
         query.push(" ORDER BY created_ts DESC, request_id DESC LIMIT ");
         query.push_bind(limit);
 
-        query.build_query_as::<KeyRequestInfo>().fetch_all(&self.pool).await.map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })
+        query.build_query_as::<KeyRequestInfo>().fetch_all(&self.pool).await.map_err(map_database!("get_requests_paginated"))
     }
 }

@@ -54,6 +54,11 @@ class Finding:
     def replaceable(self) -> bool:
         return self.kind == "A" and self.map_err_line is not None
 
+    @property
+    def replaceable_b(self) -> bool:
+        """变体 B：仅当方法名有效（非 None、非 unknown）时才可机械替换。"""
+        return self.kind == "B" and self.map_err_line is not None and bool(self.fn_name) and self.operation != "<unknown_fn>"
+
 
 def _extract_operation(msg: str) -> str:
     for suffix in (": {e}", " {e}", ": {}", " {}"):
@@ -191,36 +196,31 @@ def _apply_file(rel: str, fs: list[Finding], repo_root: Path) -> int:
         map_i = f.map_err_line - 1
 
         if f.single_line and map_i == db_i:
-            # 单行：`.map_err(|e| { tracing...; ApiError... })?;` → 整行替换
+            # 单行：`.map_err(|e| { tracing...; ApiError... })?...` → 整行替换，
+            # 保留 `.map_err` 之前的前缀与 `})` 之后的尾部（`?;` / `?,` / `? {` 等）。
             raw = lines[db_i]
             idx = raw.find(".map_err")
             prefix = raw[:idx] if idx >= 0 else ""
-            stripped = raw.rstrip()
-            suffix = ";"
-            if stripped.endswith(","):
-                suffix = ","
-            elif not stripped.endswith(";"):
-                suffix = ""
-            lines[db_i] = f'{prefix}.map_err(map_database!("{f.operation}"))?{suffix}'
+            close_idx = raw.rfind("})", idx) if idx >= 0 else -1
+            tail = raw[close_idx + 2 :] if close_idx >= 0 else "?;"
+            lines[db_i] = f'{prefix}.map_err(map_database!("{f.operation}")){tail}'
         else:
             # 多行：把 map_err 行的 `.map_err(|X| {` 换成 `.map_err(map_database!("op"))`，
-            # 删除中间的 tracing/database 行与结尾 `})...` 行，结尾符号补到 map_err 行。
+            # 删除中间的 tracing/database 行与结尾 `})...` 行，`})` 之后的内容补到 map_err 行。
             map_line = lines[map_i]
             new_map = re.sub(
                 r'\.map_err\(\|[a-zA-Z_][a-zA-Z0-9_]*\|\s*\{\s*$',
                 f'.map_err(map_database!("{f.operation}"))',
                 map_line,
             )
-            # 结尾符号：db_i+1 行形如 `})?;` / `})?,` / `})?` / `})`
-            suffix = ";"
-            has_q = True
+            # 结尾行 `})` 之后的全部内容（`?;` / `?,` / `?` / `? {` 等）原样保留
+            tail = ""
             if db_i + 1 < len(lines):
-                close = lines[db_i + 1].rstrip()
-                m = re.search(r'\}\)(\?)?([;,])?', close)
-                if m:
-                    has_q = m.group(1) is not None
-                    suffix = m.group(2) or ""
-            new_map += f'?{suffix}' if has_q else suffix
+                close = lines[db_i + 1]
+                idx = close.find("})")
+                if idx >= 0:
+                    tail = close[idx + 2 :]
+            new_map += tail
             del lines[map_i + 1 : db_i + 2]
             lines[map_i] = new_map
         applied += 1
@@ -230,10 +230,10 @@ def _apply_file(rel: str, fs: list[Finding], repo_root: Path) -> int:
     return applied
 
 
-def apply_a(findings: list[Finding]) -> dict[str, int]:
+def apply_a(findings: list[Finding], include_b: bool = False) -> dict[str, int]:
     by_file: dict[str, list[Finding]] = {}
     for f in findings:
-        if f.replaceable:
+        if f.replaceable or (include_b and f.replaceable_b):
             by_file.setdefault(f.path, []).append(f)
     repo_root = Path(__file__).resolve().parent.parent
     changed: dict[str, int] = {}
@@ -246,7 +246,8 @@ def apply_a(findings: list[Finding]) -> dict[str, int]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="#18 泛化 DB 错误治理脚本")
-    ap.add_argument("--apply", action="store_true", help="对变体 A/A' 执行替换（变体 B 永不自动改）")
+    ap.add_argument("--apply", action="store_true", help="对变体 A/A' 执行替换")
+    ap.add_argument("--apply-b", action="store_true", help="同时替换变体 B（用方法名作 context，需 --apply）")
     ap.add_argument("--tsv", metavar="FILE", help="额外输出 TSV 清单到指定文件")
     args = ap.parse_args()
 
@@ -260,7 +261,7 @@ def main() -> int:
                 fh.write(f"{f.kind}\t{f.path}\t{f.db_line}\t{f.fn_name or ''}\t{f.operation}\n")
 
     if args.apply:
-        changed = apply_a(findings)
+        changed = apply_a(findings, include_b=args.apply_b)
         total = sum(changed.values())
         print(f"\n[apply] 已替换 {total} 处（{len(changed)} 个文件）：")
         for rel, n in sorted(changed.items()):
@@ -268,7 +269,12 @@ def main() -> int:
         a_missing = [f for f in findings if f.kind == "A" and f.map_err_line is None]
         if a_missing:
             print(f"[apply] 注意：{len(a_missing)} 处变体 A 因未定位到 map_err 未改，需人工。")
-        print("[apply] 变体 B 与无 tracing 处未自动改，需按报告人工补全。")
+        if not args.apply_b:
+            print("[apply] 变体 B 未改（加 --apply-b 用方法名作 context 批量替换）。")
+        else:
+            b_missing = [f for f in findings if f.kind == "B" and not f.replaceable_b]
+            if b_missing:
+                print(f"[apply] 注意：{len(b_missing)} 处变体 B 无有效方法名，未改，需人工。")
     else:
         print("\n[dry-run] 仅生成报告，未修改任何文件。加 --apply 执行变体 A/A' 替换。")
 

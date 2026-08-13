@@ -1,6 +1,7 @@
 use super::storage::{ToDeviceMessage, ToDeviceStorage};
 use serde_json::Value;
 use std::sync::Arc;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 use synapse_storage::UserStore;
 
@@ -42,10 +43,7 @@ impl ToDeviceService {
         if let Some(msg_map) = messages.as_object() {
             for (user_id, devices) in msg_map {
                 if let Some(user_storage) = &self.user_storage {
-                    if !user_storage.user_exists(user_id).await.map_err(|e| {
-                        tracing::error!("Database error: {e}");
-                        ApiError::database("A database error occurred".to_string())
-                    })? {
+                    if !user_storage.user_exists(user_id).await.map_err(map_database!("send_messages"))? {
                         tracing::warn!("Skipping to-device message for non-existent user: {}", user_id);
                         continue;
                     }

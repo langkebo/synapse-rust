@@ -298,10 +298,7 @@ impl KeyRotationStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("log_rotation"))?;
 
         Ok(())
     }
@@ -322,10 +319,7 @@ impl KeyRotationStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_encrypted_rooms"))?;
 
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
@@ -345,10 +339,7 @@ impl KeyRotationStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("record_key_share"))?;
 
         Ok(())
     }
@@ -367,10 +358,7 @@ impl KeyRotationStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("mark_rotated"))?;
 
         Ok(())
     }
@@ -386,10 +374,7 @@ impl KeyRotationStorage {
         .bind(room_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("check_needs_rotation"))?;
 
         Ok(row.as_ref().is_none_or(|r| !r.0))
     }
@@ -399,10 +384,7 @@ impl KeyRotationStorage {
             sqlx::query("DELETE FROM megolm_sessions WHERE expires_at < (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)")
                 .execute(&*self.pool)
                 .await
-                .map_err(|e| {
-                    tracing::error!("Database error: {e}");
-                    ApiError::database("A database error occurred".to_string())
-                })?;
+                .map_err(map_database!("delete_expired_sessions"))?;
 
         Ok(result.rows_affected() as i64)
     }
@@ -421,10 +403,7 @@ impl KeyRotationStorage {
         .bind(seven_days_ago_ms)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_rotation_status"))?;
 
         use sqlx::Row;
         Ok(RotationStatus {
@@ -449,10 +428,7 @@ impl KeyRotationStorage {
         .bind(room_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_encrypted_room_members"))?;
 
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
@@ -470,10 +446,7 @@ impl KeyRotationStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_rooms_needing_key_rotation"))?;
 
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
@@ -487,10 +460,7 @@ impl KeyRotationStorage {
         .bind(room_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("clear_key_rotation_needed"))?;
 
         Ok(())
     }
@@ -658,10 +628,7 @@ impl KeyRotationStorageApi for KeyRotationStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("mark_key_rotation_needed"))?;
 
         Ok(())
     }

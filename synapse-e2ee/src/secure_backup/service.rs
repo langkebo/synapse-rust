@@ -64,10 +64,7 @@ impl SecureBackupService {
         .bind(serde_json::to_string(&auth_data).map_err(|e| ApiError::internal(e.to_string()))?)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("create_backup"))?;
 
         Ok(SecureBackupResponse {
             backup_id,
@@ -116,10 +113,7 @@ impl SecureBackupService {
         .bind(serde_json::to_string(&auth_data).map_err(|e| ApiError::internal(e.to_string()))?)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("create_backup_with_data"))?;
 
         Ok(SecureBackupResponse { backup_id, version, algorithm: algorithm.to_string(), auth_data, key_count: 0 })
     }
@@ -144,10 +138,7 @@ impl SecureBackupService {
         .bind(backup_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("store_session_keys"))?;
 
         let auth_data_str = auth_data_str.ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
@@ -192,10 +183,7 @@ impl SecureBackupService {
         .bind(&encrypted_keys)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("store_session_keys"))?;
 
         // 4. Update backup key count
         sqlx::query(
@@ -208,10 +196,7 @@ impl SecureBackupService {
         .bind(backup_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("store_session_keys"))?;
 
         Ok(key_count)
     }
@@ -252,10 +237,7 @@ impl SecureBackupService {
         .bind(backup_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?
+        .map_err(map_database!("restore_backup"))?
         .into_iter()
         .collect();
 
@@ -304,10 +286,7 @@ impl SecureBackupService {
         .bind(backup_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_backup_info"))?;
 
         match result {
             Some(row) => {
@@ -334,10 +313,7 @@ impl SecureBackupService {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("list_backups"))?;
 
         let mut backups = Vec::new();
         for row in results {
@@ -363,10 +339,7 @@ impl SecureBackupService {
             .bind(backup_id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| {
-                tracing::error!("Database error: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?;
+            .map_err(map_database!("delete_backup"))?;
 
         // Delete backup
         sqlx::query("DELETE FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2")
@@ -374,10 +347,7 @@ impl SecureBackupService {
             .bind(backup_id)
             .execute(&*self.pool)
             .await
-            .map_err(|e| {
-                tracing::error!("Database error: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?;
+            .map_err(map_database!("delete_backup"))?;
 
         Ok(())
     }

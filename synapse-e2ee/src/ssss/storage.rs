@@ -1,5 +1,6 @@
 use super::models::{SecretStorageKey, StoredSecret};
 use sqlx::PgPool;
+use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
@@ -93,10 +94,7 @@ impl SecretStorage {
         .bind(key.created_ts)
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("create_key"))?;
 
         if result.rows_affected() == 0 {
             tracing::warn!(
@@ -129,10 +127,7 @@ impl SecretStorage {
         .bind(key_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_key"))?;
 
         Ok(row.map(SecretStorageKeyRow::into_storage_key))
     }
@@ -155,10 +150,7 @@ impl SecretStorage {
         .bind(user_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_all_keys"))?;
 
         Ok(rows.into_iter().map(SecretStorageKeyRow::into_storage_key).collect())
     }
@@ -175,10 +167,7 @@ impl SecretStorage {
         .bind(key_id)
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("delete_key"))?;
 
         Ok(())
     }
@@ -208,10 +197,7 @@ impl SecretStorage {
         .bind(now_ts)
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("store_secret"))?;
 
         Ok(())
     }
@@ -231,10 +217,7 @@ impl SecretStorage {
         .bind(secret_name)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_secret"))?;
 
         Ok(row.map(StoredSecretRow::into_stored_secret))
     }
@@ -258,10 +241,7 @@ impl SecretStorage {
         .bind(secret_names)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_secrets"))?;
 
         Ok(rows.into_iter().map(StoredSecretRow::into_stored_secret).collect())
     }
@@ -277,10 +257,7 @@ impl SecretStorage {
         .bind(secret_name)
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("delete_secret"))?;
 
         Ok(())
     }
@@ -300,10 +277,7 @@ impl SecretStorage {
         .bind(secret_names)
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("delete_secrets"))?;
 
         Ok(())
     }
@@ -319,10 +293,7 @@ impl SecretStorage {
         .bind(user_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("has_secrets"))?;
 
         Ok(count > 0)
     }

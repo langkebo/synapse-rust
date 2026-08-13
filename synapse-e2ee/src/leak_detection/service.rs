@@ -4,6 +4,7 @@
 use crate::megolm::MegolmSession;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
@@ -186,10 +187,7 @@ impl LeakDetectionStorage {
         .bind(alert.acknowledged_at)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("save_alert"))?;
 
         Ok(())
     }
@@ -208,10 +206,7 @@ impl LeakDetectionStorage {
         .bind(format!("%{}%", user_id))
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_user_alerts"))?;
 
         use sqlx::Row;
         let alerts = rows
@@ -242,10 +237,7 @@ impl LeakDetectionStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("acknowledge_alert"))?;
 
         Ok(())
     }
@@ -262,10 +254,7 @@ impl LeakDetectionStorage {
         )
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .map_err(map_database!("get_leak_statistics"))?;
 
         use sqlx::Row;
         Ok(LeakStatistics {
