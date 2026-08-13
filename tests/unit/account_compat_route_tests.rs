@@ -923,9 +923,9 @@ fn test_enforce_profile_visibility_distinguishes_internal_from_auth_errors() {
 
 #[test]
 fn test_delete_threepid_returns_database_error_on_failure() {
-    // The handler maps remove_threepid failures to
-    // ApiError::database("A database error occurred").
-    let err = ApiError::database("A database error occurred".to_string());
+    // The handler maps remove_threepid failures to a database error
+    // (kind=Internal / code=Unknown).
+    let err = ApiError::database("db error".to_string());
     assert_eq!(err.kind, ApiErrorKind::Internal);
     assert_eq!(err.code, MatrixErrorCode::Unknown);
 }
@@ -995,9 +995,9 @@ fn test_error_code_mapping_for_whoami_internal_error() {
 
 #[test]
 fn test_error_code_mapping_for_database_failures() {
-    // Multiple handlers wrap storage failures with
-    // ApiError::database("A database error occurred").
-    let err = ApiError::database("A database error occurred".to_string());
+    // Multiple handlers wrap storage failures with a database error
+    // (kind=Internal / code=Unknown).
+    let err = ApiError::database("db error".to_string());
     assert_eq!(err.kind, ApiErrorKind::Internal);
     assert_eq!(err.code, MatrixErrorCode::Unknown);
 }

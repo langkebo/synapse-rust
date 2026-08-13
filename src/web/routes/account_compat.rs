@@ -329,7 +329,7 @@ pub(crate) async fn change_password_uia(
                         error = %e,
                         "Failed to claim verification token"
                     );
-                    ApiError::database("A database error occurred".to_string())
+                    ApiError::database("Database error: Failed to claim verification token".to_string())
                 })?
                 .ok_or_else(|| {
                     ApiError::bad_request(
@@ -509,7 +509,7 @@ pub(crate) async fn add_threepid(
                 error = %e,
                 "Failed to claim verification token"
             );
-            ApiError::database("A database error occurred".to_string())
+            ApiError::database("Database error: Failed to claim verification token".to_string())
         })?
         .ok_or_else(|| {
             ApiError::bad_request("Verification session is invalid, expired, or has not been submitted".to_string())
@@ -569,7 +569,7 @@ pub(crate) async fn add_threepid(
                 error = %e,
                 "Failed to add threepid"
             );
-            ApiError::database("A database error occurred".to_string())
+            ApiError::database("Database error: Failed to add threepid".to_string())
         })?;
 
     if rows_affected == 0 {
