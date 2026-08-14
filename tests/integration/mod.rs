@@ -127,7 +127,6 @@ use std::sync::Arc;
 use std::sync::Once;
 use std::time::{Duration, Instant};
 
-static TEST_POOL: tokio::sync::OnceCell<Option<Arc<sqlx::PgPool>>> = tokio::sync::OnceCell::const_new();
 static TRACING_INIT: Once = Once::new();
 
 fn init_tracing() {
@@ -186,68 +185,68 @@ fn describe_integration_test_setup(mode: &str, elapsed: Duration) -> String {
 
 pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
     init_tracing();
-    TEST_POOL
-        .get_or_init(|| async {
-            let use_isolated = std::env::var("TEST_ISOLATED_SCHEMAS")
-                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                .unwrap_or(false);
-            let mode = if use_isolated { "isolated-schema" } else { "shared-template-schema" };
-            let setup_timeout = integration_test_setup_timeout();
-            let started = Instant::now();
+    // 关键修复（pool timed out 根因）：不再使用 TEST_POOL OnceCell 缓存。
+    // 每个 #[tokio::test] 都会创建独立的 tokio runtime；sqlx pool 的连接绑定
+    // 在创建它的 runtime 上，一旦该 runtime drop，连接即僵尸化且无法被后续
+    // runtime 复用。跨 runtime 共享 pool 时，后续测试 acquire 会卡在已失效的
+    // 连接上，最终报 "pool timed out while waiting for an open connection"
+    // （复现于 api_rate_limit_contract_tests 等）。因此每次调用返回隔离 schema
+    // 的独立 pool，与 require_test_pool() 语义一致。
+    let use_isolated = std::env::var("TEST_ISOLATED_SCHEMAS")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let mode = if use_isolated { "isolated-schema" } else { "shared-template-schema" };
+    let setup_timeout = integration_test_setup_timeout();
+    let started = Instant::now();
 
-            eprintln!("Preparing integration test database schema ({mode}; timeout {setup_timeout:?})");
-
-            let setup = async {
-                if use_isolated {
+    let setup = async {
+        if use_isolated {
+            synapse_rust::test_utils::prepare_isolated_test_pool().await
+        } else {
+            match synapse_rust::test_utils::prepare_shared_test_pool().await {
+                Ok(pool) => Ok(pool),
+                Err(error) if should_fallback_to_isolated_pool(&error) => {
+                    eprintln!(
+                        "Shared test schema clone failed ({error}); retrying with isolated schema initialization"
+                    );
                     synapse_rust::test_utils::prepare_isolated_test_pool().await
-                } else {
-                    match synapse_rust::test_utils::prepare_shared_test_pool().await {
-                        Ok(pool) => Ok(pool),
-                        Err(error) if should_fallback_to_isolated_pool(&error) => {
-                            eprintln!(
-                                "Shared test schema clone failed ({error}); retrying with isolated schema initialization"
-                            );
-                            synapse_rust::test_utils::prepare_isolated_test_pool().await
-                        }
-                        Err(error) => Err(error),
-                    }
                 }
-            };
-
-            let result = match tokio::time::timeout(setup_timeout, setup).await {
-                Ok(result) => result,
-                Err(_) => Err(format!(
-                    "integration test database setup timed out after {setup_timeout:?}. \
-                     Set INTEGRATION_TEST_SETUP_TIMEOUT_SECS to override, or INTEGRATION_TESTS_REQUIRED=1/CI=1 to fail hard.",
-                )),
-            };
-
-            match result {
-                Ok(pool) => {
-                    eprintln!(
-                        "Integration test database schema ready: {}",
-                        describe_integration_test_setup(mode, started.elapsed())
-                    );
-                    Some(pool)
-                }
-                Err(error) => {
-                    eprintln!(
-                        "Skipping integration tests because schema setup failed: {}; {}",
-                        error,
-                        describe_integration_test_setup(mode, started.elapsed())
-                    );
-                    if integration_tests_required() {
-                        panic!(
-                            "Integration tests require strict migration initialization to succeed, but schema setup failed: {}",
-                            error
-                        );
-                    }
-                    None
-                }
+                Err(error) => Err(error),
             }
-        })
-        .await
-        .clone()
+        }
+    };
+
+    let result = match tokio::time::timeout(setup_timeout, setup).await {
+        Ok(result) => result,
+        Err(_) => Err(format!(
+            "integration test database setup timed out after {setup_timeout:?}. \
+             Set INTEGRATION_TEST_SETUP_TIMEOUT_SECS to override, or INTEGRATION_TESTS_REQUIRED=1/CI=1 to fail hard.",
+        )),
+    };
+
+    match result {
+        Ok(pool) => {
+            eprintln!(
+                "Integration test database schema ready: {}",
+                describe_integration_test_setup(mode, started.elapsed())
+            );
+            Some(pool)
+        }
+        Err(error) => {
+            eprintln!(
+                "Skipping integration tests because schema setup failed: {}; {}",
+                error,
+                describe_integration_test_setup(mode, started.elapsed())
+            );
+            if integration_tests_required() {
+                panic!(
+                    "Integration tests require strict migration initialization to succeed, but schema setup failed: {}",
+                    error
+                );
+            }
+            None
+        }
+    }
 }
 
 fn should_fallback_to_isolated_pool(error: &str) -> bool {
