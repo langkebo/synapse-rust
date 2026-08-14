@@ -831,3 +831,30 @@ async fn test_generate_email_verification_token_length() {
     let token = h.service.generate_email_verification_token().unwrap();
     assert_eq!(token.len(), 32, "email verification token should be 32 chars");
 }
+
+// ============================================================================
+// session.rs 测试（P0 安全关键路径，此前 0 覆盖）
+// ============================================================================
+
+#[tokio::test]
+async fn test_logout_blacklists_and_deletes_token() {
+    let h = super::test_harness::build_test_auth_service();
+    let access_token = "some-access-token-to-logout";
+
+    h.service.logout(access_token, None).await.expect("logout should succeed");
+    // logout 后 token 应进入黑名单。
+    assert!(h.token_store.is_in_blacklist(access_token).await.unwrap());
+}
+
+#[tokio::test]
+async fn test_logout_all_succeeds() {
+    let h = super::test_harness::build_test_auth_service();
+    h.service.logout_all("@alice:test").await.expect("logout_all should succeed");
+}
+
+#[tokio::test]
+async fn test_refresh_token_invalid_returns_unauthorized() {
+    let h = super::test_harness::build_test_auth_service();
+    let err = h.service.refresh_token("invalid-refresh-token").await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Unauthorized, "invalid refresh token must be 401");
+}
