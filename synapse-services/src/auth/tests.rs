@@ -858,3 +858,50 @@ async fn test_refresh_token_invalid_returns_unauthorized() {
     let err = h.service.refresh_token("invalid-refresh-token").await.unwrap_err();
     assert_eq!(err.kind, synapse_common::ApiErrorKind::Unauthorized, "invalid refresh token must be 401");
 }
+
+// ============================================================================
+// register.rs 测试（P0 安全关键路径，此前 0 覆盖）
+// ============================================================================
+
+#[tokio::test]
+async fn test_register_success_returns_tokens() {
+    let h = super::test_harness::build_test_auth_service();
+
+    let (user, access_token, refresh_token, device_id) =
+        h.service.register("bob", "StrongPass123!", false, None).await.expect("register should succeed");
+
+    assert_eq!(user.user_id, "@bob:test.server");
+    assert!(!access_token.is_empty());
+    assert!(!refresh_token.is_empty());
+    assert!(!device_id.is_empty());
+}
+
+#[tokio::test]
+async fn test_register_empty_username_returns_missing_param() {
+    let h = super::test_harness::build_test_auth_service();
+    let err = h.service.register("", "StrongPass123!", false, None).await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::BadRequest);
+}
+
+#[tokio::test]
+async fn test_register_invalid_username_returns_bad_request() {
+    let h = super::test_harness::build_test_auth_service();
+    let err = h.service.register("bad user!", "StrongPass123!", false, None).await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::BadRequest);
+}
+
+#[tokio::test]
+async fn test_register_weak_password_returns_bad_request() {
+    let h = super::test_harness::build_test_auth_service();
+    let err = h.service.register("bob", "short", false, None).await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::BadRequest);
+}
+
+#[tokio::test]
+async fn test_register_duplicate_username_returns_user_in_use() {
+    let h = super::test_harness::build_test_auth_service();
+    // FakeUserStore 预置了 @alice:example.com，注册同名用户应返回 M_USER_IN_USE。
+    let err = h.service.register("alice", "StrongPass123!", false, None).await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::BadRequest);
+    assert_eq!(err.code, synapse_common::MatrixErrorCode::UserInUse);
+}

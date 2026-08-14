@@ -210,12 +210,51 @@ impl UserStore for FakeUserStore {
 
     async fn create_user(
         &self,
-        _user_id: &str,
-        _username: &str,
-        _password_hash: Option<&str>,
-        _is_admin: bool,
+        user_id: &str,
+        username: &str,
+        password_hash: Option<&str>,
+        is_admin: bool,
     ) -> Result<User, sqlx::Error> {
-        Err(sqlx::Error::WorkerCrashed)
+        // 检测用户名重复（与 Postgres 唯一约束行为一致），供 register 的
+        // M_USER_IN_USE 路径测试使用。
+        {
+            let users = self.users.read().await;
+            if users.values().any(|u| u.username == username) {
+                return Err(sqlx::Error::Protocol(
+                    "duplicate key value violates unique constraint \"users_username_key\"".to_string(),
+                ));
+            }
+        }
+
+        let user = User {
+            user_id: user_id.to_string(),
+            username: username.to_string(),
+            password_hash: password_hash.map(|s| s.to_string()),
+            is_admin,
+            is_guest: false,
+            is_shadow_banned: false,
+            is_deactivated: false,
+            created_ts: 0,
+            updated_ts: None,
+            displayname: None,
+            avatar_url: None,
+            email: None,
+            phone: None,
+            generation: None,
+            consent_version: None,
+            appservice_id: None,
+            user_type: None,
+            invalid_update_at: None,
+            migration_state: None,
+            password_changed_ts: None,
+            is_password_change_required: false,
+            password_expires_at: None,
+            failed_login_attempts: 0,
+            locked_until: None,
+            must_change_password: false,
+        };
+        self.users.write().await.insert(user_id.to_string(), user.clone());
+        Ok(user)
     }
 
     async fn update_password(&self, _user_id: &str, _password_hash: &str) -> Result<(), sqlx::Error> {
