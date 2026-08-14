@@ -372,9 +372,10 @@ pub struct TestContext {
     pub app: axum::Router,
     pub state: synapse_rust::web::routes::state::AppState,
     pub pool: Arc<sqlx::PgPool>,
-    // Holds the LeasedSchema; on Drop, the schema is TRUNCATEd and returned to
-    // the pool by cleanup running on CLEANUP_RUNTIME. None for isolated path.
-    _lease: Option<synapse_rust::test_utils::LeasedSchema>,
+    // Schema 租约不再作为独立字段持有，而是通过 `state.test_schema_lease` 绑定到
+    // AppState/Router 生命周期（见 build()）。这样 `setup_fresh_test_app*` 系列
+    // 丢弃 TestContext 时，租约仍随返回的 Router 存活，schema 不会被提前 TRUNCATE
+    // 并归还池（并发下被其它测试复用 → 数据竞态 → 401「User not found」）。
 }
 
 impl TestContext {
@@ -408,9 +409,13 @@ impl TestContext {
         let container =
             synapse_services::ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
 
-        let state = synapse_rust::web::routes::state::AppState::new(container, cache);
+        let mut state = synapse_rust::web::routes::state::AppState::new(container, cache);
+        // 把 schema 租约绑定到 AppState（随 Router 生命周期），而非 TestContext。
+        // 否则 `setup_fresh_test_app*` 系列（TestContext::new().map(|ctx| ctx.app)）
+        // 会立即 drop 租约 → 后台 TRUNCATE 清空 schema → 并发下被复用 → 数据竞态。
+        state.test_schema_lease = lease.map(Arc::new);
         let app = synapse_rust::web::create_router(state.clone());
-        Some(Self { app, state, pool, _lease: lease })
+        Some(Self { app, state, pool })
     }
 }
 

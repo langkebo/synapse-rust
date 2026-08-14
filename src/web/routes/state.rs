@@ -39,6 +39,13 @@ pub struct AppState {
     pub mcp_proxy_service: Arc<synapse_services::mcp_proxy::McpProxyService>,
     #[cfg(feature = "openclaw-routes")]
     pub openclaw_service: Arc<synapse_services::openclaw_service::OpenClawService>,
+    /// 测试专用：持有从 schema pool 租借的 schema 租约（`LeasedSchema`）。
+    /// 租约的生命周期随 `AppState`/`Router` 走——最后一个 `Arc` 释放时 schema
+    /// 才 TRUNCATE 并归还池，避免 `setup_fresh_test_app*` 系列丢弃 `TestContext`
+    /// 时提前归还 schema（并发下被其它测试复用 → 数据竞态 → 401「User not found」）。
+    /// 生产构建（无 `test-utils` feature）不编译此字段，恒为 `None`。
+    #[cfg(feature = "test-utils")]
+    pub test_schema_lease: Option<Arc<crate::test_utils::LeasedSchema>>,
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +138,8 @@ impl AppState {
             mcp_proxy_service,
             #[cfg(feature = "openclaw-routes")]
             openclaw_service,
+            #[cfg(feature = "test-utils")]
+            test_schema_lease: None,
         }
     }
 
