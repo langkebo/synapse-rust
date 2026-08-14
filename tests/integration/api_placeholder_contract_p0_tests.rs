@@ -675,9 +675,9 @@ async fn test_admin_server_placeholder_contract_returns_not_implemented_for_admi
 
     let (admin_token, _) = super::get_super_admin_token(&app).await;
 
-    // `backups` and `restart` are recognized endpoints that are intentionally
-    // not implemented (managed by external infrastructure). They return 501
-    // (M_UNRECOGNIZED) to distinguish from truly unknown endpoints (404).
+    // `backups` is intentionally NOT registered (managed by external
+    // infrastructure; see admin/server.rs `backups_route_not_in_manifest`).
+    // Unmatched routes fall back to 404 (M_UNRECOGNIZED) via the router fallback.
     for path in ["/_synapse/admin/v1/backups"] {
         assert_matrix_error(
             &app,
@@ -687,7 +687,7 @@ async fn test_admin_server_placeholder_contract_returns_not_implemented_for_admi
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
-            StatusCode::NOT_IMPLEMENTED,
+            StatusCode::NOT_FOUND,
             "M_UNRECOGNIZED",
         )
         .await;
@@ -727,40 +727,37 @@ async fn test_thirdparty_contract_rejects_builtin_irc_placeholders() {
     let username = format!("thirdparty_contract_{}", rand::random::<u32>());
     let (token, _) = register_user(&app, &username).await;
 
-    for path in ["/_matrix/client/v3/thirdparty/protocols", "/_matrix/client/r0/thirdparty/protocol/irc"] {
-        let response = ServiceExt::<Request<Body>>::oneshot(
-            app.clone(),
-            Request::builder()
-                .method("GET")
-                .uri(path)
-                .header("Authorization", format!("Bearer {}", token))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
+    // protocols（复数）→ 200 + {}（无 app service 注册，空协议表）
+    let protocols_response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
+        Request::builder()
+            .method("GET")
+            .uri("/_matrix/client/v3/thirdparty/protocols")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(protocols_response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(protocols_response.into_body(), 16 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json, json!({}));
 
-        let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
-        let json: Value = serde_json::from_slice(&body).unwrap();
-
-        match path {
-            "/_matrix/client/v3/thirdparty/protocols" => {
-                assert_eq!(json, json!({}));
-            }
-            "/_matrix/client/r0/thirdparty/protocol/irc" => {
-                assert_eq!(
-                    json,
-                    json!({
-                        "instances": [],
-                        "user_fields": [],
-                        "location_fields": []
-                    })
-                );
-            }
-            _ => unreachable!(),
-        }
-    }
+    // protocol/irc（单数）→ 404。a77e8b22（protocol cleanup）后未注册的 protocol
+    // 返回 404（M_NOT_FOUND），不再返回 200 + 空 instances。
+    let irc_protocol_response = ServiceExt::<Request<Body>>::oneshot(
+        app.clone(),
+        Request::builder()
+            .method("GET")
+            .uri("/_matrix/client/r0/thirdparty/protocol/irc")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(irc_protocol_response.status(), StatusCode::NOT_FOUND);
 
     for path in [
         "/_matrix/client/v3/thirdparty/location/irc?alias=%23demo:localhost",
