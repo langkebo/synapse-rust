@@ -117,7 +117,15 @@ async fn test_media_routes_share_content_across_versions() {
 /// 本测试上传 ~3MB，必须成功（修复前返回 413）。
 #[tokio::test]
 async fn test_media_upload_with_id_accepts_over_2mb_body() {
-    let Some(app) = setup_test_app().await else {
+    // G-1: 上传 body limit 的单一权威来源是 config.server.max_upload_size。
+    // 默认测试 config 为 1MB（对齐 /config 注释），无法承载 3MB 负载；此处显式
+    // 放宽到生产默认 50MB，以验证 S27/G-2 的 DefaultBodyLimit 修复（>2MB 不被 413）。
+    let Some(app) = super::setup_fresh_test_app_with_config(|container| {
+        container.core.config.server.max_upload_size = 50 * 1024 * 1024;
+    })
+    .await
+    .map(|(app, _)| app)
+    else {
         return;
     };
     let token = register_user(&app, &format!("media_put_limit_{}", rand::random::<u32>())).await;
@@ -191,9 +199,11 @@ async fn test_media_preview_and_delete_boundaries() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     let (server_name, media_id) = parse_mxc_uri(json["content_uri"].as_str().unwrap());
 
+    // S10: preview_url 强制认证（AuthenticatedUser）。必须携带 access token。
     let v1_preview_request = Request::builder()
         .method("GET")
         .uri("/_matrix/media/v1/preview_url?url=https://example.com")
+        .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
     let v1_preview_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v1_preview_request).await.unwrap();
@@ -202,6 +212,7 @@ async fn test_media_preview_and_delete_boundaries() {
     let v3_preview_request = Request::builder()
         .method("GET")
         .uri("/_matrix/media/v3/preview_url?url=https://example.com")
+        .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
     let v3_preview_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_preview_request).await.unwrap();
@@ -307,6 +318,7 @@ async fn test_client_v1_authenticated_media_thumbnail_and_preview_routes_work() 
     let preview_request = Request::builder()
         .method("GET")
         .uri("/_matrix/client/v1/media/preview_url?url=https://example.com")
+        .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
     let preview_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), preview_request).await.unwrap();
@@ -750,10 +762,13 @@ async fn test_p2_11_preview_url_returns_403_when_msc4452_disabled() {
     let Some(app) = setup_test_app().await else {
         return;
     };
+    // S10: preview_url 强制认证，须先注册用户拿 token（否则返回 401 而非 403）。
+    let token = register_user(&app, &format!("media_preview_disabled_{}", rand::random::<u32>())).await;
 
     let request = Request::builder()
         .method("GET")
         .uri("/_matrix/media/v3/preview_url?url=https://example.com")
+        .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
         .unwrap();
 
