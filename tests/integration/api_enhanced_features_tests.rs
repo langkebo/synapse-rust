@@ -183,11 +183,9 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             .unwrap();
         let v3_protocol_response =
             ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_protocol_request).await.unwrap();
-        assert_eq!(v3_protocol_response.status(), StatusCode::OK);
-
-        let body = axum::body::to_bytes(v3_protocol_response.into_body(), 1024).await.unwrap();
-        let v3_protocol_json: Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(v3_protocol_json["instances"], json!([]));
+        // a77e8b22 (protocol cleanup)：未注册的 protocol 返回 404（M_NOT_FOUND），
+        // 不再返回 200 + 空 instances。r0/v3 仍须共享同一行为（同为 404）。
+        assert_eq!(v3_protocol_response.status(), StatusCode::NOT_FOUND);
 
         let r0_protocol_request = Request::builder()
             .uri("/_matrix/client/r0/thirdparty/protocol/test")
@@ -196,11 +194,7 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             .unwrap();
         let r0_protocol_response =
             ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_protocol_request).await.unwrap();
-        assert_eq!(r0_protocol_response.status(), StatusCode::OK);
-
-        let body = axum::body::to_bytes(r0_protocol_response.into_body(), 1024).await.unwrap();
-        let r0_protocol_json: Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(r0_protocol_json["instances"], json!([]));
+        assert_eq!(r0_protocol_response.status(), StatusCode::NOT_FOUND);
 
         let v3_location_request = Request::builder()
             .uri("/_matrix/client/v3/thirdparty/location?alias=%23demo:localhost")
