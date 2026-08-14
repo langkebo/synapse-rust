@@ -658,3 +658,176 @@ fn test_new_with_lifetime_accepts_all_injected_storages() {
     // refresh_token) are accepted as injected parameters — no internal
     // Arc::new(...Storage::new(pool)) calls for these three.
 }
+
+// ============================================================================
+// login.rs 测试（P0 安全关键路径，此前 0 覆盖）
+// ============================================================================
+
+fn make_test_user(user_id: &str, password_hash: Option<&str>, is_admin: bool, is_deactivated: bool) -> synapse_storage::User {
+    synapse_storage::User {
+        user_id: user_id.to_string(),
+        username: user_id.trim_start_matches('@').to_string(),
+        password_hash: password_hash.map(|s| s.to_string()),
+        is_admin,
+        is_guest: false,
+        is_shadow_banned: false,
+        is_deactivated,
+        created_ts: 0,
+        updated_ts: None,
+        displayname: None,
+        avatar_url: None,
+        email: None,
+        phone: None,
+        generation: None,
+        consent_version: None,
+        appservice_id: None,
+        user_type: None,
+        invalid_update_at: None,
+        migration_state: None,
+        password_changed_ts: None,
+        is_password_change_required: false,
+        password_expires_at: None,
+        failed_login_attempts: 0,
+        locked_until: None,
+        must_change_password: false,
+    }
+}
+
+#[tokio::test]
+async fn test_login_success_returns_tokens() {
+    let h = super::test_harness::build_test_auth_service();
+    let password = "correct-horse-battery-staple";
+    let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    let (user, access_token, refresh_token, device_id) =
+        h.service.login("@alice:test", password, None, None).await.expect("login should succeed");
+
+    assert_eq!(user.user_id, "@alice:test");
+    assert!(!access_token.is_empty(), "access token must be non-empty");
+    assert!(!refresh_token.is_empty(), "refresh token must be non-empty");
+    assert!(!device_id.is_empty(), "device id must be generated when not provided");
+}
+
+#[tokio::test]
+async fn test_login_wrong_password_returns_forbidden() {
+    let h = super::test_harness::build_test_auth_service();
+    let hash = hash_password_with_params("right-password", 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    let err = h.service.login("@alice:test", "wrong-password", None, None).await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Forbidden, "P-007: wrong password must be 403 M_FORBIDDEN");
+}
+
+#[tokio::test]
+async fn test_login_unknown_user_returns_forbidden() {
+    let h = super::test_harness::build_test_auth_service();
+
+    // 不存在的用户也要走 dummy hash 校验，返回 403（防用户枚举）。
+    let err = h.service.login("@nobody:test", "whatever", None, None).await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Forbidden);
+}
+
+#[tokio::test]
+async fn test_login_deactivated_user_returns_forbidden() {
+    let h = super::test_harness::build_test_auth_service();
+    let hash = hash_password_with_params("pw", 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, true)).await;
+
+    let err = h.service.login("@alice:test", "pw", None, None).await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Forbidden, "deactivated user must not log in");
+}
+
+#[tokio::test]
+async fn test_login_no_password_user_returns_forbidden() {
+    let h = super::test_harness::build_test_auth_service();
+    // 无密码 hash 的用户（如仅 appservice 登录），密码登录必须被拒。
+    h.user_store.seed_user(make_test_user("@alice:test", None, false, false)).await;
+
+    let err = h.service.login("@alice:test", "anything", None, None).await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Forbidden);
+}
+
+#[tokio::test]
+async fn test_login_account_locked_returns_rate_limited() {
+    let h = super::test_harness::build_test_auth_service();
+    let hash = hash_password_with_params("right", 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    // 达到锁定阈值（login_failure_lockout_threshold = 5）。
+    for _ in 0..5 {
+        let _ = h.service.login("@alice:test", "wrong", None, None).await;
+    }
+
+    // 第 6 次即使密码正确也被锁定（审查 #13：fail-closed）。
+    let err = h.service.login("@alice:test", "right", None, None).await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::RateLimited, "locked account must be 429");
+}
+
+// ============================================================================
+// account.rs 测试（P0 安全关键路径，此前 0 覆盖）
+// ============================================================================
+
+#[tokio::test]
+async fn test_change_password_success() {
+    let h = super::test_harness::build_test_auth_service();
+    let hash = hash_password_with_params("old-password", 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    h.service
+        .change_password("@alice:test", Some("old-password"), "NewStrongPassword123!", None)
+        .await
+        .expect("change_password with correct current password should succeed");
+}
+
+#[tokio::test]
+async fn test_change_password_wrong_current_password_returns_unauthorized() {
+    let h = super::test_harness::build_test_auth_service();
+    let hash = hash_password_with_params("old-password", 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    let err = h
+        .service
+        .change_password("@alice:test", Some("wrong-password"), "NewStrongPassword123!", None)
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Unauthorized);
+}
+
+#[tokio::test]
+async fn test_change_password_weak_new_password_returns_bad_request() {
+    let h = super::test_harness::build_test_auth_service();
+    let hash = hash_password_with_params("old-password", 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    // 弱密码（不满足默认密码策略）应被 400 拒绝。
+    let err = h
+        .service
+        .change_password("@alice:test", Some("old-password"), "short", None)
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::BadRequest);
+}
+
+#[tokio::test]
+async fn test_deactivate_user_success() {
+    let h = super::test_harness::build_test_auth_service();
+    let hash = hash_password_with_params("pw", 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    h.service.deactivate_user("@alice:test").await.expect("deactivate_user should succeed");
+}
+
+#[tokio::test]
+async fn test_hash_password_produces_argon2() {
+    let h = super::test_harness::build_test_auth_service();
+    let hash = h.service.hash_password("some-password").unwrap();
+    assert!(hash.starts_with("$argon2"), "hash should be argon2, got: {hash}");
+}
+
+#[tokio::test]
+async fn test_generate_email_verification_token_length() {
+    let h = super::test_harness::build_test_auth_service();
+    let token = h.service.generate_email_verification_token().unwrap();
+    assert_eq!(token.len(), 32, "email verification token should be 32 chars");
+}

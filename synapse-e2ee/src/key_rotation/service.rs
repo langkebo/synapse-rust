@@ -633,3 +633,91 @@ impl KeyRotationStorageApi for KeyRotationStorage {
         Ok(())
     }
 }
+
+// ============================================================================
+// key_rotation 测试（P0 安全关键路径，此前 0 覆盖）
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::megolm::MegolmSessionStorage;
+    use crate::olm::OlmStorage;
+    use chrono::Duration;
+    use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+    use synapse_cache::CacheConfig;
+
+    fn build_service(config: KeyRotationConfig) -> KeyRotationService {
+        // 懒连接池：should_rotate 只用 config，不真正触达 olm/megolm/storage 的 DB。
+        let pool = Arc::new(PgPoolOptions::new().connect_lazy_with(PgConnectOptions::new()));
+        let cache = Arc::new(synapse_cache::CacheManager::new(&CacheConfig::default()));
+        let olm = Arc::new(OlmService::new(cache.clone(), OlmStorage::new(&pool)));
+        let megolm = Arc::new(MegolmProvider::from_env(MegolmSessionStorage::new(&pool), cache.clone(), [0u8; 32]));
+        let storage = Arc::new(KeyRotationStorage::new(pool));
+        KeyRotationService::new(olm, megolm, storage, config)
+    }
+
+    fn make_session(message_index: i64, last_used_ts: chrono::DateTime<Utc>, expires_at: Option<chrono::DateTime<Utc>>) -> MegolmSession {
+        MegolmSession {
+            id: uuid::Uuid::new_v4(),
+            session_id: "session-1".to_string(),
+            room_id: "!room:test".to_string(),
+            sender_key: "sender-key".to_string(),
+            session_key: "session-key".to_string(),
+            algorithm: "m.megolm.v1.aes-sha2".to_string(),
+            message_index,
+            created_ts: last_used_ts,
+            last_used_ts,
+            expires_at,
+            pickle_format: crate::megolm::PickleFormat::Legacy,
+            vodozemac_pickle: None,
+        }
+    }
+
+    #[test]
+    fn test_key_rotation_config_defaults() {
+        let cfg = KeyRotationConfig::default();
+        assert_eq!(cfg.olm_rotation_days, 7);
+        assert_eq!(cfg.megolm_rotation_messages, 100);
+        assert_eq!(cfg.max_session_age_days, 90);
+        assert!(cfg.enable_auto_rotation);
+    }
+
+    #[tokio::test]
+    async fn test_should_rotate_false_when_fresh() {
+        let svc = build_service(KeyRotationConfig::default());
+        let session = make_session(0, Utc::now(), None);
+        assert!(!svc.should_rotate(&session).await.unwrap(), "fresh session must not rotate");
+    }
+
+    #[tokio::test]
+    async fn test_should_rotate_when_age_exceeds_olm_days() {
+        let svc = build_service(KeyRotationConfig::default());
+        // 10 天前最后使用，超过 olm_rotation_days = 7。
+        let session = make_session(0, Utc::now() - Duration::days(10), None);
+        assert!(svc.should_rotate(&session).await.unwrap(), "aged session must rotate");
+    }
+
+    #[tokio::test]
+    async fn test_should_rotate_when_message_index_exceeds_limit() {
+        let svc = build_service(KeyRotationConfig::default());
+        // message_index >= megolm_rotation_messages = 100。
+        let session = make_session(150, Utc::now(), None);
+        assert!(svc.should_rotate(&session).await.unwrap(), "high message index must rotate");
+    }
+
+    #[tokio::test]
+    async fn test_should_rotate_when_expired() {
+        let svc = build_service(KeyRotationConfig::default());
+        let session = make_session(0, Utc::now(), Some(Utc::now() - Duration::hours(1)));
+        assert!(svc.should_rotate(&session).await.unwrap(), "expired session must rotate");
+    }
+
+    #[tokio::test]
+    async fn test_get_config_returns_defaults() {
+        let svc = build_service(KeyRotationConfig::default());
+        let cfg = svc.get_config().await;
+        assert_eq!(cfg.olm_rotation_days, 7);
+        assert!(cfg.enable_auto_rotation);
+    }
+}
