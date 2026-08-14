@@ -359,7 +359,7 @@ mod tests {
         let body = axum::body::to_bytes(response.into_body(), 1024).await.expect("body should be readable");
         let json: serde_json::Value = serde_json::from_slice(&body).expect("response should be json");
 
-        assert_eq!(status, StatusCode::REQUEST_TIMEOUT);
+        assert_eq!(status, StatusCode::GATEWAY_TIMEOUT);
         assert_eq!(json["errcode"], "M_REQUEST_TIMEOUT");
         assert!(json["error"].as_str().expect("error should be string").contains("30"));
     }
