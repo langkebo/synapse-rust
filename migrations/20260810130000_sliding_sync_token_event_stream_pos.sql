@@ -8,7 +8,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'sliding_sync_tokens' AND column_name = 'event_stream_pos'
+        WHERE table_schema = current_schema() AND table_name = 'sliding_sync_tokens' AND column_name = 'event_stream_pos'
     ) THEN
         ALTER TABLE sliding_sync_tokens ADD COLUMN event_stream_pos BIGINT NOT NULL DEFAULT 0;
     END IF;

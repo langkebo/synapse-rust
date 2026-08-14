@@ -20,7 +20,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'read_markers' AND column_name = 'origin_server_ts'
+        WHERE table_schema = current_schema() AND table_name = 'read_markers' AND column_name = 'origin_server_ts'
     ) THEN
         ALTER TABLE read_markers ADD COLUMN origin_server_ts BIGINT;
     END IF;

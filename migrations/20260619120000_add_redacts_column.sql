@@ -9,7 +9,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'events' AND column_name = 'redacts'
+        WHERE table_schema = current_schema() AND table_name = 'events' AND column_name = 'redacts'
     ) THEN
         ALTER TABLE events ADD COLUMN redacts TEXT;
     END IF;

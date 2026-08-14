@@ -24,7 +24,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'events' AND column_name = 'prev_state_events'
+        WHERE table_schema = current_schema() AND table_name = 'events' AND column_name = 'prev_state_events'
     ) THEN
         ALTER TABLE events ADD COLUMN prev_state_events JSONB;
     END IF;

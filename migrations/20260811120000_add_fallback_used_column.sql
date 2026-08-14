@@ -12,7 +12,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'device_keys' AND column_name = 'fallback_used'
+        WHERE table_schema = current_schema() AND table_name = 'device_keys' AND column_name = 'fallback_used'
     ) THEN
         ALTER TABLE device_keys ADD COLUMN fallback_used BOOLEAN NOT NULL DEFAULT FALSE;
     END IF;

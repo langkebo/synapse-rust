@@ -9,7 +9,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'verification_sas' AND column_name = 'secret_key'
+        WHERE table_schema = current_schema() AND table_name = 'verification_sas' AND column_name = 'secret_key'
     ) THEN
         ALTER TABLE verification_sas ADD COLUMN secret_key TEXT;
     END IF;

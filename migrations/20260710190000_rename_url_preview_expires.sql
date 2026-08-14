@@ -3,7 +3,7 @@
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name='url_preview_cache' AND column_name='expires_ts') THEN
+             WHERE table_schema=current_schema() AND table_name='url_preview_cache' AND column_name='expires_ts') THEN
     ALTER TABLE url_preview_cache RENAME COLUMN expires_ts TO expires_at;
   END IF;
 END $$;
