@@ -55,7 +55,7 @@ impl SlidingSyncService {
             .storage
             .cleanup_expired_tokens()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to cleanup tokens", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to cleanup tokens", &e))?;
 
         Ok(count)
     }
@@ -70,13 +70,13 @@ impl SlidingSyncService {
             .storage
             .list_room_token_sync(room_id, limit, from.as_ref())
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to list room token sync", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to list room token sync", &e))?;
 
         let total = self
             .storage
             .count_room_token_sync(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to count room token sync", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to count room token sync", &e))?;
 
         Ok((entries, total))
     }

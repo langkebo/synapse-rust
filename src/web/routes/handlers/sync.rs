@@ -117,7 +117,7 @@ pub(crate) async fn sync(
                     );
                     crate::cache::RateLimitDecision { allowed: true, retry_after_seconds: 0, remaining: burst_size }
                 } else {
-                    return Err(ApiError::internal_with_log("Sync rate limit failed", &error));
+                    return Err(ApiError::internal_with_context("Sync rate limit failed", &error));
                 }
             }
         };

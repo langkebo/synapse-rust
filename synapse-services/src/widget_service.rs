@@ -86,7 +86,7 @@ impl WidgetService {
             .storage
             .create_widget(params)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create widget", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create widget", &e))?;
 
         info!(
             widget_id = %widget.widget_id,
@@ -103,7 +103,7 @@ impl WidgetService {
             .storage
             .get_widget(widget_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get widget", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get widget", &e))?;
 
         Ok(widget)
     }
@@ -113,7 +113,7 @@ impl WidgetService {
             .storage
             .get_room_widgets(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get room widgets", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get room widgets", &e))?;
 
         Ok(widgets)
     }
@@ -123,7 +123,7 @@ impl WidgetService {
             .storage
             .get_user_widgets(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get user widgets", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get user widgets", &e))?;
 
         Ok(widgets)
     }
@@ -137,7 +137,7 @@ impl WidgetService {
             .storage
             .update_widget(widget_id, request.url.as_deref(), request.name.as_deref(), request.data.as_ref())
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update widget", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to update widget", &e))?;
 
         if widget.is_some() {
             info!(widget_id = %widget_id, "Updated widget");
@@ -151,7 +151,7 @@ impl WidgetService {
             .storage
             .delete_widget(widget_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete widget", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to delete widget", &e))?;
 
         if deleted {
             info!(widget_id = %widget_id, "Deleted widget");
@@ -171,7 +171,7 @@ impl WidgetService {
             .storage
             .set_widget_permission(widget_id, &request.user_id, permissions)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to set widget permission", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to set widget permission", &e))?;
 
         info!(
             widget_id = %widget_id,
@@ -187,7 +187,7 @@ impl WidgetService {
             .storage
             .get_widget_permissions(widget_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get widget permissions", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get widget permissions", &e))?;
 
         Ok(permissions)
     }
@@ -201,7 +201,7 @@ impl WidgetService {
             .storage
             .get_user_widget_permission(widget_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get user widget permission", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get user widget permission", &e))?;
 
         Ok(permission)
     }
@@ -211,7 +211,7 @@ impl WidgetService {
             .storage
             .delete_widget_permission(widget_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete widget permission", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to delete widget permission", &e))?;
 
         if deleted {
             info!(widget_id = %widget_id, user_id = %user_id, "Deleted widget permission");
@@ -237,7 +237,7 @@ impl WidgetService {
                 request.expires_in_ms,
             )
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create widget session", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create widget session", &e))?;
 
         info!(
             session_id = %session.session_id,
@@ -255,7 +255,7 @@ impl WidgetService {
             .storage
             .get_session(session_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get widget session", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get widget session", &e))?;
 
         Ok(session)
     }
@@ -265,7 +265,7 @@ impl WidgetService {
             .storage
             .update_session_activity(session_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update session activity", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to update session activity", &e))?;
 
         Ok(updated)
     }
@@ -275,7 +275,7 @@ impl WidgetService {
             .storage
             .terminate_session(session_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to terminate session", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to terminate session", &e))?;
 
         if terminated {
             info!(session_id = %session_id, "Terminated widget session");
@@ -289,7 +289,7 @@ impl WidgetService {
             .storage
             .get_widget_sessions(widget_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get widget sessions", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get widget sessions", &e))?;
 
         Ok(sessions)
     }
@@ -299,7 +299,7 @@ impl WidgetService {
             .storage
             .cleanup_expired_sessions()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired sessions", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to cleanup expired sessions", &e))?;
 
         if count > 0 {
             info!(expired_session_count = count, "Cleaned up expired widget sessions");

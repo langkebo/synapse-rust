@@ -184,24 +184,24 @@ impl AuthService {
             if e.to_string().contains("duplicate key") || e.to_string().contains("unique constraint") {
                 ApiError::user_in_use("Username already exists".to_string())
             } else {
-                ApiError::internal_with_log("Failed to create guest user", &e)
+                ApiError::internal_with_context("Failed to create guest user", &e)
             }
         })?;
 
         self.user_storage
             .set_guest_status(&user.user_id, true)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to mark guest user", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to mark guest user", &e))?;
 
         self.device_storage
             .create_device(&device_id, &user.user_id, Some("Guest Device"))
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create device", &e))?;
 
         let access_token = self
             .generate_access_token(&user.user_id, &device_id, false)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to generate guest token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to generate guest token", &e))?;
 
         Ok((user, device_id, access_token))
     }
@@ -237,11 +237,11 @@ impl AuthService {
         self.user_storage
             .upgrade_guest_account(&guest_user.user_id, username, &password_hash)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to upgrade account", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to upgrade account", &e))?;
 
         self.generate_access_token(&guest_user.user_id, device_id.unwrap_or(""), false)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to generate token", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to generate token", &e))
     }
 }
 

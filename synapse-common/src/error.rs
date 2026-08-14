@@ -466,18 +466,6 @@ impl ApiError {
         }
     }
 
-    /// Log an error and return an Internal error. The internal details are
-    /// logged but only a generic message is returned to the client.
-    pub fn internal_with_log(context: &str, err: &dyn std::fmt::Display) -> Self {
-        tracing::error!(%context, %err, "internal error");
-        Self {
-            kind: ApiErrorKind::Internal,
-            code: MatrixErrorCode::Unknown,
-            message: format!("Internal error: {context}: {err}"),
-            cause: None,
-        }
-    }
-
     /// Log a database error and return an Internal error whose message carries the
     /// operation context only (the underlying DB error is logged, not exposed to the
     /// client). This is the canonical constructor for storage-layer failures where

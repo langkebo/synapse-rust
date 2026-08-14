@@ -20,9 +20,9 @@ impl FilesystemBackend {
 
         if config.create_directories {
             std::fs::create_dir_all(&base_path)
-                .map_err(|e| ApiError::internal_with_log("Failed to create media directory", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to create media directory", &e))?;
             std::fs::create_dir_all(&thumbnail_path)
-                .map_err(|e| ApiError::internal_with_log("Failed to create thumbnail directory", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to create thumbnail directory", &e))?;
         }
 
         Ok(Self { base_path, thumbnail_path, max_path_depth: config.max_path_depth })
@@ -64,17 +64,17 @@ impl MediaStorageBackend for FilesystemBackend {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to create directory", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to create directory", &e))?;
         }
 
         let mut file =
-            fs::File::create(&path).await.map_err(|e| ApiError::internal_with_log("Failed to create file", &e))?;
+            fs::File::create(&path).await.map_err(|e| ApiError::internal_with_context("Failed to create file", &e))?;
 
         if let Err(e) = file.write_all(data).await {
             // Clean up the partially written file to prevent corrupted media
             // from being served on subsequent retrievals.
             let _ = fs::remove_file(&path).await;
-            return Err(ApiError::internal_with_log("Failed to write file", &e));
+            return Err(ApiError::internal_with_context("Failed to write file", &e));
         }
 
         Ok(())
@@ -90,11 +90,11 @@ impl MediaStorageBackend for FilesystemBackend {
         let mut file = match fs::File::open(&path).await {
             Ok(f) => f,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(ApiError::internal_with_log("Failed to open file", &e)),
+            Err(e) => return Err(ApiError::internal_with_context("Failed to open file", &e)),
         };
 
         let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).await.map_err(|e| ApiError::internal_with_log("Failed to read file", &e))?;
+        file.read_to_end(&mut buffer).await.map_err(|e| ApiError::internal_with_context("Failed to read file", &e))?;
 
         Ok(Some(buffer))
     }
@@ -106,7 +106,7 @@ impl MediaStorageBackend for FilesystemBackend {
             return Ok(false);
         }
 
-        fs::remove_file(&path).await.map_err(|e| ApiError::internal_with_log("Failed to delete file", &e))?;
+        fs::remove_file(&path).await.map_err(|e| ApiError::internal_with_context("Failed to delete file", &e))?;
 
         Ok(true)
     }
@@ -124,7 +124,7 @@ impl MediaStorageBackend for FilesystemBackend {
         }
 
         let metadata =
-            fs::metadata(&path).await.map_err(|e| ApiError::internal_with_log("Failed to get file metadata", &e))?;
+            fs::metadata(&path).await.map_err(|e| ApiError::internal_with_context("Failed to get file metadata", &e))?;
 
         Ok(Some(metadata.len()))
     }
@@ -141,15 +141,15 @@ impl MediaStorageBackend for FilesystemBackend {
 
         fs::create_dir_all(&self.thumbnail_path)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create thumbnail directory", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create thumbnail directory", &e))?;
 
         let mut file = fs::File::create(&path)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create thumbnail file", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create thumbnail file", &e))?;
 
         if let Err(e) = file.write_all(data).await {
             let _ = fs::remove_file(&path).await;
-            return Err(ApiError::internal_with_log("Failed to write thumbnail", &e));
+            return Err(ApiError::internal_with_context("Failed to write thumbnail", &e));
         }
 
         Ok(())
@@ -171,11 +171,11 @@ impl MediaStorageBackend for FilesystemBackend {
         let mut file = match fs::File::open(&path).await {
             Ok(f) => f,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(ApiError::internal_with_log("Failed to open thumbnail", &e)),
+            Err(e) => return Err(ApiError::internal_with_context("Failed to open thumbnail", &e)),
         };
 
         let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).await.map_err(|e| ApiError::internal_with_log("Failed to read thumbnail", &e))?;
+        file.read_to_end(&mut buffer).await.map_err(|e| ApiError::internal_with_context("Failed to read thumbnail", &e))?;
 
         Ok(Some(buffer))
     }
@@ -186,11 +186,11 @@ impl MediaStorageBackend for FilesystemBackend {
         let mut entries = match fs::read_dir(&self.thumbnail_path).await {
             Ok(e) => e,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
-            Err(e) => return Err(ApiError::internal_with_log("Failed to read thumbnail directory", &e)),
+            Err(e) => return Err(ApiError::internal_with_context("Failed to read thumbnail directory", &e)),
         };
 
         while let Some(entry) =
-            entries.next_entry().await.map_err(|e| ApiError::internal_with_log("Failed to read directory entry", &e))?
+            entries.next_entry().await.map_err(|e| ApiError::internal_with_context("Failed to read directory entry", &e))?
         {
             let file_name = entry.file_name();
             let name = file_name.to_string_lossy();
@@ -217,17 +217,17 @@ impl MediaStorageBackend for FilesystemBackend {
             newest: &mut Option<chrono::DateTime<chrono::Utc>>,
         ) -> Result<(), ApiError> {
             let entries =
-                std::fs::read_dir(path).map_err(|e| ApiError::internal_with_log("Failed to read directory", &e))?;
+                std::fs::read_dir(path).map_err(|e| ApiError::internal_with_context("Failed to read directory", &e))?;
 
             for entry in entries {
-                let entry = entry.map_err(|e| ApiError::internal_with_log("Failed to read entry", &e))?;
+                let entry = entry.map_err(|e| ApiError::internal_with_context("Failed to read entry", &e))?;
 
                 let path = entry.path();
                 if path.is_dir() {
                     process_directory(&path, total_files, total_size, oldest, newest)?;
                 } else {
                     let metadata = std::fs::metadata(&path)
-                        .map_err(|e| ApiError::internal_with_log("Failed to get metadata", &e))?;
+                        .map_err(|e| ApiError::internal_with_context("Failed to get metadata", &e))?;
 
                     *total_files += 1;
                     *total_size += metadata.len();

@@ -182,7 +182,7 @@ impl DirectoryService {
             storage
                 .upsert_directory_entry(&entry)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to persist public room to directory storage", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to persist public room to directory storage", &e))?;
             return Ok(());
         }
         let mut rooms = self.public_rooms.write().await;
@@ -203,7 +203,7 @@ impl DirectoryService {
             storage
                 .remove_from_directory(room_id)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to remove public room from directory storage", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to remove public room from directory storage", &e))?;
             return Ok(());
         }
         let mut rooms = self.public_rooms.write().await;
@@ -250,7 +250,7 @@ impl DirectoryService {
             storage
                 .set_room_alias(room_id, alias, "")
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to set room alias in storage", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to set room alias in storage", &e))?;
             return Ok(());
         }
         let mut aliases = self.aliases.write().await;
@@ -267,7 +267,7 @@ impl DirectoryService {
             storage
                 .remove_room_alias_by_name(alias)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to remove room alias from storage", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to remove room alias from storage", &e))?;
             return Ok(());
         }
         let mut aliases = self.aliases.write().await;
@@ -285,7 +285,7 @@ impl DirectoryService {
             let entries = storage
                 .list_public_rooms(limit as i64, 0)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to list public rooms from directory storage", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to list public rooms from directory storage", &e))?;
             return Ok(entries.into_iter().map(DirectoryRoom::from).collect());
         }
         let rooms = self.public_rooms.read().await;
@@ -299,7 +299,7 @@ impl DirectoryService {
             let entries = storage
                 .search_public_rooms(filter_str, limit as i64)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to search public rooms in directory storage", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to search public rooms in directory storage", &e))?;
             return Ok(entries.into_iter().map(DirectoryRoom::from).collect());
         }
         let rooms = self.public_rooms.read().await;

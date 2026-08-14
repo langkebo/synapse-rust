@@ -187,7 +187,7 @@ impl WorkerManager {
             .storage
             .get_worker(&request.worker_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check existing worker", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to check existing worker", &e))?
         {
             // P-080: Return 409 Conflict for any duplicate worker_id (not just "running" status)
             return Err(ApiError::conflict(format!(
@@ -200,7 +200,7 @@ impl WorkerManager {
             .storage
             .register_worker(request.clone())
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to register worker", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to register worker", &e))?;
 
         if let Some(lb) = &self.load_balancer {
             lb.register_worker(worker.clone()).await;
@@ -235,7 +235,7 @@ impl WorkerManager {
 
     #[instrument(skip(self))]
     pub async fn get(&self, worker_id: &str) -> Result<Option<WorkerInfo>, ApiError> {
-        self.storage.get_worker(worker_id).await.map_err(|e| ApiError::internal_with_log("Failed to get worker", &e))
+        self.storage.get_worker(worker_id).await.map_err(|e| ApiError::internal_with_context("Failed to get worker", &e))
     }
 
     #[instrument(skip(self))]
@@ -243,7 +243,7 @@ impl WorkerManager {
         self.storage
             .get_workers_by_type(worker_type.as_str())
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get workers by type", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get workers by type", &e))
     }
 
     #[instrument(skip(self))]
@@ -251,7 +251,7 @@ impl WorkerManager {
         self.storage
             .get_active_workers()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get active workers", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get active workers", &e))
     }
 
     #[instrument(skip(self))]
@@ -264,7 +264,7 @@ impl WorkerManager {
         self.storage
             .update_worker_status(worker_id, status.as_str())
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update worker status", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to update worker status", &e))?;
 
         match status {
             WorkerStatus::Starting | WorkerStatus::Running => {
@@ -273,7 +273,7 @@ impl WorkerManager {
                         .storage
                         .get_worker(worker_id)
                         .await
-                        .map_err(|e| ApiError::internal_with_log("Failed to refresh worker after heartbeat", &e))?
+                        .map_err(|e| ApiError::internal_with_context("Failed to refresh worker after heartbeat", &e))?
                     {
                         lb.register_worker(worker).await;
                     }
@@ -314,7 +314,7 @@ impl WorkerManager {
         self.storage
             .unregister_worker(worker_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to unregister worker", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to unregister worker", &e))?;
 
         if let Some(lb) = &self.load_balancer {
             lb.unregister_worker(worker_id).await;
@@ -348,7 +348,7 @@ impl WorkerManager {
             .storage
             .create_command(request.clone())
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create command", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create command", &e))?;
 
         let connections = self.connections.read().await;
         if let Some(conn) = connections.get(&request.target_worker_id) {
@@ -376,7 +376,7 @@ impl WorkerManager {
         self.storage
             .mark_command_sent(&command.command_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to mark command sent", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to mark command sent", &e))?;
 
         info!(
             command_id = %command.command_id,
@@ -392,7 +392,7 @@ impl WorkerManager {
         self.storage
             .get_pending_commands(worker_id, limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get pending commands", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get pending commands", &e))
     }
 
     #[instrument(skip(self))]
@@ -400,7 +400,7 @@ impl WorkerManager {
         self.storage
             .complete_command(command_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to complete command", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to complete command", &e))?;
 
         info!(command_id = %command_id, "Command completed");
         Ok(())
@@ -411,7 +411,7 @@ impl WorkerManager {
         self.storage
             .fail_command(command_id, error)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to fail command", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to fail command", &e))?;
 
         warn!(command_id = %command_id, error_message = %error, "Command failed");
         Ok(())
@@ -430,7 +430,7 @@ impl WorkerManager {
             .storage
             .add_event(event_id, event_type, room_id, sender, event_data)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to add event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to add event", &e))?;
 
         self.broadcast_event(&event).await?;
 
@@ -477,7 +477,7 @@ impl WorkerManager {
         self.storage
             .get_events_since(stream_id, limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get events", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get events", &e))
     }
 
     #[instrument(skip(self))]
@@ -490,7 +490,7 @@ impl WorkerManager {
         self.storage
             .update_replication_position(worker_id, stream_name, position)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update replication position", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to update replication position", &e))?;
 
         debug!("Replication position updated: {} - {} = {}", worker_id, stream_name, position);
         Ok(())
@@ -501,7 +501,7 @@ impl WorkerManager {
         self.storage
             .get_replication_position(worker_id, stream_name)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get replication position", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get replication position", &e))
     }
 
     #[instrument(skip(self))]
@@ -512,7 +512,7 @@ impl WorkerManager {
             .storage
             .assign_task(request.clone())
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to assign task", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to assign task", &e))?;
 
         if let Some(preferred_worker_id) = request.preferred_worker_id {
             let worker = self
@@ -525,7 +525,7 @@ impl WorkerManager {
                 .storage
                 .assign_task_to_worker(&task.task_id, &preferred_worker_id)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to assign task to worker", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to assign task to worker", &e))?;
 
             if !claimed {
                 return Err(ApiError::conflict("Task was already claimed before preferred assignment".to_string()));
@@ -541,7 +541,7 @@ impl WorkerManager {
         self.storage
             .get_pending_tasks(limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get pending tasks", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get pending tasks", &e))
     }
 
     #[instrument(skip(self))]
@@ -552,7 +552,7 @@ impl WorkerManager {
             .storage
             .get_pending_task_by_id(task_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load pending task before claim", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to load pending task before claim", &e))?
             .ok_or_else(|| ApiError::not_found("Task is not pending or unavailable"))?;
         let worker = self
             .get(worker_id)
@@ -564,7 +564,7 @@ impl WorkerManager {
             .storage
             .assign_task_to_worker(task_id, worker_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to claim task", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to claim task", &e))?;
 
         if !claimed {
             return Err(ApiError::conflict("Task is already claimed or unavailable".to_string()));
@@ -586,12 +586,12 @@ impl WorkerManager {
                 self.storage
                     .claim_next_pending_task_for_types(worker_id, &task_types)
                     .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to claim next compatible pending task", &e))?
+                    .map_err(|e| ApiError::internal_with_context("Failed to claim next compatible pending task", &e))?
             } else {
                 self.storage
                     .claim_next_pending_task(worker_id)
                     .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to claim next pending task", &e))?
+                    .map_err(|e| ApiError::internal_with_context("Failed to claim next pending task", &e))?
             };
 
         let task: WorkerTaskAssignment = task.ok_or_else(|| ApiError::not_found("No pending tasks available"))?;
@@ -604,7 +604,7 @@ impl WorkerManager {
         self.storage
             .complete_task(task_id, result)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to complete task", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to complete task", &e))?;
 
         info!(task_id = %task_id, "Task completed");
         Ok(())
@@ -615,7 +615,7 @@ impl WorkerManager {
         self.storage
             .fail_task(task_id, error)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to fail task", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to fail task", &e))?;
 
         warn!(task_id = %task_id, error_message = %error, "Task failed");
         Ok(())
@@ -629,11 +629,11 @@ impl WorkerManager {
             .storage
             .get_worker(worker_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get worker", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get worker", &e))?
             .ok_or_else(|| ApiError::not_found("Worker not found"))?;
 
         let conn = ReplicationConnection::new(worker_id.to_string());
-        conn.connect(addr).await.map_err(|e| ApiError::internal_with_log("Failed to connect to worker", &e))?;
+        conn.connect(addr).await.map_err(|e| ApiError::internal_with_context("Failed to connect to worker", &e))?;
 
         let _ = self
             .storage
@@ -676,7 +676,7 @@ impl WorkerManager {
         self.storage
             .get_statistics(limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get statistics", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get statistics", &e))
     }
 
     #[instrument(skip(self))]
@@ -684,7 +684,7 @@ impl WorkerManager {
         self.storage
             .get_type_statistics()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get type statistics", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get type statistics", &e))
     }
 
     pub async fn select_worker_for_task(&self, task_type: &str) -> Result<Option<String>, ApiError> {

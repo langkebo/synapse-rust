@@ -557,7 +557,7 @@ pub async fn batch_get_room_summaries(
         .room_summary_service()
         .get_summaries_by_ids(&body.rooms)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get room summaries", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to get room summaries", &e))?;
 
     let filtered: Vec<RoomSummaryResponse> = if body.is_suggested_only {
         responses.into_iter().filter(|r| r.room_type.as_deref() == Some("m.space")).collect()

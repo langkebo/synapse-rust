@@ -38,7 +38,7 @@ impl RefreshTokenService {
             .storage
             .create_token(request)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create refresh token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create refresh token", &e))?;
 
         Ok(token)
     }
@@ -52,13 +52,13 @@ impl RefreshTokenService {
             .storage
             .is_blacklisted(&token_hash)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check blacklist", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to check blacklist", &e))?;
 
         let is_legacy_blacklisted = if !is_blacklisted {
             self.storage
                 .is_blacklisted(&legacy_hash)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to check blacklist", &e))?
+                .map_err(|e| ApiError::internal_with_context("Failed to check blacklist", &e))?
         } else {
             true
         };
@@ -71,7 +71,7 @@ impl RefreshTokenService {
             .storage
             .get_token(&token_hash)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get token", &e))?;
 
         let token_record = match token_record {
             Some(r) => r,
@@ -79,7 +79,7 @@ impl RefreshTokenService {
                 .storage
                 .get_token(&legacy_hash)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to get token", &e))?
+                .map_err(|e| ApiError::internal_with_context("Failed to get token", &e))?
                 .ok_or_else(|| ApiError::unauthorized("Invalid refresh token"))?,
         };
 
@@ -150,12 +150,12 @@ impl RefreshTokenService {
                 self.storage
                     .mark_family_compromised(&family_id)
                     .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to mark family compromised", &e))?;
+                    .map_err(|e| ApiError::internal_with_context("Failed to mark family compromised", &e))?;
 
                 self.storage
                     .revoke_all_user_tokens(&old_token.user_id, "Potential token replay attack")
                     .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to revoke tokens", &e))?;
+                    .map_err(|e| ApiError::internal_with_context("Failed to revoke tokens", &e))?;
 
                 return Err(ApiError::unauthorized("Token reuse detected. All tokens revoked."));
             }
@@ -165,7 +165,7 @@ impl RefreshTokenService {
             .storage
             .revoke_token_cas(&old_token_hash, "Rotated")
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to revoke old token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to revoke old token", &e))?;
 
         if !revoked {
             // CAS failed — token was already revoked. Distinguish between:
@@ -177,7 +177,7 @@ impl RefreshTokenService {
                 .storage
                 .get_token(&old_token_hash)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to re-read token after CAS miss", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to re-read token after CAS miss", &e))?;
 
             if let Some(ref t) = current_token {
                 if t.revoked_reason.as_deref() == Some("Rotated") {
@@ -205,12 +205,12 @@ impl RefreshTokenService {
             self.storage
                 .mark_family_compromised(&family_id)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to mark family compromised", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to mark family compromised", &e))?;
 
             self.storage
                 .revoke_all_user_tokens(&old_token.user_id, "Token rotation race condition")
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to revoke tokens", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to revoke tokens", &e))?;
 
             return Err(ApiError::unauthorized("Token reuse detected. All tokens revoked."));
         }
@@ -229,12 +229,12 @@ impl RefreshTokenService {
                 user_agent: user_agent.map(|s| s.to_string()),
             })
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create new token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create new token", &e))?;
 
         self.storage
             .record_rotation(&family_id, Some(&old_token_hash), &new_token_hash, "refresh")
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to record rotation", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to record rotation", &e))?;
 
         let usage_request = RecordUsageRequest::new(old_token.id, &old_token.user_id, new_access_token_id, true);
 
@@ -261,12 +261,12 @@ impl RefreshTokenService {
         self.storage
             .revoke_token(&token_hash, reason)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to revoke token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to revoke token", &e))?;
 
         self.storage
             .revoke_token(&legacy_hash, reason)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to revoke token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to revoke token", &e))?;
 
         info!(token_hash_prefix = %&token_hash[..token_hash.len().min(8)], "Refresh token revoked");
 
@@ -278,7 +278,7 @@ impl RefreshTokenService {
         self.storage
             .revoke_token_by_id(id, reason)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to revoke token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to revoke token", &e))?;
 
         info!(token_id = id, "Refresh token revoked by id");
 
@@ -293,7 +293,7 @@ impl RefreshTokenService {
             .storage
             .revoke_all_user_tokens(user_id, reason)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to revoke tokens", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to revoke tokens", &e))?;
 
         Ok(count)
     }
@@ -304,7 +304,7 @@ impl RefreshTokenService {
             .storage
             .get_user_tokens(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get tokens", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get tokens", &e))?;
 
         Ok(tokens)
     }
@@ -315,7 +315,7 @@ impl RefreshTokenService {
             .storage
             .get_active_tokens(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get active tokens", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get active tokens", &e))?;
 
         Ok(tokens)
     }
@@ -326,7 +326,7 @@ impl RefreshTokenService {
             .storage
             .get_user_stats(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get stats", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get stats", &e))?;
 
         Ok(stats)
     }
@@ -337,7 +337,7 @@ impl RefreshTokenService {
             .storage
             .get_usage_history(user_id, limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get usage history", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get usage history", &e))?;
 
         Ok(history)
     }
@@ -357,12 +357,12 @@ impl RefreshTokenService {
         self.storage
             .add_to_blacklist(&token_hash, token_type, user_id, expires_at, reason)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to add to blacklist", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to add to blacklist", &e))?;
 
         self.storage
             .add_to_blacklist(&legacy_hash, token_type, user_id, expires_at, reason)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to add to blacklist", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to add to blacklist", &e))?;
 
         Ok(())
     }
@@ -375,13 +375,13 @@ impl RefreshTokenService {
             .storage
             .cleanup_expired_tokens()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to cleanup tokens", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to cleanup tokens", &e))?;
 
         let blacklist_count = self
             .storage
             .cleanup_blacklist()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to cleanup blacklist", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to cleanup blacklist", &e))?;
 
         info!(
             expired_token_count = count,
@@ -400,12 +400,12 @@ impl RefreshTokenService {
         self.storage
             .delete_token(&token_hash)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to delete token", &e))?;
 
         self.storage
             .delete_token(&legacy_hash)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to delete token", &e))?;
 
         Ok(())
     }

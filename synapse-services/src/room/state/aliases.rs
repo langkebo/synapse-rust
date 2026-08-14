@@ -11,7 +11,7 @@ impl RoomStateService {
         self.room_storage
             .get_room_aliases(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get room aliases", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get room aliases", &e))
     }
 
     pub async fn set_room_alias(&self, room_id: &str, alias: &str, created_by: &str) -> ApiResult<()> {
@@ -19,7 +19,7 @@ impl RoomStateService {
         self.room_storage
             .set_room_alias(room_id, alias, created_by)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to set room alias", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to set room alias", &e))
     }
 
     pub async fn get_room_by_alias(&self, alias: &str) -> ApiResult<Option<String>> {
@@ -27,28 +27,28 @@ impl RoomStateService {
         self.room_storage
             .get_room_by_alias(alias)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get room by alias", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get room by alias", &e))
     }
 
     pub async fn remove_room_alias(&self, room_id: &str) -> ApiResult<()> {
         self.room_storage
             .remove_room_alias(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to remove room alias", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to remove room alias", &e))
     }
 
     pub async fn remove_room_alias_by_name(&self, alias: &str) -> ApiResult<()> {
         self.room_storage
             .remove_room_alias_by_name(alias)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to remove room alias by name", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to remove room alias by name", &e))
     }
 
     pub async fn set_room_directory(&self, room_id: &str, is_public: bool) -> ApiResult<()> {
         self.room_storage
             .set_room_directory(room_id, is_public)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to set room directory", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to set room directory", &e))
     }
 
     pub async fn get_room_visibility(&self, room_id: &str) -> ApiResult<String> {
@@ -56,7 +56,7 @@ impl RoomStateService {
             .room_storage
             .is_room_in_directory(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get room visibility", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get room visibility", &e))?;
         Ok(if is_public { "public".to_string() } else { "private".to_string() })
     }
 
@@ -64,7 +64,7 @@ impl RoomStateService {
         self.room_storage
             .remove_room_directory(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to remove room from directory", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to remove room from directory", &e))
     }
 
     pub async fn get_public_rooms(&self, limit: i64) -> ApiResult<serde_json::Value> {
@@ -72,7 +72,7 @@ impl RoomStateService {
             .room_storage
             .get_public_rooms(limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get public rooms", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get public rooms", &e))?;
 
         let room_list: Vec<serde_json::Value> = rooms
             .iter()

@@ -92,7 +92,7 @@ pub async fn enable_burn(
         .state()
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to check room existence", &e))?;
 
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
@@ -108,7 +108,7 @@ pub async fn enable_burn(
     ctx.burn_after_read
         .set_burn_enabled(&auth_user.user_id, &room_id, enabled, burn_after_ms)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to enable burn", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to enable burn", &e))?;
 
     Ok(Json(json!({
         "enabled": enabled,
@@ -128,7 +128,7 @@ pub async fn get_burn_settings(
         .state()
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to check room existence", &e))?;
 
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
@@ -141,7 +141,7 @@ pub async fn get_burn_settings(
         .burn_after_read
         .get_burn_settings(&auth_user.user_id, &room_id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get settings", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to get settings", &e))?;
 
     match settings {
         Some(s) => Ok(Json(json!({
@@ -167,7 +167,7 @@ pub async fn mark_burn_read(
         .state()
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to check room existence", &e))?;
 
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
@@ -180,7 +180,7 @@ pub async fn mark_burn_read(
         .burn_after_read
         .get_burn_settings(&auth_user.user_id, &room_id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get settings", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to get settings", &e))?;
 
     let (enabled, burn_after_ms) = match settings {
         Some(s) => (s.is_enabled, s.burn_after_ms),
@@ -196,7 +196,7 @@ pub async fn mark_burn_read(
     ctx.burn_after_read
         .schedule_burn(&auth_user.user_id, &room_id, &event_id, burn_after_ms)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to schedule burn", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to schedule burn", &e))?;
 
     Ok(Json(json!({
         "success": true,
@@ -216,7 +216,7 @@ pub async fn get_pending_burns(
         .state()
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to check room existence", &e))?;
 
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
@@ -234,7 +234,7 @@ pub async fn get_pending_burns(
         .burn_after_read
         .get_pending_burns(&auth_user.user_id, &room_id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get pending", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to get pending", &e))?;
 
     let events: Vec<Value> = pending
         .into_iter()
@@ -264,7 +264,7 @@ pub async fn cancel_burn(
         .state()
         .room_exists(&room_id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to check room existence", &e))?;
 
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
@@ -276,7 +276,7 @@ pub async fn cancel_burn(
     ctx.burn_after_read
         .cancel_burn(&auth_user.user_id, &room_id, &event_id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to cancel burn", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to cancel burn", &e))?;
 
     Ok(Json(json!({
         "success": true,
@@ -295,7 +295,7 @@ pub async fn set_global_burn_config(
     ctx.burn_after_read
         .set_user_default(&auth_user.user_id, default_burn_ms)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to set config", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to set config", &e))?;
 
     Ok(Json(json!({
         "default_burn_ms": default_burn_ms,
@@ -312,7 +312,7 @@ pub async fn get_burn_stats(
         .burn_after_read
         .get_user_stats(&auth_user.user_id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get stats", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to get stats", &e))?;
 
     Ok(Json(json!({
         "total_burned": stats.total_burned,

@@ -162,12 +162,12 @@ impl FederationBlacklistService {
             "domain" => Ok(server_name == rule.pattern),
             "regex" => cache
                 .is_match(&rule.pattern, server_name)
-                .map_err(|e| ApiError::internal_with_log("Invalid regex pattern", &e)),
+                .map_err(|e| ApiError::internal_with_context("Invalid regex pattern", &e)),
             "wildcard" => {
                 let pattern = format!("^{}$", rule.pattern.replace('*', ".*"));
                 cache
                     .is_match(&pattern, server_name)
-                    .map_err(|e| ApiError::internal_with_log("Invalid wildcard pattern", &e))
+                    .map_err(|e| ApiError::internal_with_context("Invalid wildcard pattern", &e))
             }
             "cidr" => Ok(false),
             _ => Ok(false),

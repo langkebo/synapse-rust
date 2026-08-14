@@ -125,7 +125,7 @@ impl ApplicationServiceManager {
             .storage
             .get_by_id(as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get service", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get service", &e))?
             .ok_or_else(|| ApiError::not_found("Application service not found"))?;
 
         let transaction_id = format!("{}", uuid::Uuid::new_v4());
@@ -134,7 +134,7 @@ impl ApplicationServiceManager {
             .storage
             .create_transaction(as_id, &transaction_id, &events)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create transaction", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create transaction", &e))?;
 
         self.deliver_transaction(&service, &transaction_id, &events).await
     }
@@ -144,12 +144,12 @@ impl ApplicationServiceManager {
             .storage
             .get_by_id(as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get application service", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get application service", &e))?
             .ok_or_else(|| ApiError::not_found("Application service not found"))?;
 
         let pending_transactions =
             self.storage.get_pending_transactions(as_id).await.map_err(|e| {
-                ApiError::internal_with_log("Failed to get pending application service transactions", &e)
+                ApiError::internal_with_context("Failed to get pending application service transactions", &e)
             })?;
         if let Some(transaction) = pending_transactions.first() {
             let now = current_timestamp_millis();
@@ -158,7 +158,7 @@ impl ApplicationServiceManager {
             }
 
             let events: Vec<serde_json::Value> = serde_json::from_value(transaction.events.clone()).map_err(|e| {
-                ApiError::internal_with_log("Failed to decode pending application service transaction", &e)
+                ApiError::internal_with_context("Failed to decode pending application service transaction", &e)
             })?;
             let txn_id = transaction.txn_id.as_str();
             self.deliver_transaction(&service, txn_id, &events).await?;
@@ -169,7 +169,7 @@ impl ApplicationServiceManager {
             .storage
             .get_pending_events(as_id, batch_limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get pending application service events", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get pending application service events", &e))?;
         if pending_events.is_empty() {
             return Ok(0);
         }
@@ -179,7 +179,7 @@ impl ApplicationServiceManager {
         self.storage
             .create_transaction(as_id, &transaction_id, &events)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create application service transaction", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create application service transaction", &e))?;
         self.deliver_transaction(&service, &transaction_id, &events).await?;
 
         Ok(pending_events.len())
@@ -264,7 +264,7 @@ impl ApplicationServiceManager {
                 let failure_reason = format!("HTTP {status}: {error_body}");
                 self.handle_transaction_failure(service, transaction_id, &failure_reason, failure_kind).await;
 
-                Err(ApiError::internal_with_log("Application service returned error", &format!("HTTP {status}")))
+                Err(ApiError::internal_with_context("Application service returned error", &format!("HTTP {status}")))
             }
             Err(e) => {
                 self.handle_transaction_failure(
@@ -275,7 +275,7 @@ impl ApplicationServiceManager {
                 )
                 .await;
 
-                Err(ApiError::internal_with_log("Failed to send transaction", &e))
+                Err(ApiError::internal_with_context("Failed to send transaction", &e))
             }
         }
     }
@@ -288,7 +288,7 @@ impl ApplicationServiceManager {
             pending_events.iter().map(|pe| Self::source_event_id(&pe.event_id)).collect();
 
         let source_events = self.event_reader.get_events_map(&source_event_ids).await.map_err(|e| {
-            ApiError::internal_with_log("Failed to load source room events for application service", &e)
+            ApiError::internal_with_context("Failed to load source room events for application service", &e)
         })?;
 
         let mut events = Vec::with_capacity(pending_events.len());
@@ -336,7 +336,7 @@ impl ApplicationServiceManager {
         let source_event_id = Self::source_event_id(&pending_event.event_id);
         let source_event =
             self.event_reader.get_event(&source_event_id).await.map_err(|e| {
-                ApiError::internal_with_log("Failed to load source room event for application service", &e)
+                ApiError::internal_with_context("Failed to load source room event for application service", &e)
             })?;
 
         if let Some(source_event) = source_event {

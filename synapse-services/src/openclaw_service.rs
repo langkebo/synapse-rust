@@ -172,7 +172,7 @@ impl OpenClawService {
         self.storage
             .get_user_connections(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get connections", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get connections", &e))
     }
 
     #[::tracing::instrument(
@@ -212,7 +212,7 @@ impl OpenClawService {
                 is_default,
             })
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create connection", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to create connection", &e))
     }
 
     #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
@@ -221,7 +221,7 @@ impl OpenClawService {
             .storage
             .get_connection(id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get connection", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get connection", &e))?
             .ok_or_else(|| ApiError::not_found("Connection not found"))?;
 
         self.ensure_resource_owner(&conn.user_id, auth_user_id, "Connection not found")?;
@@ -273,7 +273,7 @@ impl OpenClawService {
                 is_active,
             })
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update connection", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to update connection", &e))
     }
 
     #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
@@ -284,7 +284,7 @@ impl OpenClawService {
         self.storage
             .delete_connection(id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete connection", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to delete connection", &e))
     }
 
     #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
@@ -322,7 +322,7 @@ impl OpenClawService {
         self.storage
             .get_user_conversations(user_id, limit, cursor)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get conversations", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get conversations", &e))
     }
 
     #[::tracing::instrument(
@@ -364,7 +364,7 @@ impl OpenClawService {
                 max_tokens,
             })
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create conversation", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to create conversation", &e))
     }
 
     #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
@@ -373,7 +373,7 @@ impl OpenClawService {
             .storage
             .get_conversation(id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get conversation", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get conversation", &e))?
             .ok_or_else(|| ApiError::not_found("Conversation not found"))?;
 
         self.ensure_resource_owner(&conv.user_id, auth_user_id, "Conversation not found")?;
@@ -409,7 +409,7 @@ impl OpenClawService {
         self.storage
             .update_conversation(id, title, system_prompt, temperature, max_tokens, is_pinned)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update conversation", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to update conversation", &e))
     }
 
     #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
@@ -420,7 +420,7 @@ impl OpenClawService {
         self.storage
             .delete_conversation(id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete conversation", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to delete conversation", &e))
     }
 
     // -----------------------------------------------------------------------
@@ -457,7 +457,7 @@ impl OpenClawService {
                     .storage
                     .get_message(before_id)
                     .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to resolve legacy before cursor", &e))?
+                    .map_err(|e| ApiError::internal_with_context("Failed to resolve legacy before cursor", &e))?
                     .ok_or_else(|| ApiError::not_found("Message not found"))?;
 
                 if message.conversation_id != conversation_id {
@@ -472,7 +472,7 @@ impl OpenClawService {
         self.storage
             .get_conversation_messages(conversation_id, limit, cursor)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get messages", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get messages", &e))
     }
 
     #[::tracing::instrument(
@@ -503,7 +503,7 @@ impl OpenClawService {
         self.storage
             .create_message(conversation_id, role, content, None, tool_calls, tool_call_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create message", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to create message", &e))
     }
 
     #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
@@ -512,13 +512,13 @@ impl OpenClawService {
             .storage
             .get_message(id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get message", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get message", &e))?
             .ok_or_else(|| ApiError::not_found("Message not found"))?;
 
         // Ownership check via conversation
         let _ = self.get_conversation_for_user(msg.conversation_id, auth_user_id).await?;
 
-        self.storage.delete_message(id).await.map_err(|e| ApiError::internal_with_log("Failed to delete message", &e))
+        self.storage.delete_message(id).await.map_err(|e| ApiError::internal_with_context("Failed to delete message", &e))
     }
 
     // -----------------------------------------------------------------------
@@ -549,7 +549,7 @@ impl OpenClawService {
         self.storage
             .get_user_generations(user_id, gen_type, limit, cursor)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get generations", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get generations", &e))
     }
 
     #[::tracing::instrument(
@@ -576,7 +576,7 @@ impl OpenClawService {
         self.storage
             .create_generation(user_id, conversation_id, gen_type, prompt)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create generation", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to create generation", &e))
     }
 
     #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
@@ -585,7 +585,7 @@ impl OpenClawService {
             .storage
             .get_generation(id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get generation", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get generation", &e))?
             .ok_or_else(|| ApiError::not_found("Generation not found"))?;
 
         self.ensure_resource_owner(&gen.user_id, auth_user_id, "Generation not found")?;
@@ -600,7 +600,7 @@ impl OpenClawService {
         self.storage
             .delete_generation(id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete generation", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to delete generation", &e))
     }
 
     // -----------------------------------------------------------------------
@@ -612,7 +612,7 @@ impl OpenClawService {
         self.storage
             .get_user_chat_roles(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get chat roles", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get chat roles", &e))
     }
 
     #[::tracing::instrument(
@@ -657,7 +657,7 @@ impl OpenClawService {
                 is_public,
             })
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create chat role", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to create chat role", &e))
     }
 
     #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
@@ -666,7 +666,7 @@ impl OpenClawService {
             .storage
             .get_chat_role(id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get chat role", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get chat role", &e))?
             .ok_or_else(|| ApiError::not_found("Chat role not found"))?;
 
         // Public roles are visible to everyone; private roles require ownership
@@ -712,7 +712,7 @@ impl OpenClawService {
             .storage
             .get_chat_role(id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get chat role", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get chat role", &e))?
             .ok_or_else(|| ApiError::not_found("Chat role not found"))?;
 
         self.ensure_resource_owner(&existing.user_id, auth_user_id, "Chat role not found")?;
@@ -731,7 +731,7 @@ impl OpenClawService {
                 is_public,
             })
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update chat role", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to update chat role", &e))
     }
 
     #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
@@ -741,7 +741,7 @@ impl OpenClawService {
             .storage
             .get_chat_role(id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get chat role", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get chat role", &e))?
             .ok_or_else(|| ApiError::not_found("Chat role not found"))?;
 
         self.ensure_resource_owner(&existing.user_id, auth_user_id, "Chat role not found")?;
@@ -749,7 +749,7 @@ impl OpenClawService {
         self.storage
             .delete_chat_role(id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete chat role", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to delete chat role", &e))
     }
 }
 
@@ -771,13 +771,13 @@ fn encrypt_api_key(key: &str, encryption_key: &[u8; 32]) -> Result<String, ApiEr
     use rand::RngCore;
 
     let cipher = Aes256Gcm::new_from_slice(encryption_key)
-        .map_err(|e| ApiError::internal_with_log("Invalid encryption key length", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Invalid encryption key length", &e))?;
     let mut nonce_bytes = [0u8; 12];
     rand::rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     let ciphertext =
-        cipher.encrypt(nonce, key.as_bytes()).map_err(|e| ApiError::internal_with_log("Encryption failed", &e))?;
+        cipher.encrypt(nonce, key.as_bytes()).map_err(|e| ApiError::internal_with_context("Encryption failed", &e))?;
 
     let mut combined = nonce_bytes.to_vec();
     combined.extend_from_slice(&ciphertext);

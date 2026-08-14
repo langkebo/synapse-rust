@@ -163,7 +163,7 @@ impl CallOrchestrationService {
                     room_id,
                     sender_id,
                     serde_json::to_value(candidate)
-                        .map_err(|e| ApiError::internal_with_log("Failed to serialize candidate", &e))?,
+                        .map_err(|e| ApiError::internal_with_context("Failed to serialize candidate", &e))?,
                 )
                 .await
                 .map_err(|e| ApiError::database_with_context("Failed to add candidate", &e))?;

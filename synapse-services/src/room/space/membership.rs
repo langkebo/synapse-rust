@@ -13,7 +13,7 @@ impl SpaceService {
         self.space_storage
             .get_space_members(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get space members", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get space members", &e))
     }
 
     #[instrument(skip(self))]
@@ -27,7 +27,7 @@ impl SpaceService {
         self.space_storage
             .get_space_members_paginated(space_id, limit, from_joined_ts, from_user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get paginated space members", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get paginated space members", &e))
     }
 
     #[instrument(skip(self))]
@@ -40,7 +40,7 @@ impl SpaceService {
             .space_storage
             .add_space_member(space_id, user_id, "invite", Some(inviter))
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to invite user", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to invite user", &e))?;
 
         let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
         let content = json!({
@@ -60,7 +60,7 @@ impl SpaceService {
                     membership = %"invite",
                     "Failed to add space member event"
                 );
-                ApiError::internal_with_log("Failed to add space event", &e)
+                ApiError::internal_with_context("Failed to add space event", &e)
             })?;
 
         info!(space_id = %space_id, user_id = %user_id, inviter = %inviter, "Invited user to space");
@@ -75,7 +75,7 @@ impl SpaceService {
             .space_storage
             .get_space(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get space", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get space", &e))?
             .ok_or_else(|| ApiError::not_found("Space not found"))?;
 
         if space.join_rule == "invite" {
@@ -83,7 +83,7 @@ impl SpaceService {
                 .space_storage
                 .get_space_member(space_id, user_id)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to get space member", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to get space member", &e))?;
 
             let is_invited = existing.as_ref().is_some_and(|member| member.membership == "invite");
             if !is_invited {
@@ -95,11 +95,11 @@ impl SpaceService {
             .space_storage
             .add_space_member(space_id, user_id, "join", None)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to join space", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to join space", &e))?;
 
         self.space_storage.update_space_summary(space_id).await.map_err(|e| {
             warn!(error = %e, space_id = %space_id, user_id = %user_id, membership = %"join", "Failed to update space summary");
-            ApiError::internal_with_log("Failed to update space summary", &e)
+            ApiError::internal_with_context("Failed to update space summary", &e)
         })?;
 
         let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
@@ -119,7 +119,7 @@ impl SpaceService {
                     membership = %"join",
                     "Failed to add space member event"
                 );
-                ApiError::internal_with_log("Failed to add space event", &e)
+                ApiError::internal_with_context("Failed to add space event", &e)
             })?;
 
         info!(space_id = %space_id, user_id = %user_id, "Joined space");
@@ -133,11 +133,11 @@ impl SpaceService {
         self.space_storage
             .remove_space_member(space_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to leave space", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to leave space", &e))?;
 
         self.space_storage.update_space_summary(space_id).await.map_err(|e| {
             warn!(error = %e, space_id = %space_id, user_id = %user_id, membership = %"leave", "Failed to update space summary");
-            ApiError::internal_with_log("Failed to update space summary", &e)
+            ApiError::internal_with_context("Failed to update space summary", &e)
         })?;
 
         let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
@@ -157,7 +157,7 @@ impl SpaceService {
                     membership = %"leave",
                     "Failed to add space member event"
                 );
-                ApiError::internal_with_log("Failed to add space event", &e)
+                ApiError::internal_with_context("Failed to add space event", &e)
             })?;
 
         info!(space_id = %space_id, user_id = %user_id, "Left space");

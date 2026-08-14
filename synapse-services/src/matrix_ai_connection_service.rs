@@ -62,13 +62,13 @@ impl MatrixAiConnectionService {
         self.storage
             .get_user_connections(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get user connections", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get user connections", &e))
     }
 
     /// Get a specific AI connection by ID, checking ownership
     pub async fn get_connection(&self, id: &str, user_id: &str) -> Result<Option<AiConnection>, ApiError> {
         let conn =
-            self.storage.get_connection(id).await.map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+            self.storage.get_connection(id).await.map_err(|e| ApiError::internal_with_context("Database error", &e))?;
 
         if let Some(ref c) = conn {
             if c.user_id != user_id {
@@ -101,7 +101,7 @@ impl MatrixAiConnectionService {
         self.storage
             .create_connection(&conn)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create connection", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create connection", &e))?;
 
         info!(
             connection_id = %conn.id,
@@ -122,7 +122,7 @@ impl MatrixAiConnectionService {
     ) -> Result<Option<AiConnection>, ApiError> {
         // First check ownership
         let existing =
-            self.storage.get_connection(id).await.map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+            self.storage.get_connection(id).await.map_err(|e| ApiError::internal_with_context("Database error", &e))?;
 
         let existing = match existing {
             Some(c) => c,
@@ -138,12 +138,12 @@ impl MatrixAiConnectionService {
             self.storage
                 .update_connection_status(id, is_active)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to update connection status", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to update connection status", &e))?;
         }
 
         // Fetch and return updated connection
         let updated =
-            self.storage.get_connection(id).await.map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+            self.storage.get_connection(id).await.map_err(|e| ApiError::internal_with_context("Database error", &e))?;
 
         if updated.is_some() {
             info!(
@@ -165,7 +165,7 @@ impl MatrixAiConnectionService {
             .storage
             .get_connection(id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
+            .map_err(|e| ApiError::internal_with_context("Database error", &e))?
             .ok_or_else(|| ApiError::not_found("Connection not found"))?;
 
         if conn.user_id != user_id {
@@ -175,7 +175,7 @@ impl MatrixAiConnectionService {
         self.storage
             .delete_connection(id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete connection", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to delete connection", &e))?;
 
         info!(connection_id = %id, user_id = %user_id, provider = %conn.provider, "Deleted AI connection");
         Ok(true)
@@ -197,7 +197,7 @@ impl MatrixAiConnectionService {
             .storage
             .get_user_provider_connection(user_id, provider)
             .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
+            .map_err(|e| ApiError::internal_with_context("Database error", &e))?
             .ok_or_else(|| ApiError::not_found(format!("Active connection for provider {} not found", provider)))?;
 
         let mcp_url = self.extract_mcp_url(&conn)?;
@@ -212,7 +212,7 @@ impl MatrixAiConnectionService {
             .storage
             .get_user_provider_connection(user_id, &request.provider)
             .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
+            .map_err(|e| ApiError::internal_with_context("Database error", &e))?
             .ok_or_else(|| {
                 ApiError::not_found(format!("Active connection for provider {} not found", request.provider))
             })?;

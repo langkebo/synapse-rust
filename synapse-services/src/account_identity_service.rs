@@ -119,7 +119,7 @@ impl AccountIdentityService {
             .store()
             .get_daily_active_users()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get daily active users", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get daily active users", &e))
     }
 
     #[tracing::instrument(skip(self))]
@@ -128,7 +128,7 @@ impl AccountIdentityService {
             .store()
             .get_monthly_active_users()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get monthly active users", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get monthly active users", &e))
     }
 
     #[tracing::instrument(skip(self))]
@@ -137,7 +137,7 @@ impl AccountIdentityService {
             .store()
             .get_r30_users()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get r30 users", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get r30 users", &e))
     }
 
     pub async fn resolve_password_reset_user_id_by_email(&self, email: &str, request_id: &str) -> Option<String> {

@@ -236,7 +236,7 @@ async fn query_keys(
             .membership()
             .get_shared_room_users(&auth_user.user_id)
             .await
-            .map_err(|e| crate::error::ApiError::internal_with_log("Failed to load shared room users", &e))?;
+            .map_err(|e| crate::error::ApiError::internal_with_context("Failed to load shared room users", &e))?;
         shared.push(auth_user.user_id.clone());
         let map: serde_json::Map<String, Value> = shared.into_iter().map(|uid| (uid, serde_json::json!([]))).collect();
         serde_json::Value::Object(map)
@@ -360,7 +360,7 @@ async fn query_keys(
         if !user_ids.is_empty() {
             let batch_result =
                 ctx.cross_signing_service.get_verified_devices_batch(&user_ids).await.map_err(|e| {
-                    crate::error::ApiError::internal_with_log("Failed to load verified devices batch", &e)
+                    crate::error::ApiError::internal_with_context("Failed to load verified devices batch", &e)
                 })?;
 
             for (user_id, vd_map) in batch_result {

@@ -10,7 +10,7 @@ use super::service::MessagingService;
 
 impl MessagingService {
     pub async fn get_event_record(&self, event_id: &str) -> ApiResult<Option<synapse_storage::RoomEvent>> {
-        self.event_reader.get_event(event_id).await.map_err(|e| ApiError::internal_with_log("Failed to get event", &e))
+        self.event_reader.get_event(event_id).await.map_err(|e| ApiError::internal_with_context("Failed to get event", &e))
     }
 
     pub async fn get_event_record_in_room(
@@ -22,7 +22,7 @@ impl MessagingService {
             .event_reader
             .get_event(event_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get event", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get event", &e))?
             .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
         if event.room_id != room_id {
@@ -41,7 +41,7 @@ impl MessagingService {
         self.event_reader
             .find_event_id_by_timestamp(room_id, ts, forward)
             .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))
+            .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
     pub async fn report_event(
@@ -55,7 +55,7 @@ impl MessagingService {
         self.event_writer
             .report_event(event_id, room_id, "", reporter_user_id, reason, score)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to report event", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to report event", &e))
     }
 
     pub async fn get_state_events(&self, room_id: &str) -> ApiResult<Vec<serde_json::Value>> {
@@ -63,7 +63,7 @@ impl MessagingService {
             .event_reader
             .get_state_events(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get state events", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get state events", &e))?;
 
         let event_list: Vec<serde_json::Value> = events
             .iter()
@@ -114,7 +114,7 @@ impl MessagingService {
             .event_writer
             .create_event(params, tx)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create event", &e))?;
 
         // Invalidate room-state cache when a state event is written.
         // Best-effort: failure to delete is non-fatal.
@@ -206,7 +206,7 @@ impl MessagingService {
             .event_writer
             .create_event_with_graph(params, prev_events, auth_events, depth, tx)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create event with graph data", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create event with graph data", &e))?;
 
         // Invalidate room-state cache when a state event is written.
         // Best-effort: failure to delete is non-fatal.
@@ -263,7 +263,7 @@ impl MessagingService {
             .event_reader
             .get_state_events_by_type(room_id, event_type)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get state events by type", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get state events by type", &e))?;
 
         let event_list: Vec<serde_json::Value> = events
             .iter()
@@ -316,7 +316,7 @@ impl MessagingService {
             None,
         )
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to persist pinned events state", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to persist pinned events state", &e))?;
         Ok(())
     }
 
@@ -325,7 +325,7 @@ impl MessagingService {
             .event_reader
             .get_event(event_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get event", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get event", &e))?
             .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
         if event.room_id != room_id {
@@ -347,14 +347,14 @@ impl MessagingService {
         self.event_reader
             .get_pending_room_events(room_id, limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get pending events", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get pending events", &e))
     }
 
     pub async fn get_room_events(&self, room_id: &str, limit: i64) -> ApiResult<Vec<synapse_storage::RoomEvent>> {
         self.event_reader
             .get_room_events(room_id, limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get room events", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get room events", &e))
     }
 
     pub async fn get_room_events_by_type(
@@ -366,7 +366,7 @@ impl MessagingService {
         self.event_reader
             .get_room_events_by_type(room_id, event_type, limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get room events by type", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get room events by type", &e))
     }
 
     pub async fn get_room_events_paginated_admin(
@@ -436,7 +436,7 @@ impl MessagingService {
         self.event_reader
             .search_room_messages_admin(room_id, search_pattern, limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Search failed", &e))
+            .map_err(|e| ApiError::internal_with_context("Search failed", &e))
     }
 
     pub async fn get_forward_extremities_count(&self, room_id: &str) -> ApiResult<i64> {
@@ -454,7 +454,7 @@ impl MessagingService {
         self.event_writer
             .redact_event_content(event_id, redacted_by)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to redact event content", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to redact event content", &e))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -471,14 +471,14 @@ impl MessagingService {
         self.event_writer
             .save_event_signature(event_id, user_id, device_id, signature, key_id, algorithm, created_ts)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to save signature", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to save signature", &e))
     }
 
     pub async fn get_event_signatures(&self, event_id: &str) -> ApiResult<Vec<synapse_storage::event::EventSignature>> {
         self.event_reader
             .get_event_signatures(event_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get signatures", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get signatures", &e))
     }
 
     #[tracing::instrument(skip(self))]
@@ -486,7 +486,7 @@ impl MessagingService {
         self.event_reader
             .get_daily_message_count()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get daily message count", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get daily message count", &e))
     }
 
     #[tracing::instrument(skip(self))]
@@ -494,7 +494,7 @@ impl MessagingService {
         self.event_reader
             .find_missing_event_ids(event_ids)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to find missing event ids", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to find missing event ids", &e))
     }
 
     #[tracing::instrument(skip(self))]
@@ -508,6 +508,6 @@ impl MessagingService {
         self.event_reader
             .get_missing_events_between(room_id, earliest_events, latest_events, limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to walk event DAG for missing events", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to walk event DAG for missing events", &e))
     }
 }

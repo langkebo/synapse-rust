@@ -14,7 +14,7 @@ impl MembershipService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to check room", &e))?
         {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
@@ -29,7 +29,7 @@ impl MembershipService {
             .user_storage
             .user_exists(invitee_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check user existence", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to check user existence", &e))?
         {
             return Err(ApiError::not_found("User not found".to_string()));
         }
@@ -41,7 +41,7 @@ impl MembershipService {
             .member_storage
             .get_room_member(room_id, invitee_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check target membership", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to check target membership", &e))?
             .as_ref()
             .and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
         if let Err(msg) = super::transition::is_legal(
@@ -63,7 +63,7 @@ impl MembershipService {
             .member_storage
             .add_member(room_id, invitee_id, "invite", None, None, Some(inviter_id), None)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create invite event", &e))?;
 
         // Update room summary to reflect the new invite
         let request = synapse_storage::room_summary::CreateSummaryMemberRequest {
@@ -107,7 +107,7 @@ impl MembershipService {
                 None,
             )
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member invite event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to record m.room.member invite event", &e))?;
 
         // Invalidate room-state cache after membership state change.
         let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
@@ -134,7 +134,7 @@ impl MembershipService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to check room", &e))?
         {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
@@ -155,7 +155,7 @@ impl MembershipService {
         self.member_storage
             .add_member(room_id, user_id, "knock", None, reason, None, None)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create knock event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create knock event", &e))?;
         Ok(())
     }
 
@@ -164,7 +164,7 @@ impl MembershipService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to check room", &e))?
         {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
@@ -173,7 +173,7 @@ impl MembershipService {
             .user_storage
             .user_exists(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check user existence", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to check user existence", &e))?
         {
             return Err(ApiError::not_found("User not found".to_string()));
         }
@@ -185,7 +185,7 @@ impl MembershipService {
             .member_storage
             .get_room_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check target membership", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to check target membership", &e))?
             .as_ref()
             .and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
         if let Err(msg) = super::transition::is_legal(
@@ -206,7 +206,7 @@ impl MembershipService {
         self.member_storage
             .ban_member(room_id, user_id, banned_by)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to ban user", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to ban user", &e))?;
 
         let event_id = generate_event_id(&self.server_name);
         let content = json!({
@@ -230,7 +230,7 @@ impl MembershipService {
                 None,
             )
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member ban event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to record m.room.member ban event", &e))?;
 
         // Invalidate room-state cache after membership state change.
         let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
@@ -256,7 +256,7 @@ impl MembershipService {
             .member_storage
             .get_room_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check target membership", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to check target membership", &e))?
             .as_ref()
             .and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
         if let Err(msg) = super::transition::is_legal(
@@ -279,7 +279,7 @@ impl MembershipService {
         self.member_storage
             .unban_member(room_id, user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to unban user", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to unban user", &e))?;
 
         let event_id = generate_event_id(&self.server_name);
         let content = json!({
@@ -302,7 +302,7 @@ impl MembershipService {
                 None,
             )
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member unban event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to record m.room.member unban event", &e))?;
 
         // Invalidate room-state cache after membership state change.
         let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
@@ -331,7 +331,7 @@ impl MembershipService {
             .room_storage
             .room_exists(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to check room existence", &e))?
         {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
@@ -340,7 +340,7 @@ impl MembershipService {
             .user_storage
             .user_exists(target_user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check user existence", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to check user existence", &e))?
         {
             return Err(ApiError::not_found("User not found".to_string()));
         }
@@ -352,7 +352,7 @@ impl MembershipService {
             .member_storage
             .get_room_member(room_id, target_user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check target membership", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to check target membership", &e))?
             .as_ref()
             .and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
         if let Err(msg) = super::transition::is_legal(
@@ -375,7 +375,7 @@ impl MembershipService {
         self.member_storage
             .remove_member(room_id, target_user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to kick user", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to kick user", &e))?;
 
         let event_id = generate_event_id(&self.server_name);
         let content = json!({
@@ -399,7 +399,7 @@ impl MembershipService {
                 None,
             )
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member kick event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to record m.room.member kick event", &e))?;
 
         // Invalidate room-state cache after membership state change.
         let _ = self.cache.delete(&format!("room_state:{room_id}")).await;

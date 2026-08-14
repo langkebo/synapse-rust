@@ -21,7 +21,7 @@ impl RoomSummaryService {
             .storage
             .set_state(room_id, event_type, state_key, event_id, content)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update state", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to update state", &e))?;
 
         self.update_summary_from_state(room_id, Some(event_type), state_key, &state.content).await?;
 
@@ -83,7 +83,7 @@ impl RoomSummaryService {
                 self.storage
                     .set_canonical_alias(room_id, canonical_alias)
                     .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to update canonical alias", &e))?;
+                    .map_err(|e| ApiError::internal_with_context("Failed to update canonical alias", &e))?;
                 return Ok(());
             }
             Some("m.room.join_rules") => {
@@ -120,7 +120,7 @@ impl RoomSummaryService {
             .storage
             .get_state(room_id, event_type, state_key)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get state", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get state", &e))?;
 
         Ok(state)
     }
@@ -131,7 +131,7 @@ impl RoomSummaryService {
             .storage
             .get_all_state(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get all state", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get all state", &e))?;
 
         Ok(states)
     }
@@ -141,7 +141,7 @@ impl RoomSummaryService {
 
         let states = match states_res {
             Ok(s) => s,
-            Err(e) => return Err(ApiError::internal_with_log("Failed to get current state", &e)),
+            Err(e) => return Err(ApiError::internal_with_context("Failed to get current state", &e)),
         };
 
         info!(room_id = %room_id, state_event_count = states.len(), "Syncing room summary state events");
@@ -176,14 +176,14 @@ impl RoomSummaryService {
 
             let join_members = match join_members_res {
                 Ok(m) => m,
-                Err(e) => return Err(ApiError::internal_with_log("Failed to get room join members", &e)),
+                Err(e) => return Err(ApiError::internal_with_context("Failed to get room join members", &e)),
             };
 
             let invite_members_res = member_storage.get_room_members(room_id, "invite").await;
 
             let invite_members = match invite_members_res {
                 Ok(m) => m,
-                Err(e) => return Err(ApiError::internal_with_log("Failed to get room invite members", &e)),
+                Err(e) => return Err(ApiError::internal_with_context("Failed to get room invite members", &e)),
             };
 
             let all_members: Vec<_> = join_members.into_iter().chain(invite_members).collect();
@@ -230,7 +230,7 @@ impl RoomSummaryService {
 
         let existing = match existing_res {
             Ok(e) => e,
-            Err(e) => return Err(ApiError::internal_with_log("Failed to check existing summary", &e)),
+            Err(e) => return Err(ApiError::internal_with_context("Failed to check existing summary", &e)),
         };
 
         if existing.is_none() {

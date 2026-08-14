@@ -234,14 +234,14 @@ impl OidcService {
             .get(&discovery_url)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to fetch discovery document", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to fetch discovery document", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal_with_log("Discovery request failed", &response.status()));
+            return Err(ApiError::internal_with_context("Discovery request failed", &response.status()));
         }
 
         let discovery: OidcDiscoveryDocument =
-            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse discovery document", &e))?;
+            response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse discovery document", &e))?;
 
         {
             let mut write = self.discovery.write().await;
@@ -272,7 +272,7 @@ impl OidcService {
         let auth_url = auth_endpoint.unwrap_or(default_auth);
 
         let mut url = url::Url::parse(&auth_url)
-            .map_err(|e| ApiError::internal_with_log("Invalid OIDC authorization endpoint", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Invalid OIDC authorization endpoint", &e))?;
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("client_id", &self.config.client_id);
@@ -364,15 +364,15 @@ impl OidcService {
             request = request.basic_auth(&self.config.client_id, Some(secret));
         }
 
-        let response = request.send().await.map_err(|e| ApiError::internal_with_log("Token exchange failed", &e))?;
+        let response = request.send().await.map_err(|e| ApiError::internal_with_context("Token exchange failed", &e))?;
 
         if !response.status().is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(ApiError::internal_with_log("Token exchange failed", &body));
+            return Err(ApiError::internal_with_context("Token exchange failed", &body));
         }
 
         let token_response: OidcTokenResponse =
-            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse token response", &e))?;
+            response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse token response", &e))?;
 
         if let Some(ref id_token) = token_response.id_token {
             if let Err(e) = self.validate_id_token(id_token, nonce).await {
@@ -613,14 +613,14 @@ impl OidcService {
             request = request.basic_auth(&self.config.client_id, Some(secret));
         }
 
-        let response = request.send().await.map_err(|e| ApiError::internal_with_log("Token refresh failed", &e))?;
+        let response = request.send().await.map_err(|e| ApiError::internal_with_context("Token refresh failed", &e))?;
 
         if !response.status().is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(ApiError::internal_with_log("Token refresh failed", &body));
+            return Err(ApiError::internal_with_context("Token refresh failed", &body));
         }
 
-        response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse token response", &e))
+        response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse token response", &e))
     }
 
     pub async fn get_user_info(&self, access_token: &str) -> Result<OidcUserInfo, ApiError> {
@@ -641,13 +641,13 @@ impl OidcService {
             .bearer_auth(access_token)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_log("UserInfo request failed", &e))?;
+            .map_err(|e| ApiError::internal_with_context("UserInfo request failed", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal_with_log("UserInfo request failed", &response.status()));
+            return Err(ApiError::internal_with_context("UserInfo request failed", &response.status()));
         }
 
-        response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse UserInfo", &e))
+        response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse UserInfo", &e))
     }
 
     pub fn map_user(&self, user_info: &OidcUserInfo) -> OidcUser {

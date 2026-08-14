@@ -100,12 +100,12 @@ impl SyncService {
             self.event_reader
                 .get_state_events_since_batch(room_ids, SinceFilter::StreamOrdering(stream_ord))
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to get room state events", &e))?
+                .map_err(|e| ApiError::internal_with_context("Failed to get room state events", &e))?
         } else {
             self.event_reader
                 .get_state_events_since_batch(room_ids, SinceFilter::OriginServerTs(params.since_ts))
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to get room state events", &e))?
+                .map_err(|e| ApiError::internal_with_context("Failed to get room state events", &e))?
         };
 
         let newly_visible_rooms: Vec<String> = delta_state_by_room
@@ -131,7 +131,7 @@ impl SyncService {
             self.event_reader
                 .get_state_events_batch(&newly_visible_rooms)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to get full state for newly visible rooms", &e))?
+                .map_err(|e| ApiError::internal_with_context("Failed to get full state for newly visible rooms", &e))?
         };
 
         if !params.lazy_load_members {

@@ -34,7 +34,7 @@ impl RtcSessionService {
             .storage
             .create_session(params)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create RTC session", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create RTC session", &e))?;
 
         RtcMetrics::increment_session_created(&application);
 
@@ -54,7 +54,7 @@ impl RtcSessionService {
             .storage
             .get_session(room_id, session_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get RTC session", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get RTC session", &e))?;
 
         if let Some(ref s) = session {
             if let Err(e) = self.cache.set(&cache_key, s, 60).await {
@@ -82,7 +82,7 @@ impl RtcSessionService {
             .storage
             .get_active_sessions_for_room(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get active sessions", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get active sessions", &e))?;
 
         if let Err(e) = self.cache.set(&cache_key, &sessions, 30).await {
             ::tracing::warn!(room_id = %room_id, cache_key = %cache_key, error = %e, "Failed to cache active RTC sessions");
@@ -99,7 +99,7 @@ impl RtcSessionService {
                 self.storage
                     .end_session(room_id, session_id)
                     .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to end session", &e))?;
+                    .map_err(|e| ApiError::internal_with_context("Failed to end session", &e))?;
 
                 self.invalidate_room_cache(room_id).await;
                 Ok(())
@@ -145,7 +145,7 @@ impl RtcSessionService {
             .storage
             .create_membership(params)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create membership", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create membership", &e))?;
 
         RtcMetrics::increment_membership_created();
 
@@ -169,7 +169,7 @@ impl RtcSessionService {
             .storage
             .get_memberships_for_session(room_id, session_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get memberships", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get memberships", &e))?;
 
         if let Err(e) = self.cache.set(&cache_key, &memberships, 30).await {
             ::tracing::warn!(
@@ -194,7 +194,7 @@ impl RtcSessionService {
         self.storage
             .end_membership(room_id, session_id, user_id, device_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to end membership", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to end membership", &e))?;
 
         self.invalidate_session_cache(room_id, session_id).await;
 
@@ -210,7 +210,7 @@ impl RtcSessionService {
             .storage
             .get_session_with_memberships(room_id, session_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get session with memberships", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get session with memberships", &e))?;
 
         Ok(result)
     }
@@ -228,7 +228,7 @@ impl RtcSessionService {
             .storage
             .store_encryption_key(room_id, session_id, key_index, key, sender_user_id, sender_device_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to store encryption key", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to store encryption key", &e))?;
 
         self.invalidate_key_cache(room_id, session_id).await;
 
@@ -250,7 +250,7 @@ impl RtcSessionService {
             .storage
             .get_encryption_keys(room_id, session_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get encryption keys", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get encryption keys", &e))?;
 
         if let Err(e) = self.cache.set(&cache_key, &keys, 60).await {
             ::tracing::warn!(
@@ -270,7 +270,7 @@ impl RtcSessionService {
             .storage
             .cleanup_expired_memberships()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired memberships", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to cleanup expired memberships", &e))?;
 
         Ok(count)
     }

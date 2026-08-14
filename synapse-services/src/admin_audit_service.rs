@@ -33,7 +33,7 @@ impl AdminAuditService {
         self.storage
             .get_event(event_id)
             .await
-            .map_err(|error| ApiError::internal_with_log("Failed to load audit event", &error))
+            .map_err(|error| ApiError::internal_with_context("Failed to load audit event", &error))
     }
 
     #[instrument(skip(self))]
@@ -41,7 +41,7 @@ impl AdminAuditService {
         self.storage
             .list_events(&filters)
             .await
-            .map_err(|error| ApiError::internal_with_log("Failed to list audit events", &error))
+            .map_err(|error| ApiError::internal_with_context("Failed to list audit events", &error))
     }
 }
 

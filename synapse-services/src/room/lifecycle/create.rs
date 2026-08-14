@@ -46,7 +46,7 @@ impl LifecycleService {
             .pool()
             .begin()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to start transaction", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to start transaction", &e))?;
 
         let result = self.create_room_in_db(&room_id, user_id, join_rule, is_public, room_version, Some(&mut tx)).await;
         if let Err(e) = &result {
@@ -60,7 +60,7 @@ impl LifecycleService {
                 "create_room_in_db failed"
             );
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_log("Failed to create room", &e));
+            return Err(ApiError::internal_with_context("Failed to create room", &e));
         }
 
         let now = current_timestamp_millis();
@@ -90,7 +90,7 @@ impl LifecycleService {
                 "m.room.create event failed"
             );
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_log("Failed to create m.room.create event", &e));
+            return Err(ApiError::internal_with_context("Failed to create m.room.create event", &e));
         }
 
         let result = self.add_creator_to_room(&room_id, user_id, Some(&mut tx)).await;
@@ -126,7 +126,7 @@ impl LifecycleService {
             .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_log("Failed to create m.room.member event", &e));
+            return Err(ApiError::internal_with_context("Failed to create m.room.member event", &e));
         }
 
         let mut power_levels = json!({
@@ -174,7 +174,7 @@ impl LifecycleService {
             .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_log("Failed to create m.room.power_levels event", &e));
+            return Err(ApiError::internal_with_context("Failed to create m.room.power_levels event", &e));
         }
 
         let result = self
@@ -195,7 +195,7 @@ impl LifecycleService {
             .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_log("Failed to create m.room.join_rules event", &e));
+            return Err(ApiError::internal_with_context("Failed to create m.room.join_rules event", &e));
         }
 
         let history_visibility = config.history_visibility.clone().unwrap_or_else(|| {
@@ -223,7 +223,7 @@ impl LifecycleService {
             .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_log("Failed to create m.room.history_visibility event", &e));
+            return Err(ApiError::internal_with_context("Failed to create m.room.history_visibility event", &e));
         }
 
         let guest_access = if is_public { "can_join" } else { "forbidden" };
@@ -245,7 +245,7 @@ impl LifecycleService {
             .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_log("Failed to create m.room.guest_access event", &e));
+            return Err(ApiError::internal_with_context("Failed to create m.room.guest_access event", &e));
         }
 
         let result = self
@@ -260,7 +260,7 @@ impl LifecycleService {
             .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_log("Failed to set room metadata", &e));
+            return Err(ApiError::internal_with_context("Failed to set room metadata", &e));
         }
 
         let result = self
@@ -275,7 +275,7 @@ impl LifecycleService {
             .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_log("Failed to process invites", &e));
+            return Err(ApiError::internal_with_context("Failed to process invites", &e));
         }
 
         let mut initial_join_rule: Option<String> = None;
@@ -322,7 +322,7 @@ impl LifecycleService {
                         "Failed to apply initial_state event"
                     );
                     let _ = tx.rollback().await;
-                    return Err(ApiError::internal_with_log("Failed to apply initial_state event {event_type}", &e));
+                    return Err(ApiError::internal_with_context("Failed to apply initial_state event {event_type}", &e));
                 }
 
                 if event_type == "m.room.join_rules" {
@@ -354,7 +354,7 @@ impl LifecycleService {
                     .await;
                 if let Err(e) = result {
                     let _ = tx.rollback().await;
-                    return Err(ApiError::internal_with_log("Failed to create m.room.encryption event", &e));
+                    return Err(ApiError::internal_with_context("Failed to create m.room.encryption event", &e));
                 }
             }
         }
@@ -386,11 +386,11 @@ impl LifecycleService {
                 .await;
             if let Err(e) = result {
                 let _ = tx.rollback().await;
-                return Err(ApiError::internal_with_log("Failed to set privacy marker", &e));
+                return Err(ApiError::internal_with_context("Failed to set privacy marker", &e));
             }
         }
 
-        tx.commit().await.map_err(|e| ApiError::internal_with_log("Failed to commit transaction", &e))?;
+        tx.commit().await.map_err(|e| ApiError::internal_with_context("Failed to commit transaction", &e))?;
 
         let summary_request = synapse_storage::room_summary::CreateRoomSummaryRequest {
             room_id: room_id.clone(),

@@ -383,7 +383,7 @@ fn bad_request_error_maps_to_400() {
 
 #[test]
 fn internal_error_maps_to_500() {
-    let err = ApiError::internal_with_log("Failed to create MSC4108 session", &"db down");
+    let err = ApiError::internal_with_context("Failed to create MSC4108 session", &"db down");
     assert_eq!(err.http_status(), StatusCode::INTERNAL_SERVER_ERROR);
     assert!(err.is_internal());
 }
@@ -391,7 +391,7 @@ fn internal_error_maps_to_500() {
 #[test]
 fn internal_error_message_redacts_internal_details() {
     // `message()` for Internal errors returns a generic string, never the raw detail.
-    let err = ApiError::internal_with_log("Failed to get MSC4108 data", &"connection refused");
+    let err = ApiError::internal_with_context("Failed to get MSC4108 data", &"connection refused");
     assert_eq!(err.message(), "An internal error occurred");
     // `internal_message()` preserves the detail for logging.
     assert!(err.internal_message().contains("Failed to get MSC4108 data"));

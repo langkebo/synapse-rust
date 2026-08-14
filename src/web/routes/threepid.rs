@@ -85,7 +85,7 @@ pub async fn request_token(
             expires_at,
         )
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to create validation session", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to create validation session", &e))?;
 
     // In a full implementation, send email here
     // For now, return the token in the response for testing
@@ -108,13 +108,13 @@ pub async fn submit_token(
         .threepid_storage
         .get_validation_session(&req.sid, &req.client_secret, &req.token)
         .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?
+        .map_err(|e| ApiError::internal_with_context("Database error", &e))?
         .ok_or_else(|| ApiError::bad_request("Invalid or expired validation token"))?;
 
     ctx.threepid_storage
         .mark_validation_validated(session.id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to mark session validated", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to mark session validated", &e))?;
 
     tracing::info!("3PID validation successful: sid={}", session.session_id);
 

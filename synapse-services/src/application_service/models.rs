@@ -92,7 +92,7 @@ impl ApplicationServiceManager {
             None
         } else {
             Some(serde_json::to_value(extra).map_err(|e| {
-                ApiError::internal_with_log("Failed to serialize application service config extras", &e)
+                ApiError::internal_with_context("Failed to serialize application service config extras", &e)
             })?)
         };
 
@@ -284,7 +284,7 @@ impl ApplicationServiceManager {
         for namespace_pattern in Self::exclusive_namespace_patterns(namespaces, "users") {
             if let Some(conflicting_as_id) =
                 self.storage.find_user_namespace_conflict(as_id, &namespace_pattern).await.map_err(|e| {
-                    ApiError::internal_with_log("Failed to validate appservice user namespace ownership", &e)
+                    ApiError::internal_with_context("Failed to validate appservice user namespace ownership", &e)
                 })?
             {
                 return Err(ApiError::conflict(format!(
@@ -297,7 +297,7 @@ impl ApplicationServiceManager {
         for namespace_pattern in Self::exclusive_namespace_patterns(namespaces, "aliases") {
             if let Some(conflicting_as_id) =
                 self.storage.find_room_alias_namespace_conflict(as_id, &namespace_pattern).await.map_err(|e| {
-                    ApiError::internal_with_log("Failed to validate appservice room alias namespace ownership", &e)
+                    ApiError::internal_with_context("Failed to validate appservice room alias namespace ownership", &e)
                 })?
             {
                 return Err(ApiError::conflict(format!(
@@ -310,7 +310,7 @@ impl ApplicationServiceManager {
         for namespace_pattern in Self::exclusive_namespace_patterns(namespaces, "rooms") {
             if let Some(conflicting_as_id) =
                 self.storage.find_room_namespace_conflict(as_id, &namespace_pattern).await.map_err(|e| {
-                    ApiError::internal_with_log("Failed to validate appservice room namespace ownership", &e)
+                    ApiError::internal_with_context("Failed to validate appservice room namespace ownership", &e)
                 })?
             {
                 return Err(ApiError::conflict(format!(

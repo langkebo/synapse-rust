@@ -522,7 +522,7 @@ impl FriendRoomService {
             .account_data_storage
             .get_account_data_content(user_id, "m.direct")
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load m.direct account data", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to load m.direct account data", &e))?;
 
         match content {
             Some(Value::Object(map)) => Ok(map),
@@ -535,7 +535,7 @@ impl FriendRoomService {
         self.account_data_storage
             .upsert_account_data(user_id, "m.direct", Value::Object(direct_map.clone()))
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to save m.direct account data", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to save m.direct account data", &e))?;
 
         // Invalidate the account-data cache for this user so the next /sync
         // will re-read the fresh m.direct data (OPT-015-b, audit 04 §5).

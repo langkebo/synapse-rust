@@ -74,7 +74,7 @@ impl E2eeAuditStorage {
         .bind(event.timestamp)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to log key operation", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to log key operation", &e))?;
 
         Ok(())
     }
@@ -92,7 +92,7 @@ impl E2eeAuditStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get key history", &e))
+        .map_err(|e| ApiError::internal_with_context("Failed to get key history", &e))
     }
 
     pub async fn get_key_history_paginated(
@@ -118,7 +118,7 @@ impl E2eeAuditStorage {
             .bind(limit)
             .fetch_all(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get key history", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get key history", &e))
         } else {
             sqlx::query_as::<_, KeyAuditEntry>(
                 r"
@@ -133,7 +133,7 @@ impl E2eeAuditStorage {
             .bind(limit)
             .fetch_all(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get key history", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get key history", &e))
         }
     }
 
@@ -151,7 +151,7 @@ impl E2eeAuditStorage {
         .bind(limit)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get operations", &e))
+        .map_err(|e| ApiError::internal_with_context("Failed to get operations", &e))
     }
 
     pub async fn get_user_device_history(
@@ -172,7 +172,7 @@ impl E2eeAuditStorage {
         .bind(device_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get device history", &e))
+        .map_err(|e| ApiError::internal_with_context("Failed to get device history", &e))
     }
 
     pub async fn cleanup_old_logs(&self, days_to_keep: i64) -> Result<u64, ApiError> {
@@ -181,7 +181,7 @@ impl E2eeAuditStorage {
             .bind(cutoff_ts)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to cleanup logs", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to cleanup logs", &e))?;
 
         Ok(result.rows_affected())
     }

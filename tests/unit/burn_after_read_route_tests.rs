@@ -9,7 +9,7 @@
 //     `delete_ts = now + burn_after_ms` computation, "burn not enabled"
 //     gating in `mark_burn_read`.
 //   * Error-code mapping: 404 (room not found), 400 (burn not enabled),
-//     500 (internal_with_log), 403 (ensure_room_member_ctx → forbidden).
+//     500 (internal_with_context), 403 (ensure_room_member_ctx → forbidden).
 //
 // The handlers themselves require a fully-wired `RoomContext` (room_service,
 // burn_after_read service, etc.), so — following the established pattern in
@@ -337,8 +337,8 @@ fn test_burn_not_enabled_maps_to_400() {
 
 #[test]
 fn test_internal_error_maps_to_500() {
-    // All service failures are wrapped via ApiError::internal_with_log.
-    let err = ApiError::internal_with_log("Failed to enable burn", &"db down");
+    // All service failures are wrapped via ApiError::internal_with_context.
+    let err = ApiError::internal_with_context("Failed to enable burn", &"db down");
     assert_eq!(err.http_status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
 }
 

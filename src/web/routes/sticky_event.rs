@@ -49,7 +49,7 @@ pub async fn get_sticky_events(
             .room_service
             .get_is_sticky_event(&room_id, &auth_user.user_id, &event_type)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get sticky event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get sticky event", &e))?;
 
         match sticky_event {
             Some(event) => Ok(Json(serde_json::json!({
@@ -70,7 +70,7 @@ pub async fn get_sticky_events(
             .room_service
             .get_all_is_sticky_events(&room_id, &auth_user.user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get sticky events", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get sticky events", &e))?;
 
         let events: Vec<Value> = sticky_events
             .into_iter()
@@ -125,7 +125,7 @@ pub async fn set_sticky_events(
         ctx.room_service
             .set_is_sticky_event(&room_id, &auth_user.user_id, stored_event_id, event_type, true)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to set sticky event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to set sticky event", &e))?;
     }
 
     Ok(empty_json())
@@ -144,7 +144,7 @@ pub async fn clear_sticky_event(
     ctx.room_service
         .clear_is_sticky_event(&room_id, &auth_user.user_id, &event_type)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to clear sticky event", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to clear sticky event", &e))?;
 
     Ok(empty_json())
 }

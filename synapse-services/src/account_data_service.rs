@@ -47,7 +47,7 @@ impl AccountDataService {
             .account_data_storage
             .list_account_data(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to list account data", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to list account data", &e))?;
         Ok(result.into_iter().map(|row| (row.data_type, row.content)).collect())
     }
 
@@ -57,7 +57,7 @@ impl AccountDataService {
         self.user_storage
             .upsert_account_data_content(user_id, data_type, body)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to save account data", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to save account data", &e))?;
 
         // Invalidate the account-data cache for this user so the next /sync
         // will re-read the fresh data (OPT-015-b, audit 04 §5).
@@ -71,7 +71,7 @@ impl AccountDataService {
         self.user_storage
             .get_account_data_content(user_id, data_type)
             .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))
+            .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
     /// Get the set of user IDs that `user_id` has ignored via the
@@ -103,7 +103,7 @@ impl AccountDataService {
             .account_data_storage
             .delete_account_data(user_id, data_type)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete account data", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to delete account data", &e))?;
 
         // Invalidate the account-data cache for this user so the next /sync
         // will re-read the fresh data (OPT-015-b, audit 04 §5).
@@ -125,7 +125,7 @@ impl AccountDataService {
         self.room_account_data_storage
             .upsert_room_account_data(user_id, room_id, data_type, body, now)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to save room account data", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to save room account data", &e))
     }
 
     #[instrument(skip(self))]

@@ -76,7 +76,7 @@ impl PresenceService {
         self.storage
             .get_presence_with_meta(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get presence", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get presence", &e))
     }
 
     #[tracing::instrument(skip(self))]
@@ -84,7 +84,7 @@ impl PresenceService {
         self.storage
             .set_presence(user_id, presence, status_msg)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to set presence", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to set presence", &e))
     }
 
     /// C-3: Batch set presence for multiple users in a single SQL statement.
@@ -97,7 +97,7 @@ impl PresenceService {
         self.storage
             .set_presence_batch(entries)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to batch set presence", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to batch set presence", &e))
     }
 
     #[tracing::instrument(skip(self))]
@@ -105,7 +105,7 @@ impl PresenceService {
         self.storage
             .add_subscription(subscriber_id, target_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to add presence subscription", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to add presence subscription", &e))
     }
 
     #[tracing::instrument(skip(self))]
@@ -113,7 +113,7 @@ impl PresenceService {
         self.storage
             .remove_subscription(subscriber_id, target_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to remove presence subscription", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to remove presence subscription", &e))
     }
 
     #[tracing::instrument(skip(self))]
@@ -121,7 +121,7 @@ impl PresenceService {
         self.storage
             .get_subscriptions(subscriber_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get subscriptions", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get subscriptions", &e))
     }
 
     #[tracing::instrument(skip(self))]
@@ -129,7 +129,7 @@ impl PresenceService {
         self.storage
             .get_presence_batch_with_meta(user_ids)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get presence batch", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get presence batch", &e))
     }
 }
 

@@ -478,7 +478,7 @@ fn verify_totp_code(security: &SecurityConfig, provided_code: &str, user: Option
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|e| ApiError::internal_with_log("System time error", &e))?
+        .map_err(|e| ApiError::internal_with_context("System time error", &e))?
         .as_secs();
     let current_step = now / 30;
     let drift = security.admin_mfa_allowed_drift_steps as i64;

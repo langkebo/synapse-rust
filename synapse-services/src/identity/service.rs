@@ -54,10 +54,10 @@ impl IdentityService {
             .json(&body)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to bind 3PID", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to bind 3PID", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal_with_log("Identity server returned error", &response.status()));
+            return Err(ApiError::internal_with_context("Identity server returned error", &response.status()));
         }
 
         // Parse the bind response to extract the real address and medium.
@@ -104,10 +104,10 @@ impl IdentityService {
             .json(&body)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to unbind 3PID", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to unbind 3PID", &e))?;
 
         if !response.status().is_success() && response.status().as_u16() != 404 {
-            return Err(ApiError::internal_with_log("Identity server returned error", &response.status()));
+            return Err(ApiError::internal_with_context("Identity server returned error", &response.status()));
         }
 
         Ok(())
@@ -139,14 +139,14 @@ impl IdentityService {
             .json(&body)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to request verification", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to request verification", &e))?;
 
         if !response.status().is_success() {
-            return Err(ApiError::internal_with_log("Identity server returned error", &response.status()));
+            return Err(ApiError::internal_with_context("Identity server returned error", &response.status()));
         }
 
         let json: serde_json::Value =
-            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse response", &e))?;
+            response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse response", &e))?;
 
         let sid = json
             .get("sid")
@@ -172,14 +172,14 @@ impl IdentityService {
             .json(&body)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check validity", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to check validity", &e))?;
 
         if !response.status().is_success() {
             return Ok(false);
         }
 
         let json: serde_json::Value =
-            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse response", &e))?;
+            response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse response", &e))?;
 
         Ok(json.get("valid").and_then(|v| v.as_bool()).unwrap_or(false))
     }
@@ -246,18 +246,18 @@ impl IdentityService {
             .json(&body)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to invite", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to invite", &e))?;
 
         if !response.status().is_success() {
             let status = response.status();
             if status.as_u16() == 404 {
                 return Ok(InvitationResponse { user_id: None, signed: None });
             }
-            return Err(ApiError::internal_with_log("Identity server returned error", &status));
+            return Err(ApiError::internal_with_context("Identity server returned error", &status));
         }
 
         let json: serde_json::Value =
-            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse response", &e))?;
+            response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse response", &e))?;
 
         let user_id = json.get("user_id").and_then(|v| v.as_str()).map(String::from);
         let signed = json.get("signed").cloned();

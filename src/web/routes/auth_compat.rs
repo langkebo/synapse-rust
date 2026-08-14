@@ -400,13 +400,13 @@ pub(crate) async fn login(
             .token_auth
             .generate_access_token(&user_id, device_id, false)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to generate access token", &e))?;
 
         let refresh_token = ctx
             .token_auth
             .generate_refresh_token(&user_id, device_id, &access_token)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to generate refresh token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to generate refresh token", &e))?;
 
         return Ok(Json(format_token_response(
             &access_token,

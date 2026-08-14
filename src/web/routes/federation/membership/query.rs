@@ -87,13 +87,13 @@ pub(crate) async fn get_user_devices(
         .device_storage
         .get_max_device_list_stream_id_for_user(&user_id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get device stream id", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to get device stream id", &e))?;
 
     let (master_key, self_signing_key) = ctx
         .cross_signing_service
         .get_public_cross_signing_keys(&user_id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get cross-signing keys", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to get cross-signing keys", &e))?;
 
     let devices_json: Vec<Value> = devices
         .into_iter()

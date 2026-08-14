@@ -149,7 +149,7 @@ impl DelayedEventStorageApi for DelayedEventStorage {
         .bind(now)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to create delayed event", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to create delayed event", &e))?;
 
         Ok(event)
     }
@@ -166,7 +166,7 @@ impl DelayedEventStorageApi for DelayedEventStorage {
         .bind(delay_id)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get delayed event", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to get delayed event", &e))?;
 
         Ok(event)
     }
@@ -185,7 +185,7 @@ impl DelayedEventStorageApi for DelayedEventStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to list delayed events", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to list delayed events", &e))?;
 
         Ok(events)
     }
@@ -204,7 +204,7 @@ impl DelayedEventStorageApi for DelayedEventStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to restart delayed event", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to restart delayed event", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -220,7 +220,7 @@ impl DelayedEventStorageApi for DelayedEventStorage {
         .bind(delay_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to cancel delayed event", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to cancel delayed event", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -236,7 +236,7 @@ impl DelayedEventStorageApi for DelayedEventStorage {
         .bind(delay_id)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to mark delayed event as sent", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to mark delayed event as sent", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -257,7 +257,7 @@ impl DelayedEventStorageApi for DelayedEventStorage {
         .bind(limit)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get due delayed events", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to get due delayed events", &e))?;
 
         Ok(events)
     }

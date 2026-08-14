@@ -977,7 +977,7 @@ pub(crate) async fn redact_event(
             error = %e,
             "Redaction event created but content redaction failed"
         );
-        ApiError::internal_with_log("Failed to redact event content", &e)
+        ApiError::internal_with_context("Failed to redact event content", &e)
     })?;
 
     Ok(Json(json!({

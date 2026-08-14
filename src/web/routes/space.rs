@@ -35,7 +35,7 @@ pub(super) async fn resolve_space_by_room(
         .space_service
         .get_space_by_room(space_room_id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get space by room", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to get space by room", &e))?;
 
     space.ok_or_else(|| ApiError::not_found("Space not found"))
 }
@@ -48,7 +48,7 @@ pub(super) async fn resolve_space(
         .space_service
         .get_space(space_identifier)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get space", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to get space", &e))?;
 
     if let Some(space) = space {
         return Ok(space);

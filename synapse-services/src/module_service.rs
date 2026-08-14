@@ -174,7 +174,7 @@ impl ModuleService {
             .storage
             .register_module(request)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to register module", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to register module", &e))?;
 
         Ok(module)
     }
@@ -185,7 +185,7 @@ impl ModuleService {
             .storage
             .get_module(module_name)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get module", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get module", &e))?;
 
         Ok(module)
     }
@@ -196,7 +196,7 @@ impl ModuleService {
             .storage
             .get_modules_by_type(module_type)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get modules", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get modules", &e))?;
 
         Ok(modules)
     }
@@ -211,7 +211,7 @@ impl ModuleService {
             .storage
             .get_all_modules(limit, from)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get modules", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get modules", &e))?;
 
         Ok((modules, next_from))
     }
@@ -222,7 +222,7 @@ impl ModuleService {
             .storage
             .update_module_config(module_name, config)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update module config", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to update module config", &e))?;
 
         Ok(module)
     }
@@ -233,7 +233,7 @@ impl ModuleService {
             .storage
             .enable_module(module_name, enabled)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to enable/disable module", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to enable/disable module", &e))?;
 
         Ok(module)
     }
@@ -243,7 +243,7 @@ impl ModuleService {
         self.storage
             .delete_module(module_name)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete module", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to delete module", &e))?;
 
         Ok(())
     }
@@ -553,7 +553,7 @@ impl ModuleService {
             .storage
             .get_spam_check_result(event_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get spam check result", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get spam check result", &e))?;
 
         Ok(result)
     }
@@ -568,7 +568,7 @@ impl ModuleService {
             .storage
             .get_spam_check_results_by_sender(sender, limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get spam check results", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get spam check results", &e))?;
 
         Ok(results)
     }
@@ -579,7 +579,7 @@ impl ModuleService {
             .storage
             .get_third_party_rule_results(event_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get third party rule results", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get third party rule results", &e))?;
 
         Ok(results)
     }
@@ -590,7 +590,7 @@ impl ModuleService {
             .storage
             .get_execution_logs(module_name, limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get execution logs", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get execution logs", &e))?;
 
         Ok(logs)
     }
@@ -611,7 +611,7 @@ impl AccountValidityService {
             .storage
             .create_account_validity(request)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create account validity", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to create account validity", &e))?;
 
         Ok(validity)
     }
@@ -622,7 +622,7 @@ impl AccountValidityService {
             .storage
             .get_account_validity(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get account validity", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get account validity", &e))?;
 
         Ok(validity)
     }
@@ -650,7 +650,7 @@ impl AccountValidityService {
             .storage
             .renew_account(user_id, token, new_expiration_ts)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to renew account", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to renew account", &e))?;
 
         Ok(validity)
     }
@@ -660,7 +660,7 @@ impl AccountValidityService {
         self.storage
             .set_renewal_token(user_id, token)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to set renewal token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to set renewal token", &e))?;
 
         Ok(())
     }
@@ -671,7 +671,7 @@ impl AccountValidityService {
             .storage
             .get_expired_accounts(before_ts)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get expired accounts", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get expired accounts", &e))?;
 
         Ok(accounts)
     }

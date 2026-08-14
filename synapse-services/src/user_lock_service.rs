@@ -22,35 +22,35 @@ impl UserLockService {
         self.user_store
             .lock_user(user_id, reason, locked_by, now_ts)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to lock user", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to lock user", &e))
     }
 
     pub async fn unlock_user(&self, user_id: &str, now_ts: i64) -> Result<(), ApiError> {
         self.user_store
             .unlock_user(user_id, now_ts)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to unlock user", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to unlock user", &e))
     }
 
     pub async fn is_user_locked(&self, user_id: &str) -> Result<bool, ApiError> {
         self.user_store
             .is_user_locked(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check user lock status", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to check user lock status", &e))
     }
 
     pub async fn get_active_user_lock(&self, user_id: &str) -> Result<Option<LockedUser>, ApiError> {
         self.user_store
             .get_active_user_lock(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get active user lock", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get active user lock", &e))
     }
 
     pub async fn get_locked_users(&self, limit: i64, offset: i64) -> Result<Vec<LockedUser>, ApiError> {
         self.user_store
             .get_locked_users(limit, offset)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get locked users", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get locked users", &e))
     }
 }
 

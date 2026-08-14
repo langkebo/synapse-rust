@@ -68,7 +68,7 @@ impl AccountDataStoreApi for MockAccountDataStore {
     async fn get_account_data_content(&self, _user_id: &str, _data_type: &str) -> Result<Option<Value>, ApiError> {
         let state = self.state.lock().unwrap().clone();
         if state.fail_all {
-            return Err(ApiError::internal_with_log("mock: forced failure", &"mock-error"));
+            return Err(ApiError::internal_with_context("mock: forced failure", &"mock-error"));
         }
         Ok(state.get_content.unwrap_or(None))
     }
@@ -76,7 +76,7 @@ impl AccountDataStoreApi for MockAccountDataStore {
     async fn list_account_data(&self, _user_id: &str) -> Result<Vec<AccountDataRecord>, ApiError> {
         let state = self.state.lock().unwrap().clone();
         if state.fail_all {
-            return Err(ApiError::internal_with_log("mock: forced failure", &"mock-error"));
+            return Err(ApiError::internal_with_context("mock: forced failure", &"mock-error"));
         }
         Ok(Vec::new())
     }
@@ -84,7 +84,7 @@ impl AccountDataStoreApi for MockAccountDataStore {
     async fn delete_account_data(&self, _user_id: &str, _data_type: &str) -> Result<bool, ApiError> {
         let state = self.state.lock().unwrap().clone();
         if state.fail_all {
-            return Err(ApiError::internal_with_log("mock: forced failure", &"mock-error"));
+            return Err(ApiError::internal_with_context("mock: forced failure", &"mock-error"));
         }
         Ok(false)
     }
@@ -92,7 +92,7 @@ impl AccountDataStoreApi for MockAccountDataStore {
     async fn upsert_account_data(&self, _user_id: &str, _data_type: &str, _content: Value) -> Result<(), ApiError> {
         let state = self.state.lock().unwrap().clone();
         if state.fail_all {
-            return Err(ApiError::internal_with_log("mock: forced failure", &"mock-error"));
+            return Err(ApiError::internal_with_context("mock: forced failure", &"mock-error"));
         }
         Ok(())
     }

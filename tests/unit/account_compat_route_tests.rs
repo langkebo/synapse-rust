@@ -985,10 +985,10 @@ fn test_error_code_mapping_for_whoami_invalid_token() {
 
 #[test]
 fn test_error_code_mapping_for_whoami_internal_error() {
-    // whoami returns ApiError::internal_with_log(...) when token validation
+    // whoami returns ApiError::internal_with_context(...) when token validation
     // returns an Internal error.
     let source = ApiError::database("DB error".to_string());
-    let err = ApiError::internal_with_log("Token validation error", &source);
+    let err = ApiError::internal_with_context("Token validation error", &source);
     assert_eq!(err.kind, ApiErrorKind::Internal);
     assert_eq!(err.code, MatrixErrorCode::Unknown);
 }

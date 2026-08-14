@@ -23,18 +23,18 @@ impl SpaceService {
             .room_storage
             .get_room(&request.room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get room", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get room", &e))?
             .ok_or_else(|| ApiError::not_found("Room not found"))?;
 
         let child = self
             .space_storage
             .add_child(request)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to add child", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to add child", &e))?;
 
         self.space_storage.update_space_summary(&child.space_id).await.map_err(|e| {
             warn!(error = %e, space_id = %child.space_id, room_id = %child.room_id, "Failed to update space summary");
-            ApiError::internal_with_log("Failed to update space summary", &e)
+            ApiError::internal_with_context("Failed to update space summary", &e)
         })?;
 
         let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
@@ -56,7 +56,7 @@ impl SpaceService {
                     event_id = %event_id,
                     "Failed to add space child event"
                 );
-                ApiError::internal_with_log("Failed to add space event", &e)
+                ApiError::internal_with_context("Failed to add space event", &e)
             })?;
 
         info!(
@@ -77,11 +77,11 @@ impl SpaceService {
         self.space_storage
             .remove_child(space_id, room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to remove child", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to remove child", &e))?;
 
         self.space_storage.update_space_summary(space_id).await.map_err(|e| {
             warn!(error = %e, space_id = %space_id, room_id = %room_id, user_id = %user_id, "Failed to update space summary");
-            ApiError::internal_with_log("Failed to update space summary", &e)
+            ApiError::internal_with_context("Failed to update space summary", &e)
         })?;
 
         let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
@@ -101,7 +101,7 @@ impl SpaceService {
                     event_id = %event_id,
                     "Failed to add space child removal event"
                 );
-                ApiError::internal_with_log("Failed to add space event", &e)
+                ApiError::internal_with_context("Failed to add space event", &e)
             })?;
 
         info!(space_id = %space_id, room_id = %room_id, user_id = %user_id, "Removed child from space");
@@ -113,7 +113,7 @@ impl SpaceService {
         self.space_storage
             .get_space_children(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get space children", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get space children", &e))
     }
 
     #[instrument(skip(self))]
@@ -127,7 +127,7 @@ impl SpaceService {
         self.space_storage
             .get_space_children_paginated(space_id, limit, from_added_ts, from_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get paginated space children", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get paginated space children", &e))
     }
 
     // ── Hierarchy ──
@@ -138,7 +138,7 @@ impl SpaceService {
             if matches!(e, sqlx::Error::RowNotFound) {
                 ApiError::not_found("Space not found".to_string())
             } else {
-                ApiError::internal_with_log("Failed to get space hierarchy", &e)
+                ApiError::internal_with_context("Failed to get space hierarchy", &e)
             }
         })
     }
@@ -214,7 +214,7 @@ impl SpaceService {
                 .space_storage
                 .check_user_can_see_space(space_id, uid)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to check space visibility", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to check space visibility", &e))?;
 
             if !can_see {
                 return Err(ApiError::forbidden("User cannot access this space"));
@@ -224,7 +224,7 @@ impl SpaceService {
         self.space_storage
             .get_space_hierarchy_paginated(space_id, max_depth, suggested_only, limit, from)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get space hierarchy", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get space hierarchy", &e))
     }
 
     #[instrument(skip(self))]
@@ -244,7 +244,7 @@ impl SpaceService {
         self.space_storage
             .get_recursive_hierarchy(space_id, max_depth, suggested_only)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get recursive hierarchy", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get recursive hierarchy", &e))
     }
 
     #[instrument(skip(self))]
@@ -259,7 +259,7 @@ impl SpaceService {
             .space_storage
             .get_space(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get space", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get space", &e))?
             .ok_or_else(|| ApiError::not_found("Space not found"))?;
 
         if let Some(uid) = user_id {
@@ -267,7 +267,7 @@ impl SpaceService {
                 .space_storage
                 .check_user_can_see_space(space_id, uid)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to check space visibility", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to check space visibility", &e))?;
 
             if !can_see {
                 return Err(ApiError::forbidden("User cannot access this space"));
@@ -278,13 +278,13 @@ impl SpaceService {
             .space_storage
             .get_space_children(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get space children", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get space children", &e))?;
 
         let members = self
             .space_storage
             .get_space_members(space_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get space members", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get space members", &e))?;
 
         let child_rooms = futures::future::join_all(children.iter().map(|child| async {
             if let Some(child_space) = self.space_storage.get_space_by_room(&child.room_id).await.ok().flatten() {

@@ -69,14 +69,14 @@ impl ApplicationServiceManager {
         let config_display = config_path.display().to_string();
         let raw_config = fs::read_to_string(config_path)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to read application service config", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to read application service config", &e))?;
         let request = self.parse_config_file_contents(&raw_config, &config_display)?;
         self.validate_namespace_exclusivity(&request.as_id, request.namespaces.as_ref()).await?;
         let service = self
             .storage
             .upsert_registration(request)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to import application service config", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to import application service config", &e))?;
 
         info!(config_path = %config_display, as_id = %service.as_id, "Application service config imported");
         Ok(service)
@@ -90,7 +90,7 @@ impl ApplicationServiceManager {
             .storage
             .get_by_id(&request.as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check existing service", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to check existing service", &e))?
         {
             return Err(ApiError::bad_request(format!("Application service '{}' already exists", existing.as_id)));
         }
@@ -101,7 +101,7 @@ impl ApplicationServiceManager {
             .storage
             .register(request)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to register application service", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to register application service", &e))?;
 
         info!(as_id = %service.as_id, sender = %service.sender_localpart, "Application service registered successfully");
         Ok(service)
@@ -112,7 +112,7 @@ impl ApplicationServiceManager {
         self.storage
             .get_by_id(as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get application service", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get application service", &e))
     }
 
     #[instrument(skip(self))]
@@ -121,7 +121,7 @@ impl ApplicationServiceManager {
             .storage
             .get_by_token(as_token)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get application service by token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get application service by token", &e))?;
 
         if let Some(ref svc) = service {
             let _ = self.storage.update_last_seen(&svc.as_id).await.map_err(|e| {
@@ -137,7 +137,7 @@ impl ApplicationServiceManager {
         self.storage
             .get_all_active()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get active services", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get active services", &e))
     }
 
     #[instrument(skip(self))]
@@ -152,7 +152,7 @@ impl ApplicationServiceManager {
             .storage
             .update(as_id, &request)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update application service", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to update application service", &e))?;
 
         info!(as_id = %as_id, "Application service updated successfully");
         Ok(service)
@@ -165,7 +165,7 @@ impl ApplicationServiceManager {
         self.storage
             .unregister(as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to unregister application service", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to unregister application service", &e))?;
 
         info!(as_id = %as_id, "Application service unregistered successfully");
         Ok(())
@@ -186,7 +186,7 @@ impl ApplicationServiceManager {
         self.storage
             .set_state(as_id, state_key, state_value)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to set state", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to set state", &e))
     }
 
     #[instrument(skip(self))]
@@ -194,12 +194,12 @@ impl ApplicationServiceManager {
         self.storage
             .get_state(as_id, state_key)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get state", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get state", &e))
     }
 
     #[instrument(skip(self))]
     pub async fn get_all_states(&self, as_id: &str) -> Result<Vec<ApplicationServiceState>, ApiError> {
-        self.storage.get_all_states(as_id).await.map_err(|e| ApiError::internal_with_log("Failed to get states", &e))
+        self.storage.get_all_states(as_id).await.map_err(|e| ApiError::internal_with_context("Failed to get states", &e))
     }
 
     #[instrument(skip(self, content))]
@@ -216,7 +216,7 @@ impl ApplicationServiceManager {
             .storage
             .get_by_id(as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get application service", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get application service", &e))?
             .ok_or_else(|| ApiError::not_found("Application service not found"))?;
 
         if !self.service_matches_event(&service, room_id, sender, state_key) {
@@ -231,7 +231,7 @@ impl ApplicationServiceManager {
             .storage
             .add_event(&event_id, as_id, room_id, event_type, sender, content, state_key)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to add event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to add event", &e))?;
 
         info!(as_id = %as_id, event_id = %event_id, room_id = %room_id, event_type = %event_type, "Event pushed to application service");
         Ok(event)
@@ -259,7 +259,7 @@ impl ApplicationServiceManager {
             self.storage
                 .add_event(&queue_event_id, &service.as_id, room_id, event_type, sender, content.clone(), state_key)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to enqueue application service event", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to enqueue application service event", &e))?;
             enqueued += 1;
         }
 
@@ -271,7 +271,7 @@ impl ApplicationServiceManager {
         self.storage
             .get_pending_events(as_id, limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get pending events", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get pending events", &e))
     }
 
     #[instrument(skip(self))]
@@ -279,7 +279,7 @@ impl ApplicationServiceManager {
         self.storage
             .count_pending_events(as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to count pending events", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to count pending events", &e))
     }
 
     #[instrument(skip(self))]
@@ -287,7 +287,7 @@ impl ApplicationServiceManager {
         self.storage
             .count_pending_transactions(as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to count pending transactions", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to count pending transactions", &e))
     }
 
     pub async fn start_sender(self: Arc<Self>, batch_limit: i64, flush_interval_secs: u64) {
@@ -304,7 +304,7 @@ impl ApplicationServiceManager {
         self.storage
             .is_user_in_namespace(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to query user namespace", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to query user namespace", &e))
     }
 
     #[instrument(skip(self))]
@@ -312,7 +312,7 @@ impl ApplicationServiceManager {
         self.storage
             .is_room_alias_in_namespace(alias)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to query room alias namespace", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to query room alias namespace", &e))
     }
 
     #[instrument(skip(self))]
@@ -320,7 +320,7 @@ impl ApplicationServiceManager {
         self.storage
             .is_room_id_in_namespace(room_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to query room namespace", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to query room namespace", &e))
     }
 
     #[instrument(skip(self))]
@@ -337,7 +337,7 @@ impl ApplicationServiceManager {
             .storage
             .get_by_id(as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get application service", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get application service", &e))?
             .ok_or_else(|| ApiError::not_found("Application service not found"))?;
 
         if !Self::is_local_user_id(user_id, &self.server_name) {
@@ -357,7 +357,7 @@ impl ApplicationServiceManager {
             .storage
             .register_virtual_user(as_id, user_id, displayname, avatar_url)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to register virtual user", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to register virtual user", &e))?;
 
         info!(as_id = %as_id, user_id = %user_id, "Virtual user registered successfully");
         Ok(user)
@@ -368,7 +368,7 @@ impl ApplicationServiceManager {
         self.storage
             .get_virtual_users(as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get virtual users", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get virtual users", &e))
     }
 
     #[instrument(skip(self))]
@@ -377,17 +377,17 @@ impl ApplicationServiceManager {
             .storage
             .get_user_namespaces(as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get user namespaces", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get user namespaces", &e))?;
         let aliases = self
             .storage
             .get_room_alias_namespaces(as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get room alias namespaces", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get room alias namespaces", &e))?;
         let rooms = self
             .storage
             .get_room_namespaces(as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get room namespaces", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get room namespaces", &e))?;
 
         Ok(NamespacesInfo { users, aliases, rooms })
     }
@@ -398,7 +398,7 @@ impl ApplicationServiceManager {
             .storage
             .get_statistics()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get statistics", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get statistics", &e))?;
         let mut enriched = Vec::with_capacity(statistics.len());
 
         for mut entry in statistics {
@@ -410,7 +410,7 @@ impl ApplicationServiceManager {
                 .storage
                 .get_all_states(as_id)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to get scheduler states", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to get scheduler states", &e))?;
 
             if let Some(object) = entry.as_object_mut() {
                 object.insert("scheduler".to_string(), Self::scheduler_statistics_from_states(&states));
@@ -427,7 +427,7 @@ impl ApplicationServiceManager {
             .storage
             .get_by_id(as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get service", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get service", &e))?
             .ok_or_else(|| ApiError::not_found("Application service not found"))?;
 
         let url = format!("{}/_matrix/app/v1/ping", service.url);

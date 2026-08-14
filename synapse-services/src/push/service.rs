@@ -171,7 +171,7 @@ impl PushNotificationService {
         self.storage
             .get_room_notifications(user_id, room_id, limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get room notifications", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get room notifications", &e))
     }
 
     pub async fn send_notification(&self, request: SendNotificationRequest) -> Result<(), ApiError> {
@@ -517,7 +517,7 @@ impl PushNotificationService {
         for rule in rules {
             if Self::matches_rule(&rule, event)? {
                 let actions: Vec<JsonValue> = serde_json::from_value(rule.actions)
-                    .map_err(|e| ApiError::internal_with_log("Invalid actions", &e))?;
+                    .map_err(|e| ApiError::internal_with_context("Invalid actions", &e))?;
 
                 let mut notify = false;
 
@@ -550,7 +550,7 @@ impl PushNotificationService {
 
     pub(crate) fn matches_rule(rule: &PushRule, event: &JsonValue) -> Result<bool, ApiError> {
         let conditions: Vec<JsonValue> = serde_json::from_value(rule.conditions.clone())
-            .map_err(|e| ApiError::internal_with_log("Invalid conditions", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Invalid conditions", &e))?;
 
         if conditions.is_empty() {
             return Ok(true);

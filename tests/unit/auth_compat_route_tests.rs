@@ -1065,10 +1065,10 @@ fn test_error_code_mapping_for_unauthorized() {
 }
 
 #[test]
-fn test_error_code_mapping_for_internal_with_log() {
+fn test_error_code_mapping_for_internal_with_context() {
     // Used by login when access_token / refresh_token generation fails.
     let source = ApiError::internal("Underlying failure".to_string());
-    let err = ApiError::internal_with_log("Failed to generate access token", &source);
+    let err = ApiError::internal_with_context("Failed to generate access token", &source);
     assert_eq!(err.kind, ApiErrorKind::Internal);
     assert_eq!(err.code, MatrixErrorCode::Unknown);
     assert!(err.message.contains("Failed to generate access token"));

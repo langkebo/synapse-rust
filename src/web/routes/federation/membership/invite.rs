@@ -63,7 +63,7 @@ pub(crate) async fn thirdparty_invite(
         .messaging()
         .create_event(params, None)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to create invite event", &e))?;
     dispatch_federation_member_event_to_appservice(&ctx, &event_id, room_id, sender, &content, Some(invitee)).await;
 
     Ok(Json(json!({
@@ -107,7 +107,7 @@ pub(crate) async fn invite_v2(
         .messaging()
         .create_event(params, None)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to create invite event", &e))?;
     dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, sender, &content_for_as, Some(state_key))
         .await;
 

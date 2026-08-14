@@ -29,7 +29,7 @@ impl DehydratedDeviceService {
             .storage
             .get_by_user(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load dehydrated device", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to load dehydrated device", &e))?;
 
         Ok(record.map(Self::record_to_response))
     }
@@ -39,7 +39,7 @@ impl DehydratedDeviceService {
             .storage
             .get_by_user(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load dehydrated device status", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to load dehydrated device status", &e))?;
 
         if let Some(record) = record {
             Ok(serde_json::json!({
@@ -71,7 +71,7 @@ impl DehydratedDeviceService {
                 expires_at: normalized.expires_at,
             })
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to store dehydrated device", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to store dehydrated device", &e))?;
 
         Ok(normalized.device_id)
     }
@@ -85,7 +85,7 @@ impl DehydratedDeviceService {
             .storage
             .get_by_user(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load dehydrated device before delete", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to load dehydrated device before delete", &e))?;
 
         let Some(record) = record else {
             return Ok(None);
@@ -94,7 +94,7 @@ impl DehydratedDeviceService {
         self.storage
             .delete_by_user(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete dehydrated device", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to delete dehydrated device", &e))?;
         Ok(Some(record.device_id))
     }
 
@@ -102,7 +102,7 @@ impl DehydratedDeviceService {
         self.storage
             .delete_by_user(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete all dehydrated devices for user", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to delete all dehydrated devices for user", &e))?;
         Ok(())
     }
 
@@ -112,7 +112,7 @@ impl DehydratedDeviceService {
         self.storage
             .sweep_expired()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to sweep expired dehydrated devices", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to sweep expired dehydrated devices", &e))
     }
 
     /// Claim a batch of to-device events addressed to a dehydrated device.
@@ -132,7 +132,7 @@ impl DehydratedDeviceService {
             .storage
             .get_by_user(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load dehydrated device", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to load dehydrated device", &e))?
             .ok_or_else(|| ApiError::not_found("No dehydrated device for this user"))?;
 
         if record.device_id != device_id {
@@ -151,7 +151,7 @@ impl DehydratedDeviceService {
 
         let (events, max_stream_id) =
             self.storage.claim_to_device_events(user_id, device_id, since, limit).await.map_err(|e| {
-                ApiError::internal_with_log("Failed to fetch to-device events for dehydrated device", &e)
+                ApiError::internal_with_context("Failed to fetch to-device events for dehydrated device", &e)
             })?;
 
         Ok(serde_json::json!({

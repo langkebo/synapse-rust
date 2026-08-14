@@ -219,7 +219,7 @@ fn map_storage_error(error: sqlx::Error) -> ApiError {
         sqlx::Error::Database(db_error) if db_error.is_unique_violation() => {
             ApiError::conflict("FLAG_CONFLICT: feature flag already exists")
         }
-        other => ApiError::internal_with_log("feature flag storage failed", &other),
+        other => ApiError::internal_with_context("feature flag storage failed", &other),
     }
 }
 

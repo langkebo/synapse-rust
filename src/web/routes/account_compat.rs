@@ -28,7 +28,7 @@ pub(crate) async fn whoami(
         .await
         .map_err(|e| {
             if e.kind == crate::common::ApiErrorKind::Internal {
-                ApiError::internal_with_log("Token validation error", &e)
+                ApiError::internal_with_context("Token validation error", &e)
             } else {
                 ApiError::authentication("Invalid token")
             }
@@ -73,7 +73,7 @@ pub(crate) async fn enforce_profile_visibility(
                 // DB/internal errors must propagate (fail-closed); auth failures
                 // (expired / invalid / revoked) correctly degrade to anonymous.
                 if e.kind == crate::common::ApiErrorKind::Internal {
-                    return Err(ApiError::internal_with_log("Token validation error", &e));
+                    return Err(ApiError::internal_with_context("Token validation error", &e));
                 }
                 None
             }

@@ -46,7 +46,7 @@ impl ClientPushService {
             .push_storage
             .get_pushers(user_id, device_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
 
         Ok(pushers
             .iter()
@@ -83,7 +83,7 @@ impl ClientPushService {
                 now,
             )
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to save pusher", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to save pusher", &e))?;
         Ok(now)
     }
 
@@ -91,7 +91,7 @@ impl ClientPushService {
         self.push_storage
             .delete_pusher(user_id, device_id, pushkey)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete pusher", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to delete pusher", &e))?;
         Ok(())
     }
 
@@ -99,7 +99,7 @@ impl ClientPushService {
         self.account_data_storage
             .get_account_data_content(user_id, "m.push_rules")
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to get push rules", &e))
     }
 
     pub async fn get_user_push_rules(&self, user_id: &str, scope: &str, kind: &str) -> Result<Vec<Value>, ApiError> {
@@ -107,7 +107,7 @@ impl ClientPushService {
             .push_storage
             .get_user_push_rules(user_id, scope, kind)
             .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
 
         Ok(rules
             .iter()
@@ -139,7 +139,7 @@ impl ClientPushService {
                 now,
             )
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to save push rule", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to save push rule", &e))?;
         Ok(now)
     }
 
@@ -154,7 +154,7 @@ impl ClientPushService {
             .push_storage
             .delete_push_rule(user_id, scope, kind, rule_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete push rule", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to delete push rule", &e))?;
         Ok(rows > 0)
     }
 
@@ -169,7 +169,7 @@ impl ClientPushService {
         self.push_storage
             .update_push_rule_actions(user_id, scope, kind, rule_id, actions)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update push rule actions", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to update push rule actions", &e))?;
         Ok(())
     }
 
@@ -183,7 +183,7 @@ impl ClientPushService {
         self.push_storage
             .get_push_rule_enabled(user_id, scope, kind, rule_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))
+            .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
     pub async fn set_push_rule_enabled(
@@ -197,7 +197,7 @@ impl ClientPushService {
         self.push_storage
             .set_push_rule_enabled(user_id, scope, kind, rule_id, enabled)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update push rule enabled", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to update push rule enabled", &e))?;
         Ok(())
     }
 
@@ -206,7 +206,7 @@ impl ClientPushService {
             .push_storage
             .get_notifications(user_id, limit)
             .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
 
         Ok(notifications
             .iter()
@@ -228,7 +228,7 @@ impl ClientPushService {
             .push_storage
             .ack_notification(notification_id, user_id, current_timestamp_millis())
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to ack notification", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to ack notification", &e))?;
         Ok(result.is_some())
     }
 }

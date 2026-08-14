@@ -145,7 +145,7 @@ pub(crate) async fn send_join(
             .messaging()
             .create_event(params, None)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to persist join event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to persist join event", &e))?;
         dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, user_id, &content, Some(user_id))
             .await;
 
@@ -153,7 +153,7 @@ pub(crate) async fn send_join(
             .membership()
             .add_member(&room_id, user_id, "join", display_name, None, None)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to update membership", &e))?;
 
         ::tracing::info!(
             request_id = %request_id,
@@ -244,14 +244,14 @@ pub(crate) async fn send_join_v2(
             .messaging()
             .create_event(params, None)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to persist join event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to persist join event", &e))?;
         dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, sender, &content, Some(sender)).await;
 
         ctx.room_service
             .membership()
             .add_member(&room_id, sender, "join", display_name, None, None)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to update membership", &e))?;
 
         ::tracing::info!(
             target: "federation",

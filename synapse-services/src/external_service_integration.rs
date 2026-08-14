@@ -202,7 +202,7 @@ impl ExternalServiceIntegration {
         }
 
         let payload_bytes = serde_json::to_vec(payload)
-            .map_err(|e| ApiError::internal_with_log("Failed to serialize webhook payload", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to serialize webhook payload", &e))?;
 
         let signature_matches = auth.signature.as_deref().is_some_and(|signature| {
             let normalized = signature.strip_prefix("sha256=").unwrap_or(signature);
@@ -240,7 +240,7 @@ impl ExternalServiceIntegration {
             .storage
             .get_by_id(&as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check existing service", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to check existing service", &e))?
             .is_some()
         {
             return Err(ApiError::bad_request(format!("External service '{}' already exists", as_id)));
@@ -266,7 +266,7 @@ impl ExternalServiceIntegration {
             .storage
             .register(request)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to register external service", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to register external service", &e))?;
 
         self.health_status.write().await.insert(
             as_id.clone(),
@@ -369,11 +369,11 @@ impl ExternalServiceIntegration {
             .storage
             .get_by_id(&as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get service", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get service", &e))?
             .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
         let signed_payload = serde_json::to_value(&payload)
-            .map_err(|e| ApiError::internal_with_log("Failed to serialize webhook payload", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to serialize webhook payload", &e))?;
         self.verify_webhook_auth(&service, &auth, &signed_payload)?;
 
         let event_content = serde_json::json!({
@@ -411,7 +411,7 @@ impl ExternalServiceIntegration {
                 None,
             )
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to add event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to add event", &e))?;
 
         self.update_health_status(&as_id, true, None).await;
 
@@ -439,11 +439,11 @@ impl ExternalServiceIntegration {
             .storage
             .get_by_id(&as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get service", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get service", &e))?
             .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
         let signed_payload = serde_json::to_value(&payload)
-            .map_err(|e| ApiError::internal_with_log("Failed to serialize webhook payload", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to serialize webhook payload", &e))?;
         self.verify_webhook_auth(&service, &auth, &signed_payload)?;
 
         let event_content = match payload.action.as_str() {
@@ -478,7 +478,7 @@ impl ExternalServiceIntegration {
                 None,
             )
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to add event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to add event", &e))?;
 
         self.update_health_status(&as_id, true, None).await;
 
@@ -506,11 +506,11 @@ impl ExternalServiceIntegration {
             .storage
             .get_by_id(&as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get service", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get service", &e))?
             .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
         let mut signed_payload = serde_json::to_value(&payload)
-            .map_err(|e| ApiError::internal_with_log("Failed to serialize webhook payload", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to serialize webhook payload", &e))?;
         if let Some(object) = signed_payload.as_object_mut() {
             object.remove("signature");
         }
@@ -534,7 +534,7 @@ impl ExternalServiceIntegration {
                 None,
             )
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to add event", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to add event", &e))?;
 
         self.update_health_status(&as_id, true, None).await;
 
@@ -578,7 +578,7 @@ impl ExternalServiceIntegration {
             .storage
             .get_by_id(as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get service", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get service", &e))?
             .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
         if service.url.is_empty() {
@@ -612,7 +612,7 @@ impl ExternalServiceIntegration {
         self.storage
             .unregister(service_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to unregister service", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to unregister service", &e))?;
 
         self.health_status.write().await.remove(service_id);
 
@@ -629,7 +629,7 @@ impl ExternalServiceIntegration {
         self.storage
             .update(as_id, &request)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update service", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to update service", &e))
     }
 
     #[instrument(skip(self))]
@@ -641,7 +641,7 @@ impl ExternalServiceIntegration {
             .storage
             .get_all_active()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get services", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get services", &e))?;
 
         if let Some(stype) = service_type {
             let prefix = format!("{}_", stype);
@@ -657,7 +657,7 @@ impl ExternalServiceIntegration {
             .storage
             .get_by_id(as_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get service", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get service", &e))?
             .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
         if service.url.is_empty() {

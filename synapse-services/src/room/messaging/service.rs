@@ -150,7 +150,7 @@ impl MessagingService {
         let signing_key = key_rotation_manager
             .get_current_key()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get signing key", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get signing key", &e))?
             .ok_or_else(|| ApiError::internal("No signing key available".to_string()))?;
 
         sign_and_hash_event(&self.server_name, &signing_key.key_id, &signing_key.secret_key, &mut pdu)

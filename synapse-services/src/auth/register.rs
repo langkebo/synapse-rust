@@ -83,7 +83,7 @@ impl AuthService {
                 if e.to_string().contains("duplicate key") || e.to_string().contains("unique constraint") {
                     ApiError::user_in_use("Username already exists".to_string())
                 } else {
-                    ApiError::internal_with_log("Failed to create user", &e)
+                    ApiError::internal_with_context("Failed to create user", &e)
                 }
             })?;
 

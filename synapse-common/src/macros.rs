@@ -16,13 +16,13 @@ macro_rules! impl_api_error {
 #[macro_export]
 macro_rules! map_internal {
     ($result:expr, $msg:literal) => {
-        $result.map_err(|e| $crate::ApiError::internal_with_log($msg, &e))
+        $result.map_err(|e| $crate::ApiError::internal_with_context($msg, &e))
     };
     ($result:expr, $msg:expr) => {
-        $result.map_err(|e| $crate::ApiError::internal_with_log($msg, &e))
+        $result.map_err(|e| $crate::ApiError::internal_with_context($msg, &e))
     };
     ($msg:literal) => {
-        |e| $crate::ApiError::internal_with_log($msg, &e)
+        |e| $crate::ApiError::internal_with_context($msg, &e)
     };
 }
 

@@ -19,9 +19,9 @@ impl UserService {
         Self { user_storage }
     }
 
-    /// Maps a `sqlx::Error` to `ApiError::internal_with_log`.
+    /// Maps a `sqlx::Error` to `ApiError::internal_with_context`.
     fn db_error(e: sqlx::Error) -> ApiError {
-        ApiError::internal_with_log("Database error", &e)
+        ApiError::internal_with_context("Database error", &e)
     }
 
     // ── user lookup (Patterns 1+2) ──────────────────────────────────────

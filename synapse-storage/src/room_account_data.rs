@@ -76,7 +76,7 @@ impl RoomAccountDataStorage {
         let row = self
             .get_room_account_data(user_id, room_id, data_type)
             .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
         Ok(row.map(|row| row.get::<Value, _>("data")))
     }
 
@@ -94,7 +94,7 @@ impl RoomAccountDataStorage {
         .bind(data_type)
         .fetch_optional(self.pool.as_ref())
         .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
 
         Ok(row.map(|row| {
             let data = row.get::<Value, _>("data");
@@ -132,7 +132,7 @@ impl RoomAccountDataStorage {
         .bind(room_id)
         .fetch_all(self.pool.as_ref())
         .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))
+        .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
     pub async fn list_room_account_data_batch(
@@ -154,7 +154,7 @@ impl RoomAccountDataStorage {
         .bind(room_ids)
         .fetch_all(self.pool.as_ref())
         .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))
+        .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
     pub async fn get_room_vault_data(
@@ -209,7 +209,7 @@ impl RoomAccountDataStorage {
                 .bind(data_type)
                 .execute(self.pool.as_ref())
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to delete room account data", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to delete room account data", &e))?;
         Ok(result.rows_affected() > 0)
     }
 }

@@ -106,12 +106,12 @@ impl PushGateway {
             .json(notification)
             .send()
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to send to gateway", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to send to gateway", &e))?;
 
         let status = response.status();
 
         if !status.is_success() {
-            let body = response.text().await.map_err(|e| ApiError::internal_with_log("Failed to read response", &e))?;
+            let body = response.text().await.map_err(|e| ApiError::internal_with_context("Failed to read response", &e))?;
 
             error!(
                 %status,
@@ -119,11 +119,11 @@ impl PushGateway {
                 response_body_len = body.len(),
                 "Push gateway returned error"
             );
-            return Err(ApiError::internal_with_log("Push gateway error", &status));
+            return Err(ApiError::internal_with_context("Push gateway error", &status));
         }
 
         let gateway_response: PushGatewayResponse =
-            response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse gateway response", &e))?;
+            response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse gateway response", &e))?;
 
         debug!(rejected = gateway_response.rejected.len(), "Push gateway response");
 

@@ -199,7 +199,7 @@ impl McpProxyService {
             self.client.post(endpoint).header("Content-Type", "application/json").json(&payload).send().await.map_err(
                 |e| {
                     error!(error = %e, has_endpoint = !endpoint.is_empty(), "MCP request failed");
-                    ApiError::internal_with_log("Failed to connect to MCP server", &e)
+                    ApiError::internal_with_context("Failed to connect to MCP server", &e)
                 },
             )?;
 
@@ -213,7 +213,7 @@ impl McpProxyService {
                 response_body_len = error_text.len(),
                 "MCP server returned error"
             );
-            return Err(ApiError::internal_with_log("MCP server error", &error_text));
+            return Err(ApiError::internal_with_context("MCP server error", &error_text));
         }
 
         let result: Value = response.json().await.map_err(|e| {
@@ -230,7 +230,7 @@ impl McpProxyService {
                 error_data_present = err.get("data").is_some(),
                 "MCP tool execution error"
             );
-            return Err(ApiError::internal_with_log("MCP error", &err));
+            return Err(ApiError::internal_with_context("MCP error", &err));
         }
 
         Ok(result)

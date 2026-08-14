@@ -38,7 +38,7 @@ impl AccountDataStoreApi for AccountDataStorage {
             .bind(data_type)
             .fetch_optional(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))
+            .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
     async fn list_account_data(&self, user_id: &str) -> Result<Vec<AccountDataRecord>, ApiError> {
@@ -48,7 +48,7 @@ impl AccountDataStoreApi for AccountDataStorage {
         .bind(user_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))
+        .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
     async fn delete_account_data(&self, user_id: &str, data_type: &str) -> Result<bool, ApiError> {
@@ -57,7 +57,7 @@ impl AccountDataStoreApi for AccountDataStorage {
             .bind(data_type)
             .execute(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete account data", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to delete account data", &e))?;
         Ok(result.rows_affected() > 0)
     }
 
@@ -77,7 +77,7 @@ impl AccountDataStoreApi for AccountDataStorage {
         .bind(now)
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to upsert account data", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to upsert account data", &e))?;
         Ok(())
     }
 }

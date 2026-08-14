@@ -195,7 +195,7 @@ impl FederationBlacklistStorage {
         .bind(&metadata)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to add to blacklist", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to add to blacklist", &e))?;
 
         info!("Added server {} to blacklist", request.server_name);
         Ok(row)
@@ -215,7 +215,7 @@ impl FederationBlacklistStorage {
         )
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to remove from blacklist", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to remove from blacklist", &e))?;
 
         self.create_log(CreateLogRequest {
             server_name: server_name.to_string(),
@@ -255,7 +255,7 @@ impl FederationBlacklistStorage {
         .bind(server_name)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get blacklist entry", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to get blacklist entry", &e))?;
 
         Ok(row)
     }
@@ -291,7 +291,7 @@ impl FederationBlacklistStorage {
         .bind(server_name)
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check whitelist", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to check whitelist", &e))?;
 
         Ok(row.is_some())
     }
@@ -326,7 +326,7 @@ impl FederationBlacklistStorage {
             .bind(limit as i64 + 1)
             .fetch_all(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get blacklist", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get blacklist", &e))?
         } else {
             sqlx::query_as::<_, FederationBlacklist>(
                 r#"
@@ -350,7 +350,7 @@ impl FederationBlacklistStorage {
             .bind(limit as i64 + 1)
             .fetch_all(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get blacklist", &e))?
+            .map_err(|e| ApiError::internal_with_context("Failed to get blacklist", &e))?
         };
 
         let next_batch = if rows.len() > limit as usize {
@@ -392,7 +392,7 @@ impl FederationBlacklistStorage {
         .bind(&metadata)
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to create log", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to create log", &e))?;
 
         Ok(row)
     }
@@ -431,7 +431,7 @@ impl FederationBlacklistStorage {
         .bind(if request.is_success { 0.0_f64 } else { 1.0_f64 })
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to update access stats", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to update access stats", &e))?;
 
         Ok(row)
     }
@@ -448,7 +448,7 @@ impl FederationBlacklistStorage {
         )
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get access stats", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to get access stats", &e))?;
 
         Ok(row)
     }
@@ -476,7 +476,7 @@ impl FederationBlacklistStorage {
         )
         .fetch_one(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to create rule", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to create rule", &e))?;
 
         info!("Created federation blacklist rule: {}", request.rule_name);
         Ok(row)
@@ -490,7 +490,7 @@ impl FederationBlacklistStorage {
         )
         .fetch_all(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get rules", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to get rules", &e))?;
 
         Ok(rows)
     }
@@ -503,7 +503,7 @@ impl FederationBlacklistStorage {
         )
         .execute(&*self.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired entries", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to cleanup expired entries", &e))?;
 
         info!("Cleaned up {} expired blacklist entries", result.rows_affected());
         Ok(result.rows_affected())

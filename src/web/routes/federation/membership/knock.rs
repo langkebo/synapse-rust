@@ -40,7 +40,7 @@ pub(crate) async fn knock_room(
         .messaging()
         .create_event(params, None)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to create knock event", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to create knock event", &e))?;
     dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, &user_id, &content, Some(&user_id)).await;
 
     // P1-14: Spec-compliant response — return full event object under "event" key,

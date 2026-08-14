@@ -30,7 +30,7 @@ pub async fn generate_login_token(
     storage
         .create_login_token(&token, user_id, device_id, expires_at)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to store QR login token", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to store QR login token", &e))?;
     Ok(token)
 }
 
@@ -43,6 +43,6 @@ pub async fn consume_login_token(
     let entry = storage
         .consume_login_token(token)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to consume QR login token", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to consume QR login token", &e))?;
     Ok(entry.map(|e| (e.user_id, e.device_id)))
 }

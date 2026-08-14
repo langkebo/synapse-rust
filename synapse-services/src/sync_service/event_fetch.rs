@@ -221,6 +221,6 @@ impl SyncService {
         self.device_storage
             .has_device_list_updates_since(since_stream_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to poll for device-list updates", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to poll for device-list updates", &e))
     }
 }

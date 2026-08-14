@@ -576,7 +576,7 @@ impl KeyRotationManager {
     fn derive_public_key(&self, secret_key: &str) -> Result<String, ApiError> {
         let secret_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD_NO_PAD
             .decode(secret_key)
-            .map_err(|e| ApiError::internal_with_log("Invalid secret key format", &e))?
+            .map_err(|e| ApiError::internal_with_context("Invalid secret key format", &e))?
             .try_into()
             .map_err(|bytes: Vec<u8>| {
                 ApiError::internal(format!("Secret key must be 32 bytes, got {}", bytes.len()))
@@ -628,25 +628,25 @@ impl KeyRotationManager {
     fn verify_signature(&self, public_key: &str, signature: &str, content: &[u8]) -> Result<(), ApiError> {
         let pub_key_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD_NO_PAD
             .decode(public_key)
-            .map_err(|e| ApiError::internal_with_log("Invalid public key format", &e))?
+            .map_err(|e| ApiError::internal_with_context("Invalid public key format", &e))?
             .try_into()
             .map_err(|bytes: Vec<u8>| {
                 ApiError::internal(format!("Public key must be 32 bytes, got {}", bytes.len()))
             })?;
 
         let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&pub_key_bytes)
-            .map_err(|e| ApiError::internal_with_log("Invalid verifying key", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Invalid verifying key", &e))?;
 
         let sig_bytes = base64::engine::general_purpose::STANDARD
             .decode(signature)
-            .map_err(|e| ApiError::internal_with_log("Invalid signature format", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Invalid signature format", &e))?;
 
         let dalek_signature = ed25519_dalek::Signature::from_slice(&sig_bytes)
-            .map_err(|e| ApiError::internal_with_log("Invalid signature length", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Invalid signature length", &e))?;
 
         verifying_key
             .verify_strict(content, &dalek_signature)
-            .map_err(|e| ApiError::internal_with_log("Signature verification failed", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Signature verification failed", &e))?;
 
         Ok(())
     }

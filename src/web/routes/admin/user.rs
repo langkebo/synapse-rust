@@ -592,7 +592,7 @@ pub async fn login_as_user(
         .token_auth
         .generate_access_token(&user.user_id, &device_id, is_admin)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to generate token", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to generate token", &e))?;
 
     Ok(Json(json!({
         "access_token": token,

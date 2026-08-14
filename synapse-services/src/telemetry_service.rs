@@ -313,7 +313,7 @@ impl TelemetryAlertService {
         let health = monitor
             .get_full_health_status()
             .await
-            .map_err(|error| ApiError::internal_with_log("failed to collect telemetry health", &error))?;
+            .map_err(|error| ApiError::internal_with_context("failed to collect telemetry health", &error))?;
 
         let now = current_timestamp_millis();
         let mut active_rules: HashMap<&str, TelemetryAlert> = HashMap::new();

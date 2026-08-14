@@ -193,13 +193,13 @@ pub(crate) async fn oidc_callback(
     let token_response: synapse_services::oidc_service::OidcTokenResponse = oidc_service
         .exchange_code(&code, &callback_url, Some(auth_session.code_verifier.as_str()), Some(&auth_session.nonce))
         .await
-        .map_err(|e| ApiError::internal_with_log("Token exchange failed", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Token exchange failed", &e))?;
 
     // Fetch user info
     let user_info: synapse_services::oidc_service::OidcUserInfo = oidc_service
         .get_user_info(&token_response.access_token)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get user info", &e))?;
+        .map_err(|e| ApiError::internal_with_context("Failed to get user info", &e))?;
 
     // Map to Matrix user
     let oidc_user: synapse_services::oidc_service::OidcUser = oidc_service.map_user(&user_info);
@@ -224,12 +224,12 @@ pub(crate) async fn oidc_callback(
             .token_auth
             .generate_access_token(&user_id, &device_id, existing.is_admin)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to generate access token", &e))?;
         let refresh_token: String = ctx
             .token_auth
             .generate_refresh_token(&user_id, &device_id, &access_token)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to generate refresh token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to generate refresh token", &e))?;
         (existing, access_token, refresh_token, device_id)
     } else {
         // Create new user — use a random password since auth is by OIDC provider
@@ -255,12 +255,12 @@ pub(crate) async fn oidc_callback(
                         .token_auth
                         .generate_access_token(&user_id, &device_id, existing.is_admin)
                         .await
-                        .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
+                        .map_err(|e| ApiError::internal_with_context("Failed to generate access token", &e))?;
                     let refresh_token: String = ctx
                         .token_auth
                         .generate_refresh_token(&user_id, &device_id, &access_token)
                         .await
-                        .map_err(|e| ApiError::internal_with_log("Failed to generate refresh token", &e))?;
+                        .map_err(|e| ApiError::internal_with_context("Failed to generate refresh token", &e))?;
                     (existing, access_token, refresh_token, device_id)
                 } else {
                     return Err(e);

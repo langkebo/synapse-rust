@@ -11,12 +11,12 @@ impl AuthService {
         self.token_storage
             .add_to_blacklist(access_token, user_id, Some("User logout"))
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to add token to blacklist", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to add token to blacklist", &e))?;
 
         self.token_storage
             .delete_token(access_token)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete token", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to delete token", &e))?;
 
         // Invalidate the access token cache entry immediately so that subsequent
         // validations of the same token do not rely on the (now-stale) cache and
@@ -30,7 +30,7 @@ impl AuthService {
             self.token_storage
                 .delete_device_tokens(d_id)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to delete device tokens", &e))?;
+                .map_err(|e| ApiError::internal_with_context("Failed to delete device tokens", &e))?;
 
             if let Some(c) = claims.as_ref() {
                 if let Err(e) = self.refresh_token_storage.revoke_device_tokens(&c.sub, d_id, "user_logout").await {
@@ -42,7 +42,7 @@ impl AuthService {
                         error = %e,
                         "Failed to revoke device refresh tokens during logout"
                     );
-                    return Err(ApiError::internal_with_log("Failed to invalidate refresh tokens", &e));
+                    return Err(ApiError::internal_with_context("Failed to invalidate refresh tokens", &e));
                 }
             }
         }
@@ -63,7 +63,7 @@ impl AuthService {
             .token_storage
             .get_user_tokens(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get user tokens", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to get user tokens", &e))?;
 
         for token in &tokens {
             if let Err(e) =
@@ -85,17 +85,17 @@ impl AuthService {
         self.token_storage
             .delete_user_tokens(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete tokens", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to delete tokens", &e))?;
 
         self.refresh_token_storage
             .revoke_all_user_tokens(user_id, "Logout all devices")
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to revoke refresh tokens", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to revoke refresh tokens", &e))?;
 
         self.device_storage
             .delete_all_devices(user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete devices", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to delete devices", &e))?;
 
         let logout_marker = format!("user:logout_all:{user_id}");
         let now = Utc::now().timestamp();
@@ -111,7 +111,7 @@ impl AuthService {
             .refresh_token_storage
             .get_token(&token_hash)
             .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
 
         let (token_data, token_hash) = match token_data {
             Some(t) => (t, token_hash),
@@ -121,7 +121,7 @@ impl AuthService {
                     .refresh_token_storage
                     .get_token(&legacy_hash)
                     .await
-                    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+                    .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
                 match legacy_data {
                     Some(t) => (t, legacy_hash),
                     None => {
@@ -162,7 +162,7 @@ impl AuthService {
             .user_storage
             .get_user_by_id(&t.user_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
 
         match user {
             Some(u) => {
@@ -174,7 +174,7 @@ impl AuthService {
                     .refresh_token_storage
                     .revoke_token_cas(&token_hash, "Rotated")
                     .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to claim refresh token", &e))?;
+                    .map_err(|e| ApiError::internal_with_context("Failed to claim refresh token", &e))?;
                 if !claimed {
                     ::tracing::warn!(
                         target: "security_audit",

@@ -280,7 +280,7 @@ impl CaptchaService {
                 body: content.to_string(),
             })
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to enqueue captcha email delivery", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to enqueue captcha email delivery", &e))?;
 
         Ok(())
     }
