@@ -905,3 +905,26 @@ async fn test_register_duplicate_username_returns_user_in_use() {
     assert_eq!(err.kind, synapse_common::ApiErrorKind::BadRequest);
     assert_eq!(err.code, synapse_common::MatrixErrorCode::UserInUse);
 }
+
+// ============================================================================
+// mod.rs 辅助函数 / guest 账户测试
+// ============================================================================
+
+#[test]
+fn test_auth_generate_token_length_and_charset() {
+    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let token = super::auth_generate_token(32);
+    assert_eq!(token.len(), 32);
+    assert!(token.bytes().all(|b| CHARSET.contains(&b)), "token must only contain base62 chars");
+}
+
+#[tokio::test]
+async fn test_register_guest_account_success() {
+    let h = super::test_harness::build_test_auth_service();
+
+    let (user, device_id, access_token) = h.service.register_guest_account().await.expect("guest register should succeed");
+
+    assert!(user.user_id.starts_with("@guest_"));
+    assert!(device_id.starts_with("guest_device_"));
+    assert!(!access_token.is_empty());
+}
