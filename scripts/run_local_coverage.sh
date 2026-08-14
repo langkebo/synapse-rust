@@ -50,17 +50,21 @@ echo "    Output directory = $OUTPUT_DIR/"
 #                         required by integration/unit/e2e test targets
 #   --include-tests       Run integration test targets (tests/*) in addition
 #                         to lib/bin unit tests
+#   --implicit-test-threads  Don't let tarpaulin inject its own `--test-threads`
+#                         (which defaults to #CPUs); instead honor RUST_TEST_THREADS
+#                         so DB integration tests run at a safe concurrency. CI's
+#                         GitHub runner (2 cores) is fine at default, but local
+#                         8-16 core machines cause DB contention / data conflicts
+#                         when tarpaulin runs 1 test thread per CPU.
 #   --out Lcov            Emit coverage/lcov.info for analyze_coverage.py
 #   --locked              Respect Cargo.lock (CI parity)
-# Note: `--test-threads` is intentionally NOT passed. The installed tarpaulin
-#   version doesn't accept it as a top-level flag, and passing it via `--`
-#   causes "Option 'test-threads' given more than once" when --include-tests
-#   is enabled (tarpaulin forwards its own copy to libtest). Tarpaulin's
-#   default parallelism (1 thread per CPU) is acceptable for coverage runs.
+export RUST_TEST_THREADS="${TEST_THREADS}"
 cargo tarpaulin \
     --workspace \
     --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications" \
     --include-tests \
+    --implicit-test-threads \
+    --no-fail-fast \
     --out Lcov \
     --output-dir "$OUTPUT_DIR" \
     ${FAIL_UNDER:+--fail-under "$FAIL_UNDER"} \
