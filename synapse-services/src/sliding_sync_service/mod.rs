@@ -491,13 +491,14 @@ impl SlidingSyncService {
             })
             .collect();
 
+        let subscriptions_changed = self.room_subscriptions_changed(user_id, device_id, conn_id, &request).await;
         let mut lists_response = self
             .build_lists_response(user_id, device_id, conn_id, &request.lists, request.pos.as_deref())
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to build lists response", &e))?;
 
         let mut rooms_response = self
-            .build_rooms_response(user_id, device_id, conn_id, &request, prev_event_stream_pos)
+            .build_rooms_response(user_id, device_id, conn_id, &request, prev_event_stream_pos, subscriptions_changed)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to build rooms response", &e))?;
 
@@ -546,6 +547,7 @@ impl SlidingSyncService {
         // 超时分支会丢弃 rooms_response 并把水位线回写过这些事件，造成
         // 客户端永久丢消息。因此带新事件的增量响应必须立即返回。
         let is_idle = !is_initial
+            && !subscriptions_changed
             && extensions_response.is_none()
             && !Self::has_list_operations(&lists_response)
             && !Self::has_new_timeline_events(&rooms_response);
@@ -600,7 +602,7 @@ impl SlidingSyncService {
                     .map_err(|e| ApiError::internal_with_context("Failed to rebuild lists response", &e))?;
 
                 rooms_response = self
-                    .build_rooms_response(user_id, device_id, conn_id, &request, prev_event_stream_pos)
+                    .build_rooms_response(user_id, device_id, conn_id, &request, prev_event_stream_pos, subscriptions_changed)
                     .await
                     .map_err(|e| ApiError::internal_with_context("Failed to rebuild rooms response", &e))?;
 
@@ -696,6 +698,28 @@ impl SlidingSyncService {
                 })
             })
             .unwrap_or(false)
+    }
+
+    /// P1-5: 检测 room_subscriptions 配置是否变化（新订阅房间、required_state 增减、
+    /// timeline_limit 调整）。客户端每次 sync 都发完整的 room_subscriptions，配置一旦
+    /// 变化应立即反映，而非被 is_idle 判定为空闲后超时丢弃 rooms_response（否则新订阅
+    /// 的房间要等到下一个事件才出现在响应里）。用本地缓存存上一轮快照做对比。
+    async fn room_subscriptions_changed(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        conn_id: Option<&str>,
+        request: &SlidingSyncRequest,
+    ) -> bool {
+        let key = Self::subscription_snapshot_key(user_id, device_id, conn_id);
+        let current = request.room_subscriptions.as_ref().map(|s| s.to_string()).unwrap_or_default();
+        let changed = self.cache.get_raw(&key).as_deref() != Some(current.as_str());
+        self.cache.set_raw(&key, &current, 3600).await;
+        changed
+    }
+
+    fn subscription_snapshot_key(user_id: &str, device_id: &str, conn_id: Option<&str>) -> String {
+        format!("sliding_sync:subs:{user_id}:{device_id}:{}", conn_id.unwrap_or(""))
     }
 
     /// Lazy GC: remove stale connection data (DB rows + cache entries) for the

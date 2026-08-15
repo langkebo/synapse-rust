@@ -116,6 +116,7 @@ impl SlidingSyncService {
         conn_id: Option<&str>,
         request: &SlidingSyncRequest,
         since_stream: Option<i64>,
+        force_initial: bool,
     ) -> Result<serde_json::Value, sqlx::Error> {
         let mut rooms_json = serde_json::Map::new();
         let mut room_configs: HashMap<String, RoomSubscriptionConfig> = HashMap::new();
@@ -136,8 +137,8 @@ impl SlidingSyncService {
                                 user_id,
                                 &room,
                                 room_configs.get(room_id).unwrap_or(&RoomSubscriptionConfig::default()),
-                                request.pos.is_none(),
-                                since_stream,
+                        request.pos.is_none() || force_initial,
+                        since_stream,
                             )
                             .await?;
                         rooms_json.insert(room_id.clone(), payload);
