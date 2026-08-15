@@ -190,7 +190,7 @@ impl MatrixRTCStorage {
             r#"
             SELECT id, room_id, session_id, application, call_id, creator, created_ts, updated_ts, is_active, config FROM matrixrtc_sessions
             WHERE room_id = $1 AND is_active = true
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             "#,
         )
         .bind(room_id)
@@ -267,7 +267,7 @@ impl MatrixRTCStorage {
             SELECT id, room_id, session_id, user_id, device_id, membership_id, application, call_id, created_ts, updated_ts, expires_at, foci_active, foci_preferred, application_data, is_active FROM matrixrtc_memberships
             WHERE room_id = $1 AND session_id = $2 AND is_active = true
               AND (expires_at IS NULL OR expires_at > $3)
-            ORDER BY created_ts ASC
+            ORDER BY created_ts ASC, id ASC
             "#,
         )
         .bind(room_id)
