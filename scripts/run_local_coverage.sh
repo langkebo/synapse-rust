@@ -22,10 +22,12 @@
 #
 # 用法：
 #   bash scripts/run_local_coverage.sh
-#   TEST_THREADS=2 bash scripts/run_local_coverage.sh
+#   TEST_THREADS=6 bash scripts/run_local_coverage.sh
 #
 # 前置：本地测试库需已初始化 public schema（255 表），见
 #   scripts/init_test_public_schema.sh（或手动 psql 跳过 .undo.sql 跑 migrations/*.sql）。
+# 如需 TEST_THREADS >= 6 跑集成测试，先调高锁表上限（避免 clone 并发 "out of
+# shared memory"）：bash scripts/tune_test_db.sh（一次性，ALTER SYSTEM 持久化）。
 
 set -euo pipefail
 
@@ -33,7 +35,7 @@ cd "$(dirname "$0")/.."
 
 export DATABASE_URL="${DATABASE_URL:-postgresql://synapse:synapse@localhost:15432/synapse_test}"
 export TEST_DATABASE_URL="${TEST_DATABASE_URL:-$DATABASE_URL}"
-TEST_THREADS="${TEST_THREADS:-2}"
+TEST_THREADS="${TEST_THREADS:-4}"
 OUTPUT_DIR="coverage"
 
 TMP_DIR="$(mktemp -d)"
