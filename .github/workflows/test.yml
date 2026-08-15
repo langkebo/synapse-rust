@@ -34,7 +34,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: 1.93.0
-        components: rustfmt, clippy
+        components: rustfmt, clippy, llvm-tools-preview
 
     - name: Cache dependencies
       uses: actions/cache@v4
@@ -47,10 +47,10 @@ jobs:
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Install sqlx-cli and cargo-tarpaulin
+    - name: Install sqlx-cli and cargo-llvm-cov
       run: |
         cargo install sqlx-cli --version '^0.8' --locked --no-default-features --features postgres
-        cargo install cargo-tarpaulin --locked
+        cargo install cargo-llvm-cov --locked
 
     - name: Build forward-only sqlx migration source
       run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
@@ -61,19 +61,24 @@ jobs:
 
     - name: Run Tests and Generate Coverage
       run: |
-        # Tarpaulin flag rationale (see scripts/run_local_coverage.sh):
-        #   --workspace           cover every crate in the workspace
-        #   --features            minimal set: test-utils (test binaries) + features
-        #                         required by integration/unit/e2e test targets
-        #   --include-tests        run integration test targets (tests/*) in addition
-        #                         to lib/bin unit tests
-        cargo tarpaulin \
-          --workspace \
-          --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso" \
-          --include-tests \
-          --out Lcov \
-          --output-dir coverage/ \
-          --locked
+        # llvm-cov two-step (mirrors scripts/run_local_coverage.sh; tarpaulin is
+        # dropped — 0.35.2 has a broken --implicit-test-threads and drops coverage
+        # data when any test exits non-zero):
+        #   step 1: synapse-storage alone, single-threaded (db_tests connect to
+        #           public schema and race under concurrency).
+        #   step 2: everything else with the feature set that route_ledger
+        #           snapshots were generated against.
+        #   step 3: merge the two lcov files.
+        mkdir -p coverage
+        COV_FEATURES="test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso"
+        RUST_TEST_THREADS=1 cargo llvm-cov -p synapse-storage \
+          --features "$COV_FEATURES" --lib \
+          --lcov --output-path /tmp/storage.lcov
+        cargo llvm-cov --workspace --exclude synapse-storage \
+          --features "$COV_FEATURES" \
+          --lcov --output-path /tmp/rest.lcov \
+          -- --skip ledger_export_tests
+        python3 scripts/merge_lcov.py /tmp/storage.lcov /tmp/rest.lcov -o coverage/lcov.info
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4

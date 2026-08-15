@@ -128,15 +128,14 @@ test-coverage:
 	@bash scripts/run_local_coverage.sh
 	@python3 scripts/analyze_coverage.py
 
-# 覆盖率阈值门禁（per-file ratchet）。注意：check_file_coverage.py 目前只解析
-# tarpaulin JSON，尚未迁移到 lcov（llvm-cov），此处保留 tarpaulin 作为过渡；
-# 迁移后应改用 run_local_coverage.sh 产出 coverage/lcov.info。
+# 覆盖率阈值门禁（per-file ratchet）。check_file_coverage.py 已支持 lcov
+# （--format lcov），与 test-coverage 共用 run_local_coverage.sh 产物。
 test-coverage-check:
 	@echo "Running tests with coverage threshold check (≥40% hard floor, per-file ratchet enforces ≥80% on TDD files)..."
-	@cargo tarpaulin --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications" \
-	  --fail-under 40 --out Html --out Lcov --out Json --output-dir coverage --include-tests --locked
+	@bash scripts/run_local_coverage.sh
 	@python3 scripts/check_file_coverage.py \
-	  --report coverage/tarpaulin-report.json \
+	  --report coverage/lcov.info \
+	  --format lcov \
 	  --baseline artifacts/coverage_baseline.json \
 	  --threshold 80 --global-floor 40 --new-file-floor 30 \
 	  --core-files artifacts/core_file_list.txt --core-threshold 70

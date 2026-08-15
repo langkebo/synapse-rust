@@ -563,8 +563,8 @@ jobs:
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Install tarpaulin
-        run: cargo install cargo-tarpaulin --locked
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
 
       - name: Install sqlx-cli
         # Pin to 0.8.x: matches the project's sqlx 0.8 and stays within MSRV.
@@ -588,23 +588,24 @@ jobs:
           REDIS_URL: redis://localhost:6379
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         run: |
-          # Tarpaulin flag rationale (see scripts/run_local_coverage.sh):
-          #   --workspace           cover every crate in the workspace
-          #   --features            minimal set: test-utils (test binaries) + features
-          #                         required by integration/unit/e2e test targets
-          #   --include-tests        run integration test targets (tests/*) in addition
-          #                         to lib/bin unit tests
-          #   --output-dir coverage/  collect tarpaulin-report.{xml,json,html} in one place
-          #   --fail-under 40        hard floor for overall coverage; core 13 paths
-          #                         enforced at ≥70% by check_file_coverage below
-          cargo tarpaulin \
-            --workspace \
-            --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso" \
-            --include-tests \
-            --out Xml --out Json --out Html \
-            --output-dir coverage/ \
-            --fail-under 40 \
-            --locked
+          # llvm-cov two-step (mirrors scripts/run_local_coverage.sh; tarpaulin is
+          # dropped because 0.35.2 has a broken --implicit-test-threads and drops
+          # coverage data when any test exits non-zero):
+          #   step 1: synapse-storage alone, single-threaded — its db_tests connect
+          #           straight to the public schema and race under concurrency.
+          #   step 2: everything else (--exclude synapse-storage) with the feature
+          #           set that route_ledger snapshots were generated against.
+          #   step 3: merge the two lcov files.
+          mkdir -p coverage
+          COV_FEATURES="test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso"
+          RUST_TEST_THREADS=1 cargo llvm-cov -p synapse-storage \
+            --features "$COV_FEATURES" --lib \
+            --lcov --output-path /tmp/storage.lcov
+          cargo llvm-cov --workspace --exclude synapse-storage \
+            --features "$COV_FEATURES" \
+            --lcov --output-path /tmp/rest.lcov \
+            -- --skip ledger_export_tests
+          python3 scripts/merge_lcov.py /tmp/storage.lcov /tmp/rest.lcov -o coverage/lcov.info
 
       - name: Per-file coverage ratchet (B.3)
         # Enforces: TDD-mandated files ≥80%, core 13 paths ≥70%,
@@ -615,7 +616,8 @@ jobs:
         run: |
           mkdir -p artifacts
           python3 scripts/check_file_coverage.py \
-            --report coverage/tarpaulin-report.json \
+            --report coverage/lcov.info \
+            --format lcov \
             --baseline artifacts/coverage_baseline.json \
             --threshold 80 \
             --global-floor 40 \
@@ -626,7 +628,7 @@ jobs:
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          files: ./coverage/tarpaulin-report.xml
+          files: ./coverage/lcov.info
           flags: unittests
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}

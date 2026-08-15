@@ -111,6 +111,52 @@ def parse_tarpaulin_json(report_path: pathlib.Path) -> Dict[str, float]:
     return result
 
 
+def parse_lcov(report_path: pathlib.Path) -> Dict[str, float]:
+    """Parse an lcov.info report and return {rel_path: line_pct}.
+
+    lcov records use ``SF:<path>`` / ``LF:<lines found>`` / ``LH:<lines hit>``,
+    terminated by ``end_of_record``. The SF path is absolute (cargo llvm-cov)
+    or repo-relative; ``_normalize_path`` reduces both to the same crate-agnostic
+    ``<file>.rs`` key that ``parse_tarpaulin_json`` produces, so the per-file
+    baseline convention is unchanged.
+    """
+    result: Dict[str, float] = {}
+    current_path: Optional[str] = None
+    current_lf = 0
+    current_lh = 0
+
+    def flush() -> None:
+        nonlocal current_path, current_lf, current_lh
+        if current_path is None:
+            return
+        rel = _normalize_path(current_path)
+        if rel and _is_src_rs(rel):
+            result[rel] = (current_lh / current_lf * 100.0) if current_lf > 0 else 0.0
+        current_path = None
+        current_lf = 0
+        current_lh = 0
+
+    with open(report_path, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if line.startswith("SF:"):
+                current_path = line[3:]
+            elif line.startswith("LF:"):
+                try:
+                    current_lf = int(line[3:])
+                except ValueError:
+                    current_lf = 0
+            elif line.startswith("LH:"):
+                try:
+                    current_lh = int(line[3:])
+                except ValueError:
+                    current_lh = 0
+            elif line == "end_of_record" or line == "end_of_record:":
+                flush()
+    flush()
+    return result
+
+
 def _normalize_path(p: str) -> str:
     """Strip absolute prefix, './', and normalize separators."""
     p = p.replace("\\", "/")
@@ -249,13 +295,19 @@ def check_file_coverage(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Enforce per-file coverage thresholds from a tarpaulin JSON report."
+        description="Enforce per-file coverage thresholds from a tarpaulin JSON or lcov report."
     )
     parser.add_argument(
         "--report",
         required=True,
         type=pathlib.Path,
-        help="Path to tarpaulin JSON report.",
+        help="Path to coverage report (tarpaulin JSON or lcov.info).",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["tarpaulin", "lcov"],
+        default="tarpaulin",
+        help="Report format to parse (default: tarpaulin).",
     )
     parser.add_argument(
         "--baseline",
@@ -311,7 +363,10 @@ def main() -> int:
         print(f"Coverage report not found: {args.report}", file=sys.stderr)
         return 1
 
-    current = parse_tarpaulin_json(args.report)
+    if args.format == "lcov":
+        current = parse_lcov(args.report)
+    else:
+        current = parse_tarpaulin_json(args.report)
     baseline = load_baseline(args.baseline)
     tdd_files = load_tdd_files(args.tdd_files)
     core_prefixes = load_core_prefixes(args.core_files)
