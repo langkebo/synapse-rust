@@ -2121,7 +2121,7 @@ mod db_tests {
             "SELECT COUNT(*) FROM device_lists_changes WHERE user_id = $1 AND device_id = ANY($2) AND change_type = 'deleted'",
         )
         .bind(&user_id)
-        .bind(&[&did1, &did2, &did3])
+        .bind([&did1, &did2, &did3])
         .fetch_one(&*pool)
         .await.unwrap();
         assert_eq!(change_count, 3, "all 3 devices must have deleted change records");

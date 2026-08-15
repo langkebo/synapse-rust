@@ -958,7 +958,7 @@ mod db_tests {
                     .expect("status lookup should succeed")
                     .flatten();
             assert!(
-                raw_status.as_deref().map_or(true, |s| s == "pending"),
+                raw_status.as_deref().is_none_or(|s| s == "pending"),
                 "list_pending_federation should only return pending servers, got status={raw_status:?}"
             );
         }

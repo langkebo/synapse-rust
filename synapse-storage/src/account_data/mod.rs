@@ -336,7 +336,7 @@ mod db_tests {
         let data_type = "im.vector.test.nested";
         let complex = json!({
             "string": "hello",
-            "number": 3.14,
+            "number": 3.5,
             "bool": true,
             "null_val": null,
             "array": [1, 2, {"deep": "value"}],

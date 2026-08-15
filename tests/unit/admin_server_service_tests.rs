@@ -53,7 +53,7 @@ async fn admin_server_service_constructs_with_lazy_pool() {
 #[tokio::test]
 async fn admin_server_service_is_clone() {
     let svc = build_service();
-    let cloned = svc.clone();
+    let cloned = svc;
     // Both instances should be usable independently. We can't call methods
     // without a DB, but the clone itself must succeed.
     let _ = cloned;

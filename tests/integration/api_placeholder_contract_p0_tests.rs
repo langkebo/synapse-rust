@@ -1113,7 +1113,7 @@ async fn test_msc4260_report_user_returns_200_when_target_exists() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert!(json.is_object(), "MSC4260: response body must be a JSON object");
     assert!(
-        json.as_object().map(|o| o.is_empty()).unwrap_or(false),
+        json.as_object().is_some_and(|o| o.is_empty()),
         "MSC4260: response should be an empty JSON object {{}}, got: {json}"
     );
 }
@@ -1205,7 +1205,7 @@ async fn test_msc4260_report_user_accepts_empty_reason_string() {
     );
     let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert!(json.as_object().map(|o| o.is_empty()).unwrap_or(false));
+    assert!(json.as_object().is_some_and(|o| o.is_empty()));
 }
 
 #[tokio::test]
@@ -1413,7 +1413,7 @@ async fn test_msc4140_cancel_succeeds_for_owner() {
     assert_eq!(response.status(), StatusCode::OK, "MSC4140: cancel by owner should return 200");
     let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert!(json.as_object().map(|o| o.is_empty()).unwrap_or(false), "response should be {{}}");
+    assert!(json.as_object().is_some_and(|o| o.is_empty()), "response should be {{}}");
 
     // Verify the event was actually cancelled.
     let updated = storage.get_delayed_event(event.id).await.unwrap().unwrap();

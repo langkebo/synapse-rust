@@ -490,8 +490,8 @@ mod tests {
     #[test]
     fn encrypt_secret_aes_hmac_rejects_short_key() {
         // E2EE-11: Keys shorter than 32 bytes must be rejected, not zero-padded.
-        let short_key_b64 = BASE64.encode(&[0x42u8; 16]);
-        let iv_b64 = BASE64.encode(&[0x00u8; 12]);
+        let short_key_b64 = BASE64.encode([0x42u8; 16]);
+        let iv_b64 = BASE64.encode([0x00u8; 12]);
         let encrypted_key = format!("{short_key_b64}:{iv_b64}");
 
         let key_data = SecretStorageKey {
@@ -518,8 +518,8 @@ mod tests {
     #[test]
     fn encrypt_secret_aes_hmac_accepts_valid_32_byte_key() {
         // Ensure valid 32-byte keys still work after the E2EE-11 fix.
-        let valid_key_b64 = BASE64.encode(&[0x42u8; 32]);
-        let iv_b64 = BASE64.encode(&[0x00u8; 12]);
+        let valid_key_b64 = BASE64.encode([0x42u8; 32]);
+        let iv_b64 = BASE64.encode([0x00u8; 12]);
         let encrypted_key = format!("{valid_key_b64}:{iv_b64}");
 
         let key_data = SecretStorageKey {

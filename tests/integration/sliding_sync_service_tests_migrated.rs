@@ -1440,7 +1440,7 @@ async fn test_p1_5_required_state_change_reflected_immediately() {
     let room_a_resp1 = rooms1.get(&room_a).expect("room_A should be in response");
     let required_state1 = room_a_resp1.get("required_state").and_then(|v| v.as_array());
     assert!(
-        required_state1.map_or(true, |arr| arr.is_empty()),
+        required_state1.is_none_or(|arr| arr.is_empty()),
         "first sync with empty required_state should return no state events, got: {:?}",
         required_state1
     );

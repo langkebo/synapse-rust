@@ -520,6 +520,7 @@ impl FederationClient {
     ///   - 此处通过联邦签名请求获取已知对等方的密钥，destination 来自房间成员列表，
     ///     SSRF 风险由联邦信任模型（server_name 格式校验 + resolve_server 端口归一化）控制。
     ///   - Notary 路径需要抓取第三方服务器密钥，必须走直接 HTTP + SSRF IP 钉扎。
+    ///
     /// 如需在联邦 client 层加强 SSRF 防护，可参考 web 层 keys.rs 使用
     /// synapse_common::security::validate_origin 对 destination 做格式校验。
     pub async fn get_server_keys(&self, destination: &str) -> Result<ServerKeys, FederationClientError> {

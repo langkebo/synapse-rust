@@ -543,7 +543,7 @@ fn push_notification_route_manifest_contains_all_endpoints() {
         (Method::POST, "/_synapse/admin/v1/push/process"),
     ];
 
-    let mut expected_sorted: Vec<(Method, &str)> = expected.iter().cloned().collect();
+    let mut expected_sorted: Vec<(Method, &str)> = expected.to_vec();
     expected_sorted.sort_by(|a, b| a.1.cmp(b.1).then_with(|| format!("{:?}", a.0).cmp(&format!("{:?}", b.0))));
 
     assert_eq!(seen.len(), expected_sorted.len(), "manifest entry count mismatch");

@@ -151,8 +151,7 @@ impl ServerNotificationStoreApi for MockServerNotificationStore {
             target_audience: request.target_audience.unwrap_or_else(|| "all".to_string()),
             target_user_ids: request
                 .target_user_ids
-                .map(|v| serde_json::to_value(&v).unwrap_or(serde_json::Value::Null))
-                .unwrap_or(serde_json::Value::Null),
+                .map_or(serde_json::Value::Null, |v| serde_json::to_value(&v).unwrap_or(serde_json::Value::Null)),
             starts_at: request.starts_at,
             expires_at: request.expires_at,
             is_enabled: true,
@@ -284,8 +283,7 @@ impl ServerNotificationStoreApi for MockServerNotificationStore {
             notification_type: request.notification_type.unwrap_or_else(|| "info".to_string()),
             variables: request
                 .variables
-                .map(|v| serde_json::to_value(&v).unwrap_or(serde_json::Value::Null))
-                .unwrap_or(serde_json::Value::Null),
+                .map_or(serde_json::Value::Null, |v| serde_json::to_value(&v).unwrap_or(serde_json::Value::Null)),
             is_enabled: true,
             created_ts: now,
             updated_ts: now,

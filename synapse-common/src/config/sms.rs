@@ -67,7 +67,7 @@ mod tests {
 
     #[test]
     fn test_default_values() {
-        assert_eq!(default_sms_enabled(), false);
+        assert!(!default_sms_enabled());
         assert_eq!(default_sms_per_minute(), 1);
         assert_eq!(default_sms_per_hour(), 5);
     }

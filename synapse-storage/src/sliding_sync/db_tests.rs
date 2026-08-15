@@ -702,7 +702,7 @@ async fn test_get_global_account_data_empty() {
     let user_id = unique_id("@user");
 
     let data = storage.get_global_account_data(&user_id).await.expect("get_global_account_data should succeed");
-    assert!(data.as_object().map_or(true, |m| m.is_empty()));
+    assert!(data.as_object().is_none_or(|m| m.is_empty()));
 }
 
 #[tokio::test]

@@ -822,7 +822,7 @@ mod db_tests {
             .expect("get_user_push_rules should succeed");
         assert!(!rows.is_empty());
         let actions: serde_json::Value = rows[0].get("actions");
-        assert!(actions.as_array().map_or(false, |a| a.len() >= 2));
+        assert!(actions.as_array().is_some_and(|a| a.len() >= 2));
 
         cleanup_push_rules(&pool, &user_id).await;
     }

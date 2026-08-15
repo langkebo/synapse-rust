@@ -163,7 +163,7 @@ fn test_upload_media_with_filename() {
 fn test_upload_media_creates_file() {
     let rt = Runtime::new().unwrap();
     rt.block_on(async {
-        let (media_service, temp_dir) = create_test_media_service();
+        let (media_service, _temp_dir) = create_test_media_service();
         let content = create_test_image_data();
 
         let result = media_service.upload_media("@alice:example.com", &content, "image/png", None).await;

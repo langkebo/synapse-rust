@@ -159,7 +159,7 @@ fn ephemeral_response_renames_events_field_to_chunk() {
 fn ephemeral_response_serializes_empty_chunk() {
     let resp = EphemeralResponse { events: vec![], start: None, end: None };
     let json_value = serde_json::to_value(&resp).expect("serialize");
-    assert!(json_value["chunk"].as_array().map_or(false, |a| a.is_empty()));
+    assert!(json_value["chunk"].as_array().is_some_and(|a| a.is_empty()));
 }
 
 #[test]

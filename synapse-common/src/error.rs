@@ -893,7 +893,6 @@ pub type ApiResult<T> = Result<T, ApiError>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::error::Error as _;
 
     // -----------------------------------------------------------------------
     // ApiError construction and Display

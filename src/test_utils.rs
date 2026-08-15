@@ -898,10 +898,10 @@ impl Drop for LeasedSchema {
 async fn cleanup_schema(database_url: String, schema_name: String, template_name: String, poisoned: bool) {
     // Serialize cleanup (see CLEANUP_SEMAPHORE docs) to bound peak lock usage.
     // The semaphore is a process-lifetime static and never closed.
-    let _cleanup_permit = CLEANUP_SEMAPHORE
-        .acquire()
-        .await
-        .expect("cleanup semaphore should never be closed");
+    let Ok(_cleanup_permit) = CLEANUP_SEMAPHORE.acquire().await else {
+        eprintln!("schema pool: cleanup semaphore closed; skipping cleanup of {schema_name}");
+        return;
+    };
 
     let admin_pool = tokio::time::timeout(
         Duration::from_secs(10),

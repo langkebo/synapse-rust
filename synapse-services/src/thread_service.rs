@@ -567,7 +567,6 @@ impl ThreadService {
 
 #[cfg(test)]
 mod tests {
-    use super::ApiError;
     use std::sync::Arc;
 
     #[test]

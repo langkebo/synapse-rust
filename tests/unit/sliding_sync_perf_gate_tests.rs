@@ -213,7 +213,7 @@ fn test_slow_requests_zero_does_not_breach() {
     let slow = extract_int(log, "slow_requests=");
     assert_eq!(slow, Some(0));
     // Script logic: slow_requests > 0 is a breach.
-    assert!(!(slow.unwrap_or(0) > 0), "slow_requests=0 must not breach");
+    assert_eq!(slow.unwrap_or(0), 0, "slow_requests=0 must not breach");
 }
 
 #[test]

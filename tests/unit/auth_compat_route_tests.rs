@@ -602,10 +602,8 @@ fn test_submit_email_token_response_shape() {
 #[test]
 fn test_get_login_flows_always_includes_password_and_token() {
     // The base flows array always starts with m.login.password and m.login.token.
-    let flows = vec![
-        json!({"type": "m.login.password"}),
-        json!({"type": "m.login.token"}),
-    ];
+    let flows = [json!({"type": "m.login.password"}),
+        json!({"type": "m.login.token"})];
     let types: Vec<&str> = flows.iter().filter_map(|f| f.get("type").and_then(|v| v.as_str())).collect();
     assert!(types.contains(&"m.login.password"));
     assert!(types.contains(&"m.login.token"));
@@ -623,14 +621,12 @@ fn test_get_login_flows_includes_sso_when_oidc_enabled() {
             "name": "OIDC",
             "brand": "oidc"
         }));
-        let flows = vec![
-            json!({"type": "m.login.password"}),
+        let flows = [json!({"type": "m.login.password"}),
             json!({"type": "m.login.token"}),
             json!({
                 "type": "m.login.sso",
                 "identity_providers": sso_providers
-            }),
-        ];
+            })];
         let has_sso = flows.iter().any(|f| f.get("type").and_then(|v| v.as_str()) == Some("m.login.sso"));
         assert!(has_sso);
     }
@@ -640,10 +636,8 @@ fn test_get_login_flows_includes_sso_when_oidc_enabled() {
 fn test_get_login_flows_excludes_sso_when_oidc_disabled() {
     let oidc_service_present = false;
     if !oidc_service_present {
-        let flows = vec![
-            json!({"type": "m.login.password"}),
-            json!({"type": "m.login.token"}),
-        ];
+        let flows = [json!({"type": "m.login.password"}),
+            json!({"type": "m.login.token"})];
         let has_sso = flows.iter().any(|f| f.get("type").and_then(|v| v.as_str()) == Some("m.login.sso"));
         assert!(!has_sso);
     }

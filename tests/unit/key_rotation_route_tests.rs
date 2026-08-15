@@ -203,7 +203,7 @@ fn test_rotation_history_response_empty_for_unknown_device() {
         "device_id": "UNKNOWN_DEVICE",
         "rotations": []
     });
-    assert!(response["rotations"].as_array().map_or(false, |a| a.is_empty()));
+    assert!(response["rotations"].as_array().is_some_and(|a| a.is_empty()));
 }
 
 // ============================================================================

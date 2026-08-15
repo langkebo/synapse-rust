@@ -68,7 +68,7 @@ fn pinned_events_response_serializes_expected_json_shape() {
 fn pinned_events_response_serializes_empty_list() {
     let resp = PinnedEventsResponse { pinned_events: vec![] };
     let json_value = serde_json::to_value(&resp).expect("serialize");
-    assert!(json_value["pinned_events"].as_array().map_or(false, |a| a.is_empty()));
+    assert!(json_value["pinned_events"].as_array().is_some_and(|a| a.is_empty()));
 }
 
 #[test]

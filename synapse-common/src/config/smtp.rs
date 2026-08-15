@@ -104,9 +104,9 @@ mod tests {
 
     #[test]
     fn test_default_values() {
-        assert_eq!(default_smtp_enabled(), false);
+        assert!(!default_smtp_enabled());
         assert_eq!(default_smtp_port(), 587);
-        assert_eq!(default_true(), true);
+        assert!(default_true());
         assert_eq!(default_verification_expire(), 900);
         assert_eq!(default_smtp_per_minute(), 3);
         assert_eq!(default_smtp_per_hour(), 10);

@@ -176,6 +176,7 @@ fn sync_rate_limit_override(
 }
 
 #[derive(Debug)]
+#[allow(dead_code)] // 形状替身：镜像 SyncRateLimitOverride 的两字段，测试只验证 Option 层
 struct OverrideStub {
     fail_open_on_error: bool,
     sync: synapse_rust::common::SyncRateLimitConfigFile,

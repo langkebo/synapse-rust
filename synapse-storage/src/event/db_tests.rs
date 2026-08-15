@@ -506,7 +506,7 @@ async fn test_purge_history_preserves_local_events() {
     .bind(&remote_event_id)
     .bind(&room_id)
     .bind(user_id)
-    .bind(&serde_json::json!({"body": "remote inbound"}))
+    .bind(serde_json::json!({"body": "remote inbound"}))
     .bind(past_ts)
     .execute(&*pool)
     .await
@@ -554,7 +554,7 @@ async fn test_count_events_before_and_dry_run() {
     .bind(&remote_event_id)
     .bind(&room_id)
     .bind(user_id)
-    .bind(&serde_json::json!({"body": "remote"}))
+    .bind(serde_json::json!({"body": "remote"}))
     .bind(past_ts)
     .execute(&*pool)
     .await
@@ -1811,7 +1811,7 @@ async fn insert_remote_event(
     .bind(event_id)
     .bind(room_id)
     .bind(sender)
-    .bind(&serde_json::json!({"body": "msg"}))
+    .bind(serde_json::json!({"body": "msg"}))
     .bind(ts)
     .bind(origin)
     .execute(pool)

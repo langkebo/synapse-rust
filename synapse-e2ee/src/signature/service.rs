@@ -147,7 +147,7 @@ mod tests {
     async fn verify_key_rejects_wrong_signature_length() {
         let svc = make_service();
         let public_key = [0u8; 32];
-        let short_sig = base64::engine::general_purpose::STANDARD.encode(&[0u8; 16]);
+        let short_sig = base64::engine::general_purpose::STANDARD.encode([0u8; 16]);
         let result = svc.verify_key("test", &short_sig, &public_key);
         assert!(result.is_err());
     }
@@ -221,7 +221,7 @@ mod tests {
     async fn verify_event_rejects_wrong_signature_length() {
         let svc = make_service();
         let public_key = [0u8; 32];
-        let short_sig = base64::engine::general_purpose::STANDARD.encode(&[0u8; 16]);
+        let short_sig = base64::engine::general_purpose::STANDARD.encode([0u8; 16]);
         let result = svc.verify_event("$event:localhost", "@user:localhost", "DEVICE1", &short_sig, &public_key);
         assert!(result.is_err());
     }

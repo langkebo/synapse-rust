@@ -588,8 +588,8 @@ mod tests {
     #[tokio::test]
     async fn compute_shared_secret_rejects_wrong_length() {
         let svc = make_service();
-        let short = base64::engine::general_purpose::STANDARD.encode(&[0u8; 16]);
-        let valid = base64::engine::general_purpose::STANDARD.encode(&[0u8; 32]);
+        let short = base64::engine::general_purpose::STANDARD.encode([0u8; 16]);
+        let valid = base64::engine::general_purpose::STANDARD.encode([0u8; 32]);
         assert!(svc.compute_shared_secret(&short, &valid).is_err());
         assert!(svc.compute_shared_secret(&valid, &short).is_err());
     }

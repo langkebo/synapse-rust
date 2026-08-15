@@ -146,6 +146,10 @@ impl MatrixErrorCode {
 
     /// 从 Matrix errcode 字符串解析变体。这是字符串→变体的单一权威来源，
     /// 供 `Deserialize` 与 `ApiResponse::into_response` 复用，避免三处映射漂移。
+    ///
+    /// 返回 `Option<Self>`（未知 errcode → `None`）而非 `std::str::FromStr` 的
+    /// `Result`，因容错语义不匹配该 trait；故允许 `should_implement_trait`。
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "M_FORBIDDEN" => Some(Self::Forbidden),

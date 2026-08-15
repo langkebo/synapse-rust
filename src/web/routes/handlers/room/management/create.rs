@@ -57,73 +57,6 @@ pub(crate) fn parse_invite_entries(invite_value: &Value) -> Result<ParsedInvites
     Ok((user_ids, reasons))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn parse_invite_entries_accepts_plain_strings() {
-        let value = json!(["@alice:example.com", "@bob:example.com"]);
-        let (user_ids, reasons) = parse_invite_entries(&value).unwrap();
-        assert_eq!(user_ids, vec!["@alice:example.com", "@bob:example.com"]);
-        assert!(reasons.is_empty());
-    }
-
-    #[test]
-    fn parse_invite_entries_accepts_objects_with_reason() {
-        let value = json!([
-            {"user_id": "@alice:example.com", "reason": "Welcome to the team!"},
-            {"user_id": "@bob:example.com"}
-        ]);
-        let (user_ids, reasons) = parse_invite_entries(&value).unwrap();
-        assert_eq!(user_ids, vec!["@alice:example.com", "@bob:example.com"]);
-        assert_eq!(
-            reasons.get("@alice:example.com"),
-            Some(&"Welcome to the team!".to_string()),
-            "reason should be captured for alice"
-        );
-        assert!(!reasons.contains_key("@bob:example.com"), "no reason should be captured for bob");
-    }
-
-    #[test]
-    fn parse_invite_entries_accepts_mixed_string_and_object_entries() {
-        let value = json!([
-            "@alice:example.com",
-            {"user_id": "@bob:example.com", "reason": "Project kick-off"}
-        ]);
-        let (user_ids, reasons) = parse_invite_entries(&value).unwrap();
-        assert_eq!(user_ids, vec!["@alice:example.com", "@bob:example.com"]);
-        assert_eq!(reasons.get("@bob:example.com"), Some(&"Project kick-off".to_string()));
-    }
-
-    #[test]
-    fn parse_invite_entries_ignores_empty_reason() {
-        let value = json!([{"user_id": "@alice:example.com", "reason": ""}]);
-        let (user_ids, reasons) = parse_invite_entries(&value).unwrap();
-        assert_eq!(user_ids, vec!["@alice:example.com"]);
-        assert!(reasons.is_empty(), "empty reason should not be stored");
-    }
-
-    #[test]
-    fn parse_invite_entries_rejects_non_array() {
-        let value = json!("@alice:example.com");
-        assert!(parse_invite_entries(&value).is_err());
-    }
-
-    #[test]
-    fn parse_invite_entries_rejects_object_without_user_id() {
-        let value = json!([{"reason": "missing user_id"}]);
-        assert!(parse_invite_entries(&value).is_err());
-    }
-
-    #[test]
-    fn parse_invite_entries_rejects_non_string_non_object_entry() {
-        let value = json!([123]);
-        assert!(parse_invite_entries(&value).is_err());
-    }
-}
-
 pub(crate) async fn create_private_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -258,4 +191,71 @@ pub(crate) async fn create_room(
     }
 
     Ok(Json(result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_invite_entries_accepts_plain_strings() {
+        let value = json!(["@alice:example.com", "@bob:example.com"]);
+        let (user_ids, reasons) = parse_invite_entries(&value).unwrap();
+        assert_eq!(user_ids, vec!["@alice:example.com", "@bob:example.com"]);
+        assert!(reasons.is_empty());
+    }
+
+    #[test]
+    fn parse_invite_entries_accepts_objects_with_reason() {
+        let value = json!([
+            {"user_id": "@alice:example.com", "reason": "Welcome to the team!"},
+            {"user_id": "@bob:example.com"}
+        ]);
+        let (user_ids, reasons) = parse_invite_entries(&value).unwrap();
+        assert_eq!(user_ids, vec!["@alice:example.com", "@bob:example.com"]);
+        assert_eq!(
+            reasons.get("@alice:example.com"),
+            Some(&"Welcome to the team!".to_string()),
+            "reason should be captured for alice"
+        );
+        assert!(!reasons.contains_key("@bob:example.com"), "no reason should be captured for bob");
+    }
+
+    #[test]
+    fn parse_invite_entries_accepts_mixed_string_and_object_entries() {
+        let value = json!([
+            "@alice:example.com",
+            {"user_id": "@bob:example.com", "reason": "Project kick-off"}
+        ]);
+        let (user_ids, reasons) = parse_invite_entries(&value).unwrap();
+        assert_eq!(user_ids, vec!["@alice:example.com", "@bob:example.com"]);
+        assert_eq!(reasons.get("@bob:example.com"), Some(&"Project kick-off".to_string()));
+    }
+
+    #[test]
+    fn parse_invite_entries_ignores_empty_reason() {
+        let value = json!([{"user_id": "@alice:example.com", "reason": ""}]);
+        let (user_ids, reasons) = parse_invite_entries(&value).unwrap();
+        assert_eq!(user_ids, vec!["@alice:example.com"]);
+        assert!(reasons.is_empty(), "empty reason should not be stored");
+    }
+
+    #[test]
+    fn parse_invite_entries_rejects_non_array() {
+        let value = json!("@alice:example.com");
+        assert!(parse_invite_entries(&value).is_err());
+    }
+
+    #[test]
+    fn parse_invite_entries_rejects_object_without_user_id() {
+        let value = json!([{"reason": "missing user_id"}]);
+        assert!(parse_invite_entries(&value).is_err());
+    }
+
+    #[test]
+    fn parse_invite_entries_rejects_non_string_non_object_entry() {
+        let value = json!([123]);
+        assert!(parse_invite_entries(&value).is_err());
+    }
 }

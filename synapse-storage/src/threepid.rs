@@ -1036,7 +1036,7 @@ mod db_tests {
 
         let pending = storage.get_pending_threepids(10).await.expect("get_pending_threepids should succeed");
 
-        assert!(pending.len() >= 1, "expected at least 1 pending threepid, got {}", pending.len());
+        assert!(!pending.is_empty(), "expected at least 1 pending threepid, got {}", pending.len());
 
         let _ = storage.remove_threepid(&user_id, "email", &address).await;
     }

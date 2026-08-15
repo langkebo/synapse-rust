@@ -29,9 +29,7 @@ impl Config {
         // 审查 #15：security.secret 是 HS256/JWT 签名密钥，除长度外还必须校验
         // 熵，防止弱熵密钥（如 32 个 'a'）被接受后可被离线爆破伪造。
         // 复用 SecurityValidator::validate_jwt_secret（此前为死代码，仅测试引用）。
-        if let Err(e) = crate::security::SecurityValidator::validate_jwt_secret(&self.security.secret) {
-            return Err(e);
-        }
+        crate::security::SecurityValidator::validate_jwt_secret(&self.security.secret)?;
 
         if self.cors.allowed_origins.iter().any(|o| o == "*") && self.cors.allow_credentials {
             tracing::warn!(

@@ -479,7 +479,7 @@ mod db_tests {
         sqlx::query(
             "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, TRUE)",
         )
-        .bind(&format!("tok_revu1_{suffix}"))
+        .bind(format!("tok_revu1_{suffix}"))
         .bind(user_id)
         .bind::<Option<String>>(None)
         .bind(now)
@@ -491,7 +491,7 @@ mod db_tests {
         sqlx::query(
             "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, TRUE)",
         )
-        .bind(&format!("tok_revu2_{suffix}"))
+        .bind(format!("tok_revu2_{suffix}"))
         .bind(user_id)
         .bind::<Option<String>>(None)
         .bind(now)
@@ -510,7 +510,7 @@ mod db_tests {
 
         // Cleanup
         sqlx::query("DELETE FROM openid_tokens WHERE token LIKE $1")
-            .bind(&format!("tok_revu%_{suffix}"))
+            .bind(format!("tok_revu%_{suffix}"))
             .execute(&*pool)
             .await
             .expect("cleanup failed");
@@ -532,7 +532,7 @@ mod db_tests {
         sqlx::query(
             "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, TRUE)",
         )
-        .bind(&format!("tok_clean_exp_{suffix}"))
+        .bind(format!("tok_clean_exp_{suffix}"))
         .bind(user_id)
         .bind::<Option<String>>(None)
         .bind(now)
@@ -545,7 +545,7 @@ mod db_tests {
         sqlx::query(
             "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, FALSE)",
         )
-        .bind(&format!("tok_clean_inv_{suffix}"))
+        .bind(format!("tok_clean_inv_{suffix}"))
         .bind(user_id)
         .bind::<Option<String>>(None)
         .bind(now)
@@ -579,7 +579,7 @@ mod db_tests {
 
         // Cleanup remaining test data
         sqlx::query("DELETE FROM openid_tokens WHERE token LIKE $1")
-            .bind(&format!("tok_clean%_{suffix}"))
+            .bind(format!("tok_clean%_{suffix}"))
             .execute(&*pool)
             .await
             .expect("cleanup failed");
@@ -600,7 +600,7 @@ mod db_tests {
         sqlx::query(
             "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, TRUE)",
         )
-        .bind(&format!("tok_list_1_{suffix}"))
+        .bind(format!("tok_list_1_{suffix}"))
         .bind(user_id)
         .bind::<Option<String>>(None)
         .bind(base_ts)
@@ -612,7 +612,7 @@ mod db_tests {
         sqlx::query(
             "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, TRUE)",
         )
-        .bind(&format!("tok_list_2_{suffix}"))
+        .bind(format!("tok_list_2_{suffix}"))
         .bind(user_id)
         .bind::<Option<String>>(None)
         .bind(base_ts + 1000)
@@ -640,7 +640,7 @@ mod db_tests {
 
         // Cleanup
         sqlx::query("DELETE FROM openid_tokens WHERE token LIKE $1")
-            .bind(&format!("tok_list%_{suffix}"))
+            .bind(format!("tok_list%_{suffix}"))
             .execute(&*pool)
             .await
             .expect("cleanup failed");

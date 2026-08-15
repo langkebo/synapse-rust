@@ -1,6 +1,10 @@
 // Basic unit tests module
 // Note: Some original test files have compilation issues that need to be fixed separately
 
+// 测试代码按 Rust 测试惯例允许 unwrap/expect/panic（与 tests/integration/mod.rs 一致）；
+// 生产 lib 代码仍受 [lints.clippy] 的严格约束。
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 #[path = "../common/mod.rs"]
 mod common;
 

@@ -1,6 +1,6 @@
 // ROUND2-ISSUE-1: test code may use unwrap/expect/unwrap_err/panic per Rust testing idiom.
 // Production lib code is still held to the strict clippy lint config in [lints.clippy].
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::unwrap_err_used, clippy::panic))]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 // B2-TODO: Change to #![warn(missing_docs)] once sub-modules have docs.
 // Currently generates ~1900 warnings because this crate re-exports all
 // workspace crate APIs with thin wrappers. Sub-crates already have the

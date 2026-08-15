@@ -129,7 +129,7 @@ mod tests {
         let claims = ClaimsBuilder::new().sub("@alice:ex.com").exp(9999999999).build();
         assert_eq!(claims.sub, "@alice:ex.com");
         assert_eq!(claims.user_id, "@alice:ex.com"); // defaults to sub
-        assert_eq!(claims.is_admin, false);
+        assert!(!claims.is_admin);
         assert_eq!(claims.exp, 9999999999);
         assert!(claims.iat > 0);
         assert!(claims.device_id.is_none());

@@ -188,8 +188,7 @@ impl RendezvousStoreApi for MockRendezvousStore {
             let expected_raw = expected_etag.trim_matches('"').to_string();
             let exists = guard
                 .get(session_id)
-                .map(|row| row.etag_raw == expected_raw && row.expires_at > now)
-                .unwrap_or(false);
+                .is_some_and(|row| row.etag_raw == expected_raw && row.expires_at > now);
             if !exists {
                 return Ok(None); // ETag mismatch / not found / expired
             }

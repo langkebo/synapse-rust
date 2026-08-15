@@ -246,7 +246,7 @@ fn test_get_pending_burns_response_shape() {
 #[test]
 fn test_get_pending_burns_response_empty() {
     let response = json!({ "events": [] });
-    assert!(response["events"].as_array().map_or(false, |a| a.is_empty()));
+    assert!(response["events"].as_array().is_some_and(|a| a.is_empty()));
 }
 
 // ============================================================================

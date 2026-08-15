@@ -777,7 +777,7 @@ fn test_get_threepids_response_shape() {
 #[test]
 fn test_get_threepids_response_empty_list() {
     let response = json!({ "threepids": [] });
-    assert!(response["threepids"].as_array().map_or(false, |a| a.is_empty()));
+    assert!(response["threepids"].as_array().is_some_and(|a| a.is_empty()));
 }
 
 #[test]

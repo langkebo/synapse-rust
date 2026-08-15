@@ -163,7 +163,7 @@ fn test_worker_type_from_str_roundtrip() {
         let s = variant.as_str();
         match s.parse::<WorkerType>() {
             Ok(parsed) => assert_eq!(parsed, variant),
-            Err(e) => assert!(false, "Failed to parse '{s}' back to WorkerType: {e}"),
+            Err(e) => panic!("Failed to parse '{s}' back to WorkerType: {e}"),
         }
     }
 }
@@ -172,11 +172,11 @@ fn test_worker_type_from_str_roundtrip() {
 fn test_worker_type_from_str_error() {
     match "invalid_worker".parse::<WorkerType>() {
         Err(msg) => assert!(msg.contains("Invalid worker type")),
-        Ok(_) => assert!(false, "Expected error for invalid worker type"),
+        Ok(_) => panic!("Expected error for invalid worker type"),
     }
     match "".parse::<WorkerType>() {
         Err(msg) => assert!(msg.contains("Invalid worker type")),
-        Ok(_) => assert!(false, "Expected error for empty string"),
+        Ok(_) => panic!("Expected error for empty string"),
     }
 }
 
@@ -214,7 +214,7 @@ fn test_worker_status_from_str_roundtrip() {
         let s = variant.as_str();
         match s.parse::<WorkerStatus>() {
             Ok(parsed) => assert_eq!(parsed, variant),
-            Err(e) => assert!(false, "Failed to parse '{s}' back to WorkerStatus: {e}"),
+            Err(e) => panic!("Failed to parse '{s}' back to WorkerStatus: {e}"),
         }
     }
 }
@@ -223,7 +223,7 @@ fn test_worker_status_from_str_roundtrip() {
 fn test_worker_status_from_str_error() {
     match "unknown".parse::<WorkerStatus>() {
         Err(msg) => assert!(msg.contains("Invalid worker status")),
-        Ok(_) => assert!(false, "Expected error for invalid status"),
+        Ok(_) => panic!("Expected error for invalid status"),
     }
 }
 
@@ -530,7 +530,7 @@ fn test_worker_topology_summary_monolith_preset() {
             assert_eq!(p.instances[0].worker_type, WorkerType::Master);
             assert_eq!(p.instances[0].count, 1);
         }
-        None => assert!(false, "monolith preset not found"),
+        None => panic!("monolith preset not found"),
     }
 }
 
@@ -551,7 +551,7 @@ fn test_worker_topology_summary_split_minimal_preset() {
             assert!(types.contains(&WorkerType::Background));
             assert!(types.contains(&WorkerType::Pusher));
         }
-        None => assert!(false, "split_minimal preset not found"),
+        None => panic!("split_minimal preset not found"),
     }
 }
 
@@ -743,7 +743,7 @@ fn test_from_worker_event_row_to_worker_event() {
             assert_eq!(workers[0], "worker1");
             assert_eq!(workers[1], "worker2");
         }
-        None => assert!(false, "expected Some processed_by"),
+        None => panic!("expected Some processed_by"),
     }
 }
 
@@ -915,7 +915,7 @@ fn test_heartbeat_request_fields() {
         Some(stats) => {
             assert_eq!(stats.cpu_usage, Some(30.0));
         }
-        None => assert!(false, "expected load_stats"),
+        None => panic!("expected load_stats"),
     }
 }
 

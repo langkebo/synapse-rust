@@ -612,7 +612,7 @@ async fn test_mark_event_processed_appends_worker() {
         .add_event(&event_id, "m.room.message", None, None, serde_json::json!({}))
         .await
         .expect("add_event should succeed");
-    assert!(event.processed_by.is_none() || event.processed_by.as_ref().map_or(true, |p| p.is_empty()));
+    assert!(event.processed_by.is_none() || event.processed_by.as_ref().is_none_or(|p| p.is_empty()));
 
     storage.mark_event_processed(&event_id, "worker-001").await.expect("mark_event_processed should succeed");
     storage.mark_event_processed(&event_id, "worker-002").await.expect("mark_event_processed should succeed");

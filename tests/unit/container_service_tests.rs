@@ -58,7 +58,7 @@ async fn shared_infra_constructs_with_all_fields() {
     let infra = SharedInfra {
         pool: pool.clone(),
         cache: cache.clone(),
-        config: config.clone(),
+        config,
         task_queue: None,
         metrics: metrics.clone(),
     };
@@ -78,9 +78,9 @@ async fn shared_infra_config_field_preserves_server_name() {
     let metrics = Arc::new(MetricsCollector::new());
 
     let infra = SharedInfra {
-        pool: pool.clone(),
+        pool,
         cache,
-        config: config.clone(),
+        config,
         task_queue: None,
         metrics,
     };

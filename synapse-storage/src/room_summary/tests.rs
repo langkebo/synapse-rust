@@ -203,7 +203,7 @@ fn test_to_response_empty_heroes() {
 
     assert_eq!(response.room_id, "!room:example.com");
     assert_eq!(response.name, Some("Test Room".to_string()));
-    assert_eq!(response.is_encrypted, true);
+    assert!(response.is_encrypted);
     assert_eq!(response.member_count, 5);
     assert!(response.heroes.is_empty());
     assert_eq!(response.last_event_ts, Some(1_700_000_000_000i64));
@@ -256,7 +256,7 @@ fn test_to_response_with_heroes() {
     let response = summary.to_response(heroes);
 
     assert_eq!(response.room_id, "!room:example.com");
-    assert_eq!(response.is_direct, true);
+    assert!(response.is_direct);
     assert_eq!(response.heroes.len(), 2);
     assert_eq!(response.heroes[0].user_id, "@alice:example.com");
     assert_eq!(response.heroes[0].display_name, Some("Alice".to_string()));
@@ -314,9 +314,9 @@ fn test_to_response_preserves_all_fields() {
     assert_eq!(response.join_rule, "knock");
     assert_eq!(response.history_visibility, "world_readable");
     assert_eq!(response.guest_access, "can_join");
-    assert_eq!(response.is_space, true);
-    assert_eq!(response.is_direct, false);
-    assert_eq!(response.is_encrypted, false);
+    assert!(response.is_space);
+    assert!(!response.is_direct);
+    assert!(!response.is_encrypted);
     assert_eq!(response.member_count, 10);
     assert_eq!(response.joined_member_count, 8);
     assert_eq!(response.invited_member_count, 2);

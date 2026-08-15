@@ -6,7 +6,7 @@ use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::sliding_sync::{SlidingSyncFilters, SlidingSyncListData, SlidingSyncRoom, SlidingSyncStorage};
 use synapse_storage::test_mocks::InMemoryEventStore;
-use synapse_storage::test_mocks::{InMemoryMemberStore, InMemorySlidingSyncStore};
+use synapse_storage::test_mocks::InMemorySlidingSyncStore;
 use synapse_storage::PresenceStorage;
 
 #[tokio::test]
