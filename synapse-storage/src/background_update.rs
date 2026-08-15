@@ -501,7 +501,7 @@ impl BackgroundUpdateStorage {
 
     pub async fn get_history(&self, job_name: &str, limit: i64) -> Result<Vec<BackgroundUpdateHistory>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BackgroundUpdateHistory>(
-            "SELECT id, job_name, execution_start_ts, execution_end_ts, status, items_processed, error_message, metadata FROM background_update_history WHERE job_name = $1 ORDER BY execution_start_ts DESC LIMIT $2",
+            "SELECT id, job_name, execution_start_ts, execution_end_ts, status, items_processed, error_message, metadata FROM background_update_history WHERE job_name = $1 ORDER BY execution_start_ts DESC, id DESC LIMIT $2",
         )
         .bind(job_name)
         .bind(limit)
