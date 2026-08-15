@@ -10,7 +10,6 @@
 //! Usage:
 //!     cargo run --bin synapse_ledger_export -- --profile=default
 //!     cargo run --bin synapse_ledger_export -- --profile=worker > out.json
-//!     cargo run --bin synapse_ledger_export -- --profile=openclaw --output=/tmp/openclaw.json
 //!     cargo run --features all-extensions --bin synapse_ledger_export -- --profile=all
 //!
 //! Schema documented at `docs/synapse-rust/LEDGER_EXPORT_SCHEMA.md` and
@@ -76,11 +75,10 @@ Usage:
     synapse_ledger_export [--profile=NAME] [--output=PATH] [--commit=SHA] [--timestamp=ISO]
 
 Profiles:
-    default   conditional surfaces off (oidc_enabled/worker_enabled/saml_enabled/openclaw_enabled all false)
+    default   conditional surfaces off (oidc_enabled/worker_enabled/saml_enabled all false)
     oidc      oidc_enabled = true
     worker    worker_enabled = true
     saml      saml_enabled + oidc_enabled = true
-    openclaw  openclaw_enabled = true
     all       every flag true
 
 Note:
@@ -113,20 +111,12 @@ fn missing_feature_warnings(profile: &str) -> Vec<&'static str> {
     if profile == "all" {
         #[cfg(not(feature = "cas-sso"))]
         warnings.push("requested profile implies CAS coverage, but this binary was built without `cas-sso`");
-        #[cfg(not(feature = "openclaw-routes"))]
-        warnings
-            .push("requested profile implies OpenClaw coverage, but this binary was built without `openclaw-routes`");
         #[cfg(not(feature = "external-services"))]
         warnings.push("requested profile implies external-service coverage, but this binary was built without `external-services`");
         #[cfg(not(feature = "voice-extended"))]
         warnings.push("requested profile implies voice coverage, but this binary was built without `voice-extended`");
         #[cfg(not(feature = "widgets"))]
         warnings.push("requested profile implies widget coverage, but this binary was built without `widgets`");
-    }
-
-    if profile == "openclaw" {
-        #[cfg(not(feature = "openclaw-routes"))]
-        warnings.push("requested profile enables OpenClaw flags, but this binary was built without `openclaw-routes`");
     }
 
     warnings
@@ -139,7 +129,7 @@ fn run(args: CliArgs) -> Result<(), String> {
     }
 
     let flags = profile_for_name(&args.profile).ok_or_else(|| {
-        format!("unknown profile '{}' (expected default / oidc / worker / saml / openclaw / all)", args.profile)
+        format!("unknown profile '{}' (expected default / oidc / worker / saml / all)", args.profile)
     })?;
 
     for warning in missing_feature_warnings(&args.profile) {

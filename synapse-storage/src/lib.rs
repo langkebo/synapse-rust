@@ -97,15 +97,6 @@ pub mod worker;
 // =============================================================================
 // L3 — Feature-gated extension storage modules (off by default in core builds)
 // =============================================================================
-/// AI storage domain group — re-exports AI modules (`ai_connection`,
-/// `openclaw`) under `ai::`. Feature-gated behind `openclaw-routes`.
-#[cfg(feature = "openclaw-routes")]
-pub mod ai;
-#[cfg(feature = "openclaw-routes")]
-pub mod ai_connection;
-#[cfg(feature = "openclaw-routes")]
-pub mod openclaw;
-
 #[cfg(feature = "friends")]
 pub mod friend_room;
 
@@ -161,7 +152,7 @@ pub mod test_utils;
 // flat-re-export every grouped module's public types at the crate root for
 // backward compatibility. Domains: account, admin, application, auth, e2ee,
 // event, infra, media, moderation, oidc, push, room, space, sync (always on)
-// plus ai (openclaw-routes) and rtc (voip-tracking) feature-gated groups.
+// plus rtc (voip-tracking) feature-gated group.
 
 // Domain group globs — backward-compatibility flat re-exports via domain modules.
 // Consumers should prefer the domain path (e.g. `synapse_storage::account::*`)
@@ -181,8 +172,6 @@ pub use push::*; // push domain group (push, push_notification)
 pub use space::*; // space domain group (space, sticky_event)
 pub use sync::*; // sync domain group (sliding_sync, search_index, filter, presence)
                  // Feature-gated domain groups:
-#[cfg(feature = "openclaw-routes")]
-pub use ai::*; // ai domain group (ai_connection, openclaw)
 #[cfg(feature = "voip-tracking")]
 pub use rtc::*; // rtc domain group (call_session, matrixrtc)
 

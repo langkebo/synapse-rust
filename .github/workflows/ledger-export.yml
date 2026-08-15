@@ -41,7 +41,7 @@ jobs:
           mkdir -p artifacts/ledger-export
           timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-          for profile in default worker openclaw all; do
+          for profile in default worker all; do
             ./target/debug/synapse_ledger_export \
               --profile="${profile}" \
               --commit="${GITHUB_SHA}" \

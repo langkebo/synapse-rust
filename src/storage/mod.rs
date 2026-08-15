@@ -28,8 +28,6 @@ pub use synapse_storage::membership;
 pub use synapse_storage::moderation;
 pub use synapse_storage::module;
 pub use synapse_storage::monitoring;
-#[cfg(feature = "openclaw-routes")]
-pub use synapse_storage::openclaw;
 pub use synapse_storage::openid_token;
 pub use synapse_storage::presence;
 #[cfg(feature = "privacy-ext")]
@@ -63,8 +61,6 @@ pub use synapse_storage::{initialize_database, Database};
 // or `synapse_rust::storage::auth::Type` instead of flat module paths.
 // Only domain modules not already re-exported above as individual modules are
 // listed here (event, moderation, room, space are already re-exported above).
-#[cfg(feature = "openclaw-routes")]
-pub use synapse_storage::ai;
 #[cfg(feature = "voip-tracking")]
 pub use synapse_storage::rtc;
 pub use synapse_storage::{account, admin, application, auth, e2ee, infra, media, oidc, push, sync};

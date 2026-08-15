@@ -147,13 +147,6 @@ pub mod builtin_oidc_provider;
 // =============================================================================
 // L3 — Experimental / non-core extensions (feature-gated, off by default)
 // =============================================================================
-#[cfg(feature = "openclaw-routes")]
-pub mod matrix_ai_connection_service;
-#[cfg(feature = "openclaw-routes")]
-pub mod mcp_proxy;
-#[cfg(feature = "openclaw-routes")]
-pub mod openclaw_service;
-
 #[cfg(feature = "friends")]
 pub mod friend_room_service;
 

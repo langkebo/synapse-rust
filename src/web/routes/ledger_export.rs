@@ -40,9 +40,6 @@ pub struct ProfileFlagsJson {
     pub oidc_enabled: bool,
     pub worker_enabled: bool,
     pub saml_enabled: bool,
-    #[cfg(feature = "openclaw-routes")]
-    #[serde(default)]
-    pub openclaw_enabled: bool,
 }
 
 impl From<&ProfileFlags> for ProfileFlagsJson {
@@ -51,8 +48,6 @@ impl From<&ProfileFlags> for ProfileFlagsJson {
             oidc_enabled: f.oidc_enabled,
             worker_enabled: f.worker_enabled,
             saml_enabled: f.saml_enabled,
-            #[cfg(feature = "openclaw-routes")]
-            openclaw_enabled: f.openclaw_enabled,
         }
     }
 }
@@ -79,17 +74,10 @@ pub fn profile_for_name(name: &str) -> Option<ProfileFlags> {
         "oidc" => Some(ProfileFlags { oidc_enabled: true, ..ProfileFlags::DEFAULT }),
         "worker" => Some(ProfileFlags { worker_enabled: true, ..ProfileFlags::DEFAULT }),
         "saml" => Some(ProfileFlags { saml_enabled, oidc_enabled: true, ..ProfileFlags::DEFAULT }),
-        "openclaw" => Some(ProfileFlags {
-            #[cfg(feature = "openclaw-routes")]
-            openclaw_enabled: true,
-            ..ProfileFlags::DEFAULT
-        }),
         "all" => Some(ProfileFlags {
             oidc_enabled: true,
             worker_enabled: true,
             saml_enabled,
-            #[cfg(feature = "openclaw-routes")]
-            openclaw_enabled: true,
         }),
         _ => None,
     }
@@ -253,12 +241,5 @@ mod tests {
         assert_eq!(all.saml_enabled, cfg!(feature = "saml-sso"));
         assert!(all.oidc_enabled);
         assert!(all.worker_enabled);
-
-        #[cfg(feature = "openclaw-routes")]
-        {
-            let openclaw = profile_for_name("openclaw").expect("openclaw profile should exist");
-            assert!(openclaw.openclaw_enabled);
-            assert!(all.openclaw_enabled);
-        }
     }
 }

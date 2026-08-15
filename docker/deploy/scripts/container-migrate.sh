@@ -10,7 +10,7 @@
 #   ENABLED_EXTENSIONS=all              — apply everything
 #   ENABLED_EXTENSIONS=friends,burn-after-read — core-private-chat (recommended default)
 #   ENABLED_EXTENSIONS=none             — core only, skip all extensions
-#   ENABLED_EXTENSIONS=openclaw-routes,friends  — only named extensions
+#   ENABLED_EXTENSIONS=friends,voice-extended  — only named extensions
 # =============================================================================
 
 set -eu
@@ -442,17 +442,6 @@ validate_schema() {
         done
     fi
 
-    if [ "$ENABLED_EXTENSIONS" = "all" ] || echo ",$ENABLED_EXTENSIONS," | grep -q ",openclaw-routes,"; then
-        for table in openclaw_connections ai_conversations ai_connections; do
-            if table_exists "$table"; then
-                log INFO "表存在 (openclaw): $table"
-            else
-                log ERROR "表缺失 (openclaw): $table"
-                missing=$((missing + 1))
-            fi
-        done
-    fi
-
     if [ "$missing" -gt 0 ]; then
         log ERROR "数据库架构验证失败，缺失 $missing 个表"
         return 1
@@ -484,9 +473,9 @@ show_help() {
   ENABLED_EXTENSIONS   控制扩展迁移范围（默认: all）
     all                应用所有迁移（默认行为）
     none               仅应用核心迁移，跳过所有扩展
-    <feature,...>      逗号分隔的功能列表，如: openclaw-routes,friends
+    <feature,...>      逗号分隔的功能列表，如: friends,voice-extended
 
-  可用功能: openclaw-routes, friends, voice-extended, saml-sso, cas-sso,
+  可用功能: friends, voice-extended, saml-sso, cas-sso,
            beacons, voip-tracking, widgets, server-notifications,
            burn-after-read, privacy-ext, external-services
 EOF

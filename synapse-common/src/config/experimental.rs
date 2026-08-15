@@ -2,10 +2,6 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExperimentalConfig {
-    #[cfg(feature = "openclaw-routes")]
-    #[serde(default = "default_true")]
-    pub openclaw_routes_enabled: bool,
-
     /// MSC4452: Preview URL capabilities API.
     ///
     /// When enabled, the `io.element.msc4452.preview_url` capability is
@@ -37,8 +33,6 @@ fn default_true() -> bool {
 impl Default for ExperimentalConfig {
     fn default() -> Self {
         Self {
-            #[cfg(feature = "openclaw-routes")]
-            openclaw_routes_enabled: true,
             msc4452_enabled: false,
             declare_private_extensions: true,
         }
@@ -54,8 +48,6 @@ mod tests {
         let cfg = ExperimentalConfig::default();
         assert!(!cfg.msc4452_enabled, "msc4452 should default to false");
         assert!(cfg.declare_private_extensions, "declare_private_extensions should default to true");
-        #[cfg(feature = "openclaw-routes")]
-        assert!(cfg.openclaw_routes_enabled, "openclaw_routes_enabled should default to true");
     }
 
     #[test]
@@ -69,8 +61,6 @@ mod tests {
         let cfg: ExperimentalConfig = serde_yaml::from_str(yaml).expect("empty YAML should deserialize with defaults");
         assert!(!cfg.msc4452_enabled);
         assert!(cfg.declare_private_extensions);
-        #[cfg(feature = "openclaw-routes")]
-        assert!(cfg.openclaw_routes_enabled);
     }
 
     #[test]
@@ -82,36 +72,22 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_openclaw_field_when_feature_enabled() {
-        // openclaw_routes_enabled is only present when the openclaw-routes feature is enabled.
-        #[cfg(feature = "openclaw-routes")]
-        {
-            let yaml = "openclaw_routes_enabled: false\n";
-            let cfg: ExperimentalConfig =
-                serde_yaml::from_str(yaml).expect("openclaw field should deserialize when feature is enabled");
-            assert!(!cfg.openclaw_routes_enabled);
-        }
-        #[cfg(not(feature = "openclaw-routes"))]
-        {
-            // When feature is disabled, the field does not exist; the default impl still works.
-            let cfg = ExperimentalConfig::default();
-            assert!(!cfg.msc4452_enabled);
-        }
+    fn deserialize_without_removed_openclaw_field_uses_defaults() {
+        // openclaw_routes_enabled was removed with the openclaw feature; the
+        // default impl must still deserialize cleanly.
+        let cfg = ExperimentalConfig::default();
+        assert!(!cfg.msc4452_enabled);
     }
 
     #[test]
     fn clone_preserves_values() {
         let cfg = ExperimentalConfig {
-            #[cfg(feature = "openclaw-routes")]
-            openclaw_routes_enabled: false,
             msc4452_enabled: true,
             declare_private_extensions: false,
         };
         let cloned = cfg.clone();
         assert_eq!(cfg.msc4452_enabled, cloned.msc4452_enabled);
         assert_eq!(cfg.declare_private_extensions, cloned.declare_private_extensions);
-        #[cfg(feature = "openclaw-routes")]
-        assert_eq!(cfg.openclaw_routes_enabled, cloned.openclaw_routes_enabled);
     }
 
     #[test]

@@ -1,8 +1,6 @@
 use axum::extract::FromRef;
 use axum::Router;
 
-#[cfg(feature = "openclaw-routes")]
-use crate::web::routes::ai_connection;
 #[cfg(feature = "burn-after-read")]
 use crate::web::routes::burn_after_read;
 #[cfg(feature = "cas-sso")]
@@ -12,8 +10,6 @@ use crate::web::routes::context::SsoContext;
 use crate::web::routes::external_service;
 #[cfg(feature = "friends")]
 use crate::web::routes::friend_room;
-#[cfg(feature = "openclaw-routes")]
-use crate::web::routes::openclaw;
 #[cfg(feature = "saml-sso")]
 use crate::web::routes::saml;
 #[cfg(feature = "voice-extended")]
@@ -36,8 +32,6 @@ pub struct ProfileFlags {
     pub oidc_enabled: bool,
     pub worker_enabled: bool,
     pub saml_enabled: bool,
-    #[cfg(feature = "openclaw-routes")]
-    pub openclaw_enabled: bool,
 }
 
 impl ProfileFlags {
@@ -53,8 +47,6 @@ impl ProfileFlags {
             oidc_enabled: oidc::oidc_enabled(&SsoContext::from_ref(state)),
             worker_enabled: state.services.core.config.worker.enabled,
             saml_enabled,
-            #[cfg(feature = "openclaw-routes")]
-            openclaw_enabled: state.services.core.config.experimental.openclaw_routes_enabled,
         }
     }
 
@@ -65,8 +57,6 @@ impl ProfileFlags {
         oidc_enabled: false,
         worker_enabled: false,
         saml_enabled: false,
-        #[cfg(feature = "openclaw-routes")]
-        openclaw_enabled: false,
     };
 }
 
@@ -114,10 +104,6 @@ pub struct FriendModule;
 pub struct VoiceModule;
 #[cfg(feature = "external-services")]
 pub struct ExternalServiceModule;
-#[cfg(feature = "openclaw-routes")]
-pub struct OpenClawModule;
-#[cfg(feature = "openclaw-routes")]
-pub struct AiConnectionModule;
 
 pub static ROOM_MODULE: RoomModule = RoomModule;
 pub static FEDERATION_MODULE: FederationModule = FederationModule;
@@ -137,10 +123,6 @@ pub static FRIEND_MODULE: FriendModule = FriendModule;
 pub static VOICE_MODULE: VoiceModule = VoiceModule;
 #[cfg(feature = "external-services")]
 pub static EXTERNAL_SERVICE_MODULE: ExternalServiceModule = ExternalServiceModule;
-#[cfg(feature = "openclaw-routes")]
-pub static OPENCLAW_MODULE: OpenClawModule = OpenClawModule;
-#[cfg(feature = "openclaw-routes")]
-pub static AI_CONNECTION_MODULE: AiConnectionModule = AiConnectionModule;
 
 /// Ordered list of state-aware route modules appended by
 /// `assembly::declared_route_manifest_for(&AppState)` and
@@ -167,10 +149,6 @@ pub fn route_modules() -> Vec<&'static dyn RouteModule> {
     modules.push(&VOICE_MODULE);
     #[cfg(feature = "external-services")]
     modules.push(&EXTERNAL_SERVICE_MODULE);
-    #[cfg(feature = "openclaw-routes")]
-    modules.push(&AI_CONNECTION_MODULE);
-    #[cfg(feature = "openclaw-routes")]
-    modules.push(&OPENCLAW_MODULE);
     modules
 }
 
@@ -326,46 +304,6 @@ impl RouteModule for ExternalServiceModule {
     }
 }
 
-#[cfg(feature = "openclaw-routes")]
-impl RouteModule for OpenClawModule {
-    fn manifest_for_profile(&self, flags: &ProfileFlags) -> Vec<RouteEntry> {
-        if flags.openclaw_enabled {
-            openclaw::openclaw_route_manifest()
-        } else {
-            Vec::new()
-        }
-    }
-
-    fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
-        if state.services.core.config.experimental.openclaw_routes_enabled {
-            router.merge(openclaw::create_openclaw_router(state))
-        } else {
-            router
-        }
-    }
-}
-
-#[cfg(feature = "openclaw-routes")]
-impl RouteModule for AiConnectionModule {
-    fn manifest_for_profile(&self, flags: &ProfileFlags) -> Vec<RouteEntry> {
-        if flags.openclaw_enabled {
-            ai_connection::ai_connection_route_manifest()
-        } else {
-            Vec::new()
-        }
-    }
-
-    fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
-        if state.services.core.config.experimental.openclaw_routes_enabled {
-            router
-                .nest("/_matrix/client/v1/ai", ai_connection::create_ai_connection_router())
-                .nest("/_matrix/client/v3/ai", ai_connection::create_ai_connection_router())
-        } else {
-            router
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,21 +368,5 @@ mod tests {
         let entries = external_service::external_service_route_manifest();
         assert!(contains(&entries, &Method::GET, "/_synapse/admin/v1/external_services"));
         assert!(contains(&entries, &Method::POST, "/_synapse/external/webhook/{service_id}"));
-    }
-
-    #[cfg(feature = "openclaw-routes")]
-    #[test]
-    fn ai_connection_manifest_declares_core_routes() {
-        let entries = ai_connection::ai_connection_route_manifest();
-        assert!(contains(&entries, &Method::GET, "/_matrix/client/v1/ai/connections"));
-        assert!(contains(&entries, &Method::POST, "/_matrix/client/v1/ai/mcp/tools/call"));
-    }
-
-    #[cfg(feature = "openclaw-routes")]
-    #[test]
-    fn openclaw_manifest_declares_core_routes() {
-        let entries = openclaw::openclaw_route_manifest();
-        assert!(contains(&entries, &Method::GET, "/_matrix/client/unstable/org.synapse_rust.openclaw/connections"));
-        assert!(contains(&entries, &Method::POST, "/_matrix/client/unstable/org.synapse_rust.openclaw/generations"));
     }
 }

@@ -193,18 +193,6 @@ impl CapabilityGovernance {
         self.route_surface.iter().any(|r| r.method == method && r.path == path)
     }
 
-    fn openclaw_routes_enabled(&self) -> bool {
-        #[cfg(feature = "openclaw-routes")]
-        {
-            self.config.experimental.openclaw_routes_enabled
-        }
-
-        #[cfg(not(feature = "openclaw-routes"))]
-        {
-            false
-        }
-    }
-
     // -----------------------------------------------------------------------
     // Client API version helpers
     // -----------------------------------------------------------------------
@@ -377,14 +365,6 @@ impl CapabilityGovernance {
         CapabilityFlag::config_controlled(!self.sso_providers().is_empty())
     }
 
-    fn openclaw_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::config_controlled(self.openclaw_routes_enabled())
-    }
-
-    fn ai_connection_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::config_controlled(self.openclaw_routes_enabled())
-    }
-
     // -----------------------------------------------------------------------
     // Capability flag functions (config + route-surface)
     // -----------------------------------------------------------------------
@@ -523,8 +503,6 @@ impl CapabilityGovernance {
         );
 
         if authenticated {
-            let openclaw_enabled = self.openclaw_capability().enabled();
-
             capabilities.insert("io.hula.friends".to_string(), json!(self.friends_capability().enabled()));
             capabilities.insert(
                 "m.sso".to_string(),
@@ -533,12 +511,6 @@ impl CapabilityGovernance {
                     "providers": sso_providers
                 }),
             );
-            self.insert_enabled_capability(
-                &mut capabilities,
-                "ai_connection",
-                self.ai_connection_capability().enabled(),
-            );
-            self.insert_enabled_capability(&mut capabilities, "openclaw", openclaw_enabled);
             self.insert_enabled_capability(
                 &mut capabilities,
                 "external_services",
@@ -783,10 +755,6 @@ mod tests {
     fn test_capabilities_authenticated_surface_tracks_config_and_feature_flags() {
         let mut config = Config::default();
         config.saml.enabled = true;
-        #[cfg(feature = "openclaw-routes")]
-        {
-            config.experimental.openclaw_routes_enabled = false;
-        }
 
         let g = governance_with_full_routes(&config);
         let body = g.build_capabilities_response(true);
@@ -794,7 +762,6 @@ mod tests {
 
         assert_eq!(capabilities["m.sso"]["enabled"], g.sso_capability().enabled());
         assert_eq!(capabilities["m.sso"]["providers"][0], "saml");
-        assert_eq!(capabilities["openclaw"]["enabled"], g.openclaw_capability().enabled());
         assert_eq!(capabilities["io.hula.friends"], g.friends_capability().enabled());
         assert_eq!(capabilities["external_services"]["enabled"], g.external_services_capability().enabled());
         assert_eq!(capabilities["io.hula.voice_extended"]["enabled"], g.voice_extended_capability().enabled());
@@ -851,7 +818,6 @@ mod tests {
         assert_eq!(g.widget_capability().governance(), GovernanceClass::RouteSurface);
         assert_eq!(g.burn_after_read_capability().governance(), GovernanceClass::RouteSurface);
         assert_eq!(g.sso_capability().governance(), GovernanceClass::ConfigControlled);
-        assert_eq!(g.openclaw_capability().governance(), GovernanceClass::ConfigControlled);
     }
 
     #[test]
@@ -891,8 +857,6 @@ mod tests {
         let authenticated_only: &[&str] = &[
             "io.hula.friends",
             "m.sso",
-            "ai_connection",
-            "openclaw",
             "external_services",
             "io.hula.voice_extended",
             "io.hula.burn_after_read",
@@ -922,8 +886,6 @@ mod tests {
             "m.forget_forced_upon_leave",
             "io.hula.friends",
             "m.sso",
-            "ai_connection",
-            "openclaw",
             "external_services",
             "io.hula.voice_extended",
             "io.hula.burn_after_read",
@@ -959,8 +921,6 @@ mod tests {
             g.thread_capability(),
             g.sliding_sync_capability(),
             g.sso_capability(),
-            g.openclaw_capability(),
-            g.ai_connection_capability(),
             g.friends_capability(),
             g.external_services_capability(),
             g.voice_extended_capability(),

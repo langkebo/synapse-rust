@@ -24,8 +24,6 @@ pub struct ExternalServiceConfig {
 #[serde(rename_all = "snake_case")]
 pub enum ExternalServiceType {
     TrendRadar,
-    #[cfg(feature = "openclaw-routes")]
-    OpenClaw,
     GenericWebhook,
     IrcBridge,
     SlackBridge,
@@ -37,8 +35,6 @@ impl std::fmt::Display for ExternalServiceType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ExternalServiceType::TrendRadar => write!(f, "trendradar"),
-            #[cfg(feature = "openclaw-routes")]
-            ExternalServiceType::OpenClaw => write!(f, "openclaw"),
             ExternalServiceType::GenericWebhook => write!(f, "generic_webhook"),
             ExternalServiceType::IrcBridge => write!(f, "irc_bridge"),
             ExternalServiceType::SlackBridge => write!(f, "slack_bridge"),
@@ -80,37 +76,6 @@ pub struct TrendRadarPayload {
     pub url: Option<String>,
     pub keywords: Vec<String>,
     pub metadata: Option<serde_json::Value>,
-}
-
-#[cfg(feature = "openclaw-routes")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OpenClawConfig {
-    pub agent_id: String,
-    pub api_endpoint: String,
-    pub capabilities: Vec<String>,
-    pub auto_respond: bool,
-}
-
-#[cfg(feature = "openclaw-routes")]
-impl Default for OpenClawConfig {
-    fn default() -> Self {
-        Self {
-            agent_id: String::new(),
-            api_endpoint: "http://localhost:8080".to_string(),
-            capabilities: vec!["message".to_string(), "reaction".to_string()],
-            auto_respond: false,
-        }
-    }
-}
-
-#[cfg(feature = "openclaw-routes")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OpenClawPayload {
-    pub action: String,
-    pub room_id: String,
-    pub event_id: String,
-    pub content: serde_json::Value,
-    pub context: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -308,17 +273,6 @@ impl ExternalServiceIntegration {
                     "rooms": []
                 })
             }
-            #[cfg(feature = "openclaw-routes")]
-            ExternalServiceType::OpenClaw => {
-                serde_json::json!({
-                    "users": [{
-                        "exclusive": true,
-                        "regex": format!(r"@openclaw_.*:{}", self.server_name)
-                    }],
-                    "aliases": [],
-                    "rooms": []
-                })
-            }
             ExternalServiceType::IrcBridge => {
                 serde_json::json!({
                     "users": [{
@@ -407,73 +361,6 @@ impl ExternalServiceIntegration {
                 &room_id,
                 "m.room.message",
                 &format!("@trendradar_{}:{}", service_id, self.server_name),
-                event_content,
-                None,
-            )
-            .await
-            .map_err(|e| ApiError::internal_with_context("Failed to add event", &e))?;
-
-        self.update_health_status(&as_id, true, None).await;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "openclaw-routes")]
-    #[instrument(skip(self, payload), fields(request_id = %request_id))]
-    pub async fn handle_openclaw_webhook(
-        &self,
-        request_id: &str,
-        service_id: &str,
-        payload: OpenClawPayload,
-        auth: WebhookAuthInput,
-    ) -> Result<(), ApiError> {
-        info!(
-            %request_id,
-            service_id = %service_id,
-            action = %payload.action,
-            "Handling OpenClaw webhook"
-        );
-
-        let as_id = format!("openclaw_{}", service_id);
-        let service = self
-            .storage
-            .get_by_id(&as_id)
-            .await
-            .map_err(|e| ApiError::internal_with_context("Failed to get service", &e))?
-            .ok_or_else(|| ApiError::not_found("Service not found"))?;
-
-        let signed_payload = serde_json::to_value(&payload)
-            .map_err(|e| ApiError::internal_with_context("Failed to serialize webhook payload", &e))?;
-        self.verify_webhook_auth(&service, &auth, &signed_payload)?;
-
-        let event_content = match payload.action.as_str() {
-            "message" => serde_json::json!({
-                "msgtype": "m.text",
-                "body": payload.content.get("text").and_then(|t| t.as_str()).unwrap_or(""),
-                "agent_id": service_id,
-            }),
-            "reaction" => serde_json::json!({
-                "m.relates_to": {
-                    "rel_type": "m.annotation",
-                    "event_id": payload.event_id,
-                    "key": payload.content.get("emoji").and_then(|e| e.as_str()).unwrap_or("👍"),
-                }
-            }),
-            _ => {
-                return Err(ApiError::bad_request(format!("Unknown OpenClaw action: {}", payload.action)));
-            }
-        };
-
-        let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
-        let event_type = if payload.action == "reaction" { "m.reaction" } else { "m.room.message" };
-
-        self.storage
-            .add_event(
-                &event_id,
-                &as_id,
-                &payload.room_id,
-                event_type,
-                &format!("@openclaw_{}:{}", service_id, self.server_name),
                 event_content,
                 None,
             )
@@ -699,8 +586,6 @@ mod tests {
     #[test]
     fn test_external_service_type_display() {
         assert_eq!(ExternalServiceType::TrendRadar.to_string(), "trendradar");
-        #[cfg(feature = "openclaw-routes")]
-        assert_eq!(ExternalServiceType::OpenClaw.to_string(), "openclaw");
         assert_eq!(ExternalServiceType::GenericWebhook.to_string(), "generic_webhook");
     }
 
@@ -711,14 +596,6 @@ mod tests {
         assert!(config.include_rss);
         assert!(config.include_hotlist);
         assert_eq!(config.max_items, 20);
-    }
-
-    #[cfg(feature = "openclaw-routes")]
-    #[test]
-    fn test_openclaw_config_default() {
-        let config = OpenClawConfig::default();
-        assert_eq!(config.api_endpoint, "http://localhost:8080");
-        assert!(!config.auto_respond);
     }
 
     #[test]

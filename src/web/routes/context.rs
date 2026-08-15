@@ -422,14 +422,6 @@ pub struct AdminContext {
     pub shutdown_signal: Option<tokio::sync::broadcast::Sender<()>>,
     pub account_data_service: Arc<synapse_services::account_data_service::AccountDataService>,
     pub health_checker: Arc<crate::common::health::HealthChecker>,
-    #[cfg(feature = "openclaw-routes")]
-    pub openclaw_service: Arc<synapse_services::openclaw_service::OpenClawService>,
-    #[cfg(feature = "openclaw-routes")]
-    pub mcp_proxy_service: Arc<synapse_services::mcp_proxy::McpProxyService>,
-    #[cfg(feature = "openclaw-routes")]
-    pub ai_connection_storage: Arc<dyn synapse_storage::ai_connection::AiConnectionStoreApi>,
-    #[cfg(feature = "openclaw-routes")]
-    pub matrix_ai_connection_service: Arc<synapse_services::matrix_ai_connection_service::MatrixAiConnectionService>,
     #[cfg(feature = "friends")]
     pub friend_room_service: Arc<synapse_services::friend_room_service::models::FriendRoomService>,
     pub ssss_service: synapse_e2ee::ssss::SecretStorageService,
@@ -500,14 +492,6 @@ impl FromRef<AppState> for AdminContext {
             shutdown_signal: state.shutdown_signal.clone(),
             account_data_service: state.services.core.account_data_service.clone(),
             health_checker: state.health_checker.clone(),
-            #[cfg(feature = "openclaw-routes")]
-            openclaw_service: state.openclaw_service.clone(),
-            #[cfg(feature = "openclaw-routes")]
-            mcp_proxy_service: state.mcp_proxy_service.clone(),
-            #[cfg(feature = "openclaw-routes")]
-            ai_connection_storage: state.ai_connection_storage.clone(),
-            #[cfg(feature = "openclaw-routes")]
-            matrix_ai_connection_service: state.matrix_ai_connection_service.clone(),
             #[cfg(feature = "friends")]
             friend_room_service: state.services.extensions.friend_room_service.clone(),
             ssss_service: state.services.e2ee.ssss_service.clone(),

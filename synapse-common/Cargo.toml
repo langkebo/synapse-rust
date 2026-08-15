@@ -15,8 +15,6 @@ panic = "deny"
 [features]
 default = ["server"]
 server = ["dep:axum", "dep:tower-http"]
-openclaw = []
-openclaw-routes = []
 runtime-ddl = []
 test-utils = []
 friends = []

@@ -31,14 +31,6 @@ pub struct AppState {
     /// endpoint triggers it so the process manager (Docker / systemd) can restart
     /// the homeserver cleanly.
     pub shutdown_signal: Option<tokio::sync::broadcast::Sender<()>>,
-    #[cfg(feature = "openclaw-routes")]
-    pub ai_connection_storage: Arc<dyn synapse_storage::ai_connection::AiConnectionStoreApi>,
-    #[cfg(feature = "openclaw-routes")]
-    pub matrix_ai_connection_service: Arc<synapse_services::matrix_ai_connection_service::MatrixAiConnectionService>,
-    #[cfg(feature = "openclaw-routes")]
-    pub mcp_proxy_service: Arc<synapse_services::mcp_proxy::McpProxyService>,
-    #[cfg(feature = "openclaw-routes")]
-    pub openclaw_service: Arc<synapse_services::openclaw_service::OpenClawService>,
     /// 测试专用：持有从 schema pool 租借的 schema 租约（`LeasedSchema`）。
     /// 租约的生命周期随 `AppState`/`Router` 走——最后一个 `Arc` 释放时 schema
     /// 才 TRUNCATE 并归还池，避免 `setup_fresh_test_app*` 系列丢弃 `TestContext`
@@ -80,35 +72,6 @@ impl AppState {
         // cached signature verification results are invalidated on key rotation.
         services.federation.key_rotation_manager.set_signature_cache(federation_signature_cache.clone());
 
-        #[cfg(feature = "openclaw-routes")]
-        let canonical_cache = cache.clone();
-        #[cfg(feature = "openclaw-routes")]
-        let openclaw_service = {
-            let openclaw_storage: Arc<dyn synapse_storage::openclaw::OpenClawStoreApi> =
-                Arc::new(synapse_storage::openclaw::OpenClawStorage::new(pool.clone()));
-            let encryption_key = synapse_services::openclaw_service::OpenClawService::resolve_encryption_key(
-                services.core.config.server.macaroon_secret_key.as_deref(),
-                &services.core.config.security.secret,
-            );
-            Arc::new(synapse_services::openclaw_service::OpenClawService::new(openclaw_storage, encryption_key))
-        };
-        // A1 修复: AiConnectionStorage 和 McpProxyService 各构造一次，消除重复实例。
-        // 此前 AiConnectionStorage::new 被调用两次（一次直接给 ai_connection_storage 字段，
-        // 一次作为 MatrixAiConnectionService 参数），McpProxyService::new 同样被调用两次。
-        // 改为先构造再共享引用，确保 ServiceContainer 收敛前的过渡期内不会出现两套无关联实例。
-        #[cfg(feature = "openclaw-routes")]
-        let ai_connection_storage: Arc<dyn synapse_storage::ai_connection::AiConnectionStoreApi> =
-            Arc::new(synapse_storage::ai_connection::AiConnectionStorage::new(pool.clone()));
-        #[cfg(feature = "openclaw-routes")]
-        let mcp_proxy_service: Arc<synapse_services::mcp_proxy::McpProxyService> =
-            Arc::new(synapse_services::mcp_proxy::McpProxyService::new(canonical_cache));
-        #[cfg(feature = "openclaw-routes")]
-        let matrix_ai_connection_service = Arc::new(
-            synapse_services::matrix_ai_connection_service::MatrixAiConnectionService::new(
-                ai_connection_storage.clone(),
-                mcp_proxy_service.clone() as Arc<dyn synapse_services::mcp_proxy::McpProxyServiceApi>,
-            ),
-        );
         let key_fetch_max_concurrency = services.core.config.federation.key_fetch_max_concurrency.max(1);
         let key_fetch_general_max_concurrency =
             if key_fetch_max_concurrency <= 1 { 1 } else { (key_fetch_max_concurrency - 1).max(1) };
@@ -130,14 +93,6 @@ impl AppState {
             rate_limit_config_manager: None,
             rate_limit_exempt_paths: Arc::new(Vec::new()),
             shutdown_signal: None,
-            #[cfg(feature = "openclaw-routes")]
-            ai_connection_storage,
-            #[cfg(feature = "openclaw-routes")]
-            matrix_ai_connection_service,
-            #[cfg(feature = "openclaw-routes")]
-            mcp_proxy_service,
-            #[cfg(feature = "openclaw-routes")]
-            openclaw_service,
             #[cfg(feature = "test-utils")]
             test_schema_lease: None,
         }

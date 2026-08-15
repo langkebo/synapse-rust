@@ -70,11 +70,6 @@ pub mod voip;
 // =============================================================================
 // L3 — Feature-gated extension route modules (off by default in core builds)
 // =============================================================================
-#[cfg(feature = "openclaw-routes")]
-pub mod ai_connection;
-#[cfg(feature = "openclaw-routes")]
-pub mod openclaw;
-
 #[cfg(feature = "friends")]
 pub mod friend_room;
 
@@ -112,8 +107,6 @@ pub(crate) use account_compat::{
 };
 pub use account_data::create_account_data_router;
 pub use admin::create_admin_module_router;
-#[cfg(feature = "openclaw-routes")]
-pub use ai_connection::create_ai_connection_router;
 pub use app_service::create_app_service_router;
 pub use assembly::{create_router, declared_route_manifest_for, declared_route_manifest_for_profile};
 pub(crate) use auth_compat::{
@@ -172,8 +165,6 @@ pub use moderation::create_moderation_router;
 pub use module::create_module_router;
 pub use msc4108_rendezvous::{create_msc4108_rendezvous_router, msc4108_route_manifest};
 pub use oidc::create_oidc_router;
-#[cfg(feature = "openclaw-routes")]
-pub use openclaw::create_openclaw_router;
 pub use presence::create_presence_router;
 pub use push::create_push_router;
 pub use push_notification::create_push_notification_router;

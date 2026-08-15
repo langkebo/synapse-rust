@@ -21,7 +21,7 @@
 #           镜像构建 → 数据库迁移 → 服务启动 → 健康/HTTPS 验证 → 日志检查
 #
 # 可用扩展功能:
-#   openclaw-routes, friends, voice-extended, saml-sso, cas-sso,
+#   friends, voice-extended, saml-sso, cas-sso,
 #   beacons, voip-tracking, widgets, server-notifications,
 #   burn-after-read, privacy-ext, external-services
 # =============================================================================
@@ -58,7 +58,6 @@ CHECK_TURN=true
 
 # Extension features — order matches Cargo.toml
 ALL_EXTENSIONS=(
-    openclaw-routes
     friends
     voice-extended
     saml-sso
@@ -73,7 +72,6 @@ ALL_EXTENSIONS=(
 )
 
 EXTENSION_DESCRIPTIONS=(
-    "OpenClaw AI 集成 (AI 对话、MCP 工具代理)"
     "好友系统 (好友请求、好友分组)"
     "语音消息扩展 (语音消息录制/播放)"
     "SAML SSO 单点登录"
@@ -138,7 +136,7 @@ parse_args() {
                 ;;
             --features)
                 shift
-                ENABLED_EXTENSIONS="${1:?'--features 需要参数，如: openclaw-routes,friends'}"
+                ENABLED_EXTENSIONS="${1:?'--features 需要参数，如: friends,voice-extended'}"
                 ;;
             --skip-build)
                 SKIP_BUILD=true
@@ -188,7 +186,6 @@ show_usage() {
 也可通过 .env 中的 ENABLED_EXTENSIONS 变量预设。
 
 可用扩展功能:
-  openclaw-routes      OpenClaw AI 集成
   friends              好友系统
   voice-extended       语音消息扩展
   saml-sso             SAML SSO 单点登录

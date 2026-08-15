@@ -96,8 +96,6 @@ pub mod access_token;
 pub mod account_data;
 pub mod admin_federation;
 pub mod admin_media;
-#[cfg(feature = "openclaw-routes")]
-pub mod ai_connection;
 pub mod audit_event;
 pub mod background_update;
 #[cfg(feature = "cas-sso")]
@@ -133,8 +131,6 @@ pub use access_token::InMemoryAccessTokenStore;
 pub use account_data::InMemoryAccountDataStore;
 pub use admin_federation::InMemoryAdminFederationStore;
 pub use admin_media::InMemoryAdminMediaStore;
-#[cfg(feature = "openclaw-routes")]
-pub use ai_connection::InMemoryAiConnectionStore;
 pub use audit_event::InMemoryAuditEventStore;
 pub use background_update::InMemoryBackgroundUpdateStore;
 #[cfg(feature = "cas-sso")]

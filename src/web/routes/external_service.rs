@@ -78,8 +78,6 @@ fn external_service_integration(ctx: &AdminContext) -> Arc<ExternalServiceIntegr
 fn parse_service_type(s: &str) -> Result<ExternalServiceType, ApiError> {
     match s.to_lowercase().as_str() {
         "trendradar" => Ok(ExternalServiceType::TrendRadar),
-        #[cfg(feature = "openclaw-routes")]
-        "openclaw" => Ok(ExternalServiceType::OpenClaw),
         "generic_webhook" | "webhook" => Ok(ExternalServiceType::GenericWebhook),
         "irc_bridge" | "irc" => Ok(ExternalServiceType::IrcBridge),
         "slack_bridge" | "slack" => Ok(ExternalServiceType::SlackBridge),
@@ -277,26 +275,6 @@ pub async fn handle_trendradar_webhook(
     })))
 }
 
-#[cfg(feature = "openclaw-routes")]
-pub async fn handle_openclaw_webhook(
-    State(ctx): State<AdminContext>,
-    Path(service_id): Path<String>,
-    headers: HeaderMap,
-    Json(payload): Json<OpenClawPayload>,
-) -> Result<impl IntoResponse, ApiError> {
-    let integration = external_service_integration(&ctx);
-
-    let request_id = resolve_request_id(&headers);
-    integration
-        .handle_openclaw_webhook(&request_id, &service_id, payload, extract_webhook_auth(&headers, None))
-        .await?;
-
-    Ok(Json(serde_json::json!({
-        "status": "success",
-        "message": "OpenClaw webhook processed successfully"
-    })))
-}
-
 pub async fn handle_generic_webhook(
     State(ctx): State<AdminContext>,
     Path(service_id): Path<String>,
@@ -431,9 +409,6 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
     let public_routes = Router::new()
         .route("/_synapse/external/trendradar/{service_id}/webhook", post(handle_trendradar_webhook))
         .route("/_synapse/external/webhook/{service_id}", post(handle_generic_webhook));
-    #[cfg(feature = "openclaw-routes")]
-    let public_routes =
-        public_routes.route("/_synapse/external/openclaw/{service_id}/webhook", post(handle_openclaw_webhook));
 
     // VULN-03/04/05: require at least one auth credential header before body
     // deserialization. Without this, `Json<Payload>` returns 422 (leaking the
@@ -447,9 +422,7 @@ pub fn external_service_route_manifest() -> Vec<crate::web::routes::route_ledger
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
 
-    // `mut` only needed when openclaw-routes feature appends an extra entry below.
-    #[cfg_attr(not(feature = "openclaw-routes"), allow(unused_mut))]
-    let mut entries: Vec<RouteEntry> = [
+    let entries: Vec<RouteEntry> = [
         (Method::GET, "/_synapse/admin/v1/external_services"),
         (Method::POST, "/_synapse/admin/v1/external_services"),
         (Method::GET, "/_synapse/admin/v1/external_services/{as_id}/health"),
@@ -472,9 +445,6 @@ pub fn external_service_route_manifest() -> Vec<crate::web::routes::route_ledger
     .map(|(m, p)| RouteEntry::new(m, p, "external_service"))
     .collect();
 
-    #[cfg(feature = "openclaw-routes")]
-    entries.push(RouteEntry::new(Method::POST, "/_synapse/external/openclaw/{service_id}/webhook", "external_service"));
-
     entries
 }
 
@@ -485,8 +455,6 @@ mod tests {
     #[test]
     fn test_parse_service_type() {
         assert!(matches!(parse_service_type("trendradar"), Ok(ExternalServiceType::TrendRadar)));
-        #[cfg(feature = "openclaw-routes")]
-        assert!(matches!(parse_service_type("openclaw"), Ok(ExternalServiceType::OpenClaw)));
         assert!(matches!(parse_service_type("webhook"), Ok(ExternalServiceType::GenericWebhook)));
         assert!(matches!(parse_service_type("irc"), Ok(ExternalServiceType::IrcBridge)));
         assert!(parse_service_type("unknown").is_err());

@@ -24,17 +24,12 @@ needless_pass_by_value = "warn"
 redundant_else = "warn"
 
 [features]
-# P-028: `openclaw` removed from default — its routes are dead code for the
-#        frontend (Tauri local comms + SDK OpenClawManager). The feature flag
-#        and source remain for opt-in builds via `--features openclaw`.
 # P-056: `widgets` added to default — widget endpoints are required by the
 #        deployment (WidgetManager / WidgetContainer).
 # P-067: `external-services` added to default — admin external_service routes
 #        must respond (previously 404 due to missing feature flag).
 default = ["server", "core-private-chat", "widgets", "external-services"]
 server = ["dep:axum", "dep:tower-http"]
-openclaw = ["openclaw-routes"]
-openclaw-routes = ["synapse-common/openclaw-routes", "synapse-services/openclaw-routes", "synapse-storage/openclaw-routes"]
 runtime-ddl = ["synapse-services/runtime-ddl", "synapse-storage/runtime-ddl"]
 performance-tests = []
 test-utils = ["synapse-services/test-utils"]
@@ -55,8 +50,6 @@ external-services = ["synapse-services/external-services"]
 builtin-oidc = ["synapse-services/builtin-oidc"]
 
 # Meta-feature: enable all extensions (default for backwards compatibility)
-# 注意：`openclaw` 已从此列表移除（见 P-028）——其路由是前端死代码，保留为
-# 显式 opt-in（`--features openclaw`），避免 `--all` 部署接线死代码。
 all-extensions = [
     "friends", "voice-extended",
     "saml-sso", "cas-sso",

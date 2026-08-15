@@ -25,7 +25,5 @@ pub use crate::external_service_integration::{
     ExternalServiceConfig, ExternalServiceIntegration, ExternalServiceType, ServiceHealthStatus, TrendRadarConfig,
     TrendRadarPayload, WebhookAuthInput, WebhookPayload,
 };
-#[cfg(all(feature = "external-services", feature = "openclaw-routes"))]
-pub use crate::external_service_integration::{OpenClawConfig, OpenClawPayload};
 pub use crate::telemetry_service::*;
 pub use crate::translation_service::*;

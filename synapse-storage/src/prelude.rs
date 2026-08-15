@@ -36,10 +36,6 @@ pub use crate::space::*;
 #[doc(no_inline)]
 pub use crate::sync::*;
 
-#[cfg(feature = "openclaw-routes")]
-#[doc(no_inline)]
-pub use crate::ai::*;
-
 #[cfg(feature = "voip-tracking")]
 #[doc(no_inline)]
 pub use crate::rtc::*;
