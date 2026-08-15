@@ -32,5 +32,4 @@ for f in $(ls migrations/*.sql | grep -v '\.undo\.sql' | sort); do
 done
 
 echo "==> 验证"
-COUNT=$("${PSQL[@]}" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")
-echo "    public 表数: $COUNT（应为约 255）"
+"${PSQL[@]}" -tAc "SELECT 'public 表数: ' || count(*) FROM information_schema.tables WHERE table_schema='public';"
