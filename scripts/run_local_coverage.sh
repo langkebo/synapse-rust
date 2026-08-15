@@ -57,13 +57,18 @@ RUST_TEST_THREADS=1 \
     --lcov --output-path "$STORAGE_LCOV"
 
 echo
-echo "==> 步骤 2/2: 其余 crate + 集成测试（--exclude synapse-storage，--all-features 与快照一致）"
+echo "==> 步骤 2/2: 其余 crate + 集成测试（--exclude synapse-storage，特定 feature 集与快照一致）"
+# 用特定 feature 集（CI 覆盖率 job 的 minimal features + cas-sso/saml-sso），
+# 而非 --all-features：--all-features 会启用 openclaw/friends/widgets 等死代码
+# feature，编译更多测试，在本地多核/有限内存下触发 prepare_shared_test_pool
+# 并发 clone schema 失败（646 个）与 OOM（exit 137）。route_ledger 快照已用
+# 同一 feature 集重新生成，故此处必须与快照保持一致。
 # ledger_export_tests 的 fixture 反映导出二进制的默认 build（无 voice-extended 等），
-# 在 --all-features 下 live 会多出 voice/voip 等 feature 路由导致不匹配。跳过它以保持
-# 其余测试（快照/同步等需要 --all-features）能全绿。
+# 在多 feature 下 live 会多出 voice/voip 等路由导致不匹配，跳过它。
+REST_FEATURES="test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso"
 RUST_TEST_THREADS="$TEST_THREADS" \
     cargo llvm-cov --workspace --exclude synapse-storage \
-    --all-features \
+    --features "$REST_FEATURES" \
     --lcov --output-path "$REST_LCOV" \
     -- --skip ledger_export_tests
 
