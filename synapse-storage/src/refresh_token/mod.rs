@@ -799,7 +799,7 @@ impl RefreshTokenStorage {
                 user_agent as "user_agent?",
                 COALESCE(is_success, false) as "is_success!",
                 error_message as "error_message?"
-            FROM refresh_token_usage WHERE user_id = $1 ORDER BY used_ts DESC LIMIT $2
+            FROM refresh_token_usage WHERE user_id = $1 ORDER BY used_ts DESC, id DESC LIMIT $2
             "#,
             user_id,
             limit
