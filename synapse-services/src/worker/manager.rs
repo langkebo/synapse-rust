@@ -220,7 +220,9 @@ impl WorkerManager {
                     "status": worker.status,
                 }),
             };
-            let _ = bus.broadcast_command(&cmd).await;
+            if let Err(e) = bus.broadcast_command(&cmd).await {
+                warn!(error = %e, worker_id = %worker.worker_id, "Failed to broadcast worker status update");
+            }
         }
 
         info!(

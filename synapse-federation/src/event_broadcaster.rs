@@ -238,7 +238,9 @@ impl EventBroadcaster {
                 Ok(txn) => txn,
                 Err(e) => {
                     ::tracing::warn!("Failed to deserialize persisted transaction {}: {}", db_id, e);
-                    let _ = sqlx::query("DELETE FROM federation_queue WHERE id = $1").bind(db_id).execute(pool).await;
+                    if let Err(del_err) = sqlx::query("DELETE FROM federation_queue WHERE id = $1").bind(db_id).execute(pool).await {
+                        ::tracing::warn!("Failed to delete corrupted federation queue item {}: {}", db_id, del_err);
+                    }
                     continue;
                 }
             };

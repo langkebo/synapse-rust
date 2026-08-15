@@ -630,7 +630,7 @@ impl DeviceKeyService {
                                 }
                                 if let Some(key_sigs) = signing_key_sigs.as_object() {
                                     for (signing_key_id, signature) in key_sigs {
-                                        let _ = self
+                                        if let Err(e) = self
                                             .storage
                                             .store_signature(
                                                 target_user_id,
@@ -639,7 +639,10 @@ impl DeviceKeyService {
                                                 signing_key_id,
                                                 signature.as_str().unwrap_or(""),
                                             )
-                                            .await;
+                                            .await
+                                        {
+                                            tracing::error!("Failed to store signature for {target_key_id} (signed by {signing_key_id}): {e}");
+                                        }
                                     }
                                 }
                             }

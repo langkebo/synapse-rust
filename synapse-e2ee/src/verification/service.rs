@@ -248,7 +248,9 @@ impl VerificationService {
                     sas.pubkey = Some(new_public.clone());
                     sas.secret_key = Some(new_secret.clone());
                     sas.state = VerificationState::Ready;
-                    let _ = self.storage.store_sas_state(sas).await;
+                    if let Err(e) = self.storage.store_sas_state(sas).await {
+                        tracing::error!("Failed to persist SAS state for transaction {transaction_id}: {e}");
+                    }
                 }
                 if !other_pubkey.is_empty() {
                     self.compute_shared_secret(&new_secret, other_pubkey)?

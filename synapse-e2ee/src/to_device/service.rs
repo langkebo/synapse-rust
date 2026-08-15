@@ -37,7 +37,9 @@ impl ToDeviceService {
                 tracing::debug!("Duplicate to-device transaction {} from {}:{}", mid, sender_user_id, sender_device_id);
                 return Ok(());
             }
-            let _ = self.storage.cleanup_old_transactions(TRANSACTION_MAX_AGE_MS).await;
+            if let Err(e) = self.storage.cleanup_old_transactions(TRANSACTION_MAX_AGE_MS).await {
+                tracing::warn!("Failed to clean up old to-device transactions: {e}");
+            }
         }
 
         if let Some(msg_map) = messages.as_object() {
