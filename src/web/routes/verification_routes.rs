@@ -524,6 +524,9 @@ const SAS_EMOJIS: &[&str; 64] = &[
 #[allow(clippy::unused_async)]
 #[cfg(test)]
 mod tests {
+    use crate::common::ApiErrorKind;
+    use crate::web::routes::AuthenticatedUser;
+
     #[test]
     fn test_verification_routes_structure() {
         let compat_routes = [
@@ -575,5 +578,108 @@ mod tests {
         assert_eq!(json["transaction_id"], "txn-1");
         assert_eq!(json["method"], "sas");
         assert_eq!(json["state"], "requested");
+    }
+
+    #[test]
+    fn test_generate_decimal_from_emoji_empty_defaults_to_100000() {
+        assert_eq!(super::generate_decimal_from_emoji(&[]), 100000);
+    }
+
+    #[test]
+    fn test_generate_decimal_from_emoji_single_emoji() {
+        // 只给一个 emoji：decimal = 0*100 + idx，取模后 + 100000。
+        assert_eq!(super::generate_decimal_from_emoji(&["🐶".to_string()]), 100000);
+        // 第 3 个 emoji（🐭 索引 2）：100002。
+        assert_eq!(super::generate_decimal_from_emoji(&["🐭".to_string()]), 100002);
+    }
+
+    #[test]
+    fn test_generate_decimal_from_emoji_three_emojis_encodes_base100() {
+        // 🐶(0) 🐱(1) 🐭(2) → ((0*100+0)*100+1)*100+2 = 102 → 100102。
+        let emojis = ["🐶".to_string(), "🐱".to_string(), "🐭".to_string()];
+        assert_eq!(super::generate_decimal_from_emoji(&emojis), 100102);
+    }
+
+    #[test]
+    fn test_generate_decimal_from_emoji_unknown_maps_to_zero_index() {
+        // 未知 emoji 回退到索引 0（unwrap_or(0)）。
+        let emojis = ["🚀".to_string(), "🐶".to_string(), "🐶".to_string()];
+        assert_eq!(super::generate_decimal_from_emoji(&emojis), 100000);
+    }
+
+    #[test]
+    fn test_generate_decimal_from_emoji_only_first_three_count() {
+        // 超过 3 个 emoji 时只取前 3 个。
+        let emojis = ["🐶".to_string(), "🐱".to_string(), "🐭".to_string(), "🦊".to_string()];
+        assert_eq!(super::generate_decimal_from_emoji(&emojis), 100102);
+    }
+
+    fn auth_user(user_id: &str, device_id: Option<&str>) -> AuthenticatedUser {
+        AuthenticatedUser {
+            user_id: user_id.to_string(),
+            device_id: device_id.map(str::to_string),
+            is_admin: false,
+            is_shadow_banned: false,
+            is_guest: false,
+            access_token: "tok".to_string(),
+        }
+    }
+
+    fn verification_request() -> crate::e2ee::verification::VerificationRequest {
+        crate::e2ee::verification::VerificationRequest {
+            transaction_id: "txn".to_string(),
+            from_user: "@alice:example.org".to_string(),
+            from_device: "ALICE".to_string(),
+            to_user: "@bob:example.org".to_string(),
+            to_device: Some("BOB".to_string()),
+            method: crate::e2ee::verification::VerificationMethod::Sas,
+            state: crate::e2ee::verification::VerificationState::Requested,
+            created_ts: 1,
+            updated_ts: Some(2),
+        }
+    }
+
+    #[test]
+    fn test_ensure_verification_participant_accepts_from_user() {
+        let req = verification_request();
+        let user = auth_user("@alice:example.org", Some("OTHER"));
+        assert!(super::ensure_verification_participant(&req, &user, "forbidden").is_ok());
+    }
+
+    #[test]
+    fn test_ensure_verification_participant_accepts_to_user() {
+        let req = verification_request();
+        let user = auth_user("@bob:example.org", Some("OTHER"));
+        assert!(super::ensure_verification_participant(&req, &user, "forbidden").is_ok());
+    }
+
+    #[test]
+    fn test_ensure_verification_participant_accepts_from_device() {
+        let req = verification_request();
+        let user = auth_user("@carol:example.org", Some("ALICE"));
+        assert!(super::ensure_verification_participant(&req, &user, "forbidden").is_ok());
+    }
+
+    #[test]
+    fn test_ensure_verification_participant_accepts_to_device() {
+        let req = verification_request();
+        let user = auth_user("@carol:example.org", Some("BOB"));
+        assert!(super::ensure_verification_participant(&req, &user, "forbidden").is_ok());
+    }
+
+    #[test]
+    fn test_ensure_verification_participant_rejects_non_participant() {
+        let req = verification_request();
+        let user = auth_user("@carol:example.org", Some("CAROL"));
+        let err = super::ensure_verification_participant(&req, &user, "you are not a participant").unwrap_err();
+        assert_eq!(err.kind, ApiErrorKind::Forbidden);
+    }
+
+    #[test]
+    fn test_ensure_verification_participant_requires_device_id() {
+        let req = verification_request();
+        let user = auth_user("@alice:example.org", None);
+        let err = super::ensure_verification_participant(&req, &user, "forbidden").unwrap_err();
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
     }
 }

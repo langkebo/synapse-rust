@@ -852,4 +852,131 @@ mod tests {
         let order: Vec<&str> = pdus.iter().map(|p| p["event_id"].as_str().unwrap()).collect();
         assert_eq!(order, vec!["A", "B"]);
     }
+
+    fn make_room_event(event_id: &str, depth: i64, origin_server_ts: i64, origin: &str) -> synapse_storage::event::RoomEvent {
+        synapse_storage::event::RoomEvent {
+            event_id: event_id.to_string(),
+            room_id: "!r:server.example".to_string(),
+            user_id: "@alice:server.example".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: json!({"body": "hi"}),
+            state_key: None,
+            depth,
+            origin_server_ts,
+            processed_ts: 0,
+            not_before: 0,
+            status: None,
+            reference_image: None,
+            origin: origin.to_string(),
+            stream_ordering: None,
+            redacts: None,
+        }
+    }
+
+    fn make_state_event(event_id: &str, event_type: &str, origin_server_ts: i64, origin: Option<&str>) -> synapse_storage::event::StateEvent {
+        synapse_storage::event::StateEvent {
+            event_id: event_id.to_string(),
+            room_id: "!r:server.example".to_string(),
+            sender: "@alice:server.example".to_string(),
+            event_type: Some(event_type.to_string()),
+            content: json!({}),
+            state_key: Some(String::new()),
+            unsigned: None,
+            is_redacted: None,
+            origin_server_ts,
+            depth: None,
+            processed_ts: None,
+            not_before: None,
+            status: None,
+            reference_image: None,
+            origin: origin.map(str::to_string),
+            user_id: None,
+            stream_ordering: None,
+        }
+    }
+
+    #[test]
+    fn sort_state_events_stably_orders_by_ts_desc_then_event_id_asc() {
+        let mut events = vec![
+            make_state_event("e1", "m.room.create", 100, None),
+            make_state_event("e2", "m.room.name", 300, None),
+            make_state_event("e3", "m.room.member", 200, None),
+            make_state_event("e1b", "m.room.topic", 100, None),
+        ];
+        sort_state_events_stably(&mut events);
+        let order: Vec<&str> = events.iter().map(|e| e.event_id.as_str()).collect();
+        // ts 300 最前；ts 200 其次；ts 100 的 e1/e1b 按 event_id 升序（e1 < e1b）。
+        assert_eq!(order, vec!["e2", "e3", "e1", "e1b"]);
+    }
+
+    #[test]
+    fn sort_room_events_stably_orders_by_depth_then_ts_then_event_id() {
+        let mut events = vec![
+            make_room_event("r1", 1, 100, "self"),
+            make_room_event("r2", 3, 100, "self"),
+            make_room_event("r3", 3, 200, "self"),
+            make_room_event("r4", 3, 200, "self"),
+        ];
+        sort_room_events_stably(&mut events);
+        let order: Vec<&str> = events.iter().map(|e| e.event_id.as_str()).collect();
+        // depth 3 的三条在前（ts 200 的 r3/r4 在 ts 100 的 r2 前；r3<r4 按 id），depth 1 最后。
+        assert_eq!(order, vec!["r3", "r4", "r2", "r1"]);
+    }
+
+    #[test]
+    fn serialize_state_event_minimal_normalizes_origin() {
+        let event = make_state_event("e1", "m.room.create", 123, None);
+        let json = serialize_state_event_minimal("server.example", &event);
+        assert_eq!(json["event_id"], "e1");
+        assert_eq!(json["origin"], "server.example");
+        assert_eq!(json["origin_server_ts"], 123);
+
+        let remote = make_state_event("e2", "m.room.create", 123, Some("remote.example"));
+        let json = serialize_state_event_minimal("server.example", &remote);
+        assert_eq!(json["origin"], "remote.example");
+    }
+
+    #[test]
+    fn serialize_room_event_minimal_uses_sender_user_id() {
+        let event = make_room_event("e1", 1, 123, "remote.example");
+        let json = serialize_room_event_minimal("server.example", &event);
+        assert_eq!(json["event_id"], "e1");
+        assert_eq!(json["sender"], "@alice:server.example");
+        assert_eq!(json["origin"], "remote.example");
+    }
+
+    #[test]
+    fn build_federation_event_response_normalizes_self_origin() {
+        for origin in ["", "self", "undefined"] {
+            let event = make_room_event("e1", 1, 123, origin);
+            let json = build_federation_event_response("server.example", &event);
+            let pdus = json["pdus"].as_array().unwrap();
+            assert_eq!(pdus.len(), 1);
+            assert_eq!(pdus[0]["origin"], "server.example");
+            assert_eq!(pdus[0]["event_id"], "e1");
+        }
+    }
+
+    #[test]
+    fn build_federation_event_response_keeps_remote_origin() {
+        let event = make_room_event("e1", 1, 123, "remote.example");
+        let json = build_federation_event_response("server.example", &event);
+        assert_eq!(json["pdus"][0]["origin"], "remote.example");
+    }
+
+    #[test]
+    fn build_federation_state_payload_splits_auth_chain() {
+        // m.room.create 是 auth event；m.room.message 不是。
+        let mut events = vec![
+            make_state_event("create", "m.room.create", 100, None),
+            make_state_event("message", "m.room.message", 200, None),
+        ];
+        let (pdus, auth_chain) = build_federation_state_payload("server.example", &mut events);
+        assert_eq!(pdus.len(), 2);
+        // 排序后 ts 200 的 message 在前。
+        assert_eq!(pdus[0]["event_id"], "message");
+        // auth_chain 只包含 is_auth_event 判定为 true 的事件（m.room.create）。
+        let auth_ids: Vec<&str> = auth_chain.iter().map(|e| e["event_id"].as_str().unwrap()).collect();
+        assert_eq!(auth_ids, vec!["create"]);
+    }
 }

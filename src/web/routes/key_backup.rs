@@ -937,3 +937,57 @@ async fn import_keys_by_version(
         "total": room_keys.len()
     })))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_import_version_accepts_string() {
+        let body = serde_json::json!({ "version": "7" });
+        assert_eq!(super::resolve_import_version(&body).unwrap(), "7");
+    }
+
+    #[test]
+    fn test_resolve_import_version_rejects_missing() {
+        let body = serde_json::json!({ "room_keys": {} });
+        let err = super::resolve_import_version(&body).unwrap_err();
+        assert_eq!(err.kind, crate::common::ApiErrorKind::BadRequest);
+    }
+
+    #[test]
+    fn test_resolve_import_version_rejects_non_string() {
+        let body = serde_json::json!({ "version": 7 });
+        let err = super::resolve_import_version(&body).unwrap_err();
+        assert_eq!(err.kind, crate::common::ApiErrorKind::BadRequest);
+    }
+
+    #[test]
+    fn test_current_etag_has_version_prefix() {
+        let etag = super::current_etag("5");
+        assert!(etag.starts_with("5_"), "etag should be {{version}}_{{ts}}: {etag}");
+        let ts: u64 = etag.split('_').nth(1).unwrap().parse().expect("suffix should be timestamp");
+        assert!(ts > 0);
+    }
+
+    #[test]
+    fn test_write_response_shape() {
+        let Json(resp) = super::write_response("5", 3);
+        assert!(resp["etag"].as_str().unwrap().starts_with("5_"));
+        assert_eq!(resp["count"], 3);
+    }
+
+    #[test]
+    fn test_relative_routes_all_room_keys_prefixed() {
+        let routes = super::relative_routes();
+        assert!(!routes.is_empty());
+        for (_, path) in &routes {
+            assert!(path.starts_with("/room_keys/"), "unexpected path: {path}");
+        }
+        // 去重：同一 (method, path) 不应重复注册。
+        let mut seen = std::collections::HashSet::new();
+        for (method, path) in &routes {
+            assert!(seen.insert((method.clone(), *path)), "duplicate route: {method} {path}");
+        }
+    }
+}
