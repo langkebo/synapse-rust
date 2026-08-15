@@ -2,7 +2,7 @@
 # 简化数据库迁移操作的命令行工具
 
 .PHONY: help migrate migrate-check migrate-undo migrate-status migrate-baseline migrate-audit
-.PHONY: test test-unit test-integration test-all test-coverage test-coverage-check test-mutation test-mutation-incremental
+.PHONY: test test-unit test-integration test-all test-fast test-coverage test-coverage-check test-mutation test-mutation-incremental
 .PHONY: lint fmt format format-check format-install format-audit format-cycle check route-lint
 .PHONY: build build-release
 
@@ -26,8 +26,9 @@ help:
 	@echo "  test                  - Run all tests"
 	@echo "  test-unit             - Run unit tests only"
 	@echo "  test-integration      - Run integration tests only"
-	@echo "  test-coverage         - Run tests with coverage"
-	@echo "  test-coverage-check   - Run tests with coverage threshold (≥25% hard floor + per-file ratchet)"
+	@echo "  test-fast             - Run tests with nextest (fast iteration, no coverage)"
+	@echo "  test-coverage         - Run tests with coverage (llvm-cov, 分两步 + schema 复用)"
+	@echo "  test-coverage-check   - Coverage threshold check (per-file ratchet; 待迁移 llvm-cov)"
 	@echo "  test-mutation         - Run batched mutation smoke tests (cargo-mutants)"
 	@echo "  test-mutation-incr    - Run incremental mutation tests"
 	@echo ""
@@ -112,11 +113,24 @@ test-integration:
 	@echo "Running integration tests..."
 	@cargo test --locked --test '*'
 
-test-coverage:
-	@echo "Running tests with coverage (tarpaulin)..."
-	@cargo tarpaulin --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications" \
-	  --out Html --out Xml --out Json --include-tests --locked
+# 日常快速迭代：nextest（不插桩）。注意 DB 集成测试的 schema pool 复用（方案 B）
+# 是进程内优化，nextest 默认 process-per-test 不会跨进程复用，故 DB 集成测试仍
+# 用 `cargo test <filter>` 更快；nextest 适合 lib/unit 纯逻辑测试。
+test-fast:
+	@echo "Running tests with nextest (fast, no coverage)..."
+	@cargo nextest run --profile test --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso" --locked
 
+# 覆盖率测量：改用 cargo llvm-cov（tarpaulin 0.35.2 有 --implicit-test-threads bug
+# + LLVM 引擎测试失败不产 lcov）。分两步（storage 单独单线程 + rest），跑完自动
+# 兜底清理累积 schema。详见 scripts/run_local_coverage.sh。
+test-coverage:
+	@echo "Running tests with coverage (llvm-cov)..."
+	@bash scripts/run_local_coverage.sh
+	@python3 scripts/analyze_coverage.py
+
+# 覆盖率阈值门禁（per-file ratchet）。注意：check_file_coverage.py 目前只解析
+# tarpaulin JSON，尚未迁移到 lcov（llvm-cov），此处保留 tarpaulin 作为过渡；
+# 迁移后应改用 run_local_coverage.sh 产出 coverage/lcov.info。
 test-coverage-check:
 	@echo "Running tests with coverage threshold check (≥40% hard floor, per-file ratchet enforces ≥80% on TDD files)..."
 	@cargo tarpaulin --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications" \
@@ -128,15 +142,9 @@ test-coverage-check:
 	  --core-files artifacts/core_file_list.txt --core-threshold 70
 
 test-cov-local:
-	@echo "Running tarpaulin (local, no network needed)..."
-	@cargo tarpaulin --workspace \
-	  --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications" \
-	  --include-tests --out Html --out Json --output-dir coverage/ --fail-under 40 --locked
-	@python3 scripts/check_file_coverage.py \
-	  --report coverage/tarpaulin-report.json \
-	  --baseline artifacts/coverage_baseline.json \
-	  --threshold 80 --global-floor 40 --new-file-floor 30 \
-	  --core-files artifacts/core_file_list.txt --core-threshold 70
+	@echo "Running llvm-cov coverage locally (alias of test-coverage)..."
+	@bash scripts/run_local_coverage.sh
+	@python3 scripts/analyze_coverage.py
 
 test-mutation:
 	@echo "Running batched mutation smoke tests (cargo-mutants, nightly)..."
