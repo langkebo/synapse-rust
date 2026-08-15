@@ -17,7 +17,7 @@
 //!     --commit=0000000000000000000000000000000000000000 \
 //!     --output=tests/unit/fixtures/ledger_export/default.json
 //! ```
-//! (plus `worker`, `openclaw`, `all` — see `regenerate_fixtures.sh` if
+//! (plus `worker`, `all` — see `regenerate_fixtures.sh` if
 //! that script ever lands).
 //!
 //! Note: these checked-in fixtures intentionally reflect the compile-aware
@@ -134,13 +134,6 @@ fn worker_profile_matches_fixture() {
 }
 
 #[test]
-#[cfg(all(not(feature = "all-extensions"), feature = "openclaw-routes"))]
-fn openclaw_profile_matches_fixture() {
-    let fixture = include_bytes!("fixtures/ledger_export/openclaw.json");
-    assert_fixture_matches("openclaw", fixture);
-}
-
-#[test]
 #[cfg(not(feature = "all-extensions"))]
 fn all_profile_matches_fixture() {
     let fixture = include_bytes!("fixtures/ledger_export/all.json");
@@ -179,15 +172,7 @@ fn worker_fixture_strictly_supersets_default_fixture() {
 #[test]
 #[cfg(not(feature = "all-extensions"))]
 fn all_fixture_contains_every_other_profile_entry() {
-    let combos: &[&str] = if cfg!(feature = "openclaw-routes") {
-        &[
-            "fixtures/ledger_export/default.json",
-            "fixtures/ledger_export/worker.json",
-            "fixtures/ledger_export/openclaw.json",
-        ]
-    } else {
-        &["fixtures/ledger_export/default.json", "fixtures/ledger_export/worker.json"]
-    };
+    let combos: &[&str] = &["fixtures/ledger_export/default.json", "fixtures/ledger_export/worker.json"];
     let all: LedgerArtifact = serde_json::from_slice(include_bytes!("fixtures/ledger_export/all.json")).unwrap();
     let all_set: std::collections::BTreeSet<(String, String)> =
         all.entries.iter().map(|e| (e.method.clone(), e.path.clone())).collect();
@@ -198,9 +183,6 @@ fn all_fixture_contains_every_other_profile_entry() {
             }
             "fixtures/ledger_export/worker.json" => {
                 include_bytes!("fixtures/ledger_export/worker.json")
-            }
-            "fixtures/ledger_export/openclaw.json" => {
-                include_bytes!("fixtures/ledger_export/openclaw.json")
             }
             _ => unreachable!(),
         };

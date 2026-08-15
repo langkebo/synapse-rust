@@ -6,7 +6,7 @@
 # 输出全部 (method, path) 路由声明。测试执行器依赖该清单自动遍历所有路由。
 #
 # 用法：
-#   ./export_ledger.sh [--profile=default|oidc|worker|saml|openclaw|all] [--output=FILE]
+#   ./export_ledger.sh [--profile=default|oidc|worker|saml|all] [--output=FILE]
 # =============================================================================
 set -euo pipefail
 

@@ -72,14 +72,6 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_without_removed_openclaw_field_uses_defaults() {
-        // openclaw_routes_enabled was removed with the openclaw feature; the
-        // default impl must still deserialize cleanly.
-        let cfg = ExperimentalConfig::default();
-        assert!(!cfg.msc4452_enabled);
-    }
-
-    #[test]
     fn clone_preserves_values() {
         let cfg = ExperimentalConfig {
             msc4452_enabled: true,

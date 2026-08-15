@@ -166,42 +166,6 @@ async fn vuln_02_media_r1_download_with_filename_without_auth_returns_401() {
 }
 
 // --------------------------------------------------------------------------- //
-// P1 — VULN-03: POST /_synapse/external/openclaw/{service_id}/webhook 认证顺序
-// --------------------------------------------------------------------------- //
-
-#[cfg(feature = "openclaw-routes")]
-#[tokio::test]
-async fn vuln_03_openclaw_webhook_without_auth_returns_401() {
-    let Some(app) = setup_app().await else {
-        eprintln!("[skip] 测试数据库不可用，跳过 VULN-03");
-        return;
-    };
-
-    // 发送空 JSON body，无任何认证头。
-    // 修复前：Axum 先反序列化 body → 422 (missing field 'action')
-    // 修复后：认证中间件前置 → 401 Unauthorized
-    let request = Request::builder()
-        .method("POST")
-        .uri("/_synapse/external/openclaw/test_service_id/webhook")
-        .header("Content-Type", "application/json")
-        .body(Body::from(json!({}).to_string()))
-        .unwrap();
-
-    let request = super::with_local_connect_info(request);
-    let response = app.clone().oneshot(request).await.unwrap();
-    let status = response.status();
-    let body = read_json(response).await;
-
-    assert_eq!(
-        status,
-        StatusCode::UNAUTHORIZED,
-        "VULN-03: openclaw webhook 无认证头应返回 401，实际返回 {} | body: {}",
-        status,
-        body
-    );
-}
-
-// --------------------------------------------------------------------------- //
 // P1 — VULN-04: POST /_synapse/external/trendradar/{service_id}/webhook 认证顺序
 // --------------------------------------------------------------------------- //
 

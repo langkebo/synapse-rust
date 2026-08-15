@@ -64,8 +64,8 @@ RUST_TEST_THREADS=1 \
 echo
 echo "==> 步骤 2/2: 其余 crate + 集成测试（--exclude synapse-storage，特定 feature 集与快照一致）"
 # 用特定 feature 集（CI 覆盖率 job 的 minimal features + cas-sso/saml-sso），
-# 而非 --all-features：--all-features 会启用 openclaw/friends/widgets 等死代码
-# feature，编译更多测试，在本地多核/有限内存下触发 prepare_shared_test_pool
+# 而非 --all-features：--all-features 会启用 friends/widgets 等非默认 feature，
+# 编译更多测试，在本地多核/有限内存下触发 prepare_shared_test_pool
 # 并发 clone schema 失败（646 个）与 OOM（exit 137）。route_ledger 快照已用
 # 同一 feature 集重新生成，故此处必须与快照保持一致。
 # ledger_export_tests 的 fixture 反映导出二进制的默认 build（无 voice-extended 等），

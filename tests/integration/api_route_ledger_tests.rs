@@ -37,20 +37,12 @@ static DEFAULT_FIXTURE: OnceCell<TestFixture> = OnceCell::const_new();
 static WORKER_ENABLED_FIXTURE: OnceCell<TestFixture> = OnceCell::const_new();
 static DEFAULT_LEDGER: OnceCell<Option<RouteLedger>> = OnceCell::const_new();
 static WORKER_ENABLED_LEDGER: OnceCell<Option<RouteLedger>> = OnceCell::const_new();
-#[cfg(feature = "openclaw-routes")]
-static OPENCLAW_ENABLED_FIXTURE: OnceCell<TestFixture> = OnceCell::const_new();
-#[cfg(feature = "openclaw-routes")]
-static OPENCLAW_ENABLED_LEDGER: OnceCell<Option<RouteLedger>> = OnceCell::const_new();
 
 async fn default_fixture() -> TestFixture {
     DEFAULT_FIXTURE
         .get_or_init(|| async {
             setup_fresh_test_app_with_config(|container| {
                 container.core.config.federation.allow_ingress = true;
-                #[cfg(feature = "openclaw-routes")]
-                {
-                    container.core.config.experimental.openclaw_routes_enabled = false;
-                }
             })
             .await
         })
@@ -74,20 +66,6 @@ async fn worker_enabled_fixture() -> TestFixture {
         .clone()
 }
 
-#[cfg(feature = "openclaw-routes")]
-async fn openclaw_enabled_fixture() -> TestFixture {
-    OPENCLAW_ENABLED_FIXTURE
-        .get_or_init(|| async {
-            setup_fresh_test_app_with_config(|container| {
-                container.core.config.federation.allow_ingress = true;
-                container.core.config.experimental.openclaw_routes_enabled = true;
-            })
-            .await
-        })
-        .await
-        .clone()
-}
-
 async fn default_ledger() -> Option<RouteLedger> {
     DEFAULT_LEDGER
         .get_or_init(|| async { default_fixture().await.as_ref().map(|(_, state)| declared_route_manifest_for(state)) })
@@ -99,16 +77,6 @@ async fn worker_enabled_ledger() -> Option<RouteLedger> {
     WORKER_ENABLED_LEDGER
         .get_or_init(|| async {
             worker_enabled_fixture().await.as_ref().map(|(_, state)| declared_route_manifest_for(state))
-        })
-        .await
-        .clone()
-}
-
-#[cfg(feature = "openclaw-routes")]
-async fn openclaw_enabled_ledger() -> Option<RouteLedger> {
-    OPENCLAW_ENABLED_LEDGER
-        .get_or_init(|| async {
-            openclaw_enabled_fixture().await.as_ref().map(|(_, state)| declared_route_manifest_for(state))
         })
         .await
         .clone()
@@ -455,30 +423,6 @@ async fn cas_routes_are_declared_when_feature_enabled() {
     };
     assert!(has_declared_route(&ledger, Method::GET, "/login"));
     assert!(has_declared_route(&ledger, Method::GET, "/_synapse/admin/v1/cas/services"));
-}
-
-#[cfg(feature = "openclaw-routes")]
-#[tokio::test]
-async fn openclaw_routes_follow_runtime_flag_in_ledger() {
-    let Some(disabled_ledger) = default_ledger().await else {
-        eprintln!("Skipping: integration test database is not available");
-        return;
-    };
-    assert!(!has_declared_route(
-        &disabled_ledger,
-        Method::GET,
-        "/_matrix/client/unstable/org.synapse_rust.openclaw/connections"
-    ));
-
-    let Some(enabled_ledger) = openclaw_enabled_ledger().await else {
-        eprintln!("Skipping: integration test database is not available");
-        return;
-    };
-    assert!(has_declared_route(
-        &enabled_ledger,
-        Method::GET,
-        "/_matrix/client/unstable/org.synapse_rust.openclaw/connections"
-    ));
 }
 
 #[cfg(feature = "voip-tracking")]

@@ -8,7 +8,7 @@ COMMIT="${COMMIT:-$(git -C "${ROOT_DIR}" rev-parse HEAD)}"
 
 mkdir -p "${OUTPUT_DIR}"
 
-for profile in default worker openclaw all; do
+for profile in default worker all; do
     cargo run --features all-extensions --bin synapse_ledger_export -- \
         --profile="${profile}" \
         --timestamp="${TIMESTAMP}" \

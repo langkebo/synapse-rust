@@ -87,7 +87,6 @@ mod storage_remaining_domains_refactor_tests;
 
 // P-096 route tests (12 files)
 mod account_compat_route_tests;
-mod ai_connection_route_tests;
 mod assembly_route_tests;
 mod auth_compat_route_tests;
 mod burn_after_read_route_tests;
@@ -107,7 +106,6 @@ mod admin_server_service_tests;
 mod container_service_tests;
 mod event_broadcaster_tests;
 mod event_service_tests;
-mod mcp_proxy_tests;
 mod server_notification_service_tests;
 mod sync_helpers_tests;
 mod user_service_tests;

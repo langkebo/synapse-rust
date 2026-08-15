@@ -288,8 +288,6 @@ fn test_worker_enabled_profile_adds_worker_routes() {
         oidc_enabled: false,
         worker_enabled: true,
         saml_enabled: false,
-        #[cfg(feature = "openclaw-routes")]
-        openclaw_enabled: false,
     });
 
     let default_count = default.iter().count();
@@ -311,8 +309,6 @@ fn test_oidc_enabled_profile_changes_manifest_size() {
         oidc_enabled: true,
         worker_enabled: false,
         saml_enabled: false,
-        #[cfg(feature = "openclaw-routes")]
-        openclaw_enabled: false,
     });
 
     assert!(!oidc_on.is_empty(), "oidc-enabled manifest must not be empty");

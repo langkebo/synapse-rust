@@ -326,28 +326,8 @@ fn test_module_path_identity() {
 }
 
 // =============================================================================
-// New domain groups: ai (openclaw-routes) and rtc (voip-tracking)
+// New domain groups: rtc (voip-tracking)
 // =============================================================================
-
-#[cfg(feature = "openclaw-routes")]
-#[test]
-fn test_openclaw_storage_path_identity() {
-    let legacy_ref: Option<&synapse_storage::OpenClawStorage> = None;
-    let grouped_ref: Option<&synapse_storage::ai::OpenClawStorage> = None;
-    if let (Some(a), Some(b)) = (legacy_ref, grouped_ref) {
-        assert_same_type(a, b);
-    }
-}
-
-#[cfg(feature = "openclaw-routes")]
-#[test]
-fn test_ai_connection_path_identity() {
-    let legacy: Option<synapse_storage::AiConnection> = None;
-    let grouped: Option<synapse_storage::ai::AiConnection> = None;
-    if let (Some(a), Some(b)) = (legacy, grouped) {
-        assert_same_type(&a, &b);
-    }
-}
 
 #[cfg(feature = "voip-tracking")]
 #[test]

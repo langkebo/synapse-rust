@@ -55,7 +55,7 @@ for mod_name in $MODULES; do
             continue
             ;;
         # Non-default feature modules (review separately)
-        openclaw_service|matrix_ai_connection_service|sms_provider|mcp_proxy)
+        sms_provider)
             continue
             ;;
         # Infrastructure initialization helpers

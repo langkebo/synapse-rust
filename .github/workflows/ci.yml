@@ -599,7 +599,7 @@ jobs:
           #                         enforced at ≥70% by check_file_coverage below
           cargo tarpaulin \
             --workspace \
-            --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications" \
+            --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso" \
             --include-tests \
             --out Xml --out Json --out Html \
             --output-dir coverage/ \
