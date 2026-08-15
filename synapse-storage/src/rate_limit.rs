@@ -106,3 +106,96 @@ impl RateLimitStoreApi for RateLimitStorage {
         self.delete_user_rate_limit(user_id).await
     }
 }
+
+// ── Tests ──────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod db_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+    use std::env;
+
+    async fn test_pool() -> Arc<PgPool> {
+        let db_url = env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse_test".to_string());
+        let pool = PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    async fn ensure_test_user(pool: &PgPool, user_id: &str) {
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
+        sqlx::query(
+            "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, EXTRACT(EPOCH FROM NOW()) * 1000) ON CONFLICT (user_id) DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(username)
+        .execute(pool)
+        .await
+        .ok();
+    }
+
+    fn make_suffix() -> String {
+        uuid::Uuid::new_v4().to_string().replace('-', "")
+    }
+
+    #[tokio::test]
+    async fn get_user_rate_limit_none_for_missing_user() {
+        let pool = test_pool().await;
+        let storage = RateLimitStorage::new(&pool);
+        let suffix = make_suffix();
+        let user_id = format!("@ratelimit_missing_{suffix}:test");
+        assert!(storage.get_user_rate_limit(&user_id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn upsert_user_rate_limit_inserts_new_record() {
+        let pool = test_pool().await;
+        let storage = RateLimitStorage::new(&pool);
+        let suffix = make_suffix();
+        let user_id = format!("@ratelimit_insert_{suffix}:test");
+        ensure_test_user(&pool, &user_id).await;
+
+        storage.upsert_user_rate_limit(&user_id, 5.0, 10).await.unwrap();
+        let record = storage.get_user_rate_limit(&user_id).await.unwrap().unwrap();
+        assert_eq!(record.messages_per_second, Some(5.0));
+        assert_eq!(record.burst_count, Some(10));
+
+        let _ = sqlx::query("DELETE FROM rate_limits WHERE user_id = $1").bind(&user_id).execute(pool.as_ref()).await;
+        let _ = sqlx::query("DELETE FROM users WHERE user_id = $1").bind(&user_id).execute(pool.as_ref()).await;
+    }
+
+    #[tokio::test]
+    async fn upsert_user_rate_limit_updates_existing_record() {
+        let pool = test_pool().await;
+        let storage = RateLimitStorage::new(&pool);
+        let suffix = make_suffix();
+        let user_id = format!("@ratelimit_update_{suffix}:test");
+        ensure_test_user(&pool, &user_id).await;
+
+        storage.upsert_user_rate_limit(&user_id, 1.0, 1).await.unwrap();
+        storage.upsert_user_rate_limit(&user_id, 9.0, 99).await.unwrap();
+        let record = storage.get_user_rate_limit(&user_id).await.unwrap().unwrap();
+        assert_eq!(record.messages_per_second, Some(9.0));
+        assert_eq!(record.burst_count, Some(99));
+
+        let _ = sqlx::query("DELETE FROM rate_limits WHERE user_id = $1").bind(&user_id).execute(pool.as_ref()).await;
+        let _ = sqlx::query("DELETE FROM users WHERE user_id = $1").bind(&user_id).execute(pool.as_ref()).await;
+    }
+
+    #[tokio::test]
+    async fn delete_user_rate_limit_removes_record() {
+        let pool = test_pool().await;
+        let storage = RateLimitStorage::new(&pool);
+        let suffix = make_suffix();
+        let user_id = format!("@ratelimit_delete_{suffix}:test");
+        ensure_test_user(&pool, &user_id).await;
+
+        storage.upsert_user_rate_limit(&user_id, 3.0, 30).await.unwrap();
+        storage.delete_user_rate_limit(&user_id).await.unwrap();
+        assert!(storage.get_user_rate_limit(&user_id).await.unwrap().is_none());
+
+        let _ = sqlx::query("DELETE FROM users WHERE user_id = $1").bind(&user_id).execute(pool.as_ref()).await;
+    }
+}

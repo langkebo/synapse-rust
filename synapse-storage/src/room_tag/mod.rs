@@ -112,3 +112,115 @@ impl RoomTagStoreApi for RoomTagStorage {
         self.remove_tag(user_id, room_id, tag).await
     }
 }
+
+// ── Tests ──────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod db_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+    use std::env;
+
+    async fn test_pool() -> Arc<sqlx::PgPool> {
+        let db_url = env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse_test".to_string());
+        let pool = PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    fn make_suffix() -> String {
+        uuid::Uuid::new_v4().to_string().replace('-', "")
+    }
+
+    #[tokio::test]
+    async fn get_all_tags_empty_for_new_user() {
+        let pool = test_pool().await;
+        let storage = RoomTagStorage::new(pool);
+        let suffix = make_suffix();
+        let user_id = format!("@roomtag_empty_{suffix}:test");
+        assert!(storage.get_all_tags(&user_id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn add_tag_then_get_tags() {
+        let pool = test_pool().await;
+        let storage = RoomTagStorage::new(pool.clone());
+        let suffix = make_suffix();
+        let user_id = format!("@roomtag_add_{suffix}:test");
+        let room_id = format!("!room_{suffix}:test");
+
+        storage.add_tag(&user_id, &room_id, "m.favourite", Some(0.5)).await.unwrap();
+        let tags = storage.get_tags(&user_id, &room_id).await.unwrap();
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0].tag, "m.favourite");
+        assert_eq!(tags[0].order, Some(0.5));
+
+        let _ = sqlx::query("DELETE FROM room_tags WHERE user_id = $1 AND room_id = $2")
+            .bind(&user_id)
+            .bind(&room_id)
+            .execute(pool.as_ref())
+            .await;
+    }
+
+    #[tokio::test]
+    async fn add_tag_upserts_existing_tag() {
+        let pool = test_pool().await;
+        let storage = RoomTagStorage::new(pool.clone());
+        let suffix = make_suffix();
+        let user_id = format!("@roomtag_upsert_{suffix}:test");
+        let room_id = format!("!room_{suffix}:test");
+
+        storage.add_tag(&user_id, &room_id, "m.lowpriority", Some(0.1)).await.unwrap();
+        storage.add_tag(&user_id, &room_id, "m.lowpriority", Some(0.9)).await.unwrap();
+        let tags = storage.get_tags(&user_id, &room_id).await.unwrap();
+        assert_eq!(tags.len(), 1, "upsert must not create a duplicate row");
+        assert_eq!(tags[0].order, Some(0.9));
+
+        let _ = sqlx::query("DELETE FROM room_tags WHERE user_id = $1 AND room_id = $2")
+            .bind(&user_id)
+            .bind(&room_id)
+            .execute(pool.as_ref())
+            .await;
+    }
+
+    #[tokio::test]
+    async fn remove_tag_deletes_record() {
+        let pool = test_pool().await;
+        let storage = RoomTagStorage::new(pool.clone());
+        let suffix = make_suffix();
+        let user_id = format!("@roomtag_remove_{suffix}:test");
+        let room_id = format!("!room_{suffix}:test");
+
+        storage.add_tag(&user_id, &room_id, "m.favourite", None).await.unwrap();
+        storage.remove_tag(&user_id, &room_id, "m.favourite").await.unwrap();
+        assert!(storage.get_tags(&user_id, &room_id).await.unwrap().is_empty());
+
+        let _ = sqlx::query("DELETE FROM room_tags WHERE user_id = $1 AND room_id = $2")
+            .bind(&user_id)
+            .bind(&room_id)
+            .execute(pool.as_ref())
+            .await;
+    }
+
+    #[tokio::test]
+    async fn get_all_tags_returns_multiple_tags() {
+        let pool = test_pool().await;
+        let storage = RoomTagStorage::new(pool.clone());
+        let suffix = make_suffix();
+        let user_id = format!("@roomtag_multi_{suffix}:test");
+        let room_id = format!("!room_{suffix}:test");
+
+        storage.add_tag(&user_id, &room_id, "m.favourite", None).await.unwrap();
+        storage.add_tag(&user_id, &room_id, "m.lowpriority", None).await.unwrap();
+        let all = storage.get_all_tags(&user_id).await.unwrap();
+        assert_eq!(all.len(), 2);
+
+        let _ = sqlx::query("DELETE FROM room_tags WHERE user_id = $1 AND room_id = $2")
+            .bind(&user_id)
+            .bind(&room_id)
+            .execute(pool.as_ref())
+            .await;
+    }
+}
