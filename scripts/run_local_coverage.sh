@@ -52,9 +52,12 @@ echo "    TEST_THREADS  = $TEST_THREADS"
 
 echo
 echo "==> 步骤 1/2: synapse-storage 单独跑（db_tests 直连 public，单线程避免并发竞争）"
+# storage 用与 rest 步骤一致的扩展 feature 集（test-utils + 扩展 feature），
+# 使 feature 门控的 db_tests（server_notification/saml/cas/beacon 等）也被编译并
+# 测量，而非停留在 test_mocks 间接编译的 0% 状态。
 RUST_TEST_THREADS=1 \
     cargo llvm-cov -p synapse-storage \
-    --features test-utils \
+    --features "test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications,cas-sso,saml-sso" \
     --lib \
     --lcov --output-path "$STORAGE_LCOV"
 
