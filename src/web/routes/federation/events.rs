@@ -767,3 +767,57 @@ fn parse_backfill_query(raw_query: Option<String>) -> Result<(Vec<String>, i64),
 
     Ok((event_ids, limit.clamp(1, 100)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_backfill_query_none_returns_defaults() {
+        let (event_ids, limit) = parse_backfill_query(None).unwrap();
+        assert!(event_ids.is_empty());
+        assert_eq!(limit, 10);
+    }
+
+    #[test]
+    fn parse_backfill_query_extracts_event_ids_and_limit() {
+        let (event_ids, limit) = parse_backfill_query(Some("v=event1&v=event2&limit=50".to_string())).unwrap();
+        assert_eq!(event_ids, vec!["event1".to_string(), "event2".to_string()]);
+        assert_eq!(limit, 50);
+    }
+
+    #[test]
+    fn parse_backfill_query_clamps_limit_to_range() {
+        let (_, high) = parse_backfill_query(Some("limit=999".to_string())).unwrap();
+        assert_eq!(high, 100);
+        let (_, low) = parse_backfill_query(Some("limit=0".to_string())).unwrap();
+        assert_eq!(low, 1);
+        let (_, neg) = parse_backfill_query(Some("limit=-5".to_string())).unwrap();
+        assert_eq!(neg, 1);
+    }
+
+    #[test]
+    fn parse_backfill_query_invalid_limit_returns_error() {
+        assert!(parse_backfill_query(Some("limit=abc".to_string())).is_err());
+    }
+
+    #[test]
+    fn parse_backfill_query_skips_empty_v() {
+        let (event_ids, _) = parse_backfill_query(Some("v=&v=event1".to_string())).unwrap();
+        assert_eq!(event_ids, vec!["event1".to_string()]);
+    }
+
+    #[test]
+    fn normalized_event_origin_falls_back_to_server_name() {
+        assert_eq!(normalized_event_origin("server.example", None), "server.example");
+        assert_eq!(normalized_event_origin("server.example", Some("")), "server.example");
+        assert_eq!(normalized_event_origin("server.example", Some("self")), "server.example");
+        assert_eq!(normalized_event_origin("server.example", Some("undefined")), "server.example");
+    }
+
+    #[test]
+    fn normalized_event_origin_keeps_remote_origin() {
+        assert_eq!(normalized_event_origin("server.example", Some("remote.example")), "remote.example");
+        assert_eq!(normalized_event_origin("server.example", Some("  remote.example  ")), "remote.example");
+    }
+}
