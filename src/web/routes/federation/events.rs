@@ -820,4 +820,36 @@ mod tests {
         assert_eq!(normalized_event_origin("server.example", Some("remote.example")), "remote.example");
         assert_eq!(normalized_event_origin("server.example", Some("  remote.example  ")), "remote.example");
     }
+
+    #[test]
+    fn topological_sort_orders_by_prev_events() {
+        let mut pdus = vec![
+            json!({"event_id": "C", "prev_events": ["B"]}),
+            json!({"event_id": "B", "prev_events": ["A"]}),
+            json!({"event_id": "A"}),
+        ];
+        topological_sort(&mut pdus);
+        let order: Vec<&str> = pdus.iter().map(|p| p["event_id"].as_str().unwrap()).collect();
+        assert_eq!(order, vec!["A", "B", "C"]);
+    }
+
+    #[test]
+    fn topological_sort_independent_events_keep_order() {
+        let mut pdus = vec![json!({"event_id": "A"}), json!({"event_id": "B"})];
+        topological_sort(&mut pdus);
+        let order: Vec<&str> = pdus.iter().map(|p| p["event_id"].as_str().unwrap()).collect();
+        assert_eq!(order, vec!["A", "B"]);
+    }
+
+    #[test]
+    fn topological_sort_cycle_keeps_original_order() {
+        let mut pdus = vec![
+            json!({"event_id": "A", "prev_events": ["B"]}),
+            json!({"event_id": "B", "prev_events": ["A"]}),
+        ];
+        topological_sort(&mut pdus);
+        // 有环无法完成拓扑排序，保持原序。
+        let order: Vec<&str> = pdus.iter().map(|p| p["event_id"].as_str().unwrap()).collect();
+        assert_eq!(order, vec!["A", "B"]);
+    }
 }
