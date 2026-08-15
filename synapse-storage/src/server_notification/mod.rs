@@ -9,4 +9,6 @@ pub use repository::ServerNotificationStorage;
 #[cfg(test)]
 mod cursor_tests;
 #[cfg(test)]
+mod db_tests;
+#[cfg(test)]
 mod tests;
