@@ -414,7 +414,8 @@ expression: body
           "displayname": null,
           "last_active_ago": 0,
           "presence": "online",
-          "status_msg": null
+          "status_msg": null,
+          "user_id": "@[redacted_sync_user]:localhost"
         },
         "sender": "@[redacted_sync_user]:localhost",
         "type": "m.presence"
