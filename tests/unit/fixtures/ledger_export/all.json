@@ -8,7 +8,7 @@
     "worker_enabled": true,
     "saml_enabled": false
   },
-  "entry_count": 1267,
+  "entry_count": 1266,
   "entries": [
     {
       "method": "GET",
@@ -2240,12 +2240,6 @@
       "method": "POST",
       "path": "/_matrix/client/r0/user_directory/search",
       "registered_by": "assembly::directory_compat",
-      "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_matrix/client/r0/version",
-      "registered_by": "assembly::create_router",
       "path_params": []
     },
     {
