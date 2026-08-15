@@ -234,3 +234,112 @@ pub(crate) async fn forward_room_keys(
         "version": version
     })))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_key() -> BackupKeyInfo {
+        BackupKeyInfo {
+            user_id: "@alice:test".to_string(),
+            backup_id: "backup1".to_string(),
+            room_id: "!room:test".to_string(),
+            session_id: "session1".to_string(),
+            first_message_index: 0,
+            forwarded_count: 0,
+            is_verified: true,
+            session_data: json!({"ciphertext": "abc"}),
+        }
+    }
+
+    #[test]
+    fn room_key_to_json_includes_all_fields() {
+        let json = room_key_to_json(&make_key());
+        assert_eq!(json["session_id"], "session1");
+        assert_eq!(json["first_message_index"], 0);
+        assert_eq!(json["forwarded_count"], 0);
+        assert_eq!(json["is_verified"], true);
+        assert_eq!(json["session_data"]["ciphertext"], "abc");
+    }
+
+    #[test]
+    fn extract_forwarded_sessions_array_returns_as_is() {
+        let value = json!({"sessions": [{"session_id": "a", "session_data": {}}, {"session_id": "b"}]});
+        let sessions = extract_forwarded_sessions(&value);
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions[0]["session_id"], "a");
+        assert_eq!(sessions[1]["session_id"], "b");
+    }
+
+    #[test]
+    fn extract_forwarded_sessions_object_normalizes_session_id() {
+        let value = json!({"sessions": {"s1": {"ciphertext": "x"}}});
+        let sessions = extract_forwarded_sessions(&value);
+        assert_eq!(sessions.len(), 1);
+        // Object 形态：key 是 session_id，无 session_id 字段时补齐。
+        assert_eq!(sessions[0]["session_id"], "s1");
+        assert!(sessions[0]["session_data"].is_object());
+    }
+
+    #[test]
+    fn extract_forwarded_sessions_missing_returns_empty() {
+        assert!(extract_forwarded_sessions(&json!({})).is_empty());
+        assert!(extract_forwarded_sessions(&json!({"sessions": "not_array_or_object"})).is_empty());
+    }
+
+    #[test]
+    fn normalize_forwarded_room_keys_uses_room_specific() {
+        let body = json!({
+            "rooms": {"!room:test": {"sessions": [{"session_id": "a"}]}},
+            "sessions": [{"session_id": "fallback"}]
+        });
+        let keys = normalize_forwarded_room_keys(&body, "!room:test");
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0]["session_id"], "a");
+    }
+
+    #[test]
+    fn normalize_forwarded_room_keys_falls_back_to_body_sessions() {
+        let body = json!({"sessions": [{"session_id": "fallback"}]});
+        let keys = normalize_forwarded_room_keys(&body, "!room:test");
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0]["session_id"], "fallback");
+    }
+
+    #[test]
+    fn normalize_forwarded_room_keys_empty_body_returns_empty() {
+        assert!(normalize_forwarded_room_keys(&json!({}), "!room:test").is_empty());
+    }
+
+    #[test]
+    fn requested_room_key_session_ids_from_top_level_array() {
+        let body = json!({"session_ids": ["s1", "s2"]});
+        let ids = requested_room_key_session_ids(&body, "!room:test").unwrap();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains("s1"));
+        assert!(ids.contains("s2"));
+    }
+
+    #[test]
+    fn requested_room_key_session_ids_from_room_sessions() {
+        let body = json!({"rooms": {"!room:test": {"sessions": ["s3"]}}});
+        let ids = requested_room_key_session_ids(&body, "!room:test").unwrap();
+        assert_eq!(ids.len(), 1);
+        assert!(ids.contains("s3"));
+    }
+
+    #[test]
+    fn requested_room_key_session_ids_empty_returns_none() {
+        assert!(requested_room_key_session_ids(&json!({}), "!room:test").is_none());
+        assert!(requested_room_key_session_ids(&json!({"session_ids": []}), "!room:test").is_none());
+    }
+
+    #[test]
+    fn requested_room_key_session_ids_object_uses_keys() {
+        let body = json!({"sessions": {"s4": {}, "s5": {}}});
+        let ids = requested_room_key_session_ids(&body, "!room:test").unwrap();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains("s4"));
+        assert!(ids.contains("s5"));
+    }
+}
