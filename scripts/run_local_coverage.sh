@@ -76,6 +76,19 @@ echo
 echo "==> 合并 lcov"
 python3 scripts/merge_lcov.py "$STORAGE_LCOV" "$REST_LCOV" -o "$OUTPUT_DIR/lcov.info"
 
+# 集成测试通过 prepare_shared_test_pool 每次 clone 一个 111 张表的隔离 schema，用完
+# 不 DROP，会累积到数千个（catalog 膨胀拖慢后续 clone）。跑完后兜底清理（若已改用
+# schema pool 复用则此步骤是 no-op）。设 SKIP_CLEANUP=1 可跳过。
+if [ "${SKIP_CLEANUP:-0}" != "1" ]; then
+    echo
+    echo "==> 兜底清理累积的隔离 schema"
+    if [ -f scripts/cleanup_test_schemas.sh ]; then
+        bash scripts/cleanup_test_schemas.sh
+    else
+        echo "    （cleanup_test_schemas.sh 不存在，跳过）"
+    fi
+fi
+
 echo
 echo "==> 覆盖率报告已写入 $OUTPUT_DIR/lcov.info"
 echo "    分析：python3 scripts/analyze_coverage.py"
