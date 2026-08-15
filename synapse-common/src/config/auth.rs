@@ -5,12 +5,15 @@ use serde::Deserialize;
 // ============================================================================
 
 /// OpenID Connect configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
+#[derive(derivative::Derivative)]
+#[derivative(Debug)]
 pub struct OidcConfig {
     #[serde(default)]
     pub enabled: bool,
     pub issuer: String,
     pub client_id: String,
+    #[derivative(Debug = "ignore")]
     pub client_secret: Option<String>,
     #[serde(default = "default_oidc_scopes")]
     pub scopes: Vec<String>,
@@ -86,7 +89,9 @@ impl OidcConfig {
 /// SAML 2.0 configuration.
 ///
 /// Official Synapse configuration documentation: https://element-hq.github.io/synapse/latest/openid.html#saml
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
+#[derive(derivative::Derivative)]
+#[derivative(Debug)]
 pub struct SamlConfig {
     /// Whether to enable SAML authentication
     #[serde(default)]
@@ -109,6 +114,7 @@ pub struct SamlConfig {
     pub sp_sls_url: Option<String>,
 
     /// SP private key (PEM format)
+    #[derivative(Debug = "ignore")]
     pub sp_private_key: Option<String>,
 
     /// SP private key file path

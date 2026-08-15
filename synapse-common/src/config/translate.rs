@@ -31,7 +31,9 @@ fn default_translate_max_text_length() -> usize {
 ///
 /// When `enabled` is `false`, the translate endpoint returns the original text
 /// (passthrough/stub behavior).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
+#[derive(derivative::Derivative)]
+#[derivative(Debug)]
 pub struct TranslateConfig {
     /// Whether the translation service is enabled.
     /// When disabled, the translate endpoint returns the original text.
@@ -47,6 +49,7 @@ pub struct TranslateConfig {
     /// For DeepL: the DeepL API key.
     /// For LibreTranslate: optional (if the instance requires one).
     #[serde(default)]
+    #[derivative(Debug = "ignore")]
     pub api_key: String,
 
     /// Base URL for the translation API.

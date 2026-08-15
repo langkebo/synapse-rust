@@ -5,7 +5,9 @@ use serde::Deserialize;
 // ============================================================================
 
 /// 数据库连接配置。
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default)]
+#[derive(derivative::Derivative)]
+#[derivative(Debug)]
 pub struct DatabaseConfig {
     /// 数据库主机地址
     pub host: String,
@@ -14,6 +16,7 @@ pub struct DatabaseConfig {
     /// 数据库用户名
     pub username: String,
     /// 数据库密码
+    #[derivative(Debug = "ignore")]
     pub password: String,
     /// 数据库名称
     pub name: String,
@@ -28,13 +31,16 @@ pub struct DatabaseConfig {
 }
 
 /// Redis 缓存配置。
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default)]
+#[derive(derivative::Derivative)]
+#[derivative(Debug)]
 pub struct RedisConfig {
     /// Redis 主机地址
     pub host: String,
     /// Redis 端口
     pub port: u16,
     /// Redis 密码（可选）
+    #[derivative(Debug = "ignore")]
     pub password: Option<String>,
     /// 缓存键前缀
     pub key_prefix: String,
@@ -151,5 +157,32 @@ mod tests {
         let config =
             RedisConfig { host: "localhost".into(), port: 6379, password: Some("".into()), ..Default::default() };
         assert_eq!(config.connection_url(), "redis://localhost:6379/");
+    }
+
+    #[test]
+    fn debug_output_redacts_passwords() {
+        // 审查 #25：密钥字段 derive Debug 时必须脱敏（derivative Debug="ignore"）。
+        let db = DatabaseConfig {
+            host: "localhost".into(),
+            port: 5432,
+            username: "synapse".into(),
+            password: "db-s3cr3t".into(),
+            name: "synapse".into(),
+            pool_size: 20,
+            max_size: 20,
+            min_idle: None,
+            connection_timeout: 30,
+        };
+        let dbg = format!("{db:?}");
+        assert!(!dbg.contains("db-s3cr3t"), "DatabaseConfig Debug 泄露密码: {dbg}");
+
+        let redis = RedisConfig {
+            host: "localhost".into(),
+            port: 6379,
+            password: Some("redis-s3cr3t".into()),
+            ..Default::default()
+        };
+        let dbg = format!("{redis:?}");
+        assert!(!dbg.contains("redis-s3cr3t"), "RedisConfig Debug 泄露密码: {dbg}");
     }
 }

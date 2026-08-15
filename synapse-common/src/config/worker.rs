@@ -123,11 +123,14 @@ pub struct ReplicationConfig {
     pub http: ReplicationHttpConfig,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default)]
+#[derive(derivative::Derivative)]
+#[derivative(Debug)]
 pub struct ReplicationHttpConfig {
     pub enabled: bool,
     pub host: String,
     pub port: u16,
+    #[derivative(Debug = "ignore")]
     pub secret: Option<String>,
     pub secret_path: Option<String>,
 }

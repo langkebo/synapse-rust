@@ -16,7 +16,9 @@ use serde::Deserialize;
 /// Defaults to disabled for backward compatibility. When `enabled = true`
 /// and `issuer_url` is non-empty, `is_configured()` returns true and the
 /// homeserver activates MAS token validation and the MAS REST client.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Clone, Default, Deserialize)]
+#[derive(derivative::Derivative)]
+#[derivative(Debug)]
 pub struct MasConfig {
     /// Whether MAS integration is enabled. Defaults to `false`.
     #[serde(default)]
@@ -36,12 +38,14 @@ pub struct MasConfig {
     /// The `client_secret` paired with `client_id`. Defaults to an empty
     /// string.
     #[serde(default)]
+    #[derivative(Debug = "ignore")]
     pub client_secret: String,
 
     /// Optional bearer token for the MAS admin REST API
     /// (`/admin/v1/...` endpoints). When `None`, admin REST calls are
     /// refused by the `MasRestClient`.
     #[serde(default)]
+    #[derivative(Debug = "ignore")]
     pub admin_token: Option<String>,
 }
 

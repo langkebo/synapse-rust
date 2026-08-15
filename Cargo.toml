@@ -237,6 +237,7 @@ tracing-subscriber = { version = "0.3" }
 moka = { version = "0.12" }
 parking_lot = "0.12"
 zeroize = "1"
+derivative = "2.2"
 
 [[test]]
 name = "integration"

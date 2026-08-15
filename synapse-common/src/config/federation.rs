@@ -9,7 +9,9 @@ use std::path::PathBuf;
 /// 联邦配置。
 ///
 /// 配置与其他 Matrix 服务器的联邦通信参数。
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Clone, Deserialize, Default)]
+#[derive(derivative::Derivative)]
+#[derivative(Debug)]
 pub struct FederationConfig {
     /// 是否启用联邦功能
     pub enabled: bool,
@@ -28,6 +30,7 @@ pub struct FederationConfig {
     /// 客户端 CA 证书文件
     pub client_ca_file: Option<PathBuf>,
     /// 签名密钥
+    #[derivative(Debug = "ignore")]
     pub signing_key: Option<String>,
     /// 密钥 ID
     pub key_id: Option<String>,
@@ -128,6 +131,7 @@ pub struct FederationConfig {
     ///
     /// Generate with: `openssl rand -hex 32`
     #[serde(default)]
+    #[derivative(Debug = "ignore")]
     pub signing_key_master_key: Option<String>,
 
     /// Explicitly allow storing federation signing keys in plaintext when no

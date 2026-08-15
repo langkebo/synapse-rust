@@ -25,8 +25,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = Config::load()?;
 
-    let redis_url = config.redis_url();
-    tracing::info!("Connecting to Redis at {}", redis_url);
+    // 脱敏：不打印 redis_url（其内嵌明文密码），仅记录 host:port。
+    tracing::info!("Connecting to Redis at {}:{}", config.redis.host, config.redis.port);
     let queue = Arc::new(RedisTaskQueue::new(&config.redis)?);
 
     let db_url = config.database_url();

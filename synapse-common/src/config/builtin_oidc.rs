@@ -30,15 +30,19 @@ fn default_builtin_oidc_client_id() -> String {
     "builtin-oidc-client".to_string()
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
+#[derive(derivative::Derivative)]
+#[derivative(Debug)]
 pub struct BuiltinOidcUser {
     pub id: String,
     pub username: String,
     /// Plaintext password (development/testing only). Use password_hash in production.
     #[serde(default)]
+    #[derivative(Debug = "ignore")]
     pub password: Option<String>,
     /// Argon2 PHC string. Takes priority over password.
     #[serde(default)]
+    #[derivative(Debug = "ignore")]
     pub password_hash: Option<String>,
     pub email: String,
     pub displayname: Option<String>,
