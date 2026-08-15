@@ -424,7 +424,8 @@ mod db_tests {
         let updated = storage.get_session(&call_id, &room_id).await.unwrap().expect("session should exist");
 
         assert_eq!(updated.state, "connected");
-        assert!(updated.updated_ts.unwrap() > updated.created_ts);
+        // create 与 update 可能落在同一毫秒，updated_ts 可等于 created_ts。
+        assert!(updated.updated_ts.unwrap() >= updated.created_ts);
 
         cleanup_test_data(&pool, &suffix).await;
     }
