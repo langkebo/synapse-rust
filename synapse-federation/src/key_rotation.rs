@@ -889,6 +889,7 @@ impl KeyRotationManagerApi for KeyRotationManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ed25519_dalek::Signer;
 
     fn generate_test_signing_key(seed_byte: u8) -> (String, String) {
         let seed = [seed_byte; 32];
@@ -961,5 +962,78 @@ mod tests {
         let cloned = key.clone();
         assert_eq!(key.key_id, cloned.key_id);
         assert_eq!(key.secret_key, cloned.secret_key);
+    }
+
+    // 用 connect_lazy 构造一个不会真正连库的 manager，仅用于调用不碰 pool 的纯方法。
+    fn test_manager() -> KeyRotationManager {
+        let pool = sqlx::PgPool::connect_lazy("postgresql://localhost/nonexistent").expect("valid URL");
+        KeyRotationManager::new(&Arc::new(pool), "test.example.com")
+    }
+
+    #[test]
+    fn new_key_id_has_ed25519_prefix_and_hex_suffix() {
+        let id = new_key_id();
+        assert!(id.starts_with("ed25519:"), "unexpected key id: {id}");
+        let rest = &id["ed25519:".len()..];
+        let (ts_hex, rand_hex) = rest.split_once('_').expect("key id should contain ts_rand");
+        assert!(!ts_hex.is_empty());
+        assert_eq!(rand_hex.len(), 8);
+        u32::from_str_radix(rand_hex, 16).expect("rand should be hex");
+    }
+
+    #[tokio::test]
+    async fn generate_new_key_pair_returns_32_byte_secret() {
+        let (key_id, secret) = test_manager().generate_new_key_pair("ed25519:test");
+        assert_eq!(key_id, "ed25519:test");
+        let decoded = base64::engine::general_purpose::STANDARD_NO_PAD.decode(&secret).expect("valid base64");
+        assert_eq!(decoded.len(), 32, "secret should be 32 bytes");
+    }
+
+    #[tokio::test]
+    async fn derive_public_key_matches_known_secret() {
+        let (secret, public) = generate_test_signing_key(0x2A);
+        let derived = test_manager().derive_public_key(&secret).expect("valid secret");
+        assert_eq!(derived, public);
+    }
+
+    #[tokio::test]
+    async fn derive_public_key_rejects_invalid_base64() {
+        assert!(test_manager().derive_public_key("not-base64!!").is_err());
+    }
+
+    #[tokio::test]
+    async fn derive_public_key_rejects_wrong_length() {
+        // 31 字节（合法 base64）应报 "must be 32 bytes"。
+        let short = base64::engine::general_purpose::STANDARD_NO_PAD.encode([0u8; 31]);
+        assert!(test_manager().derive_public_key(&short).is_err());
+    }
+
+    #[tokio::test]
+    async fn verify_signature_accepts_valid_signature() {
+        let (_, public) = generate_test_signing_key(0x07);
+        let seed = [0x07u8; 32];
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+        let content = b"hello federation";
+        let sig = signing_key.sign(content);
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+        test_manager().verify_signature(&public, &sig_b64, content).expect("valid signature");
+    }
+
+    #[tokio::test]
+    async fn verify_signature_rejects_tampered_content() {
+        let (_, public) = generate_test_signing_key(0x08);
+        let seed = [0x08u8; 32];
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+        let sig = signing_key.sign(b"original content");
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+        let err = test_manager().verify_signature(&public, &sig_b64, b"tampered content").unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("verification"), "err was: {err}");
+    }
+
+    #[tokio::test]
+    async fn verify_signature_rejects_invalid_public_key() {
+        assert!(test_manager().verify_signature("not-base64!!", "AA", b"x").is_err());
     }
 }

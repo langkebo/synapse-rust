@@ -443,4 +443,47 @@ mod tests {
         assert_eq!(session.message_index, 5);
         assert!(session.expires_at.is_some());
     }
+
+    #[test]
+    fn test_olm_session_row_to_data_widens_message_index() {
+        // OlmSessionRow.message_index 是 i32（DB 列类型），转换为 OlmSessionData 时
+        // 扩宽为 u32。负数会按 as 转换（bit 拷贝），这里只验证正常非负路径。
+        let row = OlmSessionRow {
+            session_id: "s1".to_string(),
+            user_id: "@u:example.com".to_string(),
+            device_id: "D1".to_string(),
+            sender_key: "sk".to_string(),
+            receiver_key: "rk".to_string(),
+            serialized_state: "state".to_string(),
+            message_index: 42,
+            created_ts: 100,
+            last_used_ts: 200,
+            expires_at: Some(300),
+        };
+        let data: OlmSessionData = row.into();
+        assert_eq!(data.session_id, "s1");
+        assert_eq!(data.message_index, 42u32);
+        assert_eq!(data.created_ts, 100);
+        assert_eq!(data.last_used_ts, 200);
+        assert_eq!(data.expires_at, Some(300));
+    }
+
+    #[test]
+    fn test_olm_session_row_to_data_none_expiry() {
+        let row = OlmSessionRow {
+            session_id: "s2".to_string(),
+            user_id: "@u:example.com".to_string(),
+            device_id: "D2".to_string(),
+            sender_key: "sk".to_string(),
+            receiver_key: "rk".to_string(),
+            serialized_state: "state".to_string(),
+            message_index: 0,
+            created_ts: 100,
+            last_used_ts: 200,
+            expires_at: None,
+        };
+        let data: OlmSessionData = row.into();
+        assert_eq!(data.message_index, 0u32);
+        assert!(data.expires_at.is_none());
+    }
 }
