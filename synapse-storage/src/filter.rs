@@ -178,3 +178,104 @@ mod tests {
         assert_eq!(filter.user_id, "@test:example.com");
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+    use std::env;
+
+    async fn test_pool() -> Arc<PgPool> {
+        let db_url = env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse_test".to_string());
+        let pool = PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    fn make_suffix() -> String {
+        uuid::Uuid::new_v4().to_string().replace('-', "")
+    }
+
+    fn make_request(user_id: &str, filter_id: &str) -> CreateFilterRequest {
+        CreateFilterRequest {
+            user_id: user_id.to_string(),
+            filter_id: filter_id.to_string(),
+            content: serde_json::json!({"room": {"timeline": {"limit": 100}}}),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_filter_then_get() {
+        let pool = test_pool().await;
+        let storage = FilterStorage::new(&pool);
+        let suffix = make_suffix();
+        let user_id = format!("@filter_create_{suffix}:test");
+        let filter_id = format!("filter_{suffix}");
+
+        let created = storage.create_filter(make_request(&user_id, &filter_id)).await.unwrap();
+        assert_eq!(created.user_id, user_id);
+        assert_eq!(created.filter_id, filter_id);
+
+        let fetched = storage.get_filter(&user_id, &filter_id).await.unwrap().unwrap();
+        assert_eq!(fetched.content, serde_json::json!({"room": {"timeline": {"limit": 100}}}));
+
+        let _ = sqlx::query("DELETE FROM filters WHERE user_id = $1").bind(&user_id).execute(pool.as_ref()).await;
+    }
+
+    #[tokio::test]
+    async fn get_filter_none_for_missing() {
+        let pool = test_pool().await;
+        let storage = FilterStorage::new(&pool);
+        let suffix = make_suffix();
+        let user_id = format!("@filter_missing_{suffix}:test");
+        assert!(storage.get_filter(&user_id, "nonexistent").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn get_filters_by_user_returns_multiple() {
+        let pool = test_pool().await;
+        let storage = FilterStorage::new(&pool);
+        let suffix = make_suffix();
+        let user_id = format!("@filter_multi_{suffix}:test");
+
+        storage.create_filter(make_request(&user_id, &format!("a_{suffix}"))).await.unwrap();
+        storage.create_filter(make_request(&user_id, &format!("b_{suffix}"))).await.unwrap();
+
+        let filters = storage.get_filters_by_user(&user_id).await.unwrap();
+        assert_eq!(filters.len(), 2);
+
+        let _ = sqlx::query("DELETE FROM filters WHERE user_id = $1").bind(&user_id).execute(pool.as_ref()).await;
+    }
+
+    #[tokio::test]
+    async fn delete_filter_removes_record() {
+        let pool = test_pool().await;
+        let storage = FilterStorage::new(&pool);
+        let suffix = make_suffix();
+        let user_id = format!("@filter_delete_{suffix}:test");
+        let filter_id = format!("filter_{suffix}");
+
+        storage.create_filter(make_request(&user_id, &filter_id)).await.unwrap();
+        assert!(storage.delete_filter(&user_id, &filter_id).await.unwrap());
+        assert!(storage.get_filter(&user_id, &filter_id).await.unwrap().is_none());
+        // 再次删除返回 false（记录已不存在）
+        assert!(!storage.delete_filter(&user_id, &filter_id).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn delete_filters_by_user_removes_all() {
+        let pool = test_pool().await;
+        let storage = FilterStorage::new(&pool);
+        let suffix = make_suffix();
+        let user_id = format!("@filter_delete_all_{suffix}:test");
+
+        storage.create_filter(make_request(&user_id, &format!("a_{suffix}"))).await.unwrap();
+        storage.create_filter(make_request(&user_id, &format!("b_{suffix}"))).await.unwrap();
+
+        let removed = storage.delete_filters_by_user(&user_id).await.unwrap();
+        assert_eq!(removed, 2);
+        assert!(storage.get_filters_by_user(&user_id).await.unwrap().is_empty());
+    }
+}
