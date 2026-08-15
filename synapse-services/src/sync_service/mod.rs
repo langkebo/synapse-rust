@@ -431,10 +431,20 @@ impl SyncService {
         room_events: &HashMap<String, Vec<RoomEvent>>,
         state_change_ts_by_room: Option<&HashMap<String, i64>>,
     ) -> i64 {
-        let _ = state_change_ts_by_room; // S6: state change timestamps no longer used for token generation
         let event_max_stream = room_events.values().flat_map(|v| v.iter()).filter_map(|e| e.stream_ordering).max();
+        // S6: state-change positions are stream_ordering (get_state_change_timestamps_batch
+        // now returns MAX(stream_ordering)), so they participate in token advance. Without
+        // this, a state-only change (timeline filtered out) leaves next_batch unchanged and
+        // the client re-receives the same state delta on the next sync.
+        let state_max_stream = state_change_ts_by_room.and_then(|m| m.values().copied().max());
+        let max_stream = match (event_max_stream, state_max_stream) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        };
 
-        if let Some(max_stream) = event_max_stream {
+        if let Some(max_stream) = max_stream {
             match since_token.as_ref() {
                 Some(token) => max_stream.max(token.stream_id),
                 None => max_stream,

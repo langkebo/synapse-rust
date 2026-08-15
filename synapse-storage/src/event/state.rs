@@ -180,7 +180,7 @@ impl EventStorage {
 
         let col = since.column();
         let rows: Vec<(String, i64)> = sqlx::query_as(&format!(
-            "SELECT room_id, MAX(origin_server_ts) AS latest_ts \
+            "SELECT room_id, MAX({col}) AS latest_ts \
              FROM events \
              WHERE room_id = ANY($1) \
                AND state_key IS NOT NULL \
