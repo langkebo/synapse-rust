@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use synapse_common::current_timestamp_millis;
 use synapse_services::database_initializer::{DatabaseInitMode, DatabaseInitService};
@@ -48,6 +48,46 @@ static SHARED_CLONE_SEMAPHORE: LazyLock<Semaphore> =
 //   by a table-count safety check and DROPped instead of pooled.
 
 static SCHEMA_POOL: TokioMutex<Vec<String>> = TokioMutex::const_new(Vec::new());
+
+// ============================================================================
+// Deferred schema return (方案 B 稳妥路径): prepare_shared_test_pool returns a
+// bare `Arc<PgPool>` (no lease), so the schema name is tracked here keyed by a
+// `Weak` to the pool. When the test drops its last pool `Arc` (Weak upgrade
+// fails), the schema is TRUNCATEd and returned to SCHEMA_POOL on the
+// CLEANUP_RUNTIME — closing the reuse loop for the ~740 `require_test_pool`
+// call sites WITHOUT changing their API (which is why the `LeasedPool` wrapper
+// attempt failed with 247 compile errors).
+//
+// Cross-runtime safety: each `#[tokio::test]` owns its own runtime, so we can
+// only safely store a `Weak<PgPool>` (liveness signal), not a `LeasedSchema`
+// (which holds a pool bound to a dead runtime). The actual cleanup runs on the
+// process-lifetime CLEANUP_RUNTIME.
+// ============================================================================
+struct PendingSchemaReturn {
+    schema_name: String,
+    template_name: String,
+    database_url: String,
+    weak: Weak<PgPool>,
+}
+
+static PENDING_SCHEMA_RETURNS: LazyLock<Mutex<Vec<PendingSchemaReturn>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+
+// Serialize background schema cleanup (TRUNCATE + re-seed) to a single concurrent
+// task. Each TRUNCATE acquires ACCESS EXCLUSIVE locks on ~111 tables; running
+// several concurrently with foreground clone DO-blocks (which take ~1000 locks
+// each) exhausts PostgreSQL's shared lock table (`max_locks_per_transaction`)
+// and triggers "out of shared memory" at modest test parallelism. One-at-a-time
+// cleanup keeps peak lock pressure bounded without blocking test execution.
+static CLEANUP_SEMAPHORE: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(1));
+
+/// Env kill-switch for the schema-pool reuse fast path in
+/// `prepare_shared_test_pool`. Set `TEST_SCHEMA_POOL_REUSE=0` to fall back to
+/// the previous clone-only behaviour (used to bisect regressions).
+fn test_schema_pool_reuse_enabled() -> bool {
+    std::env::var("TEST_SCHEMA_POOL_REUSE")
+        .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+        .unwrap_or(true)
+}
 
 // RwLock to prevent deadlock between init_template_schema (write lock, ALTER
 // TABLE on template) and clone_schema_from_template (read lock, CREATE TABLE
@@ -287,9 +327,26 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
     let database_url = resolve_test_database_url().await?;
     let template = get_template_schema_name(&database_url).await?;
 
+    // 方案 B 稳妥路径：先回收已归还的 schema（deferred sweep），再优先复用
+    // SCHEMA_POOL 中已 TRUNCATE 的 schema，跳过昂贵的 clone。复用是「消耗型」
+    // 的（返回的是裸 Arc<PgPool>，无租约），归还依赖 PENDING_SCHEMA_RETURNS 的
+    // Weak 活体检测——pool 最后一个 Arc drop 后由后台 CLEANUP_RUNTIME TRUNCATE
+    // 并推回池。TEST_SCHEMA_POOL_REUSE=0 时回退到纯 clone 行为。
+    if test_schema_pool_reuse_enabled() {
+        schedule_pending_schema_cleanup();
+        if let Some(schema_name) = SCHEMA_POOL.lock().await.pop() {
+            let pool = create_pool_for_schema(&database_url, &schema_name).await?;
+            register_pending_schema_return(&pool, schema_name, template.clone(), database_url.clone());
+            return Ok(pool);
+        }
+    }
+
     // Clone template into a fresh per-test schema
     let _permit = SHARED_CLONE_SEMAPHORE.acquire().await.map_err(|_| "shared clone semaphore closed".to_string())?;
-    let (pool, _schema_name) = clone_schema_from_template(&database_url, &template).await?;
+    let (pool, schema_name) = clone_schema_from_template(&database_url, &template).await?;
+    if test_schema_pool_reuse_enabled() {
+        register_pending_schema_return(&pool, schema_name, template, database_url);
+    }
     // Note: ensure_test_schema_contract is NOT called here — the template schema
     // already has all contract columns applied during init_template_schema(), and
     // CREATE TABLE LIKE ... INCLUDING ALL copies them to clones. Calling it again
@@ -830,41 +887,90 @@ impl Drop for LeasedSchema {
         // Spawn cleanup on the dedicated background runtime. This runtime
         // persists for the whole process, so the task completes even after the
         // test's own tokio runtime is dropped.
-        CLEANUP_RUNTIME.spawn(async move {
-            let admin_pool = tokio::time::timeout(
-                Duration::from_secs(10),
-                PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url),
-            )
-            .await;
+        CLEANUP_RUNTIME.spawn(cleanup_schema(database_url, schema_name, template_name, poisoned));
+    }
+}
 
-            let admin_pool = match admin_pool {
-                Ok(Ok(pool)) => pool,
-                _ => {
-                    eprintln!(
-                        "schema pool: failed to connect admin pool for cleanup of {schema_name}; schema orphaned"
-                    );
-                    return;
-                }
-            };
+/// Shared background cleanup body for a leased/returned schema: connect an admin
+/// pool, TRUNCATE + re-seed (returning the schema name to SCHEMA_POOL) or DROP it
+/// if poisoned/corrupted. Used by both `LeasedSchema::drop` (TestContext path)
+/// and the deferred `prepare_shared_test_pool` return path.
+async fn cleanup_schema(database_url: String, schema_name: String, template_name: String, poisoned: bool) {
+    // Serialize cleanup (see CLEANUP_SEMAPHORE docs) to bound peak lock usage.
+    // The semaphore is a process-lifetime static and never closed.
+    let _cleanup_permit = CLEANUP_SEMAPHORE
+        .acquire()
+        .await
+        .expect("cleanup semaphore should never be closed");
 
-            if poisoned {
-                let _ = drop_schema(&admin_pool, &schema_name).await;
-                admin_pool.close().await;
-                return;
+    let admin_pool = tokio::time::timeout(
+        Duration::from_secs(10),
+        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(&database_url),
+    )
+    .await;
+
+    let admin_pool = match admin_pool {
+        Ok(Ok(pool)) => pool,
+        _ => {
+            eprintln!("schema pool: failed to connect admin pool for cleanup of {schema_name}; schema orphaned");
+            return;
+        }
+    };
+
+    if poisoned {
+        let _ = drop_schema(&admin_pool, &schema_name).await;
+        admin_pool.close().await;
+        return;
+    }
+
+    match truncate_and_reseed_schema(&admin_pool, &database_url, &schema_name, &template_name).await {
+        Ok(()) => {
+            // Safety check passed — return schema name to pool for reuse
+            SCHEMA_POOL.lock().await.push(schema_name);
+        }
+        Err(error) => {
+            eprintln!("schema pool: cleanup failed for {schema_name} ({error}); dropping schema");
+            let _ = drop_schema(&admin_pool, &schema_name).await;
+        }
+    }
+    admin_pool.close().await;
+}
+
+/// Register a schema returned by `prepare_shared_test_pool` for deferred return.
+/// A `Weak` to the pool is stored (not the pool itself) so the schema is only
+/// cleaned up once the test drops its last `Arc<PgPool>` — a cross-runtime-safe
+/// liveness signal.
+fn register_pending_schema_return(
+    pool: &Arc<PgPool>,
+    schema_name: String,
+    template_name: String,
+    database_url: String,
+) {
+    let entry = PendingSchemaReturn { schema_name, template_name, database_url, weak: Arc::downgrade(pool) };
+    PENDING_SCHEMA_RETURNS.lock().unwrap_or_else(|e| e.into_inner()).push(entry);
+}
+
+/// Sweep PENDING_SCHEMA_RETURNS for schemas whose owning pool has been dropped
+/// (Weak upgrade fails), and spawn their TRUNCATE-and-return on the background
+/// CLEANUP_RUNTIME. Called opportunistically at the start of
+/// `prepare_shared_test_pool`/`acquire_pooled_schema` so cleanup is amortized
+/// across the next test's setup and never blocks the current test.
+fn schedule_pending_schema_cleanup() {
+    let dead: Vec<PendingSchemaReturn> = {
+        let mut guard = PENDING_SCHEMA_RETURNS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut dead = Vec::new();
+        let mut i = 0;
+        while i < guard.len() {
+            if guard[i].weak.upgrade().is_none() {
+                dead.push(guard.swap_remove(i));
+            } else {
+                i += 1;
             }
-
-            match truncate_and_reseed_schema(&admin_pool, &database_url, &schema_name, &template_name).await {
-                Ok(()) => {
-                    // Safety check passed — return schema name to pool for reuse
-                    SCHEMA_POOL.lock().await.push(schema_name);
-                }
-                Err(error) => {
-                    eprintln!("schema pool: cleanup failed for {schema_name} ({error}); dropping schema");
-                    let _ = drop_schema(&admin_pool, &schema_name).await;
-                }
-            }
-            admin_pool.close().await;
-        });
+        }
+        dead
+    };
+    for entry in dead {
+        CLEANUP_RUNTIME.spawn(cleanup_schema(entry.database_url, entry.schema_name, entry.template_name, false));
     }
 }
 
@@ -877,6 +983,12 @@ impl Drop for LeasedSchema {
 pub async fn acquire_pooled_schema() -> Result<LeasedSchema, String> {
     let database_url = resolve_test_database_url().await?;
     let template_name = get_template_schema_name(&database_url).await?;
+
+    // Also sweep schemas returned by prepare_shared_test_pool (deferred return
+    // path), so the pool is refilled from both consumers of SCHEMA_POOL.
+    if test_schema_pool_reuse_enabled() {
+        schedule_pending_schema_cleanup();
+    }
 
     // Fast path: reuse a TRUNCATEd schema from the pool.
     // Schemas in the pool were already validated by truncate_and_reseed_schema
