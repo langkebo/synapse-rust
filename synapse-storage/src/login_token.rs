@@ -137,3 +137,91 @@ mod tests {
         assert_eq!(expires_at, 1700000060000);
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+    use std::env;
+
+    async fn test_pool() -> Arc<PgPool> {
+        let db_url = env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse_test".to_string());
+        let pool = PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    fn make_suffix() -> String {
+        uuid::Uuid::new_v4().to_string().replace('-', "")
+    }
+
+    #[tokio::test]
+    async fn create_login_token_then_consume_returns_token() {
+        let pool = test_pool().await;
+        let storage = LoginTokenStorage::new(&pool);
+        let suffix = make_suffix();
+        let token = format!("qr_token_{suffix}");
+        let user_id = format!("@qrcode_{suffix}:test");
+        let expires_at = current_timestamp_millis() + 60_000;
+
+        storage.create_login_token(&token, &user_id, Some("DEVICE1"), expires_at).await.unwrap();
+        let consumed = storage.consume_login_token(&token).await.unwrap().unwrap();
+        assert_eq!(consumed.token, token);
+        assert_eq!(consumed.user_id, user_id);
+        assert_eq!(consumed.device_id.as_deref(), Some("DEVICE1"));
+    }
+
+    #[tokio::test]
+    async fn consume_login_token_expired_returns_none() {
+        let pool = test_pool().await;
+        let storage = LoginTokenStorage::new(&pool);
+        let suffix = make_suffix();
+        let token = format!("qr_expired_{suffix}");
+        let user_id = format!("@qrexpired_{suffix}:test");
+        let expires_at = current_timestamp_millis() - 1000;
+
+        storage.create_login_token(&token, &user_id, None, expires_at).await.unwrap();
+        assert!(storage.consume_login_token(&token).await.unwrap().is_none());
+
+        let _ = sqlx::query("DELETE FROM login_tokens WHERE token = $1").bind(&token).execute(pool.as_ref()).await;
+    }
+
+    #[tokio::test]
+    async fn consume_login_token_second_time_returns_none() {
+        let pool = test_pool().await;
+        let storage = LoginTokenStorage::new(&pool);
+        let suffix = make_suffix();
+        let token = format!("qr_single_{suffix}");
+        let user_id = format!("@qrsingle_{suffix}:test");
+        let expires_at = current_timestamp_millis() + 60_000;
+
+        storage.create_login_token(&token, &user_id, None, expires_at).await.unwrap();
+        assert!(storage.consume_login_token(&token).await.unwrap().is_some());
+        // 单次使用：第二次消费返回 None（防重放）
+        assert!(storage.consume_login_token(&token).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn cleanup_expired_tokens_removes_expired_only() {
+        let pool = test_pool().await;
+        let storage = LoginTokenStorage::new(&pool);
+        let suffix = make_suffix();
+        let expired_token = format!("qr_cleanup_exp_{suffix}");
+        let valid_token = format!("qr_cleanup_val_{suffix}");
+        let user_id = format!("@qrcleanup_{suffix}:test");
+        let now = current_timestamp_millis();
+
+        storage.create_login_token(&expired_token, &user_id, None, now - 1000).await.unwrap();
+        storage.create_login_token(&valid_token, &user_id, None, now + 60_000).await.unwrap();
+
+        let removed = storage.cleanup_expired_tokens(now).await.unwrap();
+        // 共享 public schema 下可能有其它测试残留的过期 token，故只断言「至少删除
+        // 我们自己的过期 token」，核心语义是「不误删有效 token」。
+        assert!(removed >= 1, "cleanup 应至少删除我们插入的过期 token，实际 removed={removed}");
+
+        // 有效 token 仍可消费（cleanup 未误删）
+        assert!(storage.consume_login_token(&valid_token).await.unwrap().is_some());
+    }
+}
