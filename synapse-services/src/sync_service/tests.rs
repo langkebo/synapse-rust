@@ -1801,28 +1801,32 @@ fn test_next_event_stream_id_no_fallback_to_origin_server_ts() {
 }
 
 #[test]
-fn test_next_event_stream_id_ignores_state_change_ts() {
-    // S6: state change timestamps must NOT produce timestamp-based tokens.
+fn test_next_event_stream_id_uses_state_change_stream_ordering() {
+    // S6: state-change positions are now stream_ordering (get_state_change_timestamps_batch
+    // is called with SinceFilter::StreamOrdering, returning MAX(stream_ordering)), so they
+    // advance the next_batch token. They are NOT timestamps anymore.
     let room_events: HashMap<String, Vec<synapse_storage::RoomEvent>> = HashMap::new();
-    let mut state_ts: HashMap<String, i64> = HashMap::new();
-    state_ts.insert("!r1:b".into(), 1700000002000);
-    let result = SyncService::next_event_stream_id(&None, &room_events, Some(&state_ts));
-    assert_eq!(result, 0);
+    let mut state_stream: HashMap<String, i64> = HashMap::new();
+    state_stream.insert("!r1:b".into(), 42);
+    let result = SyncService::next_event_stream_id(&None, &room_events, Some(&state_stream));
+    assert_eq!(result, 42);
 }
 
 #[test]
 fn test_next_event_stream_id_event_origin_ts_ignored_without_stream_ordering() {
     // S6: events without stream_ordering must NOT fall back to origin_server_ts,
-    // even when state change ts is also present.
+    // even when a state-change stream_ordering position is also present.
     let mut room_events: HashMap<String, Vec<synapse_storage::RoomEvent>> = HashMap::new();
     let mut event1 = make_timeline_event("@a:b", "m.room.message", None);
     event1.stream_ordering = None;
     event1.origin_server_ts = 1700000003000;
     room_events.insert("!r1:b".into(), vec![event1]);
-    let mut state_ts: HashMap<String, i64> = HashMap::new();
-    state_ts.insert("!r1:b".into(), 1700000002000);
-    let result = SyncService::next_event_stream_id(&None, &room_events, Some(&state_ts));
-    assert_eq!(result, 0);
+    let mut state_stream: HashMap<String, i64> = HashMap::new();
+    state_stream.insert("!r1:b".into(), 42);
+    let result = SyncService::next_event_stream_id(&None, &room_events, Some(&state_stream));
+    // Result comes from the state stream_ordering (42), NOT the event's origin_server_ts
+    // (1700000003000), which must be ignored when stream_ordering is None.
+    assert_eq!(result, 42);
 }
 
 // ---------------------------------------------------------------------------
