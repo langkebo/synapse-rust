@@ -120,28 +120,84 @@ fn assert_fixture_matches(profile: &str, fixture_bytes: &[u8]) {
 }
 
 #[test]
-#[cfg(not(feature = "all-extensions"))]
+// 这些 golden-file fixture 是「默认 build」（无任何 opt-in 扩展）的快照，
+// 而 build_artifact 是 compile-aware 的（根据 feature 注册路由）。仅排除
+// all-extensions 不够——单独启用 voice-extended 等 opt-in 扩展也会让 live 多出
+// 扩展路由导致漂移。故须排除所有 opt-in 扩展 feature；新增扩展 feature 时需同步。
+#[cfg(not(any(
+    feature = "all-extensions",
+    feature = "voice-extended",
+    feature = "saml-sso",
+    feature = "cas-sso",
+    feature = "beacons",
+    feature = "voip-tracking",
+    feature = "server-notifications",
+    feature = "privacy-ext",
+    feature = "builtin-oidc",
+)))]
 fn default_profile_matches_fixture() {
     let fixture = include_bytes!("fixtures/ledger_export/default.json");
     assert_fixture_matches("default", fixture);
 }
 
 #[test]
-#[cfg(not(feature = "all-extensions"))]
+// 这些 golden-file fixture 是「默认 build」（无任何 opt-in 扩展）的快照，
+// 而 build_artifact 是 compile-aware 的（根据 feature 注册路由）。仅排除
+// all-extensions 不够——单独启用 voice-extended 等 opt-in 扩展也会让 live 多出
+// 扩展路由导致漂移。故须排除所有 opt-in 扩展 feature；新增扩展 feature 时需同步。
+#[cfg(not(any(
+    feature = "all-extensions",
+    feature = "voice-extended",
+    feature = "saml-sso",
+    feature = "cas-sso",
+    feature = "beacons",
+    feature = "voip-tracking",
+    feature = "server-notifications",
+    feature = "privacy-ext",
+    feature = "builtin-oidc",
+)))]
 fn worker_profile_matches_fixture() {
     let fixture = include_bytes!("fixtures/ledger_export/worker.json");
     assert_fixture_matches("worker", fixture);
 }
 
 #[test]
-#[cfg(not(feature = "all-extensions"))]
+// 这些 golden-file fixture 是「默认 build」（无任何 opt-in 扩展）的快照，
+// 而 build_artifact 是 compile-aware 的（根据 feature 注册路由）。仅排除
+// all-extensions 不够——单独启用 voice-extended 等 opt-in 扩展也会让 live 多出
+// 扩展路由导致漂移。故须排除所有 opt-in 扩展 feature；新增扩展 feature 时需同步。
+#[cfg(not(any(
+    feature = "all-extensions",
+    feature = "voice-extended",
+    feature = "saml-sso",
+    feature = "cas-sso",
+    feature = "beacons",
+    feature = "voip-tracking",
+    feature = "server-notifications",
+    feature = "privacy-ext",
+    feature = "builtin-oidc",
+)))]
 fn all_profile_matches_fixture() {
     let fixture = include_bytes!("fixtures/ledger_export/all.json");
     assert_fixture_matches("all", fixture);
 }
 
 #[test]
-#[cfg(not(feature = "all-extensions"))]
+// 这些 golden-file fixture 是「默认 build」（无任何 opt-in 扩展）的快照，
+// 而 build_artifact 是 compile-aware 的（根据 feature 注册路由）。仅排除
+// all-extensions 不够——单独启用 voice-extended 等 opt-in 扩展也会让 live 多出
+// 扩展路由导致漂移。故须排除所有 opt-in 扩展 feature；新增扩展 feature 时需同步。
+#[cfg(not(any(
+    feature = "all-extensions",
+    feature = "voice-extended",
+    feature = "saml-sso",
+    feature = "cas-sso",
+    feature = "beacons",
+    feature = "voip-tracking",
+    feature = "server-notifications",
+    feature = "privacy-ext",
+    feature = "builtin-oidc",
+)))]
 fn worker_fixture_strictly_supersets_default_fixture() {
     let d_bytes = include_bytes!("fixtures/ledger_export/default.json");
     let w_bytes = include_bytes!("fixtures/ledger_export/worker.json");
@@ -170,7 +226,21 @@ fn worker_fixture_strictly_supersets_default_fixture() {
 }
 
 #[test]
-#[cfg(not(feature = "all-extensions"))]
+// 这些 golden-file fixture 是「默认 build」（无任何 opt-in 扩展）的快照，
+// 而 build_artifact 是 compile-aware 的（根据 feature 注册路由）。仅排除
+// all-extensions 不够——单独启用 voice-extended 等 opt-in 扩展也会让 live 多出
+// 扩展路由导致漂移。故须排除所有 opt-in 扩展 feature；新增扩展 feature 时需同步。
+#[cfg(not(any(
+    feature = "all-extensions",
+    feature = "voice-extended",
+    feature = "saml-sso",
+    feature = "cas-sso",
+    feature = "beacons",
+    feature = "voip-tracking",
+    feature = "server-notifications",
+    feature = "privacy-ext",
+    feature = "builtin-oidc",
+)))]
 fn all_fixture_contains_every_other_profile_entry() {
     let combos: &[&str] = &["fixtures/ledger_export/default.json", "fixtures/ledger_export/worker.json"];
     let all: LedgerArtifact = serde_json::from_slice(include_bytes!("fixtures/ledger_export/all.json")).unwrap();
