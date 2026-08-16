@@ -126,8 +126,7 @@ pub(crate) async fn send_state_event(
     let final_event_type = normalize_room_event_type(&event_type);
     ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
 
-    // Variable used only when `beacons` feature is enabled.
-    #[allow(unused_variables)]
+    #[cfg(feature = "beacons")]
     let beacon_info_params = if final_event_type.starts_with("m.beacon_info")
         || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
         || final_event_type.starts_with("org.matrix.msc3489.beacon_info")
@@ -160,25 +159,17 @@ pub(crate) async fn send_state_event(
             .unwrap_or("m.self")
             .to_string();
 
-        #[cfg(feature = "beacons")]
-        {
-            Some(CreateBeaconInfoParams {
-                room_id: room_id.clone(),
-                event_id: new_event_id.clone(),
-                state_key: auth_user.user_id.clone(),
-                sender: auth_user.user_id.clone(),
-                description,
-                timeout,
-                is_live,
-                asset_type,
-                created_ts,
-            })
-        }
-        #[cfg(not(feature = "beacons"))]
-        {
-            let _ = (timeout, is_live, description, created_ts, asset_type);
-            None::<()>
-        }
+        Some(CreateBeaconInfoParams {
+            room_id: room_id.clone(),
+            event_id: new_event_id.clone(),
+            state_key: auth_user.user_id.clone(),
+            sender: auth_user.user_id.clone(),
+            description,
+            timeout,
+            is_live,
+            asset_type,
+            created_ts,
+        })
     } else {
         None
     };
@@ -256,8 +247,7 @@ pub(crate) async fn put_state_event(
         return Err(ApiError::forbidden("beacon_info stateKey must match sender".to_string()));
     }
 
-    // Variable used only when `beacons` feature is enabled.
-    #[allow(unused_variables)]
+    #[cfg(feature = "beacons")]
     let beacon_info_params = if final_event_type.starts_with("m.beacon_info")
         || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
         || final_event_type.starts_with("org.matrix.msc3489.beacon_info")
@@ -287,25 +277,17 @@ pub(crate) async fn put_state_event(
             .unwrap_or("m.self")
             .to_string();
 
-        #[cfg(feature = "beacons")]
-        {
-            Some(CreateBeaconInfoParams {
-                room_id: room_id.clone(),
-                event_id: new_event_id.clone(),
-                state_key: state_key.clone(),
-                sender: auth_user.user_id.clone(),
-                description,
-                timeout,
-                is_live,
-                asset_type,
-                created_ts,
-            })
-        }
-        #[cfg(not(feature = "beacons"))]
-        {
-            let _ = (timeout, is_live, description, created_ts, asset_type);
-            None::<()>
-        }
+        Some(CreateBeaconInfoParams {
+            room_id: room_id.clone(),
+            event_id: new_event_id.clone(),
+            state_key: state_key.clone(),
+            sender: auth_user.user_id.clone(),
+            description,
+            timeout,
+            is_live,
+            asset_type,
+            created_ts,
+        })
     } else {
         None
     };
