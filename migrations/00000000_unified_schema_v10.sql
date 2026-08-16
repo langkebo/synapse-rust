@@ -4767,3 +4767,225 @@ CREATE TABLE IF NOT EXISTS quarantined_media_changes (
 
 CREATE INDEX IF NOT EXISTS idx_quarantined_media_changes_stream ON quarantined_media_changes(stream_id DESC);
 CREATE INDEX IF NOT EXISTS idx_quarantined_media_changes_media ON quarantined_media_changes(media_id, server_name);
+
+-- ============================================================================
+-- 折入增量迁移（2026-08-16 一致性修复）
+-- v10 baseline 此前漏吸收以下幂等增量迁移，导致 build_sqlx_migration_source.py
+-- 的 forward-only source（baseline + extension）缺失这些表/列/索引。
+-- 以下迁移均为 IF NOT EXISTS / ADD COLUMN IF NOT EXISTS（幂等），折入后
+-- 新装实例（forward-only source）与生产（db_migrate.sh 完整链）均安全。
+-- ============================================================================
+
+
+-- ---- 折入自 20260729140000_msc4242_state_dag_prev_state_events.sql ----
+-- P2-14: MSC4242 State DAGs — add prev_state_events column to events table.
+--
+-- MSC4242 introduces a state DAG for room state events, where edges are
+-- defined by `prev_state_events` instead of `prev_events`. This forms a
+-- partial order on state events only, distinct from the room DAG.
+--
+-- Key differences from the room DAG:
+-- - `prev_events`: links ALL events (state + message) into the room DAG
+-- - `prev_state_events`: links ONLY state events into the state DAG
+--
+-- The state DAG enables:
+-- - Calculated `auth_events` (server-computed, not sender-specified)
+-- - Faster state convergence across federation
+-- - Mandated `/get_missing_events` backfill for unknown prev_state_events
+--
+-- This migration adds the `prev_state_events` JSONB column to store the
+-- state DAG edges. It is nullable: existing events and non-state events
+-- have NULL prev_state_events; only MSC4242 room versions populate it.
+--
+-- Safety: idempotent — uses DO $$ ... ADD COLUMN IF NOT EXISTS.
+-- Backward compatible: NULL by default, no impact on existing queries.
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'events' AND column_name = 'prev_state_events'
+    ) THEN
+        ALTER TABLE events ADD COLUMN prev_state_events JSONB;
+    END IF;
+END $$;
+
+-- Index to support state DAG traversal queries (e.g. "find all events
+-- whose prev_state_events contains X"). GIN index is optimal for JSONB
+-- array containment checks: `prev_state_events @> '["$event_id"]'`
+CREATE INDEX IF NOT EXISTS idx_events_prev_state_events
+ON events USING GIN (prev_state_events)
+WHERE prev_state_events IS NOT NULL;
+
+-- Index for fetching prev_state_events by event_id (the common read path).
+CREATE INDEX IF NOT EXISTS idx_events_state_dag_room
+ON events(room_id, event_id)
+WHERE prev_state_events IS NOT NULL;
+
+-- ---- 折入自 20260810120000_add_to_device_sequence.sql ----
+-- E2EE-10: Ensure to-device messages are ordered by stream_id for delivery.
+--
+-- The to_device_messages table already has a stream_id column (assigned via
+-- nextval('to_device_stream_id_seq')) that provides monotonic, globally-unique
+-- sequence numbers. All active query paths (get_messages, get_messages_since)
+-- already ORDER BY stream_id ASC.
+--
+-- This migration adds a composite index on (recipient_user_id, recipient_device_id,
+-- stream_id ASC) to optimise the ordered retrieval pattern used by:
+--   - get_messages_since: WHERE recipient_user_id = $1 AND recipient_device_id = $2
+--                          AND stream_id > $3 ORDER BY stream_id ASC LIMIT $4
+--   - get_and_delete_messages: WHERE recipient_user_id = $1 AND recipient_device_id = $2
+--                               ORDER BY stream_id ASC  (fixed in this task)
+--
+-- The existing idx_to_device_recipient (recipient_user_id, recipient_device_id)
+-- does not include stream_id, so the database must sort after fetching. The
+-- existing idx_to_device_stream (recipient_user_id, stream_id) does not include
+-- recipient_device_id, so it may scan rows for other devices of the same user.
+-- This new index covers both filters and the ordering in a single index scan.
+
+CREATE INDEX IF NOT EXISTS idx_to_device_ordered
+    ON to_device_messages (recipient_user_id, recipient_device_id, stream_id ASC);
+
+-- ---- 折入自 20260810140000_add_directory_metadata_columns.sql ----
+-- Add metadata columns to room_directory for DirectoryService persistence (ARCH-06).
+--
+-- The room_directory table already exists (unified_schema_v10) with columns:
+--   id, room_id, is_public, is_searchable, app_service_id, added_ts
+--
+-- This migration adds room-metadata columns so DirectoryService can persist
+-- public-room directory entries (name, topic, avatar_url, etc.) instead of
+-- storing them in memory. All new columns are either nullable or have defaults
+-- so existing INSERT statements that only set room_id/is_public/added_ts
+-- continue to work without modification.
+
+-- name / topic / avatar_url / canonical_alias: optional display metadata
+ALTER TABLE room_directory ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE room_directory ADD COLUMN IF NOT EXISTS topic TEXT;
+ALTER TABLE room_directory ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE room_directory ADD COLUMN IF NOT EXISTS canonical_alias TEXT;
+
+-- join_rule: defaults to 'public' so rows inserted by legacy code (which only
+-- sets is_public = true) are treated as public rooms by DirectoryService.
+ALTER TABLE room_directory ADD COLUMN IF NOT EXISTS join_rule TEXT NOT NULL DEFAULT 'public';
+
+-- world_readable / guest_can_join: directory visibility flags
+ALTER TABLE room_directory ADD COLUMN IF NOT EXISTS world_readable BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE room_directory ADD COLUMN IF NOT EXISTS guest_can_join BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- member_count: cached member count for directory listing display.
+-- Uses BIGINT to match the Rust `i64` type in RoomDirectoryEntryRow; sqlx maps
+-- PostgreSQL INTEGER -> i32 and BIGINT -> i64, so a mismatch here causes a
+-- runtime ColumnDecode error when querying the directory.
+ALTER TABLE room_directory ADD COLUMN IF NOT EXISTS member_count BIGINT NOT NULL DEFAULT 0;
+
+-- updated_ts: last metadata update timestamp (nullable, set on upsert)
+ALTER TABLE room_directory ADD COLUMN IF NOT EXISTS updated_ts BIGINT;
+
+-- ---- 折入自 20260810150000_create_federation_dlq.sql ----
+-- FED-07: Federation Dead Letter Queue
+--
+-- Failed federation transactions are persisted to this table after
+-- exhausting retries, enabling manual retry and audit trails.
+-- The DLQ is append-only for unresolved entries; resolution is a
+-- separate UPDATE that sets is_resolved = TRUE.
+
+CREATE TABLE IF NOT EXISTS federation_dead_letter_queue (
+    id BIGSERIAL PRIMARY KEY,
+    txn_id TEXT NOT NULL,
+    destination TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    payload JSONB NOT NULL,
+    failure_reason TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    created_ts BIGINT NOT NULL,
+    last_attempt_ts BIGINT,
+    is_resolved BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+-- Partial index for unresolved entries by destination (most common query).
+CREATE INDEX IF NOT EXISTS idx_fed_dlq_destination
+ON federation_dead_letter_queue(destination, is_resolved)
+WHERE is_resolved = FALSE;
+
+-- Index for chronological listing / cleanup.
+CREATE INDEX IF NOT EXISTS idx_fed_dlq_created
+ON federation_dead_letter_queue(created_ts DESC);
+
+-- ---- 折入自 20260810160000_create_room_event_txn_dedup.sql ----
+-- ISSUE-03: Durable transaction-id dedup for client-sent room events.
+--
+-- Previously, PUT /rooms/{roomId}/send/{eventType}/{txnId} deduplication
+-- relied solely on a cache entry (key `txn:{user}:{room}:{txn_id}`, TTL
+-- 3600s). Cache loss/eviction or expiry of a delayed retry produced
+-- duplicate events. This table is the durable source of truth:
+-- the PRIMARY KEY enforces uniqueness of (user_id, room_id, txn_id),
+-- and the cache remains only as a fast path.
+--
+-- Rows are written after the event is durably created; concurrent
+-- duplicate sends are resolved via INSERT ... ON CONFLICT DO NOTHING.
+
+CREATE TABLE IF NOT EXISTS room_event_txn_dedup (
+    user_id    TEXT   NOT NULL,
+    room_id    TEXT   NOT NULL,
+    txn_id     TEXT   NOT NULL,
+    event_id   TEXT   NOT NULL,
+    created_ts BIGINT NOT NULL,
+    PRIMARY KEY (user_id, room_id, txn_id)
+);
+
+-- Lookup by event (e.g. cleanup / audit).
+CREATE INDEX IF NOT EXISTS idx_room_event_txn_dedup_event
+ON room_event_txn_dedup(event_id);
+
+-- Retention-style cleanup by age.
+CREATE INDEX IF NOT EXISTS idx_room_event_txn_dedup_created
+ON room_event_txn_dedup(created_ts);
+
+-- ---- 折入自 20260811183000_add_audit_events_created_ts_index.sql ----
+-- Add standalone index on audit_events.created_ts for the retention
+-- cleanup DELETE query:  DELETE FROM audit_events WHERE created_ts < $1
+--
+-- The existing composite indexes (actor_id, resource_type, request_id)
+-- all lead with a different column, so PostgreSQL cannot use them for
+-- a bare created_ts range scan.  This standalone index allows the
+-- cleanup job to use an index-only scan instead of a sequential scan.
+
+CREATE INDEX IF NOT EXISTS idx_audit_events_created_ts
+    ON audit_events (created_ts);
+
+-- ---- 折入自 20260813163500_create_saml_pending_requests.sql ----
+-- SAML AuthnRequest 待处理记录（SSO 会话跨 worker 一致，审查 #3）
+--
+-- SSO redirect 阶段以 relay_state 为 key 记录 request_id 与过期时间，
+-- callback 阶段原子消费（DELETE ... RETURNING）并校验 InResponseTo，
+-- 防重放，且跨实例/重启不丢会话。
+
+CREATE TABLE IF NOT EXISTS saml_pending_requests (
+    id BIGSERIAL PRIMARY KEY,
+    relay_state TEXT NOT NULL UNIQUE,
+    request_id TEXT NOT NULL,
+    created_ts BIGINT NOT NULL,
+    expires_at BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_saml_pending_expires
+ON saml_pending_requests(expires_at);
+
+-- ---- 折入自 20260813165000_create_login_tokens.sql ----
+-- MSC4108 QR 登录 token 持久化（审查 #3）
+--
+-- 已登录设备生成短时 login token（60s TTL），新设备经 MSC4108 安全通道
+-- 接收后以 m.login.token 兑换 access token。token 单次使用，消费即删除
+-- （DELETE ... RETURNING，防重放），跨 worker/重启不丢。
+
+CREATE TABLE IF NOT EXISTS login_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    token TEXT NOT NULL UNIQUE,
+    user_id TEXT NOT NULL,
+    device_id TEXT,
+    created_ts BIGINT NOT NULL,
+    expires_at BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_login_tokens_expires
+ON login_tokens(expires_at);
