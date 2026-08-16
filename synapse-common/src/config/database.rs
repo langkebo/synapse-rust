@@ -20,9 +20,13 @@ pub struct DatabaseConfig {
     pub password: String,
     /// 数据库名称
     pub name: String,
-    /// 连接池大小
+    /// 连接池大小。
+    ///
+    /// ⚠️ 已废弃：实际连接池上限由 [`max_size`](Self::max_size) 控制（`server/database.rs`
+    /// 的 `PgPoolOptions::max_connections` 只读 `max_size`），本字段零引用、仅保留以
+    /// 兼容旧配置，勿再依赖。
     pub pool_size: u32,
-    /// 最大连接数
+    /// 最大连接数（实际生效的连接池上限，对齐 Synapse ≥50）
     pub max_size: u32,
     /// 最小空闲连接数
     pub min_idle: Option<u32>,

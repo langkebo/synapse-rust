@@ -1410,18 +1410,31 @@ impl CacheManager {
             in_flight.entry(key.to_string()).or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))).clone()
         };
 
-        let _guard = mutex.lock().await;
+        // 持有单飞锁执行 fetch；结果（含 Err）在锁释放后统一清理，避免 in_flight
+        // 只插不删导致 map 无限增长（#31）。
+        let result = {
+            let _guard = mutex.lock().await;
 
-        // Double-check after acquiring the lock: another request may have
-        // already populated the cache while we were waiting.
-        if let Some(cached) = self.get::<T>(key).await? {
-            return Ok(cached);
-        }
+            let fetched: Result<T, ApiError> = async {
+                // Double-check after acquiring the lock: another request may have
+                // already populated the cache while we were waiting.
+                if let Some(cached) = self.get::<T>(key).await? {
+                    return Ok(cached);
+                }
 
-        // Cache miss confirmed under the guard — fetch, cache, and return.
-        let value = fetch().await?;
-        self.set(key, &value, ttl).await?;
-        Ok(value)
+                // Cache miss confirmed under the guard — fetch, cache, and return.
+                let value = fetch().await?;
+                self.set(key, &value, ttl).await?;
+                Ok(value)
+            }
+            .await;
+
+            fetched
+        };
+
+        // 锁已释放（_guard drop），清理单飞条目，防止 map 无限增长。
+        self.in_flight.lock().await.remove(key);
+        result
     }
 
     /// Set negative cache for "not found" results to prevent repeated lookups

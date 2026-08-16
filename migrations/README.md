@@ -21,6 +21,16 @@ migrations/
 
 > v8 系列已归档至 `archive/`，不再作为活跃迁移链路。新环境应使用 v10 基线建库。
 
+## 已知死表（待 baseline 重构清理）
+
+v10 baseline 仍包含 `openclaw_connections` / `ai_conversations` / `ai_connections`
+三张表及其触发器（约第 3277-3351、4436-4450 行）。openclaw 源码已于 commit
+67e66bf4 彻底删除，但这些表定义留在 consolidated baseline 中，新装实例会建出
+死表。因迁移文件遵循 append-only（不可修改已有迁移），且时间戳命名的 DROP 迁移
+不会被 `build_sqlx_migration_source.py` 选中（该脚本只选 baseline + extension +
+`V*` 迁移），故**暂不清理**；待下一次 consolidated baseline 重构（v11）时移除
+即可。
+
 ## v10 变更摘要 (2026-06-12)
 
 v10 基线在 v8 基础上进一步收敛：
@@ -61,11 +71,11 @@ ENABLED_EXTENSIONS=all ./deploy.sh
 ENABLED_EXTENSIONS=none ./deploy.sh
 
 # 选择性启用
-ENABLED_EXTENSIONS=openclaw-routes,friends ./deploy.sh
+ENABLED_EXTENSIONS=voice-extended,friends ./deploy.sh
 ```
 
 可用功能名称（与 Cargo feature flags 一致）：
-`openclaw-routes`, `friends`, `voice-extended`, `saml-sso`, `cas-sso`,
+`friends`, `voice-extended`, `saml-sso`, `cas-sso`,
 `beacons`, `voip-tracking`, `widgets`, `server-notifications`,
 `burn-after-read`, `privacy-ext`, `external-services`
 
