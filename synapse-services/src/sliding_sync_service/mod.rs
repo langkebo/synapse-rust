@@ -428,7 +428,7 @@ impl SlidingSyncService {
                             let conn_id = conn_id.clone();
                             async move {
                                 let result = storage
-                                    .materialize_room_from_activity(&user_id, &device_id, &room_id, conn_id.as_deref())
+                                    .materialize_room_from_activity(&user_id, &device_id, &room_id, conn_id.as_deref(), None)
                                     .await;
                                 (room_id, result)
                             }

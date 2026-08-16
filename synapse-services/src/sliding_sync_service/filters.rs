@@ -128,7 +128,7 @@ impl SlidingSyncService {
                     let room = if let Some(room) = self.storage.get_room(user_id, device_id, room_id, conn_id).await? {
                         Some(room)
                     } else {
-                        self.storage.materialize_room_from_activity(user_id, device_id, room_id, conn_id).await?
+                        self.storage.materialize_room_from_activity(user_id, device_id, room_id, conn_id, None).await?
                     };
 
                     if let Some(room) = room {

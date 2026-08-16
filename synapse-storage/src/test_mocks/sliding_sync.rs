@@ -268,6 +268,7 @@ impl crate::sliding_sync::SlidingSyncStoreApi for InMemorySlidingSyncStore {
         device_id: &str,
         room_id: &str,
         conn_id: Option<&str>,
+        _bump_event_types: Option<&[String]>,
     ) -> Result<Option<crate::sliding_sync::SlidingSyncRoom>, sqlx::Error> {
         // S12: support error injection for testing error-handling paths.
         if self.fail_materialize.load(std::sync::atomic::Ordering::SeqCst) {

@@ -3,6 +3,22 @@ use sqlx::{Pool, Postgres, QueryBuilder};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// Event types that bump a room's `bump_stamp` when the client does not supply
+/// an explicit `bump_event_types`. Includes `m.beacon_info` and its two
+/// unstable MSC names so live location-sharing updates move the room up in
+/// `by_recency` order (task A3).
+const DEFAULT_BUMP_EVENT_TYPES: &[&str] = &[
+    "m.room.create",
+    "m.room.message",
+    "m.room.encrypted",
+    "m.sticker",
+    "m.call.invite",
+    "m.poll.start",
+    "m.beacon_info",
+    "org.matrix.msc3672.beacon_info",
+    "org.matrix.msc3489.beacon_info",
+];
+
 #[derive(Clone)]
 pub struct SlidingSyncStorage {
     pool: Arc<Pool<Postgres>>,
@@ -340,6 +356,7 @@ impl SlidingSyncStorage {
         device_id: &str,
         room_id: &str,
         conn_id: Option<&str>,
+        bump_event_types: Option<&[String]>,
     ) -> Result<Option<SlidingSyncRoom>, sqlx::Error> {
 
         // Query 1: membership check (short-circuits if not a member)
@@ -363,15 +380,21 @@ impl SlidingSyncStorage {
 
         let now = current_timestamp_millis();
 
-        // Query 2: bump_stamp (latest event timestamp)
+        // Query 2: bump_stamp (latest event timestamp among bump_event_types).
+        // Falls back to DEFAULT_BUMP_EVENT_TYPES (which includes m.beacon_info)
+        // when the caller does not supply an explicit set.
+        let bump_types: Vec<String> = bump_event_types
+            .map(|types| types.to_vec())
+            .unwrap_or_else(|| DEFAULT_BUMP_EVENT_TYPES.iter().map(|s| s.to_string()).collect());
         let bump_stamp = sqlx::query_scalar::<_, Option<i64>>(
             r"
             SELECT MAX(origin_server_ts)
             FROM events
-            WHERE room_id = $1
+            WHERE room_id = $1 AND event_type = ANY($2)
             ",
         )
         .bind(room_id)
+        .bind(bump_types.as_slice())
         .fetch_one(&*self.pool)
         .await?
         .unwrap_or(now);

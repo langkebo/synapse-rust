@@ -998,3 +998,130 @@ async fn test_sliding_sync_room_is_invited_column() {
 
     storage.delete_connection_data(&user_id, &device_id, None).await.expect("cleanup");
 }
+
+// ── A3: bump 语义（bump_event_types 过滤）────────────────────────────────
+
+/// Seed a `rooms` row and a `join` membership so that
+/// `materialize_room_from_activity` passes its membership short-circuit and
+/// can read room name/avatar metadata.
+async fn seed_bump_test_room(pool: &Pool<Postgres>, room_id: &str, user_id: &str) {
+    let now = current_timestamp_millis();
+    sqlx::query(
+        r#"INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, history_visibility, created_ts, last_activity_ts)
+           VALUES ($1, '@test:example.com', 'invite', '10', false, 'joined', $2, $2)
+           ON CONFLICT (room_id) DO NOTHING"#,
+    )
+    .bind(room_id)
+    .bind(now)
+    .execute(pool)
+    .await
+    .expect("failed to create test room");
+
+    // username must be unique (uq_users_username); derive it from the uuid-suffixed user_id.
+    let username = user_id.strip_prefix('@').unwrap_or(user_id);
+    sqlx::query(
+        r#"INSERT INTO users (user_id, username, created_ts)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (user_id) DO NOTHING"#,
+    )
+    .bind(user_id)
+    .bind(username)
+    .bind(now)
+    .execute(pool)
+    .await
+    .expect("failed to create test user");
+
+    sqlx::query(
+        r#"INSERT INTO room_memberships (room_id, user_id, membership)
+           VALUES ($1, $2, 'join')
+           ON CONFLICT (room_id, user_id) DO NOTHING"#,
+    )
+    .bind(room_id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .expect("failed to create test membership");
+}
+
+/// Insert a minimal event row (only NOT NULL columns) for the bump tests.
+async fn insert_bump_test_event(pool: &Pool<Postgres>, room_id: &str, user_id: &str, event_type: &str, ts: i64) {
+    let event_id = format!("$bump_{}:example.com", uuid::Uuid::new_v4().simple());
+    sqlx::query(
+        r#"INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts)
+           VALUES ($1, $2, $3, $4, $5, $6)"#,
+    )
+    .bind(&event_id)
+    .bind(room_id)
+    .bind(user_id)
+    .bind(event_type)
+    .bind(serde_json::json!({}))
+    .bind(ts)
+    .execute(pool)
+    .await
+    .expect("failed to insert event");
+}
+
+async fn cleanup_bump_test(
+    pool: &Pool<Postgres>,
+    storage: &SlidingSyncStorage,
+    room_id: &str,
+    user_id: &str,
+    device_id: &str,
+) {
+    let _ = sqlx::query("DELETE FROM room_memberships WHERE room_id = $1").bind(room_id).execute(pool).await;
+    let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(room_id).execute(pool).await;
+    let _ = sqlx::query("DELETE FROM rooms WHERE room_id = $1").bind(room_id).execute(pool).await;
+    let _ = sqlx::query("DELETE FROM users WHERE user_id = $1").bind(user_id).execute(pool).await;
+    let _ = storage.delete_connection_data(user_id, device_id, None).await;
+}
+
+/// A3: 未显式传 `bump_event_types` 时，`m.beacon_info` 应更新房间 bump_stamp，
+/// 而无关状态事件（如 `m.room.topic`）即使时间更晚也不 bump。
+#[tokio::test]
+async fn test_materialize_default_bump_types_include_beacon_info_not_topic() {
+    let pool = test_pool().await;
+    let storage = SlidingSyncStorage::new(pool.clone());
+    let user_id = unique_id("@user");
+    let device_id = unique_id("DEV");
+    let room_id = unique_id("!room");
+
+    seed_bump_test_room(&pool, &room_id, &user_id).await;
+    // 无关状态事件时间更晚（3000），默认不应 bump。
+    insert_bump_test_event(&pool, &room_id, &user_id, "m.room.topic", 3000).await;
+    // 默认集合中的 beacon_info 时间较早（2000）。
+    insert_bump_test_event(&pool, &room_id, &user_id, "m.beacon_info", 2000).await;
+
+    let room = storage
+        .materialize_room_from_activity(&user_id, &device_id, &room_id, None, None)
+        .await
+        .expect("materialize should succeed")
+        .expect("room should materialize");
+    assert_eq!(room.bump_stamp, Some(2000), "bump_stamp should come from m.beacon_info, not m.room.topic");
+
+    cleanup_bump_test(&pool, &storage, &room_id, &user_id, &device_id).await;
+}
+
+/// A3: 显式传入 `bump_event_types` 时应按传入集合过滤（覆盖默认集合）。
+#[tokio::test]
+async fn test_materialize_honors_explicit_bump_event_types() {
+    let pool = test_pool().await;
+    let storage = SlidingSyncStorage::new(pool.clone());
+    let user_id = unique_id("@user");
+    let device_id = unique_id("DEV");
+    let room_id = unique_id("!room");
+
+    seed_bump_test_room(&pool, &room_id, &user_id).await;
+    // 消息事件时间最晚（5000），但显式集合只允许 m.room.topic。
+    insert_bump_test_event(&pool, &room_id, &user_id, "m.room.message", 5000).await;
+    insert_bump_test_event(&pool, &room_id, &user_id, "m.room.topic", 3000).await;
+
+    let explicit = ["m.room.topic".to_string()];
+    let room = storage
+        .materialize_room_from_activity(&user_id, &device_id, &room_id, None, Some(&explicit))
+        .await
+        .expect("materialize should succeed")
+        .expect("room should materialize");
+    assert_eq!(room.bump_stamp, Some(3000), "explicit bump_event_types should bump on m.room.topic only");
+
+    cleanup_bump_test(&pool, &storage, &room_id, &user_id, &device_id).await;
+}

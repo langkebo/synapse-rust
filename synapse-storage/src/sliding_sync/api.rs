@@ -92,6 +92,7 @@ pub trait SlidingSyncStoreApi: Send + Sync {
         device_id: &str,
         room_id: &str,
         conn_id: Option<&str>,
+        bump_event_types: Option<&[String]>,
     ) -> Result<Option<SlidingSyncRoom>, sqlx::Error>;
     async fn delete_room(
         &self,
@@ -263,8 +264,9 @@ impl SlidingSyncStoreApi for SlidingSyncStorage {
         device_id: &str,
         room_id: &str,
         conn_id: Option<&str>,
+        bump_event_types: Option<&[String]>,
     ) -> Result<Option<SlidingSyncRoom>, sqlx::Error> {
-        self.materialize_room_from_activity(user_id, device_id, room_id, conn_id).await
+        self.materialize_room_from_activity(user_id, device_id, room_id, conn_id, bump_event_types).await
     }
     async fn delete_room(
         &self,
