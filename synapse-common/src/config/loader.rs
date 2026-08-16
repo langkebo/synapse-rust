@@ -70,6 +70,7 @@ impl Config {
             self.server.user_agent_suffix.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.server.web_client_location =
             self.server.web_client_location.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.server.map_style_url = self.server.map_style_url.take().map(|v| resolve_env_in_string(&v)).transpose()?;
 
         self.database.host = resolve_env_in_string(&self.database.host)?;
         self.database.username = resolve_env_in_string(&self.database.username)?;

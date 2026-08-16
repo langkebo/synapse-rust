@@ -603,6 +603,22 @@ mod tests {
     }
 
     #[test]
+    fn test_resolve_env_variables_resolves_server_map_style_url() -> Result<(), String> {
+        let _guard = env_lock();
+        let mut env = EnvGuard::new();
+        env.set("TEST_MAP_STYLE_URL", "https://tiles.example.com/style.json");
+
+        let mut config = Config::default();
+        config.server.map_style_url = Some("${TEST_MAP_STYLE_URL:?missing}".to_string());
+
+        config.resolve_env_variables()?;
+
+        assert_eq!(config.server.map_style_url.as_deref(), Some("https://tiles.example.com/style.json"));
+
+        Ok(())
+    }
+
+    #[test]
     fn test_circuit_breaker_config_defaults() {
         let config = CircuitBreakerConfig::default();
 

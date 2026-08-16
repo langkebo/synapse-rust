@@ -124,6 +124,16 @@ pub struct ServerConfig {
     #[serde(default)]
     pub web_client_location: Option<String>,
 
+    /// 地图瓦片样式 URL
+    ///
+    /// 可选。配置后，`GET /.well-known/matrix/client` 响应体将追加
+    /// `"m.tile_server": { "map_style_url": <url> }`，供客户端发现地图
+    /// 瓦片样式。默认 `None`。
+    ///
+    /// 可通过标准环境变量覆盖机制 `SYNAPSE__SERVER__MAP_STYLE_URL` 覆盖。
+    #[serde(default)]
+    pub map_style_url: Option<String>,
+
     // ===== 原有字段 =====
     /// 注册共享密钥（用于管理员注册）
     #[derivative(Debug = "ignore")]
@@ -498,6 +508,27 @@ idle_timeout: 180000
         assert_eq!(config.last_active_granularity, 60_000);
         assert_eq!(config.sync_online_timeout, 15_000);
         assert_eq!(config.idle_timeout, 180_000);
+    }
+
+    // ── map_style_url (tile server map style) ──────────────────────
+
+    #[test]
+    fn map_style_url_defaults_to_none() {
+        let config = make_config();
+        assert!(config.map_style_url.is_none(), "default should be None");
+    }
+
+    #[test]
+    fn map_style_url_parses_from_yaml() {
+        let yaml = format!(
+            r#"
+{}
+map_style_url: "https://tiles.example.com/style.json"
+"#,
+            minimal_server_yaml_body()
+        );
+        let config: ServerConfig = serde_yaml::from_str(&yaml).expect("parse should succeed");
+        assert_eq!(config.map_style_url.as_deref(), Some("https://tiles.example.com/style.json"));
     }
 
     /// Minimal YAML body satisfying all required (non-defaulted) ServerConfig fields.

@@ -192,12 +192,18 @@ fn derive_well_known_server(public_baseurl: &str, fallback_server_name: &str, fe
     format_host_port(&host, federation_port)
 }
 
-fn build_well_known_client(base_url: &str) -> serde_json::Value {
-    json!({
+fn build_well_known_client(base_url: &str, map_style_url: Option<&str>) -> serde_json::Value {
+    let mut body = json!({
         "m.homeserver": {
             "base_url": base_url
         }
-    })
+    });
+    if let Some(url) = map_style_url {
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("m.tile_server".to_string(), json!({ "map_style_url": url }));
+        }
+    }
+    body
 }
 
 /// .well-known: Matrix 服务器发现
@@ -213,7 +219,8 @@ pub async fn get_well_known_server(State(ctx): State<AuthContext>) -> Json<serde
 /// .well-known: Matrix 客户端发现
 pub async fn get_well_known_client(State(ctx): State<AuthContext>) -> Json<serde_json::Value> {
     let base_url = ctx.config.server.get_public_baseurl();
-    Json(build_well_known_client(&base_url))
+    let map_style_url = ctx.config.server.map_style_url.as_deref();
+    Json(build_well_known_client(&base_url, map_style_url))
 }
 
 /// .well-known: Matrix 支持
@@ -253,8 +260,22 @@ mod tests {
 
     #[test]
     fn test_build_well_known_client_omits_identity_server() {
-        let body = build_well_known_client("https://matrix.example.com");
+        let body = build_well_known_client("https://matrix.example.com", None);
         assert_eq!(body["m.homeserver"]["base_url"], "https://matrix.example.com");
         assert!(body.get("m.identity_server").is_none());
+    }
+
+    #[test]
+    fn test_build_well_known_client_includes_tile_server_when_map_style_url_configured() {
+        let body = build_well_known_client("https://matrix.example.com", Some("https://tiles.example.com/style.json"));
+        assert_eq!(body["m.homeserver"]["base_url"], "https://matrix.example.com");
+        assert_eq!(body["m.tile_server"]["map_style_url"], "https://tiles.example.com/style.json");
+    }
+
+    #[test]
+    fn test_build_well_known_client_omits_tile_server_when_map_style_url_unset() {
+        let body = build_well_known_client("https://matrix.example.com", None);
+        assert_eq!(body["m.homeserver"]["base_url"], "https://matrix.example.com");
+        assert!(body.get("m.tile_server").is_none());
     }
 }
