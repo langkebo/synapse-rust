@@ -254,6 +254,7 @@ pub fn friend_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
         (Method::POST, "/_matrix/client/v3/friends/search"),
         (Method::GET, "/_matrix/client/v3/friends/requests/incoming"),
         (Method::GET, "/_matrix/client/v3/friends/requests/outgoing"),
+        (Method::GET, "/_matrix/client/v3/friends/check/{user_id}"),
         (Method::GET, "/_matrix/client/v1/friends"),
         (Method::POST, "/_matrix/client/v1/friends"),
         (Method::GET, "/_matrix/client/v1/friends/search"),
