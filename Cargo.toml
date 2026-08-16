@@ -28,7 +28,7 @@ redundant_else = "warn"
 #        deployment (WidgetManager / WidgetContainer).
 # P-067: `external-services` added to default — admin external_service routes
 #        must respond (previously 404 due to missing feature flag).
-default = ["server", "core-private-chat", "widgets", "external-services"]
+default = ["server", "core-private-chat", "widgets", "external-services", "beacons"]
 server = ["dep:axum", "dep:tower-http"]
 runtime-ddl = ["synapse-services/runtime-ddl", "synapse-storage/runtime-ddl"]
 performance-tests = []
