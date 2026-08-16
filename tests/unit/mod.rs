@@ -17,6 +17,8 @@ mod background_update_api_tests;
 
 mod canonical_json_vectors;
 
+#[cfg(feature = "beacons")]
+mod beacon_info_parse_tests;
 mod boundary_tests;
 mod captcha_api_tests;
 mod core_api_tests;

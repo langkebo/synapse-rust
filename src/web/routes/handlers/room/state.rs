@@ -110,6 +110,68 @@ pub(crate) async fn get_state_event(
     Ok(Json(state_event_content_response(event.get("content").unwrap_or(&json!({})))))
 }
 
+/// Parses `m.beacon_info` state-event content into beacon indexing params.
+///
+/// `timeout` / `live` / `description` are read from the *top-level* content
+/// fields emitted by element-web / matrix-js-sdk v40
+/// (`ContentHelpers.makeBeaconInfoContent`), falling back to the legacy nested
+/// `content["m.beacon_info"]` shape when the top-level `timeout` is absent.
+#[cfg(feature = "beacons")]
+pub fn parse_beacon_info_content(
+    content: &Value,
+    room_id: String,
+    event_id: String,
+    state_key: String,
+    sender: String,
+    now: i64,
+) -> Result<CreateBeaconInfoParams, ApiError> {
+    let beacon_obj = beacon_info_content_source(content);
+
+    let timeout = beacon_obj
+        .get("timeout")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| ApiError::bad_request("Missing timeout in beacon_info content".to_string()))?;
+
+    let is_live = beacon_obj.get("live").and_then(|v| v.as_bool()).unwrap_or(true);
+
+    let description = beacon_obj.get("description").and_then(|v| v.as_str()).map(|v| v.to_string());
+
+    let created_ts =
+        content.get("m.ts").or_else(|| content.get("org.matrix.msc3488.ts")).and_then(|v| v.as_i64()).unwrap_or(now);
+
+    let asset_type = content
+        .get("m.asset")
+        .or_else(|| content.get("org.matrix.msc3488.asset"))
+        .and_then(|v| v.get("type"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("m.self")
+        .to_string();
+
+    Ok(CreateBeaconInfoParams {
+        room_id,
+        event_id,
+        state_key,
+        sender,
+        description,
+        timeout,
+        is_live,
+        asset_type,
+        created_ts,
+    })
+}
+
+/// Selects which object holds the beacon_info fields: the top-level content
+/// when it carries `timeout` (element-web / matrix-js-sdk v40 shape), otherwise
+/// the nested `content["m.beacon_info"]` object (legacy shape), else the content
+/// itself so the caller surfaces a clear `timeout` error.
+#[cfg(feature = "beacons")]
+fn beacon_info_content_source(content: &Value) -> &Value {
+    if content.get("timeout").is_some() {
+        return content;
+    }
+    content.get("m.beacon_info").filter(|v| v.is_object()).unwrap_or(content)
+}
+
 pub(crate) async fn send_state_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -131,45 +193,14 @@ pub(crate) async fn send_state_event(
         || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
         || final_event_type.starts_with("org.matrix.msc3489.beacon_info")
     {
-        let beacon_obj = content
-            .get("m.beacon_info")
-            .and_then(|v| v.as_object())
-            .ok_or_else(|| ApiError::bad_request("Missing m.beacon_info in beacon_info content".to_string()))?;
-
-        let timeout = beacon_obj
-            .get("timeout")
-            .and_then(|v| v.as_i64())
-            .ok_or_else(|| ApiError::bad_request("Missing m.beacon_info.timeout".to_string()))?;
-
-        let is_live = beacon_obj.get("live").and_then(|v| v.as_bool()).unwrap_or(true);
-
-        let description = beacon_obj.get("description").and_then(|v| v.as_str()).map(|v| v.to_string());
-
-        let created_ts = content
-            .get("m.ts")
-            .or_else(|| content.get("org.matrix.msc3488.ts"))
-            .and_then(|v| v.as_i64())
-            .unwrap_or(now);
-
-        let asset_type = content
-            .get("m.asset")
-            .or_else(|| content.get("org.matrix.msc3488.asset"))
-            .and_then(|v| v.get("type"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("m.self")
-            .to_string();
-
-        Some(CreateBeaconInfoParams {
-            room_id: room_id.clone(),
-            event_id: new_event_id.clone(),
-            state_key: auth_user.user_id.clone(),
-            sender: auth_user.user_id.clone(),
-            description,
-            timeout,
-            is_live,
-            asset_type,
-            created_ts,
-        })
+        Some(parse_beacon_info_content(
+            &content,
+            room_id.clone(),
+            new_event_id.clone(),
+            auth_user.user_id.clone(),
+            auth_user.user_id.clone(),
+            now,
+        )?)
     } else {
         None
     };
@@ -252,42 +283,14 @@ pub(crate) async fn put_state_event(
         || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
         || final_event_type.starts_with("org.matrix.msc3489.beacon_info")
     {
-        let beacon_obj = body
-            .get("m.beacon_info")
-            .and_then(|v| v.as_object())
-            .ok_or_else(|| ApiError::bad_request("Missing m.beacon_info in beacon_info content".to_string()))?;
-
-        let timeout = beacon_obj
-            .get("timeout")
-            .and_then(|v| v.as_i64())
-            .ok_or_else(|| ApiError::bad_request("Missing m.beacon_info.timeout".to_string()))?;
-
-        let is_live = beacon_obj.get("live").and_then(|v| v.as_bool()).unwrap_or(true);
-
-        let description = beacon_obj.get("description").and_then(|v| v.as_str()).map(|v| v.to_string());
-
-        let created_ts =
-            body.get("m.ts").or_else(|| body.get("org.matrix.msc3488.ts")).and_then(|v| v.as_i64()).unwrap_or(now);
-
-        let asset_type = body
-            .get("m.asset")
-            .or_else(|| body.get("org.matrix.msc3488.asset"))
-            .and_then(|v| v.get("type"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("m.self")
-            .to_string();
-
-        Some(CreateBeaconInfoParams {
-            room_id: room_id.clone(),
-            event_id: new_event_id.clone(),
-            state_key: state_key.clone(),
-            sender: auth_user.user_id.clone(),
-            description,
-            timeout,
-            is_live,
-            asset_type,
-            created_ts,
-        })
+        Some(parse_beacon_info_content(
+            &body,
+            room_id.clone(),
+            new_event_id.clone(),
+            state_key.clone(),
+            auth_user.user_id.clone(),
+            now,
+        )?)
     } else {
         None
     };

@@ -3,7 +3,7 @@ pub(crate) mod events;
 pub(crate) mod management;
 pub(crate) mod members;
 pub(crate) mod receipts;
-pub(crate) mod state;
+pub mod state;
 
 pub(crate) use e2ee::*;
 pub(crate) use events::*;
