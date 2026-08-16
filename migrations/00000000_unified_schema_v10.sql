@@ -4989,3 +4989,66 @@ CREATE TABLE IF NOT EXISTS login_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_login_tokens_expires
 ON login_tokens(expires_at);
+-- ---- 折入漏吸收索引/列（2026-08-16 一致性修复补充）----
+
+-- ---- 折入自 20260710120000_to_device_txn_msgid_unique.sql ----
+-- OPT-010 (audit 06 §5): the to-device dedup fix relies on an atomic
+-- INSERT ... ON CONFLICT (sender_user_id, sender_device_id, message_id).
+-- The v10 baseline only has UNIQUE (transaction_id, sender_user_id, sender_device_id),
+-- so add the message_id-based unique index here.
+-- PostgreSQL treats NULLs as distinct in UNIQUE indexes, so multiple NULL
+-- message_id rows for the same (sender, device) will not conflict — this is
+-- the desired behaviour since NULL transactions are not deduplicated.
+
+-- Guard: collapse any pre-existing duplicate (sender, device, message_id) rows,
+-- keeping the lowest id, so the unique index can be created.
+DELETE FROM to_device_transactions a
+USING to_device_transactions b
+WHERE a.message_id IS NOT NULL
+  AND a.message_id = b.message_id
+  AND a.sender_user_id = b.sender_user_id
+  AND a.sender_device_id = b.sender_device_id
+  AND a.id > b.id;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_to_device_txn_msgid
+    ON to_device_transactions (sender_user_id, sender_device_id, message_id);
+
+-- ---- 折入自 20260729120000_read_markers_redundant_origin_server_ts.sql ----
+-- P1-7: Add redundant origin_server_ts column to read_markers table.
+--
+-- Problem: get_unread_counts uses LEFT JOIN events e ON e.event_id = rm.event_id
+-- to compute last_read_ts. When purge_history deletes the event referenced by
+-- read_markers.event_id, the JOIN returns NULL and COALESCE(MAX(NULL), 0) = 0,
+-- causing ALL remaining events (including already-read ones that survived the
+-- purge as local events) to be counted as unread — a notification count bloat.
+--
+-- Fix (mirrors Element Synapse approach): cache the marker event's
+-- origin_server_ts in read_markers at write time. get_unread_counts then uses
+-- COALESCE(e.origin_server_ts, rm.origin_server_ts, 0) so the cached value
+-- survives event deletion.
+--
+-- Safety: idempotent — uses DO $$ ... ADD COLUMN IF NOT EXISTS.
+-- Backfill: best-effort — existing markers get origin_server_ts from a JOIN
+-- to events; rows whose event_id is already purged remain NULL (acceptable:
+-- they were already producing last_read_ts=0 before this migration).
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'read_markers' AND column_name = 'origin_server_ts'
+    ) THEN
+        ALTER TABLE read_markers ADD COLUMN origin_server_ts BIGINT;
+    END IF;
+END $$;
+
+-- Backfill existing rows from the events table (NULL for already-purged markers).
+UPDATE read_markers rm
+SET origin_server_ts = e.origin_server_ts
+FROM events e
+WHERE rm.event_id = e.event_id
+  AND rm.origin_server_ts IS NULL;
+
+-- Index to support fallback lookups in get_unread_counts when needed.
+CREATE INDEX IF NOT EXISTS idx_read_markers_room_user
+ON read_markers(room_id, user_id);
