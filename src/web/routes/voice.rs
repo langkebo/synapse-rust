@@ -56,6 +56,18 @@ pub fn create_voice_router(_state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v3/voice/{media_id}/convert", post(convert_voice_message))
         .route("/_matrix/client/v3/voice/{media_id}/optimize", post(optimize_voice_message))
         .route("/_matrix/client/v3/voice/{media_id}/transcription", post(transcribe_voice_message))
+        // ISSUE-13: vendor 前缀（私有端点，client 前缀保留为向后兼容别名）
+        .route("/_matrix/vendor/v1/voice/upload", post(upload_voice_message))
+        .route("/_matrix/vendor/v1/voice/config", get(get_voice_config))
+        .route("/_matrix/vendor/v1/voice/stats", get(get_voice_stats))
+        .route("/_matrix/vendor/v1/voice/room/{room_id}/stats", get(get_room_voice_stats))
+        .route("/_matrix/vendor/v1/voice/user/{user_id}/stats", get(get_user_voice_stats))
+        .route("/_matrix/vendor/v1/voice/room/{room_id}", get(get_room_voice_messages))
+        .route("/_matrix/vendor/v1/voice/user/{user_id}", get(get_user_voice_messages))
+        .route("/_matrix/vendor/v1/voice/{media_id}", get(get_voice_message_content))
+        .route("/_matrix/vendor/v1/voice/{media_id}/convert", post(convert_voice_message))
+        .route("/_matrix/vendor/v1/voice/{media_id}/optimize", post(optimize_voice_message))
+        .route("/_matrix/vendor/v1/voice/{media_id}/transcription", post(transcribe_voice_message))
 }
 
 pub fn voice_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -81,6 +93,18 @@ pub fn voice_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntr
         (Method::POST, "/_matrix/client/v3/voice/{media_id}/convert"),
         (Method::POST, "/_matrix/client/v3/voice/{media_id}/optimize"),
         (Method::POST, "/_matrix/client/v3/voice/{media_id}/transcription"),
+        // vendor paths
+        (Method::POST, "/_matrix/vendor/v1/voice/upload"),
+        (Method::GET, "/_matrix/vendor/v1/voice/config"),
+        (Method::GET, "/_matrix/vendor/v1/voice/stats"),
+        (Method::GET, "/_matrix/vendor/v1/voice/room/{room_id}/stats"),
+        (Method::GET, "/_matrix/vendor/v1/voice/user/{user_id}/stats"),
+        (Method::GET, "/_matrix/vendor/v1/voice/room/{room_id}"),
+        (Method::GET, "/_matrix/vendor/v1/voice/user/{user_id}"),
+        (Method::GET, "/_matrix/vendor/v1/voice/{media_id}"),
+        (Method::POST, "/_matrix/vendor/v1/voice/{media_id}/convert"),
+        (Method::POST, "/_matrix/vendor/v1/voice/{media_id}/optimize"),
+        (Method::POST, "/_matrix/vendor/v1/voice/{media_id}/transcription"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "voice"))

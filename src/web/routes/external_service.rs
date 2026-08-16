@@ -400,9 +400,16 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
                 ),
             );
 
-    let client_v1_routes =
-        Router::new().route("/_matrix/client/v1/external_services/health", get(client_health_check_all)).route(
+    let client_v1_routes = Router::new()
+        .route("/_matrix/client/v1/external_services/health", get(client_health_check_all))
+        .route(
             "/_matrix/client/v1/external_services/{service_id}",
+            put(client_update_external_service).delete(client_delete_external_service),
+        )
+        // ISSUE-13: vendor 前缀（私有端点，client 前缀保留为向后兼容别名）
+        .route("/_matrix/vendor/v1/external_services/health", get(client_health_check_all))
+        .route(
+            "/_matrix/vendor/v1/external_services/{service_id}",
             put(client_update_external_service).delete(client_delete_external_service),
         );
 
@@ -440,6 +447,9 @@ pub fn external_service_route_manifest() -> Vec<crate::web::routes::route_ledger
         (Method::GET, "/_matrix/client/v1/external_services/health"),
         (Method::PUT, "/_matrix/client/v1/external_services/{service_id}"),
         (Method::DELETE, "/_matrix/client/v1/external_services/{service_id}"),
+        (Method::GET, "/_matrix/vendor/v1/external_services/health"),
+        (Method::PUT, "/_matrix/vendor/v1/external_services/{service_id}"),
+        (Method::DELETE, "/_matrix/vendor/v1/external_services/{service_id}"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "external_service"))

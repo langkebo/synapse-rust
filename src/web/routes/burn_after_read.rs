@@ -50,6 +50,24 @@ pub fn create_burn_after_read_router(state: AppState) -> Router<AppState> {
             put(set_global_burn_config),
         )
         .route("/_matrix/client/v3/user/burn/stats", get(get_burn_stats))
+        // ISSUE-13: vendor 前缀（私有端点，client 前缀保留为向后兼容别名）
+        .route(
+            "/_matrix/vendor/v1/rooms/{room_id}/burn",
+            put(enable_burn).get(get_burn_settings),
+        )
+        .route(
+            "/_matrix/vendor/v1/rooms/{room_id}/burn/pending",
+            get(get_pending_burns),
+        )
+        .route(
+            "/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}",
+            post(mark_burn_read).delete(cancel_burn),
+        )
+        .route(
+            "/_matrix/vendor/v1/user/burn/config",
+            put(set_global_burn_config),
+        )
+        .route("/_matrix/vendor/v1/user/burn/stats", get(get_burn_stats))
         .with_state(state)
 }
 
@@ -73,6 +91,14 @@ pub fn burn_after_read_route_manifest() -> Vec<crate::web::routes::route_ledger:
         (Method::DELETE, "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}"),
         (Method::PUT, "/_matrix/client/v3/user/burn/config"),
         (Method::GET, "/_matrix/client/v3/user/burn/stats"),
+        // vendor paths
+        (Method::PUT, "/_matrix/vendor/v1/rooms/{room_id}/burn"),
+        (Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/burn"),
+        (Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/burn/pending"),
+        (Method::POST, "/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}"),
+        (Method::DELETE, "/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}"),
+        (Method::PUT, "/_matrix/vendor/v1/user/burn/config"),
+        (Method::GET, "/_matrix/vendor/v1/user/burn/stats"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "burn_after_read"))
