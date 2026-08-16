@@ -44,7 +44,7 @@ an alias for `cargo nextest run --profile test --features test-utils`.
 ### Benchmarks and coverage
 - API benchmark compile/run path: `cargo bench --bench performance_api_benchmarks --no-run`
 - Federation benchmark compile/run path: `cargo bench --bench performance_federation_benchmarks --no-run`
-- Coverage (if installed): `cargo tarpaulin --output-dir coverage/ --html`
+- Coverage: CI uses `cargo llvm-cov --workspace` (tarpaulin was replaced). Local end-to-end run: `bash scripts/run_local_coverage.sh` (~15 min, ~68% line coverage as of 2026-08).
 
 ### Database and migrations
 - Migration source of truth: `docker/db_migrate.sh`
@@ -66,19 +66,25 @@ an alias for `cargo nextest run --profile test --features test-utils`.
 - The server exposes both client and federation listeners from the same application state.
 
 ### Core layering
-- `src/web/`: HTTP boundary. Axum routes, extractors, middleware, validators, and Matrix-compatible endpoint assembly.
-- `src/services/`: business logic layer. This is where feature behavior lives.
-- `src/storage/`: persistence layer over PostgreSQL (sqlx), plus schema/health/performance helpers.
-- `src/cache/` and service-local cache modules: Redis-backed cache when enabled, otherwise in-memory fallback.
-- `src/common/`: shared config, logging, security, rate limit, task queue, and utility code.
+The root crate's `src/` is the HTTP/assembly surface; business logic and persistence live in six workspace crates:
 
-The codebase generally follows `route -> service -> storage`, with `AppState`/`ServiceContainer` carrying shared dependencies.
+- `src/web/` (root crate): HTTP boundary. Axum routes, extractors, middleware, validators, and Matrix-compatible endpoint assembly.
+- `synapse-services/`: business logic layer (workspace crate). Feature behavior lives here; composition root is `synapse-services/src/container.rs`.
+- `synapse-storage/`: persistence layer over PostgreSQL (sqlx), plus schema/health/performance helpers (workspace crate).
+- `synapse-e2ee/`, `synapse-federation/`: E2EE crypto and federation transport/auth logic (workspace crates).
+- `synapse-cache/`, `synapse-common/`: Redis-backed cache (in-memory fallback) and shared config/logging/security/rate-limit/task-queue utilities (workspace crates).
+
+The root crate's `src/services/` and `src/storage/` are thin shells (`mod.rs` re-exports only) — new logic belongs in the corresponding workspace crate.
+
+The codebase generally follows `route (src/web/) -> service (synapse-services/) -> storage (synapse-storage/)`, with `AppState`/`ServiceContainer` carrying shared dependencies.
 
 ### Router organization
 - `src/web/routes/assembly.rs` is the top-level router assembly point.
 - It merges many feature routers under Matrix-compatible prefixes such as `/_matrix/client/*`, `/_matrix/federation/*`, and admin/auxiliary endpoints.
 - Middleware layering is centralized here: CORS, security headers, compression, CSRF, and rate limiting.
 - Route implementation is split by domain under `src/web/routes/` and `src/web/routes/handlers/`.
+- Every route must be declared in `src/web/routes/route_ledger.rs` and its module's `*_route_manifest()`; the ledger guards against silent `Router::merge` path collisions and is exported via `ledger_export.rs` as the SDK contract source.
+- Non-standard/private endpoints must use the `/_matrix/vendor/v1` prefix (ISSUE-13 migration), namespaced apart from Matrix stable and MSC identifiers.
 
 ### Dependency wiring
 - `synapse-services/src/container.rs` is the main dependency graph for application features.
@@ -87,12 +93,12 @@ The codebase generally follows `route -> service -> storage`, with `AppState`/`S
 
 ### Storage and schema model
 - Postgres is the primary source of truth.
-- `src/storage/mod.rs` re-exports many domain-specific storages; most features have a corresponding storage module.
-- `src/storage/schema_health_check.rs` is part of startup validation. Missing critical tables/columns fail startup.
+- `synapse-storage/src/lib.rs` re-exports domain-specific storages; most features have a corresponding storage module.
+- `synapse-storage/src/schema_health_check.rs` is part of startup validation. Missing critical tables/columns fail startup.
 - Runtime DB initialization is intentionally not the default path. The expected migration flow is externalized through `docker/db_migrate.sh`; server startup only performs schema health checks unless `SYNAPSE_ENABLE_RUNTIME_DB_INIT` is explicitly enabled and `SYNAPSE_SKIP_DB_INIT` is not set.
 
 ### Configuration model
-- Config types live in `src/common/config/`.
+- Config types live in `synapse-common/src/config/` (the root crate's `src/common/config/` is a thin re-export).
 - Main config is file-based (`SYNAPSE_CONFIG_PATH`, default `homeserver.yaml`) with `SYNAPSE_` environment variable overrides using `__` for nesting.
 - Docker uses `docker/config/homeserver.yaml` and mounts `docker/config/rate_limit.yaml`.
 - Search must exist structurally in config; when Elasticsearch is not used it should still be explicitly disabled.
@@ -104,11 +110,11 @@ The codebase generally follows `route -> service -> storage`, with `AppState`/`S
 - The worker subsystem includes Redis bus support, replication protocol, health checking, and load balancing abstractions.
 
 ### Major feature domains
-- `src/e2ee/`: device keys, cross-signing, megolm/olm, verification, secure backup, to-device flows.
-- `src/federation/`: federation transport/auth logic plus friend-federation extensions.
-- `src/services/search_service.rs`: supports optional Elasticsearch as well as Postgres-backed search/FTS paths.
-- `src/services/room_service.rs`, `sync_service.rs`, `sliding_sync_service.rs`: core Matrix room and sync flows.
-- The repo also contains non-standard/private-chat extensions described in `README.md`, including trusted private chat, anti-screenshot signaling (`com.hula.privacy`), and burn-after-read behavior.
+- `synapse-e2ee/` (+ `src/e2ee/` glue): device keys, cross-signing, megolm/olm, verification, secure backup, to-device flows.
+- `synapse-federation/` (+ `src/federation/` friend-federation glue): federation transport/auth logic.
+- `synapse-services/src/search_service.rs`: supports optional Elasticsearch as well as Postgres-backed search/FTS paths.
+- `synapse-services/src/room/`, `src/sync/`, `src/sync_service/`, `src/sliding_sync_service/`: core Matrix room and sync flows.
+- The repo also contains non-standard/private-chat extensions described in `README.md`: trusted private chat (`preset=trusted_private_chat`), anti-screenshot signaling (`com.hula.privacy`), and burn-after-read (feature `core-private-chat = friends + burn-after-read`).
 
 ## Repo-specific guidance
 - Prefer existing migration/check scripts in `scripts/` and `docker/` over inventing new one-off commands.
