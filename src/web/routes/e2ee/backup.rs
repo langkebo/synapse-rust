@@ -41,26 +41,19 @@ pub(crate) async fn create_secure_backup(
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    // Support two modes:
-    // 1. Passphrase mode: { "passphrase": "..." } -> server derives key
-    // 2. Standard mode: { "algorithm": "...", "auth_data": {...} } -> client provides auth data
-    let passphrase = body.get("passphrase").and_then(|v| v.as_str());
+    // ISSUE-6.3: passphrase mode removed — the server must never receive the
+    // passphrase. Only the standard client-side-derived flow is supported:
+    // { "algorithm": "...", "auth_data": { "public_key": "..." } }
+    if body.get("passphrase").and_then(|v| v.as_str()).is_some() {
+        return Err(ApiError::bad_request(
+            "passphrase mode removed: derive the key client-side and provide 'algorithm'+'auth_data'".to_string(),
+        ));
+    }
+
     let algorithm = body.get("algorithm").and_then(|v| v.as_str());
     let auth_data_val = body.get("auth_data");
 
-    if let Some(passphrase) = passphrase {
-        // Passphrase mode: server derives key from passphrase
-        let response = ctx.secure_backup_service.create_backup(&auth_user.user_id, passphrase).await?;
-
-        Ok(Json(serde_json::json!({
-            "backup_id": response.backup_id,
-            "version": response.version,
-            "algorithm": response.algorithm,
-            "auth_data": response.auth_data,
-            "key_count": response.key_count
-        })))
-    } else if let (Some(algorithm), Some(auth_data_val)) = (algorithm, auth_data_val) {
-        // Standard mode: client provides algorithm and auth_data
+    if let (Some(algorithm), Some(auth_data_val)) = (algorithm, auth_data_val) {
         let response =
             ctx.secure_backup_service.create_backup_with_data(&auth_user.user_id, algorithm, auth_data_val).await?;
 
@@ -72,7 +65,7 @@ pub(crate) async fn create_secure_backup(
             "key_count": response.key_count
         })))
     } else {
-        Err(ApiError::bad_request("Either 'passphrase' or 'algorithm'+'auth_data' required".to_string()))
+        Err(ApiError::bad_request("'algorithm'+'auth_data' required".to_string()))
     }
 }
 
@@ -103,11 +96,7 @@ pub(crate) async fn store_secure_backup_keys(
     Path(backup_id): Path<String>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let passphrase = body
-        .get("passphrase")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("passphrase required".to_string()))?;
-
+    // ISSUE-6.3: session_key is client-side ciphertext (no passphrase, no server-side encryption).
     let session_keys = body
         .get("session_keys")
         .and_then(|v| v.as_array())
@@ -132,7 +121,7 @@ pub(crate) async fn store_secure_backup_keys(
         .unwrap_or_default();
 
     let key_count =
-        ctx.secure_backup_service.store_session_keys(&auth_user.user_id, &backup_id, passphrase, session_keys).await?;
+        ctx.secure_backup_service.store_session_keys(&auth_user.user_id, &backup_id, session_keys).await?;
 
     Ok(Json(serde_json::json!({
         "count": key_count,
@@ -147,32 +136,25 @@ pub(crate) async fn restore_secure_backup(
     Path(backup_id): Path<String>,
     MatrixJson(body): MatrixJson<RestoreSecureBackupRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let response =
-        ctx.secure_backup_service.restore_backup(&auth_user.user_id, &backup_id, &body.passphrase, body.rooms).await?;
+    // ISSUE-6.3: return ciphertext; the client decrypts locally with its recovery key.
+    let response = ctx.secure_backup_service.restore_backup(&auth_user.user_id, &backup_id, body.rooms).await?;
 
     Ok(Json(serde_json::json!({
-        "recovered_keys": response.recovered_keys,
-        "total_keys": response.total_keys
+        "total_keys": response.total_keys,
+        "sessions": response.sessions
     })))
 }
 
 #[axum::debug_handler]
 pub(crate) async fn verify_secure_backup_passphrase(
-    State(ctx): State<E2eeRoomContext>,
-    auth_user: AuthenticatedUser,
-    Path(backup_id): Path<String>,
-    MatrixJson(body): MatrixJson<Value>,
+    _state: State<E2eeRoomContext>,
+    _auth_user: AuthenticatedUser,
+    _path: Path<String>,
+    _body: MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let passphrase = body
-        .get("passphrase")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| ApiError::bad_request("passphrase required".to_string()))?;
-
-    let valid = ctx.secure_backup_service.verify_passphrase(&auth_user.user_id, &backup_id, passphrase).await?;
-
-    Ok(Json(serde_json::json!({
-        "valid": valid
-    })))
+    // ISSUE-6.3: passphrase verification is no longer possible server-side
+    // (the server has no key). Verify locally via CryptoApi instead.
+    Err(ApiError::gone("passphrase verification removed: verify client-side with the recovery key".to_string()))
 }
 
 #[axum::debug_handler]

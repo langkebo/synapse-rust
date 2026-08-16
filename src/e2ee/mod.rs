@@ -28,11 +28,10 @@ pub use backup::models::{
 };
 pub use backup::service::KeyBackupService;
 
-// Explicit exports for secure_backup (Phase 3)
+// Explicit exports for secure_backup (Phase 3, client-side encryption only)
 pub use secure_backup::models::{
-    BackupVersion as SecureBackupVersion, CreateSecureBackupRequest, KeyDerivationParams, RestoreResponse,
-    RestoreSecureBackupRequest, SecureBackupAuthData, SecureBackupInfo, SecureBackupResponse, SessionKeyData,
-    VerifyPassphraseRequest, VerifyPassphraseResponse,
+    BackupVersion as SecureBackupVersion, EncryptedSessionKey, RestoreResponse, RestoreSecureBackupRequest,
+    SecureBackupAuthData, SecureBackupInfo, SecureBackupResponse, SessionKeyData,
 };
 pub use secure_backup::service::SecureBackupService;
 // Explicit exports to avoid ambiguous glob re-exports

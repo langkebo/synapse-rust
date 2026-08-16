@@ -36,25 +36,15 @@ pub struct SessionKeyData {
     pub session_key: String, // Encrypted session key
 }
 
-/// Request to create a secure backup
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateSecureBackupRequest {
-    pub passphrase: String,
-    pub key_count: Option<i64>,
-}
-
-/// Request to restore from secure backup
+/// Request to restore from secure backup.
+///
+/// ISSUE-6.3: `passphrase` is no longer used — the server returns ciphertext and
+/// the client decrypts locally. Kept as optional (defaulted) for backward compat.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RestoreSecureBackupRequest {
-    pub passphrase: String,
+    #[serde(default)]
+    pub passphrase: Option<String>,
     pub rooms: Option<Vec<String>>,
-}
-
-/// Request to verify passphrase
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VerifyPassphraseRequest {
-    pub backup_id: String,
-    pub passphrase: String,
 }
 
 /// Response for secure backup operations
@@ -67,32 +57,22 @@ pub struct SecureBackupResponse {
     pub key_count: i64,
 }
 
-/// Response for restore operation
+/// Response for restore operation.
+///
+/// ISSUE-6.3: the server no longer decrypts session keys. `sessions` carries the
+/// client-side ciphertext so the client can decrypt locally with its recovery key.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RestoreResponse {
-    pub recovered_keys: i64,
     pub total_keys: i64,
+    pub sessions: Vec<EncryptedSessionKey>,
 }
 
-/// Response for passphrase verification
+/// A single encrypted session key returned to the client for local decryption.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VerifyPassphraseResponse {
-    pub valid: bool,
-}
-
-/// Key derivation params
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KeyDerivationParams {
-    pub salt: Vec<u8>,
-    pub iterations: i64,
-    pub memory_kb: i64,
-    pub parallelism: i64,
-}
-
-impl Default for KeyDerivationParams {
-    fn default() -> Self {
-        Self { salt: vec![0u8; 16], iterations: 500000, memory_kb: 65536, parallelism: 4 }
-    }
+pub struct EncryptedSessionKey {
+    pub room_id: String,
+    pub session_id: String,
+    pub session_key: String,
 }
 
 /// Backup version info
@@ -140,14 +120,5 @@ mod tests {
         assert_eq!(backup.user_id, "@user:example.com");
         assert_eq!(backup.algorithm, "m.megolm_backup.v1.secure");
         assert_eq!(backup.key_count, 0);
-    }
-
-    #[test]
-    fn test_key_derivation_params_default() {
-        let params = KeyDerivationParams::default();
-
-        assert_eq!(params.iterations, 500000);
-        assert_eq!(params.memory_kb, 65536);
-        assert_eq!(params.parallelism, 4);
     }
 }

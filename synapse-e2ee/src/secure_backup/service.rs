@@ -1,14 +1,7 @@
 // Secure Backup Service
-// E2EE Phase 3: Secure key backup with passphrase
+// E2EE Phase 3: Secure key backup (client-side encryption, ciphertext-at-rest only).
 
 use crate::secure_backup::models::*;
-use aes_gcm::{
-    aead::{Aead, KeyInit},
-    Aes256Gcm, Nonce,
-};
-use argon2::{Argon2, Params, Version};
-use base64::Engine;
-use rand::RngCore;
 use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::map_database;
@@ -22,57 +15,6 @@ pub struct SecureBackupService {
 impl SecureBackupService {
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
-    }
-
-    /// Create a secure backup with passphrase
-    pub async fn create_backup(&self, user_id: &str, passphrase: &str) -> Result<SecureBackupResponse, ApiError> {
-        // 1. Generate salt
-        let mut salt_bytes = [0u8; 16];
-        rand::rng().fill_bytes(&mut salt_bytes);
-        let salt = base64::engine::general_purpose::STANDARD.encode(salt_bytes);
-
-        // 2. Derive key using Argon2
-        let _key = Self::derive_key(passphrase, &salt_bytes, 500000)?;
-
-        // 3. Generate backup ID and version
-        let backup_id = uuid::Uuid::new_v4().to_string();
-        let version = chrono::Utc::now().timestamp().to_string();
-
-        // 4. Create auth data
-        let auth_data = SecureBackupAuthData {
-            salt: salt.clone(),
-            iterations: 500000,
-            backup_id: backup_id.clone(),
-            public_key: None,
-        };
-
-        // 5. Store backup metadata
-        sqlx::query(
-            r"
-            INSERT INTO secure_key_backups (user_id, backup_id, version, algorithm, auth_data, key_count)
-            VALUES ($1, $2, $3, $4, $5, 0)
-            ON CONFLICT (user_id, backup_id) DO UPDATE SET
-                version = EXCLUDED.version,
-                auth_data = EXCLUDED.auth_data,
-                updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
-            ",
-        )
-        .bind(user_id)
-        .bind(&backup_id)
-        .bind(&version)
-        .bind("m.megolm_backup.v1.secure")
-        .bind(serde_json::to_string(&auth_data).map_err(|e| ApiError::internal(e.to_string()))?)
-        .execute(&*self.pool)
-        .await
-        .map_err(map_database!("create_backup"))?;
-
-        Ok(SecureBackupResponse {
-            backup_id,
-            version,
-            algorithm: "m.megolm_backup.v1.secure".to_string(),
-            auth_data,
-            key_count: 0,
-        })
     }
 
     /// Create a secure backup with client-provided algorithm and auth_data
@@ -118,21 +60,19 @@ impl SecureBackupService {
         Ok(SecureBackupResponse { backup_id, version, algorithm: algorithm.to_string(), auth_data, key_count: 0 })
     }
 
-    /// Store encrypted session keys
+    /// Store encrypted session keys (client-side encrypted; server stores ciphertext only).
+    ///
+    /// ISSUE-6.3: the server no longer derives a key from a passphrase and never
+    /// encrypts/decrypts session keys. `SessionKeyData.session_key` is the
+    /// client-side ciphertext (m.megolm_backup.v1.curve25519-aes-sha2), stored verbatim.
     pub async fn store_session_keys(
         &self,
         user_id: &str,
         backup_id: &str,
-        passphrase: &str,
         session_keys: Vec<SessionKeyData>,
     ) -> Result<i64, ApiError> {
-        // 1. Get backup auth data
-        let auth_data_str: Option<String> = sqlx::query_scalar::<_, String>(
-            r"
-            SELECT auth_data
-            FROM secure_key_backups
-            WHERE user_id = $1 AND backup_id = $2
-            ",
+        let exists: Option<i64> = sqlx::query_scalar::<_, i64>(
+            r"SELECT 1 FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
         )
         .bind(user_id)
         .bind(backup_id)
@@ -140,16 +80,10 @@ impl SecureBackupService {
         .await
         .map_err(map_database!("store_session_keys"))?;
 
-        let auth_data_str = auth_data_str.ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
+        if exists.is_none() {
+            return Err(ApiError::not_found("Backup not found".to_string()));
+        }
 
-        let auth_data: SecureBackupAuthData = serde_json::from_str(&auth_data_str).map_err(map_database!("Invalid auth data"))?;
-
-        // 2. Derive key
-        let salt_bytes = base64::engine::general_purpose::STANDARD.decode(&auth_data.salt).map_err(map_database!("Invalid salt"))?;
-
-        let key = Self::derive_key(passphrase, &salt_bytes, auth_data.iterations)?;
-
-        // 3. Encrypt all session keys, then store in a single batch INSERT
         if session_keys.is_empty() {
             return Ok(0);
         }
@@ -158,12 +92,11 @@ impl SecureBackupService {
         let mut sids: Vec<&str> = Vec::with_capacity(session_keys.len());
         let mut encrypted_keys: Vec<String> = Vec::with_capacity(session_keys.len());
 
+        // session_key is already client-side ciphertext — store verbatim, no key derivation.
         for session_key in &session_keys {
-            let encrypted = Self::encrypt_aes_gcm(&key, session_key.session_key.as_bytes())?;
-            let encrypted_b64 = base64::engine::general_purpose::STANDARD.encode(&encrypted);
             room_ids.push(&session_key.room_id);
             sids.push(&session_key.session_id);
-            encrypted_keys.push(encrypted_b64);
+            encrypted_keys.push(session_key.session_key.clone());
         }
 
         let key_count = session_keys.len() as i64;
@@ -185,7 +118,6 @@ impl SecureBackupService {
         .await
         .map_err(map_database!("store_session_keys"))?;
 
-        // 4. Update backup key count
         sqlx::query(
             "UPDATE secure_key_backups SET key_count = key_count + $1,
              updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
@@ -206,29 +138,19 @@ impl SecureBackupService {
         &self,
         user_id: &str,
         backup_id: &str,
-        passphrase: &str,
         rooms: Option<Vec<String>>,
     ) -> Result<RestoreResponse, ApiError> {
-        // 1. Get backup auth data
-        let row: (String, i64) =
-            sqlx::query_as("SELECT auth_data, key_count FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2")
-                .bind(user_id)
-                .bind(backup_id)
-                .fetch_one(&*self.pool)
-                .await
-                .map_err(|_| ApiError::not_found("Backup not found".to_string()))?;
+        let total_keys: i64 = sqlx::query_scalar(
+            "SELECT key_count FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
+        )
+        .bind(user_id)
+        .bind(backup_id)
+        .fetch_one(&*self.pool)
+        .await
+        .map_err(|_| ApiError::not_found("Backup not found".to_string()))?;
 
-        let auth_data_str = row.0;
-        let total_keys = row.1;
-
-        let auth_data: SecureBackupAuthData = serde_json::from_str(&auth_data_str).map_err(map_database!("Invalid auth data"))?;
-
-        // 2. Derive key
-        let salt_bytes = base64::engine::general_purpose::STANDARD.decode(&auth_data.salt).map_err(map_database!("Invalid salt"))?;
-
-        let key = Self::derive_key(passphrase, &salt_bytes, auth_data.iterations)?;
-
-        // 3. Get all encrypted session keys
+        // Return ciphertext only; the client decrypts locally with its recovery key.
+        // The server never derives a key or decrypts session keys.
         let encrypted_keys: Vec<(String, String, String)> = sqlx::query_as(
             "SELECT room_id, session_id, encrypted_key FROM secure_backup_session_keys
              WHERE user_id = $1 AND backup_id = $2",
@@ -237,39 +159,19 @@ impl SecureBackupService {
         .bind(backup_id)
         .fetch_all(&*self.pool)
         .await
-        .map_err(map_database!("restore_backup"))?
-        .into_iter()
-        .collect();
+        .map_err(map_database!("restore_backup"))?;
 
         let allowed_rooms = rooms.map(|room_ids| room_ids.into_iter().collect::<std::collections::HashSet<_>>());
 
-        // 4. Decrypt session keys
-        let mut restored_count = 0i64;
-        for (room_id, _session_id, encrypted_b64) in encrypted_keys {
-            if let Some(allowed_rooms) = &allowed_rooms {
-                if !allowed_rooms.contains(&room_id) {
-                    continue;
-                }
-            }
+        let sessions = encrypted_keys
+            .into_iter()
+            .filter(|(room_id, _session_id, _encrypted)| {
+                allowed_rooms.as_ref().map(|a| a.contains(room_id)).unwrap_or(true)
+            })
+            .map(|(room_id, session_id, session_key)| EncryptedSessionKey { room_id, session_id, session_key })
+            .collect();
 
-            match base64::engine::general_purpose::STANDARD.decode(&encrypted_b64) {
-                Ok(encrypted) => {
-                    if Self::decrypt_aes_gcm(&key, &encrypted).is_ok() {
-                        restored_count += 1;
-                    }
-                }
-                Err(_) => continue,
-            }
-        }
-
-        Ok(RestoreResponse { recovered_keys: restored_count, total_keys })
-    }
-
-    /// Verify passphrase
-    pub async fn verify_passphrase(&self, user_id: &str, backup_id: &str, passphrase: &str) -> Result<bool, ApiError> {
-        // Try to restore - if successful, passphrase is valid
-        let result = self.restore_backup(user_id, backup_id, passphrase, None).await?;
-        Ok(result.recovered_keys > 0)
+        Ok(RestoreResponse { total_keys, sessions })
     }
 
     /// Get backup info
@@ -351,54 +253,6 @@ impl SecureBackupService {
 
         Ok(())
     }
-
-    // =====================================================
-    // Private helper methods
-    // =====================================================
-
-    pub(crate) fn derive_key(passphrase: &str, salt: &[u8], _iterations: i64) -> Result<[u8; 32], ApiError> {
-        let params = Params::new(65536, 3, 4, Some(32)).map_err(map_database!("Argon2 params error"))?;
-
-        let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
-
-        let mut key = [0u8; 32];
-        argon2.hash_password_into(passphrase.as_bytes(), salt, &mut key).map_err(map_database!("Key derivation error"))?;
-
-        Ok(key)
-    }
-
-    pub(crate) fn encrypt_aes_gcm(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, ApiError> {
-        let cipher = Aes256Gcm::new_from_slice(key).map_err(map_database!("Cipher error"))?;
-
-        // Generate random nonce
-        let mut nonce_bytes = [0u8; 12];
-        rand::rng().fill_bytes(&mut nonce_bytes);
-        let nonce = Nonce::from_slice(&nonce_bytes);
-
-        // Encrypt
-        let ciphertext = cipher.encrypt(nonce, plaintext).map_err(map_database!("Encryption error"))?;
-
-        // Prepend nonce to ciphertext
-        let mut result = nonce_bytes.to_vec();
-        result.extend(ciphertext);
-
-        Ok(result)
-    }
-
-    pub(crate) fn decrypt_aes_gcm(key: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>, ApiError> {
-        if ciphertext.len() < 12 {
-            return Err(ApiError::internal("Ciphertext too short".to_string()));
-        }
-
-        let cipher = Aes256Gcm::new_from_slice(key).map_err(map_database!("Cipher error"))?;
-
-        let nonce = Nonce::from_slice(&ciphertext[..12]);
-        let encrypted = &ciphertext[12..];
-
-        cipher
-            .decrypt(nonce, encrypted)
-            .map_err(|_| ApiError::unauthorized("Decryption failed - invalid passphrase".to_string()))
-    }
 }
 
 // SQLx row type
@@ -409,65 +263,4 @@ struct SqlxSecureBackup {
     algorithm: String,
     auth_data: String,
     key_count: i64,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn encrypt_aes_gcm_produces_output_longer_than_input() {
-        let key = [0xABu8; 32];
-        let plaintext = b"hello world";
-        let encrypted = SecureBackupService::encrypt_aes_gcm(&key, plaintext).unwrap();
-        // 12-byte nonce + ciphertext + 16-byte tag
-        assert!(encrypted.len() > plaintext.len());
-        assert_eq!(encrypted.len(), 12 + plaintext.len() + 16);
-    }
-
-    #[test]
-    fn encrypt_decrypt_roundtrip() {
-        let key = [0x42u8; 32];
-        let plaintext = b"secret session key data";
-        let encrypted = SecureBackupService::encrypt_aes_gcm(&key, plaintext).unwrap();
-        let decrypted = SecureBackupService::decrypt_aes_gcm(&key, &encrypted).unwrap();
-        assert_eq!(decrypted, plaintext);
-    }
-
-    #[test]
-    fn decrypt_with_wrong_key_fails() {
-        let key = [0x11u8; 32];
-        let wrong_key = [0x22u8; 32];
-        let plaintext = b"test data";
-        let encrypted = SecureBackupService::encrypt_aes_gcm(&key, plaintext).unwrap();
-        let result = SecureBackupService::decrypt_aes_gcm(&wrong_key, &encrypted);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn decrypt_too_short_ciphertext() {
-        let key = [0x33u8; 32];
-        let result = SecureBackupService::decrypt_aes_gcm(&key, b"short");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn encrypt_empty_plaintext() {
-        let key = [0x55u8; 32];
-        let encrypted = SecureBackupService::encrypt_aes_gcm(&key, b"").unwrap();
-        // 12-byte nonce + 16-byte tag
-        assert_eq!(encrypted.len(), 28);
-        let decrypted = SecureBackupService::decrypt_aes_gcm(&key, &encrypted).unwrap();
-        assert!(decrypted.is_empty());
-    }
-
-    #[test]
-    fn encrypt_different_nonce_each_time() {
-        let key = [0x77u8; 32];
-        let plaintext = b"same data";
-        let enc1 = SecureBackupService::encrypt_aes_gcm(&key, plaintext).unwrap();
-        let enc2 = SecureBackupService::encrypt_aes_gcm(&key, plaintext).unwrap();
-        // Same plaintext, same key, but different nonce → different ciphertext
-        assert_ne!(enc1, enc2);
-    }
 }
