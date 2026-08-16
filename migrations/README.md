@@ -21,6 +21,23 @@ migrations/
 
 > v8 系列已归档至 `archive/`，不再作为活跃迁移链路。新环境应使用 v10 基线建库。
 
+## 新增迁移流程（务必同步折入 baseline）
+
+`build_sqlx_migration_source.py` 生成的 forward-only source 只含 baseline +
+extension（CI 用它建库），因此**每次新增时间戳迁移后，必须把幂等的增量变更
+（新表/新列/新索引，须用 `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`）同步
+折入 `00000000_unified_schema_v10.sql` 尾部**，否则 CI 的 DB 会缺表/列/索引。
+
+提交前请运行一致性检查：
+
+```bash
+python3 scripts/check_baseline_consolidation.py
+```
+
+历史上曾漏吸收 10 个迁移（federation_dead_letter_queue、login_tokens、
+saml_pending_requests、room_event_txn_dedup 等，commit 2d453089/bf85f23f 已折入），
+此检查脚本即为防止复发而设。
+
 ## 已知死表（待 baseline 重构清理）
 
 v10 baseline 仍包含 `openclaw_connections` / `ai_conversations` / `ai_connections`
