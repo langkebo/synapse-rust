@@ -3,6 +3,8 @@
 > 自动生成于 2026-08-16，源 = `src/web/routes/**` 真实 `.route()` 注册面 + 各模块 `*_route_manifest()` 覆盖情况。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `src/web/routes/route_ledger.rs` 与各模块 manifest，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
+>
+> **2026-08-17 增补（人工维护，不随自动生成覆盖）**：新增「附录 A — 前端裸调→SDK 迁移专项契约」，基于 `src/web/routes/handlers/**` 与各 route handler 实读，补全路由面之外的**请求/响应 wire-format** 与已知漂移（含 1 处路由已注册但 manifest 缺失的偏差）。
 
 ## 总览
 
@@ -782,6 +784,7 @@
 - `POST` `/keys/signatures/upload`
 - `POST` `/keys/upload`
 - `POST` `/keys/upload/{device_id}`
+- `GET` `/room_keys/request`
 - `POST` `/room_keys/request`
 - `PUT` `/sendToDevice/{event_type}/{transaction_id}`
 
@@ -1207,7 +1210,7 @@
 
 ### 验证码 (Captcha) （8 条）
 
-#### `captcha.rs` — 8 条 ✅manifest
+#### `captcha.rs` — 8 条（manifest 曾漏 1 条 client DELETE，已于 2026-08-17 补回，现一致 ✅）
 
 - `DELETE` `/_matrix/client/v3/register/captcha/clean`
 - `GET` `/_matrix/client/r0/register/captcha/status`
@@ -1219,4 +1222,74 @@
 - `POST` `/_synapse/admin/v1/captcha/cleanup`
 
 ---
-*本文件由 `artifacts/extract_registered.py` + `gen_contract_doc.py` 生成。路由面随代码变化，请定期重新生成。*
+## 附录 A — 前端裸调→SDK 迁移专项契约（基于 handler 实读，2026-08-17）
+
+> 本附录为人工维护，补充自动生成路由面之外的**请求/响应 wire-format** 与已知漂移；重新生成脚本不覆盖本段。
+> 实读源：`src/web/routes/handlers/room/members.rs`、`src/web/routes/oidc/provider.rs`、`src/web/routes/captcha.rs`、`src/web/routes/e2ee/{keys.rs,devices.rs}`。
+
+### A.1 本次迁移涉及的 6 个端点（已迁 Tjg 前端裸调 → SDK Manager 方法）
+
+#### 1. `POST /knock/{room_id_or_alias}`
+- **注册**：`room.rs` manifest ✅（路径 `POST /knock/{room_id_or_alias}`，位于 `/_matrix/client/v3`）
+- **Handler**：`handlers/room/members.rs::knock_room`（L130）
+- **请求**：path 取 `room_id_or_alias`（支持 `!room`、`#alias`、裸 alias→`#alias:server`）；**body 仅读 `reason`（可选）**；`via` / `server_name` **完全忽略**（不读、不传 federation）
+- **响应**：`{ "room_id": "<resolved room id>" }`
+- **迁移结论**：matrix-js-sdk `knockRoom()` 把 `viaServers` 作为 **query 参数** 发送，后端忽略；原裸调把 `via` 放 body 同样被忽略 → 迁移无回归。⚠️ knock 的 via 服务器路由本就不生效（后端不消费）。
+
+#### 2. `POST /join/{room_id_or_alias}`
+- **注册**：`room.rs` manifest ✅
+- **Handler**：`handlers/room/members.rs::join_room_by_id_or_alias`（L29）
+- **请求**：path 取 `room_id_or_alias`；**body 仅读 `via_servers`（数组）**；`reason`、`third_party_signed`、`server_name` **均不读/不使用**
+- **响应**：`{ "room_id": "<resolved room id>" }`
+- **🔴 已知历史 bug（与本次迁移无关）**：原前端裸调发送 `server_name`（body），与后端期望的 `via_servers` 键不匹配 → `via_servers` 始终为空；matrix-js-sdk `joinRoom()` 把 `viaServers` 作为 query 参数发送，同样被后端忽略 → 迁移前后行为等价（均为空）。要真正修复 via 路由需前后端协同（前端改发 `via_servers` body 字段，或后端改读 query）。
+
+#### 3. `POST /_matrix/client/v3/oidc/logout`
+- **注册**：`oidc/mod.rs` manifest ✅（r0 + v3）
+- **Handler**：`oidc/provider.rs::oidc_logout`（L340）
+- **请求**：body `OidcLogoutRequest { device_id?, refresh_token? }`，二者均可选；空 `{}` 合法
+- **响应**：`{ "success": true }`
+- **迁移结论**：SDK `OidcManager.logout()` POST `/oidc/logout` body `{}` → 命中，返回 boolean。✅
+
+#### 4. `DELETE /_matrix/client/v3/register/captcha/clean`
+- **注册**：路由树已注册（`captcha.rs` L121）且 **已纳入 `captcha_route_manifest()`**（漂移已于 2026-08-17 修复）
+- **Handler**：`captcha.rs::cleanup_expired`（L99）
+- **请求**：无 body / 无 query（名义 AdminContext，实际为 client 公开 DELETE 路由，未强制 admin）
+- **响应**：`{ "cleaned_count": <number>, "message": "Cleaned up N expired captchas" }`
+- **迁移结论**：SDK `CaptchaManager.deleteExpiredCaptchas()` → `DELETE /_matrix/client/v3/register/captcha/clean`，返回 `CaptchaCleanupResponse { cleaned_count, message }`。✅ 注意字段是 `cleaned_count`（**非** `cleaned`）。
+
+#### 5. `GET /_matrix/client/{r0,v1,v3}/room_keys/request`
+- **注册**：`e2ee/keys.rs` manifest ✅（本文档 E2EE 节原漏列 GET，已补）
+- **Handler**：`e2ee/devices.rs::get_room_key_requests`（L308）
+- **请求**：**query 参数** `limit`（默认 100，clamp 1–1000）、`from`（cursor）、`status`、`room_id`、`session_id`
+- **响应（⚠️ 包裹结构）**：`{ "requests": [ …RoomKeyRequest… ], "next_batch": <cursor|null> }`
+- **🔴 SDK 类型陷阱**：`E2EEManager.listRoomKeyRequests()` 的 `.d.ts` 声明为 `Promise<RoomKeyRequestResponse[]>`，但运行时返回上述原始 body（**包裹对象**）。调用方**必须解包 `.requests ?? []`**，否则会把对象当数组返回。Tjg `MatrixDeviceService.getRoomKeyRequests()` 已修复并新增 3 个回归测试。
+
+#### 6. `DELETE /_matrix/client/{r0,v1,v3}/room_keys/request/{request_id}`
+- **注册**：`e2ee/keys.rs` manifest ✅
+- **Handler**：`e2ee/devices.rs::delete_room_key_request`（L345）
+- **请求**：`request_id` 取 path（SDK 侧 `encodeURIComponent`）
+- **响应**：`{}`（empty）
+- **迁移结论**：SDK `E2EEManager.deleteRoomKeyRequest(id)` → 命中。✅
+
+### A.2 路径一致性复核（迁移安全性）
+
+| # | SDK 方法 | 实际请求路径 | 后端注册 | 结论 |
+|---|---|---|---|---|
+| 1 | `RoomManager.knockRoom()` | `POST /_matrix/client/v3/knock/{id}` | ✅ `room.rs` | 命中 |
+| 2 | `RoomManager.joinRoom()` | `POST /_matrix/client/v3/join/{id}` | ✅ `room.rs` | 命中 |
+| 3 | `OidcManager.logout()` | `POST /_matrix/client/v3/oidc/logout` | ✅ `oidc/mod.rs` | 命中 |
+| 4 | `CaptchaManager.deleteExpiredCaptchas()` | `DELETE /_matrix/client/v3/register/captcha/clean` | ✅ `captcha.rs`（漂移已修复） | 命中 |
+| 5 | `E2EEManager.listRoomKeyRequests()` | `GET /_matrix/client/v3/room_keys/request` | ✅ `e2ee/keys.rs` | 命中（须解包 `.requests`） |
+| 6 | `E2EEManager.deleteRoomKeyRequest(id)` | `DELETE /_matrix/client/v3/room_keys/request/{id}` | ✅ `e2ee/keys.rs` | 命中 |
+
+- 6 个端点 SDK 调用路径均与后端**已注册路由**一致，**无 404 风险**。
+- 唯一硬伤（#5 包裹解包）已在 Tjg 侧修复（工作区，未提交），并新增 3 个回归测试锁住数组形状。
+- #2 `via_servers` 为历史 bug，迁移前后行为等价，建议单独立项前后端协同修复。
+
+### A.3 已知漂移（manifest vs 路由树）
+
+- `captcha_route_manifest()`（`captcha.rs` L135–L147）**曾缺少** `DELETE /_matrix/client/v3/register/captcha/clean`：该路由已在 `create_captcha_router()`（L121）注册，但 manifest 仅列 7 条（6 client + 1 admin），漏了这条 client DELETE。后果：`route_ledger` 启动校验与集成测试 `api_route_ledger_tests.rs` 的 PATCH 探测**不覆盖**该端点。**已于 2026-08-17 修复**——已在 manifest 中补 `(Method::DELETE, ".../v3/register/captcha/clean")`，现为 8 条（7 client + 1 admin），与路由树、本文档三者一致。（本文档由路由树生成，始终已正确列出该路由。）
+
+---
+
+*本文件由 `artifacts/extract_registered.py` + `gen_contract_doc.py` 生成。路由面随代码变化，请定期重新生成。附录 A 为人工维护增补。*

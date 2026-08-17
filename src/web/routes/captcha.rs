@@ -142,6 +142,7 @@ pub fn captcha_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEn
         (Method::POST, "/_matrix/client/v3/register/captcha/send"),
         (Method::POST, "/_matrix/client/v3/register/captcha/verify"),
         (Method::GET, "/_matrix/client/v3/register/captcha/status"),
+        (Method::DELETE, "/_matrix/client/v3/register/captcha/clean"),
         (Method::POST, "/_synapse/admin/v1/captcha/cleanup"),
     ]
     .into_iter()
