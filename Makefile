@@ -3,7 +3,7 @@
 
 .PHONY: help migrate migrate-check migrate-undo migrate-status migrate-baseline migrate-audit
 .PHONY: test test-unit test-integration test-all test-fast test-coverage test-coverage-check test-mutation test-mutation-incremental
-.PHONY: lint fmt format format-check format-install format-audit format-cycle check route-lint
+.PHONY: lint fmt format format-check format-install format-audit format-cycle check route-lint route-contract-check
 .PHONY: build build-release
 
 MUTATION_BATCH_FILES ?= src/web/routes/extractors/pagination.rs src/web/routes/extractors/json.rs src/services/media/mod.rs src/web/middleware/security.rs
@@ -197,6 +197,13 @@ route-lint:
 	@echo "Checking route layering..."
 	@bash scripts/quality/check_route_layering.sh
 
+# Route Contract Drift Gate (防漂移门禁)
+# 重生成 docs/synapse-rust/ROUTE_CONTRACT.md 并与已提交版本做归一化比对，
+# 结构性漂移即失败。对应 CI: .github/workflows/route-contract-gate.yml
+route-contract-check:
+	@echo "Checking ROUTE_CONTRACT.md against source route surface..."
+	@bash scripts/contract/check_route_contract.sh
+
 # Schema health check (M-3 CI 强制门禁)
 # 默认：报告状态但允许失败（开发环境）
 # 设 STRICT=1 在 CI 中以严格模式运行
@@ -213,7 +220,7 @@ ci-schema-health-check:
 	@echo "Running CI schema health check (start temp DB if needed)..."
 	@bash scripts/ci_schema_health_check.sh
 
-check: fmt lint
+check: fmt lint route-contract-check
 	@echo "Running all checks..."
 	@cargo check --all-features --locked
 

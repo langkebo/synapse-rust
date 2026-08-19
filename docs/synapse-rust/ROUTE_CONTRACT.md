@@ -1,10 +1,8 @@
 # synapse-rust 路由契约（Route Contract）
 
-> 自动生成于 2026-08-16，源 = `src/web/routes/**` 真实 `.route()` 注册面 + 各模块 `*_route_manifest()` 覆盖情况。
+> 自动生成于 2026-08-19，源 = `src/web/routes/**` 真实 `.route()` 注册面 + 各模块 `*_route_manifest()` 覆盖情况。
 >
 > 本文件是后端 HTTP 契约的**事实来源之一**（机器侧权威为 `src/web/routes/route_ledger.rs` 与各模块 manifest，启动时校验、集成测试 PATCH 探测）。人工文档（INDEX.md / API_COVERAGE_REPORT.md）须与之保持一致。
->
-> **2026-08-17 增补（人工维护，不随自动生成覆盖）**：新增「附录 A — 前端裸调→SDK 迁移专项契约」，基于 `src/web/routes/handlers/**` 与各 route handler 实读，补全路由面之外的**请求/响应 wire-format** 与已知漂移（含 1 处路由已注册但 manifest 缺失的偏差）。
 
 ## 总览
 
@@ -784,7 +782,6 @@
 - `POST` `/keys/signatures/upload`
 - `POST` `/keys/upload`
 - `POST` `/keys/upload/{device_id}`
-- `GET` `/room_keys/request`
 - `POST` `/room_keys/request`
 - `PUT` `/sendToDevice/{event_type}/{transaction_id}`
 
@@ -1210,7 +1207,7 @@
 
 ### 验证码 (Captcha) （8 条）
 
-#### `captcha.rs` — 8 条（manifest 曾漏 1 条 client DELETE，已于 2026-08-17 补回，现一致 ✅）
+#### `captcha.rs` — 8 条 ✅manifest
 
 - `DELETE` `/_matrix/client/v3/register/captcha/clean`
 - `GET` `/_matrix/client/r0/register/captcha/status`
@@ -1221,6 +1218,8 @@
 - `POST` `/_matrix/client/v3/register/captcha/verify`
 - `POST` `/_synapse/admin/v1/captcha/cleanup`
 
+---
+*本文件由 `scripts/contract/extract_registered.py` + `gen_contract_doc.py` 生成。路由面随代码变化，请定期重新生成（或运行 `make route-contract-check` / CI `route-contract-gate` 门禁）。*
 ---
 ## 附录 A — 前端裸调→SDK 迁移专项契约（基于 handler 实读，2026-08-17）
 

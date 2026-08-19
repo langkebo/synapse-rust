@@ -1,0 +1,42 @@
+name: Route Contract Drift Gate
+
+# Detects drift between docs/synapse-rust/ROUTE_CONTRACT.md and the real route
+# surface in src/web/routes/**. The doc is auto-generated; if a route change is
+# merged without regenerating the doc, this gate fails and blocks the merge.
+#
+# Local equivalent: `make route-contract-check` (scripts/contract/check_route_contract.sh)
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/web/routes/**'
+      - 'docs/synapse-rust/ROUTE_CONTRACT.md'
+      - 'scripts/contract/**'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'src/web/routes/**'
+      - 'docs/synapse-rust/ROUTE_CONTRACT.md'
+      - 'scripts/contract/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  route-contract-drift:
+    name: Route Contract Drift Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check ROUTE_CONTRACT.md against source route surface
+        run: |
+          bash scripts/contract/check_route_contract.sh
