@@ -8,12 +8,18 @@ on:
     paths:
       - 'migrations/**/*.sql'
       - 'scripts/**'
+      - 'src/web/routes/**'
+      - 'docs/synapse-rust/ROUTE_CONTRACT.md'
+      - 'scripts/contract/**'
   pull_request:
     branches:
       - main
     paths:
       - 'migrations/**/*.sql'
       - 'scripts/**'
+      - 'src/web/routes/**'
+      - 'docs/synapse-rust/ROUTE_CONTRACT.md'
+      - 'scripts/contract/**'
 
 env:
   FLYWAY_DB_HOST: ${{ vars.PGHOST || 'localhost' }}
@@ -23,8 +29,35 @@ env:
   FLYWAY_DB_PASSWORD: ${{ secrets.PGPASSWORD || 'synapse' }}
 
 jobs:
+  # Detect which path groups changed so each drift job only runs when relevant,
+  # avoiding the heavy migration/perf jobs on pure route-contract changes.
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      migrations: ${{ steps.filter.outputs.migrations }}
+      contract: ${{ steps.filter.outputs.contract }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            migrations:
+              - 'migrations/**/*.sql'
+              - 'scripts/**'
+            contract:
+              - 'src/web/routes/**'
+              - 'docs/synapse-rust/ROUTE_CONTRACT.md'
+              - 'scripts/contract/**'
+
   drift-detection:
     name: Schema Drift Detection
+    needs: changes
+    if: needs.changes.outputs.migrations == 'true'
     runs-on: ubuntu-latest
 
     services:
@@ -113,6 +146,8 @@ jobs:
 
   migration-validation:
     name: Migration Script Validation
+    needs: changes
+    if: needs.changes.outputs.migrations == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -240,6 +275,8 @@ jobs:
 
   performance-baseline:
     name: Migration Performance Baseline
+    needs: changes
+    if: needs.changes.outputs.migrations == 'true'
     runs-on: ubuntu-latest
 
     services:
@@ -348,3 +385,24 @@ jobs:
       - name: Cleanup test data
         run: |
           PGPASSWORD=synapse psql -h localhost -U synapse -d synapse -c "DROP TABLE IF EXISTS test_events;"
+
+  # Route Contract Drift Gate: regenerates docs/synapse-rust/ROUTE_CONTRACT.md from
+  # the real route surface (src/web/routes/**) and fails if the committed doc drifted.
+  # Local equivalent: `make route-contract-check` (scripts/contract/check_route_contract.sh)
+  route-contract-drift:
+    name: Route Contract Drift Check
+    needs: changes
+    if: needs.changes.outputs.contract == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Check ROUTE_CONTRACT.md against source route surface
+        run: |
+          bash scripts/contract/check_route_contract.sh
