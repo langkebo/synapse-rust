@@ -1,3 +1,4 @@
+use crate::common::error::MatrixErrorCode;
 use crate::common::ApiError;
 use crate::web::routes::extractors::auth::AuthenticatedUser;
 use crate::web::utils::auth::resolve_request_id;
@@ -136,6 +137,41 @@ pub(crate) async fn create_room(
         .get("room_type")
         .and_then(|v| v.as_str())
         .or_else(|| body.get("creation_content").and_then(|cc| cc.get("type")).and_then(|v| v.as_str()));
+
+    // 同名防重（前端创建群/空间时的"确认继续"由 ignore_duplicate_name 逃生阀支持）：
+    // 用户在已有同名群/空间时再次创建会产生视觉上的"重复项"，这里在服务端统一拦截。
+    // - 普通房间/群：按用户已加入的同名群查重（search_rooms_for_user 只查该用户自己的房间）
+    // - 空间：按同名空间查重（search_spaces 限定该用户）
+    // 命中时返回 409 M_ROOM_IN_USE，前端捕获后自行查询本地同名群数量并弹窗让用户选择
+    // "仍然创建"（重发时带 ignore_duplicate_name: true）。
+    let ignore_duplicate = body.get("ignore_duplicate_name").and_then(|v| v.as_bool()).unwrap_or(false);
+    if let Some(room_name) = name.filter(|n| !n.trim().is_empty()) {
+        if !ignore_duplicate {
+            let is_space = room_type == Some("m.space");
+            let has_duplicate = if is_space {
+                ctx.space_service
+                    .search_spaces(room_name, 20, Some(user_id))
+                    .await
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|s| s.name.as_deref() == Some(room_name))
+            } else {
+                ctx.search_service
+                    .search_rooms_for_user(user_id, room_name, 20)
+                    .await
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|r| r.name.as_deref() == Some(room_name))
+            };
+
+            if has_duplicate {
+                return Err(ApiError::conflict_with(
+                    MatrixErrorCode::RoomInUse,
+                    format!("Room name '{room_name}' is already in use"),
+                ));
+            }
+        }
+    }
 
     let is_direct = body.get("is_direct").and_then(|v| v.as_bool());
     let room_version = body.get("room_version").and_then(|v| v.as_str()).map(str::to_owned);
