@@ -1291,4 +1291,4 @@
 
 ---
 
-*本文件由 `artifacts/extract_registered.py` + `gen_contract_doc.py` 生成。路由面随代码变化，请定期重新生成。附录 A 为人工维护增补。*
+*本文件由 `scripts/contract/extract_registered.py` + `gen_contract_doc.py` 生成。路由面随代码变化，请定期重新生成。附录 A 为人工维护增补。*
