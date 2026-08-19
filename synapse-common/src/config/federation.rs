@@ -9,8 +9,7 @@ use std::path::PathBuf;
 /// 联邦配置。
 ///
 /// 配置与其他 Matrix 服务器的联邦通信参数。
-#[derive(Clone, Deserialize, Default)]
-#[derive(derivative::Derivative)]
+#[derive(Clone, Deserialize, Default, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct FederationConfig {
     /// 是否启用联邦功能
@@ -349,8 +348,7 @@ mod tests {
 
     #[test]
     fn federation_rate_limit_fail_open_explicit_opt_in() {
-        let config: FederationRateLimitConfig =
-            serde_json::from_str(r#"{"fail_open_on_error": true}"#).unwrap();
+        let config: FederationRateLimitConfig = serde_json::from_str(r#"{"fail_open_on_error": true}"#).unwrap();
         assert!(config.fail_open_on_error, "显式配置 true 时必须生效（放行）");
     }
 }

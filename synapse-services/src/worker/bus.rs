@@ -102,7 +102,9 @@ impl WorkerBus {
             subscribed_channels: Arc::new(RwLock::new(Vec::new())),
             sub_command_tx,
             sub_command_rx: std::sync::Mutex::new(Some(sub_command_rx)),
-            failed_publishes: Arc::new(RwLock::new(std::collections::VecDeque::with_capacity(FAILED_PUBLISH_RING_SIZE))),
+            failed_publishes: Arc::new(RwLock::new(std::collections::VecDeque::with_capacity(
+                FAILED_PUBLISH_RING_SIZE,
+            ))),
         }
     }
 
@@ -389,14 +391,9 @@ impl WorkerBus {
                 let mut last_err: Option<String> = None;
                 for attempt in 1..=MAX_ATTEMPTS {
                     let attempt_result: Result<(), String> = async {
-                        let mut conn = pool
-                            .get()
-                            .await
-                            .map_err(|e| format!("get connection: {e}"))?;
+                        let mut conn = pool.get().await.map_err(|e| format!("get connection: {e}"))?;
                         use redis::AsyncCommands;
-                        conn.publish::<_, _, ()>(&full_channel, &encoded)
-                            .await
-                            .map_err(|e| format!("publish: {e}"))
+                        conn.publish::<_, _, ()>(&full_channel, &encoded).await.map_err(|e| format!("publish: {e}"))
                     }
                     .await;
 
@@ -411,10 +408,7 @@ impl WorkerBus {
                             );
                             last_err = Some(e);
                             if attempt < MAX_ATTEMPTS {
-                                tokio::time::sleep(std::time::Duration::from_millis(
-                                    100 * (1 << (attempt - 1)),
-                                ))
-                                .await;
+                                tokio::time::sleep(std::time::Duration::from_millis(100 * (1 << (attempt - 1)))).await;
                             }
                         }
                     }
@@ -643,14 +637,10 @@ impl WorkerBus {
         let redis_pool = self.redis_pool.read().await;
         let pool = redis_pool.as_ref().ok_or_else(|| ApiError::internal("Redis not connected"))?;
 
-        let mut conn = pool
-            .get()
-            .await
-            .map_err(|e| ApiError::internal_with_context("Redis pool error", &e))?;
+        let mut conn = pool.get().await.map_err(|e| ApiError::internal_with_context("Redis pool error", &e))?;
 
         use redis::AsyncCommands;
-        conn
-            .publish::<_, _, ()>(full_channel, payload)
+        conn.publish::<_, _, ()>(full_channel, payload)
             .await
             .map_err(|e| ApiError::internal_with_context("Redis publish failed", &e))?;
 

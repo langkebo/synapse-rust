@@ -474,10 +474,7 @@ async fn test_to_device_messages_ordered_by_stream_id() {
     let device_id = "ALICEDEVICE";
 
     // Create the device first, otherwise add_message would skip it
-    DeviceStorage::new(&pool)
-        .create_device(device_id, user_id, Some("Alice phone"))
-        .await
-        .unwrap();
+    DeviceStorage::new(&pool).create_device(device_id, user_id, Some("Alice phone")).await.unwrap();
 
     // Insert messages with out-of-order stream_ids to simulate concurrent
     // or reordered insertion. Direct SQL bypasses nextval() to create a
@@ -508,10 +505,7 @@ async fn test_to_device_messages_ordered_by_stream_id() {
     }
 
     // Fetch and delete messages — they must be returned in stream_id order
-    let messages = to_device_storage
-        .get_and_delete_messages(user_id, device_id)
-        .await
-        .unwrap();
+    let messages = to_device_storage.get_and_delete_messages(user_id, device_id).await.unwrap();
 
     // Messages must be returned in stream_id order: seq 1, 2, 3
     assert_eq!(messages.len(), 3, "expected 3 to-device messages");

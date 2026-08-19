@@ -39,10 +39,7 @@ impl PresenceStoreApi for InMemoryPresenceStore {
         Ok(())
     }
 
-    async fn set_presence_batch(
-        &self,
-        entries: &[(String, String, Option<String>)],
-    ) -> Result<(), sqlx::Error> {
+    async fn set_presence_batch(&self, entries: &[(String, String, Option<String>)]) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
         let mut map = self.presences.write().await;
         for (uid, presence, status_msg) in entries {

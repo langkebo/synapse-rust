@@ -237,7 +237,10 @@ impl WorkerManager {
 
     #[instrument(skip(self))]
     pub async fn get(&self, worker_id: &str) -> Result<Option<WorkerInfo>, ApiError> {
-        self.storage.get_worker(worker_id).await.map_err(|e| ApiError::internal_with_context("Failed to get worker", &e))
+        self.storage
+            .get_worker(worker_id)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to get worker", &e))
     }
 
     #[instrument(skip(self))]
@@ -271,11 +274,10 @@ impl WorkerManager {
         match status {
             WorkerStatus::Starting | WorkerStatus::Running => {
                 if let Some(lb) = &self.load_balancer {
-                    if let Some(worker) = self
-                        .storage
-                        .get_worker(worker_id)
-                        .await
-                        .map_err(|e| ApiError::internal_with_context("Failed to refresh worker after heartbeat", &e))?
+                    if let Some(worker) =
+                        self.storage.get_worker(worker_id).await.map_err(|e| {
+                            ApiError::internal_with_context("Failed to refresh worker after heartbeat", &e)
+                        })?
                     {
                         lb.register_worker(worker).await;
                     }

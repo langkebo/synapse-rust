@@ -123,8 +123,7 @@ pub struct ReplicationConfig {
     pub http: ReplicationHttpConfig,
 }
 
-#[derive(Clone, Deserialize, Default)]
-#[derive(derivative::Derivative)]
+#[derive(Clone, Deserialize, Default, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct ReplicationHttpConfig {
     pub enabled: bool,

@@ -624,8 +624,10 @@ impl SearchService {
             .await
             .map_err(|e| ApiError::internal_with_context("Search failed", &e))?;
 
-        let response_json: Value =
-            response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse search response", &e))?;
+        let response_json: Value = response
+            .json()
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to parse search response", &e))?;
 
         let hits_array = response_json
             .get("hits")

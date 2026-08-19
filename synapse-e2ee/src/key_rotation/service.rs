@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 
 pub struct KeyRotationService {
@@ -195,7 +195,10 @@ impl KeyRotationService {
 
     async fn share_new_key(&self, room_id: &str, session: &MegolmSession) -> Result<(), ApiError> {
         tracing::info!("Sharing new megolm key for room {}, session {}", room_id, session.session_id);
-        self.storage.record_key_share(room_id, &session.session_id, "rotated").await.map_err(map_database!("Failed to record key share for rotation"))
+        self.storage
+            .record_key_share(room_id, &session.session_id, "rotated")
+            .await
+            .map_err(map_database!("Failed to record key share for rotation"))
     }
 
     async fn mark_session_as_rotated(&self, room_id: &str, user_id: &str) -> Result<(), ApiError> {
@@ -241,7 +244,10 @@ impl KeyRotationService {
         for session in &sessions {
             self.megolm_service.share_session(&session.session_id, &[new_user_id.to_string()]).await?;
 
-            self.storage.record_key_share(room_id, &session.session_id, "new_member").await.map_err(map_database!("Failed to record key share for new member"))?;
+            self.storage
+                .record_key_share(room_id, &session.session_id, "new_member")
+                .await
+                .map_err(map_database!("Failed to record key share for new member"))?;
         }
 
         tracing::info!("Forwarded {} session keys to new member {} in room {}", sessions.len(), new_user_id, room_id);
@@ -657,7 +663,11 @@ mod tests {
         KeyRotationService::new(olm, megolm, storage, config)
     }
 
-    fn make_session(message_index: i64, last_used_ts: chrono::DateTime<Utc>, expires_at: Option<chrono::DateTime<Utc>>) -> MegolmSession {
+    fn make_session(
+        message_index: i64,
+        last_used_ts: chrono::DateTime<Utc>,
+        expires_at: Option<chrono::DateTime<Utc>>,
+    ) -> MegolmSession {
         MegolmSession {
             id: uuid::Uuid::new_v4(),
             session_id: "session-1".to_string(),

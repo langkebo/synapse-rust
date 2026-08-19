@@ -146,11 +146,7 @@ fn test_key_rotation_log_serialization_with_optional_fields_none() {
 #[test]
 fn test_rotation_status_serialization_round_trip() {
     let now = Utc::now();
-    let status = RotationStatus {
-        total_sessions: 10,
-        rotated_sessions: 7,
-        last_rotation: Some(now),
-    };
+    let status = RotationStatus { total_sessions: 10, rotated_sessions: 7, last_rotation: Some(now) };
 
     let json = serde_json::to_string(&status).expect("RotationStatus must serialize");
     let deserialized: RotationStatus = serde_json::from_str(&json).expect("RotationStatus must deserialize");
@@ -162,11 +158,7 @@ fn test_rotation_status_serialization_round_trip() {
 
 #[test]
 fn test_rotation_status_serialization_with_none_last_rotation() {
-    let status = RotationStatus {
-        total_sessions: 0,
-        rotated_sessions: 0,
-        last_rotation: None,
-    };
+    let status = RotationStatus { total_sessions: 0, rotated_sessions: 0, last_rotation: None };
 
     let json = serde_json::to_string(&status).expect("serialize");
     let parsed: serde_json::Value = serde_json::from_str(&json).expect("parse");
@@ -330,6 +322,7 @@ async fn test_get_max_rotation_ts_zero_when_no_data() {
 #[tokio::test]
 async fn test_get_last_rotation_for_key_returns_none_for_unknown() {
     let (svc, _manager, _storage) = service_with_mocks();
-    let result = svc.get_last_rotation_for_key("@alice:example.com", "unknown_key").await.expect("get_last_rotation_for_key");
+    let result =
+        svc.get_last_rotation_for_key("@alice:example.com", "unknown_key").await.expect("get_last_rotation_for_key");
     assert_eq!(result, None);
 }

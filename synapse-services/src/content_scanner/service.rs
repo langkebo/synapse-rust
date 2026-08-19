@@ -83,7 +83,9 @@ impl ContentScanner {
             remaining = &remaining[to_send..];
         }
 
-        writer.write_all(&[0, 0, 0, 0]).map_err(|e| ApiError::internal_with_context("Failed to send terminator", &e))?;
+        writer
+            .write_all(&[0, 0, 0, 0])
+            .map_err(|e| ApiError::internal_with_context("Failed to send terminator", &e))?;
         writer.flush().map_err(|e| ApiError::internal_with_context("Failed to flush", &e))?;
 
         let mut response = String::new();
@@ -137,8 +139,10 @@ impl ContentScanner {
             });
         }
 
-        let scan_response: WebhookScanResponse =
-            response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse webhook response", &e))?;
+        let scan_response: WebhookScanResponse = response
+            .json()
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to parse webhook response", &e))?;
 
         Ok(ContentScanResult {
             safe: scan_response.safe,

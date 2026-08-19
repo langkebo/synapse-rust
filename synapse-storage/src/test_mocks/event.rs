@@ -279,7 +279,10 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
     ) -> Result<Vec<crate::event::RoomEvent>, sqlx::Error> {
         let Some((ts, Some(stream))) = from else {
             let from_ts = from.map(|(ts, _)| ts);
-            return crate::event::reader::EventReader::get_room_events_paginated(self, room_id, from_ts, limit, direction).await;
+            return crate::event::reader::EventReader::get_room_events_paginated(
+                self, room_id, from_ts, limit, direction,
+            )
+            .await;
         };
         let events = self.events.read().await;
         let mut matched: Vec<_> = events.values().filter(|e| e.room_id == room_id).cloned().collect();

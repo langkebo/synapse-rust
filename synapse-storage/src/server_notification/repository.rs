@@ -969,7 +969,9 @@ impl ServerNotificationStorage {
             return Err(ApiError::internal("Failed to persist server notice room summary member".to_string()));
         }
 
-        tx.commit().await.map_err(|e| ApiError::internal_with_context("Failed to commit server notice transaction", &e))?;
+        tx.commit()
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to commit server notice transaction", &e))?;
 
         Ok(notice_id)
     }

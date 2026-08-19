@@ -32,10 +32,7 @@ fn default_true() -> bool {
 #[allow(clippy::derivable_impls)]
 impl Default for ExperimentalConfig {
     fn default() -> Self {
-        Self {
-            msc4452_enabled: false,
-            declare_private_extensions: true,
-        }
+        Self { msc4452_enabled: false, declare_private_extensions: true }
     }
 }
 
@@ -73,10 +70,7 @@ mod tests {
 
     #[test]
     fn clone_preserves_values() {
-        let cfg = ExperimentalConfig {
-            msc4452_enabled: true,
-            declare_private_extensions: false,
-        };
+        let cfg = ExperimentalConfig { msc4452_enabled: true, declare_private_extensions: false };
         let cloned = cfg.clone();
         assert_eq!(cfg.msc4452_enabled, cloned.msc4452_enabled);
         assert_eq!(cfg.declare_private_extensions, cloned.declare_private_extensions);

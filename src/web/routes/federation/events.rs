@@ -843,17 +843,20 @@ mod tests {
 
     #[test]
     fn topological_sort_cycle_keeps_original_order() {
-        let mut pdus = vec![
-            json!({"event_id": "A", "prev_events": ["B"]}),
-            json!({"event_id": "B", "prev_events": ["A"]}),
-        ];
+        let mut pdus =
+            vec![json!({"event_id": "A", "prev_events": ["B"]}), json!({"event_id": "B", "prev_events": ["A"]})];
         topological_sort(&mut pdus);
         // 有环无法完成拓扑排序，保持原序。
         let order: Vec<&str> = pdus.iter().map(|p| p["event_id"].as_str().unwrap()).collect();
         assert_eq!(order, vec!["A", "B"]);
     }
 
-    fn make_room_event(event_id: &str, depth: i64, origin_server_ts: i64, origin: &str) -> synapse_storage::event::RoomEvent {
+    fn make_room_event(
+        event_id: &str,
+        depth: i64,
+        origin_server_ts: i64,
+        origin: &str,
+    ) -> synapse_storage::event::RoomEvent {
         synapse_storage::event::RoomEvent {
             event_id: event_id.to_string(),
             room_id: "!r:server.example".to_string(),
@@ -873,7 +876,12 @@ mod tests {
         }
     }
 
-    fn make_state_event(event_id: &str, event_type: &str, origin_server_ts: i64, origin: Option<&str>) -> synapse_storage::event::StateEvent {
+    fn make_state_event(
+        event_id: &str,
+        event_type: &str,
+        origin_server_ts: i64,
+        origin: Option<&str>,
+    ) -> synapse_storage::event::StateEvent {
         synapse_storage::event::StateEvent {
             event_id: event_id.to_string(),
             room_id: "!r:server.example".to_string(),

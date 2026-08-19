@@ -210,9 +210,7 @@ impl AuthService {
                 let new_access_token = self.generate_access_token(&u.user_id, &device_id, u.is_admin).await?;
                 // Link the new refresh_token to the new access_token for the
                 // next rotation cycle.
-                let new_refresh_token = self
-                    .generate_refresh_token(&u.user_id, &device_id, &new_access_token)
-                    .await?;
+                let new_refresh_token = self.generate_refresh_token(&u.user_id, &device_id, &new_access_token).await?;
 
                 Ok((new_access_token, new_refresh_token, device_id))
             }

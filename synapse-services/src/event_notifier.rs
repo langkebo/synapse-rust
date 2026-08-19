@@ -240,7 +240,8 @@ impl EventNotifier {
             return Ok(());
         };
 
-        let client = redis::Client::open(redis_url.as_str()).map_err(|e| format!("Failed to create Redis client: {e}"))?;
+        let client =
+            redis::Client::open(redis_url.as_str()).map_err(|e| format!("Failed to create Redis client: {e}"))?;
 
         let channel = EVENT_NOTIFY_CHANNEL.to_string();
         let instance_id = self.instance_id.clone();
@@ -255,7 +256,9 @@ impl EventNotifier {
 
         tokio::spawn(async move {
             loop {
-                match Self::subscribe_and_listen(&client, &channel, &instance_id, &room_notifiers, &user_notifiers).await {
+                match Self::subscribe_and_listen(&client, &channel, &instance_id, &room_notifiers, &user_notifiers)
+                    .await
+                {
                     Ok(_) => {
                         debug!("EventNotifier subscription ended normally, reconnecting...");
                     }
@@ -520,8 +523,7 @@ mod tests {
         let room_slot = slots[1].clone();
 
         let start = tokio::time::Instant::now();
-        let result =
-            tokio::time::timeout(tokio::time::Duration::from_millis(50), room_slot.notified()).await;
+        let result = tokio::time::timeout(tokio::time::Duration::from_millis(50), room_slot.notified()).await;
         let elapsed = start.elapsed();
 
         assert!(result.is_err(), "no notification should fire; the wait must time out");
@@ -661,11 +663,8 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
 
         // Simulate a Redis message from instance B
-        let msg = EventNotifyMessage {
-            kind: EventNotifyKind::Room,
-            key: room_id,
-            sender_instance: "instance-B".to_string(),
-        };
+        let msg =
+            EventNotifyMessage { kind: EventNotifyKind::Room, key: room_id, sender_instance: "instance-B".to_string() };
         notifier_a.handle_redis_message(&msg);
 
         let result = waiter.await.unwrap();
@@ -687,11 +686,8 @@ mod tests {
 
         tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
 
-        let msg = EventNotifyMessage {
-            kind: EventNotifyKind::User,
-            key: user_id,
-            sender_instance: "instance-B".to_string(),
-        };
+        let msg =
+            EventNotifyMessage { kind: EventNotifyKind::User, key: user_id, sender_instance: "instance-B".to_string() };
         notifier_a.handle_redis_message(&msg);
 
         let result = waiter.await.unwrap();
@@ -719,11 +715,8 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
 
         // Simulate a Redis echo: same instance_id
-        let msg = EventNotifyMessage {
-            kind: EventNotifyKind::Room,
-            key: room_id,
-            sender_instance: "instance-A".to_string(),
-        };
+        let msg =
+            EventNotifyMessage { kind: EventNotifyKind::Room, key: room_id, sender_instance: "instance-A".to_string() };
         notifier.handle_redis_message(&msg);
 
         let result = waiter.await.unwrap();
@@ -748,7 +741,8 @@ mod tests {
     fn a7_evict_idle_slots_removes_unreferenced_slots() {
         let notifier = EventNotifier::new();
         {
-            let _slots = notifier.slots_for("@alice:example.com", &["!r1:example.com".to_string(), "!r2:example.com".to_string()]);
+            let _slots = notifier
+                .slots_for("@alice:example.com", &["!r1:example.com".to_string(), "!r2:example.com".to_string()]);
             assert_eq!(notifier.broadcast_subscriber_count(), 3);
         }
         // All Arc clones dropped; only the maps hold references now.

@@ -140,9 +140,7 @@ impl DeadLetterQueueApi for InMemoryDeadLetterQueue {
         let mut entries = self.entries.write().await;
         let mut entry = entry.clone();
         if entry.id.is_none() {
-            let id = self
-                .next_id
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             entry.id = Some(id);
         }
         entries.push(entry);
@@ -151,8 +149,7 @@ impl DeadLetterQueueApi for InMemoryDeadLetterQueue {
 
     async fn list_unresolved(&self) -> Result<Vec<DlqEntry>, DeadLetterQueueError> {
         let entries = self.entries.read().await;
-        let mut unresolved: Vec<DlqEntry> =
-            entries.iter().filter(|e| !e.is_resolved).cloned().collect();
+        let mut unresolved: Vec<DlqEntry> = entries.iter().filter(|e| !e.is_resolved).cloned().collect();
         // newest first, mirroring the SQL ORDER BY created_ts DESC
         unresolved.sort_by(|a, b| b.created_ts.cmp(&a.created_ts));
         // cap at 100 like the SQL LIMIT

@@ -25,16 +25,20 @@ async fn test_create_or_update_token_insert_then_update() {
     let user_id = unique_id("@user");
     let device_id = unique_id("DEV");
 
-    let token =
-        storage.create_or_update_token(&user_id, &device_id, None, 0).await.expect("create_or_update_token should insert");
+    let token = storage
+        .create_or_update_token(&user_id, &device_id, None, 0)
+        .await
+        .expect("create_or_update_token should insert");
     assert_eq!(token.user_id, user_id);
     assert_eq!(token.device_id, device_id);
     assert!(token.conn_id.is_none());
     let first_pos = token.pos;
 
     // Calling again with the same (user, device, conn) should update the existing row
-    let updated =
-        storage.create_or_update_token(&user_id, &device_id, None, 0).await.expect("create_or_update_token should update");
+    let updated = storage
+        .create_or_update_token(&user_id, &device_id, None, 0)
+        .await
+        .expect("create_or_update_token should update");
     assert!(updated.pos > first_pos, "pos should advance on update, got {} -> {}", first_pos, updated.pos);
 
     storage.delete_connection_data(&user_id, &device_id, None).await.expect("cleanup");

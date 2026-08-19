@@ -244,10 +244,7 @@ pub(crate) async fn download_media_stream_common(
 ) -> Result<(StatusCode, HeaderMap, Body), ApiError> {
     if server_name == ctx.server_name {
         // Local media: stream from file handle.
-        let payload = ctx
-            .media_domain_service
-            .download_media_stream(server_name, media_id, response_filename)
-            .await?;
+        let payload = ctx.media_domain_service.download_media_stream(server_name, media_id, response_filename).await?;
         let headers = media_response_headers(&payload.headers);
         let body = Body::from_stream(ReaderStream::new(payload.file));
         Ok((StatusCode::OK, headers, body))

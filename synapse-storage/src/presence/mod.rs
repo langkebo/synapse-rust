@@ -199,10 +199,7 @@ impl PresenceStorage {
     /// federation presence sync, bulk presence import).
     ///
     /// Cache entries are also written in a single `set_batch` pipeline.
-    pub async fn set_presence_batch(
-        &self,
-        entries: &[(String, String, Option<String>)],
-    ) -> Result<(), sqlx::Error> {
+    pub async fn set_presence_batch(&self, entries: &[(String, String, Option<String>)]) -> Result<(), sqlx::Error> {
         if entries.is_empty() {
             return Ok(());
         }
@@ -265,9 +262,9 @@ impl PresenceStorage {
         }
 
         let result = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(PRESENCE_SELECT_BY_USER)
-        .bind(user_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+            .bind(user_id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         if let Some((presence, status_msg, last_active_ts)) = &result {
             let snapshot = PresenceSnapshot {
@@ -295,9 +292,9 @@ impl PresenceStorage {
         }
 
         let result = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(PRESENCE_SELECT_BY_USER)
-        .bind(user_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+            .bind(user_id)
+            .fetch_optional(&*self.pool)
+            .await?;
 
         if let Some((presence, status_msg, last_active_ts)) = &result {
             let snapshot = PresenceSnapshot {
@@ -794,10 +791,10 @@ mod db_tests {
         storage.set_presence(&user_id, "online", None).await.expect("set_presence should succeed");
 
         let row = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(PRESENCE_SELECT_BY_USER)
-        .bind(&user_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("should find presence row");
+            .bind(&user_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("should find presence row");
 
         assert_eq!(row.0, "online");
         assert!(row.1.is_none());
@@ -818,10 +815,10 @@ mod db_tests {
         storage.set_presence(&user_id, "offline", None).await.expect("set_presence should succeed");
 
         let row = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(PRESENCE_SELECT_BY_USER)
-        .bind(&user_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("should find presence row");
+            .bind(&user_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("should find presence row");
 
         assert_eq!(row.0, "offline");
 
@@ -843,10 +840,10 @@ mod db_tests {
             .expect("set_presence should succeed");
 
         let row = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(PRESENCE_SELECT_BY_USER)
-        .bind(&user_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("should find presence row");
+            .bind(&user_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("should find presence row");
 
         assert_eq!(row.0, "unavailable");
         assert_eq!(row.1.as_deref(), Some("Away from keyboard"));
@@ -1464,10 +1461,8 @@ mod db_tests {
         storage.set_presence(&user_b, "away", None).await.expect("seed b");
 
         // First call: DB miss for cache → batch populate cache
-        let snapshots = storage
-            .get_presence_snapshots(&[user_a.clone(), user_b.clone()])
-            .await
-            .expect("get_presence_snapshots");
+        let snapshots =
+            storage.get_presence_snapshots(&[user_a.clone(), user_b.clone()]).await.expect("get_presence_snapshots");
         assert_eq!(snapshots.len(), 2);
 
         // Second call: should hit cache (batch-populated in first call)

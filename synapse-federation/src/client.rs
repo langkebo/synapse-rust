@@ -41,20 +41,12 @@ fn verify_server_keys_self_signature(keys: &ServerKeys) -> Result<(), Federation
         return Err(FederationClientError::InvalidResponse("verify_keys must not be empty".into()));
     }
 
-    let self_sigs = keys
-        .signatures
-        .get(&keys.server_name)
-        .and_then(|v| v.as_object())
-        .ok_or_else(|| {
-            FederationClientError::Authentication(format!(
-                "server keys for {} lack a self-signature",
-                keys.server_name
-            ))
-        })?;
+    let self_sigs = keys.signatures.get(&keys.server_name).and_then(|v| v.as_object()).ok_or_else(|| {
+        FederationClientError::Authentication(format!("server keys for {} lack a self-signature", keys.server_name))
+    })?;
 
     // 待验签内容：完整响应去掉 signatures/unsigned 后的 canonical JSON
-    let mut value = serde_json::to_value(keys)
-        .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
+    let mut value = serde_json::to_value(keys).map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
     synapse_common::remove_signatures_and_unsigned(&mut value);
     let message = synapse_common::canonical_json_bytes(&value)
         .map_err(|e| FederationClientError::InvalidResponse(e.to_string()))?;
@@ -64,9 +56,7 @@ fn verify_server_keys_self_signature(keys: &ServerKeys) -> Result<(), Federation
         if key_id.split(':').next() != Some("ed25519") {
             continue;
         }
-        let Some(public_key_b64) =
-            key_data.get("key").and_then(|v| v.as_str()).or_else(|| key_data.as_str())
-        else {
+        let Some(public_key_b64) = key_data.get("key").and_then(|v| v.as_str()).or_else(|| key_data.as_str()) else {
             continue;
         };
         let Some(signature_b64) = self_sigs.get(key_id).and_then(|v| v.as_str()) else {
@@ -398,13 +388,10 @@ impl FederationClient {
             })
         };
 
-        self.server_resolution_cache
-            .write()
-            .await
-            .insert(server_name.to_string(), CachedResolvedServer {
-                resolved: resolved.clone(),
-                cached_at: std::time::Instant::now(),
-            });
+        self.server_resolution_cache.write().await.insert(
+            server_name.to_string(),
+            CachedResolvedServer { resolved: resolved.clone(), cached_at: std::time::Instant::now() },
+        );
 
         Ok(resolved)
     }
@@ -1085,15 +1072,11 @@ mod tests {
     // S2 / FED-01: 远程服务器密钥缓存前必须验证自签名，防 MITM 注入伪造密钥
     // ------------------------------------------------------------------
 
-    fn make_signed_server_keys(
-        signing_key: &ed25519_dalek::SigningKey,
-        server: &str,
-    ) -> ServerKeys {
+    fn make_signed_server_keys(signing_key: &ed25519_dalek::SigningKey, server: &str) -> ServerKeys {
         use base64::Engine;
         use ed25519_dalek::Signer;
         let key_id = "ed25519:test";
-        let pub_b64 =
-            base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().as_bytes());
+        let pub_b64 = base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().as_bytes());
         let mut value = serde_json::json!({
             "server_name": server,
             "verify_keys": { key_id: { "key": pub_b64 } },
@@ -1103,8 +1086,7 @@ mod tests {
         let mut for_signing = value.clone();
         synapse_common::remove_signatures_and_unsigned(&mut for_signing);
         let msg = synapse_common::canonical_json_bytes(&for_signing).expect("canonical json");
-        let sig =
-            base64::engine::general_purpose::STANDARD.encode(signing_key.sign(&msg).to_bytes());
+        let sig = base64::engine::general_purpose::STANDARD.encode(signing_key.sign(&msg).to_bytes());
         value["signatures"] = serde_json::json!({ server: { key_id: sig } });
         serde_json::from_value(value).expect("ServerKeys")
     }
@@ -1113,10 +1095,7 @@ mod tests {
     fn server_keys_valid_self_signature_accepted() {
         let sk = ed25519_dalek::SigningKey::from_bytes(&[3u8; 32]);
         let keys = make_signed_server_keys(&sk, "remote.example");
-        assert!(
-            verify_server_keys_self_signature(&keys).is_ok(),
-            "validly self-signed server keys must be accepted"
-        );
+        assert!(verify_server_keys_self_signature(&keys).is_ok(), "validly self-signed server keys must be accepted");
     }
 
     #[test]
@@ -1130,10 +1109,7 @@ mod tests {
             keys.signatures = forged.signatures;
             keys
         };
-        assert!(
-            verify_server_keys_self_signature(&keys).is_err(),
-            "forged self-signature must be rejected"
-        );
+        assert!(verify_server_keys_self_signature(&keys).is_err(), "forged self-signature must be rejected");
     }
 
     #[test]
@@ -1170,8 +1146,7 @@ mod tests {
             ))
         };
         let dlq = Arc::new(InMemoryDeadLetterQueue::new());
-        let client =
-            FederationClient::new("test.com".to_string(), key_rotation).with_dlq(dlq.clone());
+        let client = FederationClient::new("test.com".to_string(), key_rotation).with_dlq(dlq.clone());
         (rt, client, dlq)
     }
 
@@ -1199,10 +1174,7 @@ mod tests {
         assert!(result.is_err(), "send_transaction must fail without a signing key");
 
         let entries = rt.block_on(dlq.list_unresolved()).unwrap();
-        assert!(
-            entries.iter().any(|e| e.txn_id == "txn-001"),
-            "failed transaction must be in the DLQ"
-        );
+        assert!(entries.iter().any(|e| e.txn_id == "txn-001"), "failed transaction must be in the DLQ");
     }
 
     #[test]
@@ -1213,10 +1185,7 @@ mod tests {
         rt.block_on(client.send_transaction("down.example.com", &txn)).ok();
 
         let entries = rt.block_on(dlq.list_unresolved()).unwrap();
-        let entry = entries
-            .iter()
-            .find(|e| e.txn_id == "txn-002")
-            .expect("DLQ must contain txn-002");
+        let entry = entries.iter().find(|e| e.txn_id == "txn-002").expect("DLQ must contain txn-002");
 
         assert_eq!(entry.destination, "down.example.com");
         assert_eq!(entry.origin, "test.com");
@@ -1225,11 +1194,8 @@ mod tests {
         assert!(entry.id.is_some(), "DLQ entry must have an id assigned");
 
         // payload must contain the serialized transaction
-        let payload_txn_id = entry
-            .payload
-            .get("transaction_id")
-            .and_then(|v| v.as_str())
-            .expect("payload must contain transaction_id");
+        let payload_txn_id =
+            entry.payload.get("transaction_id").and_then(|v| v.as_str()).expect("payload must contain transaction_id");
         assert_eq!(payload_txn_id, "txn-002");
     }
 
@@ -1281,22 +1247,12 @@ mod tests {
             use wiremock::{Mock, MockServer, ResponseTemplate};
 
             let server = MockServer::start().await;
-            Mock::given(method("GET"))
-                .and(path("/"))
-                .respond_with(ResponseTemplate::new(500))
-                .mount(&server)
-                .await;
+            Mock::given(method("GET")).and(path("/")).respond_with(ResponseTemplate::new(500)).mount(&server).await;
 
             // no_proxy(): dev/CI shells may export HTTP(S)_PROXY; routing a
             // loopback request through a proxy breaks hyper's parser.
-            let response = reqwest::Client::builder()
-                .no_proxy()
-                .build()
-                .unwrap()
-                .get(server.uri())
-                .send()
-                .await
-                .unwrap();
+            let response =
+                reqwest::Client::builder().no_proxy().build().unwrap().get(server.uri()).send().await.unwrap();
             assert_eq!(response.status().as_u16(), 500);
 
             // Call handle_response — this is the path that previously
@@ -1314,9 +1270,8 @@ mod tests {
             // a DlqEntry and enqueue it. The restructured send_transaction
             // catches this via: `if let Err(error) = &result { ... dlq.enqueue }`.
             let txn = make_test_transaction("txn-5xx", "server5xx.example.com");
-            let payload = serde_json::to_value(&txn).unwrap_or_else(|_| {
-                serde_json::json!({"transaction_id": "txn-5xx"})
-            });
+            let payload =
+                serde_json::to_value(&txn).unwrap_or_else(|_| serde_json::json!({"transaction_id": "txn-5xx"}));
             let entry = DlqEntry::new(
                 "txn-5xx".to_string(),
                 "server5xx.example.com".to_string(),
@@ -1329,10 +1284,7 @@ mod tests {
 
             // Verify the DLQ captured the 5xx error.
             let entries = dlq.list_unresolved().await.unwrap();
-            let entry = entries
-                .iter()
-                .find(|e| e.txn_id == "txn-5xx")
-                .expect("DLQ must contain txn-5xx");
+            let entry = entries.iter().find(|e| e.txn_id == "txn-5xx").expect("DLQ must contain txn-5xx");
             assert!(
                 entry.failure_reason.as_ref().unwrap().contains("500"),
                 "failure_reason must contain status 500, got: {:?}",

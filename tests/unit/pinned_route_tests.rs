@@ -53,9 +53,7 @@ fn pin_request_rejects_non_string_event_id() {
 
 #[test]
 fn pinned_events_response_serializes_expected_json_shape() {
-    let resp = PinnedEventsResponse {
-        pinned_events: vec!["$ev1:server".to_string(), "$ev2:server".to_string()],
-    };
+    let resp = PinnedEventsResponse { pinned_events: vec!["$ev1:server".to_string(), "$ev2:server".to_string()] };
     let json_value = serde_json::to_value(&resp).expect("PinnedEventsResponse should serialize");
     assert!(json_value["pinned_events"].is_array());
     let arr = json_value["pinned_events"].as_array().expect("must be array");
@@ -214,8 +212,7 @@ fn unpin_event_retain_is_noop_when_event_absent() {
 #[test]
 fn unpin_event_retain_removes_all_occurrences() {
     // retain removes every matching element (defensive: if duplicates existed).
-    let mut pinned_list: Vec<String> =
-        vec!["$ev:server".into(), "$other:server".into(), "$ev:server".into()];
+    let mut pinned_list: Vec<String> = vec!["$ev:server".into(), "$other:server".into(), "$ev:server".into()];
     let event_id = "$ev:server".to_string();
     pinned_list.retain(|e| e != &event_id);
     assert_eq!(pinned_list.len(), 1);

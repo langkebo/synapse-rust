@@ -197,7 +197,6 @@ impl ExtensionServices {
             );
         }
 
-
         let uia_service = Arc::new(crate::uia_service::UiaService::new(infra.cache.clone(), ui_auth_session_timeout));
 
         Self {

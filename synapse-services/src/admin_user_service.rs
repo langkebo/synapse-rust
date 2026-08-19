@@ -355,8 +355,8 @@ impl AdminUserService {
             }
 
             if let Some(password) = password {
-                let password_hash =
-                    hash_password(password).map_err(|e| ApiError::internal_with_context("Password hashing failed", &e))?;
+                let password_hash = hash_password(password)
+                    .map_err(|e| ApiError::internal_with_context("Password hashing failed", &e))?;
                 self.user_storage
                     .update_password(&existing_user.user_id, &password_hash)
                     .await
@@ -376,7 +376,8 @@ impl AdminUserService {
         let password_hash = if let Some(password) = password {
             hash_password(password).map_err(|e| ApiError::internal_with_context("Password hashing failed", &e))?
         } else {
-            hash_password(&random_string(16)).map_err(|e| ApiError::internal_with_context("Password hashing failed", &e))?
+            hash_password(&random_string(16))
+                .map_err(|e| ApiError::internal_with_context("Password hashing failed", &e))?
         };
 
         let created = self

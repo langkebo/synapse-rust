@@ -753,9 +753,11 @@ impl DatabaseInitService {
         .await?;
 
         // Ensure columns exist even if table was created by a previous schema version.
-        sqlx::query("ALTER TABLE read_markers ADD COLUMN IF NOT EXISTS marker_type TEXT NOT NULL DEFAULT 'm.fully_read'")
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query(
+            "ALTER TABLE read_markers ADD COLUMN IF NOT EXISTS marker_type TEXT NOT NULL DEFAULT 'm.fully_read'",
+        )
+        .execute(&*self.pool)
+        .await?;
         sqlx::query("ALTER TABLE read_markers ADD COLUMN IF NOT EXISTS origin_server_ts BIGINT")
             .execute(&*self.pool)
             .await?;

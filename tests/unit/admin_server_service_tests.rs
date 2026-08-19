@@ -93,11 +93,9 @@ async fn is_database_healthy_returns_false_when_pool_cannot_connect() {
 async fn validate_required_tables_returns_internal_error_when_pool_cannot_connect() {
     let svc = build_service();
 
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        svc.validate_required_tables(&["users", "rooms"]),
-    )
-    .await;
+    let result =
+        tokio::time::timeout(std::time::Duration::from_secs(10), svc.validate_required_tables(&["users", "rooms"]))
+            .await;
 
     let inner = result.expect("validate_required_tables must not hang");
     assert!(inner.is_err(), "must return Err when pool can't connect");
@@ -112,11 +110,7 @@ async fn validate_required_tables_with_empty_list_still_errors_when_no_db() {
     // Verify it doesn't panic and returns an error.
     let svc = build_service();
 
-    let result = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        svc.validate_required_tables(&[]),
-    )
-    .await;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(10), svc.validate_required_tables(&[])).await;
 
     // With an empty list, the validator might return Ok(empty) without
     // touching the DB, or it might still error. Either outcome is

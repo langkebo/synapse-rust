@@ -53,7 +53,10 @@ impl CountingBroadcaster {
 impl EventBroadcaster for CountingBroadcaster {
     type Message = String;
 
-    fn broadcast_publish(&self, message: Self::Message) -> impl std::future::Future<Output = Result<(), BroadcastError>> + Send {
+    fn broadcast_publish(
+        &self,
+        message: Self::Message,
+    ) -> impl std::future::Future<Output = Result<(), BroadcastError>> + Send {
         let fail = self.fail_next.load(Ordering::SeqCst);
         // `std::sync::Mutex` is NOT reentrant: acquiring the lock twice on the
         // same mutex (as the previous code did) deadlocks forever. Take the
@@ -97,7 +100,10 @@ impl JsonBroadcaster {
 impl EventBroadcaster for JsonBroadcaster {
     type Message = serde_json::Value;
 
-    fn broadcast_publish(&self, message: Self::Message) -> impl std::future::Future<Output = Result<(), BroadcastError>> + Send {
+    fn broadcast_publish(
+        &self,
+        message: Self::Message,
+    ) -> impl std::future::Future<Output = Result<(), BroadcastError>> + Send {
         self.published.lock().unwrap().push(message);
         async { Ok(()) }
     }
@@ -113,7 +119,10 @@ struct DisconnectedBroadcaster;
 impl EventBroadcaster for DisconnectedBroadcaster {
     type Message = String;
 
-    fn broadcast_publish(&self, _message: Self::Message) -> impl std::future::Future<Output = Result<(), BroadcastError>> + Send {
+    fn broadcast_publish(
+        &self,
+        _message: Self::Message,
+    ) -> impl std::future::Future<Output = Result<(), BroadcastError>> + Send {
         async { Err(BroadcastError::NotConnected) }
     }
 

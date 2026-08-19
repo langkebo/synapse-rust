@@ -221,9 +221,7 @@ impl EventWriter for NotifyingEventWriter {
         origin_server_ts: i64,
         sender: &str,
     ) -> Result<(), sqlx::Error> {
-        self.inner
-            .upsert_power_levels_event(event_id, room_id, user_id, content, origin_server_ts, sender)
-            .await?;
+        self.inner.upsert_power_levels_event(event_id, room_id, user_id, content, origin_server_ts, sender).await?;
         self.notifier.notify_room(room_id);
         Ok(())
     }
@@ -340,10 +338,7 @@ mod tests {
         let slots = notifier.slots_for(STRANGER, &[ROOM.to_string()]);
         let room_waiter = arm(&slots[1]);
 
-        writer
-            .add_ephemeral_event(ROOM, SENDER, "m.typing", &serde_json::json!({ "typing": true }), 1)
-            .await
-            .unwrap();
+        writer.add_ephemeral_event(ROOM, SENDER, "m.typing", &serde_json::json!({ "typing": true }), 1).await.unwrap();
 
         assert!(woke(room_waiter).await, "typing indicators must be delivered promptly");
     }

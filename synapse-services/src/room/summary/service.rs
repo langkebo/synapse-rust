@@ -89,10 +89,7 @@ impl RoomSummaryService {
     /// join rules (per Matrix v1.15 `/summary` spec). Fails closed: on
     /// storage errors, returns `None` rather than blocking the summary
     /// response, since `allowed_room_ids` is informational metadata.
-    pub(crate) async fn resolve_allowed_room_ids(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<Vec<String>>, ApiError> {
+    pub(crate) async fn resolve_allowed_room_ids(&self, room_id: &str) -> Result<Option<Vec<String>>, ApiError> {
         let events_res = self.event_reader.get_state_events_by_type(room_id, "m.room.join_rules").await;
 
         let content = match events_res {
@@ -455,10 +452,7 @@ mod tests {
             "join_rule": "knock_restricted",
             "allow": [{"room_id": "!parent:example.org", "type": "m.room_membership"}]
         });
-        assert_eq!(
-            extract_allowed_room_ids(&content),
-            Some(vec!["!parent:example.org".to_string()])
-        );
+        assert_eq!(extract_allowed_room_ids(&content), Some(vec!["!parent:example.org".to_string()]));
     }
 
     #[test]
@@ -479,10 +473,7 @@ mod tests {
                 {"room_id": 42}
             ]
         });
-        assert_eq!(
-            extract_allowed_room_ids(&content),
-            Some(vec!["!valid:example.org".to_string()])
-        );
+        assert_eq!(extract_allowed_room_ids(&content), Some(vec!["!valid:example.org".to_string()]));
     }
 
     #[test]

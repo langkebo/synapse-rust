@@ -10,7 +10,10 @@ use super::service::MessagingService;
 
 impl MessagingService {
     pub async fn get_event_record(&self, event_id: &str) -> ApiResult<Option<synapse_storage::RoomEvent>> {
-        self.event_reader.get_event(event_id).await.map_err(|e| ApiError::internal_with_context("Failed to get event", &e))
+        self.event_reader
+            .get_event(event_id)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to get event", &e))
     }
 
     pub async fn get_event_record_in_room(

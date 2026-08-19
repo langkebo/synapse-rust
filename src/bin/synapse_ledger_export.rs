@@ -128,9 +128,8 @@ fn run(args: CliArgs) -> Result<(), String> {
         return Ok(());
     }
 
-    let flags = profile_for_name(&args.profile).ok_or_else(|| {
-        format!("unknown profile '{}' (expected default / oidc / worker / saml / all)", args.profile)
-    })?;
+    let flags = profile_for_name(&args.profile)
+        .ok_or_else(|| format!("unknown profile '{}' (expected default / oidc / worker / saml / all)", args.profile))?;
 
     for warning in missing_feature_warnings(&args.profile) {
         eprintln!("warning: {warning}");

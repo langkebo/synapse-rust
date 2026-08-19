@@ -169,9 +169,7 @@ pub(crate) async fn chunked_upload_start(
         }
         let max = ctx.config.server.max_upload_size as i64;
         if size > max {
-            return Err(ApiError::bad_request(format!(
-                "total_size ({size}) exceeds server max_upload_size ({max})"
-            )));
+            return Err(ApiError::bad_request(format!("total_size ({size}) exceeds server max_upload_size ({max})")));
         }
     }
 
@@ -448,10 +446,7 @@ mod tests {
         });
 
         let max_file_size = response.get("max_file_size").and_then(|v| v.as_u64()).unwrap();
-        assert_eq!(
-            max_file_size, config_max_upload_size,
-            "max_file_size must be config-driven, not hardcoded"
-        );
+        assert_eq!(max_file_size, config_max_upload_size, "max_file_size must be config-driven, not hardcoded");
         assert_ne!(max_file_size, 100 * 1024 * 1024, "must not be hardcoded 100MB");
 
         // chunk_size_limit is a protocol advisory (10MB), not a server-enforced limit
@@ -467,17 +462,15 @@ mod tests {
         let chunk_body_limit = config_max.min(10 * 1024 * 1024);
 
         assert_eq!(
-            chunk_body_limit, 10 * 1024 * 1024,
+            chunk_body_limit,
+            10 * 1024 * 1024,
             "chunk body limit should be min(config, 10MB) = 10MB when config > 10MB"
         );
 
         // When config is smaller than 10MB, chunk limit tightens to config
         let small_config: usize = 5_000_000; // 5MB
         let small_chunk_limit = small_config.min(10 * 1024 * 1024);
-        assert_eq!(
-            small_chunk_limit, 5_000_000,
-            "chunk body limit should tighten to config when config < 10MB"
-        );
+        assert_eq!(small_chunk_limit, 5_000_000, "chunk body limit should tighten to config when config < 10MB");
     }
 
     #[test]
@@ -486,19 +479,15 @@ mod tests {
             "upload_id": "upload_complete_123"
         });
 
-        let upload_id = body
-            .get("upload_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| "upload_id is required".to_string());
+        let upload_id =
+            body.get("upload_id").and_then(|v| v.as_str()).ok_or_else(|| "upload_id is required".to_string());
 
         assert!(upload_id.is_ok());
         assert_eq!(upload_id.unwrap(), "upload_complete_123");
 
         let empty_body = json!({});
-        let missing = empty_body
-            .get("upload_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| "upload_id is required".to_string());
+        let missing =
+            empty_body.get("upload_id").and_then(|v| v.as_str()).ok_or_else(|| "upload_id is required".to_string());
         assert!(missing.is_err());
     }
 
@@ -509,10 +498,7 @@ mod tests {
         let max_upload_size: i64 = 50_000_000; // 50MB config
         let total_size: i64 = 60_000_000; // 60MB declared by client
 
-        assert!(
-            total_size > max_upload_size,
-            "total_size exceeding max_upload_size should be rejected"
-        );
+        assert!(total_size > max_upload_size, "total_size exceeding max_upload_size should be rejected");
     }
 
     #[test]
@@ -520,10 +506,7 @@ mod tests {
         let max_upload_size: i64 = 50_000_000;
         let total_size: i64 = 49_999_999;
 
-        assert!(
-            total_size <= max_upload_size,
-            "total_size within max_upload_size should be accepted"
-        );
+        assert!(total_size <= max_upload_size, "total_size within max_upload_size should be accepted");
     }
 
     #[test]

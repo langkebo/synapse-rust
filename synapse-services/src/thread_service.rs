@@ -753,10 +753,8 @@ mod tests {
         let service = super::ThreadService::new(storage);
 
         let room_id = "!room:example.com".to_string();
-        let request = super::CreateThreadRequest {
-            room_id: room_id.clone(),
-            root_event_id: "$root:example.com".to_string(),
-        };
+        let request =
+            super::CreateThreadRequest { room_id: room_id.clone(), root_event_id: "$root:example.com".to_string() };
         let root = rt.block_on(service.create_thread("@creator:example.com", request)).expect("create thread");
         let thread_id = root.thread_id.expect("thread_id assigned at creation");
         (service, room_id, thread_id)

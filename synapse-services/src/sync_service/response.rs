@@ -31,15 +31,13 @@ impl SyncService {
         let since_ts = Self::event_since_ts(since_token);
         // S6: always use StreamOrdering. Timestamp-based tokens are converted
         // to 0 for a full resync, eliminating the OriginServerTs path.
-        let since_stream_ordering = since_token
-            .as_ref()
-            .map(|t| {
-                if t.stream_id > 0 && t.stream_id < Self::TIMESTAMP_TOKEN_MIN {
-                    t.stream_id
-                } else {
-                    0
-                }
-            });
+        let since_stream_ordering = since_token.as_ref().map(|t| {
+            if t.stream_id > 0 && t.stream_id < Self::TIMESTAMP_TOKEN_MIN {
+                t.stream_id
+            } else {
+                0
+            }
+        });
         let (changed_members_by_room, state_change_ts_by_room) = if is_incremental {
             let state_ts_result = self
                 .event_reader
@@ -332,13 +330,7 @@ impl SyncService {
         // S6: always use StreamOrdering for membership state key queries.
         let since_stream_ord = since_token
             .as_ref()
-            .map(|t| {
-                if t.stream_id > 0 && t.stream_id < Self::TIMESTAMP_TOKEN_MIN {
-                    t.stream_id
-                } else {
-                    0
-                }
-            })
+            .map(|t| if t.stream_id > 0 && t.stream_id < Self::TIMESTAMP_TOKEN_MIN { t.stream_id } else { 0 })
             .unwrap_or(0);
         let (
             changed_member_ids,

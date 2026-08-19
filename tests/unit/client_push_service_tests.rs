@@ -159,11 +159,7 @@ fn storage_error() -> sqlx::Error {
 
 #[async_trait]
 impl PushStoreApi for MockPushStore {
-    async fn get_pushers(
-        &self,
-        _user_id: &str,
-        _device_id: Option<&str>,
-    ) -> Result<Vec<PgRow>, sqlx::Error> {
+    async fn get_pushers(&self, _user_id: &str, _device_id: Option<&str>) -> Result<Vec<PgRow>, sqlx::Error> {
         let state = self.state.lock().unwrap().clone();
         if state.fail_all {
             return Err(storage_error());
@@ -276,12 +272,7 @@ impl PushStoreApi for MockPushStore {
         Ok(())
     }
 
-    async fn get_user_push_rules(
-        &self,
-        _user_id: &str,
-        _scope: &str,
-        _kind: &str,
-    ) -> Result<Vec<PgRow>, sqlx::Error> {
+    async fn get_user_push_rules(&self, _user_id: &str, _scope: &str, _kind: &str) -> Result<Vec<PgRow>, sqlx::Error> {
         let state = self.state.lock().unwrap().clone();
         if state.fail_all {
             return Err(storage_error());
@@ -297,12 +288,7 @@ impl PushStoreApi for MockPushStore {
         Ok(Vec::new())
     }
 
-    async fn ack_notification(
-        &self,
-        _id: i64,
-        _user_id: &str,
-        _now: i64,
-    ) -> Result<Option<PgRow>, sqlx::Error> {
+    async fn ack_notification(&self, _id: i64, _user_id: &str, _now: i64) -> Result<Option<PgRow>, sqlx::Error> {
         let state = self.state.lock().unwrap().clone();
         if state.fail_all {
             return Err(storage_error());
@@ -485,7 +471,8 @@ async fn upsert_push_rule_returns_timestamp_on_success() {
 async fn delete_push_rule_returns_false_when_zero_rows_affected() {
     let service = build_service(MockAccountDataStore::new(), MockPushStore::with_delete_rows(0));
 
-    let deleted = service.delete_push_rule("@alice:localhost", "global", "override", "rule_x").await.expect("should succeed");
+    let deleted =
+        service.delete_push_rule("@alice:localhost", "global", "override", "rule_x").await.expect("should succeed");
     assert!(!deleted, "zero rows affected should map to false");
 }
 
@@ -493,7 +480,8 @@ async fn delete_push_rule_returns_false_when_zero_rows_affected() {
 async fn delete_push_rule_returns_true_when_rows_affected() {
     let service = build_service(MockAccountDataStore::new(), MockPushStore::with_delete_rows(1));
 
-    let deleted = service.delete_push_rule("@alice:localhost", "global", "override", "rule_x").await.expect("should succeed");
+    let deleted =
+        service.delete_push_rule("@alice:localhost", "global", "override", "rule_x").await.expect("should succeed");
     assert!(deleted, "non-zero rows affected should map to true");
 }
 
@@ -569,10 +557,7 @@ async fn upsert_pusher_maps_storage_error_to_internal() {
 #[tokio::test]
 async fn delete_pusher_maps_storage_error_to_internal() {
     let service = build_service(MockAccountDataStore::new(), MockPushStore::with_failure());
-    let err = service
-        .delete_pusher("@alice:localhost", "DEV-1", "pk-abc")
-        .await
-        .expect_err("should propagate error");
+    let err = service.delete_pusher("@alice:localhost", "DEV-1", "pk-abc").await.expect_err("should propagate error");
     assert!(err.is_internal());
 }
 

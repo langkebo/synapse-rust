@@ -1,8 +1,8 @@
 use crate::key_request::models::{KeyRequestInfo, KeyRequestPagination, KeyShareResponse};
 use crate::key_request::storage::KeyRequestStorage;
 use crate::megolm::MegolmProvider;
-use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,7 +103,11 @@ impl KeyRequestService {
             return Err(ApiError::bad_request("Cannot fulfill your own key request from the same device".to_string()));
         }
 
-        let sessions = self.megolm_service.get_room_sessions(&request.room_id).await.map_err(map_database!("Failed to get room sessions"))?;
+        let sessions = self
+            .megolm_service
+            .get_room_sessions(&request.room_id)
+            .await
+            .map_err(map_database!("Failed to get room sessions"))?;
 
         let session = match sessions.iter().find(|s| s.session_id == request.session_id) {
             Some(s) => s,

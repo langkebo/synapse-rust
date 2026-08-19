@@ -1,8 +1,8 @@
 use serde_json::Value;
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
-use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone)]

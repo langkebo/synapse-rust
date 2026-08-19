@@ -575,11 +575,7 @@ async fn search_friend_directory(
 ) -> Result<Json<Value>, ApiError> {
     // Manually parse the body so that an empty JSON body (Content-Type: application/json
     // with no payload) is treated as None instead of returning 400 "EOF while parsing".
-    let body: Option<Value> = if bytes.is_empty() {
-        None
-    } else {
-        serde_json::from_slice::<Value>(&bytes).ok()
-    };
+    let body: Option<Value> = if bytes.is_empty() { None } else { serde_json::from_slice::<Value>(&bytes).ok() };
     let body_value = body.as_ref();
     let search_term = resolve_friend_search_term(&query, body_value);
     let Some(search_term) = search_term else {

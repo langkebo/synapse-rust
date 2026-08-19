@@ -90,10 +90,7 @@ impl PresenceService {
     /// C-3: Batch set presence for multiple users in a single SQL statement.
     /// Each entry is `(user_id, presence, status_msg)`.
     #[tracing::instrument(skip(self, entries))]
-    pub async fn set_presence_batch(
-        &self,
-        entries: &[(String, String, Option<String>)],
-    ) -> ApiResult<()> {
+    pub async fn set_presence_batch(&self, entries: &[(String, String, Option<String>)]) -> ApiResult<()> {
         self.storage
             .set_presence_batch(entries)
             .await

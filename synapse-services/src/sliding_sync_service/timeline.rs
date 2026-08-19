@@ -49,7 +49,8 @@ impl SlidingSyncService {
     }
 
     fn timeline_from_events(events: Vec<RoomEvent>, limited: bool) -> (Vec<Value>, bool, Option<String>) {
-        let prev_batch = events.first().map(|event| generate_pagination_token(event.origin_server_ts, event.stream_ordering));
+        let prev_batch =
+            events.first().map(|event| generate_pagination_token(event.origin_server_ts, event.stream_ordering));
         let timeline = events.iter().map(sync_helpers::room_event_to_json).collect();
         (timeline, limited, prev_batch)
     }

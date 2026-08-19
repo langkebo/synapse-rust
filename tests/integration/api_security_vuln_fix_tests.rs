@@ -49,10 +49,7 @@ async fn register_user(app: &axum::Router, username: &str) -> Option<(String, St
 
     let body = axum::body::to_bytes(response.into_body(), 4096).await.ok()?;
     let json: Value = serde_json::from_slice(&body).ok()?;
-    Some((
-        json.get("access_token")?.as_str()?.to_string(),
-        json.get("user_id")?.as_str()?.to_string(),
-    ))
+    Some((json.get("access_token")?.as_str()?.to_string(), json.get("user_id")?.as_str()?.to_string()))
 }
 
 /// 读取响应 body 为 serde_json::Value。
@@ -120,18 +117,8 @@ async fn vuln_01_media_r1_download_with_auth_still_works() {
 
     // 认证通过后，资源不存在应返回 404（或 404 M_NOT_FOUND）。
     // 关键：不应返回 401（认证应通过）也不应返回 200 + {}（旧行为）。
-    assert_ne!(
-        status,
-        StatusCode::UNAUTHORIZED,
-        "VULN-01 正向: 带 token 的请求不应返回 401，实际返回 {}",
-        status
-    );
-    assert_ne!(
-        status,
-        StatusCode::OK,
-        "VULN-01 正向: 不存在的媒体不应返回 200（旧行为），实际返回 {}",
-        status
-    );
+    assert_ne!(status, StatusCode::UNAUTHORIZED, "VULN-01 正向: 带 token 的请求不应返回 401，实际返回 {}", status);
+    assert_ne!(status, StatusCode::OK, "VULN-01 正向: 不存在的媒体不应返回 200（旧行为），实际返回 {}", status);
 }
 
 // --------------------------------------------------------------------------- //
@@ -260,12 +247,7 @@ async fn vuln_04_05_webhook_with_auth_not_blocked_by_401() {
     let response = app.clone().oneshot(request).await.unwrap();
     let status = response.status();
 
-    assert_ne!(
-        status,
-        StatusCode::UNAUTHORIZED,
-        "webhook 正向: 带 token 的请求不应返回 401，实际返回 {}",
-        status
-    );
+    assert_ne!(status, StatusCode::UNAUTHORIZED, "webhook 正向: 带 token 的请求不应返回 401，实际返回 {}", status);
 }
 
 // --------------------------------------------------------------------------- //
@@ -281,11 +263,8 @@ async fn regression_protected_route_still_requires_auth() {
 
     // /_matrix/client/v3/account/whoami 是标准受保护路由，无 token 应返回 401。
     // 此测试确保 media/webhook 的认证修复未意外破坏全局认证中间件。
-    let request = Request::builder()
-        .method("GET")
-        .uri("/_matrix/client/v3/account/whoami")
-        .body(Body::empty())
-        .unwrap();
+    let request =
+        Request::builder().method("GET").uri("/_matrix/client/v3/account/whoami").body(Body::empty()).unwrap();
 
     let request = super::with_local_connect_info(request);
     let response = app.clone().oneshot(request).await.unwrap();
@@ -307,19 +286,10 @@ async fn regression_public_route_still_accessible() {
 
     // /_matrix/client/versions 是公开路由，无需认证。
     // 此测试确保 media 认证修复未意外将公开路由也加入认证要求。
-    let request = Request::builder()
-        .method("GET")
-        .uri("/_matrix/client/versions")
-        .body(Body::empty())
-        .unwrap();
+    let request = Request::builder().method("GET").uri("/_matrix/client/versions").body(Body::empty()).unwrap();
 
     let request = super::with_local_connect_info(request);
     let response = app.clone().oneshot(request).await.unwrap();
 
-    assert_eq!(
-        response.status(),
-        StatusCode::OK,
-        "回归: /versions 公开路由应返回 200，实际返回 {}",
-        response.status()
-    );
+    assert_eq!(response.status(), StatusCode::OK, "回归: /versions 公开路由应返回 200，实际返回 {}", response.status());
 }

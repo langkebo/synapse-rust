@@ -5,8 +5,7 @@ use serde::Deserialize;
 // ============================================================================
 
 /// 数据库连接配置。
-#[derive(Clone, Deserialize, Default)]
-#[derive(derivative::Derivative)]
+#[derive(Clone, Deserialize, Default, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct DatabaseConfig {
     /// 数据库主机地址
@@ -35,8 +34,7 @@ pub struct DatabaseConfig {
 }
 
 /// Redis 缓存配置。
-#[derive(Clone, Deserialize, Default)]
-#[derive(derivative::Derivative)]
+#[derive(Clone, Deserialize, Default, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct RedisConfig {
     /// Redis 主机地址

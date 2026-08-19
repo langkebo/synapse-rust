@@ -305,16 +305,22 @@ impl BackgroundUpdateService {
 
     #[instrument(skip(self))]
     pub async fn count_all(&self) -> Result<i64, ApiError> {
-        let count =
-            self.storage.count_all().await.map_err(|e| ApiError::internal_with_context("Failed to count updates", &e))?;
+        let count = self
+            .storage
+            .count_all()
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to count updates", &e))?;
 
         Ok(count)
     }
 
     #[instrument(skip(self))]
     pub async fn get_stats(&self, days: i32) -> Result<Vec<BackgroundUpdateStats>, ApiError> {
-        let stats =
-            self.storage.get_stats(days).await.map_err(|e| ApiError::internal_with_context("Failed to get stats", &e))?;
+        let stats = self
+            .storage
+            .get_stats(days)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to get stats", &e))?;
 
         Ok(stats)
     }

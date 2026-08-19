@@ -272,9 +272,7 @@ impl crate::sliding_sync::SlidingSyncStoreApi for InMemorySlidingSyncStore {
     ) -> Result<Option<crate::sliding_sync::SlidingSyncRoom>, sqlx::Error> {
         // S12: support error injection for testing error-handling paths.
         if self.fail_materialize.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err(sqlx::Error::Configuration(
-                "S12 test: simulated materialize failure".into(),
-            ));
+            return Err(sqlx::Error::Configuration("S12 test: simulated materialize failure".into()));
         }
         // For the mock, simply delegate to get_room — real impl queries
         // activity tables, but tests seed data via upsert_room.

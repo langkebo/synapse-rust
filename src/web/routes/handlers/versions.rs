@@ -150,9 +150,7 @@ pub async fn get_capabilities(
     // can discover the default and available room versions. Per Matrix spec,
     // this goes inside the `capabilities` object, not at the top level.
     if let Some(obj) = response.as_object_mut() {
-        let caps = obj
-            .entry("capabilities")
-            .or_insert_with(|| json!({}));
+        let caps = obj.entry("capabilities").or_insert_with(|| json!({}));
         if let Some(caps_obj) = caps.as_object_mut() {
             caps_obj.insert(
                 "rooms".to_string(),

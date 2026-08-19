@@ -1,7 +1,7 @@
 use super::models::{KeyRequestInfo, KeyRequestPagination};
 use sqlx::PgPool;
-use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 
 #[derive(Clone)]
@@ -266,6 +266,10 @@ impl KeyRequestStorage {
         query.push(" ORDER BY created_ts DESC, request_id DESC LIMIT ");
         query.push_bind(limit);
 
-        query.build_query_as::<KeyRequestInfo>().fetch_all(&self.pool).await.map_err(map_database!("get_requests_paginated"))
+        query
+            .build_query_as::<KeyRequestInfo>()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(map_database!("get_requests_paginated"))
     }
 }

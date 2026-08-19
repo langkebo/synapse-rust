@@ -35,18 +35,18 @@ pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std:
         })
         .test_before_acquire(false);
 
-    ::tracing::info!("[启动阶段 1/4] 连接数据库 (pool: max={}, min_idle={:?}, timeout={}s)",
-        config.database.max_size, config.database.min_idle, config.database.connection_timeout);
+    ::tracing::info!(
+        "[启动阶段 1/4] 连接数据库 (pool: max={}, min_idle={:?}, timeout={}s)",
+        config.database.max_size,
+        config.database.min_idle,
+        config.database.connection_timeout
+    );
 
     let database_url = config.database_url();
     let pool = pool_options.connect(&database_url).await?;
 
     // 记录 PG 服务端版本, 便于排查兼容性问题 (如 PG14 以下不支持某些 SQL 语法)
-    let pg_version: Option<String> = sqlx::query_scalar("SELECT version()")
-        .fetch_optional(&pool)
-        .await
-        .ok()
-        .flatten();
+    let pg_version: Option<String> = sqlx::query_scalar("SELECT version()").fetch_optional(&pool).await.ok().flatten();
     ::tracing::info!("[启动阶段 1/4] 数据库连接建立: {}", pg_version.as_deref().unwrap_or("unknown"));
     let pool = Arc::new(pool);
 

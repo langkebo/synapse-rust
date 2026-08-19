@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
+pub use crate::rate_limit_config::SyncRateLimitConfigFile as SyncRateLimitConfig;
 /// 限流配置（homeserver.yaml 的 `rate_limit` 段，运行时视图）。
 ///
 /// B-1：限流叶子类型全仓只有一份定义，在 `crate::rate_limit_config`
@@ -9,7 +10,6 @@ use std::collections::HashMap;
 /// 字段集与热更新文件（`RateLimitConfigFile`，多 `backend` /
 /// `reload_interval_seconds` 等）不同，因此两个顶层 struct 各自保留。
 pub use crate::rate_limit_config::{RateLimitEndpointRule, RateLimitMatchType, RateLimitRule};
-pub use crate::rate_limit_config::SyncRateLimitConfigFile as SyncRateLimitConfig;
 
 // ============================================================================
 // SECTION: Rate Limiting

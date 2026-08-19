@@ -901,10 +901,8 @@ async fn test_save_and_consume_pending_request() {
     assert_eq!(first.expires_at, expires_at);
 
     // 第二次消费返回 None（原子删除，防重放）
-    let second = storage
-        .get_and_delete_pending_request(&relay_state)
-        .await
-        .expect("second get_and_delete should succeed");
+    let second =
+        storage.get_and_delete_pending_request(&relay_state).await.expect("second get_and_delete should succeed");
     assert!(second.is_none(), "pending request should be atomically consumed");
 
     cleanup_saml_test_data(&pool, &suffix).await;

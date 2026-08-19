@@ -587,9 +587,7 @@ impl RedisCache {
         use redis::AsyncCommands;
         let result = self
             .with_circuit_breaker("GET", |mut conn| async move {
-                conn.get::<_, Option<String>>(key)
-                    .await
-                    .map_err(|e| CacheError::OperationFailed(e.to_string()))
+                conn.get::<_, Option<String>>(key).await.map_err(|e| CacheError::OperationFailed(e.to_string()))
             })
             .await;
 
@@ -669,9 +667,7 @@ impl RedisCache {
                     pipe.cmd("SET").arg(key).arg(value);
                 }
             }
-            pipe.query_async::<()>(&mut conn)
-                .await
-                .map_err(|e| CacheError::OperationFailed(e.to_string()))
+            pipe.query_async::<()>(&mut conn).await.map_err(|e| CacheError::OperationFailed(e.to_string()))
         })
         .await
     }
@@ -939,21 +935,11 @@ impl CacheManager {
     }
 
     pub fn get_keys_with_prefix(&self, prefix: &str) -> Vec<String> {
-        let mut keys: Vec<String> = self
-            .local
-            .cache
-            .iter()
-            .filter(|(k, _)| k.starts_with(prefix))
-            .map(|(k, _)| k.to_string())
-            .collect();
+        let mut keys: Vec<String> =
+            self.local.cache.iter().filter(|(k, _)| k.starts_with(prefix)).map(|(k, _)| k.to_string()).collect();
         // D-2: 也搜索命名空间缓存
         for ns in self.local.namespaces.values() {
-            keys.extend(
-                ns.cache
-                    .iter()
-                    .filter(|(k, _)| k.starts_with(prefix))
-                    .map(|(k, _)| k.to_string()),
-            );
+            keys.extend(ns.cache.iter().filter(|(k, _)| k.starts_with(prefix)).map(|(k, _)| k.to_string()));
         }
         keys
     }
@@ -977,25 +963,16 @@ impl CacheManager {
         };
 
         // D-2: 通用缓存实例
-        let keys_to_remove: Vec<String> = self
-            .local
-            .cache
-            .iter()
-            .filter(|(k, _)| matcher(k))
-            .map(|(k, _)| k.to_string())
-            .collect();
+        let keys_to_remove: Vec<String> =
+            self.local.cache.iter().filter(|(k, _)| matcher(k)).map(|(k, _)| k.to_string()).collect();
         for key in keys_to_remove {
             self.local.remove(&key);
         }
 
         // D-2: 命名空间缓存实例
         for ns in self.local.namespaces.values() {
-            let ns_keys: Vec<String> = ns
-                .cache
-                .iter()
-                .filter(|(k, _)| matcher(k))
-                .map(|(k, _)| k.to_string())
-                .collect();
+            let ns_keys: Vec<String> =
+                ns.cache.iter().filter(|(k, _)| matcher(k)).map(|(k, _)| k.to_string()).collect();
             for key in ns_keys {
                 ns.deadlines.lock().remove(&key);
                 ns.cache.remove(&key);
@@ -1016,7 +993,11 @@ impl CacheManager {
         // PERF-08: 本地 L1 同步失效。Redis 订阅端会跳过本实例的自回声
         // （sender_instance == instance_id），不在这里处理本地就永远没人处理，
         // 调用方一旦忘记先删本地，本实例 L1 残留陈旧数据直到 TTL 过期。
-        self.handle_invalidation_message(&CacheInvalidationMessage::new(key.to_string(), invalidation_type, String::new()));
+        self.handle_invalidation_message(&CacheInvalidationMessage::new(
+            key.to_string(),
+            invalidation_type,
+            String::new(),
+        ));
         if let Some(im) = &self.invalidation_manager {
             im.broadcaster()
                 .ok_or_else(|| ApiError::internal("Invalidation broadcaster not available"))?
@@ -1377,9 +1358,7 @@ impl CacheManager {
         }
         let serialized: Vec<(String, String, u64)> = entries
             .iter()
-            .filter_map(|(key, value, ttl)| {
-                serde_json::to_string(value).ok().map(|v| (key.clone(), v, *ttl))
-            })
+            .filter_map(|(key, value, ttl)| serde_json::to_string(value).ok().map(|v| (key.clone(), v, *ttl)))
             .collect();
         self.set_batch_serialized(&serialized).await
     }
@@ -1835,7 +1814,8 @@ mod tests {
         let probe = tokio::time::timeout(std::time::Duration::from_millis(800), pool.get()).await.ok()?.ok()?;
         drop(probe);
         let manager = CacheManager::with_redis_pool(pool.clone(), &CacheConfig::default());
-        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
         let key = format!("s7_get_raw_shared:{tag}:{}:{nanos}", std::process::id());
         Some((manager, pool, key))
     }

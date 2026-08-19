@@ -663,7 +663,12 @@ fn test_new_with_lifetime_accepts_all_injected_storages() {
 // login.rs 测试（P0 安全关键路径，此前 0 覆盖）
 // ============================================================================
 
-fn make_test_user(user_id: &str, password_hash: Option<&str>, is_admin: bool, is_deactivated: bool) -> synapse_storage::User {
+fn make_test_user(
+    user_id: &str,
+    password_hash: Option<&str>,
+    is_admin: bool,
+    is_deactivated: bool,
+) -> synapse_storage::User {
     synapse_storage::User {
         user_id: user_id.to_string(),
         username: user_id.trim_start_matches('@').to_string(),
@@ -801,11 +806,7 @@ async fn test_change_password_weak_new_password_returns_bad_request() {
     h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
 
     // 弱密码（不满足默认密码策略）应被 400 拒绝。
-    let err = h
-        .service
-        .change_password("@alice:test", Some("old-password"), "short", None)
-        .await
-        .unwrap_err();
+    let err = h.service.change_password("@alice:test", Some("old-password"), "short", None).await.unwrap_err();
     assert_eq!(err.kind, synapse_common::ApiErrorKind::BadRequest);
 }
 
@@ -922,7 +923,8 @@ fn test_auth_generate_token_length_and_charset() {
 async fn test_register_guest_account_success() {
     let h = super::test_harness::build_test_auth_service();
 
-    let (user, device_id, access_token) = h.service.register_guest_account().await.expect("guest register should succeed");
+    let (user, device_id, access_token) =
+        h.service.register_guest_account().await.expect("guest register should succeed");
 
     assert!(user.user_id.starts_with("@guest_"));
     assert!(device_id.starts_with("guest_device_"));

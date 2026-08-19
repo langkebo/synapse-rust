@@ -404,11 +404,7 @@ impl MediaDomainService {
             .await
             .map_err(|e| ApiError::internal(format!("Failed to open media file: {e}")))?;
 
-        let content_length = file
-            .metadata()
-            .await
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let content_length = file.metadata().await.map(|m| m.len()).unwrap_or(0);
 
         let metadata = self.media_service.get_media_metadata(server_name, media_id).await.unwrap_or(Value::Null);
 

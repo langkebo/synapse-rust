@@ -48,10 +48,8 @@ impl FederationServices {
         // FED-07: Wire the dead letter queue into the federation client so
         // that failed transactions are persisted for audit and manual retry.
         let dlq = Arc::new(PgDeadLetterQueue::new(pool.clone()));
-        let federation_client = Arc::new(
-            FederationClient::new(server_name.clone(), Arc::new(key_rotation_manager.clone()))
-                .with_dlq(dlq),
-        );
+        let federation_client =
+            Arc::new(FederationClient::new(server_name.clone(), Arc::new(key_rotation_manager.clone())).with_dlq(dlq));
 
         let device_sync_manager = DeviceSyncManager::new(pool, Some(cache.clone()), task_queue.clone());
 

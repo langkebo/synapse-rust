@@ -630,7 +630,13 @@ mod tests {
         }
     }
 
-    fn state_event(room_id: &str, event_id: &str, sender: &str, event_type: &str, content: serde_json::Value) -> RoomEvent {
+    fn state_event(
+        room_id: &str,
+        event_id: &str,
+        sender: &str,
+        event_type: &str,
+        content: serde_json::Value,
+    ) -> RoomEvent {
         RoomEvent {
             event_id: event_id.to_string(),
             room_id: room_id.to_string(),
@@ -842,7 +848,13 @@ mod tests {
         h.member_store.seed_members(vec![member(room, ALICE, "join"), member(room, BOB, "join")]).await;
         h.event_store
             .seed_events(vec![
-                state_event(room, "$create4", BOB, "m.room.create", serde_json::json!({"creator": BOB, "room_version": "10"})),
+                state_event(
+                    room,
+                    "$create4",
+                    BOB,
+                    "m.room.create",
+                    serde_json::json!({"creator": BOB, "room_version": "10"}),
+                ),
                 state_event(room, "$pl4", BOB, "m.room.power_levels", default_power_levels()),
             ])
             .await;
@@ -892,7 +904,13 @@ mod tests {
         h.member_store.seed_members(vec![member(room, CAROL, "join"), member(room, BOB, "join")]).await;
         h.event_store
             .seed_events(vec![
-                state_event(room, "$create5", BOB, "m.room.create", serde_json::json!({"creator": BOB, "room_version": "11"})),
+                state_event(
+                    room,
+                    "$create5",
+                    BOB,
+                    "m.room.create",
+                    serde_json::json!({"creator": BOB, "room_version": "11"}),
+                ),
                 state_event(room, "$pl5", BOB, "m.room.power_levels", default_power_levels()),
             ])
             .await;

@@ -127,7 +127,6 @@ impl AdminServices {
         user_service: Arc<UserService>,
         shutdown_token: &tokio_util::sync::CancellationToken,
     ) -> Self {
-
         let admin_registration_service = crate::admin_registration_service::AdminRegistrationService::new(
             token_auth.clone(),
             credential_auth.clone(),

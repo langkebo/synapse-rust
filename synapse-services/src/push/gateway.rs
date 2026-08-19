@@ -80,14 +80,11 @@ pub struct PushGateway {
 
 impl PushGateway {
     pub fn new(config: &PushGatewayConfig) -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(config.timeout_secs))
-            .build()
-            .unwrap_or_else(|e| {
-                // F-1: builder 失败不再静默退化，记录 warn 并回退共享默认 client
-                tracing::warn!(error = %e, "Failed to build push gateway HTTP client, using shared default");
-                synapse_common::http_client::default_client()
-            });
+        let client = Client::builder().timeout(Duration::from_secs(config.timeout_secs)).build().unwrap_or_else(|e| {
+            // F-1: builder 失败不再静默退化，记录 warn 并回退共享默认 client
+            tracing::warn!(error = %e, "Failed to build push gateway HTTP client, using shared default");
+            synapse_common::http_client::default_client()
+        });
 
         Self { client }
     }
@@ -111,7 +108,8 @@ impl PushGateway {
         let status = response.status();
 
         if !status.is_success() {
-            let body = response.text().await.map_err(|e| ApiError::internal_with_context("Failed to read response", &e))?;
+            let body =
+                response.text().await.map_err(|e| ApiError::internal_with_context("Failed to read response", &e))?;
 
             error!(
                 %status,
@@ -122,8 +120,10 @@ impl PushGateway {
             return Err(ApiError::internal_with_context("Push gateway error", &status));
         }
 
-        let gateway_response: PushGatewayResponse =
-            response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse gateway response", &e))?;
+        let gateway_response: PushGatewayResponse = response
+            .json()
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to parse gateway response", &e))?;
 
         debug!(rejected = gateway_response.rejected.len(), "Push gateway response");
 

@@ -193,7 +193,8 @@ impl ServerNotificationStoreApi for MockServerNotificationStore {
     ) -> Result<ServerNotification, ApiError> {
         self.fail_check()?;
         let mut notifications = self.notifications.lock().unwrap();
-        let notification = notifications.get_mut(&notification_id).ok_or_else(|| ApiError::not_found("Notification not found"))?;
+        let notification =
+            notifications.get_mut(&notification_id).ok_or_else(|| ApiError::not_found("Notification not found"))?;
         notification.title = request.title;
         notification.content = request.content;
         if let Some(t) = request.notification_type {
@@ -470,7 +471,9 @@ fn build_service() -> ServerNotificationService {
     ServerNotificationService::new(store, user_service)
 }
 
-fn build_service_with_store(store: MockServerNotificationStore) -> (ServerNotificationService, Arc<MockServerNotificationStore>) {
+fn build_service_with_store(
+    store: MockServerNotificationStore,
+) -> (ServerNotificationService, Arc<MockServerNotificationStore>) {
     let store_arc = Arc::new(store);
     let user_store: Arc<FakeUserStore> = Arc::new(FakeUserStore::new());
     let user_service = Arc::new(UserService::new(user_store as Arc<dyn synapse_storage::user::UserStore>));
@@ -974,10 +977,8 @@ async fn create_from_template_substitutes_variables_and_creates_notification() {
     variables.insert("name".to_string(), "Alice".to_string());
     variables.insert("place".to_string(), "Wonderland".to_string());
 
-    let result = svc
-        .create_from_template("welcome", variables, Some("all".to_string()), None)
-        .await
-        .expect("should succeed");
+    let result =
+        svc.create_from_template("welcome", variables, Some("all".to_string()), None).await.expect("should succeed");
 
     assert_eq!(result.title, "Welcome Alice");
     assert_eq!(result.content, "Hello Alice, welcome to Wonderland!");
@@ -986,10 +987,8 @@ async fn create_from_template_substitutes_variables_and_creates_notification() {
 #[tokio::test]
 async fn create_from_template_returns_not_found_when_template_missing() {
     let svc = build_service();
-    let err = svc
-        .create_from_template("nonexistent", HashMap::new(), None, None)
-        .await
-        .expect_err("should be not_found");
+    let err =
+        svc.create_from_template("nonexistent", HashMap::new(), None, None).await.expect_err("should be not_found");
     assert!(err.is_not_found());
 }
 
@@ -1003,10 +1002,7 @@ async fn create_from_template_leaves_unmatched_placeholders_untouched() {
     variables.insert("name".to_string(), "Bob".to_string());
     // "place" is not provided — the placeholder should remain as-is.
 
-    let result = svc
-        .create_from_template("welcome", variables, None, None)
-        .await
-        .expect("should succeed");
+    let result = svc.create_from_template("welcome", variables, None, None).await.expect("should succeed");
 
     assert_eq!(result.title, "Hello Bob");
     assert_eq!(result.content, "Welcome Bob to {{place}}");
@@ -1174,10 +1170,8 @@ async fn ensure_target_users_exist_succeeds_when_all_users_exist() {
 #[tokio::test]
 async fn ensure_target_users_exist_returns_not_found_when_user_missing() {
     let svc = build_service();
-    let err = svc
-        .ensure_target_users_exist(&["@nobody:example.com".to_string()])
-        .await
-        .expect_err("should be not_found");
+    let err =
+        svc.ensure_target_users_exist(&["@nobody:example.com".to_string()]).await.expect_err("should be not_found");
     assert!(err.is_not_found());
 }
 

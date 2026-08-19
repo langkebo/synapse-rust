@@ -137,10 +137,7 @@ impl DirectoryStoreApi for DirectoryStorage {
     }
 
     async fn remove_from_directory(&self, room_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM room_directory WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&*self.pool)
-            .await?;
+        sqlx::query("DELETE FROM room_directory WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
         Ok(())
     }
 

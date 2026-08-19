@@ -32,7 +32,11 @@ use synapse_rust::web::routes::route_ledger::RouteEntry;
 #[test]
 fn test_route_manifest_contains_all_fourteen_entries() {
     let manifest = burn_after_read_route_manifest();
-    assert_eq!(manifest.len(), 14, "burn_after_read manifest must declare exactly 14 (method, path) entries (7 v1 + 7 v3)");
+    assert_eq!(
+        manifest.len(),
+        14,
+        "burn_after_read manifest must declare exactly 14 (method, path) entries (7 v1 + 7 v3)"
+    );
 }
 
 #[test]
@@ -217,11 +221,8 @@ fn test_mark_burn_read_rejects_when_no_settings() {
 fn test_mark_burn_read_rejects_when_disabled() {
     // settings.is_enabled == false → ApiError::bad_request("Burn not enabled for this room")
     let is_enabled = false;
-    let err = if !is_enabled {
-        Some(ApiError::bad_request("Burn not enabled for this room".to_string()))
-    } else {
-        None
-    };
+    let err =
+        if !is_enabled { Some(ApiError::bad_request("Burn not enabled for this room".to_string())) } else { None };
     assert!(err.is_some(), "disabled burn must be rejected");
 }
 

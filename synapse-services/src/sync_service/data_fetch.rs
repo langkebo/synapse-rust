@@ -260,8 +260,7 @@ impl SyncService {
 
         let dedup_cache_key = format!("sync_v2:presence:{user_id}");
         let changed_senders: Option<HashSet<String>> = if since.is_some() {
-            let prev: Option<PresenceCanonical> =
-                self.cache.get(&dedup_cache_key).await.ok().flatten();
+            let prev: Option<PresenceCanonical> = self.cache.get(&dedup_cache_key).await.ok().flatten();
             let changed: HashSet<String> = match &prev {
                 // 温缓存：只发状态变化或新增的目标
                 Some(prev) => canonical

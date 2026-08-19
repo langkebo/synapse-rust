@@ -132,7 +132,9 @@ pub async fn federation_auth_middleware(
     if let Some(ts) = params.ts {
         let tolerance_ms = ctx.config.federation.signing_ts_tolerance_ms;
         if tolerance_ms > 0 {
-            if let Err(reason) = synapse_common::security::SecurityValidator::validate_federation_timestamp(ts, tolerance_ms) {
+            if let Err(reason) =
+                synapse_common::security::SecurityValidator::validate_federation_timestamp(ts, tolerance_ms)
+            {
                 tracing::warn!(
                     target: "security_audit",
                     event = "federation_timestamp_rejected",
@@ -142,7 +144,8 @@ pub async fn federation_auth_middleware(
                     reason = %reason,
                     "Federation request rejected: signature timestamp out of tolerance"
                 );
-                return ApiError::unauthorized("Federation signature timestamp out of tolerance".to_string()).into_response();
+                return ApiError::unauthorized("Federation signature timestamp out of tolerance".to_string())
+                    .into_response();
             }
         }
     } else if ctx.config.federation.replay_protection_enabled {
@@ -158,12 +161,8 @@ pub async fn federation_auth_middleware(
     // 窗口内重复提交同一签名即被拒绝。使用 security::compute_signature_hash
     // 计算（含 origin + key_id + signature + signed_bytes 四元组）。
     if ctx.config.federation.replay_protection_enabled {
-        let sig_hash = synapse_common::security::compute_signature_hash(
-            &params.origin,
-            &params.key,
-            &params.sig,
-            &signed_bytes,
-        );
+        let sig_hash =
+            synapse_common::security::compute_signature_hash(&params.origin, &params.key, &params.sig, &signed_bytes);
         if !ctx.replay_protection_cache.check_and_record(&sig_hash) {
             tracing::warn!(
                 target: "security_audit",

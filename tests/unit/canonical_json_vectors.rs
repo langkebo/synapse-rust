@@ -79,19 +79,13 @@ fn vector_integer_negative() {
 /// `2^53 - 1 = 9007199254740991` is the maximum permitted integer.
 #[test]
 fn vector_integer_max_range() {
-    assert_eq!(
-        canonical_json(&json!({"max": 9007199254740991_i64})).unwrap(),
-        r#"{"max":9007199254740991}"#
-    );
+    assert_eq!(canonical_json(&json!({"max": 9007199254740991_i64})).unwrap(), r#"{"max":9007199254740991}"#);
 }
 
 /// `-(2^53) + 1 = -9007199254740991` is the minimum permitted integer.
 #[test]
 fn vector_integer_min_range() {
-    assert_eq!(
-        canonical_json(&json!({"min": -9007199254740991_i64})).unwrap(),
-        r#"{"min":-9007199254740991}"#
-    );
+    assert_eq!(canonical_json(&json!({"min": -9007199254740991_i64})).unwrap(), r#"{"min":-9007199254740991}"#);
 }
 
 /// `2^53 = 9007199254740992` is out of range and MUST be rejected.
@@ -175,10 +169,7 @@ fn vector_array_order_preserved() {
 #[test]
 fn vector_array_mixed_types() {
     let json = json!([1, "two", null, true, false, {"key": "val"}]);
-    assert_eq!(
-        canonical_json(&json).unwrap(),
-        r#"[1,"two",null,true,false,{"key":"val"}]"#
-    );
+    assert_eq!(canonical_json(&json).unwrap(), r#"[1,"two",null,true,false,{"key":"val"}]"#);
 }
 
 /// Nested arrays preserve order at every level.
@@ -415,10 +406,7 @@ fn vector_deep_nesting_mixed_types() {
         "a": {"b": {"c": [1, "two", null, true, false]}},
         "d": 42
     });
-    assert_eq!(
-        canonical_json(&json).unwrap(),
-        r#"{"a":{"b":{"c":[1,"two",null,true,false]}},"d":42}"#
-    );
+    assert_eq!(canonical_json(&json).unwrap(), r#"{"a":{"b":{"c":[1,"two",null,true,false]}},"d":42}"#);
 }
 
 // ===========================================================================
@@ -436,10 +424,7 @@ fn conformance_sweep_all_vectors() {
             match canonical_json(&$input) {
                 Ok(actual) if actual == $expected => {}
                 Ok(actual) => {
-                    failures.push(format!(
-                        "{}: expected {:?}, got {:?}",
-                        $name, $expected, actual
-                    ));
+                    failures.push(format!("{}: expected {:?}, got {:?}", $name, $expected, actual));
                 }
                 Err(e) => {
                     failures.push(format!("{}: error: {}", $name, e));

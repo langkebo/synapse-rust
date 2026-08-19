@@ -26,9 +26,9 @@ use crate::megolm::storage::MegolmSessionStorage;
 use std::sync::Arc;
 use std::time::Instant;
 use synapse_cache::CacheManager;
-use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
 use synapse_common::current_timestamp_utc;
+use synapse_common::map_database;
 use synapse_common::server_metrics::ServerMetrics;
 use synapse_common::ApiError;
 use vodozemac::megolm::{
@@ -321,8 +321,7 @@ impl MegolmVodozemacService {
     /// Encrypt a single plaintext message using the vodozemac outbound session.
     pub async fn encrypt(&self, session_id: &str, plaintext: &[u8]) -> Result<Vec<u8>, ApiError> {
         let mut out = self.encrypt_many(session_id, std::slice::from_ref(&plaintext)).await?;
-        out.pop()
-            .ok_or_else(|| ApiError::internal("encrypt_many returned no ciphertexts for a single plaintext input"))
+        out.pop().ok_or_else(|| ApiError::internal("encrypt_many returned no ciphertexts for a single plaintext input"))
     }
 
     /// Bulk-encrypt N messages under one round-trip.
@@ -764,10 +763,7 @@ mod tests {
     #[test]
     fn test_pickle_from_string_returns_err_on_invalid_base64() {
         let result = pickle_from_string("!!!not valid base64!!!");
-        assert!(
-            result.is_err(),
-            "pickle_from_string should return Err for invalid base64 input"
-        );
+        assert!(result.is_err(), "pickle_from_string should return Err for invalid base64 input");
     }
 
     /// `pickle_from_string` must return `Err` (not panic) when given
@@ -775,15 +771,10 @@ mod tests {
     /// This exercises the `serde_json::from_slice` error path.
     #[test]
     fn test_pickle_from_string_returns_err_on_invalid_json() {
-        let invalid_json_b64 = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            b"not a valid pickle json",
-        );
+        let invalid_json_b64 =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b"not a valid pickle json");
         let result = pickle_from_string(&invalid_json_b64);
-        assert!(
-            result.is_err(),
-            "pickle_from_string should return Err for valid base64 of invalid JSON"
-        );
+        assert!(result.is_err(), "pickle_from_string should return Err for valid base64 of invalid JSON");
     }
 
     /// `inbound_pickle_from_string` must return `Err` (not panic) when
@@ -791,10 +782,7 @@ mod tests {
     #[test]
     fn test_inbound_pickle_from_string_returns_err_on_invalid_base64() {
         let result = inbound_pickle_from_string("!!!not valid base64!!!");
-        assert!(
-            result.is_err(),
-            "inbound_pickle_from_string should return Err for invalid base64 input"
-        );
+        assert!(result.is_err(), "inbound_pickle_from_string should return Err for invalid base64 input");
     }
 
     /// `MegolmMessage::from_bytes` must return `Err` (not panic) when
@@ -804,9 +792,6 @@ mod tests {
     #[test]
     fn test_megolm_message_from_bytes_returns_err_on_malformed_input() {
         let result = vodozemac::megolm::MegolmMessage::from_bytes(&[0u8; 5]);
-        assert!(
-            result.is_err(),
-            "MegolmMessage::from_bytes should return Err for malformed ciphertext"
-        );
+        assert!(result.is_err(), "MegolmMessage::from_bytes should return Err for malformed ciphertext");
     }
 }

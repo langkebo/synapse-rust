@@ -800,10 +800,7 @@ async fn s12_initial_sync_materializes_joined_rooms() {
     let member_store = Arc::new(synapse_storage::test_mocks::InMemoryMemberStore::new());
 
     // Seed a joined room
-    member_store
-        .add_member("!room1:example.com", "@alice:example.com", "join", Some("Alice"))
-        .await
-        .unwrap();
+    member_store.add_member("!room1:example.com", "@alice:example.com", "join", Some("Alice")).await.unwrap();
 
     let service = create_mocked_test_service(sync_store.clone(), member_store);
 
@@ -836,10 +833,7 @@ async fn s12_initial_sync_resilient_to_materialize_errors() {
     let member_store = Arc::new(synapse_storage::test_mocks::InMemoryMemberStore::new());
 
     // Seed a joined room so the materialize loop runs
-    member_store
-        .add_member("!room1:example.com", "@alice:example.com", "join", Some("Alice"))
-        .await
-        .unwrap();
+    member_store.add_member("!room1:example.com", "@alice:example.com", "join", Some("Alice")).await.unwrap();
 
     // Inject error: materialize_room_from_activity will return Err
     sync_store.set_fail_materialize(true);
@@ -861,11 +855,7 @@ async fn s12_initial_sync_resilient_to_materialize_errors() {
     // Sync must succeed despite materialize failure — errors are logged,
     // not propagated to crash the sync.
     let result = service.sync("@alice:example.com", "DEV1", request).await;
-    assert!(
-        result.is_ok(),
-        "initial sync must be resilient to materialize errors: {:?}",
-        result.err()
-    );
+    assert!(result.is_ok(), "initial sync must be resilient to materialize errors: {:?}", result.err());
 }
 
 // ── S11: slow-request metrics must exclude idle_wait_ms ────────────
@@ -892,10 +882,8 @@ async fn s11_fast_request_does_not_increment_slow_counter() {
     }
 
     // Histogram should still record the observation for p95/p99 reporting.
-    let histogram = service
-        .metrics
-        .get_histogram(SLIDING_SYNC_LATENCY_HISTOGRAM)
-        .expect("latency histogram should be registered");
+    let histogram =
+        service.metrics.get_histogram(SLIDING_SYNC_LATENCY_HISTOGRAM).expect("latency histogram should be registered");
     assert!(
         histogram.get_percentile(50.0).unwrap_or(0.0) > 0.0,
         "histogram must observe the latency even for fast requests"
@@ -913,28 +901,14 @@ async fn s11_slow_request_increments_slow_counter() {
     let threshold = service.latency_threshold_ms();
 
     // Simulate a genuinely slow request: actual processing time = threshold + 1ms.
-    service.record_sync_latency_metrics(
-        "@alice:example.com",
-        "DEV1",
-        None,
-        threshold as f64 + 1.0,
-        true,
-    );
+    service.record_sync_latency_metrics("@alice:example.com", "DEV1", None, threshold as f64 + 1.0, true);
 
-    let slow_counter = service
-        .metrics
-        .get_counter(SLIDING_SYNC_SLOW_REQUESTS_COUNTER)
-        .expect("slow counter should be registered");
+    let slow_counter =
+        service.metrics.get_counter(SLIDING_SYNC_SLOW_REQUESTS_COUNTER).expect("slow counter should be registered");
     assert_eq!(slow_counter.get(), 1, "slow request must trip the counter exactly once");
 
     // A second slow request must increment again (not double-count, not reset).
-    service.record_sync_latency_metrics(
-        "@alice:example.com",
-        "DEV1",
-        None,
-        threshold as f64 + 500.0,
-        false,
-    );
+    service.record_sync_latency_metrics("@alice:example.com", "DEV1", None, threshold as f64 + 500.0, false);
     assert_eq!(slow_counter.get(), 2, "second slow request must increment to 2");
 }
 
@@ -948,8 +922,7 @@ fn s11_slow_counter_only_in_service_layer() {
     // (not in the route module). The route module's test already scans
     // its own source for zero non-test occurrences of the counter name.
     assert_eq!(
-        SLIDING_SYNC_SLOW_REQUESTS_COUNTER,
-        "sliding_sync_slow_requests_total",
+        SLIDING_SYNC_SLOW_REQUESTS_COUNTER, "sliding_sync_slow_requests_total",
         "counter name must match the documented metric"
     );
 }

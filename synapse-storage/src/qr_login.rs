@@ -213,7 +213,8 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse_test".to_string());
-        let pool = PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -249,7 +250,10 @@ mod db_tests {
         assert_eq!(txn.status, "pending");
         assert_eq!(txn.device_id.as_deref(), Some("DEVICE1"));
 
-        let _ = sqlx::query("DELETE FROM qr_login_transactions WHERE transaction_id = $1").bind(&txn_id).execute(pool.as_ref()).await;
+        let _ = sqlx::query("DELETE FROM qr_login_transactions WHERE transaction_id = $1")
+            .bind(&txn_id)
+            .execute(pool.as_ref())
+            .await;
         let _ = sqlx::query("DELETE FROM users WHERE user_id = $1").bind(&user_id).execute(pool.as_ref()).await;
     }
 
@@ -276,7 +280,10 @@ mod db_tests {
         assert_eq!(txn.status, "confirmed");
         assert!(txn.updated_ts.is_some(), "update 应写入 updated_ts");
 
-        let _ = sqlx::query("DELETE FROM qr_login_transactions WHERE transaction_id = $1").bind(&txn_id).execute(pool.as_ref()).await;
+        let _ = sqlx::query("DELETE FROM qr_login_transactions WHERE transaction_id = $1")
+            .bind(&txn_id)
+            .execute(pool.as_ref())
+            .await;
         let _ = sqlx::query("DELETE FROM users WHERE user_id = $1").bind(&user_id).execute(pool.as_ref()).await;
     }
 

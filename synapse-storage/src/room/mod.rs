@@ -928,12 +928,10 @@ impl RoomStorage {
     /// `get_unread_counts` can recover `last_read_ts` after `purge_history`
     /// deletes the referenced event (P1-7).
     async fn lookup_event_origin_server_ts(&self, event_id: &str) -> Result<Option<i64>, sqlx::Error> {
-        let ts: Option<(Option<i64>,)> = sqlx::query_as(
-            "SELECT origin_server_ts FROM events WHERE event_id = $1",
-        )
-        .bind(event_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let ts: Option<(Option<i64>,)> = sqlx::query_as("SELECT origin_server_ts FROM events WHERE event_id = $1")
+            .bind(event_id)
+            .fetch_optional(&*self.pool)
+            .await?;
         Ok(ts.and_then(|t| t.0))
     }
 

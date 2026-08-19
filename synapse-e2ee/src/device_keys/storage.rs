@@ -2,8 +2,8 @@ use super::models::*;
 use sqlx::{PgPool, Row};
 use std::collections::HashMap;
 use std::sync::Arc;
-use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 
 /// Internal query struct that mirrors the `device_keys` table column types

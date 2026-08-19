@@ -205,8 +205,7 @@ mod tests {
 
     #[test]
     fn test_rate_limit_error_fail_open_allows_request() {
-        let decision = super::rate_limit_decision_on_error(true, 50)
-            .expect("fail-open must allow the request");
+        let decision = super::rate_limit_decision_on_error(true, 50).expect("fail-open must allow the request");
         assert!(decision.allowed);
         assert_eq!(decision.retry_after_seconds, 0);
         assert_eq!(decision.remaining, 50);

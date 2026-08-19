@@ -53,11 +53,7 @@ impl ProfileFlags {
     /// Convenience: every conditional route surface off. Equivalent to a
     /// freshly-default `ProfileFlags` and used as the canonical "minimal"
     /// profile for offline tooling.
-    pub const DEFAULT: Self = Self {
-        oidc_enabled: false,
-        worker_enabled: false,
-        saml_enabled: false,
-    };
+    pub const DEFAULT: Self = Self { oidc_enabled: false, worker_enabled: false, saml_enabled: false };
 }
 
 /// State-aware route modules that participate in both live Axum assembly and

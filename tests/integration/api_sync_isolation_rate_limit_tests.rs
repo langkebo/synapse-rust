@@ -92,10 +92,7 @@ async fn test_sync_initial_vs_incremental_rate_limit_isolated() {
     assert!(response.status().is_success());
     let body = axum::body::to_bytes(response.into_body(), 1024 * 64).await.unwrap();
     let initial_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let next_batch = initial_json["next_batch"]
-        .as_str()
-        .expect("initial sync should return next_batch")
-        .to_string();
+    let next_batch = initial_json["next_batch"].as_str().expect("initial sync should return next_batch").to_string();
 
     let request = Request::builder()
         .method("GET")

@@ -50,16 +50,14 @@ impl LoginTokenStoreApi for InMemoryLoginTokenStore {
     async fn consume_login_token(&self, token: &str) -> Result<Option<LoginToken>, sqlx::Error> {
         let now = current_timestamp_millis();
         let removed = self.tokens.lock().unwrap().remove(token);
-        Ok(removed
-            .filter(|(_, _, expires_at)| *expires_at > now)
-            .map(|(user_id, device_id, _)| LoginToken {
-                id: 0,
-                token: token.to_string(),
-                user_id,
-                device_id,
-                created_ts: 0,
-                expires_at: 0,
-            }))
+        Ok(removed.filter(|(_, _, expires_at)| *expires_at > now).map(|(user_id, device_id, _)| LoginToken {
+            id: 0,
+            token: token.to_string(),
+            user_id,
+            device_id,
+            created_ts: 0,
+            expires_at: 0,
+        }))
     }
 
     async fn cleanup_expired_tokens(&self, _now_ts: i64) -> Result<u64, sqlx::Error> {

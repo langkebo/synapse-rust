@@ -4,8 +4,8 @@
 use crate::device_trust::models::*;
 use sqlx::PgPool;
 use std::sync::Arc;
-use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 
 pub struct DeviceTrustStorage {

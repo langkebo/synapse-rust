@@ -66,10 +66,8 @@ impl SamlService {
         storage: Arc<dyn synapse_storage::saml::SamlStoreApi>,
         server_name: String,
     ) -> Self {
-        let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(config.timeout))
-            .build()
-            .unwrap_or_else(|e| {
+        let http_client =
+            reqwest::Client::builder().timeout(Duration::from_secs(config.timeout)).build().unwrap_or_else(|e| {
                 // F-1: builder 失败不再静默退化，记录 warn 并回退共享默认 client
                 tracing::warn!(error = %e, "Failed to build SAML HTTP client, using shared default");
                 synapse_common::http_client::default_client()
@@ -884,8 +882,8 @@ impl SamlService {
     }
 
     fn parse_metadata_xml(xml: &str) -> Result<SamlMetadata, ApiError> {
-        let parsed =
-            parse_saml_metadata(xml).map_err(|e| ApiError::internal_with_context("Failed to parse SAML metadata", &e))?;
+        let parsed = parse_saml_metadata(xml)
+            .map_err(|e| ApiError::internal_with_context("Failed to parse SAML metadata", &e))?;
 
         Ok(SamlMetadata {
             entity_id: parsed.entity_id,

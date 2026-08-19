@@ -137,8 +137,8 @@ impl SlidingSyncService {
                                 user_id,
                                 &room,
                                 room_configs.get(room_id).unwrap_or(&RoomSubscriptionConfig::default()),
-                        request.pos.is_none() || force_initial,
-                        since_stream,
+                                request.pos.is_none() || force_initial,
+                                since_stream,
                             )
                             .await?;
                         rooms_json.insert(room_id.clone(), payload);
@@ -203,8 +203,9 @@ impl SlidingSyncService {
         let required_state_events =
             self.build_required_state_events(&room.room_id, config.required_state.as_ref()).await?;
         // S14: 增量同步按水位线过滤 timeline；初始同步取最新 N 条
-        let (timeline, limited, prev_batch) =
-            self.build_timeline(&room.room_id, config.timeline_limit, if initial { None } else { since_stream }).await?;
+        let (timeline, limited, prev_batch) = self
+            .build_timeline(&room.room_id, config.timeline_limit, if initial { None } else { since_stream })
+            .await?;
 
         let state_value = json!(required_state_events);
         room_json["required_state"] = state_value.clone();

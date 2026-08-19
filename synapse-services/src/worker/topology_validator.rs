@@ -834,11 +834,8 @@ mod tests {
     /// but the positive case was not.
     #[test]
     fn test_p2_15_should_run_global_maintenance_on_background_worker_itself() {
-        let mut config = WorkerConfig {
-            enabled: true,
-            instance_name: "background_worker".to_string(),
-            ..WorkerConfig::default()
-        };
+        let mut config =
+            WorkerConfig { enabled: true, instance_name: "background_worker".to_string(), ..WorkerConfig::default() };
         config.instance_map.insert(
             "background_worker".to_string(),
             InstanceLocationConfig { host: "127.0.0.1".to_string(), port: 8105, tls: false },

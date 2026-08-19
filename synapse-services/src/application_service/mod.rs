@@ -199,7 +199,10 @@ impl ApplicationServiceManager {
 
     #[instrument(skip(self))]
     pub async fn get_all_states(&self, as_id: &str) -> Result<Vec<ApplicationServiceState>, ApiError> {
-        self.storage.get_all_states(as_id).await.map_err(|e| ApiError::internal_with_context("Failed to get states", &e))
+        self.storage
+            .get_all_states(as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to get states", &e))
     }
 
     #[instrument(skip(self, content))]

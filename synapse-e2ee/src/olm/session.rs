@@ -129,7 +129,9 @@ impl OlmSessionManager {
         let pre_key_message = vodozemac::olm::PreKeyMessage::from_base64(message)
             .map_err(|e| ApiError::bad_request(format!("Invalid pre-key message: {e}")))?;
 
-        let result = account.create_inbound_session(their_identity_key, &pre_key_message).map_err(map_database!("Failed to create inbound session"))?;
+        let result = account
+            .create_inbound_session(their_identity_key, &pre_key_message)
+            .map_err(map_database!("Failed to create inbound session"))?;
 
         let session_id = result.session.session_id();
 

@@ -310,7 +310,8 @@ impl SyncService {
         // S13/N6: 外层超时与 /sync 主路径统一为「客户端 timeout + 15s 宽余」。
         // 此前硬编码 60s，客户端 timeout=120s 会在 60s 处被服务端提前截断。
         let server_timeout = synapse_common::constants::sync_server_timeout(timeout);
-        let result = tokio::time::timeout(server_timeout, self.room_sync(user_id, room_id, timeout, is_full_state, since)).await;
+        let result =
+            tokio::time::timeout(server_timeout, self.room_sync(user_id, room_id, timeout, is_full_state, since)).await;
 
         match result {
             Ok(Ok(value)) => Ok(value),

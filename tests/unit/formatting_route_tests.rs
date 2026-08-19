@@ -44,7 +44,8 @@ fn format_token_response(
 
 #[test]
 fn format_token_response_contains_all_five_top_level_fields() {
-    let response = format_token_response("at-123", "rt-456", 3600, "DEV-001", "@alice:localhost", "https://matrix.example.org");
+    let response =
+        format_token_response("at-123", "rt-456", 3600, "DEV-001", "@alice:localhost", "https://matrix.example.org");
 
     assert_eq!(response["access_token"].as_str(), Some("at-123"));
     assert_eq!(response["refresh_token"].as_str(), Some("rt-456"));

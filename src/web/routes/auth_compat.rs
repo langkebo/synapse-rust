@@ -94,9 +94,7 @@ pub(crate) async fn register(
     }
 
     Ok(Json(
-        ctx.registration_service
-            .register_user(&username, password, displayname, initial_device_display_name)
-            .await?,
+        ctx.registration_service.register_user(&username, password, displayname, initial_device_display_name).await?,
     )
     .into_response())
 }
@@ -328,12 +326,7 @@ fn extract_login_client_ip(headers: &HeaderMap) -> String {
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.split(',').next())
         .map(|s| s.trim().to_string())
-        .or_else(|| {
-            headers
-                .get("x-real-ip")
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.trim().to_string())
-        })
+        .or_else(|| headers.get("x-real-ip").and_then(|v| v.to_str().ok()).map(|s| s.trim().to_string()))
         .unwrap_or_else(|| "unknown".to_string())
 }
 
@@ -454,11 +447,7 @@ pub(crate) async fn login(
     enforce_admin_login_mfa_svc(&ctx.config.security, ctx.user_service.as_ref(), username, mfa_code).await?;
 
     // D8: Record failures and clear on success.
-    match ctx
-        .credential_auth
-        .login(username, password, device_id, initial_display_name)
-        .await
-    {
+    match ctx.credential_auth.login(username, password, device_id, initial_display_name).await {
         Ok((user, access_token, refresh_token, device_id)) => {
             clear_login_failures(&ctx.cache, &client_ip, username).await;
             Ok(Json(format_token_response(

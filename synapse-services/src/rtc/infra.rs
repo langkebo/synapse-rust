@@ -87,8 +87,8 @@ impl RtcInfraService {
     }
 
     fn generate_turn_password(username: &str, secret: &str) -> Result<String, ApiError> {
-        let mut mac =
-            HmacSha1::new_from_slice(secret.as_bytes()).map_err(|e| ApiError::internal_with_context("HMAC error", &e))?;
+        let mut mac = HmacSha1::new_from_slice(secret.as_bytes())
+            .map_err(|e| ApiError::internal_with_context("HMAC error", &e))?;
         mac.update(username.as_bytes());
         let result = mac.finalize();
         Ok(BASE64.encode(result.into_bytes()))

@@ -64,8 +64,8 @@ mod worker_task_recovery_tests;
 #[cfg(feature = "beacons")]
 mod beacon_storage_tests_migrated;
 mod cross_signing_storage_tests_migrated;
-mod directory_storage_tests;
 mod device_storage_tests_migrated;
+mod directory_storage_tests;
 mod event_report_rate_limit_tests;
 mod event_storage_tests_migrated;
 mod feature_flags_storage_tests_migrated;
@@ -190,9 +190,8 @@ pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
     // 连接上，最终报 "pool timed out while waiting for an open connection"
     // （复现于 api_rate_limit_contract_tests 等）。因此每次调用返回隔离 schema
     // 的独立 pool，与 require_test_pool() 语义一致。
-    let use_isolated = std::env::var("TEST_ISOLATED_SCHEMAS")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
+    let use_isolated =
+        std::env::var("TEST_ISOLATED_SCHEMAS").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
     let mode = if use_isolated { "isolated-schema" } else { "shared-template-schema" };
     let setup_timeout = integration_test_setup_timeout();
     let started = Instant::now();

@@ -176,12 +176,11 @@ impl EventStorage {
     /// This is the state-DAG equivalent of reading `prev_events` for the room
     /// DAG. The returned event IDs form the edges of the state DAG.
     pub async fn get_prev_state_events(&self, event_id: &str) -> Result<Option<Vec<String>>, sqlx::Error> {
-        let row: Option<(Option<serde_json::Value>,)> = sqlx::query_as(
-            "SELECT prev_state_events FROM events WHERE event_id = $1",
-        )
-        .bind(event_id)
-        .fetch_optional(&*self.pool)
-        .await?;
+        let row: Option<(Option<serde_json::Value>,)> =
+            sqlx::query_as("SELECT prev_state_events FROM events WHERE event_id = $1")
+                .bind(event_id)
+                .fetch_optional(&*self.pool)
+                .await?;
 
         match row {
             None => Ok(None),

@@ -31,8 +31,7 @@ fn default_translate_max_text_length() -> usize {
 ///
 /// When `enabled` is `false`, the translate endpoint returns the original text
 /// (passthrough/stub behavior).
-#[derive(Clone, Deserialize)]
-#[derive(derivative::Derivative)]
+#[derive(Clone, Deserialize, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct TranslateConfig {
     /// Whether the translation service is enabled.

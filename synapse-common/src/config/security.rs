@@ -9,8 +9,7 @@ use serde::Deserialize;
 /// 安全配置。
 ///
 /// 配置认证、加密和密码哈希参数。
-#[derive(Clone, Deserialize)]
-#[derive(derivative::Derivative)]
+#[derive(Clone, Deserialize, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct SecurityConfig {
     /// 密钥字符串
@@ -183,8 +182,7 @@ pub fn default_cors_max_age() -> u64 {
     86400
 }
 
-#[derive(Clone, Deserialize)]
-#[derive(derivative::Derivative)]
+#[derive(Clone, Deserialize, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct AdminRegistrationConfig {
     #[serde(default = "default_admin_registration_enabled")]

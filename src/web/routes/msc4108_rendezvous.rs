@@ -61,10 +61,7 @@ fn build_rendezvous_url(ctx: &AuthContext, session_id: &str) -> String {
 ///
 /// Request body: `text/plain` (initial encrypted payload from the SDK)
 /// Response: `{"url": "..."}` + `ETag` + `Expires` headers
-async fn create_session(
-    State(ctx): State<AuthContext>,
-    body: String,
-) -> Result<Response, ApiError> {
+async fn create_session(State(ctx): State<AuthContext>, body: String) -> Result<Response, ApiError> {
     let (session_id, etag, expires_at) = ctx
         .rendezvous_storage
         .create_msc4108_session(&body, MSC4108_TTL_MS)
@@ -111,21 +108,12 @@ async fn get_session(
     if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH) {
         if let Ok(client_etag) = if_none_match.to_str() {
             if client_etag == etag || client_etag == "*" {
-                return Ok((
-                    StatusCode::NOT_MODIFIED,
-                    [(header::ETAG, etag.as_str())],
-                    Body::empty(),
-                )
-                    .into_response());
+                return Ok((StatusCode::NOT_MODIFIED, [(header::ETAG, etag.as_str())], Body::empty()).into_response());
             }
         }
     }
 
-    Ok((
-        StatusCode::OK,
-        [(header::ETAG, etag.as_str()), (header::CONTENT_TYPE, "text/plain")],
-        Body::from(data),
-    )
+    Ok((StatusCode::OK, [(header::ETAG, etag.as_str()), (header::CONTENT_TYPE, "text/plain")], Body::from(data))
         .into_response())
 }
 
@@ -140,10 +128,7 @@ async fn update_session(
     headers: HeaderMap,
     body: String,
 ) -> Result<Response, ApiError> {
-    let if_match = headers
-        .get(header::IF_MATCH)
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty());
+    let if_match = headers.get(header::IF_MATCH).and_then(|v| v.to_str().ok()).filter(|s| !s.is_empty());
 
     let new_etag = ctx
         .rendezvous_storage
@@ -152,19 +137,12 @@ async fn update_session(
         .map_err(|e| ApiError::internal_with_context("Failed to update MSC4108 data", &e))?
         .ok_or_else(|| ApiError::bad_request("ETag mismatch or session expired".to_string()))?;
 
-    Ok((
-        StatusCode::OK,
-        [(header::ETAG, new_etag.as_str()), (header::CONTENT_TYPE, "text/plain")],
-        Body::empty(),
-    )
+    Ok((StatusCode::OK, [(header::ETAG, new_etag.as_str()), (header::CONTENT_TYPE, "text/plain")], Body::empty())
         .into_response())
 }
 
 /// DELETE /rendezvous/{session_id} — Close session.
-async fn delete_session(
-    State(ctx): State<AuthContext>,
-    Path(session_id): Path<String>,
-) -> Result<Response, ApiError> {
+async fn delete_session(State(ctx): State<AuthContext>, Path(session_id): Path<String>) -> Result<Response, ApiError> {
     ctx.rendezvous_storage
         .delete_msc4108_session(&session_id)
         .await

@@ -44,11 +44,7 @@ pub struct ProfileFlagsJson {
 
 impl From<&ProfileFlags> for ProfileFlagsJson {
     fn from(f: &ProfileFlags) -> Self {
-        Self {
-            oidc_enabled: f.oidc_enabled,
-            worker_enabled: f.worker_enabled,
-            saml_enabled: f.saml_enabled,
-        }
+        Self { oidc_enabled: f.oidc_enabled, worker_enabled: f.worker_enabled, saml_enabled: f.saml_enabled }
     }
 }
 
@@ -74,11 +70,7 @@ pub fn profile_for_name(name: &str) -> Option<ProfileFlags> {
         "oidc" => Some(ProfileFlags { oidc_enabled: true, ..ProfileFlags::DEFAULT }),
         "worker" => Some(ProfileFlags { worker_enabled: true, ..ProfileFlags::DEFAULT }),
         "saml" => Some(ProfileFlags { saml_enabled, oidc_enabled: true, ..ProfileFlags::DEFAULT }),
-        "all" => Some(ProfileFlags {
-            oidc_enabled: true,
-            worker_enabled: true,
-            saml_enabled,
-        }),
+        "all" => Some(ProfileFlags { oidc_enabled: true, worker_enabled: true, saml_enabled }),
         _ => None,
     }
 }

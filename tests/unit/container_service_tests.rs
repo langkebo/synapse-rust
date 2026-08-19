@@ -55,13 +55,8 @@ async fn shared_infra_constructs_with_all_fields() {
     let config = build_test_config();
     let metrics = Arc::new(MetricsCollector::new());
 
-    let infra = SharedInfra {
-        pool: pool.clone(),
-        cache: cache.clone(),
-        config,
-        task_queue: None,
-        metrics: metrics.clone(),
-    };
+    let infra =
+        SharedInfra { pool: pool.clone(), cache: cache.clone(), config, task_queue: None, metrics: metrics.clone() };
 
     // Verify the fields are stored correctly.
     assert!(Arc::ptr_eq(&infra.pool, &pool));
@@ -77,13 +72,7 @@ async fn shared_infra_config_field_preserves_server_name() {
     let config = build_test_config();
     let metrics = Arc::new(MetricsCollector::new());
 
-    let infra = SharedInfra {
-        pool,
-        cache,
-        config,
-        task_queue: None,
-        metrics,
-    };
+    let infra = SharedInfra { pool, cache, config, task_queue: None, metrics };
 
     // The config's server name should round-trip through SharedInfra.
     let server_name = infra.config.server.get_server_name().to_string();

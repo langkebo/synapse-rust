@@ -9,10 +9,7 @@ use axum::{
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
-pub(crate) async fn media_config(
-    State(ctx): State<MediaContext>,
-    _auth_user: AuthenticatedUser,
-) -> impl IntoResponse {
+pub(crate) async fn media_config(State(ctx): State<MediaContext>, _auth_user: AuthenticatedUser) -> impl IntoResponse {
     let route_owner = synapse_services::worker::topology_validator::current_instance_worker_type(&ctx.config.worker);
     (
         [(header::HeaderName::from_static("x-synapse-route-owner"), HeaderValue::from_static(route_owner.as_str()))],
@@ -35,9 +32,7 @@ pub(crate) async fn preview_url(
     // capability-driven feature gate, not a permission check — fail-closed
     // when the feature is off.
     if !ctx.config.experimental.msc4452_enabled {
-        return Err(ApiError::forbidden(
-            "URL preview is disabled (MSC4452 not enabled)".to_string(),
-        ));
+        return Err(ApiError::forbidden("URL preview is disabled (MSC4452 not enabled)".to_string()));
     }
 
     let url =

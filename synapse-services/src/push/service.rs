@@ -244,15 +244,14 @@ impl PushNotificationService {
         // different user/device pairs.
         const MAX_CONCURRENT_SENDS: usize = 8;
 
-        let results: Vec<(PushNotificationQueue, Result<(), ApiError>)> =
-            stream::iter(notifications.into_iter())
-                .map(|notification| async {
-                    let result = self.send_to_provider(&notification).await;
-                    (notification, result)
-                })
-                .buffer_unordered(MAX_CONCURRENT_SENDS)
-                .collect()
-                .await;
+        let results: Vec<(PushNotificationQueue, Result<(), ApiError>)> = stream::iter(notifications.into_iter())
+            .map(|notification| async {
+                let result = self.send_to_provider(&notification).await;
+                (notification, result)
+            })
+            .buffer_unordered(MAX_CONCURRENT_SENDS)
+            .collect()
+            .await;
 
         let mut processed = 0u64;
         for (notification, result) in results {
@@ -613,8 +612,12 @@ impl PushNotificationService {
     /// `content.m\.mentions.user_ids`.
     pub(crate) fn matches_event_property_contains(condition: &JsonValue, event: &JsonValue) -> bool {
         let key = condition.get("key").and_then(|k| k.as_str()).unwrap_or("");
-        let Some(value) = condition.get("value") else { return false; };
-        let Some(target) = Self::get_event_value_json(event, key) else { return false; };
+        let Some(value) = condition.get("value") else {
+            return false;
+        };
+        let Some(target) = Self::get_event_value_json(event, key) else {
+            return false;
+        };
         // Matrix spec: event_property_contains 仅当目标为数组且包含 value 时匹配。
         // 字符串等其他类型一律不匹配（子串匹配是 event_match 的语义，不能混用，
         // 否则 `m.mentions.user_ids` 被篡改成一个长字符串时会误触发提及推送）。
@@ -631,8 +634,12 @@ impl PushNotificationService {
     /// Used by `.m.rule.is_room_mention` against `content.m\.mentions.room`.
     pub(crate) fn matches_event_property_is(condition: &JsonValue, event: &JsonValue) -> bool {
         let key = condition.get("key").and_then(|k| k.as_str()).unwrap_or("");
-        let Some(value) = condition.get("value") else { return false; };
-        let Some(target) = Self::get_event_value_json(event, key) else { return false; };
+        let Some(value) = condition.get("value") else {
+            return false;
+        };
+        let Some(target) = Self::get_event_value_json(event, key) else {
+            return false;
+        };
         target == value
     }
 

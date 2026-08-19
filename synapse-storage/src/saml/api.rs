@@ -57,8 +57,7 @@ pub trait SamlStoreApi: Send + Sync {
     async fn get_all_config_overrides(&self) -> Result<HashMap<String, serde_json::Value>, ApiError>;
     async fn upsert_config_override(&self, key: &str, value: &serde_json::Value) -> Result<(), ApiError>;
     async fn delete_config_override(&self, key: &str) -> Result<(), ApiError>;
-    async fn save_pending_request(&self, relay_state: &str, request_id: &str, expires_at: i64)
-        -> Result<(), ApiError>;
+    async fn save_pending_request(&self, relay_state: &str, request_id: &str, expires_at: i64) -> Result<(), ApiError>;
     async fn get_and_delete_pending_request(&self, relay_state: &str) -> Result<Option<SamlPendingRequest>, ApiError>;
 }
 

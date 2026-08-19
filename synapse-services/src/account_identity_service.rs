@@ -4,9 +4,9 @@ use crate::UserService;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::error::ApiError;
 #[cfg(feature = "privacy-ext")]
 use synapse_common::map_database;
-use synapse_common::error::ApiError;
 use synapse_storage::{ThreepidStoreApi, User, UserThreepid};
 
 #[derive(Clone)]
@@ -38,7 +38,10 @@ impl AccountIdentityService {
         requester_id: Option<&str>,
         user_ids: &[String],
     ) -> Result<HashMap<String, bool>, ApiError> {
-        self.privacy_storage.batch_can_view_profile(requester_id, user_ids).await.map_err(map_database!("can_view_profile_for_requester_batch"))
+        self.privacy_storage
+            .batch_can_view_profile(requester_id, user_ids)
+            .await
+            .map_err(map_database!("can_view_profile_for_requester_batch"))
     }
 
     #[cfg(not(feature = "privacy-ext"))]

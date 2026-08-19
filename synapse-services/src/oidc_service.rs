@@ -108,10 +108,8 @@ pub struct OidcService {
 
 impl OidcService {
     pub fn new(config: Arc<OidcConfig>) -> Self {
-        let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(config.timeout))
-            .build()
-            .unwrap_or_else(|e| {
+        let http_client =
+            reqwest::Client::builder().timeout(Duration::from_secs(config.timeout)).build().unwrap_or_else(|e| {
                 // F-1: builder 失败不再静默退化，记录 warn 并回退共享默认 client
                 tracing::warn!(error = %e, "Failed to build OIDC HTTP client, using shared default");
                 synapse_common::http_client::default_client()
@@ -240,8 +238,10 @@ impl OidcService {
             return Err(ApiError::internal_with_context("Discovery request failed", &response.status()));
         }
 
-        let discovery: OidcDiscoveryDocument =
-            response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse discovery document", &e))?;
+        let discovery: OidcDiscoveryDocument = response
+            .json()
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to parse discovery document", &e))?;
 
         {
             let mut write = self.discovery.write().await;
@@ -364,7 +364,8 @@ impl OidcService {
             request = request.basic_auth(&self.config.client_id, Some(secret));
         }
 
-        let response = request.send().await.map_err(|e| ApiError::internal_with_context("Token exchange failed", &e))?;
+        let response =
+            request.send().await.map_err(|e| ApiError::internal_with_context("Token exchange failed", &e))?;
 
         if !response.status().is_success() {
             let body = response.text().await.unwrap_or_default();

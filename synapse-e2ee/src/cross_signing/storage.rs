@@ -2,8 +2,8 @@ use super::models::*;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
-use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 
 /// Internal row struct for `cross_signing_keys` (BIGINT added_ts maps to

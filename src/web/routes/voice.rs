@@ -237,9 +237,7 @@ async fn get_user_voice_stats(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     if auth_user.user_id.as_str() != user_id.as_str() {
-        return Err(ApiError::forbidden(
-            "Cannot view another user's voice stats",
-        ));
+        return Err(ApiError::forbidden("Cannot view another user's voice stats"));
     }
     let stats = ctx.voice_service.get_user_voice_stats(&user_id).await?;
     Ok(Json(stats))
@@ -267,9 +265,7 @@ async fn get_user_voice_messages(
     Query(query): Query<VoiceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     if auth_user.user_id.as_str() != user_id.as_str() {
-        return Err(ApiError::forbidden(
-            "Cannot view another user's voice messages",
-        ));
+        return Err(ApiError::forbidden("Cannot view another user's voice messages"));
     }
     let limit = clamp_voice_list_limit(query.limit);
     let result = ctx.voice_service.get_user_voice_messages(&user_id, limit, query.from).await?;
@@ -293,16 +289,14 @@ async fn get_voice_message_content(
     let is_room_member = if needs_room_check {
         match room_id {
             // 非上传者但消息归属某房间：校验调用者是否为该房间成员
-            Some(rid) => {
-                ensure_room_member_ctx(
-                    &ctx,
-                    &auth_user,
-                    rid,
-                    "You must be a member of this room to access this voice message",
-                )
-                .await
-                .is_ok()
-            }
+            Some(rid) => ensure_room_member_ctx(
+                &ctx,
+                &auth_user,
+                rid,
+                "You must be a member of this room to access this voice message",
+            )
+            .await
+            .is_ok(),
             // 非上传者且消息不归属任何房间：无权访问
             None => false,
         }
@@ -318,9 +312,7 @@ async fn get_voice_message_content(
         room_id,
         is_room_member,
     ) {
-        return Err(ApiError::forbidden(
-            "You do not have permission to access this voice message",
-        ));
+        return Err(ApiError::forbidden("You do not have permission to access this voice message"));
     }
 
     Ok(Json(result))

@@ -624,7 +624,10 @@ impl SamlStorage {
     }
 
     /// 原子消费 SAML AuthnRequest 待处理记录（DELETE ... RETURNING，防重放）。
-    pub async fn get_and_delete_pending_request(&self, relay_state: &str) -> Result<Option<SamlPendingRequest>, ApiError> {
+    pub async fn get_and_delete_pending_request(
+        &self,
+        relay_state: &str,
+    ) -> Result<Option<SamlPendingRequest>, ApiError> {
         let row = sqlx::query_as::<_, SamlPendingRequest>(
             r#"
             DELETE FROM saml_pending_requests

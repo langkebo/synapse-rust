@@ -290,11 +290,8 @@ impl DatabaseInitService {
     async fn step_connection_test(&self) -> Result<String, sqlx::Error> {
         sqlx::query("SELECT 1 as test").fetch_one(&*self.pool).await?;
         // 记录 PG 服务端版本, 便于排查兼容性问题 (如 PG14 以下不支持某些 SQL 语法)
-        let pg_version: Option<String> = sqlx::query_scalar("SELECT version()")
-            .fetch_optional(&*self.pool)
-            .await
-            .ok()
-            .flatten();
+        let pg_version: Option<String> =
+            sqlx::query_scalar("SELECT version()").fetch_optional(&*self.pool).await.ok().flatten();
         info!(pg_version = ?pg_version, "数据库连接测试通过");
         Ok("数据库连接测试通过".to_string())
     }
@@ -438,9 +435,7 @@ impl DatabaseInitService {
         let baseline_count = migration_files
             .iter()
             .filter(|p| {
-                p.file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|name| name.starts_with("00000000_unified_schema_v"))
+                p.file_name().and_then(|n| n.to_str()).is_some_and(|name| name.starts_with("00000000_unified_schema_v"))
             })
             .count();
         let incremental_count = migration_files.len().saturating_sub(baseline_count);
@@ -901,7 +896,14 @@ mod tests {
 
         init.step_create_e2ee_core_tables().await.expect("step_create_e2ee_core_tables should succeed");
 
-        let expected_tables = ["olm_accounts", "olm_sessions", "megolm_sessions", "cross_signing_keys", "device_signatures", "backup_keys"];
+        let expected_tables = [
+            "olm_accounts",
+            "olm_sessions",
+            "megolm_sessions",
+            "cross_signing_keys",
+            "device_signatures",
+            "backup_keys",
+        ];
         for table_name in &expected_tables {
             let exists: (bool,) = sqlx::query_as(
                 "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1)"

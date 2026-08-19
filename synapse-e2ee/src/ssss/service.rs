@@ -9,8 +9,8 @@ use rand::RngCore;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
+use synapse_common::map_database;
 use synapse_common::traits::DehydratedDeviceProvider;
 use synapse_common::ApiError;
 #[cfg(test)]

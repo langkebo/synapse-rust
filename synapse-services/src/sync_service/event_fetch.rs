@@ -38,19 +38,21 @@ impl SyncService {
                 .unwrap_or(0);
 
             let events = match event_filter.as_ref() {
-                Some(filter) => self
-                    .event_reader
-                    .get_room_events_batch_since_filtered(
-                        room_ids,
-                        SinceFilter::StreamOrdering(stream_ord),
-                        fetch_limit,
-                        filter,
-                    )
-                    .await?,
-                None => self
-                    .event_reader
-                    .get_room_events_batch_since(room_ids, SinceFilter::StreamOrdering(stream_ord), fetch_limit)
-                    .await?,
+                Some(filter) => {
+                    self.event_reader
+                        .get_room_events_batch_since_filtered(
+                            room_ids,
+                            SinceFilter::StreamOrdering(stream_ord),
+                            fetch_limit,
+                            filter,
+                        )
+                        .await?
+                }
+                None => {
+                    self.event_reader
+                        .get_room_events_batch_since(room_ids, SinceFilter::StreamOrdering(stream_ord), fetch_limit)
+                        .await?
+                }
             };
 
             if events.values().all(|v| v.is_empty()) && timeout > 0 {
@@ -72,11 +74,7 @@ impl SyncService {
                             .map_err(Into::into),
                         None => self
                             .event_reader
-                            .get_room_events_batch_since(
-                                room_ids,
-                                SinceFilter::StreamOrdering(stream_ord),
-                                fetch_limit,
-                            )
+                            .get_room_events_batch_since(room_ids, SinceFilter::StreamOrdering(stream_ord), fetch_limit)
                             .await
                             .map_err(Into::into),
                     },

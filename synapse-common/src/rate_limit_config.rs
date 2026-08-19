@@ -346,10 +346,7 @@ pub fn select_endpoint_rule(config: &RateLimitConfigFile, path: &str) -> (String
 
 /// Same selection over the runtime `config::RateLimitConfig` view. The leaf
 /// types are re-exports of this module's types, so this is a thin wrapper.
-pub fn select_endpoint_rule_runtime(
-    config: &crate::config::RateLimitConfig,
-    path: &str,
-) -> (String, RateLimitRule) {
+pub fn select_endpoint_rule_runtime(config: &crate::config::RateLimitConfig, path: &str) -> (String, RateLimitRule) {
     select_rule(&config.endpoints, &config.endpoint_aliases, &config.default, path)
 }
 

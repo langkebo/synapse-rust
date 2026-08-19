@@ -48,9 +48,7 @@ impl AuthService {
 
         // P-007: Matrix spec requires 403 M_FORBIDDEN for failed login
         // (POST /_matrix/client/v3/login: "The credentials were rejected.").
-        let invalid = || {
-            ApiError::forbidden("Invalid credentials".to_string())
-        };
+        let invalid = || ApiError::forbidden("Invalid credentials".to_string());
 
         let (password_hash_owned, user_for_success) = match user_opt.as_ref() {
             Some(u) if !u.is_deactivated => match u.password_hash.as_deref() {
@@ -109,9 +107,7 @@ impl AuthService {
         let access_token = self.generate_access_token(&user.user_id, &device_id, user.is_admin).await?;
         // P2-12: link refresh_token to access_token so rotation can invalidate
         // the old access_token cache entry (Synapse v1.154 #19483).
-        let refresh_token = self
-            .generate_refresh_token(&user.user_id, &device_id, &access_token)
-            .await?;
+        let refresh_token = self.generate_refresh_token(&user.user_id, &device_id, &access_token).await?;
 
         Ok((user, access_token, refresh_token, device_id))
     }
@@ -159,9 +155,7 @@ impl AuthService {
             // 安全关键：锁定写入必须 fail-closed，Redis 故障时返回错误让登录失败，
             // 而非静默绕过账户锁定（审查 #13）。
             let lockout_str = lockout_until.to_string();
-            self.cache
-                .set_checked(&lockout_key, &lockout_str, self.login_lockout_duration_seconds)
-                .await?;
+            self.cache.set_checked(&lockout_key, &lockout_str, self.login_lockout_duration_seconds).await?;
 
             ::tracing::warn!(
                 target: "security_audit",

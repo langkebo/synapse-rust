@@ -665,8 +665,11 @@ async fn test_get_room_messages_supports_sync_prev_batch_token() {
             .unwrap();
     }
 
-    let messages =
-        room_service.messaging.get_room_messages(room_id, &alice_id, Some((base_ts + 3000, None)), 2, "b").await.unwrap();
+    let messages = room_service
+        .messaging
+        .get_room_messages(room_id, &alice_id, Some((base_ts + 3000, None)), 2, "b")
+        .await
+        .unwrap();
 
     assert_eq!(messages["start"], format!("t{}", base_ts + 3000));
     // ISSUE-06：end token 为复合游标 t{ts}_{stream}，ts 部分与页尾事件一致
@@ -719,12 +722,8 @@ async fn test_send_message_with_txn_dedups_retries() {
     assert_eq!(first["event_id"], second["event_id"], "same txn_id must return the same event_id");
 
     let messages = room_service.messaging.get_room_messages(room_id, &alice_id, None, 50, "b").await.unwrap();
-    let message_events: Vec<_> = messages["chunk"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|event| event["type"] == "m.room.message")
-        .collect();
+    let message_events: Vec<_> =
+        messages["chunk"].as_array().unwrap().iter().filter(|event| event["type"] == "m.room.message").collect();
     assert_eq!(message_events.len(), 1, "room must contain exactly one m.room.message, got {message_events:?}");
 
     // 不同 txn_id 正常产生新事件
@@ -737,7 +736,8 @@ async fn test_send_message_with_txn_dedups_retries() {
 }
 
 #[tokio::test]
-async fn test_get_room_messages_supports_forward_pagination_from_stream_token() {    let pool = crate::require_test_pool().await;
+async fn test_get_room_messages_supports_forward_pagination_from_stream_token() {
+    let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
     let id = unique_id();
@@ -773,8 +773,11 @@ async fn test_get_room_messages_supports_forward_pagination_from_stream_token() 
             .unwrap();
     }
 
-    let messages =
-        room_service.messaging.get_room_messages(room_id, &alice_id, Some((base_ts + 1000, None)), 2, "f").await.unwrap();
+    let messages = room_service
+        .messaging
+        .get_room_messages(room_id, &alice_id, Some((base_ts + 1000, None)), 2, "f")
+        .await
+        .unwrap();
 
     assert_eq!(messages["start"], format!("t{}", base_ts + 1000));
     // ISSUE-06：end token 为复合游标 t{ts}_{stream}，ts 部分与页尾事件一致

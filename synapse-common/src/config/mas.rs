@@ -16,8 +16,7 @@ use serde::Deserialize;
 /// Defaults to disabled for backward compatibility. When `enabled = true`
 /// and `issuer_url` is non-empty, `is_configured()` returns true and the
 /// homeserver activates MAS token validation and the MAS REST client.
-#[derive(Clone, Default, Deserialize)]
-#[derive(derivative::Derivative)]
+#[derive(Clone, Default, Deserialize, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct MasConfig {
     /// Whether MAS integration is enabled. Defaults to `false`.

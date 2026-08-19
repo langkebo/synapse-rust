@@ -565,12 +565,7 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_context("Failed to get all sticky events", &e))
     }
 
-    pub async fn clear_is_sticky_event(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        event_type: &str,
-    ) -> ApiResult<()> {
+    pub async fn clear_is_sticky_event(&self, room_id: &str, user_id: &str, event_type: &str) -> ApiResult<()> {
         self.sticky_event_storage
             .clear_is_sticky_event(room_id, user_id, event_type)
             .await

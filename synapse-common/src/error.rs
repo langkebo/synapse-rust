@@ -126,24 +126,14 @@ impl ApiError {
     // -- core constructors --
 
     pub fn bad_request(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::BadRequest,
-            code: MatrixErrorCode::BadJson,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::BadRequest, code: MatrixErrorCode::BadJson, message: message.into(), cause: None }
     }
 
     /// MSC4186: Construct an `M_UNKNOWN_POS` error — the sliding-sync `pos`
     /// token is invalid or expired. Clients branch on this errcode to reset
     /// their position and resync, distinguishing it from other 400 responses.
     pub fn unknown_pos(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::BadRequest,
-            code: MatrixErrorCode::UnknownPos,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::BadRequest, code: MatrixErrorCode::UnknownPos, message: message.into(), cause: None }
     }
 
     pub fn unauthorized(message: impl Into<String>) -> Self {
@@ -156,21 +146,11 @@ impl ApiError {
     }
 
     pub fn forbidden(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::Forbidden,
-            code: MatrixErrorCode::Forbidden,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::Forbidden, code: MatrixErrorCode::Forbidden, message: message.into(), cause: None }
     }
 
     pub fn not_found(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::NotFound,
-            code: MatrixErrorCode::NotFound,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::NotFound, code: MatrixErrorCode::NotFound, message: message.into(), cause: None }
     }
 
     pub fn not_implemented(message: impl Into<String>) -> Self {
@@ -196,12 +176,7 @@ impl ApiError {
     }
 
     pub fn conflict(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::Conflict,
-            code: MatrixErrorCode::UserInUse,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::Conflict, code: MatrixErrorCode::UserInUse, message: message.into(), cause: None }
     }
 
     /// Conflict with a specific Matrix error code.
@@ -210,12 +185,7 @@ impl ApiError {
     }
 
     pub fn internal(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::Internal,
-            code: MatrixErrorCode::Unknown,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
 
     /// Log a database error and return an Internal error whose message carries the
@@ -245,12 +215,7 @@ impl ApiError {
     }
 
     pub fn database(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::Internal,
-            code: MatrixErrorCode::Unknown,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
 
     pub fn cache(message: impl Into<String>) -> Self {
@@ -263,12 +228,7 @@ impl ApiError {
     }
 
     pub fn gone(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::Gone,
-            code: MatrixErrorCode::NotFound,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::Gone, code: MatrixErrorCode::NotFound, message: message.into(), cause: None }
     }
 
     pub fn authentication(message: impl Into<String>) -> Self {
@@ -299,12 +259,7 @@ impl ApiError {
     }
 
     pub fn crypto(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::Internal,
-            code: MatrixErrorCode::Unknown,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
 
     pub fn rate_limited(_message: impl Into<String>) -> Self {
@@ -335,12 +290,7 @@ impl ApiError {
     }
 
     pub fn not_json(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::BadRequest,
-            code: MatrixErrorCode::NotJson,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::BadRequest, code: MatrixErrorCode::NotJson, message: message.into(), cause: None }
     }
 
     // -- domain-specific constructors (delegate to core with specific code) --
@@ -364,21 +314,11 @@ impl ApiError {
     }
 
     pub fn user_in_use(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::BadRequest,
-            code: MatrixErrorCode::UserInUse,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::BadRequest, code: MatrixErrorCode::UserInUse, message: message.into(), cause: None }
     }
 
     pub fn room_in_use(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::Conflict,
-            code: MatrixErrorCode::RoomInUse,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::Conflict, code: MatrixErrorCode::RoomInUse, message: message.into(), cause: None }
     }
 
     pub fn invalid_room_state(message: impl Into<String>) -> Self {
@@ -454,12 +394,7 @@ impl ApiError {
     }
 
     pub fn bad_state(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::BadRequest,
-            code: MatrixErrorCode::BadState,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::BadRequest, code: MatrixErrorCode::BadState, message: message.into(), cause: None }
     }
 
     pub fn guest_access_forbidden(message: impl Into<String>) -> Self {
@@ -517,12 +452,7 @@ impl ApiError {
     }
 
     pub fn exclusive(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::Conflict,
-            code: MatrixErrorCode::Exclusive,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::Conflict, code: MatrixErrorCode::Exclusive, message: message.into(), cause: None }
     }
 
     pub fn resource_limit_exceeded(message: impl Into<String>) -> Self {
@@ -544,12 +474,7 @@ impl ApiError {
     }
 
     pub fn unknown(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::Internal,
-            code: MatrixErrorCode::Unknown,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
 
     pub fn unrecognized(message: impl Into<String>) -> Self {
@@ -576,21 +501,11 @@ impl ApiError {
     // -- encryption / decryption (map to Internal with specific message) --
 
     pub fn decryption_error(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::Internal,
-            code: MatrixErrorCode::Unknown,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
 
     pub fn encryption_error(message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::Internal,
-            code: MatrixErrorCode::Unknown,
-            message: message.into(),
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
 }
 
@@ -771,10 +686,7 @@ impl From<sqlx::Error> for ApiError {
         // is populated by the Postgres driver from the 23505 unique_violation
         // code, so localized/custom messages can't cause false negatives or
         // positives (审查 #19).
-        let is_unique_violation = err
-            .as_database_error()
-            .map(|e| e.is_unique_violation())
-            .unwrap_or(false);
+        let is_unique_violation = err.as_database_error().map(|e| e.is_unique_violation()).unwrap_or(false);
 
         if is_unique_violation {
             tracing::error!(%err, "duplicate database entry");
@@ -1563,11 +1475,7 @@ mod tests {
             assert_eq!(code.http_status(), StatusCode::FORBIDDEN, "{code:?} should be FORBIDDEN");
         }
 
-        let conflict_codes = [
-            MatrixErrorCode::RoomInUse,
-            MatrixErrorCode::ThreepidInUse,
-            MatrixErrorCode::Exclusive,
-        ];
+        let conflict_codes = [MatrixErrorCode::RoomInUse, MatrixErrorCode::ThreepidInUse, MatrixErrorCode::Exclusive];
         for code in &conflict_codes {
             assert_eq!(code.http_status(), StatusCode::CONFLICT, "{code:?} should be CONFLICT");
         }
@@ -1670,9 +1578,13 @@ mod tests {
             }
             let resp = ApiResponse::<serde_json::Value>::error("x".to_string(), errcode.clone());
             let status = resp.into_response().status();
-            let expected =
-                MatrixErrorCode::from_str(&errcode).map(|c| c.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-            assert_eq!(status, expected, "ApiResponse 状态码 {status} 与 from_str({errcode})→http_status {expected:?} 漂移");
+            let expected = MatrixErrorCode::from_str(&errcode)
+                .map(|c| c.http_status())
+                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            assert_eq!(
+                status, expected,
+                "ApiResponse 状态码 {status} 与 from_str({errcode})→http_status {expected:?} 漂移"
+            );
         }
     }
 

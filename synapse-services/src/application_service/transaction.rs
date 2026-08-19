@@ -147,10 +147,9 @@ impl ApplicationServiceManager {
             .map_err(|e| ApiError::internal_with_context("Failed to get application service", &e))?
             .ok_or_else(|| ApiError::not_found("Application service not found"))?;
 
-        let pending_transactions =
-            self.storage.get_pending_transactions(as_id).await.map_err(|e| {
-                ApiError::internal_with_context("Failed to get pending application service transactions", &e)
-            })?;
+        let pending_transactions = self.storage.get_pending_transactions(as_id).await.map_err(|e| {
+            ApiError::internal_with_context("Failed to get pending application service transactions", &e)
+        })?;
         if let Some(transaction) = pending_transactions.first() {
             let now = current_timestamp_millis();
             if !Self::is_transaction_ready_to_retry(transaction, now) {
@@ -334,10 +333,9 @@ impl ApplicationServiceManager {
         pending_event: &ApplicationServiceEvent,
     ) -> Result<serde_json::Value, ApiError> {
         let source_event_id = Self::source_event_id(&pending_event.event_id);
-        let source_event =
-            self.event_reader.get_event(&source_event_id).await.map_err(|e| {
-                ApiError::internal_with_context("Failed to load source room event for application service", &e)
-            })?;
+        let source_event = self.event_reader.get_event(&source_event_id).await.map_err(|e| {
+            ApiError::internal_with_context("Failed to load source room event for application service", &e)
+        })?;
 
         if let Some(source_event) = source_event {
             return Ok(json!({

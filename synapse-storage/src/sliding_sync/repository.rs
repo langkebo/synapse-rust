@@ -358,7 +358,6 @@ impl SlidingSyncStorage {
         conn_id: Option<&str>,
         bump_event_types: Option<&[String]>,
     ) -> Result<Option<SlidingSyncRoom>, sqlx::Error> {
-
         // Query 1: membership check (short-circuits if not a member)
         let is_member = sqlx::query_scalar::<_, bool>(
             r"
@@ -813,7 +812,6 @@ impl SlidingSyncStorage {
         device_id: &str,
         conn_id: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-
         // C-1: 三条 DELETE 必须在同一事务中，否则部分失败会留下
         // "token 已删（被判 initial）但 lists 残留（陈旧 range）"的不一致状态
         let mut tx = self.pool.begin().await?;

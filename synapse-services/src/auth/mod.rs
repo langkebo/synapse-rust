@@ -257,12 +257,7 @@ impl crate::auth::TokenAuth for AuthService {
         self.generate_access_token(user_id, device_id, admin).await
     }
 
-    async fn generate_refresh_token(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        access_token: &str,
-    ) -> ApiResult<String> {
+    async fn generate_refresh_token(&self, user_id: &str, device_id: &str, access_token: &str) -> ApiResult<String> {
         self.generate_refresh_token(user_id, device_id, access_token).await
     }
 

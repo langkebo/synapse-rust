@@ -217,14 +217,8 @@ mod friend_room_tests {
             "generated_ts": 1700000000000_i64
         });
 
-        assert!(
-            response.get("items").is_none(),
-            "GET /friends 响应不应包含冗余的 items 字段（FT-092）"
-        );
-        assert!(
-            response.get("friends").is_some(),
-            "GET /friends 响应应包含 friends 字段"
-        );
+        assert!(response.get("items").is_none(), "GET /friends 响应不应包含冗余的 items 字段（FT-092）");
+        assert!(response.get("friends").is_some(), "GET /friends 响应应包含 friends 字段");
     }
 }
 
@@ -275,13 +269,9 @@ mod voice_idor_tests {
     /// FT-105: 上传者本人始终可以访问自己的语音消息内容
     #[test]
     fn test_owner_can_access_own_voice_message() {
-        assert!(VoiceService::can_access_voice_message(
-            "@alice:example.com",
-            "@alice:example.com",
-            false,
-            None,
-            false,
-        ));
+        assert!(
+            VoiceService::can_access_voice_message("@alice:example.com", "@alice:example.com", false, None, false,)
+        );
     }
 
     /// FT-105: 上传者本人即使消息归属某房间也允许访问
@@ -335,13 +325,7 @@ mod voice_idor_tests {
     /// FT-105: 管理员始终可以访问任意语音消息内容（即使非上传者、非房间成员）
     #[test]
     fn test_admin_can_access_any_voice_message() {
-        assert!(VoiceService::can_access_voice_message(
-            "@admin:example.com",
-            "@alice:example.com",
-            true,
-            None,
-            false,
-        ));
+        assert!(VoiceService::can_access_voice_message("@admin:example.com", "@alice:example.com", true, None, false,));
     }
 
     /// FT-105: 管理员访问归属房间的他人消息也应放行

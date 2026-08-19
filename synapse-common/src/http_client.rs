@@ -185,8 +185,7 @@ mod tests {
 
     #[test]
     fn pinned_client_for_url_rejects_empty_ip_list() {
-        let result =
-            pinned_client_for_url("https://example.com/", &[], Duration::from_secs(10), false);
+        let result = pinned_client_for_url("https://example.com/", &[], Duration::from_secs(10), false);
         assert!(result.is_err(), "空 IP 列表必须拒绝（无已验证地址可钉扎）");
     }
 
@@ -201,10 +200,7 @@ mod tests {
     #[test]
     fn pinned_client_for_url_constructs_with_multiple_ips() {
         // 多 IP 钉扎：DNS 返回多个 A/AAAA 记录时，全部纳入钉扎集合。
-        let ips = vec![
-            "8.8.8.8".parse::<std::net::IpAddr>().unwrap(),
-            "8.8.4.4".parse::<std::net::IpAddr>().unwrap(),
-        ];
+        let ips = vec!["8.8.8.8".parse::<std::net::IpAddr>().unwrap(), "8.8.4.4".parse::<std::net::IpAddr>().unwrap()];
         let client = pinned_client_for_url(
             "https://keyserver.example.com/_matrix/key/v2/server",
             &ips,
@@ -255,20 +251,10 @@ mod tests {
         // 验证 no_redirect=true 与 no_redirect=false 都能正常构造，
         // 确保 SSRF 防护的重定向策略可配置。
         let ips = vec!["8.8.8.8".parse::<std::net::IpAddr>().unwrap()];
-        let _client_nr = pinned_client_for_url(
-            "https://example.com/",
-            &ips,
-            Duration::from_secs(10),
-            true,
-        )
-        .expect("no_redirect=true must construct");
-        let _client_r = pinned_client_for_url(
-            "https://example.com/",
-            &ips,
-            Duration::from_secs(10),
-            false,
-        )
-        .expect("no_redirect=false must construct");
+        let _client_nr = pinned_client_for_url("https://example.com/", &ips, Duration::from_secs(10), true)
+            .expect("no_redirect=true must construct");
+        let _client_r = pinned_client_for_url("https://example.com/", &ips, Duration::from_secs(10), false)
+            .expect("no_redirect=false must construct");
     }
 
     #[test]

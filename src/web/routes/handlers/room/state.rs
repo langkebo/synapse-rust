@@ -385,13 +385,8 @@ pub(crate) async fn put_power_levels(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     // Delegate to put_state_event_empty_key with event_type hardcoded
-    put_state_event_empty_key(
-        State(ctx),
-        auth_user,
-        Path((room_id, "m.room.power_levels".to_string())),
-        Json(body),
-    )
-    .await
+    put_state_event_empty_key(State(ctx), auth_user, Path((room_id, "m.room.power_levels".to_string())), Json(body))
+        .await
 }
 
 pub(crate) async fn put_state_event_empty_key(

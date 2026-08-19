@@ -488,10 +488,7 @@ async fn test_p2_16_notary_query_without_key_id_returns_wrapped_format() {
     };
 
     // Query own server via the spec-defined notary path (no key_id).
-    let request = Request::builder()
-        .uri("/_matrix/key/v2/query/test.example.com")
-        .body(Body::empty())
-        .unwrap();
+    let request = Request::builder().uri("/_matrix/key/v2/query/test.example.com").body(Body::empty()).unwrap();
 
     let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK, "notary query without key_id must be accepted");
@@ -500,10 +497,7 @@ async fn test_p2_16_notary_query_without_key_id_returns_wrapped_format() {
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     // Spec: response must be { "server_keys": [Server Keys] } — wrapped in array.
-    assert!(
-        json["server_keys"].is_array(),
-        "notary query response must be wrapped in server_keys array; got: {json}"
-    );
+    assert!(json["server_keys"].is_array(), "notary query response must be wrapped in server_keys array; got: {json}");
     let server_keys = json["server_keys"].as_array().unwrap();
     assert!(!server_keys.is_empty(), "server_keys array must not be empty for local server");
 
@@ -528,10 +522,7 @@ async fn test_p2_16_notary_query_with_key_id_returns_wrapped_format() {
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
     let server_key_json: Value = serde_json::from_slice(&body).unwrap();
-    let key_id = server_key_json["verify_keys"]
-        .as_object()
-        .and_then(|keys| keys.keys().next().cloned())
-        .unwrap();
+    let key_id = server_key_json["verify_keys"].as_object().and_then(|keys| keys.keys().next().cloned()).unwrap();
 
     // Query own server via the Synapse-extension notary path (with key_id).
     let request = Request::builder()
@@ -546,10 +537,7 @@ async fn test_p2_16_notary_query_with_key_id_returns_wrapped_format() {
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     // Spec: response must be { "server_keys": [Server Keys] } — wrapped in array.
-    assert!(
-        json["server_keys"].is_array(),
-        "notary query with key_id must return wrapped format; got: {json}"
-    );
+    assert!(json["server_keys"].is_array(), "notary query with key_id must return wrapped format; got: {json}");
     let server_keys = json["server_keys"].as_array().unwrap();
     assert!(!server_keys.is_empty(), "server_keys array must not be empty");
 
@@ -622,8 +610,5 @@ async fn test_p2_16_batch_notary_query_empty_request_returns_empty_array() {
     let json: Value = serde_json::from_slice(&body).unwrap();
 
     assert!(json["server_keys"].is_array(), "response must contain server_keys array");
-    assert!(
-        json["server_keys"].as_array().unwrap().is_empty(),
-        "empty request must return empty server_keys array"
-    );
+    assert!(json["server_keys"].as_array().unwrap().is_empty(), "empty request must return empty server_keys array");
 }

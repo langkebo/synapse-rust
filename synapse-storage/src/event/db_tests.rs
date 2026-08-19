@@ -1145,10 +1145,8 @@ async fn test_paginated_cursor_same_millisecond_no_loss_no_dup() {
     }
 
     // 第一页：取最新 2 条
-    let page1 = storage
-        .get_room_events_paginated_cursor(&room_id, None, 2, "b")
-        .await
-        .expect("cursor page1 should succeed");
+    let page1 =
+        storage.get_room_events_paginated_cursor(&room_id, None, 2, "b").await.expect("cursor page1 should succeed");
     assert_eq!(page1.len(), 2, "page1 must contain 2 events");
 
     // 用页尾（最旧一条）的复合游标翻第二页
@@ -1863,19 +1861,15 @@ async fn test_p1_7_unread_count_not_bloated_after_purge_history() {
     room_storage.update_read_marker(&room_id, &reader, &e2_id).await.expect("update_read_marker should succeed");
 
     // Baseline: only e3 is unread (e1 is before marker e2)
-    let baseline = storage.get_unread_counts(&room_id, &reader).await.expect("baseline get_unread_counts should succeed");
-    assert_eq!(
-        baseline.notification_count, 1,
-        "baseline: only e3 should be unread (e1 is before marker e2)"
-    );
+    let baseline =
+        storage.get_unread_counts(&room_id, &reader).await.expect("baseline get_unread_counts should succeed");
+    assert_eq!(baseline.notification_count, 1, "baseline: only e3 should be unread (e1 is before marker e2)");
 
     // Purge history before ts=1_000_002 → deletes e2 (ts=1_000_001 < cutoff, origin=remote)
     // e1 survives (origin='self'), e3 survives (ts=1_000_002 is NOT < cutoff)
     let purge_cutoff = 1_000_002;
-    let deleted = storage
-        .delete_events_before(&room_id, purge_cutoff, false)
-        .await
-        .expect("delete_events_before should succeed");
+    let deleted =
+        storage.delete_events_before(&room_id, purge_cutoff, false).await.expect("delete_events_before should succeed");
     assert_eq!(deleted, 1, "purge should delete exactly 1 remote event (e2, the marker)");
 
     // Verify e2 is gone and e1/e3 remain
@@ -1946,20 +1940,10 @@ async fn test_p2_14_state_event_stores_prev_state_events() {
         .expect("create_state_event_with_dag should succeed");
 
     // Query back the prev_state_events.
-    let result = storage
-        .get_prev_state_events(&event_id)
-        .await
-        .expect("get_prev_state_events should succeed");
-    assert!(
-        result.is_some(),
-        "get_prev_state_events must return Some for event with prev_state_events"
-    );
+    let result = storage.get_prev_state_events(&event_id).await.expect("get_prev_state_events should succeed");
+    assert!(result.is_some(), "get_prev_state_events must return Some for event with prev_state_events");
     let retrieved = result.unwrap();
-    assert_eq!(
-        retrieved.len(),
-        2,
-        "must retrieve exactly 2 prev_state_events"
-    );
+    assert_eq!(retrieved.len(), 2, "must retrieve exactly 2 prev_state_events");
     assert!(
         retrieved.contains(&prev_state_1),
         "retrieved prev_state_events must contain {prev_state_1}, got {retrieved:?}"
@@ -2068,15 +2052,9 @@ async fn test_p2_14_get_state_dag_edges_returns_all_edges() {
     assert_eq!(edges.len(), 2, "expected 2 state DAG edges (e2->e1, e3->e2), got {edges:?}");
 
     // Verify edge (e2 -> e1)
-    assert!(
-        edges.contains(&(e2.clone(), e1.clone())),
-        "edges must contain (e2, e1), got {edges:?}"
-    );
+    assert!(edges.contains(&(e2.clone(), e1.clone())), "edges must contain (e2, e1), got {edges:?}");
     // Verify edge (e3 -> e2)
-    assert!(
-        edges.contains(&(e3.clone(), e2.clone())),
-        "edges must contain (e3, e2), got {edges:?}"
-    );
+    assert!(edges.contains(&(e3.clone(), e2.clone())), "edges must contain (e3, e2), got {edges:?}");
 
     // Cleanup
     let _ = storage.delete_room_events(&room_id).await;
@@ -2131,15 +2109,8 @@ async fn test_p2_14_find_events_referencing_missing_state() {
         .await
         .expect("find_events_referencing_missing_state should succeed");
 
-    assert_eq!(
-        result.len(),
-        1,
-        "expected 1 event referencing the missing state event, got {result:?}"
-    );
-    assert_eq!(
-        result[0], referencing_event,
-        "the referencing event must be returned"
-    );
+    assert_eq!(result.len(), 1, "expected 1 event referencing the missing state event, got {result:?}");
+    assert_eq!(result[0], referencing_event, "the referencing event must be returned");
 
     // Negative test: query for a different missing event → empty result.
     let other_missing = format!("$p214c_other_missing_{}:example.com", suffix);

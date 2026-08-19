@@ -19,9 +19,9 @@
 use axum::http::Method;
 use serde_json::{json, Value};
 use synapse_rust::common::{ApiError, ApiErrorKind, MatrixErrorCode};
+use synapse_rust::web::routes::declared_route_manifest_for_profile;
 use synapse_rust::web::routes::route_ledger::RouteEntry;
 use synapse_rust::web::routes::route_module::ProfileFlags;
-use synapse_rust::web::routes::declared_route_manifest_for_profile;
 
 // ============================================================================
 // Route manifest — verified via the public aggregator
@@ -55,7 +55,9 @@ fn test_account_compat_full_route_surface_under_v3() {
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
     let v3_account_paths: std::collections::HashSet<&str> = ledger
         .iter()
-        .filter(|e| e.path.starts_with("/_matrix/client/v3/account/") || e.path.starts_with("/_matrix/client/v3/profile/"))
+        .filter(|e| {
+            e.path.starts_with("/_matrix/client/v3/account/") || e.path.starts_with("/_matrix/client/v3/profile/")
+        })
         .map(|e| e.path)
         .collect();
 
@@ -123,17 +125,14 @@ fn test_account_compat_routes_use_correct_methods() {
 fn test_account_compat_routes_tagged_assembly_account_compat() {
     // The four narrow manifest entries are tagged "account_compat".
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
-    let account_compat_entries: Vec<&RouteEntry> = ledger
-        .iter()
-        .filter(|e| e.registered_by == "assembly::account_compat")
-        .collect();
+    let account_compat_entries: Vec<&RouteEntry> =
+        ledger.iter().filter(|e| e.registered_by == "assembly::account_compat").collect();
     assert!(!account_compat_entries.is_empty(), "expected assembly::account_compat-tagged entries");
 
     // Verify the four narrow manifest entries from `account_compat_route_manifest()`.
     let narrow_paths: std::collections::HashSet<&str> =
         account_compat_paths_for_narrow_manifest().iter().map(|(_, p)| *p).collect();
-    let actual_paths: std::collections::HashSet<&str> =
-        account_compat_entries.iter().map(|e| e.path).collect();
+    let actual_paths: std::collections::HashSet<&str> = account_compat_entries.iter().map(|e| e.path).collect();
     // The narrow manifest paths are a subset of the expanded paths.
     for path in &narrow_paths {
         // narrow manifest uses v3 prefix
@@ -1030,8 +1029,6 @@ fn test_account_r0_only_aliases_not_present_under_v3() {
     // The v3 surface must NOT include the /account/profile/{user_id}* aliases
     // — they were never standardized.
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
-    let has_v3_alias = ledger.iter().any(|e| {
-        e.path.starts_with("/_matrix/client/v3/account/profile/")
-    });
+    let has_v3_alias = ledger.iter().any(|e| e.path.starts_with("/_matrix/client/v3/account/profile/"));
     assert!(!has_v3_alias, "v3 must not expose deprecated /account/profile/{{user_id}}* aliases");
 }

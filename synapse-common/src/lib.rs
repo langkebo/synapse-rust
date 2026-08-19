@@ -105,9 +105,7 @@ pub use crypto::{
     verify_password, verify_password_legacy, verify_token_hash, ServerSigningKey,
 };
 pub use early_exit::{early_continue, early_exit, early_return, EarlyExit};
-pub use error::{
-    init_error_metrics, ApiError, ApiErrorCause, ApiErrorKind, ApiResponse, ApiResult, MatrixErrorCode,
-};
+pub use error::{init_error_metrics, ApiError, ApiErrorCause, ApiErrorKind, ApiResponse, ApiResult, MatrixErrorCode};
 pub use event_utils::{event_to_json, event_to_json_without_age, events_to_json, events_to_json_without_age};
 pub use feature_flags::{
     DmFlags, FeatureFlags, PusherFlags, RoomSummaryFlags, RuntimeFeatureFlagService, SpaceFlags, VerificationFlags,
@@ -144,8 +142,8 @@ pub use room_versions::{
 };
 pub use security::{
     check_url_against_blacklist, check_url_and_resolve, compute_signature_hash, is_ip_in_blacklist,
-    resolve_host_checked, ConstantTimeComparison,
-    ReplayProtectionCache, ReplayProtectionConfig, ReplayProtectionStats, SecurityValidator,
+    resolve_host_checked, ConstantTimeComparison, ReplayProtectionCache, ReplayProtectionConfig, ReplayProtectionStats,
+    SecurityValidator,
 };
 #[cfg(test)]
 pub use task_queue::{BackgroundTaskManager, TaskHandler, TaskId, TaskQueue, TaskResultValue};

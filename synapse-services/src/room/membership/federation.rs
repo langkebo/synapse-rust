@@ -121,11 +121,14 @@ impl MembershipService {
         //    to avoid N+1 round-trips and ensure atomicity.
         let mut persisted_event_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-        let mut _tx = if let Some(ref pool) = self.db_pool {
-            Some(pool.begin().await.map_err(|e| ApiError::internal_with_context("Failed to begin transaction for federation join", &e))?)
-        } else {
-            None
-        };
+        let mut _tx =
+            if let Some(ref pool) = self.db_pool {
+                Some(pool.begin().await.map_err(|e| {
+                    ApiError::internal_with_context("Failed to begin transaction for federation join", &e)
+                })?)
+            } else {
+                None
+            };
 
         for state_event in &send_join_response.state {
             if let Some(event_id) = state_event.get("event_id").and_then(|v| v.as_str()) {
@@ -215,7 +218,9 @@ impl MembershipService {
 
         // P1b: Commit the single transaction after all state events are persisted.
         if let Some(tx) = _tx {
-            tx.commit().await.map_err(|e| ApiError::internal_with_context("Failed to commit federation join transaction", &e))?;
+            tx.commit()
+                .await
+                .map_err(|e| ApiError::internal_with_context("Failed to commit federation join transaction", &e))?;
         }
 
         // Invalidate room-state cache after persisting federated state events.
@@ -317,11 +322,10 @@ impl MembershipService {
         })?;
 
         // 4. Update local membership.
-        let existing_member = self
-            .member_storage
-            .get_room_member(room_id, user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_context("Failed to check membership before federation leave", &e))?;
+        let existing_member =
+            self.member_storage.get_room_member(room_id, user_id).await.map_err(|e| {
+                ApiError::internal_with_context("Failed to check membership before federation leave", &e)
+            })?;
 
         self.member_storage
             .remove_member(room_id, user_id)
@@ -329,10 +333,9 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to leave federated room", &e))?;
 
         if existing_member.as_ref().is_some_and(|member| member.membership == "join") {
-            self.room_storage
-                .decrement_member_count(room_id)
-                .await
-                .map_err(|e| ApiError::internal_with_context("Failed to update member count after federation leave", &e))?;
+            self.room_storage.decrement_member_count(room_id).await.map_err(|e| {
+                ApiError::internal_with_context("Failed to update member count after federation leave", &e)
+            })?;
         }
 
         // Persist the leave event locally.
@@ -535,7 +538,9 @@ impl MembershipService {
             self.member_storage
                 .add_member(room_id, invitee_id, "invite", None, None, Some(&sender), None)
                 .await
-                .map_err(|e| ApiError::internal_with_context("Failed to record invite after third-party exchange", &e))?;
+                .map_err(|e| {
+                    ApiError::internal_with_context("Failed to record invite after third-party exchange", &e)
+                })?;
         }
 
         // Persist the event.

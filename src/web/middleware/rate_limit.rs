@@ -254,10 +254,7 @@ mod tests {
         // `create_router` does at startup.
         let mut exempt_paths: Vec<&'static str> = Vec::new();
         exempt_paths.extend(
-            crate::web::routes::sync::sync_route_manifest()
-                .into_iter()
-                .filter(|e| e.rate_limit_exempt)
-                .map(|e| e.path),
+            crate::web::routes::sync::sync_route_manifest().into_iter().filter(|e| e.rate_limit_exempt).map(|e| e.path),
         );
         exempt_paths.extend(
             crate::web::routes::sliding_sync::sliding_sync_route_manifest()

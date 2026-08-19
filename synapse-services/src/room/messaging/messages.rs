@@ -272,7 +272,8 @@ impl MessagingService {
         Ok(result)
     }
 
-    pub async fn get_room_messages(        &self,
+    pub async fn get_room_messages(
+        &self,
         room_id: &str,
         user_id: &str,
         from: Option<(i64, Option<i64>)>,
@@ -332,9 +333,10 @@ impl MessagingService {
             .collect();
 
         // 页尾事件带出 stream_ordering，生成复合游标，同毫秒事件不再丢失（ISSUE-06）
-        let end_token = events
-            .last()
-            .map_or_else(|| start_token.clone(), |event| generate_pagination_token(event.origin_server_ts, event.stream_ordering));
+        let end_token = events.last().map_or_else(
+            || start_token.clone(),
+            |event| generate_pagination_token(event.origin_server_ts, event.stream_ordering),
+        );
 
         Ok(json!({
             "chunk": event_list,

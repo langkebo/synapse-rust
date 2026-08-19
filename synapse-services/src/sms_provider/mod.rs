@@ -87,8 +87,10 @@ impl SmsProvider for HttpSmsProvider {
             request = request.header("x-api-secret", api_secret);
         }
 
-        let response =
-            request.send().await.map_err(|e| ApiError::internal_with_context("Failed to call captcha SMS provider", &e))?;
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to call captcha SMS provider", &e))?;
 
         if response.status().is_success() {
             return Ok(());

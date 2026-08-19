@@ -520,7 +520,9 @@ impl PushNotificationStorage {
                 .bind(now_ms); // created_ts
         }
 
-        let rows = q.fetch_all(&*self.pool).await
+        let rows = q
+            .fetch_all(&*self.pool)
+            .await
             .map_err(|e| ApiError::internal_with_context("Failed to batch-queue notifications", &e))?;
 
         Ok(rows)

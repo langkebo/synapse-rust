@@ -163,7 +163,9 @@ impl LifecycleService {
                             Some(&mut **t),
                         )
                         .await
-                        .map_err(|e| ApiError::internal_with_context("Failed to record m.room.member invite event", &e))?;
+                        .map_err(|e| {
+                            ApiError::internal_with_context("Failed to record m.room.member invite event", &e)
+                        })?;
                     offset += 1;
                 }
             } else {
@@ -192,7 +194,9 @@ impl LifecycleService {
                             None,
                         )
                         .await
-                        .map_err(|e| ApiError::internal_with_context("Failed to record m.room.member invite event", &e))?;
+                        .map_err(|e| {
+                            ApiError::internal_with_context("Failed to record m.room.member invite event", &e)
+                        })?;
                     offset += 1;
                 }
             }

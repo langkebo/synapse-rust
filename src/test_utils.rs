@@ -84,9 +84,7 @@ static CLEANUP_SEMAPHORE: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(
 /// `prepare_shared_test_pool`. Set `TEST_SCHEMA_POOL_REUSE=0` to fall back to
 /// the previous clone-only behaviour (used to bisect regressions).
 fn test_schema_pool_reuse_enabled() -> bool {
-    std::env::var("TEST_SCHEMA_POOL_REUSE")
-        .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
-        .unwrap_or(true)
+    std::env::var("TEST_SCHEMA_POOL_REUSE").map(|v| v != "0" && !v.eq_ignore_ascii_case("false")).unwrap_or(true)
 }
 
 // RwLock to prevent deadlock between init_template_schema (write lock, ALTER
@@ -1074,11 +1072,8 @@ async fn truncate_and_reseed_schema(
     if template_table_names.is_empty() {
         return Err(format!("template {template_name} has no tables — cache may be stale"));
     }
-    let trunc_list: String = template_table_names
-        .iter()
-        .map(|name| format!("{schema_name}.{name}"))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let trunc_list: String =
+        template_table_names.iter().map(|name| format!("{schema_name}.{name}")).collect::<Vec<_>>().join(", ");
     let sql = format!("TRUNCATE TABLE {trunc_list} RESTART IDENTITY CASCADE");
     sqlx::raw_sql(&sql).execute(admin_pool).await.map_err(|e| format!("TRUNCATE failed for {schema_name}: {e}"))?;
 
@@ -1091,9 +1086,8 @@ async fn truncate_and_reseed_schema(
             continue;
         }
 
-        let sql = format!(
-            "INSERT INTO {schema_name}.{table} SELECT * FROM {template_name}.{table} ON CONFLICT DO NOTHING"
-        );
+        let sql =
+            format!("INSERT INTO {schema_name}.{table} SELECT * FROM {template_name}.{table} ON CONFLICT DO NOTHING");
         // Use raw_sql since table/schema names are validated identifiers
         if let Err(e) = sqlx::raw_sql(&sql).execute(admin_pool).await {
             // Seed copy failure IS fatal — tests that depend on config rows

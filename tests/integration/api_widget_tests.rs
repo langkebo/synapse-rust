@@ -69,12 +69,7 @@ async fn create_room(app: &axum::Router, token: &str) -> String {
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
-    assert_eq!(
-        status,
-        StatusCode::OK,
-        "createRoom failed: body={}",
-        String::from_utf8_lossy(&body)
-    );
+    assert_eq!(status, StatusCode::OK, "createRoom failed: body={}", String::from_utf8_lossy(&body));
 
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()

@@ -124,8 +124,7 @@ async fn test_media_upload_with_id_accepts_over_2mb_body() {
         container.core.config.server.max_upload_size = 50 * 1024 * 1024;
     })
     .await
-    .map(|(app, _)| app)
-    else {
+    .map(|(app, _)| app) else {
         return;
     };
     let token = register_user(&app, &format!("media_put_limit_{}", rand::random::<u32>())).await;
@@ -781,8 +780,5 @@ async fn test_p2_11_preview_url_returns_403_when_msc4452_disabled() {
 
     let body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(
-        json["errcode"], "M_FORBIDDEN",
-        "P2-11: 403 response must use M_FORBIDDEN errcode"
-    );
+    assert_eq!(json["errcode"], "M_FORBIDDEN", "P2-11: 403 response must use M_FORBIDDEN errcode");
 }

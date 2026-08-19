@@ -172,11 +172,8 @@ fn test_breach_detection_across_multiple_samples() {
 [perf] sliding_sync manual_p95_ms=6000.00 manual_p99_ms=6500.00 service_p95_ms=5900.00 threshold_ms=5000
 ";
 
-    let samples: Vec<PerfSample> = log
-        .lines()
-        .filter(|l| l.starts_with("[perf] sliding_sync"))
-        .filter_map(parse_perf_line)
-        .collect();
+    let samples: Vec<PerfSample> =
+        log.lines().filter(|l| l.starts_with("[perf] sliding_sync")).filter_map(parse_perf_line).collect();
 
     assert_eq!(samples.len(), 3, "all 3 [perf] lines must parse");
     let breaches: Vec<&PerfSample> = samples.iter().filter(|s| is_breach(s.p95_ms, s.threshold_ms)).collect();
@@ -191,11 +188,8 @@ fn test_no_breach_when_all_samples_within_threshold() {
 [perf] sliding_sync manual_p95_ms=15.00 manual_p99_ms=18.00 service_p95_ms=14.00 threshold_ms=5000
 ";
 
-    let samples: Vec<PerfSample> = log
-        .lines()
-        .filter(|l| l.starts_with("[perf] sliding_sync"))
-        .filter_map(parse_perf_line)
-        .collect();
+    let samples: Vec<PerfSample> =
+        log.lines().filter(|l| l.starts_with("[perf] sliding_sync")).filter_map(parse_perf_line).collect();
 
     assert_eq!(samples.len(), 2);
     let breaches = samples.iter().filter(|s| is_breach(s.p95_ms, s.threshold_ms)).count();

@@ -17,7 +17,6 @@ use tokio::sync::RwLock;
 /// Account storage domain group — re-exports account modules under `account::`.
 pub mod account;
 pub mod account_data;
-pub mod login_token;
 /// Admin storage domain group — re-exports admin modules under `admin::`.
 pub mod admin;
 pub mod admin_federation;
@@ -31,9 +30,9 @@ pub mod auth;
 pub mod background_update;
 pub mod dehydrated_device;
 pub mod delayed_events;
+pub mod device;
 /// Directory storage domain — public-room directory persistence (ARCH-06).
 pub mod directory;
-pub mod device;
 /// E2EE storage domain group — re-exports e2ee modules under `e2ee::`.
 pub mod e2ee;
 pub mod e2ee_audit;
@@ -47,6 +46,7 @@ pub mod filter;
 /// Infrastructure storage domain group — re-exports infra modules under `infra::`.
 pub mod infra;
 pub mod invite_blocklist;
+pub mod login_token;
 pub mod maintenance;
 pub mod media;
 pub mod media_quota;

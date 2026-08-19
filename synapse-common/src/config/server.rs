@@ -10,8 +10,7 @@ use serde::Deserialize;
 ///
 /// 官方 Synapse 对应配置: `server_name`, `public_baseurl`, `signing_key_path` 等
 /// 文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#server
-#[derive(Clone, Deserialize, Default)]
-#[derive(derivative::Derivative)]
+#[derive(Clone, Deserialize, Default, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct ServerConfig {
     /// 服务器名称（域名）

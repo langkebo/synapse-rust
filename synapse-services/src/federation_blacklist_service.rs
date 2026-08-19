@@ -153,11 +153,7 @@ impl FederationBlacklistService {
         })
     }
 
-    fn matches_rule(
-        cache: &RegexCache,
-        server_name: &str,
-        rule: &FederationBlacklistRule,
-    ) -> Result<bool, ApiError> {
+    fn matches_rule(cache: &RegexCache, server_name: &str, rule: &FederationBlacklistRule) -> Result<bool, ApiError> {
         match rule.rule_type.as_str() {
             "domain" => Ok(server_name == rule.pattern),
             "regex" => cache

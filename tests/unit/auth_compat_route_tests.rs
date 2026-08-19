@@ -23,8 +23,8 @@
 use axum::http::Method;
 use serde_json::{json, Value};
 use synapse_rust::common::{ApiError, ApiErrorKind, MatrixErrorCode};
-use synapse_rust::web::routes::route_module::ProfileFlags;
 use synapse_rust::web::routes::declared_route_manifest_for_profile;
+use synapse_rust::web::routes::route_module::ProfileFlags;
 
 // ============================================================================
 // Route manifest — verified via the public aggregator
@@ -78,10 +78,7 @@ fn test_auth_compat_routes_include_standalone_absolute_paths() {
 #[test]
 fn test_auth_compat_routes_tagged_assembly_auth_compat() {
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
-    let auth_compat_entries: Vec<_> = ledger
-        .iter()
-        .filter(|e| e.registered_by == "assembly::auth_compat")
-        .collect();
+    let auth_compat_entries: Vec<_> = ledger.iter().filter(|e| e.registered_by == "assembly::auth_compat").collect();
     assert!(!auth_compat_entries.is_empty(), "expected assembly::auth_compat-tagged entries");
     // Should include all 10 (method, relative-path) tuples × 2 prefixes (r0, v3) = 20 entries.
     assert!(
@@ -381,7 +378,7 @@ fn test_register_auto_generates_username_when_absent() {
     };
     assert!(generated.starts_with("auto"));
     assert_eq!(generated.len(), 4 + 12); // "auto" + 12 hex chars
-    // Verify the generated username matches the validation regex.
+                                         // Verify the generated username matches the validation regex.
     assert!(generated.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '=' || c == '-'));
 }
 
@@ -602,8 +599,7 @@ fn test_submit_email_token_response_shape() {
 #[test]
 fn test_get_login_flows_always_includes_password_and_token() {
     // The base flows array always starts with m.login.password and m.login.token.
-    let flows = [json!({"type": "m.login.password"}),
-        json!({"type": "m.login.token"})];
+    let flows = [json!({"type": "m.login.password"}), json!({"type": "m.login.token"})];
     let types: Vec<&str> = flows.iter().filter_map(|f| f.get("type").and_then(|v| v.as_str())).collect();
     assert!(types.contains(&"m.login.password"));
     assert!(types.contains(&"m.login.token"));
@@ -621,12 +617,14 @@ fn test_get_login_flows_includes_sso_when_oidc_enabled() {
             "name": "OIDC",
             "brand": "oidc"
         }));
-        let flows = [json!({"type": "m.login.password"}),
+        let flows = [
+            json!({"type": "m.login.password"}),
             json!({"type": "m.login.token"}),
             json!({
                 "type": "m.login.sso",
                 "identity_providers": sso_providers
-            })];
+            }),
+        ];
         let has_sso = flows.iter().any(|f| f.get("type").and_then(|v| v.as_str()) == Some("m.login.sso"));
         assert!(has_sso);
     }
@@ -636,8 +634,7 @@ fn test_get_login_flows_includes_sso_when_oidc_enabled() {
 fn test_get_login_flows_excludes_sso_when_oidc_disabled() {
     let oidc_service_present = false;
     if !oidc_service_present {
-        let flows = [json!({"type": "m.login.password"}),
-            json!({"type": "m.login.token"})];
+        let flows = [json!({"type": "m.login.password"}), json!({"type": "m.login.token"})];
         let has_sso = flows.iter().any(|f| f.get("type").and_then(|v| v.as_str()) == Some("m.login.sso"));
         assert!(!has_sso);
     }
@@ -1015,7 +1012,8 @@ fn test_login_fallback_page_escapes_untrusted_provider_names() {
     // before insertion into the template. The handler calls html_escape.
     let provider_name = r#"<script>alert("xss")</script>"#;
     let escaped = html_escape(provider_name);
-    let flows_html = format!(r#"<a href="/_matrix/client/v3/login/sso/redirect?redirectUrl=/">Login with {escaped}</a><br>"#);
+    let flows_html =
+        format!(r#"<a href="/_matrix/client/v3/login/sso/redirect?redirectUrl=/">Login with {escaped}</a><br>"#);
     assert!(flows_html.contains("&lt;script&gt;"));
     assert!(!flows_html.contains("<script>alert"));
 }

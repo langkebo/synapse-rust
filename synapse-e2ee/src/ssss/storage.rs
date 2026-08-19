@@ -1,7 +1,7 @@
 use super::models::{SecretStorageKey, StoredSecret};
 use sqlx::PgPool;
-use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 
 /// Internal row representation for `e2ee_secret_storage_keys`.

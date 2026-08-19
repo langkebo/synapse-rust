@@ -358,10 +358,9 @@ async fn query_keys(
     if let Some(device_keys_obj) = merged_device_keys.as_object() {
         let user_ids: Vec<String> = device_keys_obj.keys().cloned().collect();
         if !user_ids.is_empty() {
-            let batch_result =
-                ctx.cross_signing_service.get_verified_devices_batch(&user_ids).await.map_err(|e| {
-                    crate::error::ApiError::internal_with_context("Failed to load verified devices batch", &e)
-                })?;
+            let batch_result = ctx.cross_signing_service.get_verified_devices_batch(&user_ids).await.map_err(|e| {
+                crate::error::ApiError::internal_with_context("Failed to load verified devices batch", &e)
+            })?;
 
             for (user_id, vd_map) in batch_result {
                 let devices: Vec<serde_json::Value> = vd_map

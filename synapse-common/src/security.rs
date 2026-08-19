@@ -691,13 +691,9 @@ mod tests {
         let (host, verified_ips) = check_url_and_resolve(url, &blacklist).expect("must resolve");
 
         // Step 2: 钉扎 client 使用已验证 IP（不再 DNS 解析）
-        let client = crate::http_client::pinned_client_for_url(
-            url,
-            &verified_ips,
-            std::time::Duration::from_secs(10),
-            true,
-        )
-        .expect("pinned client must construct with verified IPs");
+        let client =
+            crate::http_client::pinned_client_for_url(url, &verified_ips, std::time::Duration::from_secs(10), true)
+                .expect("pinned client must construct with verified IPs");
 
         // 验证：host 和 IP 一致（IP 字面量场景）
         assert_eq!(host, "8.8.8.8");

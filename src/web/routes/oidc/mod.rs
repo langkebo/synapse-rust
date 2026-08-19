@@ -268,10 +268,7 @@ mod tests {
         async fn save_consent_session(&self, _s: &OidcConsentSession) -> Result<(), sqlx::Error> {
             Ok(())
         }
-        async fn get_and_delete_consent_session(
-            &self,
-            _id: &str,
-        ) -> Result<Option<OidcConsentSession>, sqlx::Error> {
+        async fn get_and_delete_consent_session(&self, _id: &str) -> Result<Option<OidcConsentSession>, sqlx::Error> {
             Ok(None)
         }
         async fn get_consent_session(&self, _id: &str) -> Result<Option<OidcConsentSession>, sqlx::Error> {

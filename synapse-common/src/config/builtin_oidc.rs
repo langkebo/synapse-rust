@@ -30,8 +30,7 @@ fn default_builtin_oidc_client_id() -> String {
     "builtin-oidc-client".to_string()
 }
 
-#[derive(Clone, Deserialize)]
-#[derive(derivative::Derivative)]
+#[derive(Clone, Deserialize, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct BuiltinOidcUser {
     pub id: String,

@@ -155,10 +155,7 @@ impl DirectoryService {
     ///
     /// 用于生产环境：别名操作委托到 `room_storage`，公共房间目录操作
     /// 委托到 `directory_storage`，两者均持久化到数据库。
-    pub fn with_storages(
-        room_storage: Arc<dyn RoomStoreApi>,
-        directory_storage: Arc<dyn DirectoryStoreApi>,
-    ) -> Self {
+    pub fn with_storages(room_storage: Arc<dyn RoomStoreApi>, directory_storage: Arc<dyn DirectoryStoreApi>) -> Self {
         Self {
             aliases: Arc::new(RwLock::new(HashMap::new())),
             room_aliases: Arc::new(RwLock::new(HashMap::new())),
@@ -179,10 +176,9 @@ impl DirectoryService {
     pub async fn add_public_room(&self, room: DirectoryRoom) -> ApiResult<()> {
         if let Some(storage) = &self.directory_storage {
             let entry = RoomDirectoryEntry::from(&room);
-            storage
-                .upsert_directory_entry(&entry)
-                .await
-                .map_err(|e| ApiError::internal_with_context("Failed to persist public room to directory storage", &e))?;
+            storage.upsert_directory_entry(&entry).await.map_err(|e| {
+                ApiError::internal_with_context("Failed to persist public room to directory storage", &e)
+            })?;
             return Ok(());
         }
         let mut rooms = self.public_rooms.write().await;
@@ -200,10 +196,9 @@ impl DirectoryService {
     /// * `room_id` - 要移除的房间 ID
     pub async fn remove_public_room(&self, room_id: &str) -> ApiResult<()> {
         if let Some(storage) = &self.directory_storage {
-            storage
-                .remove_from_directory(room_id)
-                .await
-                .map_err(|e| ApiError::internal_with_context("Failed to remove public room from directory storage", &e))?;
+            storage.remove_from_directory(room_id).await.map_err(|e| {
+                ApiError::internal_with_context("Failed to remove public room from directory storage", &e)
+            })?;
             return Ok(());
         }
         let mut rooms = self.public_rooms.write().await;
@@ -282,10 +277,9 @@ impl DirectoryService {
 
     pub async fn get_public_rooms(&self, limit: i32, _since: Option<&str>) -> ApiResult<Vec<DirectoryRoom>> {
         if let Some(storage) = &self.directory_storage {
-            let entries = storage
-                .list_public_rooms(limit as i64, 0)
-                .await
-                .map_err(|e| ApiError::internal_with_context("Failed to list public rooms from directory storage", &e))?;
+            let entries = storage.list_public_rooms(limit as i64, 0).await.map_err(|e| {
+                ApiError::internal_with_context("Failed to list public rooms from directory storage", &e)
+            })?;
             return Ok(entries.into_iter().map(DirectoryRoom::from).collect());
         }
         let rooms = self.public_rooms.read().await;
@@ -296,10 +290,9 @@ impl DirectoryService {
     pub async fn search_public_rooms(&self, filter: Option<&str>, limit: i32) -> ApiResult<Vec<DirectoryRoom>> {
         if let Some(storage) = &self.directory_storage {
             let filter_str = filter.unwrap_or("");
-            let entries = storage
-                .search_public_rooms(filter_str, limit as i64)
-                .await
-                .map_err(|e| ApiError::internal_with_context("Failed to search public rooms in directory storage", &e))?;
+            let entries = storage.search_public_rooms(filter_str, limit as i64).await.map_err(|e| {
+                ApiError::internal_with_context("Failed to search public rooms in directory storage", &e)
+            })?;
             return Ok(entries.into_iter().map(DirectoryRoom::from).collect());
         }
         let rooms = self.public_rooms.read().await;
@@ -436,10 +429,7 @@ mod tests {
     /// 辅助：创建带房间的 InMemoryRoomStore
     async fn make_store_with_room() -> Arc<InMemoryRoomStore> {
         let store = Arc::new(InMemoryRoomStore::new());
-        store
-            .create_room("!room:example.com", "@alice:example.com", "public", "11", true)
-            .await
-            .unwrap();
+        store.create_room("!room:example.com", "@alice:example.com", "public", "11", true).await.unwrap();
         store
     }
 
@@ -450,16 +440,17 @@ mod tests {
 
         // 第一个 DirectoryService 实例设置别名
         let svc1 = DirectoryService::with_storage(store.clone());
-        svc1.set_room_alias("!room:example.com", "#persistent:example.com")
-            .await
-            .unwrap();
+        svc1.set_room_alias("!room:example.com", "#persistent:example.com").await.unwrap();
 
         // 模拟重启：创建新的 DirectoryService，共享同一个存储后端
         let svc2 = DirectoryService::with_storage(store.clone());
         let room_id = svc2.get_room_id_by_alias("#persistent:example.com").await.unwrap();
 
-        assert_eq!(room_id, Some("!room:example.com".to_string()),
-            "S24: alias must survive DirectoryService re-instantiation when storage is used");
+        assert_eq!(
+            room_id,
+            Some("!room:example.com".to_string()),
+            "S24: alias must survive DirectoryService re-instantiation when storage is used"
+        );
     }
 
     #[tokio::test]
@@ -468,9 +459,7 @@ mod tests {
         let store = make_store_with_room().await;
 
         let svc1 = DirectoryService::with_storage(store.clone());
-        svc1.set_room_alias("!room:example.com", "#removable:example.com")
-            .await
-            .unwrap();
+        svc1.set_room_alias("!room:example.com", "#removable:example.com").await.unwrap();
 
         // 通过第二个实例删除
         let svc2 = DirectoryService::with_storage(store.clone());

@@ -5,8 +5,7 @@ use serde::Deserialize;
 // ============================================================================
 
 /// OpenID Connect configuration.
-#[derive(Clone, Deserialize)]
-#[derive(derivative::Derivative)]
+#[derive(Clone, Deserialize, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct OidcConfig {
     #[serde(default)]
@@ -89,8 +88,7 @@ impl OidcConfig {
 /// SAML 2.0 configuration.
 ///
 /// Official Synapse configuration documentation: https://element-hq.github.io/synapse/latest/openid.html#saml
-#[derive(Clone, Deserialize)]
-#[derive(derivative::Derivative)]
+#[derive(Clone, Deserialize, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct SamlConfig {
     /// Whether to enable SAML authentication

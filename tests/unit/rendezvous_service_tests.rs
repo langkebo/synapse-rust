@@ -23,8 +23,7 @@
 use async_trait::async_trait;
 use synapse_common::current_timestamp_millis;
 use synapse_storage::rendezvous::{
-    CreateRendezvousSessionParams, RendezvousIntent, RendezvousMessage, RendezvousTransport,
-    RendezvousStoreApi,
+    CreateRendezvousSessionParams, RendezvousIntent, RendezvousMessage, RendezvousStoreApi, RendezvousTransport,
 };
 use tokio::sync::Mutex;
 
@@ -167,9 +166,7 @@ impl RendezvousStoreApi for MockRendezvousStore {
         let now = self.now().await;
         let guard = self.msc4108.lock().await;
         match guard.get(session_id) {
-            Some(row) if row.expires_at > now => {
-                Ok(Some((row.data.clone(), format!("\"{}\"", row.etag_raw))))
-            }
+            Some(row) if row.expires_at > now => Ok(Some((row.data.clone(), format!("\"{}\"", row.etag_raw)))),
             _ => Ok(None),
         }
     }
@@ -186,9 +183,7 @@ impl RendezvousStoreApi for MockRendezvousStore {
         // Conditional update: verify the precondition first.
         if let Some(expected_etag) = if_match {
             let expected_raw = expected_etag.trim_matches('"').to_string();
-            let exists = guard
-                .get(session_id)
-                .is_some_and(|row| row.etag_raw == expected_raw && row.expires_at > now);
+            let exists = guard.get(session_id).is_some_and(|row| row.etag_raw == expected_raw && row.expires_at > now);
             if !exists {
                 return Ok(None); // ETag mismatch / not found / expired
             }

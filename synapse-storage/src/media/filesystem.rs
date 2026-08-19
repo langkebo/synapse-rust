@@ -123,8 +123,9 @@ impl MediaStorageBackend for FilesystemBackend {
             return Ok(None);
         }
 
-        let metadata =
-            fs::metadata(&path).await.map_err(|e| ApiError::internal_with_context("Failed to get file metadata", &e))?;
+        let metadata = fs::metadata(&path)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to get file metadata", &e))?;
 
         Ok(Some(metadata.len()))
     }
@@ -175,7 +176,9 @@ impl MediaStorageBackend for FilesystemBackend {
         };
 
         let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).await.map_err(|e| ApiError::internal_with_context("Failed to read thumbnail", &e))?;
+        file.read_to_end(&mut buffer)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to read thumbnail", &e))?;
 
         Ok(Some(buffer))
     }
@@ -189,8 +192,10 @@ impl MediaStorageBackend for FilesystemBackend {
             Err(e) => return Err(ApiError::internal_with_context("Failed to read thumbnail directory", &e)),
         };
 
-        while let Some(entry) =
-            entries.next_entry().await.map_err(|e| ApiError::internal_with_context("Failed to read directory entry", &e))?
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to read directory entry", &e))?
         {
             let file_name = entry.file_name();
             let name = file_name.to_string_lossy();

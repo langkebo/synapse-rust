@@ -158,7 +158,8 @@ async fn test_directory_storage_search_public_rooms() {
     assert!(by_topic.iter().any(|e| e.room_id == room_id), "should find room by topic search");
 
     // Search with non-matching filter
-    let no_match = storage.search_public_rooms("zzz_no_match_zzz", 100).await.expect("non-matching search should succeed");
+    let no_match =
+        storage.search_public_rooms("zzz_no_match_zzz", 100).await.expect("non-matching search should succeed");
     assert!(no_match.iter().all(|e| e.room_id != room_id), "non-matching filter should not return room");
 
     // Cleanup

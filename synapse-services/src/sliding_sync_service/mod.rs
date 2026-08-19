@@ -428,7 +428,13 @@ impl SlidingSyncService {
                             let conn_id = conn_id.clone();
                             async move {
                                 let result = storage
-                                    .materialize_room_from_activity(&user_id, &device_id, &room_id, conn_id.as_deref(), None)
+                                    .materialize_room_from_activity(
+                                        &user_id,
+                                        &device_id,
+                                        &room_id,
+                                        conn_id.as_deref(),
+                                        None,
+                                    )
                                     .await;
                                 (room_id, result)
                             }
@@ -602,7 +608,14 @@ impl SlidingSyncService {
                     .map_err(|e| ApiError::internal_with_context("Failed to rebuild lists response", &e))?;
 
                 rooms_response = self
-                    .build_rooms_response(user_id, device_id, conn_id, &request, prev_event_stream_pos, subscriptions_changed)
+                    .build_rooms_response(
+                        user_id,
+                        device_id,
+                        conn_id,
+                        &request,
+                        prev_event_stream_pos,
+                        subscriptions_changed,
+                    )
                     .await
                     .map_err(|e| ApiError::internal_with_context("Failed to rebuild rooms response", &e))?;
 
@@ -671,12 +684,8 @@ impl SlidingSyncService {
         lists
             .as_object()
             .map(|obj| {
-                obj.values().any(|list| {
-                    list.get("ops")
-                        .and_then(|ops| ops.as_array())
-                        .map(|a| !a.is_empty())
-                        .unwrap_or(false)
-                })
+                obj.values()
+                    .any(|list| list.get("ops").and_then(|ops| ops.as_array()).map(|a| !a.is_empty()).unwrap_or(false))
             })
             .unwrap_or(false)
     }
@@ -694,7 +703,10 @@ impl SlidingSyncService {
             .as_object()
             .map(|obj| {
                 obj.values().any(|room| {
-                    room.get("timeline").and_then(|timeline| timeline.as_array()).map(|a| !a.is_empty()).unwrap_or(false)
+                    room.get("timeline")
+                        .and_then(|timeline| timeline.as_array())
+                        .map(|a| !a.is_empty())
+                        .unwrap_or(false)
                 })
             })
             .unwrap_or(false)

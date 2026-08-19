@@ -33,9 +33,7 @@ fn ensure_presence_access(auth_user: &AuthenticatedUser, target_user_id: &str) -
 /// transient network error.
 fn ensure_presence_enabled(ctx: &RoomContext) -> Result<(), ApiError> {
     if !ctx.config.server.presence_enabled {
-        return Err(ApiError::unsupported(
-            "Presence is not supported on this server",
-        ));
+        return Err(ApiError::unsupported("Presence is not supported on this server"));
     }
     Ok(())
 }

@@ -1,6 +1,4 @@
-pub use synapse_common::error::{
-    init_error_metrics, ApiError, ApiErrorKind, ApiResponse, ApiResult, MatrixErrorCode,
-};
+pub use synapse_common::error::{init_error_metrics, ApiError, ApiErrorKind, ApiResponse, ApiResult, MatrixErrorCode};
 
 // ---------------------------------------------------------------------------
 // Conversion helpers (avoiding Orphan Rule issues)

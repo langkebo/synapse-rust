@@ -21,8 +21,7 @@ use tower::ServiceExt;
 // Test helpers
 // ---------------------------------------------------------------------------
 
-async fn setup_federation_app(
-) -> Option<(
+async fn setup_federation_app() -> Option<(
     axum::Router,
     Arc<sqlx::PgPool>,
     String,
@@ -44,8 +43,7 @@ async fn setup_federation_app(
     container.core.config.federation.server_name = "localhost".to_string();
     container.core.config.federation.key_id = Some(key_id.to_string());
     container.core.config.federation.signing_key = Some(signing_key_b64.clone());
-    let cache =
-        Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
+    let cache = Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
     let state = synapse_rust::web::routes::state::AppState::new(container, cache.clone());
     let app = synapse_rust::web::create_router(state);
     Some((app, pool, key_id.to_string(), signing_key_b64, signing_key, cache))
@@ -79,16 +77,13 @@ fn signed_fed_request_as(
     let sig = signing_key.sign(&signed_bytes);
     let sig_b64 = STANDARD_NO_PAD.encode(sig.to_bytes());
 
-    let mut builder = Request::builder()
-        .method(method)
-        .uri(uri)
-        .header(
-            "Authorization",
-            format!(
-                "X-Matrix origin=\"{}\",destination=\"{}\",key=\"{}\",sig=\"{}\"",
-                origin, destination, key_id, sig_b64
-            ),
-        );
+    let mut builder = Request::builder().method(method).uri(uri).header(
+        "Authorization",
+        format!(
+            "X-Matrix origin=\"{}\",destination=\"{}\",key=\"{}\",sig=\"{}\"",
+            origin, destination, key_id, sig_b64
+        ),
+    );
 
     if content.is_some() {
         builder = builder.header("Content-Type", "application/json");
@@ -112,10 +107,7 @@ fn signed_fed_request(
     let mut builder = Request::builder()
         .method(method)
         .uri(uri)
-        .header(
-            "Authorization",
-            format!("X-Matrix origin=\"{}\",key=\"{}\",sig=\"{}\"", origin, key_id, sig_b64),
-        );
+        .header("Authorization", format!("X-Matrix origin=\"{}\",key=\"{}\",sig=\"{}\"", origin, key_id, sig_b64));
 
     if content.is_some() {
         builder = builder.header("Content-Type", "application/json");
@@ -144,10 +136,7 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
 
     let body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    (
-        json["access_token"].as_str().unwrap().to_string(),
-        json["user_id"].as_str().unwrap().to_string(),
-    )
+    (json["access_token"].as_str().unwrap().to_string(), json["user_id"].as_str().unwrap().to_string())
 }
 
 async fn create_private_room(app: &axum::Router, token: &str) -> String {
@@ -227,12 +216,10 @@ async fn send_join_v2_no_existence_leak_private_room_vs_nonexistent() {
 
     // 4. Both must return the same status code — no existence leak.
     assert_eq!(
-        private_room_status,
-        nonexistent_status,
+        private_room_status, nonexistent_status,
         "send_join_v2 leaks room existence: private room returned {}, non-existent room returned {}. \
          Both must return the same status to prevent existence enumeration.",
-        private_room_status,
-        nonexistent_status
+        private_room_status, nonexistent_status
     );
 
     // 5. Both must be 404 (not 403) after the fix.
@@ -264,8 +251,7 @@ fn build_leave_event_body(room_id: &str, event_id: &str, sender: &str, origin: &
 
 #[tokio::test]
 async fn send_leave_v2_no_existence_leak_remote_server() {
-    let Some((app, _pool, _local_key_id, _local_key_b64, _local_signing_key, cache)) =
-        setup_federation_app().await
+    let Some((app, _pool, _local_key_id, _local_key_b64, _local_signing_key, cache)) = setup_federation_app().await
     else {
         return;
     };
@@ -291,15 +277,8 @@ async fn send_leave_v2_no_existence_leak_remote_server() {
     let event_id = "$leave_evt_001:remote.example";
     let body = build_leave_event_body(&private_room_id, event_id, leaver, remote_origin);
     let uri = format!("/_matrix/federation/v2/send_leave/{}/{}", private_room_id, event_id);
-    let request = signed_fed_request_as(
-        "PUT",
-        &uri,
-        remote_origin,
-        "localhost",
-        remote_key_id,
-        &remote_signing_key,
-        Some(&body),
-    );
+    let request =
+        signed_fed_request_as("PUT", &uri, remote_origin, "localhost", remote_key_id, &remote_signing_key, Some(&body));
 
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     let private_room_status = response.status();
@@ -324,12 +303,10 @@ async fn send_leave_v2_no_existence_leak_remote_server() {
 
     // 4. Both must return the same status code — no existence leak.
     assert_eq!(
-        private_room_status,
-        nonexistent_status,
+        private_room_status, nonexistent_status,
         "send_leave_v2 leaks room existence: private room returned {}, non-existent room returned {}. \
          Both must return the same status to prevent existence enumeration.",
-        private_room_status,
-        nonexistent_status
+        private_room_status, nonexistent_status
     );
 
     // 5. Both must be 404 after the fix.
@@ -361,8 +338,7 @@ fn build_invite_event_body(room_id: &str, event_id: &str, sender: &str, invitee:
 
 #[tokio::test]
 async fn invite_v2_no_existence_leak_remote_server() {
-    let Some((app, _pool, _local_key_id, _local_key_b64, _local_signing_key, cache)) =
-        setup_federation_app().await
+    let Some((app, _pool, _local_key_id, _local_key_b64, _local_signing_key, cache)) = setup_federation_app().await
     else {
         return;
     };
@@ -389,15 +365,8 @@ async fn invite_v2_no_existence_leak_remote_server() {
     let event_id = "$invite_evt_001:remote.example";
     let body = build_invite_event_body(&private_room_id, event_id, inviter, invitee, remote_origin);
     let uri = format!("/_matrix/federation/v2/invite/{}/{}", private_room_id, event_id);
-    let request = signed_fed_request_as(
-        "PUT",
-        &uri,
-        remote_origin,
-        "localhost",
-        remote_key_id,
-        &remote_signing_key,
-        Some(&body),
-    );
+    let request =
+        signed_fed_request_as("PUT", &uri, remote_origin, "localhost", remote_key_id, &remote_signing_key, Some(&body));
 
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     let private_room_status = response.status();
@@ -422,12 +391,10 @@ async fn invite_v2_no_existence_leak_remote_server() {
 
     // 4. Both must return the same status code — no existence leak.
     assert_eq!(
-        private_room_status,
-        nonexistent_status,
+        private_room_status, nonexistent_status,
         "invite_v2 leaks room existence: private room returned {}, non-existent room returned {}. \
          Both must return the same status to prevent existence enumeration.",
-        private_room_status,
-        nonexistent_status
+        private_room_status, nonexistent_status
     );
 
     // 5. Both must be 404 after the fix.
@@ -458,8 +425,7 @@ fn build_knock_event_body(room_id: &str, sender: &str, origin: &str) -> Value {
 
 #[tokio::test]
 async fn knock_room_no_existence_leak_remote_server() {
-    let Some((app, _pool, _local_key_id, _local_key_b64, _local_signing_key, cache)) =
-        setup_federation_app().await
+    let Some((app, _pool, _local_key_id, _local_key_b64, _local_signing_key, cache)) = setup_federation_app().await
     else {
         return;
     };
@@ -516,12 +482,10 @@ async fn knock_room_no_existence_leak_remote_server() {
 
     // 4. Both must return the same status code — no existence leak.
     assert_eq!(
-        private_room_status,
-        nonexistent_status,
+        private_room_status, nonexistent_status,
         "knock_room leaks room existence: private room returned {}, non-existent room returned {}. \
          Both must return the same status to prevent existence enumeration.",
-        private_room_status,
-        nonexistent_status
+        private_room_status, nonexistent_status
     );
 
     // 5. Both must be 404 after the fix.

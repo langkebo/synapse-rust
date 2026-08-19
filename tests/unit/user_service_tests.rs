@@ -112,7 +112,13 @@ impl UserStore for MockUserStore {
         unimplemented!("MockUserStore does not provide a database pool")
     }
 
-    async fn lock_user(&self, _user_id: &str, _reason: Option<&str>, _locked_by: &str, _now_ts: i64) -> Result<LockedUser, sqlx::Error> {
+    async fn lock_user(
+        &self,
+        _user_id: &str,
+        _reason: Option<&str>,
+        _locked_by: &str,
+        _now_ts: i64,
+    ) -> Result<LockedUser, sqlx::Error> {
         self.fail_all_check()?;
         Err(sqlx::Error::WorkerCrashed)
     }
@@ -294,7 +300,12 @@ impl UserStore for MockUserStore {
         Ok(())
     }
 
-    async fn upgrade_guest_account(&self, _user_id: &str, _username: &str, _password_hash: &str) -> Result<(), sqlx::Error> {
+    async fn upgrade_guest_account(
+        &self,
+        _user_id: &str,
+        _username: &str,
+        _password_hash: &str,
+    ) -> Result<(), sqlx::Error> {
         self.fail_all_check()?;
         Ok(())
     }
@@ -362,12 +373,21 @@ impl UserStore for MockUserStore {
         Ok(HashMap::new())
     }
 
-    async fn get_account_data_content(&self, _user_id: &str, _data_type: &str) -> Result<Option<serde_json::Value>, sqlx::Error> {
+    async fn get_account_data_content(
+        &self,
+        _user_id: &str,
+        _data_type: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
         self.fail_all_check()?;
         Ok(None)
     }
 
-    async fn upsert_account_data_content(&self, _user_id: &str, _data_type: &str, _content: &serde_json::Value) -> Result<(), sqlx::Error> {
+    async fn upsert_account_data_content(
+        &self,
+        _user_id: &str,
+        _data_type: &str,
+        _content: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
         self.fail_all_check()?;
         Ok(())
     }
@@ -605,10 +625,7 @@ async fn get_profiles_batch_returns_profiles_for_seeded_users() {
 async fn get_profiles_batch_returns_empty_for_no_matches() {
     let svc = build_service(MockUserStore::new());
 
-    let profiles = svc
-        .get_profiles_batch(&["@nobody:example.com".to_string()])
-        .await
-        .expect("should succeed");
+    let profiles = svc.get_profiles_batch(&["@nobody:example.com".to_string()]).await.expect("should succeed");
 
     assert!(profiles.is_empty());
 }
@@ -688,9 +705,7 @@ async fn update_avatar_url_maps_generic_error_to_internal() {
 #[tokio::test]
 async fn update_profile_with_both_fields_succeeds() {
     let svc = build_service(MockUserStore::new());
-    svc.update_profile("@alice:example.com", Some("Alice"), Some("mxc://example.com/a"))
-        .await
-        .expect("should succeed");
+    svc.update_profile("@alice:example.com", Some("Alice"), Some("mxc://example.com/a")).await.expect("should succeed");
 }
 
 #[tokio::test]
@@ -718,10 +733,7 @@ async fn update_profile_propagates_displayname_error() {
     let svc = build_service(store);
 
     let long = "x".repeat(300);
-    let err = svc
-        .update_profile("@alice:example.com", Some(&long), None)
-        .await
-        .expect_err("should error");
+    let err = svc.update_profile("@alice:example.com", Some(&long), None).await.expect_err("should error");
     assert!(err.is_bad_request());
 }
 
@@ -732,10 +744,7 @@ async fn update_profile_propagates_avatar_url_error() {
     let svc = build_service(store);
 
     let long = "x".repeat(300);
-    let err = svc
-        .update_profile("@alice:example.com", None, Some(&long))
-        .await
-        .expect_err("should error");
+    let err = svc.update_profile("@alice:example.com", None, Some(&long)).await.expect_err("should error");
     assert!(err.is_bad_request());
 }
 
@@ -782,11 +791,7 @@ async fn search_directory_users_maps_storage_error_to_internal() {
 #[tokio::test]
 async fn get_users_paginated_returns_seeded_users() {
     let store = MockUserStore::new();
-    store
-        .users
-        .lock()
-        .unwrap()
-        .insert("@alice:example.com".to_string(), make_user("@alice:example.com", None, None));
+    store.users.lock().unwrap().insert("@alice:example.com".to_string(), make_user("@alice:example.com", None, None));
     let svc = build_service(store);
 
     let users = svc.get_users_paginated(10, None, None).await.expect("should succeed");
@@ -806,16 +811,8 @@ async fn get_users_paginated_maps_storage_error_to_internal() {
 #[tokio::test]
 async fn get_user_count_returns_seeded_count() {
     let store = MockUserStore::new();
-    store
-        .users
-        .lock()
-        .unwrap()
-        .insert("@alice:example.com".to_string(), make_user("@alice:example.com", None, None));
-    store
-        .users
-        .lock()
-        .unwrap()
-        .insert("@bob:example.com".to_string(), make_user("@bob:example.com", None, None));
+    store.users.lock().unwrap().insert("@alice:example.com".to_string(), make_user("@alice:example.com", None, None));
+    store.users.lock().unwrap().insert("@bob:example.com".to_string(), make_user("@bob:example.com", None, None));
     let svc = build_service(store);
 
     let count = svc.get_user_count().await.expect("should succeed");
@@ -893,11 +890,7 @@ async fn get_users_paginated_with_zero_limit_returns_seeded_users() {
     // MockUserStore ignores the limit and returns all seeded users. The
     // service is a pure delegator, so we just verify it doesn't panic.
     let store = MockUserStore::new();
-    store
-        .users
-        .lock()
-        .unwrap()
-        .insert("@alice:example.com".to_string(), make_user("@alice:example.com", None, None));
+    store.users.lock().unwrap().insert("@alice:example.com".to_string(), make_user("@alice:example.com", None, None));
     let svc = build_service(store);
     let users = svc.get_users_paginated(0, None, None).await.expect("should succeed");
     assert!(!users.is_empty());

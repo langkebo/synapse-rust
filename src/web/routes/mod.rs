@@ -149,10 +149,10 @@ pub(crate) use handlers::room::{
     get_room_timeline, get_room_turn_server, get_room_unread_count, get_room_user_fragments, get_room_vault_data,
     get_room_version, get_room_visibility, get_single_event, get_state_by_type, get_state_event,
     get_state_event_empty_key, get_user_rooms, invite_user, invite_user_by_room, join_room, join_room_by_id_or_alias,
-    kick_user, knock_room, leave_room, put_power_levels, put_state_event, put_state_event_empty_key, put_state_event_no_key,
-    redact_event, room_initial_sync, search_room_messages, send_message, send_receipt, send_state_event,
-    set_read_markers, set_room_account_data, set_room_vault_data, set_room_visibility, sign_room_event,
-    translate_room_event, translate_text, unban_user, upgrade_room, verify_room_event,
+    kick_user, knock_room, leave_room, put_power_levels, put_state_event, put_state_event_empty_key,
+    put_state_event_no_key, redact_event, room_initial_sync, search_room_messages, send_message, send_receipt,
+    send_state_event, set_read_markers, set_room_account_data, set_room_vault_data, set_room_visibility,
+    sign_room_event, translate_room_event, translate_text, unban_user, upgrade_room, verify_room_event,
 };
 pub use handlers::{
     get_capabilities, get_client_versions, get_server_version, get_well_known_client, get_well_known_server,

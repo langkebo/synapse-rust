@@ -17,9 +17,9 @@
 // under `tests/integration/`.
 
 use axum::http::Method;
+use synapse_rust::web::routes::declared_route_manifest_for_profile;
 use synapse_rust::web::routes::route_ledger::{RouteEntry, RouteLedger};
 use synapse_rust::web::routes::route_module::ProfileFlags;
-use synapse_rust::web::routes::declared_route_manifest_for_profile;
 
 // ============================================================================
 // declared_route_manifest_for_profile — surface sanity checks
@@ -144,7 +144,10 @@ fn test_declared_manifest_includes_account_compat_under_three_prefixes() {
     for prefix in ["/_matrix/client/v1", "/_matrix/client/r0", "/_matrix/client/v3"] {
         assert!(paths.contains(&format!("{prefix}/account/whoami").as_str()), "{prefix}/account/whoami missing");
         assert!(paths.contains(&format!("{prefix}/account/password").as_str()), "{prefix}/account/password missing");
-        assert!(paths.contains(&format!("{prefix}/account/deactivate").as_str()), "{prefix}/account/deactivate missing");
+        assert!(
+            paths.contains(&format!("{prefix}/account/deactivate").as_str()),
+            "{prefix}/account/deactivate missing"
+        );
         assert!(paths.contains(&format!("{prefix}/account/3pid").as_str()), "{prefix}/account/3pid missing");
     }
 }
@@ -233,8 +236,7 @@ fn test_registered_by_includes_expected_namespaces() {
     // The manifest aggregates entries from many router modules; this test
     // asserts that the well-known namespaces are present.
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
-    let namespaces: std::collections::HashSet<&str> =
-        ledger.iter().map(|e| e.registered_by).collect();
+    let namespaces: std::collections::HashSet<&str> = ledger.iter().map(|e| e.registered_by).collect();
     // These are the inline + always-on module namespaces.
     let expected_namespaces = [
         "assembly::create_router",
@@ -258,12 +260,7 @@ fn test_registered_by_includes_expected_namespaces() {
 fn test_every_manifest_path_starts_with_slash() {
     let ledger = declared_route_manifest_for_profile(&ProfileFlags::DEFAULT);
     for entry in ledger.iter() {
-        assert!(
-            entry.path.starts_with('/'),
-            "path must start with '/' — got {:?} {}",
-            entry.method,
-            entry.path
-        );
+        assert!(entry.path.starts_with('/'), "path must start with '/' — got {:?} {}", entry.method, entry.path);
     }
 }
 
@@ -338,11 +335,7 @@ fn test_route_ledger_validate_returns_report_with_counts() {
     assert_eq!(report.total_entries, report.unique_tuples);
     // The default profile should declare at least 100 routes — the synapse
     // client surface is large.
-    assert!(
-        report.unique_tuples >= 100,
-        "default manifest seems too small: {} unique tuples",
-        report.unique_tuples
-    );
+    assert!(report.unique_tuples >= 100, "default manifest seems too small: {} unique tuples", report.unique_tuples);
 }
 
 #[test]

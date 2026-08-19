@@ -357,11 +357,7 @@ mod tests {
             RouteEntry::new(Method::GET, "/rooms", "room"),
         ]);
 
-        let exempt_paths: Vec<&'static str> = ledger
-            .iter()
-            .filter(|e| e.rate_limit_exempt)
-            .map(|e| e.path)
-            .collect();
+        let exempt_paths: Vec<&'static str> = ledger.iter().filter(|e| e.rate_limit_exempt).map(|e| e.path).collect();
 
         assert_eq!(exempt_paths, vec!["/sync", "/v1/sync"]);
         // Non-exempt routes must NOT appear
@@ -378,11 +374,7 @@ mod tests {
         all_entries.extend(crate::web::routes::sync::sync_route_manifest());
         all_entries.extend(crate::web::routes::sliding_sync::sliding_sync_route_manifest());
 
-        let exempt_paths: Vec<&str> = all_entries
-            .iter()
-            .filter(|e| e.rate_limit_exempt)
-            .map(|e| e.path)
-            .collect();
+        let exempt_paths: Vec<&str> = all_entries.iter().filter(|e| e.rate_limit_exempt).map(|e| e.path).collect();
 
         // All 6 sync/sliding-sync paths must be exempt
         let expected = [
@@ -402,11 +394,7 @@ mod tests {
         }
 
         // Non-sync routes from the sync manifest must NOT be exempt
-        let non_exempt: Vec<&str> = all_entries
-            .iter()
-            .filter(|e| !e.rate_limit_exempt)
-            .map(|e| e.path)
-            .collect();
+        let non_exempt: Vec<&str> = all_entries.iter().filter(|e| !e.rate_limit_exempt).map(|e| e.path).collect();
         assert!(non_exempt.contains(&"/_matrix/client/r0/events"), "events should not be exempt");
         assert!(non_exempt.contains(&"/_matrix/client/v3/joined_rooms"), "joined_rooms should not be exempt");
     }

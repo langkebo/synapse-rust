@@ -456,29 +456,20 @@ mod tests {
 
         // Count should be 2 (only regular OTKs), NOT 3 (which would include fallback)
         let count = store.get_one_time_keys_count(user, device).await.unwrap();
-        assert_eq!(
-            count, 2,
-            "get_one_time_keys_count must exclude fallback keys — expected 2, got {count}"
-        );
+        assert_eq!(count, 2, "get_one_time_keys_count must exclude fallback keys — expected 2, got {count}");
 
         // Consume one OTK
         store.claim_one_time_key(user, device, algo).await.unwrap();
 
         // Count should now be 1
         let count = store.get_one_time_keys_count(user, device).await.unwrap();
-        assert_eq!(
-            count, 1,
-            "after consuming 1 OTK, count should be 1 (fallback still excluded), got {count}"
-        );
+        assert_eq!(count, 1, "after consuming 1 OTK, count should be 1 (fallback still excluded), got {count}");
 
         // Consume the last OTK
         store.claim_one_time_key(user, device, algo).await.unwrap();
 
         // Count should be 0 — fallback key must NOT be counted
         let count = store.get_one_time_keys_count(user, device).await.unwrap();
-        assert_eq!(
-            count, 0,
-            "after all OTKs consumed, count must be 0 (fallback must NOT be counted), got {count}"
-        );
+        assert_eq!(count, 0, "after all OTKs consumed, count must be 0 (fallback must NOT be counted), got {count}");
     }
 }

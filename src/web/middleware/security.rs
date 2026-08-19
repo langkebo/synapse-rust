@@ -282,10 +282,10 @@ mod tests {
             StatusCode::OK
         }
 
-        let app = Router::new()
-            .route("/ok", get(ok_handler))
-            .layer(middleware::from_fn(payload_too_large_json_middleware));
-        let request = Request::builder().method(axum::http::Method::GET).uri("/ok").body(Body::empty()).expect("request");
+        let app =
+            Router::new().route("/ok", get(ok_handler)).layer(middleware::from_fn(payload_too_large_json_middleware));
+        let request =
+            Request::builder().method(axum::http::Method::GET).uri("/ok").body(Body::empty()).expect("request");
 
         let response = app.oneshot(request).await.expect("request should succeed");
         assert_eq!(response.status(), StatusCode::OK);

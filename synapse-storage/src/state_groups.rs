@@ -134,17 +134,21 @@ impl StateGroupStorage {
     }
 
     pub async fn get_state_group(&self, id: i64) -> Result<Option<StateGroup>, sqlx::Error> {
-        sqlx::query_as::<_, StateGroup>("SELECT id, room_id, event_id, state_hash, created_ts FROM state_groups WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await
+        sqlx::query_as::<_, StateGroup>(
+            "SELECT id, room_id, event_id, state_hash, created_ts FROM state_groups WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
     }
 
     pub async fn get_state_group_by_event(&self, event_id: &str) -> Result<Option<StateGroup>, sqlx::Error> {
-        sqlx::query_as::<_, StateGroup>("SELECT id, room_id, event_id, state_hash, created_ts FROM state_groups WHERE event_id = $1")
-            .bind(event_id)
-            .fetch_optional(&self.pool)
-            .await
+        sqlx::query_as::<_, StateGroup>(
+            "SELECT id, room_id, event_id, state_hash, created_ts FROM state_groups WHERE event_id = $1",
+        )
+        .bind(event_id)
+        .fetch_optional(&self.pool)
+        .await
     }
 
     pub async fn get_room_state_groups(&self, room_id: &str, limit: i64) -> Result<Vec<StateGroup>, sqlx::Error> {

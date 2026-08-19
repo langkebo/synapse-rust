@@ -1,8 +1,8 @@
 use super::models::{OlmAccountData, OlmSessionData};
 use sqlx::PgPool;
 use std::sync::Arc;
-use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 
 /// Internal row struct for `olm_sessions` (matches DB column types exactly,

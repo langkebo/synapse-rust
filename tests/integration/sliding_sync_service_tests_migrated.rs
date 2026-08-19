@@ -602,20 +602,20 @@ async fn test_update_room_state() {
 
     update_room_state(
         &pool,
-            &user_id,
-            "DEV1",
-            &room_id,
-            None,
-            1000,
-            2,
-            5,
-            true,
-            false,
-            Some("Test Room"),
-            Some("mxc://avatar"),
-        )
-        .await
-        .unwrap();
+        &user_id,
+        "DEV1",
+        &room_id,
+        None,
+        1000,
+        2,
+        5,
+        true,
+        false,
+        Some("Test Room"),
+        Some("mxc://avatar"),
+    )
+    .await
+    .unwrap();
 
     let storage = SlidingSyncStorage::new(pool.clone());
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
@@ -723,8 +723,7 @@ async fn test_get_room_token_sync() {
     let storage = SlidingSyncStorage::new(pool.clone());
     storage.create_or_update_token(&user_id, "DEV1", None, 0).await.unwrap();
 
-    update_room_state(
-        &pool,&user_id, "DEV1", &room_id, None, 1000, 1, 3, false, false, Some("Sync Room"), None)
+    update_room_state(&pool, &user_id, "DEV1", &room_id, None, 1000, 1, 3, false, false, Some("Sync Room"), None)
         .await
         .unwrap();
 
@@ -743,8 +742,7 @@ async fn test_sync_with_room_subscriptions() {
     let user_id = format!("@sub_{suffix}:localhost");
     let room_id = format!("!room_{suffix}:localhost");
 
-    update_room_state(
-        &pool,&user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, Some("Sub Room"), None)
+    update_room_state(&pool, &user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, Some("Sub Room"), None)
         .await
         .unwrap();
 
@@ -838,36 +836,36 @@ async fn test_sync_with_filters() {
 
     update_room_state(
         &pool,
-            &user_id,
-            "DEV1",
-            &format!("!dm_{suffix}:localhost"),
-            None,
-            100,
-            0,
-            0,
-            true,
-            false,
-            Some("DM Room"),
-            None,
-        )
-        .await
-        .unwrap();
+        &user_id,
+        "DEV1",
+        &format!("!dm_{suffix}:localhost"),
+        None,
+        100,
+        0,
+        0,
+        true,
+        false,
+        Some("DM Room"),
+        None,
+    )
+    .await
+    .unwrap();
     update_room_state(
         &pool,
-            &user_id,
-            "DEV1",
-            &format!("!group_{suffix}:localhost"),
-            None,
-            200,
-            0,
-            0,
-            false,
-            false,
-            Some("Group Room"),
-            None,
-        )
-        .await
-        .unwrap();
+        &user_id,
+        "DEV1",
+        &format!("!group_{suffix}:localhost"),
+        None,
+        200,
+        0,
+        0,
+        false,
+        false,
+        Some("Group Room"),
+        None,
+    )
+    .await
+    .unwrap();
 
     let mut lists = HashMap::new();
     lists.insert(
@@ -911,20 +909,20 @@ async fn test_sync_multiple_lists() {
 
     update_room_state(
         &pool,
-            &user_id,
-            "DEV1",
-            &format!("!room1_{suffix}:localhost"),
-            None,
-            100,
-            0,
-            0,
-            false,
-            false,
-            None,
-            None,
-        )
-        .await
-        .unwrap();
+        &user_id,
+        "DEV1",
+        &format!("!room1_{suffix}:localhost"),
+        None,
+        100,
+        0,
+        0,
+        false,
+        false,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
 
     let mut lists = HashMap::new();
     lists.insert(
@@ -1003,14 +1001,25 @@ async fn test_update_room_state_with_conn_id_isolation() {
     let user_id = format!("@conn_iso_{suffix}:localhost");
     let room_id = format!("!room_{suffix}:localhost");
 
-    update_room_state(
-        &pool,&user_id, "DEV1", &room_id, None, 1000, 1, 2, false, false, Some("No Conn"), None)
+    update_room_state(&pool, &user_id, "DEV1", &room_id, None, 1000, 1, 2, false, false, Some("No Conn"), None)
         .await
         .unwrap();
     update_room_state(
-        &pool,&user_id, "DEV1", &room_id, Some("conn1"), 1000, 3, 4, false, false, Some("With Conn"), None)
-        .await
-        .unwrap();
+        &pool,
+        &user_id,
+        "DEV1",
+        &room_id,
+        Some("conn1"),
+        1000,
+        3,
+        4,
+        false,
+        false,
+        Some("With Conn"),
+        None,
+    )
+    .await
+    .unwrap();
 
     let storage = SlidingSyncStorage::new(pool.clone());
     let room_none = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
@@ -1031,8 +1040,7 @@ async fn test_remove_room_different_conn_id_no_cross_delete() {
     let room_id = format!("!room_{suffix}:localhost");
 
     update_room_state(&pool, &user_id, "DEV1", &room_id, None, 1000, 0, 0, false, false, None, None).await.unwrap();
-    update_room_state(
-        &pool,&user_id, "DEV1", &room_id, Some("conn1"), 1000, 0, 0, false, false, None, None)
+    update_room_state(&pool, &user_id, "DEV1", &room_id, Some("conn1"), 1000, 0, 0, false, false, None, None)
         .await
         .unwrap();
 
@@ -1199,20 +1207,20 @@ async fn test_update_room_state_preserves_name_when_null() {
 
     update_room_state(
         &pool,
-            &user_id,
-            "DEV1",
-            &room_id,
-            None,
-            1000,
-            0,
-            0,
-            false,
-            false,
-            Some("Original Name"),
-            Some("mxc://orig"),
-        )
-        .await
-        .unwrap();
+        &user_id,
+        "DEV1",
+        &room_id,
+        None,
+        1000,
+        0,
+        0,
+        false,
+        false,
+        Some("Original Name"),
+        Some("mxc://orig"),
+    )
+    .await
+    .unwrap();
 
     update_room_state(&pool, &user_id, "DEV1", &room_id, None, 2000, 1, 1, false, false, None, None).await.unwrap();
 
@@ -1291,12 +1299,10 @@ async fn test_p1_5_room_subscription_change_reflected_immediately() {
     let room_b = format!("!roomB_{suffix}:localhost");
 
     // 物化两个房间
-    update_room_state(
-        &pool,&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
+    update_room_state(&pool, &user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
         .await
         .unwrap();
-    update_room_state(
-        &pool,&user_id, "DEV1", &room_b, None, 2000, 0, 0, false, false, Some("Room B"), None)
+    update_room_state(&pool, &user_id, "DEV1", &room_b, None, 2000, 0, 0, false, false, Some("Room B"), None)
         .await
         .unwrap();
 
@@ -1311,10 +1317,7 @@ async fn test_p1_5_room_subscription_change_reflected_immediately() {
     );
     let response1 = service.sync(&user_id, "DEV1", request1).await.unwrap();
     let rooms1 = response1.rooms.as_object().unwrap();
-    assert!(
-        rooms1.contains_key(&room_a),
-        "first sync should include room_A in response (subscribed)"
-    );
+    assert!(rooms1.contains_key(&room_a), "first sync should include room_A in response (subscribed)");
 
     // 第二次 sync：订阅 room_B（不再订阅 room_A）
     let request2 = make_p1_5_request(
@@ -1327,10 +1330,7 @@ async fn test_p1_5_room_subscription_change_reflected_immediately() {
     );
     let response2 = service.sync(&user_id, "DEV1", request2).await.unwrap();
     let rooms2 = response2.rooms.as_object().unwrap();
-    assert!(
-        rooms2.contains_key(&room_b),
-        "second sync should immediately include room_B (new subscription)"
-    );
+    assert!(rooms2.contains_key(&room_b), "second sync should immediately include room_B (new subscription)");
     // room_A 仍然可能在响应中（因为它在 main list 范围内），但 room_B 必须立即出现
     // 关键点：room_B 的订阅变更在第二次请求中立即生效，无需等待
 }
@@ -1352,8 +1352,7 @@ async fn test_p1_5_unsubscribe_rooms_takes_effect_immediately() {
     let user_id = format!("@p15_unsub_{suffix}:localhost");
     let room_a = format!("!roomA_{suffix}:localhost");
 
-    update_room_state(
-        &pool,&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
+    update_room_state(&pool, &user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
         .await
         .unwrap();
 
@@ -1371,12 +1370,8 @@ async fn test_p1_5_unsubscribe_rooms_takes_effect_immediately() {
     assert!(rooms1.contains_key(&room_a), "first sync should include room_A");
 
     // 第二次 sync：unsubscribe room_A
-    let request2 = make_p1_5_request(
-        make_p1_5_main_list(),
-        None,
-        Some(vec![room_a.clone()]),
-        Some(response1.pos.clone()),
-    );
+    let request2 =
+        make_p1_5_request(make_p1_5_main_list(), None, Some(vec![room_a.clone()]), Some(response1.pos.clone()));
     let response2 = service.sync(&user_id, "DEV1", request2).await.unwrap();
     assert!(!response2.pos.is_empty(), "second sync should succeed");
 
@@ -1404,8 +1399,7 @@ async fn test_p1_5_required_state_change_reflected_immediately() {
     let user_id = format!("@p15_rs_{suffix}:localhost");
     let room_a = format!("!roomA_{suffix}:localhost");
 
-    update_room_state(
-        &pool,&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
+    update_room_state(&pool, &user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
         .await
         .unwrap();
 
@@ -1471,12 +1465,7 @@ async fn test_p1_5_required_state_change_reflected_immediately() {
     );
     // 验证返回的事件类型是 m.room.name
     let event_type = required_state2[0].get("type").and_then(|v| v.as_str());
-    assert_eq!(
-        event_type,
-        Some("m.room.name"),
-        "required_state event should be m.room.name, got: {:?}",
-        event_type
-    );
+    assert_eq!(event_type, Some("m.room.name"), "required_state event should be m.room.name, got: {:?}", event_type);
 }
 
 /// P1-5 场景 4: timeline_limit 变更即时响应。
@@ -1497,8 +1486,7 @@ async fn test_p1_5_timeline_limit_change_reflected_immediately() {
     let user_id = format!("@p15_tl_{suffix}:localhost");
     let room_a = format!("!roomA_{suffix}:localhost");
 
-    update_room_state(
-        &pool,&user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
+    update_room_state(&pool, &user_id, "DEV1", &room_a, None, 1000, 0, 0, false, false, Some("Room A"), None)
         .await
         .unwrap();
 
@@ -1536,10 +1524,8 @@ async fn test_p1_5_timeline_limit_change_reflected_immediately() {
     let response1 = service.sync(&user_id, "DEV1", request1).await.unwrap();
     let rooms1 = response1.rooms.as_object().unwrap();
     let room_a_resp1 = rooms1.get(&room_a).expect("room_A should be in first response");
-    let timeline1 = room_a_resp1
-        .get("timeline")
-        .and_then(|v| v.as_array())
-        .expect("timeline should be an array in first response");
+    let timeline1 =
+        room_a_resp1.get("timeline").and_then(|v| v.as_array()).expect("timeline should be an array in first response");
     assert_eq!(
         timeline1.len(),
         1,

@@ -232,10 +232,8 @@ impl CapabilityGovernance {
             .insert("org.matrix.msc3886.sliding_sync".to_string(), json!(self.sliding_sync_capability().enabled()));
         // Element Web checks `org.matrix.simplified_msc3575` to detect native
         // sliding sync support (see SlidingSyncManager.nativeSlidingSyncSupport).
-        unstable_features.insert(
-            "org.matrix.simplified_msc3575".to_string(),
-            json!(self.sliding_sync_capability().enabled()),
-        );
+        unstable_features
+            .insert("org.matrix.simplified_msc3575".to_string(), json!(self.sliding_sync_capability().enabled()));
         unstable_features.insert("org.matrix.msc3266".to_string(), json!(self.msc3266_capability().enabled()));
         unstable_features.insert("org.matrix.msc3245".to_string(), json!(self.msc3245_capability().enabled()));
         unstable_features.insert("org.matrix.msc3983".to_string(), json!(self.msc3983_capability().enabled()));
@@ -854,13 +852,8 @@ mod tests {
         let body = g.build_capabilities_response(true);
         let capabilities = body["capabilities"].as_object().expect("capabilities should be an object");
 
-        let authenticated_only: &[&str] = &[
-            "io.hula.friends",
-            "m.sso",
-            "external_services",
-            "io.hula.voice_extended",
-            "io.hula.burn_after_read",
-        ];
+        let authenticated_only: &[&str] =
+            &["io.hula.friends", "m.sso", "external_services", "io.hula.voice_extended", "io.hula.burn_after_read"];
         for key in authenticated_only {
             assert!(capabilities.contains_key(*key), "missing authenticated capability: {key}");
         }

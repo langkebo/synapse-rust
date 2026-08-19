@@ -71,14 +71,13 @@ impl SecureBackupService {
         backup_id: &str,
         session_keys: Vec<SessionKeyData>,
     ) -> Result<i64, ApiError> {
-        let exists: Option<i64> = sqlx::query_scalar::<_, i64>(
-            r"SELECT 1 FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
-        )
-        .bind(user_id)
-        .bind(backup_id)
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(map_database!("store_session_keys"))?;
+        let exists: Option<i64> =
+            sqlx::query_scalar::<_, i64>(r"SELECT 1 FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2")
+                .bind(user_id)
+                .bind(backup_id)
+                .fetch_optional(&*self.pool)
+                .await
+                .map_err(map_database!("store_session_keys"))?;
 
         if exists.is_none() {
             return Err(ApiError::not_found("Backup not found".to_string()));
@@ -140,14 +139,13 @@ impl SecureBackupService {
         backup_id: &str,
         rooms: Option<Vec<String>>,
     ) -> Result<RestoreResponse, ApiError> {
-        let total_keys: i64 = sqlx::query_scalar(
-            "SELECT key_count FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
-        )
-        .bind(user_id)
-        .bind(backup_id)
-        .fetch_one(&*self.pool)
-        .await
-        .map_err(|_| ApiError::not_found("Backup not found".to_string()))?;
+        let total_keys: i64 =
+            sqlx::query_scalar("SELECT key_count FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2")
+                .bind(user_id)
+                .bind(backup_id)
+                .fetch_one(&*self.pool)
+                .await
+                .map_err(|_| ApiError::not_found("Backup not found".to_string()))?;
 
         // Return ciphertext only; the client decrypts locally with its recovery key.
         // The server never derives a key or decrypts session keys.
@@ -192,7 +190,8 @@ impl SecureBackupService {
 
         match result {
             Some(row) => {
-                let auth_data: SecureBackupAuthData = serde_json::from_str(&row.auth_data).map_err(map_database!("Invalid auth data"))?;
+                let auth_data: SecureBackupAuthData =
+                    serde_json::from_str(&row.auth_data).map_err(map_database!("Invalid auth data"))?;
 
                 Ok(Some(SecureBackupResponse {
                     backup_id: row.backup_id,
@@ -219,7 +218,8 @@ impl SecureBackupService {
 
         let mut backups = Vec::new();
         for row in results {
-            let auth_data: SecureBackupAuthData = serde_json::from_str(&row.auth_data).map_err(map_database!("Invalid auth data"))?;
+            let auth_data: SecureBackupAuthData =
+                serde_json::from_str(&row.auth_data).map_err(map_database!("Invalid auth data"))?;
 
             backups.push(SecureBackupResponse {
                 backup_id: row.backup_id,

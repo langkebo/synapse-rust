@@ -176,7 +176,10 @@ impl RoomStateService {
     }
 
     pub async fn get_room_count(&self) -> ApiResult<i64> {
-        self.room_storage.get_room_count().await.map_err(|e| ApiError::database_with_context("Failed to count rooms", &e))
+        self.room_storage
+            .get_room_count()
+            .await
+            .map_err(|e| ApiError::database_with_context("Failed to count rooms", &e))
     }
 
     pub async fn get_room_record(&self, room_id: &str) -> ApiResult<Option<Room>> {

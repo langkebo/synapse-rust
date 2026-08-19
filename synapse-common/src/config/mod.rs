@@ -940,10 +940,7 @@ mod tests {
     #[test]
     fn test_refresh_token_lifetime_seconds_uses_security_expiry() {
         let config = Config {
-            security: SecurityConfig {
-                refresh_token_expiry: 2_592_000,
-                ..Default::default()
-            },
+            security: SecurityConfig { refresh_token_expiry: 2_592_000, ..Default::default() },
             ..Default::default()
         };
         assert_eq!(config.refresh_token_lifetime_seconds(), 2_592_000);

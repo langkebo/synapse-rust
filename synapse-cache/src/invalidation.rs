@@ -41,7 +41,8 @@ impl CacheInvalidationMessage {
     }
 
     pub fn encode(&self) -> Result<Vec<u8>, ApiError> {
-        serde_json::to_vec(self).map_err(|e| ApiError::internal_with_context("Failed to encode invalidation message", &e))
+        serde_json::to_vec(self)
+            .map_err(|e| ApiError::internal_with_context("Failed to encode invalidation message", &e))
     }
 
     pub fn decode(data: &[u8]) -> Result<Self, ApiError> {
@@ -150,8 +151,8 @@ impl std::fmt::Debug for CacheInvalidationSubscriber {
 
 impl CacheInvalidationSubscriber {
     pub fn new(redis_url: &str, config: CacheInvalidationConfig) -> Result<Self, ApiError> {
-        let client =
-            Client::open(redis_url).map_err(|e| ApiError::internal_with_context("Failed to create Redis client", &e))?;
+        let client = Client::open(redis_url)
+            .map_err(|e| ApiError::internal_with_context("Failed to create Redis client", &e))?;
         let (sender, _) = broadcast::channel(1024);
         Ok(Self { client, config, sender, running: Arc::new(parking_lot::RwLock::new(false)) })
     }

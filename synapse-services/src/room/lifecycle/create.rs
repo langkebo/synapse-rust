@@ -322,7 +322,10 @@ impl LifecycleService {
                         "Failed to apply initial_state event"
                     );
                     let _ = tx.rollback().await;
-                    return Err(ApiError::internal_with_context("Failed to apply initial_state event {event_type}", &e));
+                    return Err(ApiError::internal_with_context(
+                        "Failed to apply initial_state event {event_type}",
+                        &e,
+                    ));
                 }
 
                 if event_type == "m.room.join_rules" {

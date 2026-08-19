@@ -15,18 +15,12 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_services::uia_service::UiaService;
 
-pub(crate) async fn whoami(
-    State(ctx): State<AuthContext>,
-    headers: HeaderMap,
-) -> Result<Json<Value>, ApiError> {
+pub(crate) async fn whoami(State(ctx): State<AuthContext>, headers: HeaderMap) -> Result<Json<Value>, ApiError> {
     // P-035: Return spec-compliant errcodes for the whoami endpoint.
     // Missing token -> M_MISSING_TOKEN; invalid/expired token -> M_UNKNOWN_TOKEN.
     let token = bearer_token(&headers).map_err(|_| ApiError::missing_token())?;
-    let (user_id, device_id, _is_admin, _is_shadow_banned, is_guest) = ctx
-        .token_auth
-        .validate_token(&token)
-        .await
-        .map_err(|e| {
+    let (user_id, device_id, _is_admin, _is_shadow_banned, is_guest) =
+        ctx.token_auth.validate_token(&token).await.map_err(|e| {
             if e.kind == crate::common::ApiErrorKind::Internal {
                 ApiError::internal_with_context("Token validation error", &e)
             } else {

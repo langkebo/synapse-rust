@@ -71,8 +71,11 @@ impl EventReportService {
 
     #[instrument(skip(self))]
     pub async fn get_report(&self, id: i64) -> Result<Option<EventReport>, ApiError> {
-        let report =
-            self.storage.get_report(id).await.map_err(|e| ApiError::internal_with_context("Failed to get report", &e))?;
+        let report = self
+            .storage
+            .get_report(id)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to get report", &e))?;
 
         Ok(report)
     }
@@ -232,7 +235,10 @@ impl EventReportService {
             .map_err(|e| ApiError::internal_with_context("Failed to get report", &e))?
             .ok_or_else(|| ApiError::not_found("Report not found"))?;
 
-        self.storage.delete_report(id).await.map_err(|e| ApiError::internal_with_context("Failed to delete report", &e))?;
+        self.storage
+            .delete_report(id)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to delete report", &e))?;
 
         info!(report_id = id, "Deleted event report");
 
@@ -286,7 +292,8 @@ impl EventReportService {
 
     #[instrument(skip(self))]
     pub async fn get_stats(&self, days: i32) -> Result<Vec<EventReportStats>, ApiError> {
-        let stats = self.storage.get_stats(days).map_err(|e| ApiError::internal_with_context("Failed to get stats", &e))?;
+        let stats =
+            self.storage.get_stats(days).map_err(|e| ApiError::internal_with_context("Failed to get stats", &e))?;
 
         Ok(stats)
     }

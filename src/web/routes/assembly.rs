@@ -302,11 +302,7 @@ fn vendor_route_manifest() -> Vec<RouteEntry> {
     expand_under_prefixes(
         "vendor",
         &["/_matrix/vendor/v1"],
-        &[
-            (Method::GET, "/my_rooms"),
-            (Method::POST, "/search_rooms"),
-            (Method::POST, "/search_recipients"),
-        ],
+        &[(Method::GET, "/my_rooms"), (Method::POST, "/search_rooms"), (Method::POST, "/search_recipients")],
     )
 }
 
@@ -424,11 +420,8 @@ pub fn create_router(state: AppState) -> Router {
     // Routes marked `rate_limit_exempt = true` in their manifest (sync and
     // sliding-sync endpoints) are collected here so the rate limit middleware
     // can skip them without hardcoding paths.
-    let rate_limit_exempt_paths: Vec<&'static str> = ledger
-        .iter()
-        .filter(|e| e.rate_limit_exempt)
-        .map(|e| e.path)
-        .collect();
+    let rate_limit_exempt_paths: Vec<&'static str> =
+        ledger.iter().filter(|e| e.rate_limit_exempt).map(|e| e.path).collect();
     tracing::info!(
         target: "synapse_rust::routes",
         count = rate_limit_exempt_paths.len(),

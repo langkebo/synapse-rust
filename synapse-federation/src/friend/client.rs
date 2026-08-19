@@ -111,8 +111,8 @@ impl FriendFederationClient {
         let path = format!("/_matrix/federation/v1/send/{}", uuid::Uuid::new_v4());
         let url = format!("https://{destination}{path}");
 
-        let body_str =
-            serde_json::to_string(content).map_err(|e| ApiError::internal_with_context("Failed to serialize body", &e))?;
+        let body_str = serde_json::to_string(content)
+            .map_err(|e| ApiError::internal_with_context("Failed to serialize body", &e))?;
 
         let auth_header = self.sign_request("PUT", &path, destination, Some(content)).await?;
 

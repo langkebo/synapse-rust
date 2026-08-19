@@ -161,12 +161,7 @@ impl SlidingSyncService {
                 serde_json::to_string(&serde_json::json!({ "events": canonical_events })).unwrap_or_default();
 
             let changed = since_pos.is_none()
-                || self
-                    .cache
-                    .get_raw_shared(&cache_key)
-                    .await
-                    .map(|prev| prev != payload_str)
-                    .unwrap_or(true);
+                || self.cache.get_raw_shared(&cache_key).await.map(|prev| prev != payload_str).unwrap_or(true);
 
             if changed {
                 response_extensions.insert("presence".to_string(), payload);
@@ -199,11 +194,8 @@ impl SlidingSyncService {
         let mut wire_events = Vec::with_capacity(snapshots.len().min(32));
         let mut canonical_events = Vec::with_capacity(snapshots.len().min(32));
         for (uid, snap) in snapshots {
-            let last_active_ago = if snap.presence == "offline" {
-                None
-            } else {
-                snap.last_active_ts.map(|ts| (now_ts - ts).max(0))
-            };
+            let last_active_ago =
+                if snap.presence == "offline" { None } else { snap.last_active_ts.map(|ts| (now_ts - ts).max(0)) };
             wire_events.push(serde_json::json!({
                 "sender": uid,
                 "type": "m.presence",
@@ -474,7 +466,12 @@ mod tests {
         assert_eq!(key, "sliding_sync:e2ee:shared_users:bob:DEV2:");
     }
 
-    fn presence_snapshot(user: &str, presence: &str, status_msg: Option<&str>, last_active_ts: Option<i64>) -> synapse_storage::presence::PresenceSnapshot {
+    fn presence_snapshot(
+        user: &str,
+        presence: &str,
+        status_msg: Option<&str>,
+        last_active_ts: Option<i64>,
+    ) -> synapse_storage::presence::PresenceSnapshot {
         synapse_storage::presence::PresenceSnapshot {
             user_id: user.to_string(),
             presence: presence.to_string(),
@@ -538,10 +535,7 @@ mod tests {
         snapshots.insert("@a:x".to_string(), presence_snapshot("@a:x", "online", Some("hi"), Some(1_000_000)));
         let (_, canonical_t1) = SlidingSyncService::build_presence_events(&snapshots, 1_060_000);
         let (_, canonical_t2) = SlidingSyncService::build_presence_events(&snapshots, 9_999_000);
-        assert_eq!(
-            serde_json::to_string(&canonical_t1).unwrap(),
-            serde_json::to_string(&canonical_t2).unwrap()
-        );
+        assert_eq!(serde_json::to_string(&canonical_t1).unwrap(), serde_json::to_string(&canonical_t2).unwrap());
     }
 
     #[test]

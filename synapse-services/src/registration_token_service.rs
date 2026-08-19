@@ -55,8 +55,11 @@ impl RegistrationTokenService {
 
     #[instrument(skip(self))]
     pub async fn get_token(&self, token: &str) -> Result<Option<RegistrationToken>, ApiError> {
-        let token =
-            self.storage.get_token(token).await.map_err(|e| ApiError::internal_with_context("Failed to get token", &e))?;
+        let token = self
+            .storage
+            .get_token(token)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to get token", &e))?;
 
         Ok(token)
     }
@@ -147,7 +150,10 @@ impl RegistrationTokenService {
             .map_err(|e| ApiError::internal_with_context("Failed to check token", &e))?
             .ok_or_else(|| ApiError::not_found("Token not found"))?;
 
-        self.storage.delete_token(id).await.map_err(|e| ApiError::internal_with_context("Failed to delete token", &e))?;
+        self.storage
+            .delete_token(id)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to delete token", &e))?;
 
         info!(token_id = id, "Deleted registration token");
 

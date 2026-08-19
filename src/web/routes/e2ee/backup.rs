@@ -120,8 +120,7 @@ pub(crate) async fn store_secure_backup_keys(
         })
         .unwrap_or_default();
 
-    let key_count =
-        ctx.secure_backup_service.store_session_keys(&auth_user.user_id, &backup_id, session_keys).await?;
+    let key_count = ctx.secure_backup_service.store_session_keys(&auth_user.user_id, &backup_id, session_keys).await?;
 
     Ok(Json(serde_json::json!({
         "count": key_count,

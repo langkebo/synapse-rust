@@ -8,8 +8,8 @@ use chrono::Utc;
 use serde_json::Value;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
-use synapse_common::map_database;
 use synapse_common::current_timestamp_millis;
+use synapse_common::map_database;
 use synapse_common::ApiError;
 use synapse_storage::DehydratedDeviceStorage;
 
@@ -205,7 +205,8 @@ impl DeviceKeyService {
             let device_id = device_keys.device_id.clone();
             record_target = Some((user_id.clone(), device_id.clone()));
 
-            let device_keys_value = serde_json::to_value(device_keys).map_err(map_database!("Failed to serialize device keys"))?;
+            let device_keys_value =
+                serde_json::to_value(device_keys).map_err(map_database!("Failed to serialize device keys"))?;
 
             let has_keys = device_keys.keys.as_object().is_some_and(|k| !k.is_empty());
             let has_signatures = device_keys.signatures.as_object().is_some_and(|s| !s.is_empty());
@@ -304,18 +305,14 @@ impl DeviceKeyService {
                                         user_id,
                                         device_id
                                     );
-                                    return Err(ApiError::bad_request(
-                                        "Invalid one-time key signature".to_string(),
-                                    ));
+                                    return Err(ApiError::bad_request("Invalid one-time key signature".to_string()));
                                 }
                                 Err(CryptoError::SignatureVerificationFailed) => {
                                     tracing::warn!(
                                         "Missing or malformed signature on one-time key {} for user {} device {}; rejecting upload",
                                         key_id, user_id, device_id
                                     );
-                                    return Err(ApiError::bad_request(
-                                        "Invalid one-time key signature".to_string(),
-                                    ));
+                                    return Err(ApiError::bad_request("Invalid one-time key signature".to_string()));
                                 }
                                 Err(e) => {
                                     tracing::warn!(
@@ -323,9 +320,7 @@ impl DeviceKeyService {
                                         key_id,
                                         e
                                     );
-                                    return Err(ApiError::bad_request(
-                                        "Invalid one-time key signature".to_string(),
-                                    ));
+                                    return Err(ApiError::bad_request("Invalid one-time key signature".to_string()));
                                 }
                             }
                         } else {

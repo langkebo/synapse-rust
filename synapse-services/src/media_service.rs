@@ -459,9 +459,7 @@ impl MediaService {
         limits.max_image_height = Some(MAX_IMAGE_DIMENSION);
         reader.limits(limits);
 
-        let mut img = reader
-            .decode()
-            .map_err(|e| ApiError::bad_request(format!("Invalid image data: {e}")))?;
+        let mut img = reader.decode().map_err(|e| ApiError::bad_request(format!("Invalid image data: {e}")))?;
 
         let thumbnail = match method {
             ThumbnailMethod::Crop => {

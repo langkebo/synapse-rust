@@ -46,7 +46,10 @@ impl MediaStorageBackendFactory {
                 Ok(Box::new(crate::media::s3::S3Backend::new(s3_config)))
             }
             StorageBackendType::Memory => Ok(Box::new(MemoryBackend::new())),
-            _ => Err(ApiError::internal_with_context("Unsupported storage backend", &format!("{:?}", config.backend_type))),
+            _ => Err(ApiError::internal_with_context(
+                "Unsupported storage backend",
+                &format!("{:?}", config.backend_type),
+            )),
         }
     }
 }

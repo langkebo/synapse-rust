@@ -224,8 +224,8 @@ impl BuiltinOidcProvider {
     fn load_or_generate_key(path: Option<&Path>) -> Result<RsaPrivateKey, ApiError> {
         if let Some(p) = path {
             if p.exists() {
-                let pem =
-                    std::fs::read_to_string(p).map_err(|e| ApiError::internal_with_context("OIDC signing key read", &e))?;
+                let pem = std::fs::read_to_string(p)
+                    .map_err(|e| ApiError::internal_with_context("OIDC signing key read", &e))?;
                 return RsaPrivateKey::from_pkcs8_pem(&pem)
                     .map_err(|e| ApiError::internal_with_context("OIDC signing key parse", &e));
             }
@@ -248,7 +248,8 @@ impl BuiltinOidcProvider {
             let pem = key
                 .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
                 .map_err(|e| ApiError::internal_with_context("OIDC RSA pem", &e))?;
-            std::fs::write(p, pem.as_bytes()).map_err(|e| ApiError::internal_with_context("OIDC signing key write", &e))?;
+            std::fs::write(p, pem.as_bytes())
+                .map_err(|e| ApiError::internal_with_context("OIDC signing key write", &e))?;
             info!(key_path = %p.display(), key_algorithm = %"RSA-2048", "Persisted builtin OIDC signing key");
         } else {
             warn!(

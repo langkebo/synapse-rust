@@ -290,8 +290,7 @@ fn process_queue_query_defaults_batch_size_to_none() {
 
 #[test]
 fn process_queue_query_parses_batch_size() {
-    let q: ProcessQueueQuery =
-        serde_json::from_str(r#"{"batch_size": 250}"#).expect("batch_size should parse as i32");
+    let q: ProcessQueueQuery = serde_json::from_str(r#"{"batch_size": 250}"#).expect("batch_size should parse as i32");
     assert_eq!(q.batch_size, Some(250));
 }
 

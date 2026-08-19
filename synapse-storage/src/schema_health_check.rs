@@ -312,11 +312,8 @@ async fn check_missing_tables(pool: &Pool<Postgres>, expected_tables: &[&str]) -
     .await?;
 
     let existing_set: std::collections::HashSet<&str> = existing.iter().map(|s| s.as_str()).collect();
-    let missing: Vec<String> = expected_tables
-        .iter()
-        .filter(|t| !existing_set.contains(*t))
-        .map(|s| s.to_string())
-        .collect();
+    let missing: Vec<String> =
+        expected_tables.iter().filter(|t| !existing_set.contains(*t)).map(|s| s.to_string()).collect();
 
     Ok(missing)
 }
@@ -361,12 +358,11 @@ async fn check_missing_indexes(
     // Collect all acceptable index names across all groups
     let all_names: Vec<&str> = expected_indexes.iter().flat_map(|e| e.acceptable_names.iter().copied()).collect();
 
-    let existing: Vec<String> = sqlx::query_scalar(
-        "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = ANY($1)",
-    )
-    .bind(&all_names)
-    .fetch_all(pool)
-    .await?;
+    let existing: Vec<String> =
+        sqlx::query_scalar("SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = ANY($1)")
+            .bind(&all_names)
+            .fetch_all(pool)
+            .await?;
 
     let existing_set: std::collections::HashSet<&str> = existing.iter().map(|s| s.as_str()).collect();
     let missing: Vec<String> = expected_indexes

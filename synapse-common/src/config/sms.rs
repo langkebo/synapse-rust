@@ -4,8 +4,7 @@ use serde::Deserialize;
 ///
 /// Supports multiple SMS provider backends (aliyun, twilio, etc.)
 /// with provider-specific credentials.
-#[derive(Clone, Deserialize, Default)]
-#[derive(derivative::Derivative)]
+#[derive(Clone, Deserialize, Default, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct SmsConfig {
     /// Whether SMS captcha delivery is enabled

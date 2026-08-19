@@ -103,9 +103,7 @@ impl AuthService {
         let access_token = self.generate_access_token(&user.user_id, &device_id, user.is_admin).await?;
         // P2-12: link refresh_token to access_token so rotation can invalidate
         // the old access_token cache entry (Synapse v1.154 #19483).
-        let refresh_token = self
-            .generate_refresh_token(&user.user_id, &device_id, &access_token)
-            .await?;
+        let refresh_token = self.generate_refresh_token(&user.user_id, &device_id, &access_token).await?;
 
         ::tracing::info!(
             target: "security_audit",

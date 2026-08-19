@@ -204,10 +204,7 @@ impl DeviceKeyStoreApi for InMemoryDeviceKeyStore {
         let mut algos: Vec<String> = keys
             .iter()
             .filter(|((uid, did, kid), _)| {
-                uid == user_id
-                    && did == device_id
-                    && fallback_ids.contains(kid)
-                    && !used_ids.contains(kid)
+                uid == user_id && did == device_id && fallback_ids.contains(kid) && !used_ids.contains(kid)
             })
             .map(|(_, key)| {
                 if key.algorithm.starts_with("signed_curve25519") {

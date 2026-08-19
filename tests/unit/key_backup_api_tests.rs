@@ -358,11 +358,7 @@ fn ft126_missing_version_returns_bad_request() {
     let err = result.expect_err("missing version must be rejected, not defaulted to \"1\"");
     assert_eq!(err.kind, ApiErrorKind::BadRequest, "must be a 400 Bad Request");
     assert_eq!(err.code, MatrixErrorCode::BadJson, "must be M_BAD_JSON");
-    assert!(
-        err.message.contains("version"),
-        "error message must mention version, got: {}",
-        err.message
-    );
+    assert!(err.message.contains("version"), "error message must mention version, got: {}", err.message);
 }
 
 #[test]

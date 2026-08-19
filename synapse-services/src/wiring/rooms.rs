@@ -145,7 +145,8 @@ impl RoomSyncServices {
         let typing_service = Arc::new(crate::typing_service::TypingService::new(infra.cache.clone()));
 
         let sliding_sync_storage = Arc::new(synapse_storage::sliding_sync::SlidingSyncStorage::new(infra.pool.clone()));
-        let sliding_sync_service = Arc::new(crate::sliding_sync_service::SlidingSyncService::new(
+        let sliding_sync_service = Arc::new(
+            crate::sliding_sync_service::SlidingSyncService::new(
             sliding_sync_storage,
             infra.cache.clone(),
             event_reader.clone(),
@@ -162,7 +163,8 @@ impl RoomSyncServices {
         // Enables sliding-sync long-polling: an idle incremental sync parks
         // here and is woken the moment an event is written for the user or one
         // of their rooms.
-        .with_event_notifier(event_notifier));
+        .with_event_notifier(event_notifier),
+        );
 
         let space_storage: Arc<dyn synapse_storage::space::SpaceStoreApi> = Arc::new(SpaceStorage::new(&infra.pool));
         let space_service = Arc::new(crate::space_service::SpaceService::new(

@@ -27,9 +27,8 @@ pub(crate) struct TestAuthHarness {
 /// 注意：需在 tokio runtime 内调用（connect_lazy_with 需要 runtime 上下文），
 /// 即只能在 #[tokio::test] 中使用。
 pub(crate) fn build_test_auth_service() -> TestAuthHarness {
-    let pool = Arc::new(
-        sqlx::postgres::PgPoolOptions::new().connect_lazy_with(sqlx::postgres::PgConnectOptions::new()),
-    );
+    let pool =
+        Arc::new(sqlx::postgres::PgPoolOptions::new().connect_lazy_with(sqlx::postgres::PgConnectOptions::new()));
     let cache = Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default()));
 
     let user_store = FakeUserStore::new();

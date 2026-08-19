@@ -222,7 +222,11 @@ fn create_session_response_shape_has_url_field() {
 fn create_session_returns_ok_with_etag_and_expires() {
     // Mirrors the (StatusCode::OK, [ETag, Expires, Content-Type], Json) tuple.
     let status = StatusCode::OK;
-    let headers = [("etag", "\"1700000000000\""), ("expires", "Tue, 14 Nov 2023 22:13:20 GMT"), ("content-type", "application/json")];
+    let headers = [
+        ("etag", "\"1700000000000\""),
+        ("expires", "Tue, 14 Nov 2023 22:13:20 GMT"),
+        ("content-type", "application/json"),
+    ];
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers[0].1, "\"1700000000000\"");
     assert_eq!(headers[1].1, "Tue, 14 Nov 2023 22:13:20 GMT");
