@@ -252,6 +252,12 @@ impl FriendRoomService {
     }
 
     /// 接受好友请求
+    ///
+    /// 幂等设计：
+    /// 1. 若双方已是好友 → 直接返回已有 DM 房间 ID（幂等成功）
+    /// 2. 若请求已被接受过 → 标记为 accepted 并返回 DM 房间（幂等修复）
+    /// 3. 若请求不存在 → 返回 404
+    /// 4. 正常 pending 请求 → 执行完整 accept 流程
     #[::tracing::instrument(skip(self), fields(request_id = %request_id))]
     pub async fn accept_friend_request(
         &self,
@@ -259,19 +265,89 @@ impl FriendRoomService {
         user_id: &str,
         requester_id: &str,
     ) -> ApiResult<String> {
-        let _pending_request = self
+        // --- 幂等检查 1：双方已是好友，直接返回已有 DM 房间 ---
+        let user_friend_room = self.create_friend_list_room(user_id).await?;
+        if self
+            .friend_storage
+            .is_friend(&user_friend_room, requester_id)
+            .await
+            .map_err(|e| ApiError::database_with_context("Failed to check friendship", &e))?
+        {
+            tracing::info!(
+                %request_id,
+                user_id = %user_id,
+                requester_id = %requester_id,
+                "Accept skipped: already friends, returning existing DM room"
+            );
+            if let Some(dm_room_id) = self
+                .get_existing_dm_room_id(user_id, requester_id)
+                .await?
+            {
+                return Ok(dm_room_id);
+            }
+            // 已是好友但找不到 DM 房间（数据不一致），继续执行创建流程
+        }
+
+        // --- 查找 pending 请求 ---
+        let pending_request = self
             .friend_storage
             .get_pending_friend_request(requester_id, user_id)
             .await
-            .map_err(|e| ApiError::database_with_context("Failed to get friend request", &e))?
-            .ok_or_else(|| ApiError::not_found(format!("No pending friend request from {requester_id}")))?;
+            .map_err(|e| ApiError::database_with_context("Failed to get friend request", &e))?;
 
+        if let Some(_request) = pending_request {
+            // 正常 pending 请求，执行完整 accept 流程
+            return self
+                .execute_accept_flow(request_id, user_id, requester_id, &user_friend_room)
+                .await;
+        }
+
+        // --- 幂等检查 2：请求非 pending，检查是否已被接受过 ---
+        let existing_request = self
+            .friend_storage
+            .get_friend_request(requester_id, user_id)
+            .await
+            .map_err(|e| ApiError::database_with_context("Failed to get friend request", &e))?;
+
+        if let Some(ref request) = existing_request {
+            if request.status == "accepted" {
+                // 请求已被接受过，确保好友关系和 DM 房间存在
+                tracing::info!(
+                    %request_id,
+                    user_id = %user_id,
+                    requester_id = %requester_id,
+                    "Accept skipped: request already accepted, ensuring friend state"
+                );
+                return self
+                    .ensure_accept_state(request_id, user_id, requester_id, &user_friend_room)
+                    .await;
+            }
+            // 请求存在但状态是 rejected/cancelled，返回 409
+            return Err(ApiError::conflict(format!(
+                "Friend request from {requester_id} has been {request_status}",
+                request_status = request.status
+            )));
+        }
+
+        // --- 请求完全不存在，返回 404 ---
+        Err(ApiError::not_found(format!("No friend request from {requester_id}")))
+    }
+
+    /// 执行完整的 accept 流程（创建 DM、更新好友列表、标记请求状态）
+    async fn execute_accept_flow(
+        &self,
+        request_id: &str,
+        user_id: &str,
+        requester_id: &str,
+        user_friend_room: &str,
+    ) -> ApiResult<String> {
         let dm_room_id = self.create_friend_dm_room(user_id, requester_id).await?;
-        let user_friend_room = self.create_friend_list_room(user_id).await?;
         let requester_friend_room = self.create_friend_list_room(requester_id).await?;
 
-        self.update_friend_list(user_id, &user_friend_room, requester_id, "add", Some(&dm_room_id)).await?;
-        self.update_friend_list(requester_id, &requester_friend_room, user_id, "add", Some(&dm_room_id)).await?;
+        self.update_friend_list(user_id, user_friend_room, requester_id, "add", Some(&dm_room_id))
+            .await?;
+        self.update_friend_list(requester_id, &requester_friend_room, user_id, "add", Some(&dm_room_id))
+            .await?;
 
         self.friend_storage
             .update_friend_request_status(requester_id, user_id, "accepted")
@@ -309,6 +385,40 @@ impl FriendRoomService {
                 }
             }
         }
+
+        Ok(dm_room_id)
+    }
+
+    /// 幂等修复：请求已被 accept 过但好友状态可能不完整时，补齐关系和房间
+    async fn ensure_accept_state(
+        &self,
+        request_id: &str,
+        user_id: &str,
+        requester_id: &str,
+        user_friend_room: &str,
+    ) -> ApiResult<String> {
+        // 确保 DM 房间存在
+        let dm_room_id = self.create_friend_dm_room(user_id, requester_id).await?;
+
+        // 确保双方好友列表中包含对方
+        let requester_friend_room = self.create_friend_list_room(requester_id).await?;
+
+        self.update_friend_list(user_id, user_friend_room, requester_id, "add", Some(&dm_room_id))
+            .await?;
+        self.update_friend_list(requester_id, &requester_friend_room, user_id, "add", Some(&dm_room_id))
+            .await?;
+
+        // 确保 presence 订阅
+        let _ = self.presence_storage.add_subscription(user_id, requester_id).await;
+        let _ = self.presence_storage.add_subscription(requester_id, user_id).await;
+
+        tracing::info!(
+            %request_id,
+            user_id = %user_id,
+            requester_id = %requester_id,
+            dm_room_id = %dm_room_id,
+            "Accept state ensured for already-accepted request"
+        );
 
         Ok(dm_room_id)
     }
