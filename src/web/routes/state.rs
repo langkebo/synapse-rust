@@ -9,7 +9,13 @@ use tokio::sync::{Mutex, RwLock, Semaphore};
 
 #[derive(Clone)]
 pub struct AppState {
-    pub services: ServiceContainer,
+    // `services` 必须用 Arc 包裹：AppState 经 `#[derive(Clone)]` 实现深拷贝，
+    // 而 axum 的 `Router::with_state` 会把 state clone 进每一个路由端点（~883 个）。
+    // 若这里是裸值 ServiceContainer，每次 clone 都会深拷贝整棵服务树
+    // （ServiceContainer → CoreServices → Config → UrlPreviewConfig 的 Vec），
+    // 883 份副本常驻内存 ≈ 1.7GB（jemalloc prof 实测 clone_subtree 占 84.8%）。
+    // 改 Arc 后 clone 只是引用计数 +1，Config 全程仅一份。
+    pub services: Arc<ServiceContainer>,
     pub cache: Arc<CacheManager>,
     pub health_checker: Arc<HealthChecker>,
     pub federation_signature_cache: Arc<FederationSignatureCache>,
@@ -79,7 +85,7 @@ impl AppState {
         let join_max_concurrency = services.core.config.federation.join_max_concurrency.max(1);
 
         Self {
-            services,
+            services: Arc::new(services),
             cache,
             health_checker: Arc::new(health_checker),
             federation_signature_cache,
