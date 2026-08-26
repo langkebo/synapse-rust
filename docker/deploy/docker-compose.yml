@@ -170,6 +170,8 @@ services:
       SYNAPSE__DATABASE__MIN_IDLE: ${SYNAPSE__DATABASE__MIN_IDLE:-10}
       SYNAPSE__DATABASE__CONNECTION_TIMEOUT: ${SYNAPSE__DATABASE__CONNECTION_TIMEOUT:-60}
       RUST_LOG: ${RUST_LOG:-info}
+      # jemalloc profiler 配置（内存泄漏诊断）。空值=关闭；.env 里 MALLOC_CONF 设值即启用。
+      MALLOC_CONF: ${MALLOC_CONF:-}
       TZ: ${TZ:-UTC}
       SYNAPSE_MEDIA_PATH: /app/data/media
       SYNAPSE_ENABLE_RUNTIME_DB_INIT: ${SYNAPSE_ENABLE_RUNTIME_DB_INIT:-false}

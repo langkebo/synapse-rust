@@ -1,5 +1,9 @@
 use synapse_rust::common::config::Config;
 
+// jemalloc 全局分配器（profiling feature）：配合 MALLOC_CONF 定位内存泄漏/OOM。
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::panic::set_hook(Box::new(|panic_info| {

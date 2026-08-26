@@ -130,6 +130,10 @@ image = "0.25"
 hex = "0.4.3"
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
 
+# jemalloc 全局分配器：profiling feature 用于定位内存泄漏（OOM 排查）。
+# 运行时由 MALLOC_CONF 控制采样/自动 dump，详见 docker/deploy/.env 的 MALLOC_CONF。
+tikv-jemallocator = { version = "0.6", features = ["profiling", "unprefixed_malloc_on_supported_platforms"] }
+
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }
 fake = "2.9"
@@ -158,7 +162,9 @@ opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"
-strip = true
+# 保留行号表 + 关闭 strip：供 jemalloc prof 的 jeprof 符号化（地址 → 源码行）。
+debug = "line-tables-only"
+strip = false
 incremental = false
 
 [profile.bench]
