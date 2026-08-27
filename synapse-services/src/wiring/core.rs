@@ -31,7 +31,11 @@ pub struct CoreServices {
     pub metrics: Arc<MetricsCollector>,
     pub server_metrics: Arc<ServerMetrics>,
     pub server_name: String,
-    pub config: Config,
+    // `config` 必须是 Arc：RoomContext/其它 Context 的 `FromRef<AppState>` 每次请求
+    // 都会执行 `state.services.core.config.clone()`。若这里是裸值 Config（30+ 子结构，
+    // 大量 Vec/HashMap），每次请求深拷贝整份配置 → 高分配 churn + 操作驱动的内存累积
+    // （jemalloc prof 实测 8h 净增长 ~290MB，主因即此）。改 Arc 后 clone 仅引用计数 +1。
+    pub config: Arc<Config>,
     pub validator: Arc<synapse_common::validation::Validator>,
     pub key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage,
     pub event_broadcaster: Arc<EventBroadcaster>,
@@ -123,7 +127,7 @@ impl CoreServices {
             metrics: infra.metrics.clone(),
             server_metrics: server_metrics.clone(),
             server_name: infra.config.server.name.clone(),
-            config: infra.config.clone(),
+            config: Arc::new(infra.config.clone()),
             validator: validator.clone(),
             key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage::new(infra.pool.clone()),
             event_broadcaster,
