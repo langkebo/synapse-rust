@@ -335,6 +335,20 @@ impl FriendRoomService {
         user_friend_room: &str,
     ) -> ApiResult<String> {
         let dm_room_id = self.create_friend_dm_room(user_id, requester_id).await?;
+
+        // P0 fix: ensure_direct_room 可能返回已存在的 DM 房间（对方已创建并
+        // invite 了本方），此时本方的 membership 是 invite 而非 join。显式 join
+        // 幂等——已 join 则无操作。若不 join，所有房间操作（发消息/typing/
+        // unread_count）均 403。
+        if let Err(e) = self.room_service.membership().join_room(&dm_room_id, user_id).await {
+            tracing::warn!(
+                user_id = %user_id,
+                dm_room_id = %dm_room_id,
+                error = %e,
+                "Failed to join DM room during friend accept (non-fatal)"
+            );
+        }
+
         let requester_friend_room = self.create_friend_list_room(requester_id).await?;
 
         self.update_friend_list(user_id, user_friend_room, requester_id, "add", Some(&dm_room_id)).await?;
@@ -390,6 +404,16 @@ impl FriendRoomService {
     ) -> ApiResult<String> {
         // 确保 DM 房间存在
         let dm_room_id = self.create_friend_dm_room(user_id, requester_id).await?;
+
+        // Ensure the user joins the DM room (same as execute_accept_flow).
+        if let Err(e) = self.room_service.membership().join_room(&dm_room_id, user_id).await {
+            tracing::warn!(
+                user_id = %user_id,
+                dm_room_id = %dm_room_id,
+                error = %e,
+                "Failed to join DM room during ensure_accept_state (non-fatal)"
+            );
+        }
 
         // 确保双方好友列表中包含对方
         let requester_friend_room = self.create_friend_list_room(requester_id).await?;
@@ -516,6 +540,16 @@ impl FriendRoomService {
         }
 
         let dm_room_id = self.create_friend_dm_room(user_id, friend_id).await?;
+
+        // Ensure the adding user joins the DM room (same as execute_accept_flow).
+        if let Err(e) = self.room_service.membership().join_room(&dm_room_id, user_id).await {
+            tracing::warn!(
+                user_id = %user_id,
+                dm_room_id = %dm_room_id,
+                error = %e,
+                "Failed to join DM room during add_friend (non-fatal)"
+            );
+        }
 
         self.update_friend_list(user_id, &user_friend_room, friend_id, "add", Some(&dm_room_id)).await?;
 
