@@ -27,11 +27,16 @@ const MAX_TRACKED_CONNECTIONS: u64 = 10_000;
 
 /// MSC4186: TTL for txn_id idempotency cache. Retries within this window
 /// receive the cached response. Matches Synapse's default of 5 minutes.
-const TXN_ID_CACHE_TTL_MS: u64 = 5 * 60 * 1000;
+///
+/// 内存修复：原 TTL 5 分钟 + 容量 10000 导致 txn_id 缓存稳态 ~1.7GB（每条
+/// response 含 lists/rooms 大 serde_json::Value，clone 深拷贝）。jemalloc prof
+/// 实测 clone_subtree(SlidingSyncResponse::clone) 占稳态 98.7%。将 TTL 降到 1
+/// 分钟、容量降到 1000，把稳态压到 ~170MB，仍在 MSC4186 幂等重试窗口内。
+const TXN_ID_CACHE_TTL_MS: u64 = 1 * 60 * 1000;
 
 /// MSC4186: Maximum number of cached txn_id responses per service instance.
 /// Bounds memory usage under retry storms; LRU eviction applies beyond this.
-const MAX_TXN_ID_CACHE_ENTRIES: u64 = 10_000;
+const MAX_TXN_ID_CACHE_ENTRIES: u64 = 1_000;
 
 /// Histogram name used to track sliding sync response latency (ms).
 const SLIDING_SYNC_LATENCY_HISTOGRAM: &str = "sliding_sync_request_duration_ms";
