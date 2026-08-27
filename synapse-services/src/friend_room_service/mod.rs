@@ -279,10 +279,7 @@ impl FriendRoomService {
                 requester_id = %requester_id,
                 "Accept skipped: already friends, returning existing DM room"
             );
-            if let Some(dm_room_id) = self
-                .get_existing_dm_room_id(user_id, requester_id)
-                .await?
-            {
+            if let Some(dm_room_id) = self.get_existing_dm_room_id(user_id, requester_id).await? {
                 return Ok(dm_room_id);
             }
             // 已是好友但找不到 DM 房间（数据不一致），继续执行创建流程
@@ -297,9 +294,7 @@ impl FriendRoomService {
 
         if let Some(_request) = pending_request {
             // 正常 pending 请求，执行完整 accept 流程
-            return self
-                .execute_accept_flow(request_id, user_id, requester_id, &user_friend_room)
-                .await;
+            return self.execute_accept_flow(request_id, user_id, requester_id, &user_friend_room).await;
         }
 
         // --- 幂等检查 2：请求非 pending，检查是否已被接受过 ---
@@ -318,9 +313,7 @@ impl FriendRoomService {
                     requester_id = %requester_id,
                     "Accept skipped: request already accepted, ensuring friend state"
                 );
-                return self
-                    .ensure_accept_state(request_id, user_id, requester_id, &user_friend_room)
-                    .await;
+                return self.ensure_accept_state(request_id, user_id, requester_id, &user_friend_room).await;
             }
             // 请求存在但状态是 rejected/cancelled，返回 409
             return Err(ApiError::conflict(format!(
@@ -344,10 +337,8 @@ impl FriendRoomService {
         let dm_room_id = self.create_friend_dm_room(user_id, requester_id).await?;
         let requester_friend_room = self.create_friend_list_room(requester_id).await?;
 
-        self.update_friend_list(user_id, user_friend_room, requester_id, "add", Some(&dm_room_id))
-            .await?;
-        self.update_friend_list(requester_id, &requester_friend_room, user_id, "add", Some(&dm_room_id))
-            .await?;
+        self.update_friend_list(user_id, user_friend_room, requester_id, "add", Some(&dm_room_id)).await?;
+        self.update_friend_list(requester_id, &requester_friend_room, user_id, "add", Some(&dm_room_id)).await?;
 
         self.friend_storage
             .update_friend_request_status(requester_id, user_id, "accepted")
@@ -403,10 +394,8 @@ impl FriendRoomService {
         // 确保双方好友列表中包含对方
         let requester_friend_room = self.create_friend_list_room(requester_id).await?;
 
-        self.update_friend_list(user_id, user_friend_room, requester_id, "add", Some(&dm_room_id))
-            .await?;
-        self.update_friend_list(requester_id, &requester_friend_room, user_id, "add", Some(&dm_room_id))
-            .await?;
+        self.update_friend_list(user_id, user_friend_room, requester_id, "add", Some(&dm_room_id)).await?;
+        self.update_friend_list(requester_id, &requester_friend_room, user_id, "add", Some(&dm_room_id)).await?;
 
         // 确保 presence 订阅
         let _ = self.presence_storage.add_subscription(user_id, requester_id).await;

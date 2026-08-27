@@ -3,8 +3,8 @@
 // These tests cover the key rotation API endpoints from
 // `src/web/routes/key_rotation.rs` (P-095: previously zero tests).
 //
-// The route module exposes 9 (method, path) entries across 6 logical
-// endpoints, all admin-gated. These tests verify:
+// The route module exposes 18 (method, path) entries across 6 logical
+// endpoints × 2 prefixes (client/v1 + vendor/v1). These tests verify:
 //   - The route manifest returned by `key_rotation_route_manifest()` matches
 //     the router declared in `create_key_rotation_router` (no drift).
 //   - Request/response JSON shapes for each endpoint conform to the contract
@@ -26,9 +26,9 @@ use synapse_rust::web::routes::route_ledger::RouteEntry;
 // ============================================================================
 
 #[test]
-fn test_route_manifest_contains_all_nine_entries() {
+fn test_route_manifest_contains_all_eighteen_entries() {
     let manifest = key_rotation_route_manifest();
-    assert_eq!(manifest.len(), 9, "key_rotation manifest must declare exactly 9 (method, path) entries");
+    assert_eq!(manifest.len(), 18, "key_rotation manifest must declare exactly 18 (method, path) entries (9 client/v1 + 9 vendor/v1)");
 }
 
 #[test]
@@ -47,6 +47,16 @@ fn test_route_manifest_matches_declared_paths_and_methods() {
         (Method::POST, "/_matrix/client/v1/keys/rotation/config"),
         (Method::GET, "/_matrix/client/v1/keys/rotation/check"),
         (Method::POST, "/_matrix/client/v1/keys/rotation/check"),
+        // vendor paths
+        (Method::GET, "/_matrix/vendor/v1/keys/rotation/status"),
+        (Method::POST, "/_matrix/vendor/v1/keys/rotation/status"),
+        (Method::POST, "/_matrix/vendor/v1/keys/rotation/rotate"),
+        (Method::GET, "/_matrix/vendor/v1/keys/rotation/history/{device_id}"),
+        (Method::POST, "/_matrix/vendor/v1/keys/rotation/revoke"),
+        (Method::PUT, "/_matrix/vendor/v1/keys/rotation/config"),
+        (Method::POST, "/_matrix/vendor/v1/keys/rotation/config"),
+        (Method::GET, "/_matrix/vendor/v1/keys/rotation/check"),
+        (Method::POST, "/_matrix/vendor/v1/keys/rotation/check"),
     ];
 
     let actual: Vec<(Method, &str)> = manifest.iter().map(|e| (e.method.clone(), e.path)).collect();
@@ -76,14 +86,20 @@ fn test_route_manifest_has_no_duplicate_method_path_pairs() {
 fn test_route_manifest_covers_six_logical_endpoints() {
     let manifest = key_rotation_route_manifest();
     let paths: std::collections::HashSet<&str> = manifest.iter().map(|e| e.path).collect();
-    // Six distinct paths (status, rotate, history, revoke, config, check).
-    assert_eq!(paths.len(), 6, "expected 6 distinct paths, got {}: {:?}", paths.len(), paths);
+    // Twelve distinct paths: 6 client/v1 + 6 vendor/v1.
+    assert_eq!(paths.len(), 12, "expected 12 distinct paths, got {}: {:?}", paths.len(), paths);
     assert!(paths.contains("/_matrix/client/v1/keys/rotation/status"));
     assert!(paths.contains("/_matrix/client/v1/keys/rotation/rotate"));
     assert!(paths.contains("/_matrix/client/v1/keys/rotation/history/{device_id}"));
     assert!(paths.contains("/_matrix/client/v1/keys/rotation/revoke"));
     assert!(paths.contains("/_matrix/client/v1/keys/rotation/config"));
     assert!(paths.contains("/_matrix/client/v1/keys/rotation/check"));
+    assert!(paths.contains("/_matrix/vendor/v1/keys/rotation/status"));
+    assert!(paths.contains("/_matrix/vendor/v1/keys/rotation/rotate"));
+    assert!(paths.contains("/_matrix/vendor/v1/keys/rotation/history/{device_id}"));
+    assert!(paths.contains("/_matrix/vendor/v1/keys/rotation/revoke"));
+    assert!(paths.contains("/_matrix/vendor/v1/keys/rotation/config"));
+    assert!(paths.contains("/_matrix/vendor/v1/keys/rotation/check"));
 }
 
 #[test]

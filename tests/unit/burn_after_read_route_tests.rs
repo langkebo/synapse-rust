@@ -30,12 +30,12 @@ use synapse_rust::web::routes::route_ledger::RouteEntry;
 // ============================================================================
 
 #[test]
-fn test_route_manifest_contains_all_fourteen_entries() {
+fn test_route_manifest_contains_all_twenty_one_entries() {
     let manifest = burn_after_read_route_manifest();
     assert_eq!(
         manifest.len(),
-        14,
-        "burn_after_read manifest must declare exactly 14 (method, path) entries (7 v1 + 7 v3)"
+        21,
+        "burn_after_read manifest must declare exactly 21 (method, path) entries (7 v1 + 7 v3 + 7 vendor/v1)"
     );
 }
 
@@ -60,6 +60,14 @@ fn test_route_manifest_matches_declared_paths_and_methods() {
         (Method::DELETE, "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}"),
         (Method::PUT, "/_matrix/client/v3/user/burn/config"),
         (Method::GET, "/_matrix/client/v3/user/burn/stats"),
+        // vendor paths
+        (Method::PUT, "/_matrix/vendor/v1/rooms/{room_id}/burn"),
+        (Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/burn"),
+        (Method::GET, "/_matrix/vendor/v1/rooms/{room_id}/burn/pending"),
+        (Method::POST, "/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}"),
+        (Method::DELETE, "/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}"),
+        (Method::PUT, "/_matrix/vendor/v1/user/burn/config"),
+        (Method::GET, "/_matrix/vendor/v1/user/burn/stats"),
     ];
 
     let actual: Vec<(Method, &str)> = manifest.iter().map(|e| (e.method.clone(), e.path)).collect();
@@ -89,20 +97,23 @@ fn test_route_manifest_has_no_duplicate_method_path_pairs() {
 }
 
 #[test]
-fn test_route_manifest_covers_seven_logical_endpoints_across_v1_and_v3() {
+fn test_route_manifest_covers_seven_logical_endpoints_across_v1_v3_and_vendor() {
     let manifest = burn_after_read_route_manifest();
-    // 7 (method, path) entries per version prefix. Some paths are shared
-    // across methods (PUT+GET on /burn, POST+DELETE on /burn/{event_id}),
-    // so distinct paths per version = 5.
-    let v1_entries: Vec<&_> = manifest.iter().filter(|e| e.path.contains("/v1/")).collect();
-    let v3_entries: Vec<&_> = manifest.iter().filter(|e| e.path.contains("/v3/")).collect();
-    assert_eq!(v1_entries.len(), 7, "expected 7 v1 (method, path) entries, got {}", v1_entries.len());
-    assert_eq!(v3_entries.len(), 7, "expected 7 v3 (method, path) entries, got {}", v3_entries.len());
+    // 7 (method, path) entries per version prefix across three prefixes.
+    let client_entries: Vec<&_> = manifest.iter().filter(|e| e.path.starts_with("/_matrix/client/")).collect();
+    let vendor_entries: Vec<&_> = manifest.iter().filter(|e| e.path.starts_with("/_matrix/vendor/")).collect();
+    let v1_entries: Vec<&_> = client_entries.iter().filter(|e| e.path.contains("/client/v1/")).copied().collect();
+    let v3_entries: Vec<&_> = client_entries.iter().filter(|e| e.path.contains("/client/v3/")).copied().collect();
+    assert_eq!(v1_entries.len(), 7, "expected 7 client/v1 (method, path) entries, got {}", v1_entries.len());
+    assert_eq!(v3_entries.len(), 7, "expected 7 client/v3 (method, path) entries, got {}", v3_entries.len());
+    assert_eq!(vendor_entries.len(), 7, "expected 7 vendor/v1 (method, path) entries, got {}", vendor_entries.len());
 
     let v1_paths: std::collections::HashSet<&str> = v1_entries.iter().map(|e| e.path).collect();
     let v3_paths: std::collections::HashSet<&str> = v3_entries.iter().map(|e| e.path).collect();
+    let vendor_paths: std::collections::HashSet<&str> = vendor_entries.iter().map(|e| e.path).collect();
     assert_eq!(v1_paths.len(), 5, "expected 5 distinct v1 paths, got {}", v1_paths.len());
     assert_eq!(v3_paths.len(), 5, "expected 5 distinct v3 paths, got {}", v3_paths.len());
+    assert_eq!(vendor_paths.len(), 5, "expected 5 distinct vendor/v1 paths, got {}", vendor_paths.len());
 
     // Sanity: the room-scoped burn/{event_id} endpoint exists for both POST and DELETE.
     assert!(manifest.iter().any(|e| e.method == Method::POST && e.path.ends_with("/burn/{event_id}")));
