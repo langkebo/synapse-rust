@@ -27,6 +27,25 @@ fn is_extension_enabled(request_extensions: &serde_json::Value, name: &str) -> b
         .unwrap_or(false)
 }
 
+/// MSC3575 account_data 扩展载荷格式：事件数组 `[{type, content}]`。
+///
+/// storage 层（`get_global_account_data` / `get_room_account_data`）返回的是
+/// `Map<type, content>` 紧凑结构，直接下发时 SDK 侧
+/// `data.global.length > 0` 对 Object 恒为 false，事件永远不会被分发 ——
+/// 表现为 `setDefaultKeyId` 等 sync 回送的流程（SSSS bootstrap / 安全密钥
+/// 设置）永久挂起直至前端 15s 超时。此处统一转换为规范事件数组。
+fn account_data_map_to_events(map: serde_json::Value) -> Vec<serde_json::Value> {
+    match map {
+        serde_json::Value::Object(entries) => entries
+            .into_iter()
+            .map(|(data_type, content)| serde_json::json!({ "type": data_type, "content": content }))
+            .collect(),
+        // 已是数组（如测试桩/未来 storage 改造）则原样透传
+        serde_json::Value::Array(events) => events,
+        other => vec![other],
+    }
+}
+
 impl SlidingSyncService {
     pub(super) async fn build_extensions_response(
         &self,
@@ -49,16 +68,53 @@ impl SlidingSyncService {
             let room_ids: Vec<String> =
                 rooms_response.as_object().map(|obj| obj.keys().cloned().collect()).unwrap_or_default();
 
-            let global = self.storage.get_global_account_data(user_id).await?;
-            let rooms = self.storage.get_room_account_data(user_id, &room_ids).await?;
+            let global = account_data_map_to_events(self.storage.get_global_account_data(user_id).await?);
+            let room_map = self.storage.get_room_account_data(user_id, &room_ids).await?;
+            let rooms = match room_map {
+                serde_json::Value::Object(entries) => {
+                    let mut rooms_out = serde_json::Map::new();
+                    for (room_id, inner) in entries {
+                        rooms_out.insert(room_id, serde_json::Value::Array(account_data_map_to_events(inner)));
+                    }
+                    serde_json::Value::Object(rooms_out)
+                }
+                other => other,
+            };
 
-            response_extensions.insert(
-                "account_data".to_string(),
-                serde_json::json!({
-                    "global": global,
-                    "rooms": rooms
-                }),
-            );
+            // account_data 去重：全量回显（SSSS 密钥 + m.direct 等）每次都非空，
+            // 会让 has_new_extension_data 恒 true → is_idle 失效 → 忙循环（与
+            // presence 自激励同源）。只有内容真正变化时才 insert，与 presence 对称。
+            let cache_key = Self::account_data_cache_key(user_id, device_id, conn_id);
+            // 事件数组按 type 排序，保证序列化结果稳定（HashMap 迭代序不稳定）。
+            let mut canonical_global = global.clone();
+            canonical_global.sort_by(|a, b| {
+                let ta = a.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                let tb = b.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                ta.cmp(tb)
+            });
+            let canonical = serde_json::to_string(&serde_json::json!({
+                "global": canonical_global,
+                "rooms": rooms,
+            }))
+            .unwrap_or_default();
+            let changed = since_pos.is_none()
+                || self
+                    .cache
+                    .get_raw_shared(&cache_key)
+                    .await
+                    .map(|prev| prev != canonical)
+                    .unwrap_or(true);
+
+            if changed {
+                response_extensions.insert(
+                    "account_data".to_string(),
+                    serde_json::json!({
+                        "global": global,
+                        "rooms": rooms
+                    }),
+                );
+                self.cache.set_raw(&cache_key, &canonical, 1800).await;
+            }
         }
 
         let receipts_enabled = is_extension_enabled(request_extensions, "receipts");
@@ -67,12 +123,21 @@ impl SlidingSyncService {
             let room_ids: Vec<String> =
                 rooms_response.as_object().map(|obj| obj.keys().cloned().collect()).unwrap_or_default();
             let receipts = self.storage.get_receipts_for_rooms(&room_ids).await?;
-            response_extensions.insert(
-                "receipts".to_string(),
-                serde_json::json!({
-                    "rooms": receipts
-                }),
-            );
+            let receipts_payload = serde_json::json!({ "rooms": receipts });
+
+            // Receipts dedup (same pattern as presence): cache the serialized
+            // payload per connection; only insert into extensions_response when
+            // the payload actually changed. Without this, receipts is always
+            // non-empty (returns full read-receipt state for subscribed rooms),
+            // has_new_extension_data returns true, is_idle never fires, and the
+            // client busy-loops at ~30+ req/s.
+            let cache_key = Self::receipts_cache_key(user_id, device_id, conn_id);
+            let canonical = receipts_payload.to_string();
+            let changed = self.cache.get_raw_shared(&cache_key).await.map_or(true, |prev| prev != canonical);
+            if changed {
+                response_extensions.insert("receipts".to_string(), receipts_payload);
+                self.cache.set_raw(&cache_key, &canonical, 1800).await;
+            }
         }
 
         let typing_enabled = is_extension_enabled(request_extensions, "typing");
@@ -210,7 +275,13 @@ impl SlidingSyncService {
                 "sender": uid,
                 "presence": snap.presence,
                 "status_msg": snap.status_msg,
-                "last_active_ts": snap.last_active_ts,
+                // 注意：canonical（去重比较）载荷必须排除 last_active_ts。
+                // sync 本身是「活跃操作」，每次 sync 都会把本用户的 presence
+                // last_active_ts 刷新为当前时间 → 若 canonical 含 last_active_ts，
+                // 每次比较都不同 → changed 恒 true → presence 每次插入 →
+                // has_new_extension_data 恒 true → is_idle 失效 → sync↔presence
+                // 自激励忙循环（实测 ~40 req/s）。只比较真正的状态
+                // （presence + status_msg），last_active_ts 变化不算「新 presence 事件」。
             }));
         }
         let sort_by_sender = |events: &mut Vec<Value>| {
@@ -334,6 +405,24 @@ impl SlidingSyncService {
         }
     }
 
+    /// Cache key for account_data 去重（避免每次 sync 全量回显 SSSS 密钥 /
+    /// m.direct 导致 is_idle 失效、忙循环）。
+    pub(crate) fn account_data_cache_key(user_id: &str, device_id: &str, conn_id: Option<&str>) -> String {
+        match conn_id {
+            Some(conn_id) => format!("sliding_sync:account_data:{user_id}:{device_id}:{conn_id}"),
+            None => format!("sliding_sync:account_data:{user_id}:{device_id}:"),
+        }
+    }
+
+    /// Cache key for receipts 去重（避免每次 sync 回显全量已读状态
+    /// 导致 is_idle 失效、忙循环）。
+    pub(crate) fn receipts_cache_key(user_id: &str, device_id: &str, conn_id: Option<&str>) -> String {
+        match conn_id {
+            Some(conn_id) => format!("sliding_sync:receipts:{user_id}:{device_id}:{conn_id}"),
+            None => format!("sliding_sync:receipts:{user_id}:{device_id}:"),
+        }
+    }
+
     async fn get_current_device_list_stream_id(&self) -> Result<i64, sqlx::Error> {
         self.device_storage.get_max_device_list_stream_id().await
     }
@@ -401,6 +490,30 @@ impl SlidingSyncService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn account_data_map_converted_to_msc3575_event_array() {
+        let map = serde_json::json!({
+            "m.secret_storage.default_key": { "key": "abc" },
+            "m.push_rules": { "global": [] }
+        });
+        let events = account_data_map_to_events(map);
+        assert_eq!(events.len(), 2);
+        let default_key = events.iter().find(|e| e["type"] == "m.secret_storage.default_key").expect("default_key event");
+        assert_eq!(default_key["content"]["key"], serde_json::json!("abc"));
+    }
+
+    #[test]
+    fn account_data_array_passthrough() {
+        let events_in = serde_json::json!([{ "type": "t", "content": {} }]);
+        let events = account_data_map_to_events(events_in.clone());
+        assert_eq!(serde_json::Value::Array(events), events_in);
+    }
+
+    #[test]
+    fn account_data_empty_map_becomes_empty_array() {
+        assert!(account_data_map_to_events(serde_json::json!({})).is_empty());
+    }
 
     #[test]
     fn compute_left_shared_users_empty_both() {

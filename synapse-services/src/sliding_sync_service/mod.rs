@@ -761,9 +761,30 @@ impl SlidingSyncService {
             }
         }
 
-        // receipts / typing：`rooms` 对象非空才算新数据。
-        for key in ["receipts", "typing"] {
-            if let Some(rooms) = obj.get(key).and_then(|r| r.get("rooms")).and_then(|r| r.as_object()) {
+        // receipts / typing：需要判断是否是「新数据」vs「回显空结构」。
+        // typing：所有 rooms 的 user_ids 数组均为空 → 不算新数据。
+        // receipts：已在 build_extensions_response 中做缓存去重，
+        // 仅当 payload 变化时才 insert，此处检查 rooms 是否存在且非空。
+        if let Some(t) = obj.get("typing") {
+            if let Some(rooms) = t.get("rooms").and_then(|r| r.as_object()) {
+                let has_typing = rooms.values().any(|room| {
+                    room.get("user_ids")
+                        .and_then(|u| u.as_array())
+                        .is_some_and(|a| !a.is_empty())
+                });
+                if has_typing {
+                    return true;
+                }
+            }
+        }
+
+        if let Some(rc) = obj.get("receipts") {
+            // Receipts present with non-empty rooms means payload changed
+            // (dedup in builder only inserts when changed).
+            // Note: response_extensions is initialized from request extensions
+            // which always contains {"enabled": true}, so just checking key
+            // presence is insufficient — must check rooms content.
+            if let Some(rooms) = rc.get("rooms").and_then(|r| r.as_object()) {
                 if !rooms.is_empty() {
                     return true;
                 }
