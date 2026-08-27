@@ -1,8 +1,22 @@
 use crate::common::ApiError;
 use crate::web::routes::context::SyncContext;
 use crate::web::routes::{AppState, AuthenticatedUser, MatrixJson};
-use axum::{extract::State, routing::post, Json, Router};
+use axum::{extract::{Query, State}, routing::post, Json, Router};
+use serde::Deserialize;
 use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
+
+/// Query parameters for sliding sync requests.
+///
+/// MSC3575 / Simplified MSC3575: `pos` and `timeout` are sent as query
+/// parameters by the SDK (see RoomManager.slidingSync), not in the JSON body.
+/// We extract them here and merge into the body to ensure `SlidingSyncRequest.pos`
+/// is populated for incremental sync.
+#[derive(Debug, Deserialize, Default)]
+struct SlidingSyncQuery {
+    pos: Option<String>,
+    timeout: Option<u32>,
+    txn_id: Option<String>,
+}
 
 /// Sliding Sync endpoint
 /// Matrix MSC3575: https://github.com/matrix-org/matrix-spec-proposals/pull/3575
@@ -67,8 +81,20 @@ fn record_rate_limited(metrics: &synapse_common::metrics::MetricsCollector) {
 async fn sliding_sync(
     State(ctx): State<SyncContext>,
     auth_user: AuthenticatedUser,
-    MatrixJson(body): MatrixJson<SlidingSyncRequest>,
+    Query(query): Query<SlidingSyncQuery>,
+    MatrixJson(mut body): MatrixJson<SlidingSyncRequest>,
 ) -> Result<Json<SlidingSyncResponse>, ApiError> {
+    // MSC3575: SDK sends pos/timeout/txn_id as query parameters, not in body.
+    // Merge query params into body so downstream logic sees them uniformly.
+    if body.pos.is_none() {
+        body.pos = query.pos;
+    }
+    if body.timeout.is_none() {
+        body.timeout = query.timeout;
+    }
+    if body.txn_id.is_none() {
+        body.txn_id = query.txn_id;
+    }
     tracing::debug!(
         "Sliding sync request from user: {}, pos: {:?}, lists: {:?}",
         auth_user.user_id,
