@@ -559,7 +559,7 @@ impl SlidingSyncService {
         // 客户端永久丢消息。因此带新事件的增量响应必须立即返回。
         let is_idle = !is_initial
             && !subscriptions_changed
-            && extensions_response.is_none()
+            && !Self::has_new_extension_data(extensions_response.as_ref())
             && !Self::has_list_operations(&lists_response)
             && !Self::has_new_timeline_events(&rooms_response);
 
@@ -715,6 +715,69 @@ impl SlidingSyncService {
                 })
             })
             .unwrap_or(false)
+    }
+
+    /// 判断 extensions 响应里是否有「实际新数据」，用于 is_idle 判定。
+    ///
+    /// to_device / e2ee / account_data / typing / receipts 每次增量 sync 都会
+    /// 回显游标或空结构（如 `{"events":[],"next_batch":"..."}`、
+    /// `device_one_time_keys_count` 空对象、`{"rooms":{}}`），若把它们当成
+    /// 「有数据」，`extensions_response.is_none()` 永假 → is_idle 永假 → 长轮询
+    /// 失效 → 客户端以网络允许的速度忙循环（实测 ~8 req/s）。因此这里只认
+    /// 「真正要交付给客户端的新内容」。
+    fn has_new_extension_data(extensions: Option<&serde_json::Value>) -> bool {
+        let Some(ext) = extensions else { return false };
+        let Some(obj) = ext.as_object() else { return false };
+
+        // to_device：`events` 数组非空才是有新事件（`next_batch` 游标回显不算）。
+        if let Some(events) = obj
+            .get("to_device")
+            .and_then(|td| td.get("events"))
+            .and_then(|e| e.as_array())
+        {
+            if !events.is_empty() {
+                return true;
+            }
+        }
+
+        // e2ee：`device_lists.changed` / `device_lists.left` 非空才算新数据，
+        // `device_one_time_keys_count` 空对象回显不算。
+        if let Some(dl) = obj.get("e2ee").and_then(|e| e.get("device_lists")) {
+            if dl.get("changed").and_then(|c| c.as_array()).is_some_and(|a| !a.is_empty()) {
+                return true;
+            }
+            if dl.get("left").and_then(|l| l.as_array()).is_some_and(|a| !a.is_empty()) {
+                return true;
+            }
+        }
+
+        // account_data：`global` 事件数组非空 或 `rooms` 对象非空才算新数据。
+        if let Some(ad) = obj.get("account_data") {
+            if ad.get("global").and_then(|g| g.as_array()).is_some_and(|a| !a.is_empty()) {
+                return true;
+            }
+            if ad.get("rooms").and_then(|r| r.as_object()).is_some_and(|o| !o.is_empty()) {
+                return true;
+            }
+        }
+
+        // receipts / typing：`rooms` 对象非空才算新数据。
+        for key in ["receipts", "typing"] {
+            if let Some(rooms) = obj.get(key).and_then(|r| r.get("rooms")).and_then(|r| r.as_object()) {
+                if !rooms.is_empty() {
+                    return true;
+                }
+            }
+        }
+
+        // presence：已通过变化去重（changed 才 insert），`events` 非空即新数据。
+        if let Some(events) = obj.get("presence").and_then(|p| p.get("events")).and_then(|e| e.as_array()) {
+            if !events.is_empty() {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// P1-5: 检测 room_subscriptions 配置是否变化（新订阅房间、required_state 增减、
