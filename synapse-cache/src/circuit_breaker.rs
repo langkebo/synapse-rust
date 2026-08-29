@@ -25,6 +25,21 @@ impl CircuitState {
     }
 }
 
+/// W7+: outcome 维度。
+///
+/// 用枚举而非 `emit_outcome(success, failure, timeout, rejected)` 四个
+/// bool 位置参数：后者在调用点写成 `emit_outcome(false, false, true, false)`
+/// 时，读者无法一眼判断第 3 个位置代表什么，写错一个位置编译器也无法
+/// 察觉（类型全相同）。枚举让调用点自解释，且新增 outcome 时无法漏改。
+enum Outcome {
+    Success,
+    Failure,
+    /// timeout 是 failure 的子集：`record_timeout` 会额外 emit 一次本值，
+    /// 而 failure 计数由它内部调用的 `record_failure` 负责。
+    Timeout,
+    Rejected,
+}
+
 /// W7+ 限流熔断指标化：
 ///
 /// `CircuitBreakerMetricsHandle` 把熔断器的内部状态投射到
@@ -226,7 +241,7 @@ impl CircuitBreaker {
                         true
                     } else {
                         self.rejected_requests.fetch_add(1, Ordering::Relaxed);
-                        self.emit_outcome(false, false, false, true);
+                        self.emit_outcome(Outcome::Rejected);
                         false
                     }
                 } else {
@@ -240,19 +255,13 @@ impl CircuitBreaker {
 
     /// W7+: 内部 helper——把 outcome 计数 emit 到对应的预注册 counter。
     /// `metric_handle` 为 None 时是 no-op（一次 RwLock read + Option match）。
-    fn emit_outcome(&self, success: bool, failure: bool, timeout: bool, rejected: bool) {
+    fn emit_outcome(&self, outcome: Outcome) {
         if let Some(handle) = self.metric_handle.read().as_ref() {
-            if success {
-                handle.success_counter.inc();
-            }
-            if failure {
-                handle.failure_counter.inc();
-            }
-            if timeout {
-                handle.timeout_counter.inc();
-            }
-            if rejected {
-                handle.rejected_counter.inc();
+            match outcome {
+                Outcome::Success => handle.success_counter.inc(),
+                Outcome::Failure => handle.failure_counter.inc(),
+                Outcome::Timeout => handle.timeout_counter.inc(),
+                Outcome::Rejected => handle.rejected_counter.inc(),
             }
         }
     }
@@ -285,7 +294,7 @@ impl CircuitBreaker {
         metrics.total_requests = self.total_requests.load(Ordering::Relaxed);
 
         // W7+: emit success outcome（metric_handle 为 None 时 no-op）
-        self.emit_outcome(true, false, false, false);
+        self.emit_outcome(Outcome::Success);
     }
 
     pub fn record_failure(&self) {
@@ -314,7 +323,7 @@ impl CircuitBreaker {
         metrics.last_failure = Some(Instant::now());
 
         // W7+: emit failure outcome
-        self.emit_outcome(false, true, false, false);
+        self.emit_outcome(Outcome::Failure);
     }
 
     pub fn record_timeout(&self) {
@@ -322,18 +331,18 @@ impl CircuitBreaker {
         // 滑动窗口失败计数、metrics.failed_requests 累加都共享），并由
         // record_failure 内部 emit failure outcome。
         // 此处额外 emit timeout outcome，让 timeout 成为可独立观察的子集：
-        //   failure_total >= timeout_total（每次 timeout 必含一次 failure）
-        // PromQL 用例：
-        //   rate(circuit_breaker_requests_total{outcome="failure"}[5m]) — 失败率（含 timeout）
-        //   rate(circuit_breaker_requests_total{outcome="timeout"}[5m]) — timeout 子率
-        //   failure_total - timeout_total 即可得"非 timeout 的失败"数
+        //   _timeout 计数 <= _failure 计数（每次 timeout 必含一次 failure）
+        // PromQL 用例（outcome 是 4 个独立 metric name，不是 label）：
+        //   rate(circuit_breaker_requests_total_failure[5m]) — 失败率（含 timeout）
+        //   rate(circuit_breaker_requests_total_timeout[5m]) — timeout 子率
+        //   _failure - _timeout 即可得"非 timeout 的失败"数
         self.record_failure();
 
         let mut metrics = self.metrics.write();
         metrics.timeout_requests += 1;
 
         // W7+: emit timeout outcome（failure 已由 record_failure emit）
-        self.emit_outcome(false, false, true, false);
+        self.emit_outcome(Outcome::Timeout);
     }
 
     fn transition_to_open(&self) {

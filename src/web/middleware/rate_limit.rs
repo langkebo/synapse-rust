@@ -22,21 +22,23 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
     let exempt_paths = file_config.as_ref().map_or(&config.exempt_paths, |c| &c.exempt_paths);
     let exempt_path_prefixes = file_config.as_ref().map_or(&config.exempt_path_prefixes, |c| &c.exempt_path_prefixes);
 
+    // W7+: 指标句柄。由 CacheManager 的 OnceLock 缓存，get_or_init 之后
+    // 只是原子读；后续 `inc()` 是 AtomicU64::fetch_add(Relaxed)，热路径无锁。
+    let rl_metrics = ctx.cache.rate_limit_metrics(&ctx.metrics);
+
     // B-4: Check the auto-derived exempt list from the route ledger first,
     // then fall back to config-based exempt_paths and exempt_path_prefixes.
     if ctx.rate_limit_exempt_paths.contains(&path)
         || exempt_paths.iter().any(|p: &String| p == path)
         || exempt_path_prefixes.iter().any(|p: &String| !p.is_empty() && path.starts_with(p))
     {
-        // W7+: 豁免路径连判定都没做，单独计数——否则 exempt 流量会稀释
-        // 限流率分母，让「限流是否生效」看起来比实际更宽松。
-        ctx.cache.rate_limit_metrics(&ctx.metrics).exempt_total.inc();
+        // W7+: 豁免路径连判定都没做，单独计数且不进 `requests_total`
+        // 分母——否则 exempt 流量会稀释限流率，让「限流是否生效」看起来
+        // 比实际更宽松。总请求数 = requests_total + exempt_total。
+        rl_metrics.exempt_total.inc();
         return next.run(request).await;
     }
 
-    // W7+: 进入判定。句柄由 CacheManager 的 OnceLock 缓存，此处只是
-    // 一次原子读 + AtomicU64::fetch_add(Relaxed)，热路径无锁。
-    let rl_metrics = ctx.cache.rate_limit_metrics(&ctx.metrics);
     rl_metrics.requests_total.inc();
 
     let ip_header_priority = file_config.as_ref().map_or(&config.ip_header_priority, |c| &c.ip_header_priority);
