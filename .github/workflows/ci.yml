@@ -238,6 +238,20 @@ jobs:
           NEXTEST_RETRIES: 2
         run: cargo nextest run --test unit --features test-utils --locked --test-threads 8
 
+      # ── W7+: Test 范围 clippy 锁住（防 test clippy debt 回退） ──
+      # 之前的 `Run clippy` step 只检 lib 范围，test 范围（#[cfg(test)] 块）
+      # 的 lint 完全没被 CI 覆盖。W7 修了 5 个 pre-existing test clippy debt
+      # 后，本 step 锁住 "test 范围 clippy 0 error" 状态。
+      #
+      # 跑法：与 lib clippy 一样的 -D warnings，但加 --tests。
+      # 限制：只检 synapse-services（包含 friend_room_service 等 feature-gated mod
+      # 的最大 crate），避免整个 workspace test 编译时间爆炸。
+      # 矩阵：仅 --all-features（friends / test-utils 等 feature 必须开才能看到
+      # 它们的 test 代码）。
+      - name: Run clippy (tests, synapse-services, all-features)
+        if: matrix.features-args == '--all-features'
+        run: cargo clippy -p synapse-services --all-features --tests --locked -- -D warnings
+
   # ──────────────────────────────────────────────
   # PR Benchmark Gate — runs on every PR (~30-60s)
   # Pure-Rust benchmarks only (federation + membership)
