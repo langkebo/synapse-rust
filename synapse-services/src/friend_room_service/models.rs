@@ -412,7 +412,11 @@ mod tests {
         FriendListEntry {
             user_id: user_id.to_string(),
             display_name: Some(display_name.to_string()),
-            sort_letter: display_name.chars().next().map(|c| c.to_ascii_uppercase().to_string()).unwrap_or_else(|| "#".to_string()),
+            sort_letter: display_name
+                .chars()
+                .next()
+                .map(|c| c.to_ascii_uppercase().to_string())
+                .unwrap_or_else(|| "#".to_string()),
             ..make_entry_with_defaults(user_id)
         }
     }
@@ -491,9 +495,8 @@ mod tests {
         // 验证 W3 的核心约束：排序缓存与分页解耦。
         // 同一 sort_cache（items）应用不同 limit/offset，应只产出对应的 page slice，
         // 且分页操作不修改 cache 本身。
-        let items: Vec<FriendListEntry> = (0..10)
-            .map(|i| make_cache_entry(&format!("@user{}:ex.com", i), &format!("User{}", i)))
-            .collect();
+        let items: Vec<FriendListEntry> =
+            (0..10).map(|i| make_cache_entry(&format!("@user{}:ex.com", i), &format!("User{}", i))).collect();
         let sort_cache = FriendListSortCache {
             version: 1,
             sort_by: "alphabet".to_string(),

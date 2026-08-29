@@ -274,13 +274,9 @@ impl FriendRoomStorage {
         // W5 sharding：fan-out 读所有 shard（不限 state_key），合并后查找。
         let shards = self.get_friend_list_all_shards(room_id).await?;
         for (_state_key, content) in shards {
-            if content
-                .get("friends")
-                .and_then(|f| f.as_array())
-                .is_some_and(|friends| {
-                    friends.iter().any(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend_id))
-                })
-            {
+            if content.get("friends").and_then(|f| f.as_array()).is_some_and(|friends| {
+                friends.iter().any(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend_id))
+            }) {
                 return Ok(true);
             }
         }
@@ -297,10 +293,7 @@ impl FriendRoomStorage {
         let shards = self.get_friend_list_all_shards(room_id).await?;
         for (_state_key, content) in shards {
             if let Some(found) = content.get("friends").and_then(|f| f.as_array()).and_then(|friends| {
-                friends
-                    .iter()
-                    .find(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend_id))
-                    .cloned()
+                friends.iter().find(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend_id)).cloned()
             }) {
                 return Ok(Some(found));
             }

@@ -24,10 +24,7 @@ use crate::friend_room_service::models::sort_letter_for;
 /// - `@alice` （无 server）→ `'A'`
 /// - `alice` （无 @ 前缀）→ `'A'`
 pub fn shard_for_user_id(friend_id: &str) -> char {
-    let localpart = friend_id
-        .strip_prefix('@')
-        .and_then(|s| s.split(':').next())
-        .unwrap_or(friend_id);
+    let localpart = friend_id.strip_prefix('@').and_then(|s| s.split(':').next()).unwrap_or(friend_id);
     sort_letter_for(localpart).chars().next().unwrap_or('#')
 }
 
@@ -45,8 +42,8 @@ pub fn shard_to_state_key(shard: char) -> String {
 ///
 /// 返回 11 元素 vec：`["", "A", "B", ..., "Z", "#"]`。
 pub const ALL_SHARDS: &[&str] = &[
-    "", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U",
-    "V", "W", "X", "Y", "Z", "#",
+    "", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V",
+    "W", "X", "Y", "Z", "#",
 ];
 
 #[cfg(test)]

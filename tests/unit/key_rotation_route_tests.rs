@@ -28,7 +28,11 @@ use synapse_rust::web::routes::route_ledger::RouteEntry;
 #[test]
 fn test_route_manifest_contains_all_eighteen_entries() {
     let manifest = key_rotation_route_manifest();
-    assert_eq!(manifest.len(), 18, "key_rotation manifest must declare exactly 18 (method, path) entries (9 client/v1 + 9 vendor/v1)");
+    assert_eq!(
+        manifest.len(),
+        18,
+        "key_rotation manifest must declare exactly 18 (method, path) entries (9 client/v1 + 9 vendor/v1)"
+    );
 }
 
 #[test]

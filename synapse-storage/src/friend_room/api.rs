@@ -14,10 +14,7 @@ pub trait FriendRoomStoreApi: Send + Sync {
         state_key: &str,
     ) -> Result<Option<serde_json::Value>, sqlx::Error>;
     /// v5 sharding：fan-out 读所有 shard（按字典序返回）
-    async fn get_friend_list_all_shards(
-        &self,
-        room_id: &str,
-    ) -> Result<Vec<(String, serde_json::Value)>, sqlx::Error>;
+    async fn get_friend_list_all_shards(&self, room_id: &str) -> Result<Vec<(String, serde_json::Value)>, sqlx::Error>;
     async fn find_friend_lists_by_dm_room_id(&self, dm_room_id: &str) -> Result<Vec<FriendDmLink>, sqlx::Error>;
     async fn get_effective_direct_links_fallback(
         &self,
@@ -128,10 +125,7 @@ impl FriendRoomStoreApi for FriendRoomStorage {
         self.get_friend_list_shard(room_id, state_key).await
     }
 
-    async fn get_friend_list_all_shards(
-        &self,
-        room_id: &str,
-    ) -> Result<Vec<(String, serde_json::Value)>, sqlx::Error> {
+    async fn get_friend_list_all_shards(&self, room_id: &str) -> Result<Vec<(String, serde_json::Value)>, sqlx::Error> {
         self.get_friend_list_all_shards(room_id).await
     }
 

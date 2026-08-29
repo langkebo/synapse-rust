@@ -119,12 +119,7 @@ impl SlidingSyncService {
             }))
             .unwrap_or_default();
             let changed = since_pos.is_none()
-                || self
-                    .cache
-                    .get_raw_shared(&cache_key)
-                    .await
-                    .map(|prev| prev != canonical)
-                    .unwrap_or(true);
+                || self.cache.get_raw_shared(&cache_key).await.map(|prev| prev != canonical).unwrap_or(true);
 
             if changed {
                 response_extensions.insert(
@@ -520,7 +515,8 @@ mod tests {
         });
         let events = account_data_map_to_events(map);
         assert_eq!(events.len(), 2);
-        let default_key = events.iter().find(|e| e["type"] == "m.secret_storage.default_key").expect("default_key event");
+        let default_key =
+            events.iter().find(|e| e["type"] == "m.secret_storage.default_key").expect("default_key event");
         assert_eq!(default_key["content"]["key"], serde_json::json!("abc"));
     }
 

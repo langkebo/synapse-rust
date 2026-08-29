@@ -640,7 +640,7 @@ fn generate_email_verification_token_returns_api_error() {
 
 #[test]
 #[allow(clippy::type_complexity)] // by-design: 这个 fn pointer 是编译期契约检查
-// — 11 个参数类型整体就是要锁住的签名约束，type alias 会破坏断言语义。
+                                  // — 11 个参数类型整体就是要锁住的签名约束，type alias 会破坏断言语义。
 fn test_new_with_lifetime_accepts_all_injected_storages() {
     let _fn: fn(
         &Arc<sqlx::PgPool>,

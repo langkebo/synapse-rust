@@ -1,7 +1,11 @@
 use crate::common::ApiError;
 use crate::web::routes::context::SyncContext;
 use crate::web::routes::{AppState, AuthenticatedUser, MatrixJson};
-use axum::{extract::{Query, State}, routing::post, Json, Router};
+use axum::{
+    extract::{Query, State},
+    routing::post,
+    Json, Router,
+};
 use serde::Deserialize;
 use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
 

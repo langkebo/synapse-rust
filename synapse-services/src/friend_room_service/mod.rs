@@ -7,8 +7,8 @@ use self::models::{
 use self::sharding::{shard_for_user_id, shard_to_state_key};
 pub use models::{
     decode_friend_list_cursor, encode_friend_list_cursor, DirectMapUpdateAction, DirectRoomSnapshot, DmPartnerInfo,
-    EnsureDirectRoomResult, FriendListCursor, FriendListEntry, FriendListPage, FriendListRequest,
-    FriendListSortCache, FriendRoomCreateRoomConfig, FriendRoomService,
+    EnsureDirectRoomResult, FriendListCursor, FriendListEntry, FriendListPage, FriendListRequest, FriendListSortCache,
+    FriendRoomCreateRoomConfig, FriendRoomService,
 };
 use synapse_common::current_timestamp_millis;
 
@@ -952,9 +952,7 @@ impl FriendRoomService {
                     .ok()
                     .and_then(|(m, _)| m);
                 if membership != Some(synapse_common::Membership::Join) {
-                    if let Err(e) =
-                        self.room_service.membership().join_room(&room_id, uid).await
-                    {
+                    if let Err(e) = self.room_service.membership().join_room(&room_id, uid).await {
                         tracing::warn!(
                             user_id = %uid,
                             room_id = %room_id,
@@ -1056,11 +1054,8 @@ impl FriendRoomService {
         // 2) 分页在排序结果上即时应用，O(1) 取数
         // 缓存 key v5：相对 v4 增加了 shard fingerprint 防御 shard 数变更
         // 触发的缓存不一致（v4 → v5 升级期间老缓存自动失效，无需手动清理）
-        let shard_fingerprint = shards
-            .iter()
-            .map(|(k, _)| format!("{}:{}", k, content["version"]))
-            .collect::<Vec<_>>()
-            .join("|");
+        let shard_fingerprint =
+            shards.iter().map(|(k, _)| format!("{}:{}", k, content["version"])).collect::<Vec<_>>().join("|");
         let sort_cache_key = format!(
             "friends:list:v5:sort:{}:{}:{}:{}:{}",
             user_id, room_id, version, request.sort_by, shard_fingerprint
@@ -1072,7 +1067,8 @@ impl FriendRoomService {
                 cached
             }
             _ => {
-                let raw_friends = content.get("friends").and_then(|friends| friends.as_array()).cloned().unwrap_or_default();
+                let raw_friends =
+                    content.get("friends").and_then(|friends| friends.as_array()).cloned().unwrap_or_default();
                 let friend_ids: Vec<String> = raw_friends
                     .iter()
                     .filter_map(|friend| friend.get("user_id").and_then(|value| value.as_str()).map(ToOwned::to_owned))
@@ -1219,14 +1215,8 @@ impl FriendRoomService {
             }
 
             for (state_key, content) in updated_shards {
-                self.send_state_event(
-                    &link.friend_room_id,
-                    &link.owner_user_id,
-                    "m.friends.list",
-                    &state_key,
-                    content,
-                )
-                .await?;
+                self.send_state_event(&link.friend_room_id, &link.owner_user_id, "m.friends.list", &state_key, content)
+                    .await?;
                 updated_lists += 1;
             }
         }
@@ -1589,8 +1579,8 @@ impl FriendRoomProvider for FriendRoomService {
 mod tests {
     use super::models::{FriendListCursor, FriendListEntry, FriendListRequest};
     use super::sharding::{shard_for_user_id, shard_to_state_key};
-    use super::{decode_friend_list_cursor, resolve_cursor_start_index};
     use super::FriendRoomService;
+    use super::{decode_friend_list_cursor, resolve_cursor_start_index};
     use crate::ServiceContainer;
     use serde_json::{json, Map, Value};
     use std::cmp::Ordering;
@@ -2198,10 +2188,7 @@ mod tests {
         // cold 路径：sort_cache 已写回（warm-up 阶段 miss 触发了 set），
         // 为测 cold 必须清掉 cache key。key 模板：
         // friends:list:v4:sort:{user}:{room}:{version}:{sort_by}
-        let sort_cache_key = format!(
-            "friends:list:v4:sort:{}:{}:{}:alphabet",
-            owner_user_id, friend_room_id, 1
-        );
+        let sort_cache_key = format!("friends:list:v4:sort:{}:{}:{}:alphabet", owner_user_id, friend_room_id, 1);
         let _ = container.core.cache.delete(&sort_cache_key).await;
 
         // cold：cache miss
@@ -2308,11 +2295,7 @@ mod tests {
         }
 
         // 验证 1000 好友分散到 26 个 shard（A-Z）—— W5 sharding 核心目标
-        assert!(
-            shards_map.len() >= 20,
-            "1000 friends should spread to >= 20 shards (got {})",
-            shards_map.len()
-        );
+        assert!(shards_map.len() >= 20, "1000 friends should spread to >= 20 shards (got {})", shards_map.len());
 
         // 写入每个 shard
         for (shard_char, mut friends_array) in shards_map {
@@ -2325,13 +2308,7 @@ mod tests {
             container
                 .extensions
                 .friend_room_service
-                .send_state_event(
-                    &friend_room_id,
-                    &owner_user_id,
-                    "m.friends.list",
-                    &state_key,
-                    content,
-                )
+                .send_state_event(&friend_room_id, &owner_user_id, "m.friends.list", &state_key, content)
                 .await
                 .unwrap_or_else(|e| panic!("inject shard {state_key} failed: {e}"));
         }
@@ -2429,11 +2406,7 @@ mod tests {
             .collect();
 
         // Case 1: cursor=None → 走 request.offset
-        let req = FriendListRequest {
-            offset: Some(7),
-            from: None,
-            ..FriendListRequest::default()
-        };
+        let req = FriendListRequest { offset: Some(7), from: None, ..FriendListRequest::default() };
         assert_eq!(resolve_cursor_start_index(&items, &req), 7);
 
         // Case 2: cursor=None + offset=None → 0
@@ -2548,12 +2521,8 @@ mod tests {
 
         // ── 第 1 页：offset=0（cold path 触发 sort_cache 填充） ──
         let page1_req = FriendListRequest { limit: 50, offset: Some(0), from: None, sort_by: "alphabet".to_string() };
-        let page1 = container
-            .extensions
-            .friend_room_service
-            .get_friends_page(&owner_user_id, page1_req)
-            .await
-            .expect("page 1");
+        let page1 =
+            container.extensions.friend_room_service.get_friends_page(&owner_user_id, page1_req).await.expect("page 1");
         assert_eq!(page1.items.len(), 50);
         assert_eq!(page1.total, 1000);
         let next_batch_1 = page1.next_batch.clone().expect("page 1 should have next_batch");
@@ -2661,7 +2630,10 @@ mod tests {
         }
         let bench_elapsed = bench_start.elapsed();
         let per_call_ns = bench_elapsed.as_nanos() / 100_000;
-        eprintln!("[W6 bench] resolve_cursor_start_index 1000 items: {per_call_ns}ns/call (100k calls, total {:?})", bench_elapsed);
+        eprintln!(
+            "[W6 bench] resolve_cursor_start_index 1000 items: {per_call_ns}ns/call (100k calls, total {:?})",
+            bench_elapsed
+        );
         // 1000 好友 partition_point ~10 次比较，单次 < 50us（实测 ~100-500ns）
         assert!(
             per_call_ns < 50_000,
@@ -2679,12 +2651,7 @@ mod tests {
             return;
         };
         let suffix = unique_suffix();
-        let owner = register_test_user(
-            &container,
-            &format!("friendsvc_cached_{suffix}"),
-            "CachedFlag",
-        )
-        .await;
+        let owner = register_test_user(&container, &format!("friendsvc_cached_{suffix}"), "CachedFlag").await;
 
         // 建好友房间（content 为空即可）
         let _ = container
@@ -2702,11 +2669,7 @@ mod tests {
             .get_friends_page(&owner, request.clone())
             .await
             .expect("miss get_friends_page");
-        assert!(
-            !page_miss.cached,
-            "first call should be cache miss, got cached={}",
-            page_miss.cached
-        );
+        assert!(!page_miss.cached, "first call should be cache miss, got cached={}", page_miss.cached);
 
         // 第二次：命中内存 sort_cache
         let page_hit = container
@@ -2715,10 +2678,6 @@ mod tests {
             .get_friends_page(&owner, request)
             .await
             .expect("hit get_friends_page");
-        assert!(
-            page_hit.cached,
-            "second call should be cache hit, got cached={}",
-            page_hit.cached
-        );
+        assert!(page_hit.cached, "second call should be cache hit, got cached={}", page_hit.cached);
     }
 }

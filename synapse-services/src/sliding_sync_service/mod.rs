@@ -730,11 +730,7 @@ impl SlidingSyncService {
         let Some(obj) = ext.as_object() else { return false };
 
         // to_device：`events` 数组非空才是有新事件（`next_batch` 游标回显不算）。
-        if let Some(events) = obj
-            .get("to_device")
-            .and_then(|td| td.get("events"))
-            .and_then(|e| e.as_array())
-        {
+        if let Some(events) = obj.get("to_device").and_then(|td| td.get("events")).and_then(|e| e.as_array()) {
             if !events.is_empty() {
                 return true;
             }
@@ -767,11 +763,9 @@ impl SlidingSyncService {
         // 仅当 payload 变化时才 insert，此处检查 rooms 是否存在且非空。
         if let Some(t) = obj.get("typing") {
             if let Some(rooms) = t.get("rooms").and_then(|r| r.as_object()) {
-                let has_typing = rooms.values().any(|room| {
-                    room.get("user_ids")
-                        .and_then(|u| u.as_array())
-                        .is_some_and(|a| !a.is_empty())
-                });
+                let has_typing = rooms
+                    .values()
+                    .any(|room| room.get("user_ids").and_then(|u| u.as_array()).is_some_and(|a| !a.is_empty()));
                 if has_typing {
                     return true;
                 }
