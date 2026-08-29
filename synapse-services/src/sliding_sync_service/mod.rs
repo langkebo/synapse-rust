@@ -895,7 +895,21 @@ impl SlidingSyncService {
     }
 
     /// Invalidate all cache entries associated with a specific connection.
+    ///
+    /// W7+ 缓存治理：本函数此前只覆盖 3 个前缀，**漏掉 4 个 key**——
+    /// extensions 的去重缓存（presence / account_data / receipts）和
+    /// `e2ee:shared_users` 的前缀与已覆盖的三个都不匹配，连接过期后
+    /// 只能等 TTL 自然过期，移动端频繁重连会持续产生孤儿 key。
+    ///
+    /// 剩余局限（已知，接受）：L2 里前缀下的 key 无法枚举——
+    /// `get_keys_with_prefix` 只扫 L1，而 Redis 没有廉价的前缀删除原语，
+    /// 只能靠各自 TTL 兜底。精确 key（第二类）用完整 key 调 `delete`，
+    /// L1 + Redis + 跨实例广播三层都清，无此局限。
+    ///
+    /// 新增 per-connection 缓存键时**必须**同步登记到下面的清单，
+    /// `tests::test_invalidate_connection_cache_covers_all_keys` 会锁住。
     async fn invalidate_connection_cache(&self, user_id: &str, device_id: &str, conn_id: Option<&str>) {
+        // ── 前缀类：一个前缀下可能挂多个 key（如每个 list / room 一条） ──
         let prefixes = [
             Self::list_snapshot_cache_key_prefix(user_id, device_id, conn_id),
             Self::e2ee_device_list_stream_cache_key_prefix(user_id, device_id, conn_id),
@@ -905,8 +919,25 @@ impl SlidingSyncService {
         for prefix in prefixes {
             let keys = self.cache.get_keys_with_prefix(&prefix);
             for key in keys {
-                let _ = self.cache.delete(&key).await;
+                self.cache.delete(&key).await;
             }
+        }
+
+        // ── 精确 key 类：extensions 去重缓存，一个连接固定一条 ──
+        //
+        // 这些 key 走 `get_raw_shared`（L1 miss 回源 Redis 并回填 L1），
+        // 因此删除必须同时清 L1 与 Redis——`CacheManager::delete` 正是
+        // 两者都删并广播跨实例失效，勿换成 `RedisCache::delete`（那个
+        // 只发 DEL 到 Redis，L1 残留会让下次读立刻拿到已删的陈旧基线）。
+        let exact_keys = [
+            Self::presence_cache_key(user_id, device_id, conn_id),
+            Self::account_data_cache_key(user_id, device_id, conn_id),
+            Self::receipts_cache_key(user_id, device_id, conn_id),
+            Self::e2ee_shared_users_cache_key(user_id, device_id, conn_id),
+        ];
+
+        for key in exact_keys {
+            self.cache.delete(&key).await;
         }
     }
 

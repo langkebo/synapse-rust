@@ -926,3 +926,77 @@ fn s11_slow_counter_only_in_service_layer() {
         "counter name must match the documented metric"
     );
 }
+
+// ── W7+ 缓存治理：per-connection 缓存清理 ─────────────────────────
+//
+// 这一组测试存在的理由（不是锦上添花，是回归防线）：
+// `invalidate_connection_cache` 曾只覆盖 3 个前缀，**漏掉 4 个 key**——
+// presence / account_data / receipts / e2ee_shared_users 的前缀与已覆盖的
+// 三个都不匹配，连接过期后残留到 TTL 才自然过期，移动端频繁重连会持续
+// 产生孤儿 key。当初漏掉的根因正是没有任何测试保证"新增 key 被清理覆盖"。
+//
+// 新增任何 per-connection 缓存键都必须同步登记到清理清单，否则
+// `test_invalidate_connection_cache_covers_all_keys` 会失败。
+
+#[tokio::test]
+async fn test_invalidate_connection_cache_covers_all_keys() {
+    let service = create_test_service();
+    let uid = "@alice:example.com";
+    let did = "DEVICE1";
+    let cid = Some("conn-abc");
+
+    let list_prefix = SlidingSyncService::list_snapshot_cache_key_prefix(uid, did, cid);
+    let room_prefix = SlidingSyncService::room_cache_key_prefix(uid, did, cid);
+
+    let keys = vec![
+        // ── 前缀类：一个前缀下可能挂多条（多 list / 多 room），各造 2 个变体 ──
+        format!("{list_prefix}list0"),
+        format!("{list_prefix}list1"),
+        format!("{room_prefix}!room0:example.com"),
+        format!("{room_prefix}!room1:example.com"),
+        SlidingSyncService::e2ee_device_list_stream_cache_key(uid, did, cid),
+        // ── 精确类：extensions 去重缓存，一个连接固定一条 ──
+        // 这 4 个此前完全不在清理覆盖范围内
+        SlidingSyncService::e2ee_shared_users_cache_key(uid, did, cid),
+        SlidingSyncService::presence_cache_key(uid, did, cid),
+        SlidingSyncService::account_data_cache_key(uid, did, cid),
+        SlidingSyncService::receipts_cache_key(uid, did, cid),
+    ];
+
+    for k in &keys {
+        service.cache.set_raw(k, "payload", 1800).await;
+    }
+    // 前置条件：所有 key 确实写进去了（否则下面的断言会因"从未写入"而假通过）
+    for k in &keys {
+        assert!(service.cache.get_local_raw(k).is_some(), "precondition failed: `{k}` was not written");
+    }
+
+    service.invalidate_connection_cache(uid, did, cid).await;
+
+    for k in &keys {
+        assert!(service.cache.get_local_raw(k).is_none(), "key survived invalidation: `{k}`");
+    }
+}
+
+/// 清理必须精确到单个连接：同一 user+device 的其它 conn_id、以及不带
+/// conn_id 的旧式 key，都不能被误删。
+#[tokio::test]
+async fn test_invalidate_connection_cache_isolates_other_connections() {
+    let service = create_test_service();
+    let uid = "@alice:example.com";
+    let did = "DEVICE1";
+
+    let victim = SlidingSyncService::presence_cache_key(uid, did, Some("conn-victim"));
+    let sibling = SlidingSyncService::presence_cache_key(uid, did, Some("conn-sibling"));
+    let legacy = SlidingSyncService::presence_cache_key(uid, did, None);
+
+    for k in [&victim, &sibling, &legacy] {
+        service.cache.set_raw(k, "payload", 1800).await;
+    }
+
+    service.invalidate_connection_cache(uid, did, Some("conn-victim")).await;
+
+    assert!(service.cache.get_local_raw(&victim).is_none(), "目标连接必须被清理");
+    assert!(service.cache.get_local_raw(&sibling).is_some(), "同设备其它连接不得被误删");
+    assert!(service.cache.get_local_raw(&legacy).is_some(), "不带 conn_id 的旧式 key 不得被误删");
+}
