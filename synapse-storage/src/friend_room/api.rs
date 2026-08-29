@@ -7,6 +7,17 @@ use super::repository::FriendRoomStorage;
 pub trait FriendRoomStoreApi: Send + Sync {
     async fn get_friend_list_room_id(&self, user_id: &str) -> Result<Option<String>, sqlx::Error>;
     async fn get_friend_list_content(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error>;
+    /// v5 sharding：读单个 shard（按 state_key 定位）
+    async fn get_friend_list_shard(
+        &self,
+        room_id: &str,
+        state_key: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error>;
+    /// v5 sharding：fan-out 读所有 shard（按字典序返回）
+    async fn get_friend_list_all_shards(
+        &self,
+        room_id: &str,
+    ) -> Result<Vec<(String, serde_json::Value)>, sqlx::Error>;
     async fn find_friend_lists_by_dm_room_id(&self, dm_room_id: &str) -> Result<Vec<FriendDmLink>, sqlx::Error>;
     async fn get_effective_direct_links_fallback(
         &self,
@@ -107,6 +118,21 @@ impl FriendRoomStoreApi for FriendRoomStorage {
 
     async fn get_friend_list_content(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error> {
         self.get_friend_list_content(room_id).await
+    }
+
+    async fn get_friend_list_shard(
+        &self,
+        room_id: &str,
+        state_key: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        self.get_friend_list_shard(room_id, state_key).await
+    }
+
+    async fn get_friend_list_all_shards(
+        &self,
+        room_id: &str,
+    ) -> Result<Vec<(String, serde_json::Value)>, sqlx::Error> {
+        self.get_friend_list_all_shards(room_id).await
     }
 
     async fn find_friend_lists_by_dm_room_id(&self, dm_room_id: &str) -> Result<Vec<FriendDmLink>, sqlx::Error> {

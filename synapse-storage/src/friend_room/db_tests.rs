@@ -162,6 +162,100 @@ async fn test_get_friend_list_content() {
 }
 
 // ——————————————————————————————————————————————
+// W5 sharding: get_friend_list_shard + get_friend_list_all_shards
+// ——————————————————————————————————————————————
+
+#[tokio::test]
+async fn test_get_friend_list_shard_returns_latest_per_state_key() {
+    let pool = test_pool().await;
+    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    cleanup_all(&pool, &suffix).await;
+
+    let user_id = format!("@fr_test_{suffix}:localhost");
+    let room_id = format!("!fr_room_{suffix}:localhost");
+    ensure_test_room(&pool, &room_id).await;
+
+    // Insert two events in same shard 'A' — only the latest should be returned.
+    let v1 = json!({ "friends": [{"user_id": "@old:loc"}], "version": 1 });
+    let v2 = json!({ "friends": [{"user_id": "@new:loc"}], "version": 2 });
+    insert_event(&pool, &room_id, &user_id, "m.friends.list", "A", &v1).await;
+    insert_event(&pool, &room_id, &user_id, "m.friends.list", "A", &v2).await;
+    // Different shard 'B' should not affect 'A' lookup.
+    let v_b = json!({ "friends": [{"user_id": "@other:loc"}], "version": 1 });
+    insert_event(&pool, &room_id, &user_id, "m.friends.list", "B", &v_b).await;
+
+    let storage = FriendRoomStorage::new(pool.clone());
+
+    let shard_a = storage.get_friend_list_shard(&room_id, "A").await.expect("query A");
+    assert_eq!(shard_a.expect("shard A should exist")["version"], json!(2));
+
+    // Non-existent shard → None
+    let shard_z = storage.get_friend_list_shard(&room_id, "Z").await.expect("query Z");
+    assert!(shard_z.is_none(), "shard Z should not exist");
+
+    cleanup_all(&pool, &suffix).await;
+}
+
+#[tokio::test]
+async fn test_get_friend_list_all_shards_fan_out_merged_sorted() {
+    let pool = test_pool().await;
+    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    cleanup_all(&pool, &suffix).await;
+
+    let user_id = format!("@fr_test_{suffix}:localhost");
+    let room_id = format!("!fr_room_{suffix}:localhost");
+    ensure_test_room(&pool, &room_id).await;
+
+    // Insert 3 shards: '' (legacy), 'A', 'B' — out of insertion order on purpose.
+    let v_legacy = json!({ "friends": [{"user_id": "@legacy:loc"}], "version": 1 });
+    let v_a = json!({ "friends": [{"user_id": "@alice:loc"}], "version": 1 });
+    let v_b = json!({ "friends": [{"user_id": "@bob:loc"}], "version": 1 });
+    insert_event(&pool, &room_id, &user_id, "m.friends.list", "A", &v_a).await;
+    insert_event(&pool, &room_id, &user_id, "m.friends.list", "", &v_legacy).await;
+    insert_event(&pool, &room_id, &user_id, "m.friends.list", "B", &v_b).await;
+
+    let storage = FriendRoomStorage::new(pool.clone());
+
+    let shards = storage.get_friend_list_all_shards(&room_id).await.expect("fan-out");
+
+    // Should return exactly 3 shards (DISTINCT ON state_key collapses dupes per shard).
+    assert_eq!(
+        shards.len(),
+        3,
+        "expected 3 shards, got {:?}",
+        shards.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>()
+    );
+
+    // state_key ordering: '' (empty) < 'A' < 'B' in PG default collation.
+    let keys: Vec<&str> = shards.iter().map(|(k, _)| k.as_str()).collect();
+    assert_eq!(keys, vec!["", "A", "B"], "shards must be sorted by state_key");
+
+    // Verify content survives fan-out.
+    let by_key: std::collections::HashMap<String, serde_json::Value> = shards.into_iter().collect();
+    assert_eq!(by_key[""]["version"], json!(1));
+    assert_eq!(by_key["A"]["version"], json!(1));
+    assert_eq!(by_key["B"]["version"], json!(1));
+
+    cleanup_all(&pool, &suffix).await;
+}
+
+#[tokio::test]
+async fn test_get_friend_list_all_shards_empty_when_no_events() {
+    let pool = test_pool().await;
+    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    cleanup_all(&pool, &suffix).await;
+
+    let room_id = format!("!fr_empty_{suffix}:localhost");
+    ensure_test_room(&pool, &room_id).await;
+
+    let storage = FriendRoomStorage::new(pool.clone());
+    let shards = storage.get_friend_list_all_shards(&room_id).await.expect("fan-out empty");
+    assert!(shards.is_empty(), "no events → empty Vec, got {:?}", shards);
+
+    cleanup_all(&pool, &suffix).await;
+}
+
+// ——————————————————————————————————————————————
 // find_friend_lists_by_dm_room_id
 // ——————————————————————————————————————————————
 

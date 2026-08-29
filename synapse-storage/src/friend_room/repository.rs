@@ -56,6 +56,76 @@ impl FriendRoomStorage {
         Ok(row.map(|r| r.get("content")))
     }
 
+    /// 获取单个 shard 的好友列表内容（v5 sharding）
+    ///
+    /// W5 sharding 体系：m.friends.list 按 sort_letter 拆 28 个 state event，
+    /// `state_key` 即 shard 标识（`""` = legacy / `A`..`Z` / `#`）。
+    /// 返回该 shard 最新一版 content（不存在则 None）。
+    pub async fn get_friend_list_shard(
+        &self,
+        room_id: &str,
+        state_key: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        let row = sqlx::query(
+            r"
+            SELECT e.content
+            FROM events e
+            WHERE e.room_id = $1
+            AND e.event_type = 'm.friends.list'
+            AND e.state_key = $2
+            ORDER BY e.origin_server_ts DESC
+            LIMIT 1
+            ",
+        )
+        .bind(room_id)
+        .bind(state_key)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row.map(|r| r.get("content")))
+    }
+
+    /// 一次性 fan-out 读取房间内所有 m.friends.list shard（v5 sharding）
+    ///
+    /// W5 拆分：将 1000+ 好友单 state event 拆为 28 个 shard（每 shard 平均 35 条
+    /// friend），单条 content < 500 字节，不触 PG btree 2704 上限。
+    ///
+    /// 返回 Vec 按 state_key 字典序排列（`""` → `A` → `B` → ... → `#`），
+    /// 调用方按顺序 fan-in 合并 friends[] 即可。
+    ///
+    /// 兼容：state_key="" 是 v4 legacy 通道，新写入会按 friend_id 散到 28 个
+    /// shard；老数据自然落在 state_key="" 这条，fan-in 时一并合并即可（无需
+    /// 主动迁移）。
+    pub async fn get_friend_list_all_shards(
+        &self,
+        room_id: &str,
+    ) -> Result<Vec<(String, serde_json::Value)>, sqlx::Error> {
+        let rows = sqlx::query(
+            r"
+            SELECT DISTINCT ON (e.state_key) e.state_key, e.content
+            FROM events e
+            WHERE e.room_id = $1
+            AND e.event_type = 'm.friends.list'
+            ORDER BY e.state_key, e.origin_server_ts DESC
+            ",
+        )
+        .bind(room_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut out: Vec<(String, serde_json::Value)> = rows
+            .into_iter()
+            .map(|r| {
+                let state_key: String = r.get("state_key");
+                let content: serde_json::Value = r.get("content");
+                (state_key, content)
+            })
+            .collect();
+        // state_key 字典序："" 排第一（PostgreSQL 中空串 < 任何字符），符合预期
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
+    }
+
     /// 根据好友 DM 房间 ID 反查所有关联的好友列表快照。
     pub async fn find_friend_lists_by_dm_room_id(&self, dm_room_id: &str) -> Result<Vec<FriendDmLink>, sqlx::Error> {
         sqlx::query_as::<_, FriendDmLink>(
@@ -201,11 +271,20 @@ impl FriendRoomStorage {
 
     /// 检查用户是否在好友列表中
     pub async fn is_friend(&self, room_id: &str, friend_id: &str) -> Result<bool, sqlx::Error> {
-        let content = self.get_friend_list_content(room_id).await?;
-
-        Ok(content.and_then(|c| c.get("friends").cloned()).and_then(|f| f.as_array().cloned()).is_some_and(|friends| {
-            friends.iter().any(|f| f.get("user_id").and_then(|u| u.as_str()).is_some_and(|u| u == friend_id))
-        }))
+        // W5 sharding：fan-out 读所有 shard（不限 state_key），合并后查找。
+        let shards = self.get_friend_list_all_shards(room_id).await?;
+        for (_state_key, content) in shards {
+            if content
+                .get("friends")
+                .and_then(|f| f.as_array())
+                .is_some_and(|friends| {
+                    friends.iter().any(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend_id))
+                })
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// 获取好友信息
@@ -214,11 +293,19 @@ impl FriendRoomStorage {
         room_id: &str,
         friend_id: &str,
     ) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        let content = self.get_friend_list_content(room_id).await?;
-
-        Ok(content.and_then(|c| c.get("friends").cloned()).and_then(|f| f.as_array().cloned()).and_then(|friends| {
-            friends.iter().find(|f| f.get("user_id").and_then(|u| u.as_str()).is_some_and(|u| u == friend_id)).cloned()
-        }))
+        // W5 sharding：fan-out 读所有 shard，命中即返回。
+        let shards = self.get_friend_list_all_shards(room_id).await?;
+        for (_state_key, content) in shards {
+            if let Some(found) = content.get("friends").and_then(|f| f.as_array()).and_then(|friends| {
+                friends
+                    .iter()
+                    .find(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend_id))
+                    .cloned()
+            }) {
+                return Ok(Some(found));
+            }
+        }
+        Ok(None)
     }
 
     /// 获取好友分组信息
