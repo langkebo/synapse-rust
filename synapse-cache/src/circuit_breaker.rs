@@ -2,12 +2,53 @@ use parking_lot::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use synapse_common::config::CircuitBreakerConfig;
+use synapse_common::metrics::{Counter, Gauge, MetricsCollector};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CircuitState {
     Closed,
     Open,
     HalfOpen,
+}
+
+impl CircuitState {
+    /// Numeric encoding for `circuit_breaker_state` gauge.
+    /// - 0 = Closed (healthy, calls pass through)
+    /// - 1 = Open (failing, calls rejected)
+    /// - 2 = HalfOpen (probing, calls allowed)
+    pub fn as_gauge_value(self) -> f64 {
+        match self {
+            CircuitState::Closed => 0.0,
+            CircuitState::Open => 1.0,
+            CircuitState::HalfOpen => 2.0,
+        }
+    }
+}
+
+/// W7+ 限流熔断指标化：
+///
+/// `CircuitBreakerMetricsHandle` 把熔断器的内部状态投射到
+/// `MetricsCollector`，让 Prometheus / 内部 dashboard 能观察到：
+///
+/// - `circuit_breaker_state{name="..."}` — 当前状态（0/1/2 gauge）
+/// - `circuit_breaker_requests_total_<outcome>{name="..."}`
+///   — 累计请求数（4 个 counter：success/failure/timeout/rejected，
+///   每个 counter 一个独立 name）
+///
+/// **重要**：`MetricsCollector` 的内部 HashMap 用 `name` 字符串作主键，
+/// `labels` 不参与 key。所以"同一个 metric + 不同 outcome label"的多
+/// 维度方案 **行不通**（后注册的会覆盖前者）。本实现改用 4 个独立
+/// name（业界 Prometheus exporter 标准做法），label 只保留 `name` 维度
+/// 区分多个熔断器实例。
+///
+/// 通过 `attach_metrics(collector, name)` 注入；不注入时所有 emit
+/// 都是 no-op，**零运行时代价**（一次 RwLock read + Option match）。
+struct CircuitBreakerMetricsHandle {
+    state_gauge: Gauge,
+    success_counter: Counter,
+    failure_counter: Counter,
+    timeout_counter: Counter,
+    rejected_counter: Counter,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -73,6 +114,10 @@ pub struct CircuitBreaker {
     last_open_log: RwLock<Option<Instant>>,
     last_half_open_log: RwLock<Option<Instant>>,
     last_close_log: RwLock<Option<Instant>>,
+    /// W7+: 投射到 MetricsCollector 的可选句柄。None = 不发指标。
+    /// 通过 `attach_metrics()` 在构造后注入，避免 `new()` 签名变化
+    /// 破坏所有调用方（最小侵入原则）。
+    metric_handle: RwLock<Option<CircuitBreakerMetricsHandle>>,
 }
 
 impl std::fmt::Debug for CircuitBreaker {
@@ -105,7 +150,61 @@ impl CircuitBreaker {
             last_open_log: RwLock::new(None),
             last_half_open_log: RwLock::new(None),
             last_close_log: RwLock::new(None),
+            metric_handle: RwLock::new(None),
         }
+    }
+
+    /// W7+: 注入 MetricsCollector 句柄以发射指标。
+    ///
+    /// 调用时机：在 `CircuitBreaker::new` 之后；可在 `Arc<CircuitBreaker>`
+    /// 共享之前或之后调（内部用 RwLock 保护）。
+    ///
+    /// `name` 作为 metric label 的 `name` 字段（如 `"redis_pool"`、
+    /// `"federation_dispatch"`），让多个熔断器共享同一个 collector
+    /// 时能被 PromQL 区分。
+    ///
+    /// 一次注册 5 个 metric（1 state gauge + 4 outcome counter）。
+    /// 初始状态立即 emit 一次 gauge（让 dashboard 一开始就看到值）。
+    /// 重复调用会覆盖前一个 handle（典型用法是只调一次）。
+    ///
+    /// **设计取舍**：`MetricsCollector` 用 `name` 字符串作 HashMap 主键，
+    /// labels 不参与 key。outcome 维度用 4 个独立 metric name 表达
+    /// （`circuit_breaker_requests_total_success` / `_failure` / `_timeout`
+    /// / `_rejected`），这是 Prometheus exporter 应对"单维 label 不支持"
+    /// 的标准做法。PromQL 仍可按 metric name 选择或 sum 求总：
+    ///   `sum(rate(circuit_breaker_requests_total_*[5m]))` — 总 QPS
+    ///   `rate(circuit_breaker_requests_total_failure[5m])` — 失败率
+    pub fn attach_metrics(&self, collector: &MetricsCollector, name: impl Into<String>) {
+        let name = name.into();
+
+        // 1 个 state gauge（label 只含 name，区分多个熔断器）
+        let mut state_labels = std::collections::HashMap::new();
+        state_labels.insert("name".to_string(), name.clone());
+        let state_gauge = collector.register_gauge_with_labels("circuit_breaker_state".to_string(), state_labels);
+
+        // 4 个 outcome counter——每个用独立 name（因为 MetricsCollector
+        // 内部按 name 索引 counter，labels 不参与 key；4 个同名 + 不同
+        // labels 会互相覆盖，最后只剩 rejected 一个）
+        let make_counter = |suffix: &'static str| {
+            let mut labels = std::collections::HashMap::new();
+            labels.insert("name".to_string(), name.clone());
+            collector.register_counter_with_labels(format!("circuit_breaker_requests_total_{suffix}"), labels)
+        };
+        let success_counter = make_counter("success");
+        let failure_counter = make_counter("failure");
+        let timeout_counter = make_counter("timeout");
+        let rejected_counter = make_counter("rejected");
+
+        // 立即 emit 当前状态（让 dashboard 一开始就看到 gauge 值）
+        state_gauge.set(CircuitState::Closed.as_gauge_value());
+
+        *self.metric_handle.write() = Some(CircuitBreakerMetricsHandle {
+            state_gauge,
+            success_counter,
+            failure_counter,
+            timeout_counter,
+            rejected_counter,
+        });
     }
 
     pub fn is_call_allowed(&self) -> bool {
@@ -127,6 +226,7 @@ impl CircuitBreaker {
                         true
                     } else {
                         self.rejected_requests.fetch_add(1, Ordering::Relaxed);
+                        self.emit_outcome(false, false, false, true);
                         false
                     }
                 } else {
@@ -135,6 +235,32 @@ impl CircuitBreaker {
                 }
             }
             CircuitState::HalfOpen => true,
+        }
+    }
+
+    /// W7+: 内部 helper——把 outcome 计数 emit 到对应的预注册 counter。
+    /// `metric_handle` 为 None 时是 no-op（一次 RwLock read + Option match）。
+    fn emit_outcome(&self, success: bool, failure: bool, timeout: bool, rejected: bool) {
+        if let Some(handle) = self.metric_handle.read().as_ref() {
+            if success {
+                handle.success_counter.inc();
+            }
+            if failure {
+                handle.failure_counter.inc();
+            }
+            if timeout {
+                handle.timeout_counter.inc();
+            }
+            if rejected {
+                handle.rejected_counter.inc();
+            }
+        }
+    }
+
+    /// W7+: emit state gauge 变更
+    fn emit_state_change(&self, new_state: CircuitState) {
+        if let Some(handle) = self.metric_handle.read().as_ref() {
+            handle.state_gauge.set(new_state.as_gauge_value());
         }
     }
 
@@ -157,6 +283,9 @@ impl CircuitBreaker {
         let mut metrics = self.metrics.write();
         metrics.successful_requests = self.successful_requests.load(Ordering::Relaxed);
         metrics.total_requests = self.total_requests.load(Ordering::Relaxed);
+
+        // W7+: emit success outcome（metric_handle 为 None 时 no-op）
+        self.emit_outcome(true, false, false, false);
     }
 
     pub fn record_failure(&self) {
@@ -183,13 +312,28 @@ impl CircuitBreaker {
         metrics.failed_requests = self.failed_requests.load(Ordering::Relaxed);
         metrics.total_requests = self.total_requests.load(Ordering::Relaxed);
         metrics.last_failure = Some(Instant::now());
+
+        // W7+: emit failure outcome
+        self.emit_outcome(false, true, false, false);
     }
 
     pub fn record_timeout(&self) {
+        // record_timeout 调 record_failure 复用失败语义（HalfOpen → Open 转换、
+        // 滑动窗口失败计数、metrics.failed_requests 累加都共享），并由
+        // record_failure 内部 emit failure outcome。
+        // 此处额外 emit timeout outcome，让 timeout 成为可独立观察的子集：
+        //   failure_total >= timeout_total（每次 timeout 必含一次 failure）
+        // PromQL 用例：
+        //   rate(circuit_breaker_requests_total{outcome="failure"}[5m]) — 失败率（含 timeout）
+        //   rate(circuit_breaker_requests_total{outcome="timeout"}[5m]) — timeout 子率
+        //   failure_total - timeout_total 即可得"非 timeout 的失败"数
         self.record_failure();
 
         let mut metrics = self.metrics.write();
         metrics.timeout_requests += 1;
+
+        // W7+: emit timeout outcome（failure 已由 record_failure emit）
+        self.emit_outcome(false, false, true, false);
     }
 
     fn transition_to_open(&self) {
@@ -224,6 +368,13 @@ impl CircuitBreaker {
                     "Circuit breaker opened due to failure threshold reached"
                 );
             }
+        }
+
+        // W7+: emit state 变更（仅当 *state 实际改变时——transition 是
+        // 幂等检查，重复调 transition_to_open 不会重复 emit）
+        if *state == CircuitState::Open {
+            drop(state);
+            self.emit_state_change(CircuitState::Open);
         }
     }
 
@@ -263,6 +414,12 @@ impl CircuitBreaker {
                 );
             }
         }
+
+        // W7+: emit state 变更（仅当 *state 实际改变时）
+        if *state == CircuitState::HalfOpen {
+            drop(state);
+            self.emit_state_change(CircuitState::HalfOpen);
+        }
     }
 
     fn transition_to_closed(&self) {
@@ -300,6 +457,12 @@ impl CircuitBreaker {
                     "Circuit breaker closed - service recovered"
                 );
             }
+        }
+
+        // W7+: emit state 变更（仅当 *state 实际改变时）
+        if *state == CircuitState::Closed {
+            drop(state);
+            self.emit_state_change(CircuitState::Closed);
         }
     }
 
@@ -544,5 +707,155 @@ mod tests {
 
         let metrics = cb.get_metrics();
         assert_eq!(metrics.rejected_requests, 5);
+    }
+
+    // ── W7+: MetricsCollector 集成测试 ───────────────────────────
+    //
+    // 验证：
+    // 1. attach_metrics 注册 5 个 metric（1 state gauge + 4 outcome counter）
+    // 2. record_success / failure / timeout / rejected 都 inc 对应 counter
+    // 3. state transition emit gauge
+    // 4. 不 attach 时所有 emit 是 no-op（零运行时代价）
+    //
+    // 已知：`MetricsCollector` 内部用 `name` 字符串作 HashMap 主键，
+    // labels 不参与 key，所以 4 个 outcome counter 用 4 个独立 name
+    // （`circuit_breaker_requests_total_success` / `_failure` / ...）。
+    // 测试用 `collect_metrics()` 拿 Vec<Metric> 验证（`Metric.value` 是 f64）。
+
+    #[test]
+    fn test_attach_metrics_emits_initial_closed_state() {
+        use synapse_common::metrics::MetricsCollector;
+        let cb = CircuitBreaker::new(test_config());
+        let collector = MetricsCollector::new();
+
+        cb.attach_metrics(&collector, "test_cb");
+
+        // 初始 Closed 状态立即 emit
+        let state_gauge = collector.get_gauge("circuit_breaker_state").expect("state gauge registered");
+        assert_eq!(state_gauge.get(), 0.0, "Closed = 0");
+
+        // 收集所有 metrics 名称，验证 5 个 metric 都注册了
+        let all = collector.collect_metrics();
+        let names: Vec<&str> = all.iter().map(|m| m.name.as_str()).collect();
+        assert!(names.contains(&"circuit_breaker_state"), "state gauge registered: {:?}", names);
+        // 4 个独立 outcome counter（name 后缀 _success/_failure/_timeout/_rejected）
+        for suffix in &["success", "failure", "timeout", "rejected"] {
+            let expected = format!("circuit_breaker_requests_total_{suffix}");
+            assert!(
+                names.contains(&expected.as_str()),
+                "outcome counter `{}` registered, all names: {:?}",
+                expected,
+                names
+            );
+        }
+        // 全部初始值为 0
+        for m in &all {
+            if m.name.starts_with("circuit_breaker_") {
+                assert_eq!(m.value, 0.0, "metric {} should start at 0, got {}", m.name, m.value);
+            }
+        }
+    }
+
+    #[test]
+    fn test_attach_metrics_emits_outcome_counters() {
+        use synapse_common::metrics::MetricsCollector;
+        let cb = CircuitBreaker::new(test_config());
+        let collector = MetricsCollector::new();
+        cb.attach_metrics(&collector, "cb");
+
+        // success ×2
+        cb.record_success();
+        cb.record_success();
+        // failure ×1
+        cb.record_failure();
+        // timeout ×1（内部调 record_failure + 额外 emit timeout）
+        cb.record_timeout();
+
+        // 通过 collect_metrics 拿 f64 计数（counter 内部 u64 → f64 cast）
+        let all = collector.collect_metrics();
+        let counter_value = |metric_name: &str| -> u64 {
+            all.iter().find(|m| m.name == metric_name).map(|m| m.value as u64).unwrap_or(0)
+        };
+
+        assert_eq!(counter_value("circuit_breaker_requests_total_success"), 2);
+        assert_eq!(
+            counter_value("circuit_breaker_requests_total_failure"),
+            2,
+            "1 次 record_failure + 1 次 record_timeout 内部 record_failure = 2"
+        );
+        assert_eq!(counter_value("circuit_breaker_requests_total_timeout"), 1);
+        assert_eq!(counter_value("circuit_breaker_requests_total_rejected"), 0);
+    }
+
+    #[test]
+    fn test_attach_metrics_emits_state_transitions() {
+        use synapse_common::metrics::MetricsCollector;
+        let cb = CircuitBreaker::new(test_config());
+        let collector = MetricsCollector::new();
+        cb.attach_metrics(&collector, "cb");
+
+        let state_gauge = collector.get_gauge("circuit_breaker_state").unwrap();
+        assert_eq!(state_gauge.get(), 0.0, "initial Closed = 0");
+
+        // 触发 Closed → Open（3 次 record_failure 达阈值）
+        for _ in 0..3 {
+            cb.record_failure();
+        }
+        assert_eq!(cb.current_state(), CircuitState::Open);
+        assert_eq!(state_gauge.get(), 1.0, "Open = 1");
+
+        // 触发 Open → HalfOpen（等 timeout_ms 后 is_call_allowed）
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        let _ = cb.is_call_allowed();
+        assert_eq!(cb.current_state(), CircuitState::HalfOpen);
+        assert_eq!(state_gauge.get(), 2.0, "HalfOpen = 2");
+
+        // 触发 HalfOpen → Closed（连续 2 次 success 达 success_threshold）
+        cb.record_success();
+        cb.record_success();
+        assert_eq!(cb.current_state(), CircuitState::Closed);
+        assert_eq!(state_gauge.get(), 0.0, "Closed = 0");
+    }
+
+    #[test]
+    fn test_attach_metrics_emits_rejected_on_open() {
+        // 验证 Open 状态下 is_call_allowed 拒绝时 increment rejected counter
+        use synapse_common::metrics::MetricsCollector;
+        let cb = CircuitBreaker::new(test_config());
+        let collector = MetricsCollector::new();
+        cb.attach_metrics(&collector, "cb");
+
+        // 触发 Open
+        for _ in 0..3 {
+            cb.record_failure();
+        }
+        assert_eq!(cb.current_state(), CircuitState::Open);
+
+        // 5 次被拒（Open 状态，timeout_ms 100ms 内）
+        for _ in 0..5 {
+            let allowed = cb.is_call_allowed();
+            assert!(!allowed, "should be rejected in Open state");
+        }
+
+        let all = collector.collect_metrics();
+        let rejected = all
+            .iter()
+            .find(|m| m.name == "circuit_breaker_requests_total_rejected")
+            .map(|m| m.value as u64)
+            .unwrap_or(0);
+        assert_eq!(rejected, 5, "5 次拒绝应全部 inc rejected counter");
+    }
+
+    #[test]
+    fn test_no_metrics_handle_is_noop() {
+        // 不 attach_metrics 时 record_* 必须仍然工作（不 panic / 不影响 atomic）
+        let cb = CircuitBreaker::new(test_config());
+        cb.record_success();
+        cb.record_failure();
+        cb.record_timeout();
+        let m = cb.get_metrics();
+        assert_eq!(m.successful_requests, 1);
+        assert_eq!(m.failed_requests, 2, "record_timeout 调 record_failure");
+        assert_eq!(m.timeout_requests, 1);
     }
 }
