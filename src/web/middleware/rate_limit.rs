@@ -28,8 +28,16 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
         || exempt_paths.iter().any(|p: &String| p == path)
         || exempt_path_prefixes.iter().any(|p: &String| !p.is_empty() && path.starts_with(p))
     {
+        // W7+: 豁免路径连判定都没做，单独计数——否则 exempt 流量会稀释
+        // 限流率分母，让「限流是否生效」看起来比实际更宽松。
+        ctx.cache.rate_limit_metrics(&ctx.metrics).exempt_total.inc();
         return next.run(request).await;
     }
+
+    // W7+: 进入判定。句柄由 CacheManager 的 OnceLock 缓存，此处只是
+    // 一次原子读 + AtomicU64::fetch_add(Relaxed)，热路径无锁。
+    let rl_metrics = ctx.cache.rate_limit_metrics(&ctx.metrics);
+    rl_metrics.requests_total.inc();
 
     let ip_header_priority = file_config.as_ref().map_or(&config.ip_header_priority, |c| &c.ip_header_priority);
     let peer_addr = request.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0);
@@ -72,8 +80,12 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
              Rejecting request to avoid inconsistent multi-worker rate limiting."
         );
         if fail_open {
+            // W7+: 放行 = 限流此刻形同虚设，单独计数（应告警）
+            rl_metrics.fail_open_total.inc();
             return next.run(request).await;
         }
+        // W7+: 硬拒绝 = Redis 一挂全站 429，单独计数（应告警）
+        rl_metrics.fail_closed_total.inc();
         return ApiError::rate_limited("").into_response();
     }
 
@@ -82,13 +94,19 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
         Err(e) => {
             if fail_open {
                 tracing::warn!("Rate limiter error, allowing request: {}", e);
+                rl_metrics.fail_open_total.inc();
                 return next.run(request).await;
             }
+            rl_metrics.fail_closed_total.inc();
             return ApiError::rate_limited("").into_response();
         }
     };
 
     if !decision.allowed {
+        // W7+: 429 拒绝（token bucket 耗尽）——与 fail_closed 分开计：
+        // 前者是限流在正常工作，后者是限流后端自身故障。混在一起会让
+        // 「限流生效了」和「限流挂了」看起来一样。
+        rl_metrics.rejected_total.inc();
         // Rate limiting rejecting a request is expected behaviour under load,
         // not an operational error — log at debug to avoid diluting warn-level
         // alerts (审查 #29). Enable via `RUST_LOG=rate_limit=debug`.
@@ -122,6 +140,8 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
 
         return response;
     }
+
+    rl_metrics.allowed_total.inc();
 
     let mut response = next.run(request).await;
     if include_headers {
@@ -344,5 +364,98 @@ mod tests {
         assert!(second.headers().get("retry-after").is_some());
         assert!(second.headers().get("x-ratelimit-retry-after").is_some());
         assert!(second.headers().get("x-ratelimit-after").is_some());
+    }
+
+    // ── W7+: 限流指标化 ────────────────────────────────────────────
+    //
+    // 验证 6 个 counter 中能在单测里触达的 4 个：
+    //   requests / allowed / rejected / exempt
+    // fail_open + fail_closed 需要后端不可用才能触发，属于集成测试范围
+    // （此处不 mock Redis 故障，避免为测试引入故障注入点）。
+
+    #[cfg(feature = "test-utils")]
+    #[tokio::test]
+    async fn test_rate_limit_middleware_emits_metrics() {
+        async fn ok_handler() -> StatusCode {
+            StatusCode::OK
+        }
+
+        let mut services = ServiceContainer::new_test().await;
+        // 每个 AppState / CacheManager 都是本测试独立 new 的，OnceLock 缓存的
+        // counter 句柄只绑定到本测试的 collector，不与其它测试共享。
+        services.core.config_mut().rate_limit = RateLimitConfig {
+            enabled: true,
+            exempt_paths: vec!["/exempt".to_string()],
+            default: RateLimitRule { per_second: 1, burst_size: 1 },
+            endpoints: vec![RateLimitEndpointRule {
+                path: "/limited".to_string(),
+                match_type: RateLimitMatchType::Exact,
+                rule: RateLimitRule { per_second: 1, burst_size: 1 },
+            }],
+            ..RateLimitConfig::default()
+        };
+
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        let state = AppState::new(services, cache);
+        // `state` 随后要 move 进 `with_state`，故在此先取出 collector 句柄。
+        let collector = state.services.core.metrics.clone();
+
+        let app = Router::new()
+            .route("/limited", get(ok_handler))
+            .route("/exempt", get(ok_handler))
+            .layer(middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
+            .with_state(state);
+
+        let request = |uri: &str| {
+            Request::builder()
+                .method(axum::http::Method::GET)
+                .uri(uri)
+                .header("x-forwarded-for", "9.9.9.9")
+                .body(Body::empty())
+                .expect("request should build")
+        };
+
+        // /limited 第 1 次：放行（burst=1 的 token 被消耗）
+        let first = app.clone().oneshot(request("/limited")).await.expect("first request should succeed");
+        assert_eq!(first.status(), StatusCode::OK);
+
+        // /limited 第 2 次：token 耗尽 → 429
+        let second = app.clone().oneshot(request("/limited")).await.expect("second request should return a response");
+        assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        // /exempt：命中豁免，连判定都不做
+        let exempt = app.clone().oneshot(request("/exempt")).await.expect("exempt request should succeed");
+        assert_eq!(exempt.status(), StatusCode::OK);
+
+        let all = collector.collect_metrics();
+        let value = |name: &str| -> u64 { all.iter().find(|m| m.name == name).map_or(0, |m| m.value as u64) };
+
+        assert_eq!(value("rate_limit_requests_total"), 2, "/limited 两次进判定；/exempt 不计数");
+        assert_eq!(value("rate_limit_requests_allowed_total"), 1);
+        assert_eq!(value("rate_limit_requests_rejected_total"), 1);
+        assert_eq!(value("rate_limit_requests_exempt_total"), 1);
+        assert_eq!(value("rate_limit_fail_open_total"), 0, "后端正常，不应有 fail-open");
+        assert_eq!(value("rate_limit_fail_closed_total"), 0, "后端正常，不应有 fail-closed");
+    }
+
+    /// 句柄缓存的关键回归：`rate_limit_metrics()` 必须每次返回**同一个**
+    /// counter 对象。若误改成每次都 `register_counter*`，registry 里的条目
+    /// 会被后注册的覆盖，计数永久分叉（registry 值 < 实际累计值）。
+    #[cfg(feature = "test-utils")]
+    #[tokio::test]
+    async fn test_rate_limit_metrics_handle_is_stable_across_calls() {
+        let services = ServiceContainer::new_test().await;
+        let collector = &services.core.metrics;
+        let cache = CacheManager::new(&CacheConfig::default());
+
+        // 同一 CacheManager 连续取 4 次句柄，逐次 inc
+        for _ in 0..4 {
+            cache.rate_limit_metrics(collector).rejected_total.inc();
+        }
+
+        let all = collector.collect_metrics();
+        let rejected =
+            all.iter().find(|m| m.name == "rate_limit_requests_rejected_total").map_or(0, |m| m.value as u64);
+        assert_eq!(rejected, 4, "4 次调用必须累到同一个 counter 上");
     }
 }
