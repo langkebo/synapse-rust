@@ -32,7 +32,7 @@ const MAX_TRACKED_CONNECTIONS: u64 = 10_000;
 /// response 含 lists/rooms 大 serde_json::Value，clone 深拷贝）。jemalloc prof
 /// 实测 clone_subtree(SlidingSyncResponse::clone) 占稳态 98.7%。将 TTL 降到 1
 /// 分钟、容量降到 1000，把稳态压到 ~170MB，仍在 MSC4186 幂等重试窗口内。
-const TXN_ID_CACHE_TTL_MS: u64 = 1 * 60 * 1000;
+const TXN_ID_CACHE_TTL_MS: u64 = 60 * 1000;
 
 /// MSC4186: Maximum number of cached txn_id responses per service instance.
 /// Bounds memory usage under retry storms; LRU eviction applies beyond this.

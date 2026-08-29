@@ -1,3 +1,7 @@
+// by-design: stub handlers (verify_secure_backup_passphrase 等) 保持 async 签名
+// 以匹配 axum Router 的接口契约；fn body 内无 await 是 stub 占位符的预期行为。
+#![allow(clippy::unused_async)]
+
 use super::devices::{decode_key_request_cursor, encode_key_request_cursor};
 use crate::e2ee::secure_backup::RestoreSecureBackupRequest;
 use crate::web::routes::context::E2eeRoomContext;

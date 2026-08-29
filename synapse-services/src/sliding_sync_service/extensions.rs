@@ -133,7 +133,7 @@ impl SlidingSyncService {
             // client busy-loops at ~30+ req/s.
             let cache_key = Self::receipts_cache_key(user_id, device_id, conn_id);
             let canonical = receipts_payload.to_string();
-            let changed = self.cache.get_raw_shared(&cache_key).await.map_or(true, |prev| prev != canonical);
+            let changed = self.cache.get_raw_shared(&cache_key).await.is_none_or(|prev| prev != canonical);
             if changed {
                 response_extensions.insert("receipts".to_string(), receipts_payload);
                 self.cache.set_raw(&cache_key, &canonical, 1800).await;
