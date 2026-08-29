@@ -1478,7 +1478,7 @@ impl FriendRoomProvider for FriendRoomService {
 
 #[cfg(test)]
 mod tests {
-    use super::models::{FriendListCursor, FriendListEntry};
+    use super::models::{FriendListCursor, FriendListEntry, FriendListRequest};
     use super::FriendRoomService;
     use crate::ServiceContainer;
     use serde_json::{json, Map, Value};
@@ -1487,6 +1487,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
     use std::sync::Arc;
     use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_common::current_timestamp_millis;
 
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -2015,5 +2016,135 @@ mod tests {
 
         assert_eq!(partner.user_id, bob_user_id);
         assert_eq!(partner.display_name, "Bob");
+    }
+
+    // ── W4 压测：好友列表 limit=50 < 100ms ──────────────────────────
+    //
+    // 验证 W3 v4 缓存优化在生产级数据量下的尾延迟。
+    // - cold 路径：sort_cache miss → 触发 user_profiles_map +
+    //   presence_snapshots 批量查询 + build + sort + cache.set
+    // - hot 路径：sort_cache hit → cache.get + 分页切片
+    // 期望 hot 路径 P99 < 100ms（含 Redis 往返 + JSON 反序列化）。
+    //
+    // 注：plan 写 1000 好友，但 m.friends.list state event 的 content
+    // 走 idx_events_sync_covering（INCLUDE content），PG btree 单行
+    // 限制 2704 字节。5008 字节超限 → PG 54000。生产 100 好友更真实，
+    // 1000 是极端上限。100 已足够验证 W3 缓存优化效果。
+    #[tokio::test]
+    async fn bench_friend_list_100_limit_50() {
+        let Some(container) = setup_test_container().await else {
+            return;
+        };
+
+        let suffix = unique_suffix();
+        let owner_user_id = register_test_user(&container, &format!("friendsvc_bench_{suffix}"), "Bench").await;
+
+        // 注入 100 个 friend_id 到 m.friends.list state（绕过 send/accept 流程）。
+        let friend_room_id = container
+            .extensions
+            .friend_room_service
+            .create_friend_list_room(&owner_user_id)
+            .await
+            .expect("create friend list room");
+
+        let mut friends_array: Vec<serde_json::Value> = (0..100)
+            .map(|i| {
+                serde_json::json!({
+                    "user_id": format!("@friend{}_{suffix}:example.com", i),
+                    "since": chrono::Utc::now().timestamp(),
+                    "status": "normal",
+                    "added_at": current_timestamp_millis(),
+                    "dm_room_id": null,
+                    "dm_room_active": false,
+                    "dm_room_state": "none",
+                })
+            })
+            .collect();
+        // Reverse: 让排序算法做实际工作
+        friends_array.reverse();
+
+        let content = serde_json::json!({
+            "friends": friends_array,
+            "version": 1,
+        });
+        container
+            .extensions
+            .friend_room_service
+            .send_state_event(&friend_room_id, &owner_user_id, "m.friends.list", "", content)
+            .await
+            .expect("inject 100 friends state");
+
+        let request = FriendListRequest { limit: 50, offset: Some(0), from: None, sort_by: "alphabet".to_string() };
+
+        // warm-up：跳过第一次（schema 编译、连接池冷启等）
+        let _ = container
+            .extensions
+            .friend_room_service
+            .get_friends_page(&owner_user_id, request.clone())
+            .await
+            .expect("warm-up get_friends_page");
+
+        // cold 路径：sort_cache 已写回（warm-up 阶段 miss 触发了 set），
+        // 为测 cold 必须清掉 cache key。key 模板：
+        // friends:list:v4:sort:{user}:{room}:{version}:{sort_by}
+        let sort_cache_key = format!(
+            "friends:list:v4:sort:{}:{}:{}:alphabet",
+            owner_user_id, friend_room_id, 1
+        );
+        let _ = container.core.cache.delete(&sort_cache_key).await;
+
+        // cold：cache miss
+        let cold_start = std::time::Instant::now();
+        let cold_page = container
+            .extensions
+            .friend_room_service
+            .get_friends_page(&owner_user_id, request.clone())
+            .await
+            .expect("cold get_friends_page");
+        let cold_elapsed = cold_start.elapsed();
+
+        // hot：sort_cache 已写回
+        let hot_start = std::time::Instant::now();
+        let hot_page = container
+            .extensions
+            .friend_room_service
+            .get_friends_page(&owner_user_id, request.clone())
+            .await
+            .expect("hot get_friends_page");
+        let hot_elapsed = hot_start.elapsed();
+
+        // 跑 5 次 hot 取 max（P99 代理）
+        let mut max_hot = hot_elapsed;
+        for _ in 0..5 {
+            let start = std::time::Instant::now();
+            let _ = container
+                .extensions
+                .friend_room_service
+                .get_friends_page(&owner_user_id, request.clone())
+                .await
+                .expect("hot repeat");
+            let elapsed = start.elapsed();
+            if elapsed > max_hot {
+                max_hot = elapsed;
+            }
+        }
+
+        eprintln!(
+            "[W4 bench] 100 friends, limit=50 — cold: {:?}, hot_avg: {:?}, hot_max(P99 proxy): {:?}, items_returned: {}, total: {}",
+            cold_elapsed, hot_elapsed, max_hot, cold_page.items.len(), cold_page.total
+        );
+
+        // 正确性断言（与性能无关，必须通过）
+        assert_eq!(cold_page.items.len(), 50);
+        assert_eq!(cold_page.total, 100);
+        assert_eq!(hot_page.items.len(), 50);
+        assert_eq!(hot_page.total, 100);
+
+        // 性能断言：hot max < 100ms（plan 目标）
+        // 注：CI 环境下可能因 IO 抖动放宽到 200ms；本地 release build 通常 < 30ms。
+        assert!(
+            max_hot < std::time::Duration::from_millis(100),
+            "hot path P99 > 100ms: {max_hot:?} — W3 缓存优化目标未达成"
+        );
     }
 }
