@@ -237,7 +237,7 @@ mod tests {
         }
 
         let mut services = ServiceContainer::new_test().await;
-        services.core.config.rate_limit = RateLimitConfig {
+        services.core.config_mut().rate_limit = RateLimitConfig {
             enabled: true,
             default: RateLimitRule { per_second: 1, burst_size: 1 },
             endpoints: vec![RateLimitEndpointRule {
@@ -307,7 +307,7 @@ mod tests {
         }
 
         let mut services = ServiceContainer::new_test().await;
-        services.core.config.rate_limit = RateLimitConfig {
+        services.core.config_mut().rate_limit = RateLimitConfig {
             enabled: true,
             default: RateLimitRule { per_second: 1, burst_size: 1 },
             endpoints: vec![RateLimitEndpointRule {

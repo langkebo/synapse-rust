@@ -247,11 +247,14 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_sliding_sync_rate_limit_prefers_file_config_when_enabled() {
         let mut services = synapse_services::ServiceContainer::new_test().await;
-        services.core.config.rate_limit.sync.enabled = true;
-        services.core.config.rate_limit.sync.initial.per_second = 3;
-        services.core.config.rate_limit.sync.initial.burst_size = 7;
-        services.core.config.rate_limit.sync.incremental.per_second = 4;
-        services.core.config.rate_limit.sync.incremental.burst_size = 8;
+        {
+            let cfg = services.core.config_mut();
+            cfg.rate_limit.sync.enabled = true;
+            cfg.rate_limit.sync.initial.per_second = 3;
+            cfg.rate_limit.sync.initial.burst_size = 7;
+            cfg.rate_limit.sync.incremental.per_second = 4;
+            cfg.rate_limit.sync.incremental.burst_size = 8;
+        }
 
         let state = AppState::new(services, Arc::new(crate::cache::CacheManager::new(&CacheConfig::default())));
 
@@ -273,11 +276,14 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_sliding_sync_rate_limit_falls_back_to_runtime_config() {
         let mut services = synapse_services::ServiceContainer::new_test().await;
-        services.core.config.rate_limit.sync.enabled = true;
-        services.core.config.rate_limit.sync.initial.per_second = 5;
-        services.core.config.rate_limit.sync.initial.burst_size = 50;
-        services.core.config.rate_limit.sync.incremental.per_second = 6;
-        services.core.config.rate_limit.sync.incremental.burst_size = 60;
+        {
+            let cfg = services.core.config_mut();
+            cfg.rate_limit.sync.enabled = true;
+            cfg.rate_limit.sync.initial.per_second = 5;
+            cfg.rate_limit.sync.initial.burst_size = 50;
+            cfg.rate_limit.sync.incremental.per_second = 6;
+            cfg.rate_limit.sync.incremental.burst_size = 60;
+        }
 
         let state = AppState::new(services, Arc::new(crate::cache::CacheManager::new(&CacheConfig::default())));
 

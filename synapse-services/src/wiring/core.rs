@@ -46,6 +46,23 @@ pub struct CoreServices {
 }
 
 impl CoreServices {
+    /// 返回 `&mut Config` 供测试就地修改配置。
+    ///
+    /// 生产代码不应使用本方法 — 共享的 `Arc<Config>` 是为避免
+    /// `FromRef<AppState>` 每请求深拷贝整份配置。仅在 `ServiceContainer::new_test`
+    /// 构造的、引用计数 = 1 的单 owner 场景下使用。
+    ///
+    /// `Arc::get_mut` 在引用计数 > 1 时返回 None；这种情况意味着配置
+    /// 已被借出给 Context/路由，**应视为测试 bug 而非运行时问题**。
+    #[cfg(any(test, feature = "test-utils"))]
+    #[allow(clippy::expect_used)] // 引用计数 > 1 即视为测试 bug，panic 是预期行为
+    pub fn config_mut(&mut self) -> &mut Config {
+        Arc::get_mut(&mut self.config).expect(
+            "CoreServices::config_mut: config has other strong references. \
+             This is a test bug — call config_mut before sharing the container.",
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         infra: &SharedInfra,

@@ -846,11 +846,14 @@ mod tests {
         let uri = "/_matrix/federation/v1/exchange_third_party_invite/!room:test.example.com";
 
         let mut services = ServiceContainer::new_test().await;
-        services.core.config.federation.enabled = true;
-        services.core.config.federation.allow_ingress = true;
-        services.core.config.federation.server_name = origin.clone();
-        services.core.config.federation.key_id = Some(key_id.clone());
-        services.core.config.federation.signing_key = Some(signing_key_b64);
+        {
+            let cfg = services.core.config_mut();
+            cfg.federation.enabled = true;
+            cfg.federation.allow_ingress = true;
+            cfg.federation.server_name = origin.clone();
+            cfg.federation.key_id = Some(key_id.clone());
+            cfg.federation.signing_key = Some(signing_key_b64);
+        }
         services.core.server_name = origin.clone();
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
