@@ -47,6 +47,23 @@ pub struct ResourceAttributesResponse {
     pub attributes: std::collections::HashMap<String, String>,
 }
 
+/// Prometheus 抓取目标。
+///
+/// 本 admin 端点是**给人类看的 JSON 摘要，不能被 Prometheus scrape**——
+/// 它只返回统计数（`rendered_bytes` 也只是 Prometheus 文本的字节数，
+/// 不含文本本身）。真正的抓取端点跑在**独立端口**上，渲染
+/// `MetricsCollector::to_prometheus_format()` 的 text 格式输出。
+///
+/// 这个结构就是为了让查这个端点的人知道该去哪里抓，避免把 admin JSON
+/// 端点错配成 Prometheus 的 scrape target。
+#[derive(Debug, Serialize)]
+pub struct PrometheusScrapeTarget {
+    pub port: u16,
+    pub path: String,
+    /// 提示：抓取端点需要 `telemetry.prometheus.enabled = true` 才会监听。
+    pub note: &'static str,
+}
+
 #[derive(Debug, Serialize)]
 pub struct MetricsSummaryResponse {
     pub total_metrics: usize,
@@ -56,6 +73,9 @@ pub struct MetricsSummaryResponse {
     pub rendered_bytes: usize,
     pub snapshot_ts: i64,
     pub appservice_scheduler: AppserviceSchedulerTelemetrySummary,
+    /// Prometheus 抓取端点；仅当 `telemetry.prometheus.enabled` 时非空。
+    /// 为 `None` 表示独立端口未监听，此时没有任何可 scrape 的目标。
+    pub prometheus_scrape_target: Option<PrometheusScrapeTarget>,
 }
 
 #[derive(Debug, Serialize, Default, PartialEq, Eq)]
@@ -131,6 +151,17 @@ pub async fn get_metrics_summary(
     let rendered = ctx.metrics.to_prometheus_format();
     let appservice_statistics = ctx.app_service_manager.get_statistics().await?;
 
+    // 真正的 Prometheus 抓取端点是独立端口上的 `render_prometheus_metrics`
+    // （见 src/server/mod.rs）。它默认关闭（`PrometheusConfig::enabled = false`），
+    // 关闭时这里返回 None —— 明确告诉查询者「当前没有可 scrape 的目标」，
+    // 而不是让人误以为本 JSON 端点就是抓取点。
+    let prometheus = &ctx.config.prometheus;
+    let prometheus_scrape_target = prometheus.enabled.then(|| PrometheusScrapeTarget {
+        port: prometheus.port,
+        path: prometheus.path.clone(),
+        note: "独立端口监听；本 admin 端点是 JSON 摘要，不能被 Prometheus scrape",
+    });
+
     Ok(Json(MetricsSummaryResponse {
         total_metrics: metrics.len(),
         total_counters: inventory.total_counters,
@@ -139,6 +170,7 @@ pub async fn get_metrics_summary(
         rendered_bytes: rendered.len(),
         snapshot_ts: current_timestamp_millis(),
         appservice_scheduler: summarize_appservice_scheduler_metrics(&appservice_statistics),
+        prometheus_scrape_target,
     }))
 }
 

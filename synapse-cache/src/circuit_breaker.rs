@@ -765,6 +765,45 @@ mod tests {
         }
     }
 
+    /// 端到端：注册到 MetricsCollector 的指标必须出现在 Prometheus 抓取
+    /// 输出里。埋点写对但没进 scrape 输出 = 线上看不到，且不报错。
+    ///
+    /// 抓取端点是 `src/server/mod.rs` 的 `render_prometheus_metrics`
+    /// （独立端口，默认 9090 + `/metrics`，由 `telemetry.prometheus.enabled`
+    /// 开启），它直接渲染 `MetricsCollector::to_prometheus_format()`。
+    #[test]
+    fn test_attach_metrics_appears_in_prometheus_output() {
+        use synapse_common::metrics::MetricsCollector;
+        let cb = CircuitBreaker::new(test_config());
+        let collector = MetricsCollector::new();
+        cb.attach_metrics(&collector, "redis");
+        cb.record_failure();
+
+        let output = collector.to_prometheus_format();
+
+        // state gauge：Closed=0，带 name label
+        assert!(output.contains("# TYPE circuit_breaker_state gauge"), "state gauge 类型声明缺失:\n{output}");
+        assert!(output.contains("circuit_breaker_state{name=\"redis\"} 0"), "state gauge 样本缺失:\n{output}");
+
+        // failure counter：上面 record_failure 了一次 → 1
+        assert!(
+            output.contains("# TYPE circuit_breaker_requests_total_failure counter"),
+            "failure counter 类型声明缺失:\n{output}"
+        );
+        assert!(
+            output.contains("circuit_breaker_requests_total_failure{name=\"redis\"} 1"),
+            "failure counter 样本缺失或数值不对:\n{output}"
+        );
+
+        // 其余 3 个 outcome counter 也应出现（初值 0）
+        for suffix in ["success", "timeout", "rejected"] {
+            assert!(
+                output.contains(&format!("circuit_breaker_requests_total_{suffix}{{name=\"redis\"}} 0")),
+                "outcome counter {suffix} 未出现在 prometheus 输出:\n{output}"
+            );
+        }
+    }
+
     #[test]
     fn test_attach_metrics_emits_outcome_counters() {
         use synapse_common::metrics::MetricsCollector;

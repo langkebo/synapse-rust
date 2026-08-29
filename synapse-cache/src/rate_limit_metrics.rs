@@ -99,6 +99,44 @@ mod tests {
         assert_eq!(rejected.value, 2.0, "handle must point at the registered counter");
     }
 
+    /// 端到端：限流指标必须出现在 Prometheus 抓取输出里。
+    ///
+    /// 抓取端点见 `src/server/mod.rs::render_prometheus_metrics`（独立端口，
+    /// 默认 9090 + `/metrics`，需 `telemetry.prometheus.enabled = true`），
+    /// 它直接渲染 `MetricsCollector::to_prometheus_format()`。
+    #[test]
+    fn test_rate_limit_metrics_appear_in_prometheus_output() {
+        let collector = MetricsCollector::new();
+        let m = RateLimitMetrics::new(&collector);
+        m.rejected_total.inc();
+        m.rejected_total.inc();
+        m.allowed_total.inc();
+
+        let output = collector.to_prometheus_format();
+
+        assert!(
+            output.contains("# TYPE rate_limit_requests_rejected_total counter"),
+            "rejected counter 类型声明缺失:\n{output}"
+        );
+        assert!(
+            output.contains("rate_limit_requests_rejected_total 2"),
+            "rejected counter 样本缺失或数值不对（期望 2）:\n{output}"
+        );
+        assert!(output.contains("rate_limit_requests_allowed_total 1"), "allowed counter 数值不对:\n{output}");
+
+        // 6 个 counter 全部出现在输出里
+        for name in [
+            "rate_limit_requests_total",
+            "rate_limit_requests_allowed_total",
+            "rate_limit_requests_rejected_total",
+            "rate_limit_requests_exempt_total",
+            "rate_limit_fail_open_total",
+            "rate_limit_fail_closed_total",
+        ] {
+            assert!(output.contains(name), "counter `{name}` 未出现在 prometheus 输出:\n{output}");
+        }
+    }
+
     #[test]
     fn test_counters_are_independent() {
         let collector = MetricsCollector::new();
