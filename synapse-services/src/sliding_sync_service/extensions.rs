@@ -27,6 +27,27 @@ fn is_extension_enabled(request_extensions: &serde_json::Value, name: &str) -> b
         .unwrap_or(false)
 }
 
+/// W7+ 缓存治理：extensions 去重缓存的 TTL（秒）。
+///
+/// 用于 presence / receipts / account_data 三条「上次下发的载荷」基线。
+/// 语义是**去重基线**而非权威状态——残留只会导致下次 sync 多回显或少
+/// 回显一次，不影响正确性，因此取值只需大于客户端最长轮询间隔即可。
+///
+/// 约束：必须 **≥ 连接空闲 GC 周期**（`CONNECTION_TTL_MS` = 30 分钟），否则
+/// 客户端还在线（长轮询一直续期）时基线先过期，导致每次 sync 都判定
+/// changed → 全量回显 → `is_idle` 失效 → 忙循环复发（S7 修复的那个开关）。
+/// 30 分钟与 GC 周期对齐：连接真过期时两者同时失效，`invalidate_connection_
+/// cache` 也会主动清一遍，这里是兜底。
+const EXTENSION_DEDUP_CACHE_TTL_SECS: u64 = 30 * 60;
+
+/// W7+ 缓存治理：e2ee 状态推进缓存的 TTL（秒）。
+///
+/// 用于 device list stream id 与 shared_users 快照。与去重基线不同，这两条
+/// 是**游标**——残留会导致 since 回退（重发 device list）或前进过头（漏发）。
+/// 前进过头是真实丢数据，因此 TTL 要显著长于去重基线：1 小时，覆盖长连接
+/// 会话 + 一次跨实例路由故障恢复窗口。
+const E2EE_STATE_CACHE_TTL_SECS: u64 = 60 * 60;
+
 /// MSC3575 account_data 扩展载荷格式：事件数组 `[{type, content}]`。
 ///
 /// storage 层（`get_global_account_data` / `get_room_account_data`）返回的是
@@ -113,7 +134,7 @@ impl SlidingSyncService {
                         "rooms": rooms
                     }),
                 );
-                self.cache.set_raw(&cache_key, &canonical, 1800).await;
+                self.cache.set_raw(&cache_key, &canonical, EXTENSION_DEDUP_CACHE_TTL_SECS).await;
             }
         }
 
@@ -136,7 +157,7 @@ impl SlidingSyncService {
             let changed = self.cache.get_raw_shared(&cache_key).await.is_none_or(|prev| prev != canonical);
             if changed {
                 response_extensions.insert("receipts".to_string(), receipts_payload);
-                self.cache.set_raw(&cache_key, &canonical, 1800).await;
+                self.cache.set_raw(&cache_key, &canonical, EXTENSION_DEDUP_CACHE_TTL_SECS).await;
             }
         }
 
@@ -230,7 +251,7 @@ impl SlidingSyncService {
 
             if changed {
                 response_extensions.insert("presence".to_string(), payload);
-                self.cache.set_raw(&cache_key, &payload_str, 1800).await;
+                self.cache.set_raw(&cache_key, &payload_str, EXTENSION_DEDUP_CACHE_TTL_SECS).await;
             }
         }
 
@@ -324,12 +345,12 @@ impl SlidingSyncService {
         let current_shared_users = self.get_current_shared_users(user_id).await?;
         let left = Self::compute_left_shared_users(&previous_shared_users, &current_shared_users);
 
-        self.cache.set_raw(&stream_cache_key, &current_stream_id.to_string(), 3600).await;
+        self.cache.set_raw(&stream_cache_key, &current_stream_id.to_string(), E2EE_STATE_CACHE_TTL_SECS).await;
         self.cache
             .set_raw(
                 &shared_users_cache_key,
                 &serde_json::to_string(&current_shared_users).unwrap_or_else(|_| "[]".to_string()),
-                3600,
+                E2EE_STATE_CACHE_TTL_SECS,
             )
             .await;
 
