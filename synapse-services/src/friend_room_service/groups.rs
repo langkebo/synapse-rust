@@ -1,4 +1,5 @@
 use super::models::*;
+use super::sharding::{shard_for_user_id, shard_to_state_key};
 use serde_json::json;
 use synapse_common::current_timestamp_millis;
 use synapse_common::{ApiError, ApiResult};
@@ -39,23 +40,35 @@ impl FriendRoomService {
             return Err(ApiError::not_found(format!("Friend {friend_id} not found in list")));
         }
 
+        // W5 sharding：单 friend 改动只触及一个 shard，避免触发 PG btree 2704 上限。
+        let state_key = shard_to_state_key(shard_for_user_id(friend_id));
         let mut content = self
             .friend_storage
-            .get_friend_list_content(&friend_room)
+            .get_friend_list_shard(&friend_room, &state_key)
             .await
             .map_err(|e| ApiError::database_with_context("Database error", &e))?
-            .unwrap_or_else(|| json!({ "friends": [] }));
+            .unwrap_or_else(|| json!({ "friends": [], "version": 1 }));
 
+        let mut touched = false;
         if let Some(friends) = content.get_mut("friends").and_then(|f| f.as_array_mut()) {
             for friend in friends.iter_mut() {
                 if friend.get("user_id").and_then(|u| u.as_str()) == Some(friend_id) {
                     friend["note"] = json!(note);
+                    touched = true;
                     break;
                 }
             }
         }
 
-        self.send_state_event(&friend_room, user_id, "m.friends.list", "", content).await?;
+        if !touched {
+            return Err(ApiError::not_found(format!("Friend {friend_id} not found in shard {state_key}")));
+        }
+
+        if let Some(version) = content.get("version").and_then(|v| v.as_i64()) {
+            content["version"] = json!(version + 1);
+        }
+
+        self.send_state_event(&friend_room, user_id, "m.friends.list", &state_key, content).await?;
 
         Ok(())
     }
@@ -82,24 +95,35 @@ impl FriendRoomService {
             return Err(ApiError::not_found(format!("Friend {friend_id} not found in list")));
         }
 
+        let state_key = shard_to_state_key(shard_for_user_id(friend_id));
         let mut content = self
             .friend_storage
-            .get_friend_list_content(&friend_room)
+            .get_friend_list_shard(&friend_room, &state_key)
             .await
             .map_err(|e| ApiError::database_with_context("Database error", &e))?
-            .unwrap_or_else(|| json!({ "friends": [] }));
+            .unwrap_or_else(|| json!({ "friends": [], "version": 1 }));
 
+        let mut touched = false;
         if let Some(friends) = content.get_mut("friends").and_then(|f| f.as_array_mut()) {
             for friend in friends.iter_mut() {
                 if friend.get("user_id").and_then(|u| u.as_str()) == Some(friend_id) {
                     friend["status"] = json!(status);
                     friend["status_updated_ts"] = json!(current_timestamp_millis());
+                    touched = true;
                     break;
                 }
             }
         }
 
-        self.send_state_event(&friend_room, user_id, "m.friends.list", "", content).await?;
+        if !touched {
+            return Err(ApiError::not_found(format!("Friend {friend_id} not found in shard {state_key}")));
+        }
+
+        if let Some(version) = content.get("version").and_then(|v| v.as_i64()) {
+            content["version"] = json!(version + 1);
+        }
+
+        self.send_state_event(&friend_room, user_id, "m.friends.list", &state_key, content).await?;
 
         Ok(())
     }
@@ -117,24 +141,35 @@ impl FriendRoomService {
             return Err(ApiError::not_found(format!("Friend {friend_id} not found in list")));
         }
 
+        let state_key = shard_to_state_key(shard_for_user_id(friend_id));
         let mut content = self
             .friend_storage
-            .get_friend_list_content(&friend_room)
+            .get_friend_list_shard(&friend_room, &state_key)
             .await
             .map_err(|e| ApiError::database_with_context("Database error", &e))?
-            .unwrap_or_else(|| json!({ "friends": [] }));
+            .unwrap_or_else(|| json!({ "friends": [], "version": 1 }));
 
+        let mut touched = false;
         if let Some(friends) = content.get_mut("friends").and_then(|f| f.as_array_mut()) {
             for friend in friends.iter_mut() {
                 if friend.get("user_id").and_then(|u| u.as_str()) == Some(friend_id) {
                     friend["displayname"] = json!(displayname);
                     friend["displayname_updated_ts"] = json!(current_timestamp_millis());
+                    touched = true;
                     break;
                 }
             }
         }
 
-        self.send_state_event(&friend_room, user_id, "m.friends.list", "", content).await?;
+        if !touched {
+            return Err(ApiError::not_found(format!("Friend {friend_id} not found in shard {state_key}")));
+        }
+
+        if let Some(version) = content.get("version").and_then(|v| v.as_i64()) {
+            content["version"] = json!(version + 1);
+        }
+
+        self.send_state_event(&friend_room, user_id, "m.friends.list", &state_key, content).await?;
 
         Ok(())
     }

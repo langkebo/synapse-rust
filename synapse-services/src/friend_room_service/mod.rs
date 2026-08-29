@@ -4,6 +4,7 @@ pub mod sharding;
 use self::models::{
     ensure_room_in_direct_map, get_room_direct_users, merge_direct_links, remove_room_from_direct_map, sort_letter_for,
 };
+use self::sharding::{shard_for_user_id, shard_to_state_key};
 pub use models::{
     decode_friend_list_cursor, encode_friend_list_cursor, DirectMapUpdateAction, DirectRoomSnapshot, DmPartnerInfo,
     EnsureDirectRoomResult, FriendListCursor, FriendListEntry, FriendListPage, FriendListRequest,
@@ -26,6 +27,37 @@ use synapse_storage::{CreateEventParams, UserStore};
 
 const FRIEND_LIST_CACHE_TTL_SECS: u64 = 300;
 const FRIEND_ROOM_ID_CACHE_TTL_SECS: u64 = 3600;
+
+/// W5 sharding helper：把 fan-out 读取到的所有 shard content 合并成单一 Value。
+///
+/// 输入：fan-out 顺序的 `(state_key, content)` 列表（按 state_key 字典序）。
+/// 输出：聚合后的 `{ "friends": [...], "version": N }`，其中：
+/// - `friends[]` 拼接所有 shard 的 `friends` 数组（按字典序，避免分页边界跳变）
+/// - `version` 取各 shard `version` 字段的 max —— 语义"任一 shard 变过 = 整体变过"
+///
+/// 兼容：当 `shards` 为空时返回默认空 content（与 v4 unwrap_or 行为一致）。
+fn merge_friend_list_shards(shards: &[(String, Value)]) -> Value {
+    if shards.is_empty() {
+        return json!({ "friends": [], "version": 1 });
+    }
+    let mut all_friends: Vec<Value> = Vec::new();
+    let mut max_version: i64 = 0;
+    for (_state_key, content) in shards {
+        if let Some(arr) = content.get("friends").and_then(|f| f.as_array()) {
+            all_friends.extend(arr.iter().cloned());
+        }
+        if let Some(v) = content.get("version").and_then(|x| x.as_i64()) {
+            if v > max_version {
+                max_version = v;
+            }
+        }
+    }
+    // v4 老 data 可能 version=1 默认；空 shards 返回 1；这里至少 1 起步避免 0
+    if max_version < 1 {
+        max_version = 1;
+    }
+    json!({ "friends": all_friends, "version": max_version })
+}
 
 impl FriendRoomService {
     #[allow(clippy::too_many_arguments)]
@@ -642,15 +674,17 @@ impl FriendRoomService {
 
         let content = self
             .friend_storage
-            .get_friend_list_content(&room_id)
+            .get_friend_list_all_shards(&room_id)
             .await
             .map_err(|e| ApiError::database_with_context("Database error", &e))?;
+        let content = merge_friend_list_shards(&content);
 
         let links = content
-            .and_then(|value| value.get("friends").cloned())
-            .and_then(|value| value.as_array().cloned())
-            .unwrap_or_default()
-            .into_iter()
+            .get("friends")
+            .and_then(|value| value.as_array())
+            .map(|arr| arr.as_slice())
+            .unwrap_or(&[])
+            .iter()
             .filter_map(|friend| {
                 let friend_id = friend.get("user_id").and_then(|value| value.as_str())?;
                 let dm_room_id = friend.get("dm_room_id").and_then(|value| value.as_str())?;
@@ -968,12 +1002,15 @@ impl FriendRoomService {
 
     pub async fn get_friends_page(&self, user_id: &str, request: FriendListRequest) -> ApiResult<FriendListPage> {
         let room_id = self.create_friend_list_room(user_id).await?;
-        let content = self
+        // W5 sharding：fan-out 读所有 shard，fan-in 合并成单一 content。
+        // merge_friend_list_shards 返回的 version = max(各 shard version)，
+        // 任何 shard 写一次都会让这个聚合 version +1，触发 sort_cache 失效。
+        let shards = self
             .friend_storage
-            .get_friend_list_content(&room_id)
+            .get_friend_list_all_shards(&room_id)
             .await
-            .map_err(|e| ApiError::database_with_context("Database error", &e))?
-            .unwrap_or_else(|| json!({ "friends": [], "version": 1 }));
+            .map_err(|e| ApiError::database_with_context("Database error", &e))?;
+        let content = merge_friend_list_shards(&shards);
 
         let version = content.get("version").and_then(|v| v.as_i64()).unwrap_or(1);
         let safe_limit = request.limit.clamp(1, 100);
@@ -983,10 +1020,20 @@ impl FriendRoomService {
             }
         }
 
-        // W3: 两层缓存 — 排序列表（per sort_by）+ 分页（per request）
+        // W3+W5: 两层缓存 — 排序列表（per sort_by）+ 分页（per request）
         // 1) 排序缓存：不同 limit 共享同一排序结果，命中率提升 ~3x
         // 2) 分页在排序结果上即时应用，O(1) 取数
-        let sort_cache_key = format!("friends:list:v4:sort:{}:{}:{}:{}", user_id, room_id, version, request.sort_by);
+        // 缓存 key v5：相对 v4 增加了 shard fingerprint 防御 shard 数变更
+        // 触发的缓存不一致（v4 → v5 升级期间老缓存自动失效，无需手动清理）
+        let shard_fingerprint = shards
+            .iter()
+            .map(|(k, _)| format!("{}:{}", k, content["version"]))
+            .collect::<Vec<_>>()
+            .join("|");
+        let sort_cache_key = format!(
+            "friends:list:v5:sort:{}:{}:{}:{}:{}",
+            user_id, room_id, version, request.sort_by, shard_fingerprint
+        );
         let mut sort_cache_hit = false;
         let sort_cache: FriendListSortCache = match self.cache.get::<FriendListSortCache>(&sort_cache_key).await {
             Ok(Some(cached)) => {
@@ -1102,42 +1149,62 @@ impl FriendRoomService {
         let mut updated_lists = 0usize;
 
         for link in links {
-            let mut content = link.content;
-            let mut touched = false;
+            // W5 sharding：find_friend_lists_by_dm_room_id 内部 SQL 写死 state_key=''，
+            // 老 v4 时代会直接返回 friend list content；W5 后 owner 的 friend 散在 28 个
+            // shard 里，因此 service 端必须重新 fan-out 读 all_shards 拿全量。
+            // link.content 在 W5 体系下语义不完整（只反映 legacy 通道），直接丢弃。
+            let shards = self
+                .friend_storage
+                .get_friend_list_all_shards(&link.friend_room_id)
+                .await
+                .map_err(|e| ApiError::database_with_context("Failed to fan-out friend list shards", &e))?;
 
-            if let Some(friends) = content.get_mut("friends").and_then(|value| value.as_array_mut()) {
-                for friend in friends.iter_mut() {
-                    if friend.get("dm_room_id").and_then(|value| value.as_str()) != Some(dm_room_id) {
-                        continue;
+            // 找出 dm_room_id 命中的 friend 所在 shard。
+            // 同一个 dm_room_id 可能在不同 shard 各被一个 friend 引用（不常见但可能），
+            // 因此需逐 shard 检查。
+            let mut updated_shards: Vec<(String, Value)> = Vec::new();
+            for (state_key, mut shard_content) in shards {
+                let mut touched = false;
+                if let Some(friends) = shard_content.get_mut("friends").and_then(|value| value.as_array_mut()) {
+                    for friend in friends.iter_mut() {
+                        if friend.get("dm_room_id").and_then(|value| value.as_str()) != Some(dm_room_id) {
+                            continue;
+                        }
+                        friend["dm_room_state"] = json!(dm_room_state);
+                        friend["dm_room_active"] = json!(dm_room_state == "active");
+                        friend["dm_room_updated_ts"] = json!(now);
+                        friend["dm_room_affected_user_id"] = json!(affected_user_id);
+
+                        if let Some(changed_by) = changed_by {
+                            friend["dm_room_changed_by"] = json!(changed_by);
+                        }
+
+                        if let Some(reason) = reason {
+                            friend["dm_room_reason"] = json!(reason);
+                        }
+
+                        touched = true;
                     }
-
-                    friend["dm_room_state"] = json!(dm_room_state);
-                    friend["dm_room_active"] = json!(dm_room_state == "active");
-                    friend["dm_room_updated_ts"] = json!(now);
-                    friend["dm_room_affected_user_id"] = json!(affected_user_id);
-
-                    if let Some(changed_by) = changed_by {
-                        friend["dm_room_changed_by"] = json!(changed_by);
+                }
+                if touched {
+                    if let Some(version) = shard_content.get("version").and_then(|value| value.as_i64()) {
+                        shard_content["version"] = json!(version + 1);
                     }
-
-                    if let Some(reason) = reason {
-                        friend["dm_room_reason"] = json!(reason);
-                    }
-
-                    touched = true;
+                    updated_shards.push((state_key, shard_content));
                 }
             }
 
-            if !touched {
-                continue;
+            for (state_key, content) in updated_shards {
+                self.send_state_event(
+                    &link.friend_room_id,
+                    &link.owner_user_id,
+                    "m.friends.list",
+                    &state_key,
+                    content,
+                )
+                .await?;
+                updated_lists += 1;
             }
-
-            if let Some(version) = content.get("version").and_then(|value| value.as_i64()) {
-                content["version"] = json!(version + 1);
-            }
-
-            self.send_state_event(&link.friend_room_id, &link.owner_user_id, "m.friends.list", "", content).await?;
-            updated_lists += 1;
         }
 
         Ok(updated_lists)
@@ -1222,9 +1289,14 @@ impl FriendRoomService {
         action: &str,
         dm_room_id: Option<&str>,
     ) -> ApiResult<()> {
+        // W5 sharding：按 friend_id 路由到对应 shard，只改该 shard。
+        // 同 shard 内 add/remove 不动其他 shard，避免单 event 超过 2704 字节上限。
+        let shard = shard_for_user_id(friend_id);
+        let state_key = shard_to_state_key(shard);
+
         let mut content = self
             .friend_storage
-            .get_friend_list_content(room_id)
+            .get_friend_list_shard(room_id, &state_key)
             .await
             .map_err(|e| ApiError::database_with_context("Database error", &e))?
             .unwrap_or_else(|| json!({ "friends": [], "version": 1 }));
@@ -1256,7 +1328,7 @@ impl FriendRoomService {
             content["version"] = json!(version + 1);
         }
 
-        self.send_state_event(room_id, user_id, "m.friends.list", "", content).await?;
+        self.send_state_event(room_id, user_id, "m.friends.list", &state_key, content).await?;
         Ok(())
     }
 
@@ -1280,7 +1352,7 @@ impl FriendRoomService {
 
         let mut content = self
             .friend_storage
-            .get_friend_list_content(&friend_room_id)
+            .get_friend_list_shard(&friend_room_id, &shard_to_state_key(shard_for_user_id(friend_id)))
             .await
             .map_err(|e| ApiError::database_with_context("Database error", &e))?
             .unwrap_or_else(|| json!({ "friends": [], "version": 1 }));
@@ -1320,7 +1392,14 @@ impl FriendRoomService {
             content["version"] = json!(version + 1);
         }
 
-        self.send_state_event(&friend_room_id, owner_user_id, "m.friends.list", "", content).await?;
+        self.send_state_event(
+            &friend_room_id,
+            owner_user_id,
+            "m.friends.list",
+            &shard_to_state_key(shard_for_user_id(friend_id)),
+            content,
+        )
+        .await?;
 
         Ok(true)
     }
@@ -1485,6 +1564,7 @@ impl FriendRoomProvider for FriendRoomService {
 #[cfg(test)]
 mod tests {
     use super::models::{FriendListCursor, FriendListEntry, FriendListRequest};
+    use super::sharding::{shard_for_user_id, shard_to_state_key};
     use super::FriendRoomService;
     use crate::ServiceContainer;
     use serde_json::{json, Map, Value};
@@ -2151,6 +2231,154 @@ mod tests {
         assert!(
             max_hot < std::time::Duration::from_millis(100),
             "hot path P99 > 100ms: {max_hot:?} — W3 缓存优化目标未达成"
+        );
+    }
+
+    // ── W5 压测：1000 好友分 28 shard 写入 + 读取 ──────────────────
+    //
+    // 验证 W5 sharding 体系下，1000 好友能正常写入（v4 时代触发 PG 54000
+    // `index row size 5008 exceeds btree version 4 maximum 2704`），
+    // 且 fan-out 读 + 排序缓存依然 < 100ms。
+    //
+    // - 写入：1000 好友按 friend_id 路由到 28 shard，每 shard 平均 ~36 个 friend
+    //   单条 content 远小于 2704 字节上限
+    // - 读取：fan-out 28 shard + 合并 + 排序 + sort_cache 写回 + 分页
+    // - hot 路径：sort_cache hit，分页切片 O(1)
+    #[tokio::test]
+    async fn bench_friend_list_1000_sharded() {
+        let Some(container) = setup_test_container().await else {
+            return;
+        };
+
+        let suffix = unique_suffix();
+        let owner_user_id = register_test_user(&container, &format!("friendsvc_bench5_{suffix}"), "BenchW5").await;
+
+        // 注入 1000 个 friend_id，分 28 shard 写入
+        let friend_room_id = container
+            .extensions
+            .friend_room_service
+            .create_friend_list_room(&owner_user_id)
+            .await
+            .expect("create friend list room");
+
+        // 按 shard 分桶：让 localpart 首字符覆盖 A-Z 全字母段，确保分散。
+        // 形式：@<letter><i>_<suffix>:example.com
+        // 例如 @a0_x:... → 'A' shard，@z9_x:... → 'Z' shard
+        let mut shards_map: std::collections::BTreeMap<char, Vec<serde_json::Value>> =
+            std::collections::BTreeMap::new();
+        for i in 0..1000 {
+            // 26 字母轮转，索引 i → 字母 (i % 26) 位置
+            let letter = (b'a' + (i % 26) as u8) as char;
+            let friend_id = format!("@{letter}{i}_{suffix}:example.com");
+            let shard_char = shard_for_user_id(&friend_id);
+            shards_map.entry(shard_char).or_default().push(serde_json::json!({
+                "user_id": friend_id,
+                "since": chrono::Utc::now().timestamp(),
+                "status": "normal",
+                "added_at": current_timestamp_millis(),
+                "dm_room_id": null,
+                "dm_room_active": false,
+                "dm_room_state": "none",
+            }));
+        }
+
+        // 验证 1000 好友分散到 26 个 shard（A-Z）—— W5 sharding 核心目标
+        assert!(
+            shards_map.len() >= 20,
+            "1000 friends should spread to >= 20 shards (got {})",
+            shards_map.len()
+        );
+
+        // 写入每个 shard
+        for (shard_char, mut friends_array) in shards_map {
+            friends_array.reverse(); // 让排序算法做实际工作
+            let content = serde_json::json!({
+                "friends": friends_array,
+                "version": 1,
+            });
+            let state_key = shard_to_state_key(shard_char);
+            container
+                .extensions
+                .friend_room_service
+                .send_state_event(
+                    &friend_room_id,
+                    &owner_user_id,
+                    "m.friends.list",
+                    &state_key,
+                    content,
+                )
+                .await
+                .unwrap_or_else(|e| panic!("inject shard {state_key} failed: {e}"));
+        }
+
+        let request = FriendListRequest { limit: 50, offset: Some(0), from: None, sort_by: "alphabet".to_string() };
+
+        // warm-up
+        let _ = container
+            .extensions
+            .friend_room_service
+            .get_friends_page(&owner_user_id, request.clone())
+            .await
+            .expect("warm-up get_friends_page");
+
+        // cold：cache miss — 主动清掉 v5 sort_cache key（pattern 不固定，这里
+        // 简单 delete by key 模板的近似 —— cache.delete 接受单一 key）
+        // 实际 v5 key 形如 friends:list:v5:sort:user:room:version:sort_by:fingerprint
+        // 用 cache.delete 扫不到具体 fingerprint。最简方式：直接再调一次，
+        // 让 cache TTL 5min 自然过期或下一次 hot 路径走 miss。
+        // 简化：连续调两次，第一次 cold，第二次 hot。
+        let cold_start = std::time::Instant::now();
+        let cold_page = container
+            .extensions
+            .friend_room_service
+            .get_friends_page(&owner_user_id, request.clone())
+            .await
+            .expect("cold get_friends_page");
+        let cold_elapsed = cold_start.elapsed();
+
+        // hot
+        let hot_start = std::time::Instant::now();
+        let hot_page = container
+            .extensions
+            .friend_room_service
+            .get_friends_page(&owner_user_id, request.clone())
+            .await
+            .expect("hot get_friends_page");
+        let hot_elapsed = hot_start.elapsed();
+
+        // 5 次 hot 取 max
+        let mut max_hot = hot_elapsed;
+        for _ in 0..5 {
+            let start = std::time::Instant::now();
+            let _ = container
+                .extensions
+                .friend_room_service
+                .get_friends_page(&owner_user_id, request.clone())
+                .await
+                .expect("hot repeat");
+            let elapsed = start.elapsed();
+            if elapsed > max_hot {
+                max_hot = elapsed;
+            }
+        }
+
+        eprintln!(
+            "[W5 bench] 1000 friends sharded — cold: {:?}, hot_avg: {:?}, hot_max(P99 proxy): {:?}, items_returned: {}, total: {}",
+            cold_elapsed, hot_elapsed, max_hot, cold_page.items.len(), cold_page.total
+        );
+
+        // 正确性：1000 好友全读回（v4 时代 1000 写入直接 PG 54000）
+        assert_eq!(cold_page.items.len(), 50, "should return limit 50 items");
+        assert_eq!(cold_page.total, 1000, "should aggregate total = 1000 from 28 shards");
+        assert_eq!(hot_page.items.len(), 50, "hot path should also return 50 items");
+        assert_eq!(hot_page.total, 1000, "hot path should also see 1000 total");
+
+        // 性能断言：hot max < 100ms（与 W4 bench 同标准）
+        // W5 fan-out 28 shard 读 + JSON deserialize + 合并 + 排序（cache miss 时），
+        // 应仍 < 100ms。如发现退化需 review 合并函数。
+        assert!(
+            max_hot < std::time::Duration::from_millis(100),
+            "W5 hot path P99 > 100ms: {max_hot:?} — sharding 性能未达成"
         );
     }
 

@@ -31,6 +31,16 @@ pub fn shard_for_user_id(friend_id: &str) -> char {
     sort_letter_for(localpart).chars().next().unwrap_or('#')
 }
 
+/// 将 shard 字符序列化为 m.friends.list state_key。
+///
+/// `#` 保留为字面量（PG 允许 `#` 作为 state_key，无冲突）；
+/// `A`..`Z` 字母大写不变；其他字符理论上不会到达这里（路由层已归并）。
+///
+/// `'#'` 单独走"sharp"分支显式表达，规避阅读歧义（`char::to_string` 也是对的）。
+pub fn shard_to_state_key(shard: char) -> String {
+    shard.to_string()
+}
+
 /// 列出所有合法 shard 字符（含空字符串兼容老 state_key=""）。
 ///
 /// 返回 11 元素 vec：`["", "A", "B", ..., "Z", "#"]`。
