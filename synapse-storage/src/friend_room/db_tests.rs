@@ -591,6 +591,95 @@ async fn test_get_friend_info() {
     cleanup_all(&pool, &suffix).await;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// W5 follow-up：is_friend / get_friend_info 不得 fan-out 全部 shard，
+// 必须按 friend_id 路由到单 shard + legacy 回退。
+// ─────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_is_friend_routes_to_target_shard_only() {
+    let pool = test_pool().await;
+    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    cleanup_all(&pool, &suffix).await;
+
+    let user_id = format!("@fr_test_{suffix}:localhost");
+    // @alice_* 按路由应落在 shard 'A'（localpart 首字母 A）。
+    let friend_id = format!("@alice_{suffix}:localhost");
+    ensure_test_user(&pool, &user_id).await;
+    let storage = FriendRoomStorage::new(pool.clone());
+
+    // 1) 好友只写在「错误」shard 'B' → 不得被找到（证明没有 full fan-out）。
+    let room_wrong = format!("!fr_wrong_{suffix}:localhost");
+    ensure_test_room(&pool, &room_wrong).await;
+    let content_b = json!({"friends":[{"user_id": &friend_id, "display_name": "InB"}]});
+    insert_event(&pool, &room_wrong, &user_id, "m.friends.list", "B", &content_b).await;
+    assert!(
+        !storage.is_friend(&room_wrong, &friend_id).await.expect("query"),
+        "friend only in wrong shard 'B' must NOT be visible (no fan-out)"
+    );
+
+    // 2) 好友写在正确 shard 'A' → 找到。
+    let room_a = format!("!fr_a_{suffix}:localhost");
+    ensure_test_room(&pool, &room_a).await;
+    let content_a = json!({"friends":[{"user_id": &friend_id, "display_name": "InA"}]});
+    insert_event(&pool, &room_a, &user_id, "m.friends.list", "A", &content_a).await;
+    assert!(storage.is_friend(&room_a, &friend_id).await.expect("query"), "friend in target shard 'A' must be found");
+
+    // 3) v4 legacy：好友只写在 state_key="" → 回退找到。
+    let room_legacy = format!("!fr_legacy_{suffix}:localhost");
+    ensure_test_room(&pool, &room_legacy).await;
+    let content_legacy = json!({"friends":[{"user_id": &friend_id, "display_name": "InLegacy"}]});
+    insert_event(&pool, &room_legacy, &user_id, "m.friends.list", "", &content_legacy).await;
+    assert!(
+        storage.is_friend(&room_legacy, &friend_id).await.expect("query"),
+        "friend in legacy shard must be found via fallback"
+    );
+
+    cleanup_all(&pool, &suffix).await;
+}
+
+#[tokio::test]
+async fn test_get_friend_info_routes_to_target_shard_only() {
+    let pool = test_pool().await;
+    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    cleanup_all(&pool, &suffix).await;
+
+    let user_id = format!("@fr_test_{suffix}:localhost");
+    let friend_id = format!("@alice_{suffix}:localhost");
+    ensure_test_user(&pool, &user_id).await;
+    let storage = FriendRoomStorage::new(pool.clone());
+
+    // 1) 好友只写在「错误」shard 'B' → 必须返回 None（证明没有 full fan-out）。
+    let room_wrong = format!("!fr_wrong_{suffix}:localhost");
+    ensure_test_room(&pool, &room_wrong).await;
+    let content_b = json!({"friends":[{"user_id": &friend_id, "display_name": "InB"}]});
+    insert_event(&pool, &room_wrong, &user_id, "m.friends.list", "B", &content_b).await;
+    assert!(
+        storage.get_friend_info(&room_wrong, &friend_id).await.expect("query").is_none(),
+        "friend only in wrong shard 'B' must return None (no fan-out)"
+    );
+
+    // 2) 好友写在正确 shard 'A' → 返回该 shard 中的条目。
+    let room_a = format!("!fr_a_{suffix}:localhost");
+    ensure_test_room(&pool, &room_a).await;
+    let content_a = json!({"friends":[{"user_id": &friend_id, "display_name": "ShardA"}]});
+    insert_event(&pool, &room_a, &user_id, "m.friends.list", "A", &content_a).await;
+    let info = storage.get_friend_info(&room_a, &friend_id).await.expect("query");
+    let display_name = info.as_ref().and_then(|v| v.get("display_name").and_then(|d| d.as_str()));
+    assert_eq!(display_name, Some("ShardA"), "should return the friend entry from target shard 'A'");
+
+    // 3) v4 legacy：好友只写在 state_key="" → 回退返回该条目。
+    let room_legacy = format!("!fr_legacy_{suffix}:localhost");
+    ensure_test_room(&pool, &room_legacy).await;
+    let content_legacy = json!({"friends":[{"user_id": &friend_id, "display_name": "Legacy"}]});
+    insert_event(&pool, &room_legacy, &user_id, "m.friends.list", "", &content_legacy).await;
+    let info = storage.get_friend_info(&room_legacy, &friend_id).await.expect("query");
+    let display_name = info.as_ref().and_then(|v| v.get("display_name").and_then(|d| d.as_str()));
+    assert_eq!(display_name, Some("Legacy"), "should return the friend entry from legacy shard via fallback");
+
+    cleanup_all(&pool, &suffix).await;
+}
+
 // ——————————————————————————————————————————————
 // get_friend_groups
 // ——————————————————————————————————————————————

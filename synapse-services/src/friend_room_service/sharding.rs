@@ -1,46 +1,20 @@
-//! m.friends.list sharding 路由逻辑 — W5 设计阶段。
+//! m.friends.list sharding 路由逻辑。
 //!
 //! 详细方案见 `artifacts/W5-friends-list-sharding-design-2026-08-29.md`。
 //!
-//! 实际拆分实施待 W6+；本模块只产出路由函数 stub + 单元测试，
-//! 让设计可立即被现有代码引用测试（不破坏生产路径）。
-//!
-//! 核心思想：按 friend_id 的 localpart 决定其 m.friends.list shard，
-//! 未来 11 个 state event（`""` + A-Z + `#`）分摊 PG btree 单行 2704
-//! 字节上限（idx_events_sync_covering INCLUDE content）。
+//! 拆分已在 W5 正式实施：好友列表按 friend_id 的 localpart 首字母拆分到
+//! 28 个 `m.friends.list` state event（shard），以规避 PG btree 单行 2704
+//! 字节上限（idx_events_sync_covering INCLUDE content）。路由原语的唯一
+//! 事实来源在 `synapse_common::friend_shard`，本模块仅做 re-export 并保持
+//! 与 storage 层一致的接口，避免双方各自实现导致漂移。
 
-use crate::friend_room_service::models::sort_letter_for;
-
-/// 根据 friend_id 决定其 m.friends.list shard。
-///
-/// 规则：剥掉 `@localpart:server` 头尾的 `@` 和 `:server`，
-/// 取 localpart 首字符的 sort_letter（与 sort_by=alphabet 一致）。
-///
-/// Examples:
-/// - `@alice:test` → localpart=`alice` → `'A'`
-/// - `@bob:test` → localpart=`bob` → `'B'`
-/// - `@张三:test` → localpart=`张三` → `'#'` (非 ASCII)
-/// - `@123:test` → localpart=`123` → `'#'` (数字)
-/// - `@alice` （无 server）→ `'A'`
-/// - `alice` （无 @ 前缀）→ `'A'`
-pub fn shard_for_user_id(friend_id: &str) -> char {
-    let localpart = friend_id.strip_prefix('@').and_then(|s| s.split(':').next()).unwrap_or(friend_id);
-    sort_letter_for(localpart).chars().next().unwrap_or('#')
-}
-
-/// 将 shard 字符序列化为 m.friends.list state_key。
-///
-/// `#` 保留为字面量（PG 允许 `#` 作为 state_key，无冲突）；
-/// `A`..`Z` 字母大写不变；其他字符理论上不会到达这里（路由层已归并）。
-///
-/// `'#'` 单独走"sharp"分支显式表达，规避阅读歧义（`char::to_string` 也是对的）。
-pub fn shard_to_state_key(shard: char) -> String {
-    shard.to_string()
-}
+// 路由原语来自 synapse-common（storage 与 services 共享，单一事实来源）。
+pub use synapse_common::friend_shard::{shard_for_user_id, shard_to_state_key, sort_letter_for};
 
 /// 列出所有合法 shard 字符（含空字符串兼容老 state_key=""）。
 ///
-/// 返回 11 元素 vec：`["", "A", "B", ..., "Z", "#"]`。
+/// 返回 28 元素 vec：`["", "A", "B", ..., "Z", "#"]`，
+/// 即 1 个 legacy 通道 + A-Z（26）+ `#` 兜底。
 pub const ALL_SHARDS: &[&str] = &[
     "", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V",
     "W", "X", "Y", "Z", "#",

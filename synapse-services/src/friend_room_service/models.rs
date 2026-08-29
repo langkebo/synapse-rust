@@ -188,18 +188,8 @@ pub(crate) fn get_room_direct_users(direct_map: &Map<String, Value>, room_id: &s
         .collect()
 }
 
-pub(crate) fn sort_letter_for(value: &str) -> String {
-    value.chars().find(|ch| !ch.is_whitespace()).map_or_else(
-        || "#".to_string(),
-        |ch| {
-            if ch.is_ascii_alphabetic() {
-                ch.to_ascii_uppercase().to_string()
-            } else {
-                "#".to_string()
-            }
-        },
-    )
-}
+// 路由原语来自 synapse-common（与 storage 层共享，单一事实来源）。
+pub(crate) use synapse_common::friend_shard::sort_letter_for;
 
 pub struct FriendRoomService {
     pub(crate) friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
@@ -367,43 +357,6 @@ mod tests {
         let map = serde_json::Map::new();
         let users = get_room_direct_users(&map, "!room1:ex.com");
         assert!(users.is_empty());
-    }
-
-    // ── sort_letter_for ────────────────────────────────────────────────
-
-    #[test]
-    fn sort_letter_alphabetic() {
-        assert_eq!(sort_letter_for("Alice"), "A");
-        assert_eq!(sort_letter_for("bob"), "B");
-        assert_eq!(sort_letter_for("Zoe"), "Z");
-    }
-
-    #[test]
-    fn sort_letter_handles_leading_whitespace() {
-        assert_eq!(sort_letter_for("  Alice"), "A");
-        assert_eq!(sort_letter_for("\tBob"), "B");
-    }
-
-    #[test]
-    fn sort_letter_non_alphabetic_first_char() {
-        assert_eq!(sort_letter_for("123User"), "#");
-        assert_eq!(sort_letter_for("@user"), "#");
-        assert_eq!(sort_letter_for("_test"), "#");
-    }
-
-    #[test]
-    fn sort_letter_empty_string() {
-        assert_eq!(sort_letter_for(""), "#");
-    }
-
-    #[test]
-    fn sort_letter_only_whitespace() {
-        assert_eq!(sort_letter_for("   "), "#");
-    }
-
-    #[test]
-    fn sort_letter_chinese_character() {
-        assert_eq!(sort_letter_for("中文"), "#");
     }
 
     // ── W3: FriendListSortCache ──────────────────────────────────────

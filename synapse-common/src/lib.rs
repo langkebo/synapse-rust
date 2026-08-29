@@ -20,6 +20,7 @@ pub mod event_models;
 pub mod event_utils;
 pub mod feature_flags;
 pub mod federation_test_keys;
+pub mod friend_shard;
 pub mod health;
 pub mod http_client;
 pub mod key_encryption;
@@ -114,6 +115,7 @@ pub use feature_flags::{
 pub use federation_test_keys::{
     generate_federation_test_keypair, sign_federation_request, verify_federation_signature, FederationTestKeypair,
 };
+pub use friend_shard::{shard_for_user_id, shard_to_state_key, sort_letter_for};
 pub use health::{CheckResult, DatabaseHealthCheck, HealthCheck, HealthCheckLevel, HealthChecker, HealthStatus};
 pub use key_encryption::{decrypt_key, encrypt_key, is_encrypted};
 pub use logging::init_logging;

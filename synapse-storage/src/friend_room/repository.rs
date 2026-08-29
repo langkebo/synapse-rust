@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
+use synapse_common::friend_shard::shard_for_user_id;
 
 use sqlx::{Pool, Postgres, Row};
 
@@ -270,13 +271,20 @@ impl FriendRoomStorage {
     }
 
     /// 检查用户是否在好友列表中
+    ///
+    /// W5 sharding 读路径：只读取 friend 所在 shard（按 friend_id 路由），
+    /// 缺失时回退 legacy `state_key=""` 通道；不再 fan-out 全部 28 个 shard。
     pub async fn is_friend(&self, room_id: &str, friend_id: &str) -> Result<bool, sqlx::Error> {
-        // W5 sharding：fan-out 读所有 shard（不限 state_key），合并后查找。
-        let shards = self.get_friend_list_all_shards(room_id).await?;
-        for (_state_key, content) in shards {
-            if content.get("friends").and_then(|f| f.as_array()).is_some_and(|friends| {
-                friends.iter().any(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend_id))
-            }) {
+        let target = shard_for_user_id(friend_id).to_string();
+        // 1) 路由 shard 命中即返回
+        if let Some(content) = self.get_friend_list_shard(room_id, &target).await? {
+            if content_contains_friend(&content, friend_id) {
+                return Ok(true);
+            }
+        }
+        // 2) v4 legacy 回退：升级前好友可能仍在 state_key=""
+        if let Some(content) = self.get_friend_list_shard(room_id, "").await? {
+            if content_contains_friend(&content, friend_id) {
                 return Ok(true);
             }
         }
@@ -284,17 +292,24 @@ impl FriendRoomStorage {
     }
 
     /// 获取好友信息
+    ///
+    /// W5 sharding 读路径：只读取 friend 所在 shard（按 friend_id 路由），
+    /// 缺失时回退 legacy `state_key=""` 通道；不再 fan-out 全部 28 个 shard。
     pub async fn get_friend_info(
         &self,
         room_id: &str,
         friend_id: &str,
     ) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        // W5 sharding：fan-out 读所有 shard，命中即返回。
-        let shards = self.get_friend_list_all_shards(room_id).await?;
-        for (_state_key, content) in shards {
-            if let Some(found) = content.get("friends").and_then(|f| f.as_array()).and_then(|friends| {
-                friends.iter().find(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend_id)).cloned()
-            }) {
+        let target = shard_for_user_id(friend_id).to_string();
+        // 1) 路由 shard 命中即返回
+        if let Some(content) = self.get_friend_list_shard(room_id, &target).await? {
+            if let Some(found) = find_friend_in_content(&content, friend_id) {
+                return Ok(Some(found));
+            }
+        }
+        // 2) v4 legacy 回退：升级前好友可能仍在 state_key=""
+        if let Some(content) = self.get_friend_list_shard(room_id, "").await? {
+            if let Some(found) = find_friend_in_content(&content, friend_id) {
                 return Ok(Some(found));
             }
         }
@@ -958,4 +973,19 @@ impl FriendRoomStorage {
             })
             .collect())
     }
+}
+
+/// 判断某 shard 的 content 是否包含指定 friend_id。
+fn content_contains_friend(content: &serde_json::Value, friend_id: &str) -> bool {
+    content
+        .get("friends")
+        .and_then(|f| f.as_array())
+        .is_some_and(|friends| friends.iter().any(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend_id)))
+}
+
+/// 从某 shard 的 content 中取出指定 friend_id 的条目（克隆），找不到返回 None。
+fn find_friend_in_content(content: &serde_json::Value, friend_id: &str) -> Option<serde_json::Value> {
+    content.get("friends").and_then(|f| f.as_array()).and_then(|friends| {
+        friends.iter().find(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend_id)).cloned()
+    })
 }
