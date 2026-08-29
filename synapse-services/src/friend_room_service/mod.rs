@@ -280,6 +280,18 @@ impl FriendRoomService {
                 "Accept skipped: already friends, returning existing DM room"
             );
             if let Some(dm_room_id) = self.get_existing_dm_room_id(user_id, requester_id).await? {
+                // Defensive join: ensure both users are joined to the DM room.
+                // Covers rooms created before P0 fix where acceptor has invite-only membership.
+                for uid in [&user_id, &requester_id] {
+                    if let Err(e) = self.room_service.membership().join_room(&dm_room_id, uid).await {
+                        tracing::warn!(
+                            user_id = %uid,
+                            dm_room_id = %dm_room_id,
+                            error = %e,
+                            "accept_friend_request: failed to join DM room (non-fatal)"
+                        );
+                    }
+                }
                 return Ok(dm_room_id);
             }
             // 已是好友但找不到 DM 房间（数据不一致），继续执行创建流程
@@ -861,6 +873,32 @@ impl FriendRoomService {
         actor_user_id: Option<&str>,
     ) -> ApiResult<EnsureDirectRoomResult> {
         if let Some(room_id) = self.get_existing_dm_room_id(owner_user_id, friend_user_id).await? {
+            // Defensive join: if either user is only "invite" (not yet joined), auto-join.
+            // This covers rooms created before the P0 fix and edge cases where the
+            // acceptor's join event was lost. join_room is idempotent but does 3 DB
+            // queries even in the no-op case, so we check membership first.
+            for uid in [&owner_user_id, &friend_user_id] {
+                let membership = self
+                    .room_service
+                    .membership()
+                    .resolve_membership_from(&room_id, uid)
+                    .await
+                    .ok()
+                    .and_then(|(m, _)| m);
+                if membership != Some(synapse_common::Membership::Join) {
+                    if let Err(e) =
+                        self.room_service.membership().join_room(&room_id, uid).await
+                    {
+                        tracing::warn!(
+                            user_id = %uid,
+                            room_id = %room_id,
+                            error = %e,
+                            "ensure_direct_room: failed to join existing DM room (non-fatal)"
+                        );
+                    }
+                }
+            }
+
             self.attach_dm_room_to_existing_friendship(
                 owner_user_id,
                 friend_user_id,
