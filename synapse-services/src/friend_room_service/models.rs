@@ -45,7 +45,7 @@ pub fn decode_friend_list_cursor(cursor: Option<&str>) -> Option<FriendListCurso
     serde_json::from_slice::<FriendListCursor>(&decoded).ok()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FriendListEntry {
     pub user_id: String,
     pub username: Option<String>,
@@ -87,10 +87,10 @@ pub struct FriendListPage {
 /// 使不同 limit 请求共享同一缓存条目，提升缓存命中率 ~3x。
 ///
 /// 缓存键由调用方在调用 `cache.set/get` 时构造，包含
-/// `user_id` + `room_id` + `version` + `sort_by`。
+/// `user_id` + `room_id` + `version` + `sort_by`；`room_id` 已在
+/// 缓存键中故 struct 不再重复保存。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendListSortCache {
-    pub room_id: String,
     pub version: i64,
     pub sort_by: String,
     pub items: Vec<FriendListEntry>,
@@ -418,27 +418,7 @@ mod tests {
     }
 
     fn make_entry_with_defaults(user_id: &str) -> FriendListEntry {
-        FriendListEntry {
-            user_id: user_id.to_string(),
-            username: None,
-            display_name: None,
-            avatar_url: None,
-            note: None,
-            status: "accepted".to_string(),
-            online: false,
-            presence: "offline".to_string(),
-            last_active_ts: None,
-            last_seen_ts: None,
-            added_ts: None,
-            sort_letter: "#".to_string(),
-            dm_room_id: None,
-            dm_room_active: false,
-            dm_room_state: None,
-            dm_room_updated_ts: None,
-            dm_room_affected_user_id: None,
-            dm_room_changed_by: None,
-            dm_room_reason: None,
-        }
+        FriendListEntry { user_id: user_id.to_string(), ..Default::default() }
     }
 
     #[test]
@@ -446,7 +426,6 @@ mod tests {
         // FriendListSortCache 通过 cache.set/get 走 JSON 序列化；
         // roundtrip 必须保留 items/total/version/sort_by。
         let original = FriendListSortCache {
-            room_id: "!room:ex.com".to_string(),
             version: 7,
             sort_by: "alphabet".to_string(),
             items: vec![make_cache_entry("@alice:ex.com", "Alice"), make_cache_entry("@bob:ex.com", "Bob")],
@@ -457,7 +436,6 @@ mod tests {
         let json = serde_json::to_string(&original).expect("serialize should succeed");
         let decoded: FriendListSortCache = serde_json::from_str(&json).expect("deserialize should succeed");
 
-        assert_eq!(decoded.room_id, original.room_id);
         assert_eq!(decoded.version, original.version);
         assert_eq!(decoded.sort_by, original.sort_by);
         assert_eq!(decoded.total, original.total);
@@ -517,7 +495,6 @@ mod tests {
             .map(|i| make_cache_entry(&format!("@user{}:ex.com", i), &format!("User{}", i)))
             .collect();
         let sort_cache = FriendListSortCache {
-            room_id: "!room:ex.com".to_string(),
             version: 1,
             sort_by: "alphabet".to_string(),
             items: items.clone(),
@@ -526,12 +503,12 @@ mod tests {
         };
 
         // limit=3 切片
-        let page1: Vec<FriendListEntry> = sort_cache.items.iter().skip(0).take(3).cloned().collect();
+        let page1: Vec<FriendListEntry> = sort_cache.items.iter().take(3).cloned().collect();
         assert_eq!(page1.len(), 3);
         assert_eq!(page1[0].user_id, "@user0:ex.com");
 
         // limit=5 切片（独立分页）
-        let page2: Vec<FriendListEntry> = sort_cache.items.iter().skip(0).take(5).cloned().collect();
+        let page2: Vec<FriendListEntry> = sort_cache.items.iter().take(5).cloned().collect();
         assert_eq!(page2.len(), 5);
         assert_eq!(page2[4].user_id, "@user4:ex.com");
 

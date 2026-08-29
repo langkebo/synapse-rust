@@ -987,8 +987,12 @@ impl FriendRoomService {
         // 1) 排序缓存：不同 limit 共享同一排序结果，命中率提升 ~3x
         // 2) 分页在排序结果上即时应用，O(1) 取数
         let sort_cache_key = format!("friends:list:v4:sort:{}:{}:{}:{}", user_id, room_id, version, request.sort_by);
+        let mut sort_cache_hit = false;
         let sort_cache: FriendListSortCache = match self.cache.get::<FriendListSortCache>(&sort_cache_key).await {
-            Ok(Some(cached)) => cached,
+            Ok(Some(cached)) => {
+                sort_cache_hit = true;
+                cached
+            }
             _ => {
                 let raw_friends = content.get("friends").and_then(|friends| friends.as_array()).cloned().unwrap_or_default();
                 let friend_ids: Vec<String> = raw_friends
@@ -1010,7 +1014,6 @@ impl FriendRoomService {
                 Self::sort_friend_entries(&mut items, &request.sort_by);
 
                 let sort_cache = FriendListSortCache {
-                    room_id: room_id.clone(),
                     version,
                     sort_by: request.sort_by.clone(),
                     total: items.len(),
@@ -1031,7 +1034,9 @@ impl FriendRoomService {
             }
         };
 
-        let items = sort_cache.items;
+        // 借引用避免 Vec<FriendListEntry> 整体 move；paged_items 通过
+        // .cloned() 显式 clone 命中的 50 个 entry，零额外 Vec 移动。
+        let items: &[FriendListEntry] = &sort_cache.items;
         let total = sort_cache.total;
         let start_index = if let Some(cursor) = request.from.as_ref() {
             items
@@ -1067,7 +1072,7 @@ impl FriendRoomService {
             next_offset,
             next_batch,
             version,
-            cached: false,
+            cached: sort_cache_hit,
             generated_ts: current_timestamp_millis(),
         };
 
@@ -2146,6 +2151,59 @@ mod tests {
         assert!(
             max_hot < std::time::Duration::from_millis(100),
             "hot path P99 > 100ms: {max_hot:?} — W3 缓存优化目标未达成"
+        );
+    }
+
+    // ── W3 review cleanup: cached 字段在 hit / miss 时正确 ──────────
+    /// 第一次调用 sort_cache 为空 → `page.cached == false`；
+    /// 第二次调用命中缓存 → `page.cached == true`。
+    /// 防止后续重构把 hit 路径的 `sort_cache_hit = true` 误删回硬编码 `false`。
+    #[tokio::test]
+    async fn get_friends_page_sets_cached_flag_on_cache_hit() {
+        let Some(container) = setup_test_container().await else {
+            return;
+        };
+        let suffix = unique_suffix();
+        let owner = register_test_user(
+            &container,
+            &format!("friendsvc_cached_{suffix}"),
+            "CachedFlag",
+        )
+        .await;
+
+        // 建好友房间（content 为空即可）
+        let _ = container
+            .extensions
+            .friend_room_service
+            .create_friend_list_room(&owner)
+            .await
+            .expect("create_friend_list_room");
+
+        // 第一次：cold miss
+        let request = FriendListRequest::default();
+        let page_miss = container
+            .extensions
+            .friend_room_service
+            .get_friends_page(&owner, request.clone())
+            .await
+            .expect("miss get_friends_page");
+        assert!(
+            !page_miss.cached,
+            "first call should be cache miss, got cached={}",
+            page_miss.cached
+        );
+
+        // 第二次：命中内存 sort_cache
+        let page_hit = container
+            .extensions
+            .friend_room_service
+            .get_friends_page(&owner, request)
+            .await
+            .expect("hit get_friends_page");
+        assert!(
+            page_hit.cached,
+            "second call should be cache hit, got cached={}",
+            page_hit.cached
         );
     }
 }
