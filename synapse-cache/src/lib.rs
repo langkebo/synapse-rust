@@ -817,6 +817,8 @@ pub struct CacheManager {
     /// （进程内单例 / 测试逐实例隔离），**不用全局 `static`**——全局
     /// OnceLock 会把句柄绑死在第一个见到的 collector 上，测试间互相污染。
     rate_limit_metrics: OnceLock<RateLimitMetrics>,
+    /// W7+: 熔断器指标是否已注入（幂等标记，不持有数据）。
+    circuit_breaker_metrics_attached: OnceLock<()>,
 }
 
 impl CacheManager {
@@ -830,6 +832,7 @@ impl CacheManager {
             local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             rate_limit_metrics: OnceLock::new(),
+            circuit_breaker_metrics_attached: OnceLock::new(),
         }
     }
 
@@ -860,6 +863,7 @@ impl CacheManager {
                     local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
                     in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                     rate_limit_metrics: OnceLock::new(),
+                    circuit_breaker_metrics_attached: OnceLock::new(),
                 })
             }
             Err(e) => {
@@ -873,6 +877,7 @@ impl CacheManager {
                     local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
                     in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                     rate_limit_metrics: OnceLock::new(),
+                    circuit_breaker_metrics_attached: OnceLock::new(),
                 })
             }
         }
@@ -903,6 +908,7 @@ impl CacheManager {
             local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             rate_limit_metrics: OnceLock::new(),
+            circuit_breaker_metrics_attached: OnceLock::new(),
         }
     }
 
@@ -923,6 +929,7 @@ impl CacheManager {
             local_cache_ttl: Duration::from_secs(invalidation_config.local_cache_ttl_secs),
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             rate_limit_metrics: OnceLock::new(),
+            circuit_breaker_metrics_attached: OnceLock::new(),
         }
     }
 
@@ -937,6 +944,22 @@ impl CacheManager {
     /// 使 registry 里的值与已发出的计数永久分叉。
     pub fn rate_limit_metrics(&self, collector: &synapse_common::metrics::MetricsCollector) -> &RateLimitMetrics {
         self.rate_limit_metrics.get_or_init(|| RateLimitMetrics::new(collector))
+    }
+
+    /// W7+: 把 Redis 熔断器接到 `collector` 上（幂等，重复调用无副作用）。
+    ///
+    /// `CircuitBreaker::new` 不知道 collector 的存在，指标句柄要在构造后
+    /// 注入——这里就是那个注入点，由 `AppState::new` 在启动时调用一次。
+    /// 没有这一步，`circuit_breaker_requests_total_*` 与
+    /// `circuit_breaker_state` 永远不会被注册（埋了探针没接采集器）。
+    ///
+    /// Redis 未启用时无熔断器可接，静默跳过。
+    pub fn attach_circuit_breaker_metrics(&self, collector: &synapse_common::metrics::MetricsCollector) {
+        self.circuit_breaker_metrics_attached.get_or_init(|| {
+            if let Some(redis) = self.redis.as_ref() {
+                redis.get_circuit_breaker().attach_metrics(collector, "redis");
+            }
+        });
     }
 
     pub fn start_invalidation_subscriber(&self) -> Result<(), ApiError> {
@@ -2080,6 +2103,69 @@ mod tests {
         assert!(cache.get_raw("token:abc").is_none());
         assert!(cache.get_raw("user:@alice:test:presence").is_none());
         assert!(cache.get_raw("sliding_sync:presence:@bob:dev1").is_none());
+    }
+    // ── W7+: 熔断 / 限流指标接线 ───────────────────────────────────────
+    //
+    // 这些测试锁住的是「指标真的被注册」这件事本身。埋点代码即使写对了，
+    // 只要注入点（AppState::new 里的 attach 调用）被删，指标就永远为 0 而
+    // 没有任何报错——这类「静默失效」必须有测试兜底。
+
+    #[test]
+    fn test_attach_circuit_breaker_metrics_registers_counters() {
+        // create_pool 是 lazy 的，不需要真的有 Redis 在跑——这里只是要一个
+        // 带 circuit_breaker 的 RedisCache 实例。
+        let pool = deadpool_redis::Config::from_url("redis://127.0.0.1:6379")
+            .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+            .expect("pool creation is lazy and must not require a live server");
+        let cache = CacheManager::with_redis_pool(pool, &CacheConfig::default());
+        let collector = synapse_common::metrics::MetricsCollector::new();
+
+        cache.attach_circuit_breaker_metrics(&collector);
+
+        let all = collector.collect_metrics();
+        let names: Vec<&str> = all.iter().map(|m| m.name.as_str()).collect();
+        for expected in [
+            "circuit_breaker_state",
+            "circuit_breaker_requests_total_success",
+            "circuit_breaker_requests_total_failure",
+            "circuit_breaker_requests_total_timeout",
+            "circuit_breaker_requests_total_rejected",
+        ] {
+            assert!(names.contains(&expected), "missing `{expected}`, got {names:?}");
+        }
+        // 初值：state=Closed(0)，4 个 counter 均为 0
+        for m in &all {
+            assert_eq!(m.value, 0.0, "{} should start at 0, got {}", m.name, m.value);
+        }
+    }
+
+    #[test]
+    fn test_attach_circuit_breaker_metrics_is_idempotent() {
+        let pool = deadpool_redis::Config::from_url("redis://127.0.0.1:6379")
+            .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+            .expect("pool creation is lazy");
+        let cache = CacheManager::with_redis_pool(pool, &CacheConfig::default());
+        let collector = synapse_common::metrics::MetricsCollector::new();
+
+        // 重复 attach 不能重复注册：MetricsCollector 按 name 覆盖，重复注册
+        // 会把已发出的句柄踢出 registry 导致计数分叉。
+        cache.attach_circuit_breaker_metrics(&collector);
+        let breaker = cache.redis.as_ref().expect("redis").get_circuit_breaker();
+        breaker.record_failure();
+        cache.attach_circuit_breaker_metrics(&collector);
+
+        let all = collector.collect_metrics();
+        let failure = all.iter().find(|m| m.name == "circuit_breaker_requests_total_failure").map_or(0.0, |m| m.value);
+        assert_eq!(failure, 1.0, "第二次 attach 不得重置或分叉已有计数");
+    }
+
+    #[test]
+    fn test_attach_circuit_breaker_metrics_without_redis_is_noop() {
+        // 无 Redis 时没有熔断器可接，静默跳过（不得 panic）
+        let cache = CacheManager::new(&CacheConfig::default());
+        let collector = synapse_common::metrics::MetricsCollector::new();
+        cache.attach_circuit_breaker_metrics(&collector);
+        assert!(collector.collect_metrics().is_empty());
     }
 }
 

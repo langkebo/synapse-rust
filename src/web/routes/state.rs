@@ -84,6 +84,12 @@ impl AppState {
         let inbound_edu_max_concurrency = services.core.config.federation.inbound_edu_max_concurrency.max(1);
         let join_max_concurrency = services.core.config.federation.join_max_concurrency.max(1);
 
+        // W7+: 把 Redis 熔断器接到 metrics collector 上。构造器拿不到
+        // collector（`CircuitBreaker::new` 不知道它的存在），故在此——
+        // AppState 组装完成、services 与 cache 都已就位时——注入一次。
+        // 幂等：内部 OnceLock 保证重复调用不会重复注册 counter。
+        cache.attach_circuit_breaker_metrics(&services.core.metrics);
+
         Self {
             services: Arc::new(services),
             cache,
