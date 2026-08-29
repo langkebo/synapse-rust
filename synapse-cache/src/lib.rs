@@ -10,7 +10,7 @@ use deadpool_redis::{Config, Pool, PoolConfig, Runtime};
 use moka::sync::Cache;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use synapse_common::claims::Claims;
 use synapse_common::ApiError;
@@ -21,6 +21,7 @@ pub mod circuit_breaker;
 pub mod federation_signature_cache;
 pub mod invalidation;
 pub mod query_cache;
+pub mod rate_limit_metrics;
 pub mod strategy;
 
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerMetrics, CircuitState};
@@ -35,6 +36,7 @@ pub use invalidation::{
     DEFAULT_LOCAL_CACHE_TTL_SECS, DEFAULT_REDIS_CACHE_TTL_SECS,
 };
 pub use query_cache::{CacheEntry, CacheStats, QueryCache, QueryCacheConfig};
+pub use rate_limit_metrics::RateLimitMetrics;
 pub use strategy::{CacheKeyBuilder, CacheTtl};
 
 const DEFAULT_REDIS_TIMEOUT_MS: u64 = 500;
@@ -811,6 +813,10 @@ pub struct CacheManager {
     /// stampede when a hot key expires. Each entry is an `Arc<Mutex<()>>` that
     /// serializes concurrent fetches for the same key.
     in_flight: SingleFlightMap,
+    /// W7+: 限流指标的 counter 句柄缓存。跟随 `CacheManager` 生命周期
+    /// （进程内单例 / 测试逐实例隔离），**不用全局 `static`**——全局
+    /// OnceLock 会把句柄绑死在第一个见到的 collector 上，测试间互相污染。
+    rate_limit_metrics: OnceLock<RateLimitMetrics>,
 }
 
 impl CacheManager {
@@ -823,6 +829,7 @@ impl CacheManager {
             invalidation_manager: None,
             local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            rate_limit_metrics: OnceLock::new(),
         }
     }
 
@@ -852,6 +859,7 @@ impl CacheManager {
                     invalidation_manager: Some(invalidation_manager),
                     local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
                     in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+                    rate_limit_metrics: OnceLock::new(),
                 })
             }
             Err(e) => {
@@ -864,6 +872,7 @@ impl CacheManager {
                     invalidation_manager: None,
                     local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
                     in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+                    rate_limit_metrics: OnceLock::new(),
                 })
             }
         }
@@ -893,6 +902,7 @@ impl CacheManager {
             invalidation_manager: Some(invalidation_manager),
             local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            rate_limit_metrics: OnceLock::new(),
         }
     }
 
@@ -912,7 +922,21 @@ impl CacheManager {
             invalidation_manager: Some(invalidation_manager),
             local_cache_ttl: Duration::from_secs(invalidation_config.local_cache_ttl_secs),
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            rate_limit_metrics: OnceLock::new(),
         }
+    }
+
+    /// W7+: 取限流指标句柄，首次调用时向 `collector` 注册 6 个 counter。
+    ///
+    /// 注册只在进程生命周期内发生一次；之后 `get_or_init` 是一次原子读，
+    /// `inc()` 是 `AtomicU64::fetch_add(Relaxed)`——热路径无锁、无全局
+    /// mutex 争用。
+    ///
+    /// **不要**改成每次调用都 `register_counter*`：`MetricsCollector` 的
+    /// registry 是覆盖语义的 `HashMap`，反复注册会把旧句柄踢出 registry，
+    /// 使 registry 里的值与已发出的计数永久分叉。
+    pub fn rate_limit_metrics(&self, collector: &synapse_common::metrics::MetricsCollector) -> &RateLimitMetrics {
+        self.rate_limit_metrics.get_or_init(|| RateLimitMetrics::new(collector))
     }
 
     pub fn start_invalidation_subscriber(&self) -> Result<(), ApiError> {
