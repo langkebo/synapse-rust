@@ -59,6 +59,37 @@ fn merge_friend_list_shards(shards: &[(String, Value)]) -> Value {
     json!({ "friends": all_friends, "version": max_version })
 }
 
+/// 读取「用于更新的好友列表 shard」，兼容 v4 legacy 数据（W5 sharding）。
+///
+/// v5 好友按 `shard_for_user_id(friend_id)` 路由到对应 `state_key` 的 shard；
+/// 但 v4 时代的好友全写在 `state_key=""` 遗留通道，W5 不主动迁移。因此若目标
+/// shard 不存在或不包含该 friend，回退到 legacy `""` shard 定位。
+///
+/// 返回 `(effective_state_key, content)`，调用方修改后写回 `effective_state_key` 即可
+/// （新增好友写目标 shard；遗留好友就地写回 `""`，保持 no-migration 语义）。
+pub(crate) async fn read_friend_shard_for_update(
+    storage: &dyn synapse_storage::friend_room::FriendRoomStoreApi,
+    room_id: &str,
+    friend_id: &str,
+) -> Result<(String, serde_json::Value), sqlx::Error> {
+    let target = shard_to_state_key(shard_for_user_id(friend_id));
+    if let Some(content) = storage.get_friend_list_shard(room_id, &target).await? {
+        let present = content
+            .get("friends")
+            .and_then(|f| f.as_array())
+            .map(|arr| arr.iter().any(|f| f.get("user_id").and_then(|u| u.as_str()) == Some(friend_id)))
+            .unwrap_or(false);
+        if present {
+            return Ok((target, content));
+        }
+    }
+    // v4 legacy 回退：升级前的好友可能仍在 state_key=""
+    if let Some(content) = storage.get_friend_list_shard(room_id, "").await? {
+        return Ok(("".to_string(), content));
+    }
+    Ok((target, json!({ "friends": [], "version": 1 })))
+}
+
 /// W6: cursor 翻页起点解析。
 ///
 /// 输入：`items` 已排序的好友数组（cursor 翻页的目标数组）、
@@ -1054,8 +1085,16 @@ impl FriendRoomService {
         // 2) 分页在排序结果上即时应用，O(1) 取数
         // 缓存 key v5：相对 v4 增加了 shard fingerprint 防御 shard 数变更
         // 触发的缓存不一致（v4 → v5 升级期间老缓存自动失效，无需手动清理）
-        let shard_fingerprint =
-            shards.iter().map(|(k, _)| format!("{}:{}", k, content["version"])).collect::<Vec<_>>().join("|");
+        // 用每个 shard 自己的 version（而非合并后的全局 max），否则非 max shard 更新时
+        // 全局 max 不变 → 指纹不变 → 排序缓存不失效（见 W5 review Blocker 1）。
+        let shard_fingerprint = shards
+            .iter()
+            .map(|(k, shard_content)| {
+                let v = shard_content.get("version").and_then(|x| x.as_i64()).unwrap_or(0);
+                format!("{}:{}", k, v)
+            })
+            .collect::<Vec<_>>()
+            .join("|");
         let sort_cache_key = format!(
             "friends:list:v5:sort:{}:{}:{}:{}:{}",
             user_id, room_id, version, request.sort_by, shard_fingerprint
@@ -1305,15 +1344,10 @@ impl FriendRoomService {
     ) -> ApiResult<()> {
         // W5 sharding：按 friend_id 路由到对应 shard，只改该 shard。
         // 同 shard 内 add/remove 不动其他 shard，避免单 event 超过 2704 字节上限。
-        let shard = shard_for_user_id(friend_id);
-        let state_key = shard_to_state_key(shard);
-
-        let mut content = self
-            .friend_storage
-            .get_friend_list_shard(room_id, &state_key)
+        // v4 遗留好友可能在 legacy state_key=""，read_friend_shard_for_update 会回退定位。
+        let (state_key, mut content) = read_friend_shard_for_update(self.friend_storage.as_ref(), room_id, friend_id)
             .await
-            .map_err(|e| ApiError::database_with_context("Database error", &e))?
-            .unwrap_or_else(|| json!({ "friends": [], "version": 1 }));
+            .map_err(|e| ApiError::database_with_context("Database error", &e))?;
 
         let friends_array = content
             .get_mut("friends")
@@ -1364,12 +1398,11 @@ impl FriendRoomService {
             return Ok(false);
         };
 
-        let mut content = self
-            .friend_storage
-            .get_friend_list_shard(&friend_room_id, &shard_to_state_key(shard_for_user_id(friend_id)))
-            .await
-            .map_err(|e| ApiError::database_with_context("Database error", &e))?
-            .unwrap_or_else(|| json!({ "friends": [], "version": 1 }));
+        // v4 遗留好友可能在 legacy state_key=""，read_friend_shard_for_update 会回退定位。
+        let (state_key, mut content) =
+            read_friend_shard_for_update(self.friend_storage.as_ref(), &friend_room_id, friend_id)
+                .await
+                .map_err(|e| ApiError::database_with_context("Database error", &e))?;
 
         let now = current_timestamp_millis();
         let mut touched = false;
@@ -1406,14 +1439,7 @@ impl FriendRoomService {
             content["version"] = json!(version + 1);
         }
 
-        self.send_state_event(
-            &friend_room_id,
-            owner_user_id,
-            "m.friends.list",
-            &shard_to_state_key(shard_for_user_id(friend_id)),
-            content,
-        )
-        .await?;
+        self.send_state_event(&friend_room_id, owner_user_id, "m.friends.list", &state_key, content).await?;
 
         Ok(true)
     }
@@ -2638,6 +2664,145 @@ mod tests {
         assert!(
             per_call_ns < 50_000,
             "W6 resolve_cursor_start_index 1000 items > 50us: {per_call_ns}ns — 二分性能未达成"
+        );
+    }
+
+    // ── W5 review (Blocker 1): 非 max shard 更新后排序缓存必须失效 ──
+    //
+    // 构造两个 shard：A 版本 100（全局 max），B 版本 1。B 中好友 displayname
+    // 更新后 B 版本 1→2，但全局 max 仍为 100。修复前指纹用全局 max → 不变 →
+    // 缓存命中旧值；修复后指纹用每 shard 版本 → B:1→B:2 → 缓存失效。
+    #[tokio::test]
+    async fn w5_non_max_shard_update_invalidates_sort_cache() {
+        let Some(container) = setup_test_container().await else {
+            return;
+        };
+        let suffix = unique_suffix();
+        let owner = register_test_user(&container, &format!("w5cache_{suffix}"), "Owner").await;
+        let room = container.extensions.friend_room_service.create_friend_list_room(&owner).await.expect("create room");
+
+        let a_friend = format!("@a0_{suffix}:example.com");
+        let b_friend = format!("@b0_{suffix}:example.com");
+
+        // shard A：高版本（全局 max），含 A 好友
+        container
+            .extensions
+            .friend_room_service
+            .send_state_event(
+                &room,
+                &owner,
+                "m.friends.list",
+                "A",
+                json!({
+                    "friends": [{"user_id": a_friend, "displayname": "A-Friend", "status": "normal", "dm_room_active": false, "dm_room_state": "none"}],
+                    "version": 100,
+                }),
+            )
+            .await
+            .expect("inject shard A");
+        // shard B：低版本，含 B 好友（displayname 初始 "old"）
+        container
+            .extensions
+            .friend_room_service
+            .send_state_event(
+                &room,
+                &owner,
+                "m.friends.list",
+                "B",
+                json!({
+                    "friends": [{"user_id": b_friend, "displayname": "old", "status": "normal", "dm_room_active": false, "dm_room_state": "none"}],
+                    "version": 1,
+                }),
+            )
+            .await
+            .expect("inject shard B");
+
+        let request = FriendListRequest { limit: 50, offset: Some(0), from: None, sort_by: "alphabet".to_string() };
+
+        // 第一次：cold，填充 sort_cache
+        let _ = container
+            .extensions
+            .friend_room_service
+            .get_friends_page(&owner, request.clone())
+            .await
+            .expect("first page");
+
+        // 更新 B 中好友 displayname → "new"（B 版本 1→2，全局 max 仍是 100）
+        container
+            .extensions
+            .friend_room_service
+            .update_friend_displayname(&owner, &b_friend, "new")
+            .await
+            .expect("update B displayname");
+
+        // 第二次：必须反映新 displayname（证明缓存已失效）
+        let page = container
+            .extensions
+            .friend_room_service
+            .get_friends_page(&owner, request.clone())
+            .await
+            .expect("second page");
+
+        let b_entry = page.items.iter().find(|e| e.user_id == b_friend).expect("B friend present in page");
+        assert_eq!(
+            b_entry.display_name.as_deref(),
+            Some("new"),
+            "非 max shard 更新后排序缓存必须失效，否则返回陈旧 displayname"
+        );
+    }
+
+    // ── W5 review (Blocker 2): v4 遗留数据（state_key=""）必须可更新 ──
+    //
+    // 将好友写入 legacy state_key=""（v4 通道），升级后不主动迁移。修复前
+    // update_friend_displayname 只查计算出的 shard（如 "L"）找不到 → not_found；
+    // 修复后 helper 回退读 "" shard 并更新写回 ""。
+    #[tokio::test]
+    async fn w5_legacy_shard_friend_can_be_updated() {
+        let Some(container) = setup_test_container().await else {
+            return;
+        };
+        let suffix = unique_suffix();
+        let owner = register_test_user(&container, &format!("w5legacy_{suffix}"), "Owner").await;
+        let room = container.extensions.friend_room_service.create_friend_list_room(&owner).await.expect("create room");
+
+        let legacy_friend = format!("@legacy1_{suffix}:example.com");
+        // 写入 legacy state_key=""
+        container
+            .extensions
+            .friend_room_service
+            .send_state_event(
+                &room,
+                &owner,
+                "m.friends.list",
+                "",
+                json!({
+                    "friends": [{"user_id": legacy_friend, "displayname": "old", "status": "normal", "dm_room_active": false, "dm_room_state": "none"}],
+                    "version": 1,
+                }),
+            )
+            .await
+            .expect("inject legacy shard");
+
+        // 更新 legacy 好友 displayname → 修复前应返回 not_found 错误
+        container
+            .extensions
+            .friend_room_service
+            .update_friend_displayname(&owner, &legacy_friend, "new")
+            .await
+            .expect("legacy friend update must succeed");
+
+        // 读回验证
+        let info = container
+            .extensions
+            .friend_room_service
+            .get_friend_info(&owner, &legacy_friend)
+            .await
+            .expect("get_friend_info")
+            .expect("friend present");
+        assert_eq!(
+            info.get("displayname").and_then(|v| v.as_str()),
+            Some("new"),
+            "legacy 好友更新后 displayname 应为 new"
         );
     }
 
