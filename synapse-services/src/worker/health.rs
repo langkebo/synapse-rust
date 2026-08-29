@@ -454,7 +454,7 @@ mod tests {
         checker.register_worker("worker1").await;
 
         // 模拟崩溃：最后一次心跳在 1 小时前
-        let stale_ts = current_timestamp_millis() - 3600_000;
+        let stale_ts = current_timestamp_millis() - 3_600_000;
         checker.last_heartbeat.write().await.insert("worker1".to_string(), stale_ts);
 
         checker.check_health("worker1").await;
@@ -474,7 +474,7 @@ mod tests {
         });
         checker.register_worker("worker1").await;
 
-        let stale_ts = current_timestamp_millis() - 3600_000;
+        let stale_ts = current_timestamp_millis() - 3_600_000;
         checker.last_heartbeat.write().await.insert("worker1".to_string(), stale_ts);
         checker.check_health("worker1").await;
         checker.check_health("worker1").await;
