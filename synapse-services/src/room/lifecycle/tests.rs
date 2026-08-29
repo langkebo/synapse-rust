@@ -1,3 +1,9 @@
+// Module-level allow: 这个 file 命名为 tests.rs 是 Rust 测试模块的
+// 惯用约定（integration-style 单文件测试）。`mod tests { ... }` 是
+// 项目里的标准内部单元测试结构。rename 文件会破坏测试运行路径，
+// 因此用 allow 锁住 clippy::module_inception lint。
+#![allow(clippy::module_inception)]
+
 #[cfg(test)]
 mod tests {
     use super::super::service::{LifecycleService, LifecycleServiceConfig};
