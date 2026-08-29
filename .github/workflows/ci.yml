@@ -181,9 +181,20 @@ jobs:
         if: matrix.features-args == '--all-features'
         run: bash scripts/precache-swagger-ui.sh
 
-      - name: Check formatting
+      # ── W7+: fmt debt 棘轮（ratchet）────────────────────────────
+      # 原 step 是 `cargo fmt --all -- --check`（全有或全无）。仓库里累积的
+      # 31 处 rustfmt 不合规（friend_room_service / sliding_sync_service 等
+      # 12 个文件）让它长期是红的 —— 长期红的 CI 会被忽视，新引入的格式
+      # 问题淹没在既有噪声里，比不检查更糟。
+      #
+      # 改成棘轮：只比对数量，不许增、也不许「悄悄减」。
+      #   current > baseline -> 失败（引入新问题）
+      #   current < baseline -> 失败（debt 减少了，必须收紧棘轮）
+      #   current == baseline -> 通过
+      # 详见 scripts/check_fmt_ratchet.sh 头注释（含更新 baseline 的命令）。
+      - name: Check formatting (ratchet)
         if: matrix.rust-toolchain == 'stable' && matrix.features-args == ''
-        run: cargo fmt --all -- --check
+        run: ./scripts/check_fmt_ratchet.sh
 
       - name: Run clippy
         run: cargo clippy ${{ matrix.features-args }} --locked -- -D warnings
