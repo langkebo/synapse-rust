@@ -1,5 +1,6 @@
 pub mod groups;
 pub mod models;
+pub mod sharding;
 use self::models::{
     ensure_room_in_direct_map, get_room_direct_users, merge_direct_links, remove_room_from_direct_map, sort_letter_for,
 };
