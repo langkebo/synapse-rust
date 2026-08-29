@@ -23,6 +23,10 @@ pub struct CoreContext {
     /// middleware should skip (sync/sliding-sync endpoints with their own
     /// per-user+device rate limiting).
     pub rate_limit_exempt_paths: Arc<Vec<&'static str>>,
+    /// W7+: 补上与其它 context（Room/Sync/Media/...）一致的 metrics 句柄，
+    /// 供 `rate_limit_middleware` 发射限流指标。此前 CoreContext 是唯一
+    /// 缺该字段的 context。
+    pub metrics: Arc<synapse_common::metrics::MetricsCollector>,
 }
 
 impl CoreContext {
@@ -43,6 +47,7 @@ impl FromRef<AppState> for CoreContext {
             cache: state.cache.clone(),
             rate_limit_config_manager: state.rate_limit_config_manager().cloned(),
             rate_limit_exempt_paths: state.rate_limit_exempt_paths.clone(),
+            metrics: state.services.core.metrics.clone(),
         }
     }
 }
