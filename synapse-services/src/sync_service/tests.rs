@@ -1893,8 +1893,10 @@ fn sync_service_for_notifier_test(
             .expect("lazy pool"),
     );
     let cache = Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default()));
-    let mut perf = synapse_common::config::PerformanceConfig::default();
-    perf.sync_poll_interval_ms = sync_poll_interval_ms;
+    let perf = synapse_common::config::PerformanceConfig {
+        sync_poll_interval_ms,
+        ..Default::default()
+    };
 
     SyncService::from_deps(SyncServiceDeps {
         presence_storage: Arc::new(synapse_storage::test_mocks::InMemoryPresenceStore::new()),
