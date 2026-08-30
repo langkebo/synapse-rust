@@ -3949,6 +3949,8 @@ CREATE INDEX IF NOT EXISTS idx_thread_replies_room ON thread_replies(room_id);
 CREATE INDEX IF NOT EXISTS idx_thread_replies_content_trgm ON thread_replies USING GIN ((content->>'body') gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_thread_relations_relates_to ON event_relations(relates_to_event_id);
 CREATE INDEX IF NOT EXISTS idx_thread_relations_type ON event_relations(relation_type);
+-- DB-05: GIN index on event_relations.content (jsonb_path_ops) for fast containment queries
+CREATE INDEX IF NOT EXISTS idx_event_relations_content_gin ON event_relations USING GIN (content jsonb_path_ops);
 CREATE INDEX IF NOT EXISTS idx_thread_subscriptions_user ON thread_subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_thread_read_receipts_user_room ON thread_read_receipts(user_id, room_id);
 
