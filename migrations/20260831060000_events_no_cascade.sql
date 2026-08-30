@@ -39,10 +39,13 @@
 -- but the Rust layer is not yet updated) MUST be cleaned up before
 -- rollback, or the CASCADE re-add will fail.
 
--- Step 1: Drop the existing CASCADE FK on events.room_id.
--- The constraint was named `fk_events_room` in the v10 baseline (L335).
+-- Step 1: Drop the existing CASCADE FKs on events.room_id.
+-- There are two constraints covering the same relationship in the v10 baseline:
+--   - fk_events_room (inline CREATE TABLE, line 338): already NO ACTION in v10
+--   - fk_events_room_id (IF NOT EXISTS block, line 4272): still CASCADE — THIS is the problem
 -- Use IF EXISTS for idempotency in case this is re-run.
 ALTER TABLE events DROP CONSTRAINT IF EXISTS fk_events_room;
+ALTER TABLE events DROP CONSTRAINT IF EXISTS fk_events_room_id;
 
 -- Step 2: Re-add the same constraint as NO ACTION (the default).
 -- We name it `fk_events_room_no_action` to make the change traceable.

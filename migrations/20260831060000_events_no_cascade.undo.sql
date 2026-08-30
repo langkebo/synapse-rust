@@ -19,6 +19,7 @@
 --
 -- Then:
 ALTER TABLE events DROP CONSTRAINT IF EXISTS fk_events_room_no_action;
+ALTER TABLE events DROP CONSTRAINT IF EXISTS fk_events_room;
 
 ALTER TABLE events
     ADD CONSTRAINT fk_events_room
@@ -26,3 +27,12 @@ ALTER TABLE events
     NOT VALID;
 
 ALTER TABLE events VALIDATE CONSTRAINT fk_events_room;
+
+-- Also restore the secondary CASCADE constraint from v10 baseline (line 4272)
+-- to keep the schema byte-identical to pre-DB-04-b state.
+ALTER TABLE events
+    ADD CONSTRAINT fk_events_room_id
+    FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
+    NOT VALID;
+
+ALTER TABLE events VALIDATE CONSTRAINT fk_events_room_id;
