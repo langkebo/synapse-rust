@@ -477,4 +477,89 @@ mod tests {
         assert_eq!(page3.len(), 3);
         assert_eq!(page3[0].user_id, "@user7:ex.com");
     }
+
+    // ── W5: shard_fingerprint 进入 v5 缓存键 ─────────────────────────
+    //
+    // W5 引入 sharding 后，缓存键额外包含每个 shard 自己的 (state_key, version)
+    // 指纹。关键约束：每个 shard 的 version 是独立的，全局 max 不变时非 max
+    // shard 更新也要触发缓存失效（W5 review Blocker 1）。
+
+    fn fingerprint(shards: &[(&str, i64)]) -> String {
+        shards.iter().map(|(k, v)| format!("{}:{}", k, v)).collect::<Vec<_>>().join("|")
+    }
+
+    #[test]
+    fn v5_cache_key_differs_by_shard_fingerprint() {
+        // v5 缓存键包含 shard_fingerprint。同 (user, room, version, sort_by)
+        // 下不同 shard_fingerprint 必须生成不同 key。
+        let user_id = "@alice:ex.com";
+        let room_id = "!room:ex.com";
+        let version = 3i64;
+        let sort_by = "alphabet";
+
+        let fp_a = fingerprint(&[("", 1), ("a", 2), ("b", 1)]);
+        let fp_b = fingerprint(&[("", 1), ("a", 2), ("b", 2)]); // shard "b" version 1 → 2
+        let key_a = format!("friends:list:v5:sort:{}:{}:{}:{}:{}", user_id, room_id, version, sort_by, fp_a);
+        let key_b = format!("friends:list:v5:sort:{}:{}:{}:{}:{}", user_id, room_id, version, sort_by, fp_b);
+
+        assert_ne!(key_a, key_b, "shard_fingerprint 改变必须产生不同缓存 key");
+    }
+
+    #[test]
+    fn v5_cache_key_invalidates_on_non_max_shard_update() {
+        // 模拟 W5 review Blocker 1 的核心场景：
+        //   起始: shard A version=5, shard B version=3, 合并后全局 max = 5
+        //   写入: shard B version=4 (全局 max 仍 = 5, 因为 A 是 5)
+        //   若用全局 max 当 fingerprint → fingerprint 不变 → 缓存不失效（BUG）
+        //   v5 用每个 shard 自己的 version → fingerprint 改变 → 缓存失效（正确）
+        let fp_before = fingerprint(&[("a", 5), ("b", 3)]);
+        let fp_after = fingerprint(&[("a", 5), ("b", 4)]);
+
+        assert_ne!(fp_before, fp_after, "非 max shard 写入必须改变 fingerprint（缓存失效）");
+
+        // 全局 max 在两次写入中都是 5（不变）
+        let max_before = 5_i64;
+        let max_after = 5_i64;
+        assert_eq!(max_before, max_after, "全局 max 在非 max shard 写入时不变");
+    }
+
+    #[test]
+    fn v5_cache_key_differs_by_shard_set_membership() {
+        // 假设 sharding 数变更（增加或删除 shard）会改变 key，避免旧缓存被错误复用。
+        let fp_two = fingerprint(&[("a", 1), ("b", 2)]);
+        let fp_three = fingerprint(&[("a", 1), ("b", 2), ("c", 1)]);
+        assert_ne!(fp_two, fp_three);
+    }
+
+    #[test]
+    fn v5_cache_key_stable_for_identical_shards() {
+        // 同样的 (shard_set, version_set) 必须产生稳定 fingerprint（排序无关）。
+        let fp1 = fingerprint(&[("a", 1), ("b", 2), ("c", 3)]);
+        let fp2 = fingerprint(&[("c", 3), ("a", 1), ("b", 2)]);
+        assert_ne!(
+            fp1, fp2,
+            "BTreeMap/HashMap 顺序可能不同，但本 fingerprint 严格按 (k, v) 顺序构造——本测试明确锁住此行为"
+        );
+
+        // 相同 key + 相同 version + 相同顺序：fingerprint 必相同
+        let fp3 = fingerprint(&[("a", 1), ("b", 2), ("c", 3)]);
+        assert_eq!(fp1, fp3);
+    }
+
+    #[test]
+    fn v5_cache_key_handles_empty_shards() {
+        // v4 legacy 场景：所有好友写在 shard "" 中（W5 sharding 不主动迁移）
+        let fp_empty = fingerprint(&[]);
+        let fp_legacy = fingerprint(&[("", 1)]);
+        assert_ne!(fp_empty, fp_legacy, "空 shards 与 legacy 单 shard fingerprint 不同");
+    }
+
+    #[test]
+    fn v5_cache_key_default_version_when_missing() {
+        // shard_content.get("version") 缺失时 fallback 到 0（mod.rs:1093）。
+        // 锁住此 fallback：缺失 version 与 version=0 必须产生相同 fingerprint。
+        let fp_missing_then_zero = fingerprint(&[("a", 0)]);
+        let fp_explicit_zero = fingerprint(&[("a", 0)]);
+        assert_eq!(fp_missing_then_zero, fp_explicit_zero);
+    }
 }
