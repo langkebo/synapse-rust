@@ -13,50 +13,32 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ## 设计 (DB-02)
+//!
+//! - **核心表清单来自 baseline schema 文件** (`migrations/00000000_unified_schema_v10.sql`)。
+//!   通过 [`crate::baseline_tables`] 在编译期通过 `include_str!` 嵌入并解析，
+//!   避免手工维护 200+ 张表的 `CORE_TABLES` 常量。
+//! - **批量查询**：用 `ANY($1)` 或 `unnest` 一次往返而不是 N 次 (先前 C-4 优化)。
+//! - **迁移完整性**：通过 [`crate::migration_checks`] 验证 `_sqlx_migrations` 表
+//!   与 migrations 目录的一致性。
+//! - **Drift 警告**：实际 `information_schema.tables` 表数与 baseline 期望差距过大时发警告。
 
 use sqlx::{Pool, Postgres};
 use tracing::{error, info, warn};
 
+use crate::baseline_tables::baseline_tables;
+use crate::migration_checks::{check_migration_completeness, count_public_tables};
+
 const AUTO_REPAIR_DISABLED_MESSAGE: &str =
     "Schema health check detected missing indexes. Apply the managed migrations via docker/db_migrate.sh instead of repairing schema at runtime.";
 
-/// 核心表定义
-const CORE_TABLES: &[&str] = &[
-    "users",
-    "devices",
-    "rooms",
-    "room_aliases",
-    "events",
-    "event_relations",
-    "room_memberships",
-    "access_tokens",
-    "refresh_tokens",
-    "user_threepids",
-    "presence",
-    "user_directory",
-    "federation_signing_keys",
-    "rate_limits",
-    "report_rate_limits",
-    "server_notices",
-    "user_notification_settings",
-    "widgets",
-    "secure_key_backups",
-    "secure_backup_session_keys",
-    "background_updates",
-    "room_retention_policies",
-    "account_data",
-    "room_account_data",
-    "to_device_messages",
-    "device_lists_stream",
-    "device_lists_changes",
-    "room_ephemeral",
-    "read_markers",
-    "key_rotation_pending",
-    "key_rotation_state",
-    "lazy_loaded_members",
-];
-
 /// 核心字段定义 (表名, 字段名)
+///
+/// 这些是必须在每张核心表中存在的业务关键字段。表名清单本身是从
+/// baseline schema 自动推导的（见 [`crate::baseline_tables`]），但每张表的
+/// 关键字段仍然需要手工维护——因为哪些列是"业务关键"是一个
+/// 语义判断，不是 schema 结构问题。
 const CORE_COLUMNS: &[(&str, &str)] = &[
     // users 表
     ("users", "user_id"),
@@ -226,6 +208,12 @@ pub struct HealthCheckResult {
     pub missing_indexes: Vec<String>,
     pub repaired_indexes: Vec<String>,
     pub warnings: Vec<String>,
+    /// DB-02 新增：baseline 与实际表数的差异（正值 = 数据库多了，负值 = 少了）
+    pub baseline_drift: i64,
+    /// DB-02 新增：当前数据库中已应用的迁移数量
+    pub applied_migration_count: i64,
+    /// DB-02 新增：缺少的迁移版本号（如果有）
+    pub missing_migrations: Vec<i64>,
 }
 
 impl Default for HealthCheckResult {
@@ -237,6 +225,9 @@ impl Default for HealthCheckResult {
             missing_indexes: Vec::new(),
             repaired_indexes: Vec::new(),
             warnings: Vec::new(),
+            baseline_drift: 0,
+            applied_migration_count: 0,
+            missing_migrations: Vec::new(),
         }
     }
 }
@@ -257,8 +248,13 @@ pub async fn run_schema_health_check(
 
     info!("Starting database schema health check...");
 
-    // 1. 检查核心表
-    result.missing_tables = check_missing_tables(pool, CORE_TABLES).await?;
+    // 1. 检查核心表（DB-02：从 baseline 自动推导，覆盖全部 ~200+ 张表）
+    let expected_tables: &[&str] = baseline_tables();
+    info!(
+        expected_table_count = expected_tables.len(),
+        "validating tables from baseline schema"
+    );
+    result.missing_tables = check_missing_tables(pool, expected_tables).await?;
     if !result.missing_tables.is_empty() {
         result.passed = false;
         error!("Missing tables: {:?}", result.missing_tables);
@@ -285,16 +281,59 @@ pub async fn run_schema_health_check(
     }
 
     // 4. 检查字段命名一致性（警告）
-    result.warnings = check_field_naming_issues(pool).await?;
-    if !result.warnings.is_empty() {
-        warn!("Field naming issues found: {:?}", result.warnings);
+    let mut naming_issues = check_field_naming_issues(pool).await?;
+    result.warnings.append(&mut naming_issues);
+
+    // 5. DB-02 新增：迁移完整性检查
+    match check_migration_completeness(pool).await {
+        Ok((applied, missing)) => {
+            result.applied_migration_count = applied;
+            result.missing_migrations = missing.clone();
+            if !missing.is_empty() {
+                result.passed = false;
+                let preview_count = missing.len().min(10);
+                error!(
+                    missing_count = missing.len(),
+                    "Missing sqlx migrations: {:?}",
+                    &missing[..preview_count]
+                );
+            }
+        }
+        Err(e) => {
+            let msg = format!("Could not check _sqlx_migrations table: {e}");
+            error!("{}", msg);
+            result.warnings.push(msg);
+        }
     }
 
-    // 输出结果
+    // 6. DB-02 新增：Drift 警告
+    let actual_table_count = count_public_tables(pool).await?;
+    let drift = actual_table_count as i64 - expected_tables.len() as i64;
+    result.baseline_drift = drift;
+    if drift.abs() > 10 {
+        let msg = format!(
+            "Baseline drift detected: baseline expects {} tables, database has {} (drift = {}). Investigate before trusting this report.",
+            expected_tables.len(),
+            actual_table_count,
+            drift
+        );
+        warn!("{}", msg);
+        result.warnings.push(msg);
+    }
+
+    if !result.warnings.is_empty() {
+        warn!("Schema warnings (non-critical): {} item(s)", result.warnings.len());
+    }
+
     if result.passed {
-        info!("✅ Schema health check PASSED");
+        info!(
+            tables = expected_tables.len(),
+            migrations = result.applied_migration_count,
+            drift = result.baseline_drift,
+            "Schema health check PASSED"
+        );
     } else {
-        error!("❌ Schema health check FAILED");
+        error!("Schema health check FAILED");
     }
 
     Ok(result)
@@ -405,7 +444,20 @@ pub async fn detailed_report(pool: &Pool<Postgres>) -> Result<String, sqlx::Erro
     let mut report = String::new();
     report.push_str("# Database Schema Health Report\n\n");
 
-    report.push_str(&format!("## Status: {}\n\n", if result.passed { "✅ PASSED" } else { "❌ FAILED" }));
+    report.push_str(&format!("## Status: {}\n\n", if result.passed { "PASSED" } else { "FAILED" }));
+
+    report.push_str("## Metrics (DB-02)\n\n");
+    report.push_str(&format!(
+        "| Metric | Value |\n|--------|-------|\n| Baseline table count | {} |\n| Actual table count | {} |\n| Baseline drift | {} |\n| Missing tables | {} |\n| Missing columns | {} |\n| Missing indexes | {} |\n| Applied migrations | {} |\n| Missing migrations | {} |\n\n",
+        crate::baseline_tables::baseline_table_count(),
+        crate::baseline_tables::baseline_table_count() as i64 + result.baseline_drift,
+        result.baseline_drift,
+        result.missing_tables.len(),
+        result.missing_columns.len(),
+        result.missing_indexes.len(),
+        result.applied_migration_count,
+        result.missing_migrations.len()
+    ));
 
     if !result.missing_tables.is_empty() {
         report.push_str("## Missing Tables\n");
@@ -427,6 +479,14 @@ pub async fn detailed_report(pool: &Pool<Postgres>) -> Result<String, sqlx::Erro
         report.push_str("## Missing Indexes\n");
         for idx in &result.missing_indexes {
             report.push_str(&format!("- {idx}\n"));
+        }
+        report.push('\n');
+    }
+
+    if !result.missing_migrations.is_empty() {
+        report.push_str("## Missing Migrations\n");
+        for v in &result.missing_migrations {
+            report.push_str(&format!("- {v}\n"));
         }
         report.push('\n');
     }
@@ -461,20 +521,17 @@ mod tests {
             missing_columns: vec!["events.room_id".to_string()],
             missing_indexes: vec!["idx_events_room".to_string()],
             repaired_indexes: vec![],
-            warnings: vec![],
+            warnings: vec!["test warning".to_string()],
+            baseline_drift: 3,
+            applied_migration_count: 5,
+            missing_migrations: vec![20240101000001],
         };
 
         assert!(!result.passed);
         assert_eq!(result.missing_tables.len(), 1);
-    }
-
-    #[test]
-    fn test_core_tables_defined() {
-        assert!(CORE_TABLES.contains(&"users"));
-        assert!(CORE_TABLES.contains(&"rooms"));
-        assert!(CORE_TABLES.contains(&"events"));
-        assert!(CORE_TABLES.contains(&"background_updates"));
-        assert!(CORE_TABLES.contains(&"room_retention_policies"));
+        assert_eq!(result.baseline_drift, 3);
+        assert_eq!(result.applied_migration_count, 5);
+        assert_eq!(result.missing_migrations, vec![20240101000001]);
     }
 
     #[test]
@@ -483,5 +540,20 @@ mod tests {
         assert!(CORE_COLUMNS.iter().any(|(t, c)| *t == "events" && *c == "room_id"));
         assert!(CORE_COLUMNS.iter().any(|(t, c)| *t == "background_updates" && *c == "retry_count"));
         assert!(CORE_COLUMNS.iter().any(|(t, c)| *t == "room_retention_policies" && *c == "is_server_default"));
+    }
+
+    /// DB-02：核心表现在从 baseline schema 自动推导。
+    /// 旧测试 `test_core_tables_defined` 检查 CORE_TABLES 常量，已被移除。
+    /// 新测试验证 baseline 解析正确覆盖了 v10 的关键表。
+    #[test]
+    fn test_baseline_covers_known_core_tables() {
+        let tables = baseline_tables();
+        // 这些表在 v10 baseline 中必须出现。
+        for required in &["users", "rooms", "events", "background_updates", "room_retention_policies"] {
+            assert!(
+                tables.contains(required),
+                "baseline must contain '{required}' but it does not"
+            );
+        }
     }
 }

@@ -102,12 +102,15 @@ fn print_summary(result: &HealthCheckResult) {
     println!("\n========================================");
     println!("  Schema Health Check Summary");
     println!("========================================");
-    println!("Status:           {}", if result.passed { "PASSED" } else { "FAILED" });
-    println!("Missing tables:   {}", result.missing_tables.len());
-    println!("Missing columns:  {}", result.missing_columns.len());
-    println!("Missing indexes:  {}", result.missing_indexes.len());
-    println!("Repaired indexes: {}", result.repaired_indexes.len());
-    println!("Warnings:         {}", result.warnings.len());
+    println!("Status:                {}", if result.passed { "PASSED" } else { "FAILED" });
+    println!("Missing tables:        {}", result.missing_tables.len());
+    println!("Missing columns:       {}", result.missing_columns.len());
+    println!("Missing indexes:       {}", result.missing_indexes.len());
+    println!("Repaired indexes:      {}", result.repaired_indexes.len());
+    println!("Applied migrations:    {}", result.applied_migration_count);
+    println!("Missing migrations:    {}", result.missing_migrations.len());
+    println!("Baseline drift:        {}", result.baseline_drift);
+    println!("Warnings:              {}", result.warnings.len());
     println!("========================================\n");
 
     if !result.missing_tables.is_empty() {
@@ -130,6 +133,14 @@ fn print_summary(result: &HealthCheckResult) {
         println!("⚠️  Missing indexes:");
         for i in &result.missing_indexes {
             println!("   - {i}");
+        }
+        println!();
+    }
+
+    if !result.missing_migrations.is_empty() {
+        println!("❌ Missing sqlx migrations:");
+        for v in &result.missing_migrations {
+            println!("   - {v}");
         }
         println!();
     }

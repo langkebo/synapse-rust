@@ -25,8 +25,8 @@ pub mod admin_media;
 pub mod application;
 pub mod application_service;
 pub mod audit;
-/// Auth storage domain group — re-exports auth modules under `auth::`.
 pub mod auth;
+pub mod baseline_tables;
 pub mod background_update;
 pub mod dehydrated_device;
 pub mod delayed_events;
@@ -51,6 +51,7 @@ pub mod maintenance;
 pub mod media;
 pub mod media_quota;
 pub mod membership;
+pub mod migration_checks;
 pub mod moderation;
 pub mod module;
 pub mod monitoring;

@@ -12,6 +12,8 @@ pub use crate::background_update::{
     BackgroundUpdate, BackgroundUpdateHistory, BackgroundUpdateLock, BackgroundUpdateStats, BackgroundUpdateStorage,
     BackgroundUpdateStoreApi, CreateBackgroundUpdateRequest, UpdateBackgroundUpdateRequest,
 };
+pub use crate::baseline_tables::{baseline_table_count, baseline_tables};
+pub use crate::migration_checks::{check_migration_completeness, count_public_tables};
 pub use crate::feature_flags::{
     CreateFeatureFlagRequest, FeatureFlag, FeatureFlagFilters, FeatureFlagRecord, FeatureFlagStorage,
     FeatureFlagStoreApi, FeatureFlagTargetInput, FeatureFlagTargetRecord, UpdateFeatureFlagRequest,
