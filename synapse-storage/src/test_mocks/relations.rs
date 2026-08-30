@@ -2,7 +2,11 @@ use super::*;
 use crate::relations::{
     AggregationResult, CreateRelationParams, EventRelation, RelationQueryParams, RelationsStoreApi,
 };
+use sqlx;
 use synapse_common::current_timestamp_millis;
+// `create_relation_in_tx` signature requires the sqlx transaction type.
+// The in-memory mock does not enforce atomicity; tests using the real
+// `RelationsStorage` get full transactional semantics.
 
 /// In-memory relations store for testing [`RelationsService`].
 ///
@@ -56,6 +60,16 @@ impl RelationsStoreApi for InMemoryRelationsStore {
         };
         relations.push(relation.clone());
         Ok(relation)
+    }
+
+    async fn create_relation_in_tx(
+        &self,
+        params: CreateRelationParams,
+        _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<EventRelation, sqlx::Error> {
+        // In-memory mock: no-op transaction, just delegate to create_relation.
+        // Real implementation uses the transaction for atomicity.
+        self.create_relation(params).await
     }
 
     async fn get_relation(&self, room_id: &str, event_id: &str) -> Result<Option<EventRelation>, sqlx::Error> {

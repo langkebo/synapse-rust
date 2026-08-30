@@ -115,6 +115,14 @@ impl LifecycleService {
         Ok(())
     }
 
+    /// Invite a list of users to a room by writing their `m.room.member` (invite)
+    /// events into the same transaction as the caller.
+    ///
+    /// Requires `&mut tx` — callers must open the transaction so this method
+    /// can participate in a larger atomic unit (e.g. room creation).
+    /// DB-03-b: the previous `Option<&mut tx>` signature was removed; callers
+    /// that passed `None` triggered two independent auto-committed writes with
+    /// no atomicity, and had zero test or production coverage.
     pub(crate) async fn process_invites(
         &self,
         room_id: &str,
@@ -122,7 +130,7 @@ impl LifecycleService {
         invite_reasons: Option<&HashMap<String, String>>,
         sender_user_id: &str,
         base_ts: i64,
-        mut tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> ApiResult<()> {
         if let Some(invites) = invite_list {
             let existing_users = self
@@ -131,74 +139,41 @@ impl LifecycleService {
                 .await
                 .map_err(|e| ApiError::internal_with_context("Failed to check users existence", &e))?;
 
-            if let Some(ref mut t) = tx {
-                let mut offset: i64 = 0;
-                for invitee in invites {
-                    if !existing_users.contains(invitee) {
-                        ::tracing::warn!(
-                            room_id = %room_id,
-                            invitee = %invitee,
-                            sender_user_id = %sender_user_id,
-                            "Skipping invite for non-existent user"
-                        );
-                        continue;
-                    }
-                    let reason = invite_reasons.and_then(|m| m.get(invitee)).map(String::as_str);
-                    self.member_storage
-                        .add_member(room_id, invitee, "invite", None, reason, Some(sender_user_id), Some(&mut **t))
-                        .await
-                        .map_err(|e| ApiError::internal_with_context("Failed to invite user", &e))?;
-                    self.event_writer
-                        .create_event(
-                            CreateEventParams {
-                                event_id: generate_event_id(&self.server_name),
-                                room_id: room_id.to_string(),
-                                user_id: sender_user_id.to_string(),
-                                event_type: "m.room.member".to_string(),
-                                content: build_invite_event_content(invitee, reason),
-                                state_key: Some(invitee.to_string()),
-                                origin_server_ts: base_ts + offset,
-                                redacts: None,
-                            },
-                            Some(&mut **t),
-                        )
-                        .await
-                        .map_err(|e| {
-                            ApiError::internal_with_context("Failed to record m.room.member invite event", &e)
-                        })?;
-                    offset += 1;
+            let mut offset: i64 = 0;
+            for invitee in invites {
+                if !existing_users.contains(invitee) {
+                    ::tracing::warn!(
+                        room_id = %room_id,
+                        invitee = %invitee,
+                        sender_user_id = %sender_user_id,
+                        "Skipping invite for non-existent user"
+                    );
+                    continue;
                 }
-            } else {
-                let mut offset: i64 = 0;
-                for invitee in invites {
-                    if !existing_users.contains(invitee) {
-                        continue;
-                    }
-                    let reason = invite_reasons.and_then(|m| m.get(invitee)).map(String::as_str);
-                    self.member_storage
-                        .add_member(room_id, invitee, "invite", None, reason, Some(sender_user_id), None)
-                        .await
-                        .map_err(|e| ApiError::internal_with_context("Failed to invite user", &e))?;
-                    self.event_writer
-                        .create_event(
-                            CreateEventParams {
-                                event_id: generate_event_id(&self.server_name),
-                                room_id: room_id.to_string(),
-                                user_id: sender_user_id.to_string(),
-                                event_type: "m.room.member".to_string(),
-                                content: build_invite_event_content(invitee, reason),
-                                state_key: Some(invitee.to_string()),
-                                origin_server_ts: base_ts + offset,
-                                redacts: None,
-                            },
-                            None,
-                        )
-                        .await
-                        .map_err(|e| {
-                            ApiError::internal_with_context("Failed to record m.room.member invite event", &e)
-                        })?;
-                    offset += 1;
-                }
+                let reason = invite_reasons.and_then(|m| m.get(invitee)).map(String::as_str);
+                self.member_storage
+                    .add_member(room_id, invitee, "invite", None, reason, Some(sender_user_id), Some(&mut *tx))
+                    .await
+                    .map_err(|e| ApiError::internal_with_context("Failed to invite user", &e))?;
+                self.event_writer
+                    .create_event(
+                        CreateEventParams {
+                            event_id: generate_event_id(&self.server_name),
+                            room_id: room_id.to_string(),
+                            user_id: sender_user_id.to_string(),
+                            event_type: "m.room.member".to_string(),
+                            content: build_invite_event_content(invitee, reason),
+                            state_key: Some(invitee.to_string()),
+                            origin_server_ts: base_ts + offset,
+                            redacts: None,
+                        },
+                        Some(&mut *tx),
+                    )
+                    .await
+                    .map_err(|e| {
+                        ApiError::internal_with_context("Failed to record m.room.member invite event", &e)
+                    })?;
+                offset += 1;
             }
         }
         Ok(())

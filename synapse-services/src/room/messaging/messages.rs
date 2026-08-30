@@ -141,6 +141,23 @@ impl MessagingService {
             }
         };
 
+        // DB-03-a: write the event and its relation (if any) in a single
+        // transaction. Pre-fix, the two `create_*` calls were auto-committed
+        // independently, so a relation write failure left an orphan event
+        // (only `tracing::warn`, no rollback). Now: both writes share a
+        // transaction so they either both succeed or both roll back.
+        //
+        // Trade-off: a relation-write failure (e.g. FK violation against a
+        // missing target event_id) now makes the entire message send fail
+        // rather than silently persisting an orphan event. The previous
+        // behavior masked structural problems as warnings.
+        let mut tx = self
+            .event_writer
+            .pool()
+            .begin()
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to begin send_message transaction", &e))?;
+
         self.create_event(
             CreateEventParams {
                 event_id: event_id.clone(),
@@ -152,10 +169,11 @@ impl MessagingService {
                 origin_server_ts: now,
                 redacts: None,
             },
-            None,
+            Some(&mut tx),
         )
         .await
         .map_err(|e| ApiError::internal_with_context("Failed to send message", &e))?;
+        // create_event failed: `tx` drops here → sqlx auto-rollback → pool returns clean.
 
         if let Some(relates_to) = content.get("m.relates_to").or_else(|| content.get("relates_to")) {
             if let (Some(rel_type), Some(target_event_id)) = (
@@ -164,26 +182,39 @@ impl MessagingService {
             ) {
                 if let Err(e) = self
                     .relations_storage
-                    .create_relation(synapse_storage::relations::CreateRelationParams {
-                        room_id: room_id.to_string(),
-                        event_id: event_id.clone(),
-                        relates_to_event_id: target_event_id.to_string(),
-                        relation_type: rel_type.to_string(),
-                        sender: user_id.to_string(),
-                        origin_server_ts: now,
-                        content: content.clone(),
-                    })
+                    .create_relation_in_tx(
+                        synapse_storage::relations::CreateRelationParams {
+                            room_id: room_id.to_string(),
+                            event_id: event_id.clone(),
+                            relates_to_event_id: target_event_id.to_string(),
+                            relation_type: rel_type.to_string(),
+                            sender: user_id.to_string(),
+                            origin_server_ts: now,
+                            content: content.clone(),
+                        },
+                        &mut tx,
+                    )
                     .await
                 {
-                    ::tracing::warn!(
+                    // Log before tx drops (which auto-rolls-back the event).
+                    ::tracing::error!(
                         target: "relations",
                         event_id = %event_id,
+                        target_event_id = %target_event_id,
                         error = %e,
-                        "Failed to index event relation"
+                        "Relation write failed; event will be rolled back"
                     );
+                    return Err(ApiError::internal_with_context(
+                        "Failed to send message: relation index write failed",
+                        &e,
+                    ));
                 }
             }
         }
+
+        tx.commit()
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to commit send_message transaction", &e))?;
 
         #[cfg(feature = "beacons")]
         if let (Some(beacon_service), Some(params)) = (self.beacon_service.as_ref(), beacon_location_params) {

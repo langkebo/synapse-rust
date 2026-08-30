@@ -52,6 +52,14 @@ pub struct AggregationResult {
 #[async_trait]
 pub trait RelationsStoreApi: Send + Sync {
     async fn create_relation(&self, params: CreateRelationParams) -> Result<EventRelation, sqlx::Error>;
+    /// DB-03-a: transactional variant of `create_relation` for use within a
+    /// caller-managed transaction (e.g. `send_message` writes both an event
+    /// and a relation that must commit or roll back atomically).
+    async fn create_relation_in_tx(
+        &self,
+        params: CreateRelationParams,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<EventRelation, sqlx::Error>;
     async fn get_relation(&self, room_id: &str, event_id: &str) -> Result<Option<EventRelation>, sqlx::Error>;
     async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<EventRelation>, sqlx::Error>;
     async fn count_relations(
@@ -118,6 +126,42 @@ impl RelationsStorage {
         .bind(&params.content)
         .bind(now)
         .fetch_one(&*self.pool)
+        .await
+    }
+
+    /// Transactional variant — executes within a caller-supplied transaction.
+    /// Used by `send_message` (DB-03-a) to keep event + relation writes atomic.
+    pub async fn create_relation_in_tx(
+        &self,
+        params: CreateRelationParams,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<EventRelation, sqlx::Error> {
+        let now = current_timestamp_millis();
+
+        sqlx::query_as::<_, EventRelation>(
+            r"
+            INSERT INTO event_relations (
+                room_id, event_id, relates_to_event_id, relation_type,
+                sender, origin_server_ts, content, created_ts
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (event_id, relation_type, sender) DO UPDATE SET
+                content = EXCLUDED.content,
+                origin_server_ts = EXCLUDED.origin_server_ts,
+                is_redacted = FALSE
+            RETURNING id, room_id, event_id, relates_to_event_id, relation_type,
+                      sender, origin_server_ts, content, is_redacted, created_ts
+            ",
+        )
+        .bind(&params.room_id)
+        .bind(&params.event_id)
+        .bind(&params.relates_to_event_id)
+        .bind(&params.relation_type)
+        .bind(&params.sender)
+        .bind(params.origin_server_ts)
+        .bind(&params.content)
+        .bind(now)
+        .fetch_one(&mut **tx)
         .await
     }
 
@@ -429,6 +473,14 @@ impl RelationsStorage {
 impl RelationsStoreApi for RelationsStorage {
     async fn create_relation(&self, params: CreateRelationParams) -> Result<EventRelation, sqlx::Error> {
         self.create_relation(params).await
+    }
+
+    async fn create_relation_in_tx(
+        &self,
+        params: CreateRelationParams,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<EventRelation, sqlx::Error> {
+        self.create_relation_in_tx(params, tx).await
     }
 
     async fn get_relation(&self, room_id: &str, event_id: &str) -> Result<Option<EventRelation>, sqlx::Error> {

@@ -270,7 +270,7 @@ impl LifecycleService {
                 config.invite_reasons.as_ref(),
                 user_id,
                 now + 7,
-                Some(&mut tx),
+                &mut tx,
             )
             .await;
         if let Err(e) = result {
