@@ -3488,7 +3488,6 @@ CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen_ts DESC);
 -- Access tokens
 CREATE INDEX IF NOT EXISTS idx_access_tokens_user_id ON access_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_access_tokens_valid ON access_tokens(is_revoked) WHERE is_revoked = FALSE;
-CREATE INDEX IF NOT EXISTS idx_access_tokens_token_hash ON access_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_access_tokens_user_revoked ON access_tokens(user_id, is_revoked) WHERE is_revoked = FALSE;
 CREATE INDEX IF NOT EXISTS idx_access_tokens_device_id ON access_tokens(device_id) WHERE device_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_access_tokens_expires ON access_tokens(expires_at) WHERE is_revoked = FALSE;
@@ -3499,7 +3498,6 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_revoked ON refresh_tokens(is_revok
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_device_id ON refresh_tokens(device_id) WHERE device_id IS NOT NULL;
 
 -- Token blacklist
-CREATE INDEX IF NOT EXISTS idx_token_blacklist_hash ON token_blacklist(token_hash);
 CREATE INDEX IF NOT EXISTS idx_token_blacklist_user_id ON token_blacklist(user_id) WHERE user_id IS NOT NULL;
 
 -- Rooms
@@ -3955,7 +3953,6 @@ CREATE INDEX IF NOT EXISTS idx_thread_subscriptions_user ON thread_subscriptions
 CREATE INDEX IF NOT EXISTS idx_thread_read_receipts_user_room ON thread_read_receipts(user_id, room_id);
 
 -- Room invite signatures
-CREATE UNIQUE INDEX IF NOT EXISTS uq_room_invites_invite_code ON room_invites(invite_code)
     WHERE invite_code IS NOT NULL;
 
 -- OIDC user mapping
@@ -3969,45 +3966,31 @@ CREATE INDEX IF NOT EXISTS idx_saml_config_overrides_updated_ts ON saml_config_o
 CREATE INDEX IF NOT EXISTS idx_registration_captcha_captcha_id ON registration_captcha(captcha_id);
 
 -- Cross signing keys
-CREATE INDEX IF NOT EXISTS idx_cross_signing_keys_user ON cross_signing_keys(user_id);
 
 -- Device lists stream
 CREATE INDEX IF NOT EXISTS idx_device_lists_stream_stream_id ON device_lists_stream(stream_id);
 
 -- E2EE audit log
-CREATE INDEX IF NOT EXISTS idx_e2ee_audit_log_user_created ON e2ee_audit_log(user_id, created_ts DESC);
 
 -- Room invite blocklist/allowlist
-CREATE INDEX IF NOT EXISTS idx_room_invite_blocklist_room_user ON room_invite_blocklist(room_id, user_id);
-CREATE INDEX IF NOT EXISTS idx_room_invite_allowlist_room_user ON room_invite_allowlist(room_id, user_id);
 
 -- Presence
 CREATE INDEX IF NOT EXISTS idx_presence_last_active_ts ON presence(last_active_ts) WHERE last_active_ts IS NOT NULL;
 
 -- Room summaries (regular table indexes)
-CREATE INDEX IF NOT EXISTS idx_room_summaries_room_id ON room_summaries(room_id);
-CREATE INDEX IF NOT EXISTS idx_room_summary_members_room_user ON room_summary_members(room_id, user_id);
 
 -- Room tags
-CREATE INDEX IF NOT EXISTS idx_room_tags_user_room ON room_tags(user_id, room_id);
 
 -- User threepids
-CREATE INDEX IF NOT EXISTS idx_user_threepids_medium_address ON user_threepids(medium, address);
 
 -- Room memberships additional
-CREATE INDEX IF NOT EXISTS idx_room_memberships_room_user ON room_memberships(room_id, user_id);
 
 -- Room retention policies
-CREATE INDEX IF NOT EXISTS idx_room_retention_policies_server_default ON room_retention_policies(is_server_default) WHERE is_server_default = TRUE;
 
 -- Room aliases
-CREATE UNIQUE INDEX IF NOT EXISTS idx_room_aliases_room_alias ON room_aliases(room_alias);
-CREATE INDEX IF NOT EXISTS idx_room_aliases_room_id ON room_aliases(room_id);
 
 -- Friend list performance
-CREATE INDEX IF NOT EXISTS idx_events_friend_room ON events(sender, room_id, origin_server_ts DESC)
     WHERE event_type = 'm.room.create' AND content->>'type' = 'm.friends';
-CREATE INDEX IF NOT EXISTS idx_events_friend_list ON events(room_id, origin_server_ts DESC)
     WHERE event_type = 'm.friends.list' AND state_key = '';
 CREATE INDEX IF NOT EXISTS idx_friend_requests_receiver_status ON friend_requests(receiver_id, status, created_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_friend_requests_sender_status ON friend_requests(sender_id, status, created_ts DESC);
@@ -4026,24 +4009,14 @@ CREATE INDEX IF NOT EXISTS idx_search_index_type ON search_index(event_type);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_access_tokens_token_hash ON access_tokens(token_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_refresh_tokens_token_hash ON refresh_tokens(token_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_token_blacklist_token_hash ON token_blacklist(token_hash);
-CREATE INDEX IF NOT EXISTS idx_access_tokens_token_hash ON access_tokens(token_hash);
-CREATE INDEX IF NOT EXISTS idx_access_tokens_valid ON access_tokens(is_revoked) WHERE is_revoked = FALSE;
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_revoked ON refresh_tokens(is_revoked);
-CREATE INDEX IF NOT EXISTS idx_token_blacklist_hash ON token_blacklist(token_hash);
-CREATE INDEX IF NOT EXISTS idx_access_tokens_device_id ON access_tokens(device_id) WHERE device_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_device_id ON refresh_tokens(device_id) WHERE device_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_token_blacklist_user_id ON token_blacklist(user_id) WHERE user_id IS NOT NULL;
 
 -- Users additional
 CREATE INDEX IF NOT EXISTS idx_users_lower_email ON users(LOWER(COALESCE(email, '')));
-CREATE INDEX IF NOT EXISTS idx_users_created_ts ON users(created_ts DESC);
 
 -- Media quota
-CREATE INDEX IF NOT EXISTS idx_media_quota_alerts_user ON media_quota_alerts(user_id);
 CREATE INDEX IF NOT EXISTS idx_media_quota_alerts_is_read ON media_quota_alerts(is_read) WHERE is_read = FALSE;
 
 -- Dehydrated devices
-CREATE INDEX IF NOT EXISTS idx_dehydrated_devices_user ON dehydrated_devices(user_id);
 
 -- Delayed events
 CREATE INDEX IF NOT EXISTS idx_delayed_events_room ON delayed_events(room_id);
@@ -4082,8 +4055,6 @@ CREATE INDEX IF NOT EXISTS idx_typing_stream_user ON typing_stream(user_id);
 CREATE INDEX IF NOT EXISTS idx_typing_stream_active ON typing_stream(room_id, is_typing) WHERE is_typing = TRUE;
 
 -- Room stats
-CREATE INDEX IF NOT EXISTS idx_room_stats_joined ON room_stats_current(joined_members DESC);
-CREATE INDEX IF NOT EXISTS idx_room_stats_local ON room_stats_current(local_users_in_room DESC);
 
 -- Threepid validation
 CREATE INDEX IF NOT EXISTS idx_threepid_session_token_v8 ON threepid_validation_session(token);
