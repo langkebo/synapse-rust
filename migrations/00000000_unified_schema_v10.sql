@@ -4440,17 +4440,9 @@ END $$;
 -- Default Data
 -- ============================================================================
 
--- Default admin user (development only - change password in production!)
-INSERT INTO users (user_id, username, password_hash, is_admin, is_guest, created_ts, displayname)
-VALUES (
-    '@admin:localhost',
-    'admin',
-    '$argon2id$v=19$m=65536,t=3,p=1$VGVzdFNhbHRGb3JBZG1pbg$K7G8H5J3M2N9P4Q6R8S0T2U4V6W8X0Y2Z4A6B8C0D2E4F6G8H0J2K4L6M8N0P2Q4',
-    TRUE,
-    FALSE,
-    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
-    'Administrator'
-) ON CONFLICT (user_id) DO NOTHING;
+-- Default admin user removed (DB-04):
+-- Hardcoded admin INSERT moved to scripts/create-default-admin.sql for opt-in bootstrap.
+-- See docs or run that script manually on fresh install if you need an admin seed.
 
 -- Default sync stream types
 INSERT INTO sync_stream_id (stream_type, last_id, updated_ts)

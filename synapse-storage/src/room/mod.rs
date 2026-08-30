@@ -775,6 +775,13 @@ impl RoomStorage {
         Ok(())
     }
 
+    /// TODO: DB-04-b — Replace CASCADE FK with manual batched cleanup.
+    /// See artifacts/数据库架构诊断报告-2026-08-30.md §P0-3.
+    /// Currently this relies entirely on the `events.room_id ON DELETE CASCADE` FK
+    /// to clean up all related events. That causes AccessExclusiveLock contention
+    /// on the events table when deleting large rooms. When DB-04-b lands, rewrite
+    /// this to manually DELETE FROM events WHERE room_id = $1 IN batches of ~1000
+    /// before the rooms DELETE.
     pub async fn delete_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
         tracing::info!(room_id = %room_id, "Deleting room");
         sqlx::query(
