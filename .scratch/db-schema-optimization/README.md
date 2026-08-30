@@ -9,8 +9,10 @@
 
 ## Tickets overview
 
-| **DB-01** | P0-4 重复索引 | ✅ Done: 73 dups removed (414→341) | ✅ Done |
+| **DB-01** | P0-4 重复索引 | ✅ Done: 73 dups removed (commit a00ac4a1) | ✅ Done |
 | **DB-01-b** | ~~P0-5 schema_migrations~~ → Not redundant (used by schema_validator) | Skipped | — |
+| **DB-04** | P0-6 default admin hardcoded | ✅ Done: moved to scripts/create-default-admin.sql (commit d81043f1) | ✅ Done |
+| **DB-04-b** | P0-3 events CASCADE FK | ⏸ Deferred (requires delete_room Rust refactor) | Skipped |
 | 02 | Expand schema health check coverage | P0-1 | None | 🔴 P0 |
 | 03 | Fix event txn boundary + dedup race | P1-3 | None | 🟠 P1 |
 | 04 | Remove events CASCADE + fix default admin | P0-3, P0-6 | None | 🔴 P0 |
