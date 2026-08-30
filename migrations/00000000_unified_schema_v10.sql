@@ -332,7 +332,10 @@ CREATE TABLE IF NOT EXISTS events (
     redacts TEXT,
     stream_ordering BIGINT DEFAULT nextval('events_stream_ordering_seq'),
     CONSTRAINT pk_events PRIMARY KEY (event_id),
-    CONSTRAINT fk_events_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
+    -- DB-04-b: replaced CASCADE with NO ACTION to avoid AccessExclusiveLock
+    -- on events during room deletion. Rust layer (RoomStorage::delete_room)
+    -- is responsible for batched cleanup in 1000-row chunks.
+    CONSTRAINT fk_events_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE NO ACTION
 );
 ALTER SEQUENCE events_stream_ordering_seq OWNED BY events.stream_ordering;
 

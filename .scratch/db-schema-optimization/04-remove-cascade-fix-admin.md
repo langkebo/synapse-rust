@@ -1,81 +1,66 @@
-# DB-04: 消除 events CASCADE 级联 + 安全清理默认 admin 账号
+# DB-04: 修复默认 admin 账号硬编码 + 记录 events CASCADE 风险
 
-**What to build:** Remove the `ON DELETE CASCADE` FK from `events.room_id` → `rooms.room_id` (currently in DO$$ block of `00000000_unified_schema_v10.sql`), replacing it with application-level cascading via a new migration. Also remove the hardcoded default admin account from the baseline schema, moving it to a post-deploy script.
+**What to build:** Two-part fix split by risk:
+
+**Part A (this ticket)**: Remove the hardcoded default admin account from `00000000_unified_schema_v10.sql` and move it to a dedicated `scripts/create-default-admin.sql` post-deploy script. Low risk, no FK changes.
+
+**Part B (deferred to DB-04-b)**: The `events` `ON DELETE CASCADE` FK fix is **NOT** in this ticket. Investigation shows that `RoomStorage::delete_room` (`synapse-storage/src/room/mod.rs:778`) **relies entirely on CASCADE** to clean up events, room_memberships, and room_aliases. Removing the FK without rewriting delete_room would break room deletion entirely. The CASCADE risk (P0-3) requires both a migration AND a Rust refactor of delete_room to manually batch-delete events first. That's a larger change, scoped as DB-04-b in a follow-up ticket.
 
 **Blocked by:** None (can start immediately)
 
 ## Steps
 
-### 3a. Remove events CASCADE FK
+### Part A: Move default admin to a deploy script
 
-The current FK is defined in the DO$$ block (around line 4295-4297):
-
-```sql
-ALTER TABLE events ADD CONSTRAINT fk_events_room_id
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
-```
-
-Create migration `migrations/YYYYMMDDHHMMSS_remove_events_cascade.sql`:
+The hardcoded admin INSERT is in `00000000_unified_schema_v10.sql` near the end. Find the INSERT into `users` with username = 'admin' and remove it. Then create `scripts/create-default-admin.sql`:
 
 ```sql
--- Remove CASCADE FK from events.room_id
--- Application code will handle cascading event deletion before room deletion
-ALTER TABLE events DROP CONSTRAINT IF EXISTS fk_events_room_id;
+-- Default admin account bootstrap (post-deploy)
+-- RUN ONLY ON FRESH DATABASE INITIALIZATION
+-- Delete this account before exposing server to production users.
 
--- Re-add as SET NULL (events.room_id already allows NULL per baseline schema)
-ALTER TABLE events ADD CONSTRAINT fk_events_room_id
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE SET NULL;
+INSERT INTO users (user_id, username, password_hash, is_admin, must_change_password, created_ts)
+SELECT
+    '@admin:localhost',
+    'admin',
+    '$argon2id$v=19$m=65536,t=3,p=1$VGVzdFNhbHRGb3JBZG1pbg$K7G8H5J3M2N9P4Q6R8S0T2U4V6W8X0Y2Z4A6B8C0D2E4F6G8H0J2K4L6M8N0P2Q4',
+    TRUE,
+    TRUE,
+    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = 'admin');
 ```
 
-Create the migration using `cargo sqlx migrate add remove_events_cascade_fk`.
+Update `docker/db_migrate.sh` (or document in README) to call this script as an optional step on first install only.
 
-### 3b. Audit room deletion code paths
+### Part B: Defer the events CASCADE change
 
-Find all places that delete a room:
+Add a `// TODO: DB-04-b` comment in `synapse-storage/src/room/mod.rs` near `delete_room`:
 
-```bash
-grep -rn "DELETE FROM rooms\|drop_room\|delete_room" synapse-storage/src/ synapse-services/src/
+```rust
+// TODO: DB-04-b — Replace CASCADE FK with manual batched cleanup.
+// See artifacts/数据库架构诊断报告-2026-08-30.md §P0-3.
+pub async fn delete_room(&self, room_id: &str) -> Result<(), sqlx::Error> { ... }
 ```
 
-For each path, verify that it first deletes (or archives) all related events. If any path is missing the pre-deletion step, add it.
+Do NOT actually change the FK or delete_room yet — that's a separate, larger refactor.
 
-### 3c. Move default admin account to post-deploy script
+### Verify
 
-In `00000000_unified_schema_v10.sql`, find and remove the admin INSERT (around line 4471-4480). Create a new file `scripts/setup-default-admin.sh`:
+- `python3 scripts/check_baseline_consolidation.py` — pass
+- `cargo check --all` — clean
+- `grep -c "admin" migrations/00000000_unified_schema_v10.sql` — decreased (admin INSERT removed)
+- `grep -c "TODO: DB-04-b" synapse-storage/src/room/mod.rs` — exactly 1
 
-```bash
-#!/bin/bash
-# Post-deploy script: create default admin account
-# Run ONLY on fresh database initialization
-# WARNING: Delete this account in production before opening to users
-
-psql "$DATABASE_URL" <<-EOSQL
-    INSERT INTO users (user_id, username, password_hash, is_admin, must_change_password, created_ts)
-    SELECT
-        '@admin:localhost',
-        'admin',
-        '\$argon2id\$v=19\$m=65536,t=3,p=1\$...',  -- placeholder, force change
-        TRUE,
-        TRUE,
-        EXTRACT(EPOCH FROM NOW()) * 1000 AS created_ts
-    WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = 'admin');
-EOSQL
-```
-
-Add this to the deployment checklist and mark it as a required manual step.
-
-### 3d. Verify
+### Commit
 
 ```bash
-cargo sqlx migrate run
-# Verify the FK changed:
-psql -c "\d events" | grep fk_events_room_id
-# Should show: ... REFERENCES rooms(room_id) ON DELETE SET NULL
-```
+git add migrations/00000000_unified_schema_v10.sql scripts/create-default-admin.sql synapse-storage/src/room/mod.rs
+git commit -m "fix(schema): move default admin to deploy script + flag DB-04-b deferred
 
-### 3e. Commit
-
-```bash
-git add migrations/ scripts/setup-default-admin.sh
-git commit -m "fix(schema): remove events CASCADE FK, move default admin to deploy script"
+DB-04 Part A:
+- Removed hardcoded admin INSERT from baseline (00000000_unified_schema_v10.sql)
+- Added scripts/create-default-admin.sql for opt-in bootstrap
+- Added TODO comment in delete_room flagging future DB-04-b (CASCADE FK refactor)
+- baseline_consolidation: passes
+- cargo check --all: clean"
 ```

@@ -419,7 +419,11 @@ impl RoomStoreApi for super::RoomStorage {
     }
 
     async fn delete_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
-        self.delete_room(room_id).await
+        // Default impl ignores the `u64` (events deleted) returned by
+        // RoomStorage::delete_room so that this trait stays simple.
+        // Implementations that need the count can call the inherent method.
+        let _ = self.delete_room(room_id).await?;
+        Ok(())
     }
 
     async fn shutdown_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
