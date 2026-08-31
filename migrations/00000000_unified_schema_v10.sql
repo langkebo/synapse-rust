@@ -4197,17 +4197,50 @@ CREATE INDEX IF NOT EXISTS idx_rooms_summaries_mv_creator
 CREATE INDEX IF NOT EXISTS idx_rooms_summaries_mv_members
     ON rooms_summaries_mv(joined_members DESC, last_activity_ts DESC);
 
--- pg_cron refresh schedule (only if pg_cron extension is available)
-DO $$
+-- P1-6: 可重入 MV refresh 配置管理函数（仅在 pg_cron 可用时生效）
+CREATE OR REPLACE FUNCTION configure_rooms_summaries_refresh(interval TEXT)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
-        PERFORM cron.schedule(
-            'refresh-rooms-summaries',
-            '*/5 * * * *',
-            'REFRESH MATERIALIZED VIEW CONCURRENTLY rooms_summaries_mv'
-        );
+    IF interval IS NULL OR interval = '' THEN
+        RAISE EXCEPTION 'interval cannot be null or empty';
     END IF;
-END $$;
+    PERFORM cron.unschedule('refresh-rooms-summaries');
+    PERFORM cron.schedule(
+        'refresh-rooms-summaries',
+        interval,
+        'REFRESH MATERIALIZED VIEW CONCURRENTLY rooms_summaries_mv'
+    );
+    RAISE NOTICE 'rooms_summaries_mv refresh interval updated to: %', interval;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION get_current_refresh_schedule()
+RETURNS TABLE(
+    mv_name    TEXT,
+    schedule   TEXT,
+    active     BOOLEAN,
+    command    TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'cron') THEN
+        RETURN;
+    END IF;
+    RETURN QUERY
+        SELECT
+            j.jobname::TEXT,
+            j.schedule::TEXT,
+            j.active,
+            j.command::TEXT
+        FROM cron.job j
+        WHERE j.jobname IN ('refresh-rooms-summaries', 'refresh-public-room-directory');
+END;
+$$;
 
 -- public_room_directory: filters rooms_summaries_mv for public rooms
 CREATE MATERIALIZED VIEW IF NOT EXISTS public_room_directory AS
@@ -4234,12 +4267,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_public_room_directory_room_id
 CREATE INDEX IF NOT EXISTS idx_public_room_directory_members
     ON public_room_directory(joined_members DESC, last_event_ts DESC);
 
+-- P1-6: pg_cron refresh schedule（仅在 pg_cron 扩展可用时创建默认调度）
+-- 默认值可通过 configure_rooms_summaries_refresh() 运行时调整
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
         PERFORM cron.schedule(
-            'refresh-public-room-directory',
+            'refresh-rooms-summaries',
             '*/5 * * * *',
+            'REFRESH MATERIALIZED VIEW CONCURRENTLY rooms_summaries_mv'
+        );
+        PERFORM cron.schedule(
+            'refresh-public-room-directory',
+            '*/10 * * * *',
             'REFRESH MATERIALIZED VIEW CONCURRENTLY public_room_directory'
         );
     END IF;
