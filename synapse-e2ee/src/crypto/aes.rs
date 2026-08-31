@@ -16,6 +16,11 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 /// Maximum number of nonces retained in the tracker before pruning.
 const NONCE_HISTORY_SIZE: usize = 10000;
 /// Maximum counter value before overflow (32-bit counter space).
+///
+/// Only the XChaCha path embeds the counter in the nonce, and that path is
+/// test-only. The AES-GCM path draws all 96 bits at random and has no counter
+/// space to exhaust, so it needs no overflow guard.
+#[cfg(test)]
 const NONCE_COUNTER_MAX: u64 = (1u64 << 32) - 1;
 /// Longest nonce the tracker accepts (XChaCha20-Poly1305 uses 24 bytes;
 /// AES-GCM uses 12). Anything longer is rejected rather than truncated.
@@ -361,14 +366,24 @@ impl Default for NonceTracker {
     }
 }
 
-/// Generates nonces using a counter-based scheme with collision detection.
+/// Generates AES-GCM nonces from a CSPRNG, with reuse detection as backstop.
 ///
-/// The nonce is composed of 4 random bytes (device prefix) followed by an
-/// 8-byte big-endian counter. This provides deterministic uniqueness within
-/// a single generator instance while the `NonceTracker` provides defense-in-depth
-/// against any accidental reuse.
+/// AES-GCM nonces are 96 bits drawn entirely from the CSPRNG, per NIST
+/// SP 800-38D. The `NonceTracker` is defense-in-depth, not the primary
+/// guarantee.
+///
+/// The previous scheme used a 4-byte random prefix plus an 8-byte counter
+/// starting at zero. Uniqueness within one generator instance came from the
+/// counter, so it collapsed to the 32-bit random prefix whenever the counter
+/// restarted — and it restarts on every service rebuild, while the encryption
+/// key is a long-lived configured secret. Reusing a nonce under the same key
+/// is catastrophic for GCM (it leaks the authentication subkey and permits
+/// forgery). Drawing all 96 bits at random removes the dependency on any
+/// cross-restart state (audit #2).
 #[derive(Debug)]
 pub struct SecureNonceGenerator {
+    /// Observability only: how many nonces this generator has produced.
+    /// Deliberately not part of the nonce.
     counter: AtomicU64,
     tracker: Arc<NonceTracker>,
 }
@@ -379,17 +394,12 @@ impl SecureNonceGenerator {
     }
 
     pub fn generate_aes_gcm_nonce(&self) -> Result<Aes256GcmNonce, CryptoError> {
-        let counter = self.counter.fetch_add(1, Ordering::SeqCst);
-        if counter >= NONCE_COUNTER_MAX {
-            return Err(CryptoError::NonceCounterOverflow);
-        }
-
         let mut nonce_bytes = [0u8; 12];
-        rand::rng().fill_bytes(&mut nonce_bytes[0..4]);
-
-        nonce_bytes[4..12].copy_from_slice(&counter.to_be_bytes());
+        rand::rng().fill_bytes(&mut nonce_bytes);
 
         self.tracker.check_and_record(&nonce_bytes)?;
+
+        self.counter.fetch_add(1, Ordering::SeqCst);
 
         Ok(Aes256GcmNonce { bytes: nonce_bytes })
     }
@@ -921,18 +931,47 @@ mod tests {
     }
 
     #[test]
-    fn test_secure_nonce_generator_counter_in_nonce() {
+    // 审计 #2：AES-GCM 的 96 位 nonce 必须全部来自 CSPRNG。
+    //
+    // 旧实现是「4 字节随机 + 8 字节计数器」，计数器在服务重建时归零，而加密密钥
+    // 是配置里的长期密钥——跨重启后唯一性退化到 32 位随机前缀。这里锁住的是
+    // 「计数器不再参与 nonce 构造」这件事：后 8 字节必须不可预测且随样本变化。
+    #[test]
+    fn test_aes_gcm_nonce_is_fully_random_not_counter_derived() {
         let tracker = Arc::new(NonceTracker::new());
         let generator = SecureNonceGenerator::new(Arc::clone(&tracker));
 
         let nonce1 = generator.generate_aes_gcm_nonce().unwrap();
         let nonce2 = generator.generate_aes_gcm_nonce().unwrap();
 
-        let counter1 = u64::from_be_bytes(nonce1.bytes[4..12].try_into().unwrap());
-        let counter2 = u64::from_be_bytes(nonce2.bytes[4..12].try_into().unwrap());
+        // 旧实现会把计数器 0 / 1 直接写进后 8 字节。
+        assert_ne!(&nonce1.bytes[4..12], &0u64.to_be_bytes(), "nonce must not embed a zeroed counter");
+        assert_ne!(&nonce2.bytes[4..12], &1u64.to_be_bytes(), "nonce must not embed an incrementing counter");
 
-        assert_eq!(counter1, 0);
-        assert_eq!(counter2, 1);
+        // 曾经的计数器位必须是随机的：32 个样本的末字节应呈现高基数分布，
+        // 若退回计数器方案，这里只会拿到极少数几个不同取值。
+        let last_bytes: std::collections::HashSet<u8> =
+            (0..32).map(|_| generator.generate_aes_gcm_nonce().unwrap().bytes[11]).collect();
+        assert!(
+            last_bytes.len() > 8,
+            "trailing nonce byte must be random, got only {} distinct values in 32 samples",
+            last_bytes.len()
+        );
+    }
+
+    // 审计 #2：服务重建（新生成器 + 同一持久密钥）不得产生可预测的 nonce。
+    #[test]
+    fn test_aes_gcm_nonce_unique_across_generator_restart() {
+        let tracker = Arc::new(NonceTracker::new());
+        let before = SecureNonceGenerator::new(Arc::clone(&tracker));
+        // 模拟服务重建：全新生成器，但共用同一个 tracker（同一持久密钥场景）。
+        let after = SecureNonceGenerator::new(Arc::clone(&tracker));
+
+        assert_ne!(
+            before.generate_aes_gcm_nonce().unwrap().bytes,
+            after.generate_aes_gcm_nonce().unwrap().bytes,
+            "a restarted generator must not repeat the previous instance's nonce"
+        );
     }
 
     #[test]
