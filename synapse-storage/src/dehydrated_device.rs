@@ -375,11 +375,10 @@ impl DehydratedDeviceStoreApi for DehydratedDeviceStorage {
 mod db_tests {
     use super::*;
     use serde_json::json;
-    use serial_test::serial;
     use sqlx::postgres::PgPoolOptions;
     use std::env;
-use std::time::Duration;
-use std::sync::Arc;
+    use std::time::Duration;
+    use std::sync::Arc;
 
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = env::var("TEST_DATABASE_URL")
@@ -624,13 +623,17 @@ use std::sync::Arc;
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_sweep_expired_removes_expired() {
-        let pool = test_pool().await;
+        // IsolatedTestPool: each test gets a fresh schema, so parallel
+        // `sweep_expired()` calls can't steal the row we need to delete.
+        let isolated = crate::test_isolation::IsolatedTestPool::new()
+            .await
+            .expect("isolated pool");
+        let pool = isolated.pool();
         let storage = DehydratedDeviceStorage::new(&pool);
         let user_id = format!("@sweep_expired_{}:test", uuid::Uuid::new_v4());
 
-        cleanup_user(&pool, &user_id).await;
+        cleanup_user(&*pool, &user_id).await;
 
         // Create a device, then set expires_at to the past via raw SQL
         let params = UpsertDehydratedDeviceParams {
@@ -659,13 +662,11 @@ use std::sync::Arc;
             .expect("count query should succeed");
         assert_eq!(count_before.0, 1, "Device should exist before sweep");
 
+        // Isolated schema: sweep deletes exactly our device.
         let swept = storage.sweep_expired().await.expect("sweep should succeed");
-        // We expect at least 1 row affected (our test device). In parallel execution,
-        // the count may be 0 if another test already ran sweep first, so accept both.
-        assert!(swept == 0 || swept == 1,
-            "swept should be 0 (already run) or 1 (our device), got {}", swept);
+        assert_eq!(swept, 1, "swept should be exactly 1 in isolated schema, got {}", swept);
 
-        // Verify the device is gone (regardless of whether we were the one who deleted it)
+        // Verify the device is gone
         let count_after: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM dehydrated_devices WHERE user_id = $1")
             .bind(&user_id)
             .fetch_one(&*pool)
@@ -673,7 +674,7 @@ use std::sync::Arc;
             .expect("count query should succeed");
         assert_eq!(count_after.0, 0, "Device should be gone after sweep");
 
-        cleanup_user(&pool, &user_id).await;
+        cleanup_user(&*pool, &user_id).await;
     }
 
     #[tokio::test]

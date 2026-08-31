@@ -31,9 +31,12 @@ impl IsolatedTestPool {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
 
-        // Admin pool to create/drop schema
+        // Admin pool to create/drop schema.  We must NOT share a connection
+        // between concurrent IsolatedTestPool::new() callers, because each
+        // test sets `search_path` on its connection and parallel baseline
+        // application can otherwise leak schema state between tests.
         let admin_pool = PgPoolOptions::new()
-            .max_connections(4)
+            .max_connections(16)
             .acquire_timeout(Duration::from_secs(60))
             .connect(&db_url)
             .await?;
@@ -45,19 +48,22 @@ impl IsolatedTestPool {
             .execute(&admin_pool)
             .await?;
 
-        // Clone v11 baseline into the new schema
+        // Clone v11 baseline into the new schema.  Use a dedicated connection
+        // (acquired once) so concurrent IsolatedTestPool::new() callers don't
+        // stomp on each other's `search_path`.
         let baseline_sql = include_str!("../../migrations/00000000_unified_schema_v11.sql");
         let extensions_sql = include_str!("../../migrations/00000001_extensions_v10.sql");
 
+        let mut admin_conn = admin_pool.acquire().await?;
         let set_path = format!(r#"SET search_path TO "{}", public"#, schema);
+        sqlx::query(&set_path).execute(&mut *admin_conn).await?;
 
         for stmt in baseline_sql.split(';') {
             let trimmed = stmt.trim();
             if trimmed.is_empty() || trimmed.starts_with("--") || trimmed.starts_with("COPY") {
                 continue;
             }
-            let full = format!("{}; {}", set_path, trimmed);
-            let _ = sqlx::query(&full).execute(&admin_pool).await;
+            let _ = sqlx::query(trimmed).execute(&mut *admin_conn).await;
         }
 
         for stmt in extensions_sql.split(';') {
@@ -65,12 +71,17 @@ impl IsolatedTestPool {
             if trimmed.is_empty() || trimmed.starts_with("--") {
                 continue;
             }
-            let full = format!("{}; {}", set_path, trimmed);
-            let _ = sqlx::query(&full).execute(&admin_pool).await;
+            let _ = sqlx::query(trimmed).execute(&mut *admin_conn).await;
         }
+        drop(admin_conn);
 
-        // Create test pool with isolated search_path
+        // Create test pool with isolated search_path.  Use `connect_lazy` so we
+        // can also run a `SET search_path` on the first connection *before* any
+        // other query.  `after_connect` only fires for connections acquired
+        // from the pool after the initial `connect()` (which would otherwise
+        // default to the `public` schema and leak data across parallel tests).
         let pool_schema = schema.clone();
+        let set_path_for_pool = format!(r#"SET search_path TO "{}", public"#, schema);
         let pool = PgPoolOptions::new()
             .max_connections(2)
             .acquire_timeout(Duration::from_secs(30))
@@ -83,8 +94,14 @@ impl IsolatedTestPool {
                     Ok(())
                 })
             })
-            .connect(&db_url)
-            .await?;
+            .connect_lazy(&db_url)?;
+
+        // Force a connection acquisition and immediately set the search_path.
+        // This ensures even the very first connection (which bypasses
+        // `after_connect`) lands in the correct schema.
+        let mut conn = pool.acquire().await?;
+        sqlx::query(&set_path_for_pool).execute(&mut *conn).await?;
+        drop(conn);
 
         Ok(Self {
             pool: Arc::new(pool),

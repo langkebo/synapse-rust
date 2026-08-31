@@ -266,7 +266,6 @@ mod tests {
 mod db_tests {
     use std::time::Duration;
     use super::*;
-    use serial_test::serial;
     use sqlx::postgres::PgPoolOptions;
 
     async fn test_pool() -> Arc<PgPool> {
@@ -568,9 +567,14 @@ mod db_tests {
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_get_global_invite_allowlist() {
-        let pool = test_pool().await;
+        // IsolatedTestPool: each test gets a fresh schema, so parallel tests
+        // can't add rows to our isolated room_invite_allowlist. This restores
+        // the exact `== 2` assertion from the original design.
+        let isolated = crate::test_isolation::IsolatedTestPool::new()
+            .await
+            .expect("isolated pool");
+        let pool = isolated.pool();
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
         let room_a = format!("!room_gal_a_{suffix}:test.com");
@@ -594,9 +598,8 @@ mod db_tests {
 
         let global = storage.get_global_invite_allowlist().await.expect("get_global_invite_allowlist should succeed");
 
-        // Use `>=` instead of `==` to allow other tests' data to coexist
-        // (the function returns ALL global entries, not just our test's)
-        assert!(global.len() >= 2, "global allowlist should have at least 2 entries across 2 rooms");
+        // Isolated schema: only our 2 rows exist, so exact count is stable.
+        assert_eq!(global.len(), 2, "global allowlist should have exactly 2 entries in isolated schema, got {}", global.len());
 
         let room_ids: Vec<&str> = global.iter().map(|v| v["room_id"].as_str().unwrap()).collect();
         assert!(room_ids.contains(&room_a.as_str()));

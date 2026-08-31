@@ -500,11 +500,10 @@ mod tests {
 #[cfg(test)]
 mod db_tests {
     use super::*;
-    use serial_test::serial;
     use sqlx::postgres::PgPoolOptions;
     use std::env;
-use std::time::Duration;
-use std::sync::Arc;
+    use std::time::Duration;
+    use std::sync::Arc;
 
     async fn test_pool() -> Arc<PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
@@ -1292,9 +1291,13 @@ use std::sync::Arc;
     // ---------------------------------------------------------------------------
 
     #[tokio::test]
-    #[serial]
     async fn test_cleanup_expired_captchas_deletes_expired_pending() {
-        let pool = test_pool().await;
+        // IsolatedTestPool: each test gets a fresh schema, so parallel
+        // `cleanup_expired_captchas()` calls can't race to delete our row.
+        let isolated = crate::test_isolation::IsolatedTestPool::new()
+            .await
+            .expect("isolated pool");
+        let pool = isolated.pool();
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_cleanup_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -1326,8 +1329,9 @@ use std::sync::Arc;
         assert!(before.is_some());
         assert_eq!(before.as_ref().unwrap().status, "pending");
 
+        // Isolated schema: cleanup deletes exactly our captcha and nothing else.
         let deleted = storage.cleanup_expired_captchas().await.expect("cleanup should succeed");
-        assert!(deleted >= 1, "should have deleted at least 1 expired captcha, got {}", deleted);
+        assert_eq!(deleted, 1, "should have deleted exactly 1 expired captcha in isolated schema, got {}", deleted);
 
         // Verify it no longer exists
         let after = storage.get_captcha(&captcha.captcha_id).await.expect("get after cleanup");
@@ -1338,9 +1342,13 @@ use std::sync::Arc;
     }
 
     #[tokio::test]
-    #[serial]
     async fn test_cleanup_expired_captchas_skips_non_pending() {
-        let pool = test_pool().await;
+        // IsolatedTestPool: parallel tests can't mark our captcha as 'pending'
+        // before our cleanup runs.
+        let isolated = crate::test_isolation::IsolatedTestPool::new()
+            .await
+            .expect("isolated pool");
+        let pool = isolated.pool();
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_cleanup_skip_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -1375,7 +1383,9 @@ use std::sync::Arc;
         assert!(updated.is_some());
         assert_eq!(updated.as_ref().unwrap().status, "expired");
 
-        storage.cleanup_expired_captchas().await.expect("cleanup should succeed");
+        // Isolated schema: nothing in our schema is 'pending', so cleanup is a no-op.
+        let deleted = storage.cleanup_expired_captchas().await.expect("cleanup should succeed");
+        assert_eq!(deleted, 0, "should not delete non-pending captcha, got {}", deleted);
 
         // Should still exist because status is 'expired', not 'pending'
         let after = storage.get_captcha(&captcha.captcha_id).await.expect("get after cleanup");
