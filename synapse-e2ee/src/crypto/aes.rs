@@ -7,8 +7,9 @@ use dashmap::DashSet;
 use generic_array::GenericArray;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use typenum::U32;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -16,6 +17,14 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 const NONCE_HISTORY_SIZE: usize = 10000;
 /// Maximum counter value before overflow (32-bit counter space).
 const NONCE_COUNTER_MAX: u64 = (1u64 << 32) - 1;
+/// Longest nonce the tracker accepts (XChaCha20-Poly1305 uses 24 bytes;
+/// AES-GCM uses 12). Anything longer is rejected rather than truncated.
+const MAX_NONCE_LEN: usize = 24;
+/// How many of the oldest entries a single registration may evict once the
+/// tracker is full. Bounding the batch amortizes eviction: the previous
+/// "drain half the set in one go" approach stalled the encrypt path for
+/// thousands of removals every `NONCE_HISTORY_SIZE` messages (audit #5).
+const NONCE_PRUNE_BATCH: usize = 256;
 
 // E2EE-03: 密钥材料在 Clone/Drop 时必须零化，与 Ed25519SecretKey 对齐
 #[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
@@ -241,26 +250,66 @@ impl AsRef<[u8]> for XChaCha20Poly1305Ciphertext {
 /// reveals the authentication key and allows forgery. This tracker maintains
 /// a bounded set of recently-used nonces and raises `NonceReuseDetected` on
 /// collision.
+/// Fixed-size key for the nonce reuse tracker.
+///
+/// The previous `Vec<u8>` key cost one heap allocation per encrypted message.
+/// `len` is stored alongside the bytes so a 12-byte AES-GCM nonce can never
+/// collide with a 24-byte XChaCha nonce that merely shares its prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct NonceKey {
+    len: u8,
+    bytes: [u8; MAX_NONCE_LEN],
+}
+
+impl NonceKey {
+    /// Returns `None` when the nonce is empty or longer than [`MAX_NONCE_LEN`],
+    /// so oversized input is rejected instead of silently truncated.
+    fn new(nonce: &[u8]) -> Option<Self> {
+        if nonce.is_empty() || nonce.len() > MAX_NONCE_LEN {
+            return None;
+        }
+        let mut bytes = [0u8; MAX_NONCE_LEN];
+        bytes[..nonce.len()].copy_from_slice(nonce);
+        Some(Self { len: nonce.len() as u8, bytes })
+    }
+}
+
 #[derive(Debug)]
 pub struct NonceTracker {
-    used_nonces: DashSet<Vec<u8>>,
+    used_nonces: DashSet<NonceKey>,
+    /// Insertion order of the tracked nonces, so eviction can drop the
+    /// *oldest* entries. Iterating the `DashSet` yields hash order, which is
+    /// what the previous implementation did — it evicted a random subset and
+    /// silently dropped reuse protection for recently used nonces.
+    order: Mutex<VecDeque<NonceKey>>,
     counter: AtomicU64,
     max_history_size: usize,
 }
 
 impl NonceTracker {
     pub fn new() -> Self {
-        Self { used_nonces: DashSet::new(), counter: AtomicU64::new(0), max_history_size: NONCE_HISTORY_SIZE }
+        Self::with_history_size(NONCE_HISTORY_SIZE)
     }
 
     pub fn with_history_size(max_history_size: usize) -> Self {
-        Self { used_nonces: DashSet::new(), counter: AtomicU64::new(0), max_history_size }
+        Self {
+            used_nonces: DashSet::new(),
+            order: Mutex::new(VecDeque::new()),
+            counter: AtomicU64::new(0),
+            max_history_size,
+        }
     }
 
     pub fn check_and_record(&self, nonce: &[u8]) -> Result<(), CryptoError> {
-        if !self.used_nonces.insert(nonce.to_vec()) {
+        let key = NonceKey::new(nonce).ok_or(CryptoError::InvalidNonceLength)?;
+
+        if !self.used_nonces.insert(key) {
             return Err(CryptoError::NonceReuseDetected);
         }
+
+        let mut order = self.order.lock().unwrap_or_else(|e| e.into_inner());
+        order.push_back(key);
+        drop(order);
 
         if self.used_nonces.len() >= self.max_history_size {
             self.prune_old_nonces();
@@ -271,20 +320,22 @@ impl NonceTracker {
         Ok(())
     }
 
+    /// Evicts the oldest entries, at most [`NONCE_PRUNE_BATCH`] per call.
+    ///
+    /// The bound keeps a single registration from paying for draining the
+    /// whole overflow; because it runs on every registration once the tracker
+    /// is full, the set still converges back to `max_history_size / 2`.
     fn prune_old_nonces(&self) {
-        let current_size = self.used_nonces.len();
-        if current_size > self.max_history_size / 2 {
-            let to_remove = current_size - self.max_history_size / 2;
-            let mut removed = 0;
-            let keys_to_remove: Vec<Vec<u8>> =
-                self.used_nonces.iter().take(to_remove).map(|entry| entry.clone()).collect();
-            for key in keys_to_remove {
-                self.used_nonces.remove(&key);
-                removed += 1;
-                if removed >= to_remove {
-                    break;
-                }
-            }
+        // Always retain at least one entry so the just-registered nonce
+        // survives even with a degenerate `max_history_size` of 1.
+        let target = (self.max_history_size / 2).max(1);
+        let mut order = self.order.lock().unwrap_or_else(|e| e.into_inner());
+
+        let mut evicted = 0;
+        while self.used_nonces.len() > target && evicted < NONCE_PRUNE_BATCH {
+            let Some(oldest) = order.pop_front() else { break };
+            self.used_nonces.remove(&oldest);
+            evicted += 1;
         }
     }
 
@@ -293,10 +344,12 @@ impl NonceTracker {
     }
 
     pub fn is_nonce_used(&self, nonce: &[u8]) -> bool {
-        self.used_nonces.contains(nonce)
+        NonceKey::new(nonce).is_some_and(|key| self.used_nonces.contains(&key))
     }
 
     pub fn clear(&self) {
+        let mut order = self.order.lock().unwrap_or_else(|e| e.into_inner());
+        order.clear();
         self.used_nonces.clear();
         self.counter.store(0, Ordering::SeqCst);
     }
@@ -958,6 +1011,46 @@ mod tests {
         }
 
         assert!(tracker.used_nonces.len() <= 100);
+    }
+
+    // 审计 #5：剪枝必须淘汰**最旧**的条目。此前直接迭代 DashSet，得到的是哈希序，
+    // 等于随机丢弃一半——近期用过的 nonce 也可能被丢掉而失去重用保护。
+    #[test]
+    fn test_nonce_tracker_prunes_oldest_first() {
+        let tracker = NonceTracker::with_history_size(4);
+
+        for i in 0..4u8 {
+            tracker.check_and_record(&[i; 12]).unwrap();
+        }
+
+        // 填满后剪到 max/2 = 2 条，留下的必须是最新的两条。
+        assert_eq!(tracker.used_nonces.len(), 2, "tracker should retain max_history_size / 2 entries");
+        assert!(!tracker.is_nonce_used(&[0u8; 12]), "oldest nonce must be evicted first");
+        assert!(!tracker.is_nonce_used(&[1u8; 12]), "second-oldest nonce must be evicted next");
+        assert!(tracker.is_nonce_used(&[2u8; 12]), "recently used nonce must survive pruning");
+        assert!(tracker.is_nonce_used(&[3u8; 12]), "most recent nonce must survive pruning");
+    }
+
+    // 审计 #5：键按 (长度, 字节) 索引，12 字节的 AES-GCM nonce 不能和同前缀的
+    // 24 字节 XChaCha nonce 视为同一条，否则会误报 nonce 重用。
+    #[test]
+    fn test_nonce_tracker_distinguishes_nonce_lengths() {
+        let tracker = NonceTracker::new();
+
+        tracker.check_and_record(&[1u8; 12]).unwrap();
+        tracker.check_and_record(&[1u8; 24]).unwrap();
+
+        assert!(tracker.is_nonce_used(&[1u8; 12]));
+        assert!(tracker.is_nonce_used(&[1u8; 24]));
+    }
+
+    #[test]
+    fn test_nonce_tracker_rejects_invalid_lengths() {
+        let tracker = NonceTracker::new();
+
+        assert_eq!(tracker.check_and_record(&[]).unwrap_err(), CryptoError::InvalidNonceLength);
+        assert_eq!(tracker.check_and_record(&[0u8; 25]).unwrap_err(), CryptoError::InvalidNonceLength);
+        assert_eq!(tracker.counter(), 0, "rejected nonces must not advance the counter");
     }
 
     #[test]
