@@ -223,6 +223,29 @@ impl RoomSummaryService {
         Ok(member)
     }
 
+    /// DB-06 / P0-2: transactional variant of `add_member`. The caller is
+    /// responsible for beginning and committing the transaction. This variant
+    /// exists so that `MembershipService::add_member` can write both
+    /// `room_memberships` and `room_summary_members` inside a single
+    /// transaction, eliminating the data-drift window that existed when the
+    /// two writes were independent auto-committed calls.
+    #[instrument(skip(self))]
+    pub async fn add_member_in_tx(
+        &self,
+        request: CreateSummaryMemberRequest,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<RoomSummaryMember, ApiError> {
+        debug!(room_id = %request.room_id, user_id = %request.user_id, "Adding member to room summary (in tx)");
+
+        let member = self
+            .storage
+            .add_member_in_tx(request, tx)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to add member in tx", &e))?;
+
+        Ok(member)
+    }
+
     #[instrument(skip(self))]
     pub async fn update_member(
         &self,

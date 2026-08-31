@@ -250,14 +250,42 @@ impl MembershipService {
         join_reason: Option<&str>,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<storage::RoomMember> {
-        let should_update_summary = tx.is_none();
+        // P0-2 / DB-06: when the caller does not supply a transaction, we
+        // open one ourselves so that the room_memberships write (member_storage)
+        // and the room_summary_members write (room_summary_service) commit or
+        // roll back together. Pre-fix, these were two independent auto-commits,
+        // and a failure in the summary write left a room_memberships row with
+        // no corresponding summary entry — a silent data drift.
+        let caller_supplied_tx = tx.is_some();
+        let mut own_tx = if caller_supplied_tx {
+            None
+        } else {
+            // db_pool is always Some in production wiring (see wiring/rooms.rs).
+            // If it is None, fall back to the previous best-effort behavior
+            // rather than crashing, so legacy test setups keep working.
+            match self.db_pool.as_ref() {
+                Some(pool) => Some(pool.begin().await.map_err(|e| {
+                    ApiError::internal_with_context("Failed to begin add_member transaction", &e)
+                })?),
+                None => None,
+            }
+        };
+        let effective_tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>> = if caller_supplied_tx {
+            tx
+        } else {
+            own_tx.as_mut()
+        };
+
         let member = self
             .member_storage
-            .add_member(room_id, user_id, membership, display_name, join_reason, None, tx)
+            .add_member(room_id, user_id, membership, display_name, join_reason, None, effective_tx)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to add member", &e))?;
 
-        if should_update_summary {
+        if let Some(ref mut t) = own_tx {
+            // We own this transaction. Write the summary in the same tx so a
+            // failure rolls back the room_memberships insert too. This is the
+            // DB-06 / P0-2 fix.
             let request = storage::room_summary::CreateSummaryMemberRequest {
                 room_id: room_id.to_string(),
                 user_id: user_id.to_string(),
@@ -268,16 +296,48 @@ impl MembershipService {
                 last_active_ts: member.joined_ts.or(member.updated_ts),
             };
 
+            if let Err(error) = self.room_summary_service.add_member_in_tx(request, t).await {
+                ::tracing::error!(
+                    error = %error,
+                    room_id = %room_id,
+                    user_id = %user_id,
+                    membership = %membership,
+                    "Failed to add summary member in shared transaction; rolling back"
+                );
+                return Err(ApiError::internal_with_context("Failed to add member (summary)", &error));
+            }
+        } else if !caller_supplied_tx {
+            // db_pool was None: legacy fallback to the previous best-effort
+            // behavior. This path only happens in test setups that bypass
+            // wiring. The summary write failure is logged but does not fail
+            // the call.
+            let request = storage::room_summary::CreateSummaryMemberRequest {
+                room_id: room_id.to_string(),
+                user_id: user_id.to_string(),
+                display_name: display_name.map(|value| value.to_string()),
+                avatar_url: None,
+                membership: membership.to_string(),
+                is_hero: None,
+                last_active_ts: member.joined_ts.or(member.updated_ts),
+            };
             if let Err(error) = self.room_summary_service.add_member(request).await {
                 ::tracing::warn!(
                     error = %error,
                     room_id = %room_id,
                     user_id = %user_id,
                     membership = %membership,
-                    "Failed to update room summary member"
+                    "Failed to update room summary member (no shared tx — best effort)"
                 );
             }
+        }
+        // When the caller supplied a tx, the caller is responsible for
+        // also updating the summary (see callers in actions.rs / create.rs
+        // that already do this outside this method).
 
+        // Heroes recalc: always best-effort. This is a derived statistic
+        // that does not need atomicity with the membership writes — it can
+        // be recomputed from the summary_members table at any time.
+        if !caller_supplied_tx {
             if let Err(error) = self.room_summary_service.recalculate_heroes(room_id).await {
                 ::tracing::warn!(error = %error, room_id = %room_id, "Failed to recalculate room summary heroes");
             }

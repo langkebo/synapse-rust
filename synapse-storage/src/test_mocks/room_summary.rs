@@ -219,6 +219,15 @@ impl crate::room_summary::RoomSummaryStoreApi for InMemoryRoomSummaryStore {
         Ok(member)
     }
 
+    async fn add_member_in_tx(
+        &self,
+        request: crate::room_summary::CreateSummaryMemberRequest,
+        _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<crate::room_summary::RoomSummaryMember, sqlx::Error> {
+        // In-memory mock: no real tx, delegate to add_member.
+        self.add_member(request).await
+    }
+
     async fn add_members_batch(
         &self,
         room_id: &str,

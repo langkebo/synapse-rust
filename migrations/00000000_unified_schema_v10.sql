@@ -395,8 +395,16 @@ CREATE TABLE IF NOT EXISTS room_summary_members (
     updated_ts BIGINT NOT NULL,
     created_ts BIGINT NOT NULL,
     CONSTRAINT uq_room_summary_members_room_user UNIQUE (room_id, user_id),
-    CONSTRAINT fk_room_summary_members_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-    CONSTRAINT fk_room_summary_members_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+    -- P0-2: removed DEFERRABLE INITIALLY DEFERRED on these FKs. The deferred
+    -- check hid data drift between room_memberships and room_summary_members:
+    -- the service layer was writing both tables via independent auto-commits,
+    -- and the FK check fired only at COMMIT (which never happened for the
+    -- summary table). Removing DEFERRABLE makes violations surface immediately
+    -- so the application layer can react — see the matching
+    -- `20260831070000_room_summary_members_fk_not_deferred.sql` migration
+    -- for the runtime change.
+    CONSTRAINT fk_room_summary_members_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
+    CONSTRAINT fk_room_summary_members_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS room_summary_state (

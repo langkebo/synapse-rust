@@ -27,6 +27,14 @@ pub trait RoomSummaryStoreApi: Send + Sync {
         limit: i64,
     ) -> Result<HashMap<String, Vec<RoomSummaryMember>>, sqlx::Error>;
     async fn add_member(&self, request: CreateSummaryMemberRequest) -> Result<RoomSummaryMember, sqlx::Error>;
+    /// DB-06 / P0-2: transactional variant of `add_member`. Used by
+    /// `MembershipService::add_member` to keep the `room_memberships` and
+    /// `room_summary_members` writes atomic in the no-caller-tx path.
+    async fn add_member_in_tx(
+        &self,
+        request: CreateSummaryMemberRequest,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<RoomSummaryMember, sqlx::Error>;
     async fn add_members_batch(
         &self,
         room_id: &str,
@@ -126,6 +134,13 @@ impl RoomSummaryStoreApi for RoomSummaryStorage {
     }
     async fn add_member(&self, request: CreateSummaryMemberRequest) -> Result<RoomSummaryMember, sqlx::Error> {
         self.add_member(request).await
+    }
+    async fn add_member_in_tx(
+        &self,
+        request: CreateSummaryMemberRequest,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<RoomSummaryMember, sqlx::Error> {
+        self.add_member_in_tx(request, tx).await
     }
     async fn add_members_batch(
         &self,

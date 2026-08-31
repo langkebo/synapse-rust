@@ -214,6 +214,73 @@ impl RoomSummaryStorage {
         Ok(row)
     }
 
+    /// DB-06 / P0-2: transactional variant of `add_member`. Writes the
+    /// `room_summary_members` row inside the caller's transaction, then
+    /// runs the member-count refresh in the same transaction so both
+    /// tables stay consistent.
+    pub async fn add_member_in_tx(
+        &self,
+        request: CreateSummaryMemberRequest,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<RoomSummaryMember, sqlx::Error> {
+        tracing::info!(room_id = %request.room_id, user_id = %request.user_id, membership = %request.membership, "Adding member to room summary (in tx)");
+        let now = current_timestamp_millis();
+
+        let row = sqlx::query_as::<_, RoomSummaryMember>(
+            r"
+            INSERT INTO room_summary_members (
+                room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+            ON CONFLICT (room_id, user_id) DO UPDATE SET
+                display_name = COALESCE(EXCLUDED.display_name, room_summary_members.display_name),
+                avatar_url = COALESCE(EXCLUDED.avatar_url, room_summary_members.avatar_url),
+                membership = EXCLUDED.membership,
+                is_hero = COALESCE(EXCLUDED.is_hero, room_summary_members.is_hero),
+                last_active_ts = COALESCE(EXCLUDED.last_active_ts, room_summary_members.last_active_ts),
+                updated_ts = EXCLUDED.updated_ts
+            RETURNING id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
+            ",
+        )
+        .bind(&request.room_id)
+        .bind(&request.user_id)
+        .bind(&request.display_name)
+        .bind(&request.avatar_url)
+        .bind(&request.membership)
+        .bind(request.is_hero.unwrap_or(false))
+        .bind(request.last_active_ts)
+        .bind(now)
+        .fetch_one(&mut **tx)
+        .await?;
+
+        // refresh_member_counts has no tx variant; do it inline.
+        sqlx::query(
+            r"
+            UPDATE room_summaries
+            SET
+                member_count = counts.member_count,
+                joined_member_count = counts.joined_member_count,
+                invited_member_count = counts.invited_member_count,
+                updated_ts = $2
+            FROM (
+                SELECT
+                    COUNT(*)::BIGINT AS member_count,
+                    COUNT(*) FILTER (WHERE membership = 'join')::BIGINT AS joined_member_count,
+                    COUNT(*) FILTER (WHERE membership = 'invite')::BIGINT AS invited_member_count
+                FROM room_summary_members
+                WHERE room_id = $1
+            ) AS counts
+            WHERE room_summaries.room_id = $1
+            ",
+        )
+        .bind(&request.room_id)
+        .bind(now)
+        .execute(&mut **tx)
+        .await?;
+
+        Ok(row)
+    }
+
     pub async fn add_members_batch(
         &self,
         room_id: &str,
