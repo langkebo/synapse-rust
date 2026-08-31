@@ -40,6 +40,13 @@ async fn cleanup_worker(pool: &Arc<PgPool>, worker_id: &str) {
     let _ = sqlx::query(r"DELETE FROM workers WHERE worker_id = $1").bind(worker_id).execute(&**pool).await;
 }
 
+/// Cleanup orphaned pending tasks (for test isolation).
+async fn cleanup_orphaned_tasks(pool: &Arc<PgPool>) {
+    let _ = sqlx::query(r"DELETE FROM worker_task_assignments WHERE assigned_worker_id LIKE 'w-%'")
+        .execute(&**pool)
+        .await;
+}
+
 async fn cleanup_event(pool: &Arc<PgPool>, event_id: &str) {
     let _ = sqlx::query(r"DELETE FROM worker_events WHERE event_id = $1").bind(event_id).execute(&**pool).await;
 }
@@ -755,6 +762,8 @@ async fn test_claim_next_pending_task_none_when_empty() {
     let pool = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-claim2-{}", uuid::Uuid::new_v4());
+    // Clean up orphaned tasks first for test isolation
+    cleanup_orphaned_tasks(&pool).await;
     cleanup_worker(&pool, &worker_id).await;
 
     // Register the worker first so the FK constraint on
@@ -813,6 +822,15 @@ async fn test_claim_next_pending_task_for_types_no_match() {
     let pool = test_pool().await;
     let storage = WorkerStorage::new(&pool);
     let worker_id = format!("w-claimt2-{}", uuid::Uuid::new_v4());
+    // Clean up orphaned tasks first for test isolation
+    cleanup_orphaned_tasks(&pool).await;
+    cleanup_worker(&pool, &worker_id).await;
+
+    // Register the worker first so the FK constraint is satisfied
+    storage
+        .register_worker(make_register_request(&worker_id, WorkerType::Pusher))
+        .await
+        .expect("register_worker should succeed");
 
     let task = storage
         .assign_task(AssignTaskRequest {
@@ -831,7 +849,9 @@ async fn test_claim_next_pending_task_for_types_no_match() {
         .expect("claim_next_pending_task_for_types should succeed");
     assert!(claimed.is_none());
 
+    // Clean up: delete the task we just created
     cleanup_task(&pool, &task.task_id).await;
+    cleanup_worker(&pool, &worker_id).await;
 }
 
 // === assign_task_to_worker ===

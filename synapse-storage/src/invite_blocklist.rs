@@ -304,6 +304,16 @@ mod db_tests {
         sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id = $1").bind(room_id).execute(pool).await.ok();
     }
 
+    /// Cleanup allowlist rows by suffix pattern (for test isolation).
+    async fn cleanup_allowlist_by_suffix(pool: &PgPool, suffix: &uuid::Uuid) {
+        let pattern = format!("%{suffix}%");
+        sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id LIKE $1")
+            .bind(&pattern)
+            .execute(pool)
+            .await
+            .ok();
+    }
+
     #[tokio::test]
     async fn test_set_and_get_invite_blocklist() {
         let pool = test_pool().await;
@@ -566,8 +576,8 @@ mod db_tests {
         let user_a = format!("@global_al_a_{suffix}:test.com");
         let user_b = format!("@global_al_b_{suffix}:test.com");
 
-        cleanup_allowlist(&pool, &room_a).await;
-        cleanup_allowlist(&pool, &room_b).await;
+        // Clean up by suffix pattern to ensure test isolation
+        cleanup_allowlist_by_suffix(&pool, &suffix).await;
         ensure_test_room(&pool, &room_a).await;
         ensure_test_room(&pool, &room_b).await;
 
@@ -592,8 +602,8 @@ mod db_tests {
         assert!(user_ids.contains(&user_a.as_str()));
         assert!(user_ids.contains(&user_b.as_str()));
 
-        cleanup_allowlist(&pool, &room_a).await;
-        cleanup_allowlist(&pool, &room_b).await;
+        // Clean up by suffix pattern to ensure test isolation
+        cleanup_allowlist_by_suffix(&pool, &suffix).await;
     }
 
     #[tokio::test]
