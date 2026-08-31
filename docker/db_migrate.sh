@@ -257,16 +257,35 @@ is_superseded_by_latest_baseline() {
     local baseline_name="$1"
     local filename="$2"
 
-    if [ "$baseline_name" != "00000000_unified_schema_v8.sql" ]; then
-        return 1
-    fi
-
-    if [[ "$filename" =~ ^([0-9]{14})_.*\.sql$ ]]; then
-        local version_prefix="${BASH_REMATCH[1]}"
-        if [ "$version_prefix" -lt 20260701000000 ]; then
-            return 0
-        fi
-    fi
+    # v8/v9/v10/v11 baseline 之前的迁移都被视为 superseded
+    # - v8: 2026-07-01 之前的迁移
+    # - v10: 2026-08-31 之前的迁移
+    # - v11: 所有 v10 baseline 之后的迁移（重部署窗口优化）
+    case "$baseline_name" in
+        00000000_unified_schema_v8.sql)
+            if [[ "$filename" =~ ^([0-9]{14})_.*\.sql$ ]]; then
+                local version_prefix="${BASH_REMATCH[1]}"
+                if [ "$version_prefix" -lt 20260701000000 ]; then
+                    return 0
+                fi
+            fi
+            ;;
+        00000000_unified_schema_v10.sql)
+            if [[ "$filename" =~ ^([0-9]{14})_.*\.sql$ ]]; then
+                local version_prefix="${BASH_REMATCH[1]}"
+                if [ "$version_prefix" -lt 20260831000000 ]; then
+                    return 0
+                fi
+            fi
+            ;;
+        00000000_unified_schema_v11.sql)
+            # v11 是最新 baseline，所有增量迁移都不会被跳过
+            return 1
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 
     return 1
 }
