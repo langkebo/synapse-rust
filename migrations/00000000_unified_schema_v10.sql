@@ -232,7 +232,21 @@ CREATE TABLE IF NOT EXISTS rooms (
     avatar_url TEXT,
     canonical_alias TEXT,
     visibility TEXT DEFAULT 'private',
-    CONSTRAINT pk_rooms PRIMARY KEY (room_id)
+    CONSTRAINT pk_rooms PRIMARY KEY (room_id),
+    CONSTRAINT ck_rooms_join_rules_valid
+        CHECK (join_rules IS NULL OR join_rules IN ('invite', 'public', 'knock', 'restricted')),
+    CONSTRAINT ck_rooms_history_visibility_valid
+        CHECK (history_visibility IS NULL OR history_visibility IN ('shared', 'invited', 'joined', 'world_readable')),
+    CONSTRAINT ck_rooms_visibility_valid
+        CHECK (visibility IS NULL OR visibility IN ('public', 'private')),
+    CONSTRAINT ck_rooms_room_version_valid
+        CHECK (
+            room_version IS NULL OR room_version = ANY (ARRAY[
+                '1','2','3','4','5','6','7','8','9','10','11'
+            ])
+        ),
+    CONSTRAINT ck_rooms_timestamps_nonneg
+        CHECK (created_ts >= 0 AND (last_activity_ts IS NULL OR last_activity_ts >= 0))
 );
 
 CREATE TABLE IF NOT EXISTS user_directory (
@@ -380,7 +394,17 @@ CREATE TABLE IF NOT EXISTS room_summaries (
     created_ts BIGINT NOT NULL,
     CONSTRAINT pk_room_summaries PRIMARY KEY (room_id),
     CONSTRAINT uq_room_summaries_id UNIQUE (id),
-    CONSTRAINT fk_room_summaries_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
+    CONSTRAINT fk_room_summaries_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE,
+    CONSTRAINT ck_room_summaries_join_rules_valid
+        CHECK (join_rules IN ('invite', 'public', 'knock', 'restricted')),
+    CONSTRAINT ck_room_summaries_history_visibility_valid
+        CHECK (history_visibility IN ('shared', 'invited', 'joined', 'world_readable')),
+    CONSTRAINT ck_room_summaries_guest_access_valid
+        CHECK (guest_access IN ('can_join', 'forbidden')),
+    CONSTRAINT ck_room_summaries_member_count_nonneg
+        CHECK (member_count >= 0 AND joined_member_count >= 0 AND invited_member_count >= 0),
+    CONSTRAINT ck_room_summaries_unread_nonneg
+        CHECK (unread_notifications >= 0 AND unread_highlight >= 0)
 );
 
 CREATE TABLE IF NOT EXISTS room_summary_members (
