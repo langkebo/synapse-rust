@@ -638,14 +638,17 @@ mod tests {
 
 #[cfg(test)]
 mod db_tests {
+    use std::time::Duration;
     use super::*;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
 
     async fn test_pool() -> PgPool {
         let db_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
+        PgPoolOptions::new()
+            .max_connections(2)
+            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database")
     }
 
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {

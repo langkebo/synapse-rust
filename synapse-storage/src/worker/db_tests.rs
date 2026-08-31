@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::*;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -5,9 +7,11 @@ use std::sync::Arc;
 
 async fn test_pool() -> Arc<PgPool> {
     let db_url = std::env::var("TEST_DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
     let pool =
-        PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
+        PgPoolOptions::new()
+            .max_connections(2)
+            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
     Arc::new(pool)
 }
 
@@ -950,7 +954,7 @@ async fn test_get_type_statistics_returns_rows() {
 #[tokio::test]
 async fn test_record_load_stats_returns_ok() {
     let pool = Arc::new(
-        sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:15432/synapse")
+        sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
             .expect("connect_lazy should succeed"),
     );
     let storage = WorkerStorage::new(&pool);
@@ -968,7 +972,7 @@ async fn test_record_load_stats_returns_ok() {
 #[tokio::test]
 async fn test_record_connection_returns_ok() {
     let pool = Arc::new(
-        sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:15432/synapse")
+        sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
             .expect("connect_lazy should succeed"),
     );
     let storage = WorkerStorage::new(&pool);
@@ -978,7 +982,7 @@ async fn test_record_connection_returns_ok() {
 #[tokio::test]
 async fn test_update_connection_stats_returns_ok() {
     let pool = Arc::new(
-        sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:15432/synapse")
+        sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:5432/synapse_test")
             .expect("connect_lazy should succeed"),
     );
     let storage = WorkerStorage::new(&pool);

@@ -660,12 +660,14 @@ impl RoomStorage {
     }
 
     pub async fn increment_member_count(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        // v11: removed `joined_member_count = joined_member_count + 1` and
+        // `member_count = member_count + 1` updates. These counts are now
+        // maintained by the `trg_sync_member_count` trigger on
+        // `room_memberships`. We only update `updated_ts` here.
         sqlx::query(
             r"
             UPDATE room_summaries
-            SET member_count = member_count + 1,
-                joined_member_count = joined_member_count + 1,
-                updated_ts = $2
+            SET updated_ts = $2
             WHERE room_id = $1
             ",
         )
@@ -677,12 +679,11 @@ impl RoomStorage {
     }
 
     pub async fn decrement_member_count(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        // v11: see `increment_member_count` for the trigger-based design.
         sqlx::query(
             r"
             UPDATE room_summaries
-            SET member_count = GREATEST(member_count - 1, 0),
-                joined_member_count = GREATEST(joined_member_count - 1, 0),
-                updated_ts = $2
+            SET updated_ts = $2
             WHERE room_id = $1
             ",
         )
@@ -1366,14 +1367,17 @@ impl RoomStorage {
 
 #[cfg(test)]
 mod db_tests {
+    use std::time::Duration;
     use super::*;
     use sqlx::postgres::PgPoolOptions;
 
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
         let pool =
-            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
+            PgPoolOptions::new()
+            .max_connections(2)
+            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
