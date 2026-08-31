@@ -703,7 +703,6 @@ mod tests {
 #[cfg(test)]
 mod db_tests {
     use super::*;
-    use serial_test::serial;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
     use std::env;
@@ -1063,10 +1062,18 @@ use std::sync::Arc;
     }
 
     // 11. get_all_blacklist supports cursor-based pagination.
+    //
+    // Uses IsolatedTestPool because the cursor-pagination test depends on a
+    // stable total row count, which other parallel tests in the workspace can
+    // pollute. Serial execution alone is insufficient when multiple crates
+    // share the same DB schema.
     #[tokio::test]
-    #[serial]
     async fn test_get_all_blacklist_pagination() {
-        let pool = test_pool().await;
+        let isolated = crate::test_isolation::IsolatedTestPool::new()
+            .await
+            .expect("isolated pool");
+        let pool = isolated.pool();
+
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
 
@@ -1107,7 +1114,8 @@ use std::sync::Arc;
         let (rows2, _next_cursor2) =
             storage.get_all_blacklist(3, Some(cursor)).await.expect("get_all with cursor should succeed");
 
-        // At least our remaining servers (not in page 1) should be present in page 2.
+        // In an isolated schema, every entry we added is either in page 1 or
+        // page 2, never both. (5 entries, page size 3, no cross-test pollution.)
         let page2_ours: std::collections::HashSet<&str> = rows2.iter().map(|r| r.server_name.as_str()).collect();
         for s in &servers {
             if !page1_ours_set.contains(s) {
@@ -1127,6 +1135,8 @@ use std::sync::Arc;
         for s in &servers {
             cleanup_by_server(&pool, s).await;
         }
+        // IsolatedTestPool drops the schema when it goes out of scope.
+        drop(isolated);
     }
 
     // 12. create_log inserts a log record and returns it.
