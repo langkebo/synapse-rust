@@ -594,7 +594,9 @@ mod db_tests {
 
         let global = storage.get_global_invite_allowlist().await.expect("get_global_invite_allowlist should succeed");
 
-        assert_eq!(global.len(), 2, "global allowlist should have 2 entries across 2 rooms");
+        // Use `>=` instead of `==` to allow other tests' data to coexist
+        // (the function returns ALL global entries, not just our test's)
+        assert!(global.len() >= 2, "global allowlist should have at least 2 entries across 2 rooms");
 
         let room_ids: Vec<&str> = global.iter().map(|v| v["room_id"].as_str().unwrap()).collect();
         assert!(room_ids.contains(&room_a.as_str()));
