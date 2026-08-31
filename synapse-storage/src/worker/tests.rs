@@ -161,10 +161,8 @@ fn test_worker_type_all_returns_all_variants() {
 fn test_worker_type_from_str_roundtrip() {
     for variant in all_worker_types() {
         let s = variant.as_str();
-        match s.parse::<WorkerType>() {
-            Ok(parsed) => assert_eq!(parsed, variant),
-            Err(e) => panic!("Failed to parse '{s}' back to WorkerType: {e}"),
-        }
+        let parsed: WorkerType = s.parse().expect(&format!("Failed to parse '{s}' back to WorkerType"));
+        assert_eq!(parsed, variant);
     }
 }
 
@@ -172,11 +170,11 @@ fn test_worker_type_from_str_roundtrip() {
 fn test_worker_type_from_str_error() {
     match "invalid_worker".parse::<WorkerType>() {
         Err(msg) => assert!(msg.contains("Invalid worker type")),
-        Ok(_) => panic!("Expected error for invalid worker type"),
+        Ok(_) => unreachable!("invalid_worker should not parse"),
     }
     match "".parse::<WorkerType>() {
         Err(msg) => assert!(msg.contains("Invalid worker type")),
-        Ok(_) => panic!("Expected error for empty string"),
+        Ok(_) => unreachable!("empty string should not parse"),
     }
 }
 
@@ -212,10 +210,8 @@ fn test_worker_status_as_str() {
 fn test_worker_status_from_str_roundtrip() {
     for variant in all_worker_statuses() {
         let s = variant.as_str();
-        match s.parse::<WorkerStatus>() {
-            Ok(parsed) => assert_eq!(parsed, variant),
-            Err(e) => panic!("Failed to parse '{s}' back to WorkerStatus: {e}"),
-        }
+        let parsed: WorkerStatus = s.parse().expect(&format!("Failed to parse '{s}' back to WorkerStatus"));
+        assert_eq!(parsed, variant);
     }
 }
 
@@ -223,7 +219,7 @@ fn test_worker_status_from_str_roundtrip() {
 fn test_worker_status_from_str_error() {
     match "unknown".parse::<WorkerStatus>() {
         Err(msg) => assert!(msg.contains("Invalid worker status")),
-        Ok(_) => panic!("Expected error for invalid status"),
+        Ok(_) => unreachable!("unknown should not parse as WorkerStatus"),
     }
 }
 
@@ -524,35 +520,27 @@ fn test_worker_topology_summary_baseline_has_presets() {
 #[test]
 fn test_worker_topology_summary_monolith_preset() {
     let preset = WorkerTopologySummary::baseline_preset("monolith");
-    match preset {
-        Some(p) => {
-            assert_eq!(p.instances.len(), 1);
-            assert_eq!(p.instances[0].worker_type, WorkerType::Master);
-            assert_eq!(p.instances[0].count, 1);
-        }
-        None => panic!("monolith preset not found"),
-    }
+    let p = preset.expect("monolith preset not found");
+    assert_eq!(p.instances.len(), 1);
+    assert_eq!(p.instances[0].worker_type, WorkerType::Master);
+    assert_eq!(p.instances[0].count, 1);
 }
 
 #[test]
 fn test_worker_topology_summary_split_minimal_preset() {
     let preset = WorkerTopologySummary::baseline_preset("split_minimal");
-    match preset {
-        Some(p) => {
-            assert_eq!(p.instances.len(), 9);
-            let types: Vec<WorkerType> = p.instances.iter().map(|i| i.worker_type).collect();
-            assert!(types.contains(&WorkerType::Master));
-            assert!(types.contains(&WorkerType::Frontend));
-            assert!(types.contains(&WorkerType::Synchrotron));
-            assert!(types.contains(&WorkerType::EventPersister));
-            assert!(types.contains(&WorkerType::FederationReader));
-            assert!(types.contains(&WorkerType::FederationSender));
-            assert!(types.contains(&WorkerType::MediaRepository));
-            assert!(types.contains(&WorkerType::Background));
-            assert!(types.contains(&WorkerType::Pusher));
-        }
-        None => panic!("split_minimal preset not found"),
-    }
+    let p = preset.expect("split_minimal preset not found");
+    assert_eq!(p.instances.len(), 9);
+    let types: Vec<WorkerType> = p.instances.iter().map(|i| i.worker_type).collect();
+    assert!(types.contains(&WorkerType::Master));
+    assert!(types.contains(&WorkerType::Frontend));
+    assert!(types.contains(&WorkerType::Synchrotron));
+    assert!(types.contains(&WorkerType::EventPersister));
+    assert!(types.contains(&WorkerType::FederationReader));
+    assert!(types.contains(&WorkerType::FederationSender));
+    assert!(types.contains(&WorkerType::MediaRepository));
+    assert!(types.contains(&WorkerType::Background));
+    assert!(types.contains(&WorkerType::Pusher));
 }
 
 #[test]
@@ -737,13 +725,12 @@ fn test_from_worker_event_row_to_worker_event() {
     assert_eq!(evt.sender, Some("@user:test".to_string()));
     assert_eq!(evt.event_data, serde_json::json!({"body": "hello"}));
     assert_eq!(evt.created_ts, 1700000000000);
-    match evt.processed_by {
-        Some(ref workers) => {
-            assert_eq!(workers.len(), 2);
-            assert_eq!(workers[0], "worker1");
-            assert_eq!(workers[1], "worker2");
-        }
-        None => panic!("expected Some processed_by"),
+    if let Some(ref workers) = evt.processed_by {
+        assert_eq!(workers.len(), 2);
+        assert_eq!(workers[0], "worker1");
+        assert_eq!(workers[1], "worker2");
+    } else {
+        unreachable!("expected Some processed_by");
     }
 }
 
@@ -911,12 +898,8 @@ fn test_heartbeat_request_fields() {
     };
     assert_eq!(req.worker_id, "w-001");
     assert_eq!(req.status, WorkerStatus::Running);
-    match req.load_stats {
-        Some(stats) => {
-            assert_eq!(stats.cpu_usage, Some(30.0));
-        }
-        None => panic!("expected load_stats"),
-    }
+    let stats = req.load_stats.expect("expected load_stats");
+    assert_eq!(stats.cpu_usage, Some(30.0));
 }
 
 #[test]

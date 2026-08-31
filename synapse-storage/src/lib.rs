@@ -19,6 +19,7 @@ pub mod account;
 pub mod account_data;
 /// Test isolation infrastructure (schema-per-test).
 /// Only available under `cfg(test)`.
+#[cfg(test)]
 pub mod test_isolation;
 /// Admin storage domain group — re-exports admin modules under `admin::`.
 pub mod admin;
