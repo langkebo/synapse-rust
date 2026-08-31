@@ -13,7 +13,7 @@ app_service.rs:464
 
 # E2EE routes (real ACK after persisted send-to-device, cross-signing, or key-request cancellation)
 # Migrated from monolithic e2ee_routes.rs into e2ee/ sub-modules (commit b0ef29db)
-e2ee/backup.rs:168
+e2ee/backup.rs:171
 e2ee/devices.rs:360
 
 # Sticky event routes (storage mutation ACK)

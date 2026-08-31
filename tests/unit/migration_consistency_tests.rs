@@ -52,5 +52,5 @@ fn test_build_sqlx_migration_source_outputs_v10_chain() {
     assert!(output.status.success(), "script failed: {}", String::from_utf8_lossy(&output.stderr));
 
     let manifest = read(&output_dir.join("manifest.json"));
-    assert!(manifest.contains("\"baseline\": \"00000000_unified_schema_v10.sql\""));
+    assert!(manifest.contains("\"baseline\": \"00000000_unified_schema_v11.sql\""));
 }

@@ -32,7 +32,7 @@ default = ["server", "core-private-chat", "widgets", "external-services", "beaco
 server = ["dep:axum", "dep:tower-http"]
 runtime-ddl = ["synapse-services/runtime-ddl", "synapse-storage/runtime-ddl"]
 performance-tests = []
-test-utils = ["synapse-services/test-utils"]
+test-utils = ["synapse-services/test-utils", "synapse-storage/test-utils", "synapse-e2ee/test-utils", "synapse-federation/test-utils"]
 
 # Non-core feature modules (can be disabled to produce a minimal build)
 core-private-chat = ["friends", "burn-after-read"]
