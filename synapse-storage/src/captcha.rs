@@ -1338,6 +1338,7 @@ use std::sync::Arc;
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_cleanup_expired_captchas_skips_non_pending() {
         let pool = test_pool().await;
         let storage = CaptchaStorage::new(&pool);

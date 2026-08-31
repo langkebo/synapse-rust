@@ -17,6 +17,9 @@ use tokio::sync::RwLock;
 /// Account storage domain group — re-exports account modules under `account::`.
 pub mod account;
 pub mod account_data;
+/// Test isolation infrastructure (schema-per-test).
+/// Only available under `cfg(test)`.
+pub mod test_isolation;
 /// Admin storage domain group — re-exports admin modules under `admin::`.
 pub mod admin;
 pub mod admin_federation;

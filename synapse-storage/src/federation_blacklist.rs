@@ -703,6 +703,7 @@ mod tests {
 #[cfg(test)]
 mod db_tests {
     use super::*;
+    use serial_test::serial;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
     use std::env;
@@ -1063,6 +1064,7 @@ use std::sync::Arc;
 
     // 11. get_all_blacklist supports cursor-based pagination.
     #[tokio::test]
+    #[serial]
     async fn test_get_all_blacklist_pagination() {
         let pool = test_pool().await;
         let storage = FederationBlacklistStorage::new(&pool);

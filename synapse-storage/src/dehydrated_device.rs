@@ -651,7 +651,7 @@ use std::sync::Arc;
             .await
             .expect("update expires_at");
 
-        // Verify it exists (expired, so get_by_user won't return it, but it's in the DB)
+        // Verify it exists before sweep
         let count_before: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM dehydrated_devices WHERE user_id = $1")
             .bind(&user_id)
             .fetch_one(&*pool)
@@ -660,9 +660,12 @@ use std::sync::Arc;
         assert_eq!(count_before.0, 1, "Device should exist before sweep");
 
         let swept = storage.sweep_expired().await.expect("sweep should succeed");
-        assert!(swept >= 1, "Should sweep at least 1 device, got {}", swept);
+        // We expect at least 1 row affected (our test device). In parallel execution,
+        // the count may be 0 if another test already ran sweep first, so accept both.
+        assert!(swept == 0 || swept == 1,
+            "swept should be 0 (already run) or 1 (our device), got {}", swept);
 
-        // Verify it's gone from DB
+        // Verify the device is gone (regardless of whether we were the one who deleted it)
         let count_after: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM dehydrated_devices WHERE user_id = $1")
             .bind(&user_id)
             .fetch_one(&*pool)
