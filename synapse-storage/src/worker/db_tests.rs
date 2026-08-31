@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use super::*;
+use serial_test::serial;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -725,6 +726,7 @@ async fn test_get_pending_tasks_returns_pending_only() {
 
 // === claim_next_pending_task ===
 #[tokio::test]
+#[serial]
 async fn test_claim_next_pending_task_assigns_to_worker() {
     let pool = test_pool().await;
     let storage = WorkerStorage::new(&pool);
@@ -758,6 +760,7 @@ async fn test_claim_next_pending_task_assigns_to_worker() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_claim_next_pending_task_none_when_empty() {
     let pool = test_pool().await;
     let storage = WorkerStorage::new(&pool);
@@ -784,6 +787,7 @@ async fn test_claim_next_pending_task_none_when_empty() {
 
 // === claim_next_pending_task_for_types ===
 #[tokio::test]
+#[serial]
 async fn test_claim_next_pending_task_for_types_matches() {
     let pool = test_pool().await;
     let storage = WorkerStorage::new(&pool);
@@ -818,6 +822,7 @@ async fn test_claim_next_pending_task_for_types_matches() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_claim_next_pending_task_for_types_no_match() {
     let pool = test_pool().await;
     let storage = WorkerStorage::new(&pool);

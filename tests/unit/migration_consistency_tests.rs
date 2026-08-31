@@ -12,24 +12,24 @@ fn read(path: &Path) -> String {
 }
 
 #[test]
-fn test_v10_baseline_primary_exists() {
+fn test_v11_baseline_primary_exists() {
     let root = project_root();
     let primary = root.join("migrations");
-    assert!(primary.join("00000000_unified_schema_v10.sql").exists(), "missing v10 primary schema");
-    assert!(primary.join("00000001_extensions_v10.sql").exists(), "missing v10 extensions");
+    assert!(primary.join("00000000_unified_schema_v11.sql").exists(), "missing v11 primary schema");
+    assert!(primary.join("00000001_extensions_v10.sql").exists(), "missing v10 extensions (still used)");
 }
 
 #[test]
-fn test_v10_primary_and_deploy_migrations_match() {
+fn test_v11_primary_and_deploy_migrations_match() {
     let root = project_root();
     let primary = root.join("migrations");
     let deploy = root.join("docker/deploy/migrations");
-    // v10 baseline: primary has v10, deploy has v7 — we only check that both
+    // v11 baseline: primary has v11, deploy has v7 — we only check that both
     // exist. Content comparison is skipped because they represent different
-    // migration epochs (v10 consolidated tables that v7 had as incremental).
-    let primary_baseline = primary.join("00000000_unified_schema_v10.sql");
+    // migration epochs (v11 consolidated tables that v7 had as incremental).
+    let primary_baseline = primary.join("00000000_unified_schema_v11.sql");
     let deploy_baseline = deploy.join("00000000_unified_schema_v07.sql");
-    assert!(primary_baseline.exists(), "missing primary v10 baseline");
+    assert!(primary_baseline.exists(), "missing primary v11 baseline");
     assert!(deploy_baseline.exists(), "missing deploy v7 baseline");
 }
 

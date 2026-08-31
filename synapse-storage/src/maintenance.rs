@@ -281,6 +281,7 @@ mod tests {
 mod db_tests {
     use std::time::Duration;
     use super::*;
+    use serial_test::serial;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
     use std::sync::Arc;
@@ -387,6 +388,7 @@ mod db_tests {
     // --- Idempotency / repeated runs ---
 
     #[tokio::test]
+    #[serial]
     async fn test_perform_maintenance_idempotent_twice() {
         let pool = test_pool().await;
         let maintenance = DatabaseMaintenance::new((*pool).clone());

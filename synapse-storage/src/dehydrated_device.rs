@@ -375,6 +375,7 @@ impl DehydratedDeviceStoreApi for DehydratedDeviceStorage {
 mod db_tests {
     use super::*;
     use serde_json::json;
+    use serial_test::serial;
     use sqlx::postgres::PgPoolOptions;
     use std::env;
 use std::time::Duration;
@@ -623,6 +624,7 @@ use std::sync::Arc;
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_sweep_expired_removes_expired() {
         let pool = test_pool().await;
         let storage = DehydratedDeviceStorage::new(&pool);

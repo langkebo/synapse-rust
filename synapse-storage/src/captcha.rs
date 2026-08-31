@@ -500,6 +500,7 @@ mod tests {
 #[cfg(test)]
 mod db_tests {
     use super::*;
+    use serial_test::serial;
     use sqlx::postgres::PgPoolOptions;
     use std::env;
 use std::time::Duration;
@@ -1291,6 +1292,7 @@ use std::sync::Arc;
     // ---------------------------------------------------------------------------
 
     #[tokio::test]
+    #[serial]
     async fn test_cleanup_expired_captchas_deletes_expired_pending() {
         let pool = test_pool().await;
         let storage = CaptchaStorage::new(&pool);

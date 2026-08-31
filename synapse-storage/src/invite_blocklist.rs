@@ -266,6 +266,7 @@ mod tests {
 mod db_tests {
     use std::time::Duration;
     use super::*;
+    use serial_test::serial;
     use sqlx::postgres::PgPoolOptions;
 
     async fn test_pool() -> Arc<PgPool> {
@@ -567,6 +568,7 @@ mod db_tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_get_global_invite_allowlist() {
         let pool = test_pool().await;
         let storage = InviteBlocklistStorage::new(pool.clone());
