@@ -47,7 +47,7 @@ async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
 }
 
 fn make_suffix() -> String {
-    uuid::Uuid::new_v4().to_string().replace('-', "")
+    uuid::Uuid::new_v4().simple().to_string()
 }
 
 fn make_full_token(suffix: &str) -> String {

@@ -60,7 +60,7 @@ async fn cleanup_summary_data(pool: &PgPool, suffix: &str) {
 }
 
 fn make_suffix() -> String {
-    uuid::Uuid::new_v4().to_string().replace('-', "")
+    uuid::Uuid::new_v4().simple().to_string()
 }
 
 // ── create_summary ──────────────────────────────────────────────
@@ -517,7 +517,7 @@ async fn test_add_member_creates_record() {
             room_id: room_id.clone(),
             user_id: user_id.clone(),
             display_name: Some("Alice".to_string()),
-            avatar_url: Some("mxc://alice".to_string()),
+            avatar_url: Some("mxc://localhost/alice".to_string()),
             membership: "join".to_string(),
             is_hero: Some(true),
             last_active_ts: Some(1_700_000_000_000i64),
@@ -528,7 +528,7 @@ async fn test_add_member_creates_record() {
     assert_eq!(member.room_id, room_id);
     assert_eq!(member.user_id, user_id);
     assert_eq!(member.display_name.as_deref(), Some("Alice"));
-    assert_eq!(member.avatar_url.as_deref(), Some("mxc://alice"));
+    assert_eq!(member.avatar_url.as_deref(), Some("mxc://localhost/alice"));
     assert_eq!(member.membership, "join");
     assert!(member.is_hero);
 
@@ -589,7 +589,7 @@ async fn test_add_member_duplicate_upserts() {
             room_id: room_id.clone(),
             user_id: user_id.clone(),
             display_name: Some("Second".to_string()),
-            avatar_url: Some("mxc://second".to_string()),
+            avatar_url: Some("mxc://localhost/second".to_string()),
             membership: "leave".to_string(),
             is_hero: None,
             last_active_ts: None,
@@ -600,7 +600,7 @@ async fn test_add_member_duplicate_upserts() {
     // Should update membership and overwrite display_name (COALESCE prefers EXCLUDED when non-null)
     assert_eq!(m2.membership, "leave");
     assert_eq!(m2.display_name.as_deref(), Some("Second"));
-    assert_eq!(m2.avatar_url.as_deref(), Some("mxc://second"));
+    assert_eq!(m2.avatar_url.as_deref(), Some("mxc://localhost/second"));
 
     cleanup_summary_data(&pool, &suffix).await;
 }
@@ -751,7 +751,7 @@ async fn test_update_member_changes_fields() {
             &user_id,
             UpdateSummaryMemberRequest {
                 display_name: Some("Updated".to_string()),
-                avatar_url: Some("mxc://new_avatar".to_string()),
+                avatar_url: Some("mxc://localhost/new_avatar".to_string()),
                 membership: Some("leave".to_string()),
                 is_hero: Some(true),
                 last_active_ts: Some(1_700_000_000_000i64),
@@ -761,7 +761,7 @@ async fn test_update_member_changes_fields() {
         .unwrap();
 
     assert_eq!(updated.display_name.as_deref(), Some("Updated"));
-    assert_eq!(updated.avatar_url.as_deref(), Some("mxc://new_avatar"));
+    assert_eq!(updated.avatar_url.as_deref(), Some("mxc://localhost/new_avatar"));
     assert_eq!(updated.membership, "leave");
     assert!(updated.is_hero);
 

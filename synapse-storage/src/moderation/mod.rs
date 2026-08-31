@@ -162,7 +162,7 @@ impl ModerationStorage {
 
     pub async fn create_rule(&self, params: CreateModerationRuleParams) -> Result<ModerationRule, sqlx::Error> {
         let now = current_timestamp_millis();
-        let rule_id = format!("mod_{}", uuid::Uuid::new_v4().simple());
+        let rule_id = format!("mod_{}", uuid::Uuid::new_v4().simple().to_string());
 
         sqlx::query_as::<_, ModerationRule>(
             r"

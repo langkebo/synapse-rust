@@ -39,7 +39,7 @@ impl SlidingSyncStorage {
         let now = current_timestamp_millis();
         let expires_at = now + 7 * 24 * 3600 * 1000;
 
-        let token = uuid::Uuid::new_v4().to_string();
+        let token = uuid::Uuid::new_v4().simple().to_string();
 
         // S14: event_stream_pos 记录本轮同步开始时的事件流水快照，
         // 下一轮增量同步据此过滤 timeline（只下发更新的）。

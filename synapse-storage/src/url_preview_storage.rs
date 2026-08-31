@@ -240,7 +240,7 @@ mod db_tests {
     async fn test_save_and_get_preview() {
         let pool = test_pool().await;
         let storage = UrlPreviewStorage::new(&pool);
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let url = format!("https://example.com/test-save-{suffix}");
         let prefix = format!("https://example.com/test-save-{suffix}");
 
@@ -292,7 +292,7 @@ mod db_tests {
     async fn test_get_expired_preview_returns_none() {
         let pool = test_pool().await;
         let storage = UrlPreviewStorage::new(&pool);
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let url = format!("https://example.com/test-expired-{suffix}");
         let prefix = url.clone();
 
@@ -317,7 +317,7 @@ mod db_tests {
     async fn test_update_preview_via_upsert() {
         let pool = test_pool().await;
         let storage = UrlPreviewStorage::new(&pool);
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let url = format!("https://example.com/test-upsert-{suffix}");
         let prefix = url.clone();
 
@@ -372,7 +372,7 @@ mod db_tests {
     async fn test_cleanup_expired_previews() {
         let pool = test_pool().await;
         let storage = UrlPreviewStorage::new(&pool);
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let prefix = format!("https://example.com/test-cleanup-{suffix}");
 
         cleanup_by_prefix(&pool, &prefix).await;
@@ -421,7 +421,7 @@ mod db_tests {
     async fn test_round_trip_all_option_fields_none() {
         let pool = test_pool().await;
         let storage = UrlPreviewStorage::new(&pool);
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let url = format!("https://example.com/test-minimal-{suffix}");
         let prefix = url.clone();
 

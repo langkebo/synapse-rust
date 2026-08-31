@@ -125,7 +125,7 @@ impl OAuthClientStorage {
         scope: &str,
         is_confidential: bool,
     ) -> Result<OAuthClient, sqlx::Error> {
-        let client_id = uuid::Uuid::new_v4().to_string();
+        let client_id = uuid::Uuid::new_v4().simple().to_string();
         let client_secret = Self::generate_client_secret();
         let now_ts = current_timestamp_millis();
 

@@ -270,7 +270,7 @@ use std::sync::Arc;
     async fn test_create_token_returns_valid_record() {
         let pool = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
-        let user_id = &format!("@openid_test_create_{}:localhost", uuid::Uuid::new_v4().to_string().replace('-', ""));
+        let user_id = &format!("@openid_test_create_{}:localhost", uuid::Uuid::new_v4().simple().to_string());
         let token_str = format!("tok_create_{}", uuid::Uuid::new_v4());
         let far_future = current_timestamp_millis() + 86400000;
 
@@ -305,7 +305,7 @@ use std::sync::Arc;
     async fn test_get_token_finds_valid_token() {
         let pool = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
-        let user_id = &format!("@openid_test_get_{}:localhost", uuid::Uuid::new_v4().to_string().replace('-', ""));
+        let user_id = &format!("@openid_test_get_{}:localhost", uuid::Uuid::new_v4().simple().to_string());
         let token_str = format!("tok_get_{}", uuid::Uuid::new_v4());
         let far_future = current_timestamp_millis() + 86400000;
 
@@ -354,7 +354,7 @@ use std::sync::Arc;
     async fn test_validate_token_returns_token_if_not_expired() {
         let pool = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
-        let user_id = &format!("@openid_test_val_{}:localhost", uuid::Uuid::new_v4().to_string().replace('-', ""));
+        let user_id = &format!("@openid_test_val_{}:localhost", uuid::Uuid::new_v4().simple().to_string());
         let token_str = format!("tok_val_{}", uuid::Uuid::new_v4());
         let far_future = current_timestamp_millis() + 86400000;
 
@@ -389,7 +389,7 @@ use std::sync::Arc;
     async fn test_validate_token_returns_none_for_expired_token() {
         let pool = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
-        let user_id = &format!("@openid_test_exp_{}:localhost", uuid::Uuid::new_v4().to_string().replace('-', ""));
+        let user_id = &format!("@openid_test_exp_{}:localhost", uuid::Uuid::new_v4().simple().to_string());
         let token_str = format!("tok_exp_{}", uuid::Uuid::new_v4());
         let past = current_timestamp_millis() - 3600000; // 1 hour ago
 
@@ -423,7 +423,7 @@ use std::sync::Arc;
     async fn test_revoke_token_returns_true_and_makes_token_not_found() {
         let pool = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
-        let user_id = &format!("@openid_test_revoke_{}:localhost", uuid::Uuid::new_v4().to_string().replace('-', ""));
+        let user_id = &format!("@openid_test_revoke_{}:localhost", uuid::Uuid::new_v4().simple().to_string());
         let token_str = format!("tok_revoke_{}", uuid::Uuid::new_v4());
         let far_future = current_timestamp_millis() + 86400000;
 

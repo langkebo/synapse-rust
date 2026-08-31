@@ -1055,7 +1055,7 @@ use std::sync::Arc;
     async fn test_add_member_all_membership_types() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_test_types_{suffix}:localhost");
         let room_id = format!("!room_test_types_{suffix}:localhost");
 
@@ -1088,7 +1088,7 @@ use std::sync::Arc;
     async fn test_add_member_with_sender() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_sender_{suffix}:localhost");
         let sender = format!("@mem_inviter_{suffix}:localhost");
         let room_id = format!("!room_sender_{suffix}:localhost");
@@ -1110,7 +1110,7 @@ use std::sync::Arc;
     async fn test_get_member_found_and_not_found() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_found_{suffix}:localhost");
         let room_id = format!("!room_found_{suffix}:localhost");
 
@@ -1142,7 +1142,7 @@ use std::sync::Arc;
     async fn test_get_room_members_filtered_by_type() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_filter_a_{suffix}:localhost");
         let user_b = format!("@mem_filter_b_{suffix}:localhost");
         let room_id = format!("!room_filter_{suffix}:localhost");
@@ -1175,7 +1175,7 @@ use std::sync::Arc;
     async fn test_has_any_non_banned_member_from_server_true() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_srv_true_{suffix}:localhost");
         let room_id = format!("!room_srv_true_{suffix}:localhost");
 
@@ -1195,7 +1195,7 @@ use std::sync::Arc;
     async fn test_has_any_non_banned_member_from_server_false() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_srv_false_{suffix}:localhost");
         let room_id = format!("!room_srv_false_{suffix}:localhost");
 
@@ -1221,7 +1221,7 @@ use std::sync::Arc;
     async fn test_get_room_member_count() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_count_a_{suffix}:localhost");
         let user_b = format!("@mem_count_b_{suffix}:localhost");
         let room_id = format!("!room_count_{suffix}:localhost");
@@ -1257,7 +1257,7 @@ use std::sync::Arc;
     async fn test_get_room_members_paginated() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_0 = format!("@mem_page_0_{suffix}:localhost");
         let user_1 = format!("@mem_page_1_{suffix}:localhost");
         let user_2 = format!("@mem_page_2_{suffix}:localhost");
@@ -1299,7 +1299,7 @@ use std::sync::Arc;
     async fn test_remove_member() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_remove_{suffix}:localhost");
         let room_id = format!("!room_remove_{suffix}:localhost");
 
@@ -1325,7 +1325,7 @@ use std::sync::Arc;
     async fn test_remove_member_idempotent() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_rm_idem_{suffix}:localhost");
         let room_id = format!("!room_rm_idem_{suffix}:localhost");
 
@@ -1347,7 +1347,7 @@ use std::sync::Arc;
     async fn test_forget_member() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_forget_{suffix}:localhost");
         let room_id = format!("!room_forget_{suffix}:localhost");
 
@@ -1370,7 +1370,7 @@ use std::sync::Arc;
     async fn test_is_forgotten_returns_false() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_not_fgt_{suffix}:localhost");
         let room_id = format!("!room_not_fgt_{suffix}:localhost");
 
@@ -1395,7 +1395,7 @@ use std::sync::Arc;
     async fn test_get_shared_room_users_shared() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_share_a_{suffix}:localhost");
         let user_b = format!("@mem_share_b_{suffix}:localhost");
         let room_id = format!("!room_share_{suffix}:localhost");
@@ -1419,7 +1419,7 @@ use std::sync::Arc;
     async fn test_get_shared_room_users_no_shared() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_noshare_{suffix}:localhost");
         let room_id = format!("!room_noshare_{suffix}:localhost");
 
@@ -1441,7 +1441,7 @@ use std::sync::Arc;
     async fn test_remove_all_members() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_clr_a_{suffix}:localhost");
         let user_b = format!("@mem_clr_b_{suffix}:localhost");
         let room_id = format!("!room_clr_{suffix}:localhost");
@@ -1475,7 +1475,7 @@ use std::sync::Arc;
     async fn test_ban_and_unban_member() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_ban_{suffix}:localhost");
         let banned_by = format!("@admin_{suffix}:localhost");
         let room_id = format!("!room_ban_{suffix}:localhost");
@@ -1506,7 +1506,7 @@ use std::sync::Arc;
     async fn test_ban_member_idempotent() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_ban2_{suffix}:localhost");
         let admin = format!("@admin2_{suffix}:localhost");
         let room_id = format!("!room_ban2_{suffix}:localhost");
@@ -1530,7 +1530,7 @@ use std::sync::Arc;
     async fn test_get_joined_rooms_multiple() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_jrooms_{suffix}:localhost");
         let room_1 = format!("!room_jr1_{suffix}:localhost");
         let room_2 = format!("!room_jr2_{suffix}:localhost");
@@ -1555,7 +1555,7 @@ use std::sync::Arc;
     async fn test_get_joined_rooms_empty() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_nojr_{suffix}:localhost");
 
         cleanup_membership_data(&pool, &suffix).await;
@@ -1573,7 +1573,7 @@ use std::sync::Arc;
     async fn test_get_sync_rooms() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_sync_{suffix}:localhost");
         let room_1 = format!("!room_sync1_{suffix}:localhost");
         let room_2 = format!("!room_sync2_{suffix}:localhost");
@@ -1609,7 +1609,7 @@ use std::sync::Arc;
     async fn test_get_membership_state() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_state_{suffix}:localhost");
         let room_id = format!("!room_state_{suffix}:localhost");
 
@@ -1640,7 +1640,7 @@ use std::sync::Arc;
     async fn test_get_joined_room_count() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_jrcount_{suffix}:localhost");
         let room_a = format!("!room_jrc_a_{suffix}:localhost");
         let room_b = format!("!room_jrc_b_{suffix}:localhost");
@@ -1669,7 +1669,7 @@ use std::sync::Arc;
     async fn test_is_member() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_ismem_{suffix}:localhost");
         let room_id = format!("!room_ismem_{suffix}:localhost");
 
@@ -1697,7 +1697,7 @@ use std::sync::Arc;
     async fn test_get_room_member() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_rmem_{suffix}:localhost");
         let room_id = format!("!room_rmem_{suffix}:localhost");
 
@@ -1724,7 +1724,7 @@ use std::sync::Arc;
     async fn test_get_joined_members() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_jm_a_{suffix}:localhost");
         let user_b = format!("@mem_jm_b_{suffix}:localhost");
         let room_id = format!("!room_jm_{suffix}:localhost");
@@ -1752,7 +1752,7 @@ use std::sync::Arc;
     async fn test_get_joined_member() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@mem_jm_one_{suffix}:localhost");
         let room_id = format!("!room_jm_one_{suffix}:localhost");
 
@@ -1783,7 +1783,7 @@ use std::sync::Arc;
     async fn test_share_common_room() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_scr_a_{suffix}:localhost");
         let user_b = format!("@mem_scr_b_{suffix}:localhost");
         let user_c = format!("@mem_scr_c_{suffix}:localhost");
@@ -1813,7 +1813,7 @@ use std::sync::Arc;
     async fn test_get_membership_history() {
         let pool = test_pool().await;
         let storage = RoomMemberStorage::new(&pool, "localhost");
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_a = format!("@mem_hist_a_{suffix}:localhost");
         let user_b = format!("@mem_hist_b_{suffix}:localhost");
         let room_id = format!("!room_hist_{suffix}:localhost");

@@ -148,7 +148,7 @@ impl RendezvousStorage {
         params: CreateRendezvousSessionParams,
     ) -> Result<RendezvousSession, sqlx::Error> {
         let now = current_timestamp_millis();
-        let session_id = uuid::Uuid::new_v4().simple().to_string();
+        let session_id = uuid::Uuid::new_v4().simple().to_string().to_string();
         let key = Self::generate_key();
         let expires_at = now + params.expires_in_ms.unwrap_or(5 * 60 * 1000);
 
@@ -303,7 +303,7 @@ impl RendezvousStorage {
         ttl_ms: i64,
     ) -> Result<(String, String, i64), sqlx::Error> {
         let now = current_timestamp_millis();
-        let session_id = uuid::Uuid::new_v4().simple().to_string();
+        let session_id = uuid::Uuid::new_v4().simple().to_string().to_string();
         let expires_at = now + ttl_ms;
         let content = serde_json::json!({ "data": initial_data });
 

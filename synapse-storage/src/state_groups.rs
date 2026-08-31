@@ -605,7 +605,7 @@ mod db_tests {
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_create_sg_{suffix}:localhost");
-        let event_id = format!("$create_sg_ev_{suffix}");
+        let event_id = format!("$create_sg_ev_{suffix}:localhost");
 
         cleanup_test_data(&pool, &room_id).await;
         ensure_test_room_and_event(&pool, &room_id, &event_id).await;
@@ -628,7 +628,7 @@ mod db_tests {
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_get_sg_{suffix}:localhost");
-        let event_id = format!("$get_sg_ev_{suffix}");
+        let event_id = format!("$get_sg_ev_{suffix}:localhost");
 
         cleanup_test_data(&pool, &room_id).await;
         ensure_test_room_and_event(&pool, &room_id, &event_id).await;
@@ -668,7 +668,7 @@ mod db_tests {
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_sg_by_ev_{suffix}:localhost");
-        let event_id = format!("$sg_by_ev_{suffix}");
+        let event_id = format!("$sg_by_ev_{suffix}:localhost");
 
         cleanup_test_data(&pool, &room_id).await;
         ensure_test_room_and_event(&pool, &room_id, &event_id).await;
@@ -700,8 +700,8 @@ mod db_tests {
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_room_sgs_{suffix}:localhost");
-        let event_id1 = format!("$room_sg_ev1_{suffix}");
-        let event_id2 = format!("$room_sg_ev2_{suffix}");
+        let event_id1 = format!("$room_sg_ev1_{suffix}:localhost");
+        let event_id2 = format!("$room_sg_ev2_{suffix}:localhost");
 
         cleanup_test_data(&pool, &room_id).await;
         ensure_test_room_and_event(&pool, &room_id, &event_id1).await;
@@ -746,8 +746,8 @@ mod db_tests {
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_edge_{suffix}:localhost");
-        let ev_a = format!("$edge_ev_a_{suffix}");
-        let ev_b = format!("$edge_ev_b_{suffix}");
+        let ev_a = format!("$edge_ev_a_{suffix}:localhost");
+        let ev_b = format!("$edge_ev_b_{suffix}:localhost");
 
         cleanup_test_data(&pool, &room_id).await;
         ensure_test_room_and_event(&pool, &room_id, &ev_a).await;
@@ -777,10 +777,10 @@ mod db_tests {
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_batch_edges_{suffix}:localhost");
-        let ev_main = format!("$batch_ev_main_{suffix}");
-        let ev_p1 = format!("$batch_ev_p1_{suffix}");
-        let ev_p2 = format!("$batch_ev_p2_{suffix}");
-        let ev_p3 = format!("$batch_ev_p3_{suffix}");
+        let ev_main = format!("$batch_ev_main_{suffix}:localhost");
+        let ev_p1 = format!("$batch_ev_p1_{suffix}:localhost");
+        let ev_p2 = format!("$batch_ev_p2_{suffix}:localhost");
+        let ev_p3 = format!("$batch_ev_p3_{suffix}:localhost");
 
         cleanup_test_data(&pool, &room_id).await;
         ensure_test_room_and_event(&pool, &room_id, &ev_main).await;
@@ -827,8 +827,8 @@ mod db_tests {
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_prev_{suffix}:localhost");
-        let ev_cur = format!("$prev_ev_cur_{suffix}");
-        let ev_old = format!("$prev_ev_old_{suffix}");
+        let ev_cur = format!("$prev_ev_cur_{suffix}:localhost");
+        let ev_old = format!("$prev_ev_old_{suffix}:localhost");
 
         cleanup_test_data(&pool, &room_id).await;
         ensure_test_room_and_event(&pool, &room_id, &ev_cur).await;
@@ -862,8 +862,8 @@ mod db_tests {
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_next_{suffix}:localhost");
-        let ev_a = format!("$next_ev_a_{suffix}");
-        let ev_b = format!("$next_ev_b_{suffix}");
+        let ev_a = format!("$next_ev_a_{suffix}:localhost");
+        let ev_b = format!("$next_ev_b_{suffix}:localhost");
 
         cleanup_test_data(&pool, &room_id).await;
         ensure_test_room_and_event(&pool, &room_id, &ev_a).await;
@@ -896,8 +896,8 @@ mod db_tests {
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_bind_{suffix}:localhost");
-        let sg_ev = format!("$bind_sg_ev_{suffix}");
-        let bind_ev = format!("$bind_ev_{suffix}");
+        let sg_ev = format!("$bind_sg_ev_{suffix}:localhost");
+        let bind_ev = format!("$bind_ev_{suffix}:localhost");
 
         cleanup_test_data(&pool, &room_id).await;
         ensure_test_room_and_event(&pool, &room_id, &sg_ev).await;
@@ -940,8 +940,8 @@ mod db_tests {
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_state_entry_{suffix}:localhost");
-        let sg_ev = format!("$state_entry_sg_ev_{suffix}");
-        let state_ev = format!("$state_entry_ev_{suffix}");
+        let sg_ev = format!("$state_entry_sg_ev_{suffix}:localhost");
+        let state_ev = format!("$state_entry_ev_{suffix}:localhost");
 
         cleanup_test_data(&pool, &room_id).await;
         ensure_test_room_and_event(&pool, &room_id, &sg_ev).await;
@@ -965,7 +965,7 @@ mod db_tests {
         assert!(missing.is_none());
 
         // Test upsert (update existing)
-        let state_ev2 = format!("$state_entry_ev2_{suffix}");
+        let state_ev2 = format!("$state_entry_ev2_{suffix}:localhost");
         ensure_test_event(&pool, &state_ev2, &room_id).await;
         storage.set_state_entry(sg_id, "m.room.name", "", &state_ev2).await.expect("upsert should succeed");
         let updated = storage
@@ -984,10 +984,10 @@ mod db_tests {
         let storage = StateGroupStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!test_batch_state_{suffix}:localhost");
-        let sg_ev = format!("$batch_state_sg_ev_{suffix}");
-        let ev1 = format!("$batch_state_ev1_{suffix}");
-        let ev2 = format!("$batch_state_ev2_{suffix}");
-        let ev3 = format!("$batch_state_ev3_{suffix}");
+        let sg_ev = format!("$batch_state_sg_ev_{suffix}:localhost");
+        let ev1 = format!("$batch_state_ev1_{suffix}:localhost");
+        let ev2 = format!("$batch_state_ev2_{suffix}:localhost");
+        let ev3 = format!("$batch_state_ev3_{suffix}:localhost");
 
         cleanup_test_data(&pool, &room_id).await;
         ensure_test_room_and_event(&pool, &room_id, &sg_ev).await;

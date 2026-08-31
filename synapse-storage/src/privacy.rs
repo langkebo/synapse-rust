@@ -439,7 +439,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_privacy_tables_exist() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         // Tables should already exist from migrations — verify they're queryable
@@ -455,7 +455,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_settings_nonexistent_user() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -470,7 +470,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_settings_returns_existing() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -497,7 +497,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_or_create_settings_creates_with_defaults() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -523,7 +523,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_or_create_settings_is_idempotent() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -545,7 +545,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_update_settings_all_fields() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -579,7 +579,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_update_settings_partial_fields() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -611,7 +611,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_update_settings_creates_for_nonexistent_user() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -642,7 +642,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_can_view_profile_public_visible_to_other() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -663,7 +663,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_can_view_profile_public_visible_to_anonymous() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -681,7 +681,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_can_view_profile_private_self() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -708,7 +708,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_can_view_profile_private_other() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -736,7 +736,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_can_view_profile_private_anonymous() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -762,7 +762,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_can_view_profile_contacts_with_shared_room() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -797,7 +797,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_can_view_profile_contacts_without_shared_room() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -826,7 +826,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_can_view_profile_contacts_anonymous() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -854,7 +854,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_can_view_presence_public_visible_to_other() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -882,7 +882,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_can_view_presence_private_self_only() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -914,7 +914,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_can_view_presence_contacts_with_shared_room() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -941,7 +941,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_can_view_presence_contacts_without_shared_room() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         let storage = PrivacyStorage::new(pool.clone());
@@ -976,7 +976,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_batch_can_view_profile_basic() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_privacy_data(&pool, &suffix).await;
 
         // Ensure the allow_profile_lookup column exists (may have been added

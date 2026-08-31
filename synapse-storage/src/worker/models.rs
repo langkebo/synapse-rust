@@ -207,7 +207,7 @@ pub struct WorkerRuntimeConfig {
 impl Default for WorkerRuntimeConfig {
     fn default() -> Self {
         Self {
-            worker_id: uuid::Uuid::new_v4().to_string(),
+            worker_id: uuid::Uuid::new_v4().simple().to_string(),
             worker_name: "worker".to_string(),
             worker_type: WorkerType::Frontend,
             host: "localhost".to_string(),

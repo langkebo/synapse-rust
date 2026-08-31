@@ -629,8 +629,8 @@ use std::sync::Arc;
     fn make_params(suffix: &str) -> CreateRelationParams {
         CreateRelationParams {
             room_id: format!("!room_{suffix}:example.com"),
-            event_id: format!("$event_{suffix}"),
-            relates_to_event_id: format!("$related_{suffix}"),
+            event_id: format!("$event_{suffix}:localhost"),
+            relates_to_event_id: format!("$related_{suffix}:localhost"),
             relation_type: "m.annotation".to_string(),
             sender: format!("@user_{suffix}:example.com"),
             origin_server_ts: current_timestamp_millis(),
@@ -643,7 +643,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_create_relation_returns_valid_record() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
@@ -654,8 +654,8 @@ use std::sync::Arc;
 
         assert!(rel.id > 0);
         assert_eq!(rel.room_id, format!("!room_{suffix}:example.com"));
-        assert_eq!(rel.event_id, format!("$event_{suffix}"));
-        assert_eq!(rel.relates_to_event_id, format!("$related_{suffix}"));
+        assert_eq!(rel.event_id, format!("$event_{suffix}:localhost"));
+        assert_eq!(rel.relates_to_event_id, format!("$related_{suffix}:localhost"));
         assert_eq!(rel.relation_type, "m.annotation");
         assert_eq!(rel.sender, format!("@user_{suffix}:example.com"));
         assert!(!rel.is_redacted);
@@ -668,7 +668,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_create_relation_upsert_updates_existing() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
@@ -680,8 +680,8 @@ use std::sync::Arc;
         // Upsert with same (event_id, relation_type, sender) but different content
         let params2 = CreateRelationParams {
             room_id: format!("!room_{suffix}:example.com"),
-            event_id: format!("$event_{suffix}"),
-            relates_to_event_id: format!("$related_{suffix}"),
+            event_id: format!("$event_{suffix}:localhost"),
+            relates_to_event_id: format!("$related_{suffix}:localhost"),
             relation_type: "m.annotation".to_string(),
             sender: format!("@user_{suffix}:example.com"),
             origin_server_ts: current_timestamp_millis() + 1000,
@@ -705,7 +705,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_relation_returns_existing() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
@@ -714,7 +714,7 @@ use std::sync::Arc;
         let created = storage.create_relation(params).await.expect("create_relation should succeed");
 
         let found = storage
-            .get_relation(&format!("!room_{suffix}:example.com"), &format!("$event_{suffix}"))
+            .get_relation(&format!("!room_{suffix}:example.com"), &format!("$event_{suffix}:localhost"))
             .await
             .expect("get_relation should succeed");
 
@@ -730,7 +730,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_relation_returns_none_for_unknown() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
@@ -750,7 +750,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_relation_skips_redacted() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
@@ -760,13 +760,13 @@ use std::sync::Arc;
 
         // Redact it
         storage
-            .redact_relation(&format!("!room_{suffix}:example.com"), &format!("$event_{suffix}"))
+            .redact_relation(&format!("!room_{suffix}:example.com"), &format!("$event_{suffix}:localhost"))
             .await
             .expect("redact_relation should succeed");
 
         // get_relation should skip redacted rows
         let result = storage
-            .get_relation(&format!("!room_{suffix}:example.com"), &format!("$event_{suffix}"))
+            .get_relation(&format!("!room_{suffix}:example.com"), &format!("$event_{suffix}:localhost"))
             .await
             .expect("get_relation should succeed");
 
@@ -781,18 +781,18 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_count_relations_no_filter() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
         let storage = RelationsStorage::new(&pool);
-        let relates_to = format!("$related_{suffix}");
+        let relates_to = format!("$related_{suffix}:localhost");
 
         // Insert 3 annotations for the same target
         for i in 0..3 {
             let params = CreateRelationParams {
                 room_id: format!("!room_{suffix}:example.com"),
-                event_id: format!("$event_{suffix}_{i}"),
+                event_id: format!("$event_{suffix}_{i}:localhost"),
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_{i}_{suffix}:example.com"),
@@ -816,18 +816,18 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_count_relations_with_type_filter() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
         let storage = RelationsStorage::new(&pool);
-        let relates_to = format!("$related_{suffix}");
+        let relates_to = format!("$related_{suffix}:localhost");
 
         // Insert 2 annotations
         for i in 0..2 {
             let params = CreateRelationParams {
                 room_id: format!("!room_{suffix}:example.com"),
-                event_id: format!("$annot_{suffix}_{i}"),
+                event_id: format!("$annot_{suffix}_{i}:localhost"),
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_{i}_{suffix}:example.com"),
@@ -840,7 +840,7 @@ use std::sync::Arc;
         // Insert 1 reference
         let ref_params = CreateRelationParams {
             room_id: format!("!room_{suffix}:example.com"),
-            event_id: format!("$ref_{suffix}"),
+            event_id: format!("$ref_{suffix}:localhost"),
             relates_to_event_id: relates_to.clone(),
             relation_type: "m.reference".to_string(),
             sender: format!("@user_ref_{suffix}:example.com"),
@@ -872,17 +872,17 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_relations_forward_pagination() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
         let storage = RelationsStorage::new(&pool);
-        let relates_to = format!("$related_{suffix}");
+        let relates_to = format!("$related_{suffix}:localhost");
 
         // Insert 5 relations with staggered timestamps
         let mut event_ids = Vec::new();
         for i in 0..5 {
-            let event_id = format!("$event_{suffix}_{i}");
+            let event_id = format!("$event_{suffix}_{i}:localhost");
             event_ids.push(event_id.clone());
             let params = CreateRelationParams {
                 room_id: format!("!room_{suffix}:example.com"),
@@ -919,17 +919,17 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_relations_backward_pagination() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
         let storage = RelationsStorage::new(&pool);
-        let relates_to = format!("$related_{suffix}");
+        let relates_to = format!("$related_{suffix}:localhost");
 
         for i in 0..5 {
             let params = CreateRelationParams {
                 room_id: format!("!room_{suffix}:example.com"),
-                event_id: format!("$event_{suffix}_{i}"),
+                event_id: format!("$event_{suffix}_{i}:localhost"),
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_{i}_{suffix}:example.com"),
@@ -962,17 +962,17 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_relations_with_cursor() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
         let storage = RelationsStorage::new(&pool);
-        let relates_to = format!("$related_{suffix}");
+        let relates_to = format!("$related_{suffix}:localhost");
 
         for i in 0..5 {
             let params = CreateRelationParams {
                 room_id: format!("!room_{suffix}:example.com"),
-                event_id: format!("$event_{suffix}_{i}"),
+                event_id: format!("$event_{suffix}_{i}:localhost"),
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_{i}_{suffix}:example.com"),
@@ -1023,18 +1023,18 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_relations_with_type_filter() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
         let storage = RelationsStorage::new(&pool);
-        let relates_to = format!("$related_{suffix}");
+        let relates_to = format!("$related_{suffix}:localhost");
 
         // Insert 2 annotations and 1 reference
         for i in 0..2 {
             let params = CreateRelationParams {
                 room_id: format!("!room_{suffix}:example.com"),
-                event_id: format!("$annot_{suffix}_{i}"),
+                event_id: format!("$annot_{suffix}_{i}:localhost"),
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_{i}_{suffix}:example.com"),
@@ -1045,7 +1045,7 @@ use std::sync::Arc;
         }
         let ref_params = CreateRelationParams {
             room_id: format!("!room_{suffix}:example.com"),
-            event_id: format!("$ref_{suffix}"),
+            event_id: format!("$ref_{suffix}:localhost"),
             relates_to_event_id: relates_to.clone(),
             relation_type: "m.reference".to_string(),
             sender: format!("@user_ref_{suffix}:example.com"),
@@ -1080,18 +1080,18 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_annotations_returns_only_annotations() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
         let storage = RelationsStorage::new(&pool);
-        let relates_to = format!("$related_{suffix}");
+        let relates_to = format!("$related_{suffix}:localhost");
 
         // Insert 2 annotations
         for i in 0..2 {
             let params = CreateRelationParams {
                 room_id: format!("!room_{suffix}:example.com"),
-                event_id: format!("$annot_{suffix}_{i}"),
+                event_id: format!("$annot_{suffix}_{i}:localhost"),
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_{i}_{suffix}:example.com"),
@@ -1104,7 +1104,7 @@ use std::sync::Arc;
         // Insert 1 reference (should not appear in annotations)
         let ref_params = CreateRelationParams {
             room_id: format!("!room_{suffix}:example.com"),
-            event_id: format!("$ref_{suffix}"),
+            event_id: format!("$ref_{suffix}:localhost"),
             relates_to_event_id: relates_to.clone(),
             relation_type: "m.reference".to_string(),
             sender: format!("@user_ref_{suffix}:example.com"),
@@ -1130,17 +1130,17 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_annotations_respects_limit() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
         let storage = RelationsStorage::new(&pool);
-        let relates_to = format!("$related_{suffix}");
+        let relates_to = format!("$related_{suffix}:localhost");
 
         for i in 0..5 {
             let params = CreateRelationParams {
                 room_id: format!("!room_{suffix}:example.com"),
-                event_id: format!("$annot_{suffix}_{i}"),
+                event_id: format!("$annot_{suffix}_{i}:localhost"),
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_{i}_{suffix}:example.com"),
@@ -1166,18 +1166,18 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_references_returns_only_references() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
         let storage = RelationsStorage::new(&pool);
-        let relates_to = format!("$related_{suffix}");
+        let relates_to = format!("$related_{suffix}:localhost");
 
         // Insert 2 references
         for i in 0..2 {
             let params = CreateRelationParams {
                 room_id: format!("!room_{suffix}:example.com"),
-                event_id: format!("$ref_{suffix}_{i}"),
+                event_id: format!("$ref_{suffix}_{i}:localhost"),
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.reference".to_string(),
                 sender: format!("@user_{i}_{suffix}:example.com"),
@@ -1190,7 +1190,7 @@ use std::sync::Arc;
         // Insert 1 annotation (should not appear in references)
         let annot_params = CreateRelationParams {
             room_id: format!("!room_{suffix}:example.com"),
-            event_id: format!("$annot_{suffix}"),
+            event_id: format!("$annot_{suffix}:localhost"),
             relates_to_event_id: relates_to.clone(),
             relation_type: "m.annotation".to_string(),
             sender: format!("@user_annot_{suffix}:example.com"),
@@ -1218,19 +1218,19 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_replacement_returns_latest() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
         let storage = RelationsStorage::new(&pool);
-        let relates_to = format!("$related_{suffix}");
+        let relates_to = format!("$related_{suffix}:localhost");
         let sender = format!("@user_{suffix}:example.com");
 
         // Insert two replacements (same sender, same target) with staggered timestamps
         for i in 0..2 {
             let params = CreateRelationParams {
                 room_id: format!("!room_{suffix}:example.com"),
-                event_id: format!("$replace_{suffix}_{i}"),
+                event_id: format!("$replace_{suffix}_{i}:localhost"),
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.replace".to_string(),
                 sender: sender.clone(),
@@ -1259,16 +1259,16 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_replacement_returns_none_for_different_sender() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
         let storage = RelationsStorage::new(&pool);
-        let relates_to = format!("$related_{suffix}");
+        let relates_to = format!("$related_{suffix}:localhost");
 
         let params = CreateRelationParams {
             room_id: format!("!room_{suffix}:example.com"),
-            event_id: format!("$replace_{suffix}"),
+            event_id: format!("$replace_{suffix}:localhost"),
             relates_to_event_id: relates_to.clone(),
             relation_type: "m.replace".to_string(),
             sender: format!("@alice_{suffix}:example.com"),
@@ -1293,18 +1293,18 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_aggregate_annotations_groups_by_body() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
         let storage = RelationsStorage::new(&pool);
-        let relates_to = format!("$related_{suffix}");
+        let relates_to = format!("$related_{suffix}:localhost");
 
         // Insert 3 thumbs up and 2 thumbs down
         for i in 0..3 {
             let params = CreateRelationParams {
                 room_id: format!("!room_{suffix}:example.com"),
-                event_id: format!("$annot_up_{suffix}_{i}"),
+                event_id: format!("$annot_up_{suffix}_{i}:localhost"),
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_up_{i}_{suffix}:example.com"),
@@ -1316,7 +1316,7 @@ use std::sync::Arc;
         for i in 0..2 {
             let params = CreateRelationParams {
                 room_id: format!("!room_{suffix}:example.com"),
-                event_id: format!("$annot_down_{suffix}_{i}"),
+                event_id: format!("$annot_down_{suffix}_{i}:localhost"),
                 relates_to_event_id: relates_to.clone(),
                 relation_type: "m.annotation".to_string(),
                 sender: format!("@user_down_{i}_{suffix}:example.com"),
@@ -1349,17 +1349,17 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_aggregate_annotations_excludes_non_annotations() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
         let storage = RelationsStorage::new(&pool);
-        let relates_to = format!("$related_{suffix}");
+        let relates_to = format!("$related_{suffix}:localhost");
 
         // Insert 1 annotation
         let annot_params = CreateRelationParams {
             room_id: format!("!room_{suffix}:example.com"),
-            event_id: format!("$annot_{suffix}"),
+            event_id: format!("$annot_{suffix}:localhost"),
             relates_to_event_id: relates_to.clone(),
             relation_type: "m.annotation".to_string(),
             sender: format!("@user_{suffix}:example.com"),
@@ -1371,7 +1371,7 @@ use std::sync::Arc;
         // Insert 1 reference (should not appear in aggregation)
         let ref_params = CreateRelationParams {
             room_id: format!("!room_{suffix}:example.com"),
-            event_id: format!("$ref_{suffix}"),
+            event_id: format!("$ref_{suffix}:localhost"),
             relates_to_event_id: relates_to.clone(),
             relation_type: "m.reference".to_string(),
             sender: format!("@user_ref_{suffix}:example.com"),
@@ -1399,7 +1399,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_redact_relation_sets_flags_and_clears_content() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
@@ -1411,7 +1411,7 @@ use std::sync::Arc;
         assert!(created.content != json!({}));
 
         storage
-            .redact_relation(&format!("!room_{suffix}:example.com"), &format!("$event_{suffix}"))
+            .redact_relation(&format!("!room_{suffix}:example.com"), &format!("$event_{suffix}:localhost"))
             .await
             .expect("redact_relation should succeed");
 
@@ -1419,7 +1419,7 @@ use std::sync::Arc;
         let row: (bool, serde_json::Value) =
             sqlx::query_as("SELECT is_redacted, content FROM event_relations WHERE room_id = $1 AND event_id = $2")
                 .bind(format!("!room_{suffix}:example.com"))
-                .bind(format!("$event_{suffix}"))
+                .bind(format!("$event_{suffix}:localhost"))
                 .fetch_one(&*pool)
                 .await
                 .expect("direct query should succeed");
@@ -1436,7 +1436,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_delete_relation_removes_and_returns_true() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
@@ -1447,7 +1447,7 @@ use std::sync::Arc;
         let deleted = storage
             .delete_relation(
                 &format!("!room_{suffix}:example.com"),
-                &format!("$event_{suffix}"),
+                &format!("$event_{suffix}:localhost"),
                 &format!("@user_{suffix}:example.com"),
             )
             .await
@@ -1458,7 +1458,7 @@ use std::sync::Arc;
         // Verify it's gone
         let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM event_relations WHERE room_id = $1 AND event_id = $2")
             .bind(format!("!room_{suffix}:example.com"))
-            .bind(format!("$event_{suffix}"))
+            .bind(format!("$event_{suffix}:localhost"))
             .fetch_optional(&*pool)
             .await
             .expect("direct query should succeed");
@@ -1472,7 +1472,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_delete_relation_returns_false_for_nonexistent() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
@@ -1496,7 +1496,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_delete_relation_returns_false_for_wrong_sender() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
@@ -1508,7 +1508,7 @@ use std::sync::Arc;
         let deleted = storage
             .delete_relation(
                 &format!("!room_{suffix}:example.com"),
-                &format!("$event_{suffix}"),
+                &format!("$event_{suffix}:localhost"),
                 &format!("@other_{suffix}:example.com"),
             )
             .await
@@ -1519,7 +1519,7 @@ use std::sync::Arc;
         // Row should still exist
         let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM event_relations WHERE room_id = $1 AND event_id = $2")
             .bind(format!("!room_{suffix}:example.com"))
-            .bind(format!("$event_{suffix}"))
+            .bind(format!("$event_{suffix}:localhost"))
             .fetch_optional(&*pool)
             .await
             .expect("direct query should succeed");
@@ -1535,7 +1535,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_relation_exists_returns_true_for_existing() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
@@ -1546,7 +1546,7 @@ use std::sync::Arc;
         let exists = storage
             .relation_exists(
                 &format!("!room_{suffix}:example.com"),
-                &format!("$related_{suffix}"),
+                &format!("$related_{suffix}:localhost"),
                 "m.annotation",
                 &format!("@user_{suffix}:example.com"),
             )
@@ -1562,7 +1562,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_relation_exists_returns_false_for_nonexistent() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
@@ -1587,7 +1587,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_relation_exists_returns_false_after_redaction() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_relations(&pool, &suffix).await;
         ensure_test_room(&pool, &format!("!room_{suffix}:example.com")).await;
 
@@ -1597,7 +1597,7 @@ use std::sync::Arc;
 
         // Redact it
         storage
-            .redact_relation(&format!("!room_{suffix}:example.com"), &format!("$event_{suffix}"))
+            .redact_relation(&format!("!room_{suffix}:example.com"), &format!("$event_{suffix}:localhost"))
             .await
             .expect("redact_relation should succeed");
 
@@ -1605,7 +1605,7 @@ use std::sync::Arc;
         let exists = storage
             .relation_exists(
                 &format!("!room_{suffix}:example.com"),
-                &format!("$related_{suffix}"),
+                &format!("$related_{suffix}:localhost"),
                 "m.annotation",
                 &format!("@user_{suffix}:example.com"),
             )

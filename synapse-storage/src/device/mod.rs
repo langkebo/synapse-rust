@@ -1626,7 +1626,7 @@ mod db_tests {
     async fn test_create_device_returns_valid_record() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_create_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let device_id = &format!("dev_create_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@testuser:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -1645,7 +1645,7 @@ mod db_tests {
     async fn test_create_device_without_display_name() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_nodesc_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let device_id = &format!("dev_nodesc_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@nodesc:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -1663,7 +1663,7 @@ mod db_tests {
     async fn test_get_device_finds_created_device() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_get_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let device_id = &format!("dev_get_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@getuser:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -1692,7 +1692,7 @@ mod db_tests {
     async fn test_get_user_devices_returns_all() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let suffix = uuid::Uuid::new_v4().simple().to_string().split_at(12).0.to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0.to_string();
         let user_id = format!("@multidev_{}:example.com", suffix);
         let d1 = format!("multi_1_{}", suffix);
         let d2 = format!("multi_2_{}", suffix);
@@ -1728,7 +1728,7 @@ mod db_tests {
     async fn test_update_device_display_name() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_updname_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let device_id = &format!("dev_updname_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@updatename:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -1747,7 +1747,7 @@ mod db_tests {
     async fn test_update_user_device_display_name_returns_rows_affected() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_upduser_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let device_id = &format!("dev_upduser_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@upduser:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -1765,7 +1765,7 @@ mod db_tests {
     async fn test_update_user_device_display_name_wrong_user_returns_zero() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_wrongusr_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let device_id = &format!("dev_wrongusr_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@rightuser:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -1783,7 +1783,7 @@ mod db_tests {
     async fn test_update_device_last_seen() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_seen_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let device_id = &format!("dev_seen_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@seen:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -1800,7 +1800,7 @@ mod db_tests {
     async fn test_delete_user_device_returns_rows_affected() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_del_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let device_id = &format!("dev_del_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@deleteusr:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -1831,8 +1831,8 @@ mod db_tests {
     async fn test_device_exists_returns_true_for_created_device() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_exists_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
-        let user_id = &format!("@exists_{}:example.com", uuid::Uuid::new_v4().simple().to_string().split_at(8).0);
+        let device_id = &format!("dev_exists_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
+        let user_id = &format!("@exists_{}:example.com", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(8).0);
 
         ensure_test_user(&pool, user_id).await;
         storage.create_device(device_id, user_id, None).await.expect("create_device");
@@ -1852,7 +1852,7 @@ mod db_tests {
     async fn test_get_device_count_counts_correctly() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let suffix = uuid::Uuid::new_v4().simple().to_string().split_at(12).0.to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0.to_string();
         let user_id = format!("@countusr_{}:example.com", suffix);
 
         ensure_test_user(&pool, &user_id).await;
@@ -1873,8 +1873,8 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let user_id = "@purge:example.com";
-        let d1 = &format!("purge_1_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
-        let d2 = &format!("purge_2_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let d1 = &format!("purge_1_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
+        let d2 = &format!("purge_2_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
 
         ensure_test_user(&pool, user_id).await;
         storage.create_device(d1, user_id, None).await.expect("create d1");
@@ -1889,7 +1889,7 @@ mod db_tests {
     async fn test_get_user_device_finds_by_user_and_device() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_userdev_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let device_id = &format!("dev_userdev_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@userdev:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -1905,7 +1905,7 @@ mod db_tests {
     async fn test_get_user_device_returns_none_for_wrong_user() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_wrongusr2_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let device_id = &format!("dev_wrongusr2_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@owner:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -1923,8 +1923,8 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let user_id = "@batchusr:example.com";
-        let d1 = &format!("batch_1_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
-        let d2 = &format!("batch_2_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let d1 = &format!("batch_1_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
+        let d2 = &format!("batch_2_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
 
         ensure_test_user(&pool, user_id).await;
         storage.create_device(d1, user_id, None).await.expect("create d1");
@@ -1952,7 +1952,7 @@ mod db_tests {
     async fn test_filter_existing_users_returns_only_users_with_devices() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let suffix = uuid::Uuid::new_v4().simple().to_string().split_at(12).0.to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0.to_string();
         let user_id = format!("@filterusr_{}:example.com", suffix);
         let no_device_user = format!("@nodevusr_{}:example.com", suffix);
 
@@ -1998,7 +1998,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let user_id = "@streamusr:example.com";
-        let device_id = &format!("stream_dev_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let device_id = &format!("stream_dev_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
 
         ensure_test_user(&pool, user_id).await;
 
@@ -2014,7 +2014,7 @@ mod db_tests {
     async fn test_delete_device_by_id_cleans_up_record() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_delbyid_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let device_id = &format!("dev_delbyid_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@delbyid:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -2029,7 +2029,7 @@ mod db_tests {
     async fn test_create_device_commits_atomically() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let suffix = uuid::Uuid::new_v4().simple().to_string().split_at(12).0.to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0.to_string();
         let user_id = format!("@txcreate_{}:example.com", suffix);
         let device_id = format!("ATOMCREATE_{}", suffix);
 
@@ -2067,7 +2067,7 @@ mod db_tests {
     async fn test_delete_user_device_is_atomic() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let suffix = uuid::Uuid::new_v4().simple().to_string().split_at(12).0.to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0.to_string();
         let user_id = format!("@txdel_{}:example.com", suffix);
         let device_id = format!("ATOMDEL_{}", suffix);
 
@@ -2105,7 +2105,7 @@ mod db_tests {
     async fn test_delete_devices_batch_uses_batch_side_effects() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let suffix = uuid::Uuid::new_v4().simple().to_string().split_at(12).0.to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0.to_string();
         let user_id = format!("@bdel_{}:example.com", suffix);
         let did1 = format!("BDEL1_{}", suffix);
         let did2 = format!("BDEL2_{}", suffix);

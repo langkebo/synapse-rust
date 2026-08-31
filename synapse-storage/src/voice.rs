@@ -385,7 +385,7 @@ mod db_tests {
     async fn test_record_upload_success() {
         let pool = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_user_{suffix}:test.com");
         let media_id = format!("media_{suffix}");
         let room_id = format!("!room_{suffix}:test.com");
@@ -407,7 +407,7 @@ mod db_tests {
     async fn test_get_by_media_id_found_and_not_found() {
         let pool = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_get_{suffix}:test.com");
         let media_id = format!("media_get_{suffix}");
         let room_id = format!("!room_get_{suffix}:test.com");
@@ -442,7 +442,7 @@ mod db_tests {
     async fn test_get_room_messages_with_pagination() {
         let pool = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_room_{suffix}:test.com");
         let room_id = format!("!room_msgs_{suffix}:test.com");
 
@@ -476,7 +476,7 @@ mod db_tests {
     async fn test_get_user_messages_basic() {
         let pool = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_usermsgs_{suffix}:test.com");
         let media_id = format!("user_media_{suffix}");
 
@@ -503,7 +503,7 @@ mod db_tests {
     async fn test_get_user_stats_aggregation() {
         let pool = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_ustats_{suffix}:test.com");
 
         // Cleanup at start
@@ -532,7 +532,7 @@ mod db_tests {
     async fn test_get_room_stats_aggregation() {
         let pool = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_rstats_{suffix}:test.com");
         let room_id = format!("!room_stats_{suffix}:test.com");
 
@@ -568,7 +568,7 @@ mod db_tests {
     async fn test_delete_user_stats_removes_rows() {
         let pool = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_deluser_{suffix}:test.com");
 
         // Cleanup at start
@@ -594,7 +594,7 @@ mod db_tests {
     async fn test_round_trip_all_fields() {
         let pool = test_pool().await;
         let storage = VoiceStorage::new(pool.clone());
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let user_id = format!("@voice_roundtrip_{suffix}:test.com");
         let media_id = format!("rt_media_{suffix}");
         let room_id = format!("!rt_room_{suffix}:test.com");

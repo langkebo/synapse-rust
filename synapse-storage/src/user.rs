@@ -2388,7 +2388,7 @@ mod db_tests {
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@listf_{}:example.com", uuid::Uuid::new_v4());
-        let username = format!("listfilter_{}", uuid::Uuid::new_v4().simple());
+        let username = format!("listfilter_{}", uuid::Uuid::new_v4().simple().to_string());
         let _ = storage.delete_user(&user_id).await;
         storage.create_user(&user_id, &username, None, false).await.unwrap();
 
@@ -2532,7 +2532,7 @@ mod db_tests {
         storage.set_guest_status(&user_id, true).await.unwrap();
         assert!(storage.get_user_by_id(&user_id).await.unwrap().unwrap().is_guest);
 
-        let new_username = format!("upgraded_{}", uuid::Uuid::new_v4().simple());
+        let new_username = format!("upgraded_{}", uuid::Uuid::new_v4().simple().to_string());
         storage
             .upgrade_guest_account(&user_id, &new_username, "new_hash")
             .await
@@ -2553,7 +2553,7 @@ mod db_tests {
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@acctset_{}:example.com", uuid::Uuid::new_v4());
-        let event_type = format!("m.set_{}", uuid::Uuid::new_v4().simple());
+        let event_type = format!("m.set_{}", uuid::Uuid::new_v4().simple().to_string());
         let _ = storage.delete_user(&user_id).await;
         storage.create_user(&user_id, "acctsetuser", None, false).await.unwrap();
 
@@ -2581,7 +2581,7 @@ mod db_tests {
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@acctup_{}:example.com", uuid::Uuid::new_v4());
-        let data_type = format!("m.up_{}", uuid::Uuid::new_v4().simple());
+        let data_type = format!("m.up_{}", uuid::Uuid::new_v4().simple().to_string());
         let _ = storage.delete_user(&user_id).await;
         storage.create_user(&user_id, "acctupuser", None, false).await.unwrap();
 
@@ -2635,7 +2635,7 @@ mod db_tests {
         let pool = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
-        let unique = uuid::Uuid::new_v4().simple();
+        let unique = uuid::Uuid::new_v4().simple().to_string();
         let username = format!("searchable_{unique}");
         let user_id = format!("@searchable_{unique}:example.com");
         let _ = storage.delete_user(&user_id).await;
@@ -2662,7 +2662,7 @@ mod db_tests {
         let pool = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
-        let unique = uuid::Uuid::new_v4().simple();
+        let unique = uuid::Uuid::new_v4().simple().to_string();
         let username = format!("swp_{unique}");
         let user_id = format!("@swp_{unique}:example.com");
         let _ = storage.delete_user(&user_id).await;
@@ -2690,7 +2690,7 @@ mod db_tests {
         let pool = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
-        let unique = uuid::Uuid::new_v4().simple();
+        let unique = uuid::Uuid::new_v4().simple().to_string();
         let username = format!("diruser_{unique}");
         let user_id = format!("@diruser_{unique}:example.com");
         let _ = storage.delete_user(&user_id).await;

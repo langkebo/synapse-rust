@@ -1284,7 +1284,7 @@ mod db_tests {
         let storage = ThreadStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!room_cr_{suffix}:localhost");
-        let thread_id = format!("thread-cr-{suffix}");
+        let thread_id = format!("thread-cr-{suffix}:localhost");
 
         ensure_test_room(&pool, &room_id).await;
         cleanup_thread_data(&pool, &room_id, &thread_id).await;
@@ -1292,7 +1292,7 @@ mod db_tests {
         let root = storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@sender:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -1323,7 +1323,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@sender:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -1369,7 +1369,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@sender:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -1377,11 +1377,11 @@ mod db_tests {
             .expect("should create thread root");
 
         let found =
-            storage.get_thread_root_by_event(&room_id, &format!("$root_{suffix}")).await.expect("query should succeed");
+            storage.get_thread_root_by_event(&room_id, &format!("$root_{suffix}:localhost")).await.expect("query should succeed");
 
         assert!(found.is_some());
         let root = found.unwrap();
-        assert_eq!(root.root_event_id, format!("$root_{suffix}"));
+        assert_eq!(root.root_event_id, format!("$root_{suffix}:localhost"));
 
         cleanup_thread_data(&pool, &room_id, &thread_id).await;
     }
@@ -1443,7 +1443,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@sender:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -1472,7 +1472,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@sender:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -1484,10 +1484,10 @@ mod db_tests {
             .create_thread_reply(CreateThreadReplyParams {
                 room_id: room_id.clone(),
                 thread_id: thread_id.clone(),
-                event_id: format!("$reply_{suffix}"),
-                root_event_id: format!("$root_{suffix}"),
+                event_id: format!("$reply_{suffix}:localhost"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@replier:localhost".to_string(),
-                in_reply_to_event_id: Some(format!("$root_{suffix}")),
+                in_reply_to_event_id: Some(format!("$root_{suffix}:localhost")),
                 content: serde_json::json!({"body": "test reply"}),
                 origin_server_ts: ts,
             })
@@ -1518,7 +1518,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@sender:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -1531,8 +1531,8 @@ mod db_tests {
             .create_thread_reply(CreateThreadReplyParams {
                 room_id: room_id.clone(),
                 thread_id: thread_id.clone(),
-                event_id: format!("$r1_{suffix}"),
-                root_event_id: format!("$root_{suffix}"),
+                event_id: format!("$r1_{suffix}:localhost"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@r1:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "first reply"}),
@@ -1544,8 +1544,8 @@ mod db_tests {
             .create_thread_reply(CreateThreadReplyParams {
                 room_id: room_id.clone(),
                 thread_id: thread_id.clone(),
-                event_id: format!("$r2_{suffix}"),
-                root_event_id: format!("$root_{suffix}"),
+                event_id: format!("$r2_{suffix}:localhost"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@r2:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "second reply"}),
@@ -1581,7 +1581,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@sender:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -1592,8 +1592,8 @@ mod db_tests {
             .create_thread_reply(CreateThreadReplyParams {
                 room_id: room_id.clone(),
                 thread_id: thread_id.clone(),
-                event_id: format!("$r1_{suffix}"),
-                root_event_id: format!("$root_{suffix}"),
+                event_id: format!("$r1_{suffix}:localhost"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@r1:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "reply1"}),
@@ -1609,8 +1609,8 @@ mod db_tests {
             .create_thread_reply(CreateThreadReplyParams {
                 room_id: room_id.clone(),
                 thread_id: thread_id.clone(),
-                event_id: format!("$r2_{suffix}"),
-                root_event_id: format!("$root_{suffix}"),
+                event_id: format!("$r2_{suffix}:localhost"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@r2:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "reply2"}),
@@ -1642,7 +1642,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: user_id.clone(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -1678,7 +1678,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: user_id.clone(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -1717,7 +1717,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: user_id.clone(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -1790,7 +1790,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: user_id.clone(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -1834,7 +1834,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: user_id.clone(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -1868,7 +1868,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@sender:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -1880,8 +1880,8 @@ mod db_tests {
             .create_thread_reply(CreateThreadReplyParams {
                 room_id: room_id.clone(),
                 thread_id: thread_id.clone(),
-                event_id: format!("$reply_{suffix}"),
-                root_event_id: format!("$root_{suffix}"),
+                event_id: format!("$reply_{suffix}:localhost"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@replier:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "reply"}),
@@ -1947,7 +1947,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@senderA:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -1959,8 +1959,8 @@ mod db_tests {
             .create_thread_reply(CreateThreadReplyParams {
                 room_id: room_id.clone(),
                 thread_id: thread_id.clone(),
-                event_id: format!("$reply_{suffix}"),
-                root_event_id: format!("$root_{suffix}"),
+                event_id: format!("$reply_{suffix}:localhost"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@senderB:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "reply"}),
@@ -1994,7 +1994,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: user_id.clone(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -2025,7 +2025,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: user_id.clone(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -2111,8 +2111,8 @@ mod db_tests {
         ensure_test_room(&pool, &room_id).await;
         cleanup_thread_data(&pool, &room_id, &thread_id).await;
 
-        let event_id = format!("$evt_{suffix}");
-        let relates_to = format!("$root_{suffix}");
+        let event_id = format!("$evt_{suffix}:localhost");
+        let relates_to = format!("$root_{suffix}:localhost");
 
         let relation = storage
             .create_thread_relation(&room_id, &event_id, &relates_to, "m.thread", Some(&thread_id), false)
@@ -2148,8 +2148,8 @@ mod db_tests {
         ensure_test_room(&pool, &room_id).await;
         cleanup_thread_data(&pool, &room_id, &thread_id).await;
 
-        let event_id = format!("$evt_fb_{suffix}");
-        let relates_to = format!("$root_fb_{suffix}");
+        let event_id = format!("$evt_fb_{suffix}:localhost");
+        let relates_to = format!("$root_fb_{suffix}:localhost");
 
         let relation = storage
             .create_thread_relation(&room_id, &event_id, &relates_to, "m.thread", Some(&thread_id), true)
@@ -2181,20 +2181,20 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@sender:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
             .await
             .expect("should create root");
 
-        let event_id = format!("$reply_{suffix}");
+        let event_id = format!("$reply_{suffix}:localhost");
         storage
             .create_thread_reply(CreateThreadReplyParams {
                 room_id: room_id.clone(),
                 thread_id: thread_id.clone(),
                 event_id: event_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@replier:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "original"}),
@@ -2234,20 +2234,20 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@sender:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
             .await
             .expect("should create root");
 
-        let event_id = format!("$reply_{suffix}");
+        let event_id = format!("$reply_{suffix}:localhost");
         storage
             .create_thread_reply(CreateThreadReplyParams {
                 room_id: room_id.clone(),
                 thread_id: thread_id.clone(),
                 event_id: event_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@replier:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "original content"}),
@@ -2343,7 +2343,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@root_sender:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -2355,8 +2355,8 @@ mod db_tests {
             .create_thread_reply(CreateThreadReplyParams {
                 room_id: room_id.clone(),
                 thread_id: thread_id.clone(),
-                event_id: format!("$reply_{suffix}"),
-                root_event_id: format!("$root_{suffix}"),
+                event_id: format!("$reply_{suffix}:localhost"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@reply_sender:localhost".to_string(),
                 in_reply_to_event_id: None,
                 content: serde_json::json!({"body": "a reply"}),
@@ -2406,7 +2406,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@root_sender:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -2419,8 +2419,8 @@ mod db_tests {
                 .create_thread_reply(CreateThreadReplyParams {
                     room_id: room_id.clone(),
                     thread_id: thread_id.clone(),
-                    event_id: format!("$reply_{i}_{suffix}"),
-                    root_event_id: format!("$root_{suffix}"),
+                    event_id: format!("$reply_{i}_{suffix}:localhost"),
+                    root_event_id: format!("$root_{suffix}:localhost"),
                     sender: format!("@replyer{i}:localhost"),
                     in_reply_to_event_id: None,
                     content: serde_json::json!({"body": "reply"}),
@@ -2462,7 +2462,7 @@ mod db_tests {
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!room_st_{suffix}:localhost");
         let thread_id = format!("thread-st-{suffix}");
-        let root_event_id = format!("$root_st_{suffix}");
+        let root_event_id = format!("$root_st_{suffix}:localhost");
 
         ensure_test_room(&pool, &room_id).await;
         cleanup_thread_data(&pool, &room_id, &thread_id).await;
@@ -2500,7 +2500,7 @@ mod db_tests {
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!room_stnm_{suffix}:localhost");
         let thread_id = format!("thread-stnm-{suffix}");
-        let root_event_id = format!("$root_stnm_{suffix}");
+        let root_event_id = format!("$root_stnm_{suffix}:localhost");
 
         ensure_test_room(&pool, &room_id).await;
         cleanup_thread_data(&pool, &room_id, &thread_id).await;
@@ -2542,7 +2542,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@sender:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -2578,7 +2578,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@sender:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -2725,7 +2725,7 @@ mod db_tests {
         storage
             .create_thread_root(CreateThreadRootParams {
                 room_id: room_id.clone(),
-                root_event_id: format!("$root_{suffix}"),
+                root_event_id: format!("$root_{suffix}:localhost"),
                 sender: "@sender:localhost".to_string(),
                 thread_id: Some(thread_id.clone()),
             })
@@ -2743,7 +2743,7 @@ mod db_tests {
                     room_id: room_id.clone(),
                     thread_id: thread_id.clone(),
                     event_id: eid.clone(),
-                    root_event_id: format!("$root_{suffix}"),
+                    root_event_id: format!("$root_{suffix}:localhost"),
                     sender: "@replier:localhost".to_string(),
                     in_reply_to_event_id: None,
                     content: serde_json::json!({"body": "reply"}),

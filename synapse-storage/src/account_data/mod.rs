@@ -102,7 +102,7 @@ use std::sync::Arc;
     }
 
     fn unique_suffix() -> String {
-        uuid::Uuid::new_v4().to_string().replace('-', "")
+        uuid::Uuid::new_v4().simple().to_string()
     }
 
     fn test_user_id(suffix: &str) -> String {

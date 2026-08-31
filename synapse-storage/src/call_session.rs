@@ -299,7 +299,7 @@ mod db_tests {
     #[tokio::test]
     async fn test_create_session_returns_valid_record() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
         let storage = CallSessionStorage::new(pool.clone());
@@ -334,7 +334,7 @@ mod db_tests {
     #[tokio::test]
     async fn test_create_session_default_lifetime() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
         let storage = CallSessionStorage::new(pool.clone());
@@ -358,7 +358,7 @@ mod db_tests {
     #[tokio::test]
     async fn test_get_session_found() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
         let storage = CallSessionStorage::new(pool.clone());
@@ -404,7 +404,7 @@ mod db_tests {
     #[tokio::test]
     async fn test_update_state() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
         let storage = CallSessionStorage::new(pool.clone());
@@ -436,7 +436,7 @@ mod db_tests {
     #[tokio::test]
     async fn test_set_answer_and_verify_connected() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
         let storage = CallSessionStorage::new(pool.clone());
@@ -467,7 +467,7 @@ mod db_tests {
     #[tokio::test]
     async fn test_end_session() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
         let storage = CallSessionStorage::new(pool.clone());
@@ -497,7 +497,7 @@ mod db_tests {
     #[tokio::test]
     async fn test_cleanup_expired() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
         let storage = CallSessionStorage::new(pool.clone());
@@ -533,7 +533,7 @@ mod db_tests {
     #[tokio::test]
     async fn test_candidates_round_trip() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
         let storage = CallSessionStorage::new(pool.clone());
@@ -586,7 +586,7 @@ mod db_tests {
     #[tokio::test]
     async fn test_get_candidates_empty_when_none_added() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_test_data(&pool, &suffix).await;
 
         let storage = CallSessionStorage::new(pool.clone());

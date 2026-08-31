@@ -247,7 +247,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_insert_returns_id() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_queue(&pool, &suffix).await;
 
         let storage = FederationQueueStorage::new(pool.clone());
@@ -263,7 +263,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_mark_sent_updates_status_and_sent_at() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_queue(&pool, &suffix).await;
 
         let storage = FederationQueueStorage::new(pool.clone());
@@ -292,7 +292,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_increment_retry_increases_count() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_queue(&pool, &suffix).await;
 
         let storage = FederationQueueStorage::new(pool.clone());
@@ -330,7 +330,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_mark_failed_updates_status() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_queue(&pool, &suffix).await;
 
         let storage = FederationQueueStorage::new(pool.clone());
@@ -355,7 +355,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_pending_by_destination_filters_by_destination() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let dest = format!("server-{suffix}.example.com");
         cleanup_queue(&pool, &suffix).await;
 
@@ -385,7 +385,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_pending_by_destination_orders_by_created_ts_asc() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let dest = format!("server-{suffix}.example.com");
         cleanup_queue(&pool, &suffix).await;
 
@@ -411,7 +411,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_pending_by_destination_respects_limit() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let dest = format!("server-{suffix}.example.com");
         cleanup_queue(&pool, &suffix).await;
 
@@ -435,7 +435,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_pending_by_destination_omits_non_pending() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         let dest = format!("server-{suffix}.example.com");
         cleanup_queue(&pool, &suffix).await;
 
@@ -464,7 +464,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_all_pending_returns_only_pending() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_queue(&pool, &suffix).await;
 
         let storage = FederationQueueStorage::new(pool.clone());
@@ -498,7 +498,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_delete_completed_removes_old_completed_and_keeps_pending() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_queue(&pool, &suffix).await;
 
         let storage = FederationQueueStorage::new(pool.clone());
@@ -575,7 +575,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_count_pending_returns_correct_count() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_queue(&pool, &suffix).await;
 
         let storage = FederationQueueStorage::new(pool.clone());

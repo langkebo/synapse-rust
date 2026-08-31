@@ -110,7 +110,7 @@ use std::sync::Arc;
     }
 
     fn make_suffix() -> String {
-        uuid::Uuid::new_v4().to_string().replace('-', "")
+        uuid::Uuid::new_v4().simple().to_string()
     }
 
     #[tokio::test]

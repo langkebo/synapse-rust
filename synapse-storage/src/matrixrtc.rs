@@ -537,7 +537,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_create_session_returns_valid_record() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
         let storage = MatrixRTCStorage::new(pool.clone());
@@ -571,7 +571,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_create_session_upsert_updates_existing() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
         let storage = MatrixRTCStorage::new(pool.clone());
@@ -614,7 +614,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_session_found() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
         let storage = MatrixRTCStorage::new(pool.clone());
@@ -662,7 +662,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_active_sessions_for_room() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
         let storage = MatrixRTCStorage::new(pool.clone());
@@ -720,7 +720,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_end_session() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
         let storage = MatrixRTCStorage::new(pool.clone());
@@ -754,7 +754,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_create_membership_returns_valid_record() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
         let storage = MatrixRTCStorage::new(pool.clone());
@@ -817,7 +817,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_create_membership_upsert_updates_existing() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
         let storage = MatrixRTCStorage::new(pool.clone());
@@ -889,7 +889,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_memberships_for_session() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
         let storage = MatrixRTCStorage::new(pool.clone());
@@ -959,7 +959,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_user_membership_found() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
         let storage = MatrixRTCStorage::new(pool.clone());
@@ -1026,7 +1026,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_end_membership() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
         let storage = MatrixRTCStorage::new(pool.clone());
@@ -1084,7 +1084,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_cleanup_expired_memberships() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
         let storage = MatrixRTCStorage::new(pool.clone());
@@ -1172,7 +1172,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_store_and_get_encryption_keys() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
         let storage = MatrixRTCStorage::new(pool.clone());
@@ -1247,7 +1247,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_store_encryption_key_upsert() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
         let storage = MatrixRTCStorage::new(pool.clone());
@@ -1322,7 +1322,7 @@ use std::sync::Arc;
     #[tokio::test]
     async fn test_get_session_with_memberships() {
         let pool = test_pool().await;
-        let suffix = uuid::Uuid::new_v4().to_string();
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
         cleanup_matrixrtc_data(&pool, &suffix).await;
 
         let storage = MatrixRTCStorage::new(pool.clone());

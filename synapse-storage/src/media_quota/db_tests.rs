@@ -55,7 +55,7 @@ async fn cleanup_test_data(pool: &PgPool, suffix: &str) {
 async fn test_get_default_config_found() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let config_name = format!("mq_default_config_{suffix}");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -84,7 +84,7 @@ async fn test_get_default_config_found() {
 async fn test_get_default_config_not_found() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_test_data(&pool, &suffix).await;
 
     let result = storage.get_default_config().await.expect("should succeed");
@@ -99,7 +99,7 @@ async fn test_get_default_config_not_found() {
 async fn test_create_config() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let config_name = format!("mq_crud_{suffix}");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -132,7 +132,7 @@ async fn test_create_config() {
 async fn test_get_config() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let config_name = format!("mq_get_{suffix}");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -167,7 +167,7 @@ async fn test_get_config() {
 async fn test_list_configs() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let name_a = format!("mq_list_a_{suffix}");
     let name_b = format!("mq_list_b_{suffix}");
 
@@ -212,7 +212,7 @@ async fn test_list_configs() {
 async fn test_delete_config() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let config_name = format!("mq_delete_{suffix}");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -252,7 +252,7 @@ async fn test_delete_config() {
 async fn test_get_user_quota_found() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_uq_{suffix}:localhost");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -283,7 +283,7 @@ async fn test_get_user_quota_found() {
 async fn test_get_user_quota_not_found() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_nf_{suffix}:localhost");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -300,7 +300,7 @@ async fn test_get_user_quota_not_found() {
 async fn test_get_or_create_user_quota_creates() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_goc_{suffix}:localhost");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -319,7 +319,7 @@ async fn test_get_or_create_user_quota_creates() {
 async fn test_get_or_create_user_quota_returns_existing() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_goe_{suffix}:localhost");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -343,7 +343,7 @@ async fn test_get_or_create_user_quota_returns_existing() {
 async fn test_set_user_quota_sets_custom_limit() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_sql_{suffix}:localhost");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -373,7 +373,7 @@ async fn test_set_user_quota_sets_custom_limit() {
 async fn test_set_user_quota_updates_defaults() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_sqd_{suffix}:localhost");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -417,7 +417,7 @@ async fn test_set_user_quota_updates_defaults() {
 async fn test_update_usage_upload_increments() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_up_{suffix}:localhost");
     let media_id = format!("media_up_{suffix}");
 
@@ -447,7 +447,7 @@ async fn test_update_usage_upload_increments() {
 async fn test_update_usage_multiple_accumulates() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_ma_{suffix}:localhost");
     let media_a = format!("media_ma_a_{suffix}");
     let media_b = format!("media_ma_b_{suffix}");
@@ -491,7 +491,7 @@ async fn test_update_usage_multiple_accumulates() {
 async fn test_update_usage_delete_decrements() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_del_{suffix}:localhost");
     let media_id = format!("media_del_{suffix}");
 
@@ -536,7 +536,7 @@ async fn test_update_usage_delete_decrements() {
 async fn test_check_quota_allowed() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_ca_{suffix}:localhost");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -567,7 +567,7 @@ async fn test_check_quota_allowed() {
 async fn test_check_quota_exceeded() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_ce_{suffix}:localhost");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -612,7 +612,7 @@ async fn test_check_quota_exceeded() {
 async fn test_check_quota_no_limit_always_allowed() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_cz_{suffix}:localhost");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -672,7 +672,7 @@ async fn test_update_server_quota() {
 async fn test_create_alert_and_get_user_alerts() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_alert_{suffix}:localhost");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -701,7 +701,7 @@ async fn test_create_alert_and_get_user_alerts() {
 async fn test_get_user_alerts_unread_only() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_unread_{suffix}:localhost");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -737,7 +737,7 @@ async fn test_get_user_alerts_unread_only() {
 async fn test_mark_alert_read_already_read() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_mar_{suffix}:localhost");
 
     cleanup_test_data(&pool, &suffix).await;
@@ -763,7 +763,7 @@ async fn test_mark_alert_read_already_read() {
 async fn test_get_usage_stats() {
     let pool = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_stats_{suffix}:localhost");
 
     cleanup_test_data(&pool, &suffix).await;

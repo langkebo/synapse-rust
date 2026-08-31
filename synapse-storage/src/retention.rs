@@ -893,11 +893,11 @@ mod db_tests {
         let old_ts = current_timestamp_millis() - 86_400_000; // 1 day ago
         let recent_ts = current_timestamp_millis() - 3_600_000; // 1 hour ago
 
-        ensure_test_event(&pool, &format!("evt_old_{}", uuid::Uuid::new_v4()), room_id, "@sender:test.com", old_ts)
+        ensure_test_event(&pool, &format!("$evt_old_{}:localhost", uuid::Uuid::new_v4().simple().to_string()), room_id, "@sender:test.com", old_ts)
             .await;
         ensure_test_event(
             &pool,
-            &format!("evt_recent_{}", uuid::Uuid::new_v4()),
+            &format!("$evt_recent_{}:localhost", uuid::Uuid::new_v4().simple().to_string()),
             room_id,
             "@sender:test.com",
             recent_ts,

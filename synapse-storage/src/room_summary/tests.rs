@@ -8,7 +8,7 @@ fn test_room_summary_creation() {
         room_type: None,
         name: Some("Test Room".to_string()),
         topic: Some("A test room".to_string()),
-        avatar_url: Some("mxc://avatar".to_string()),
+        avatar_url: Some("mxc://localhost/avatar".to_string()),
         canonical_alias: None,
         join_rule: "public".to_string(),
         history_visibility: "shared".to_string(),
@@ -39,7 +39,7 @@ fn test_room_summary_member_creation() {
         room_id: "!room:example.com".to_string(),
         user_id: "@alice:example.com".to_string(),
         display_name: Some("Alice".to_string()),
-        avatar_url: Some("mxc://alice".to_string()),
+        avatar_url: Some("mxc://localhost/alice".to_string()),
         membership: "join".to_string(),
         is_hero: true,
         last_active_ts: Some(1234567890),
@@ -102,7 +102,7 @@ fn test_update_room_summary_request() {
     let request = UpdateRoomSummaryRequest {
         name: Some("Updated Name".to_string()),
         topic: None,
-        avatar_url: Some("mxc://new".to_string()),
+        avatar_url: Some("mxc://localhost/new".to_string()),
         canonical_alias: None,
         join_rule: None,
         history_visibility: None,
@@ -129,7 +129,7 @@ fn test_hero_users_json() {
         RoomSummaryHero {
             user_id: "@bob:example.com".to_string(),
             display_name: Some("Bob".to_string()),
-            avatar_url: Some("mxc://bob".to_string()),
+            avatar_url: Some("mxc://localhost/bob".to_string()),
         },
     ];
     let json = serde_json::to_string(&heroes).unwrap();
@@ -178,7 +178,7 @@ fn test_to_response_empty_heroes() {
         room_type: None,
         name: Some("Test Room".to_string()),
         topic: Some("A test room".to_string()),
-        avatar_url: Some("mxc://avatar".to_string()),
+        avatar_url: Some("mxc://localhost/avatar".to_string()),
         canonical_alias: None,
         join_rule: "public".to_string(),
         history_visibility: "shared".to_string(),
@@ -244,7 +244,7 @@ fn test_to_response_with_heroes() {
         RoomSummaryHero {
             user_id: "@alice:example.com".to_string(),
             display_name: Some("Alice".to_string()),
-            avatar_url: Some("mxc://alice".to_string()),
+            avatar_url: Some("mxc://localhost/alice".to_string()),
         },
         RoomSummaryHero {
             user_id: "@bob:example.com".to_string(),
@@ -260,7 +260,7 @@ fn test_to_response_with_heroes() {
     assert_eq!(response.heroes.len(), 2);
     assert_eq!(response.heroes[0].user_id, "@alice:example.com");
     assert_eq!(response.heroes[0].display_name, Some("Alice".to_string()));
-    assert_eq!(response.heroes[0].avatar_url, Some("mxc://alice".to_string()));
+    assert_eq!(response.heroes[0].avatar_url, Some("mxc://localhost/alice".to_string()));
     assert_eq!(response.heroes[1].user_id, "@bob:example.com");
     assert_eq!(response.heroes[1].display_name, Some("Bob".to_string()));
     assert!(response.heroes[1].avatar_url.is_none());
@@ -276,7 +276,7 @@ fn test_to_response_preserves_all_fields() {
         room_type: Some("m.space".to_string()),
         name: Some("Space".to_string()),
         topic: Some("A space room".to_string()),
-        avatar_url: Some("mxc://space_avatar".to_string()),
+        avatar_url: Some("mxc://localhost/space_avatar".to_string()),
         canonical_alias: Some("#space:example.com".to_string()),
         join_rule: "knock".to_string(),
         history_visibility: "world_readable".to_string(),
@@ -300,7 +300,7 @@ fn test_to_response_preserves_all_fields() {
     let hero = RoomSummaryHero {
         user_id: "@admin:example.com".to_string(),
         display_name: Some("Admin".to_string()),
-        avatar_url: Some("mxc://admin".to_string()),
+        avatar_url: Some("mxc://localhost/admin".to_string()),
     };
 
     let response = summary.to_response(vec![hero]);
@@ -309,7 +309,7 @@ fn test_to_response_preserves_all_fields() {
     assert_eq!(response.room_type, Some("m.space".to_string()));
     assert_eq!(response.name, Some("Space".to_string()));
     assert_eq!(response.topic, Some("A space room".to_string()));
-    assert_eq!(response.avatar_url, Some("mxc://space_avatar".to_string()));
+    assert_eq!(response.avatar_url, Some("mxc://localhost/space_avatar".to_string()));
     assert_eq!(response.canonical_alias, Some("#space:example.com".to_string()));
     assert_eq!(response.join_rule, "knock");
     assert_eq!(response.history_visibility, "world_readable");
@@ -335,7 +335,7 @@ fn test_member_to_hero_conversion_all_fields() {
         room_id: "!room:example.com".to_string(),
         user_id: "@alice:example.com".to_string(),
         display_name: Some("Alice".to_string()),
-        avatar_url: Some("mxc://alice".to_string()),
+        avatar_url: Some("mxc://localhost/alice".to_string()),
         membership: "join".to_string(),
         is_hero: true,
         last_active_ts: Some(1_700_000_000_000i64),
@@ -347,7 +347,7 @@ fn test_member_to_hero_conversion_all_fields() {
 
     assert_eq!(hero.user_id, "@alice:example.com");
     assert_eq!(hero.display_name, Some("Alice".to_string()));
-    assert_eq!(hero.avatar_url, Some("mxc://alice".to_string()));
+    assert_eq!(hero.avatar_url, Some("mxc://localhost/alice".to_string()));
 }
 
 #[test]

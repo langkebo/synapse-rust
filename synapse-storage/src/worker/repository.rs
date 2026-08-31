@@ -192,7 +192,7 @@ impl WorkerStorage {
 
     pub async fn create_command(&self, request: SendCommandRequest) -> Result<WorkerCommand, sqlx::Error> {
         let now = current_timestamp_millis();
-        let command_id = uuid::Uuid::new_v4().to_string();
+        let command_id = uuid::Uuid::new_v4().simple().to_string();
 
         let row: WorkerCommandRow = sqlx::query_as::<_, WorkerCommandRow>(
             r#"
@@ -414,7 +414,7 @@ impl WorkerStorage {
 
     pub async fn assign_task(&self, request: AssignTaskRequest) -> Result<WorkerTaskAssignment, sqlx::Error> {
         let now = current_timestamp_millis();
-        let task_id = uuid::Uuid::new_v4().to_string();
+        let task_id = uuid::Uuid::new_v4().simple().to_string();
 
         let row: WorkerTaskAssignment = sqlx::query_as::<_, WorkerTaskAssignment>(
             r#"

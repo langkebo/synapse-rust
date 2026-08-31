@@ -71,7 +71,7 @@ fn make_request(prefix: &str, kind: &str) -> CreateEventReportRequest {
 #[tokio::test]
 async fn test_create_report_defaults() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("cr_def_{suffix}");
     cleanup_all(&pool, &prefix).await;
 
@@ -92,7 +92,7 @@ async fn test_create_report_defaults() {
 #[tokio::test]
 async fn test_create_report_with_explicit_score() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("cr_score_{suffix}");
     cleanup_all(&pool, &prefix).await;
 
@@ -111,7 +111,7 @@ async fn test_create_report_with_explicit_score() {
 #[tokio::test]
 async fn test_get_report_found() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("gr_found_{suffix}");
     cleanup_all(&pool, &prefix).await;
 
@@ -144,7 +144,7 @@ async fn test_get_report_not_found() {
 #[tokio::test]
 async fn test_get_reports_by_event_ordering() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("gbe_{suffix}");
     cleanup_all(&pool, &prefix).await;
 
@@ -190,7 +190,7 @@ async fn test_get_reports_by_event_none() {
 #[tokio::test]
 async fn test_get_reports_by_room_basic() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("gbr_{suffix}");
     cleanup_all(&pool, &prefix).await;
 
@@ -233,7 +233,7 @@ async fn test_get_reports_by_room_basic() {
 #[tokio::test]
 async fn test_get_reports_by_room_limit() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("gbr_lim_{suffix}");
     cleanup_all(&pool, &prefix).await;
 
@@ -260,7 +260,7 @@ async fn test_get_reports_by_room_limit() {
 #[tokio::test]
 async fn test_get_reports_by_reporter_basic() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("gbrep_{suffix}");
     cleanup_all(&pool, &prefix).await;
 
@@ -298,7 +298,7 @@ async fn test_get_reports_by_reporter_basic() {
 #[tokio::test]
 async fn test_get_reports_by_reporter_cursor_pagination() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("gbrep_cur_{suffix}");
     cleanup_all(&pool, &prefix).await;
 
@@ -339,7 +339,7 @@ async fn test_get_reports_by_reporter_cursor_pagination() {
 #[tokio::test]
 async fn test_get_reports_by_status_filtering() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("gbs_{suffix}");
     cleanup_all(&pool, &prefix).await;
 
@@ -390,7 +390,7 @@ async fn test_get_reports_by_status_filtering() {
 #[tokio::test]
 async fn test_get_reports_by_status_triple_cursor() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("gbs_cur_{suffix}");
     cleanup_all(&pool, &prefix).await;
 
@@ -430,7 +430,7 @@ async fn test_get_reports_by_status_triple_cursor() {
 #[tokio::test]
 async fn test_get_all_reports_returns_entries() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("gar_{suffix}");
     cleanup_all(&pool, &prefix).await;
 
@@ -464,7 +464,7 @@ async fn test_get_all_reports_returns_entries() {
 #[tokio::test]
 async fn test_get_all_reports_triple_cursor_pagination() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("gar_cur_{suffix}");
     cleanup_all(&pool, &prefix).await;
 
@@ -512,7 +512,7 @@ async fn test_get_all_reports_triple_cursor_pagination() {
 #[tokio::test]
 async fn test_update_report_coalesce_preserves_fields() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("upd_{suffix}");
     cleanup_all(&pool, &prefix).await;
 
@@ -571,7 +571,7 @@ async fn test_update_report_coalesce_preserves_fields() {
 #[tokio::test]
 async fn test_delete_report_removes_record() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("del_{suffix}");
     cleanup_all(&pool, &prefix).await;
 
@@ -598,8 +598,8 @@ async fn test_delete_report_removes_record() {
 #[tokio::test]
 async fn test_check_rate_limit_new_user_allowed() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
-    let user_id = format!("rl_new_{suffix}");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let user_id = format!("@rl_new_{suffix}:localhost");
     cleanup_rate_limits(&pool, &user_id).await;
 
     let storage = EventReportStorage::new(&pool);
@@ -615,8 +615,8 @@ async fn test_check_rate_limit_new_user_allowed() {
 #[tokio::test]
 async fn test_check_rate_limit_blocked_user() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
-    let user_id = format!("rl_blocked_{suffix}");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let user_id = format!("@rl_blocked_{suffix}:localhost");
     cleanup_all(&pool, &user_id).await;
 
     ensure_user(&pool, &user_id).await;
@@ -636,8 +636,8 @@ async fn test_check_rate_limit_blocked_user() {
 #[tokio::test]
 async fn test_check_rate_limit_block_expired_auto_unblocks() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
-    let user_id = format!("rl_expired_{suffix}");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let user_id = format!("@rl_expired_{suffix}:localhost");
     cleanup_all(&pool, &user_id).await;
 
     ensure_user(&pool, &user_id).await;
@@ -657,8 +657,8 @@ async fn test_check_rate_limit_block_expired_auto_unblocks() {
 #[tokio::test]
 async fn test_check_rate_limit_daily_limit_exceeded() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
-    let user_id = format!("rl_daily_{suffix}");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let user_id = format!("@rl_daily_{suffix}:localhost");
     cleanup_all(&pool, &user_id).await;
 
     ensure_user(&pool, &user_id).await;
@@ -693,8 +693,8 @@ async fn test_check_rate_limit_daily_limit_exceeded() {
 #[tokio::test]
 async fn test_check_rate_limit_under_daily_limit() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
-    let user_id = format!("rl_under_{suffix}");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let user_id = format!("@rl_under_{suffix}:localhost");
     cleanup_all(&pool, &user_id).await;
 
     ensure_user(&pool, &user_id).await;
@@ -717,8 +717,8 @@ async fn test_check_rate_limit_under_daily_limit() {
 #[tokio::test]
 async fn test_record_report_inserts_new_row() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
-    let user_id = format!("rr_new_{suffix}");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let user_id = format!("@rr_new_{suffix}:localhost");
     cleanup_all(&pool, &user_id).await;
 
     ensure_user(&pool, &user_id).await;
@@ -744,8 +744,8 @@ async fn test_record_report_inserts_new_row() {
 #[tokio::test]
 async fn test_record_report_increments_existing() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
-    let user_id = format!("rr_incr_{suffix}");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let user_id = format!("@rr_incr_{suffix}:localhost");
     cleanup_all(&pool, &user_id).await;
 
     ensure_user(&pool, &user_id).await;
@@ -774,8 +774,8 @@ async fn test_record_report_increments_existing() {
 #[tokio::test]
 async fn test_block_user_reports_upsert() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
-    let user_id = format!("blk_{suffix}");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let user_id = format!("@blk_{suffix}:localhost");
     cleanup_all(&pool, &user_id).await;
 
     ensure_user(&pool, &user_id).await;
@@ -806,8 +806,8 @@ async fn test_block_user_reports_upsert() {
 #[tokio::test]
 async fn test_unblock_user_reports() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
-    let user_id = format!("unblk_{suffix}");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let user_id = format!("@unblk_{suffix}:localhost");
     cleanup_all(&pool, &user_id).await;
 
     ensure_user(&pool, &user_id).await;
@@ -841,7 +841,7 @@ async fn test_unblock_user_reports_noop_on_nonexistent() {
 #[tokio::test]
 async fn test_count_reports_by_status_returns_count() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("cnt_{suffix}");
     cleanup_all(&pool, &prefix).await;
 
@@ -883,7 +883,7 @@ async fn test_count_reports_by_status_returns_count() {
 #[tokio::test]
 async fn test_count_all_reports_is_global() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string();
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let prefix = format!("car_{suffix}");
     cleanup_all(&pool, &prefix).await;
 

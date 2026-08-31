@@ -19,7 +19,7 @@ async fn test_pool() -> Arc<Pool<Postgres>> {
 }
 
 fn unique_id(prefix: &str) -> String {
-    format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
+    format!("{prefix}_{}:localhost", uuid::Uuid::new_v4().simple().to_string())
 }
 
 #[tokio::test]
@@ -1053,7 +1053,7 @@ async fn seed_bump_test_room(pool: &Pool<Postgres>, room_id: &str, user_id: &str
 
 /// Insert a minimal event row (only NOT NULL columns) for the bump tests.
 async fn insert_bump_test_event(pool: &Pool<Postgres>, room_id: &str, user_id: &str, event_type: &str, ts: i64) {
-    let event_id = format!("$bump_{}:example.com", uuid::Uuid::new_v4().simple());
+    let event_id = format!("$bump_{}:example.com", uuid::Uuid::new_v4().simple().to_string());
     sqlx::query(
         r#"INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts)
            VALUES ($1, $2, $3, $4, $5, $6)"#,

@@ -61,7 +61,7 @@ fn make_attrs(entries: &[(&str, &str)]) -> HashMap<String, Vec<String>> {
 #[tokio::test]
 async fn test_create_session_valid_record() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@saml_create_session_{suffix}:localhost");
     let session_id = format!("sess_create_{suffix}");
     let issuer = format!("https://idp-{suffix}.example.com");
@@ -96,7 +96,7 @@ async fn test_create_session_valid_record() {
 #[tokio::test]
 async fn test_get_session_not_found() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let storage = SamlStorage::new(&pool);
 
     cleanup_saml_test_data(&pool, &suffix).await;
@@ -110,7 +110,7 @@ async fn test_get_session_not_found() {
 #[tokio::test]
 async fn test_get_session_by_user_found_and_not_found() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@saml_gbu_{suffix}:localhost");
     let session_id = format!("sess_gbu_{suffix}");
 
@@ -145,7 +145,7 @@ async fn test_get_session_by_user_found_and_not_found() {
 #[tokio::test]
 async fn test_update_session_last_used() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@saml_upd_lu_{suffix}:localhost");
     let session_id = format!("sess_upd_lu_{suffix}");
 
@@ -185,7 +185,7 @@ async fn test_update_session_last_used() {
 #[tokio::test]
 async fn test_invalidate_session_then_get_returns_none() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@saml_inval_{suffix}:localhost");
     let session_id = format!("sess_inval_{suffix}");
 
@@ -219,7 +219,7 @@ async fn test_invalidate_session_then_get_returns_none() {
 #[tokio::test]
 async fn test_cleanup_expired_sessions() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@saml_cleanup_{suffix}:localhost");
     let expired_session_id = format!("sess_expired_{suffix}");
     let valid_session_id = format!("sess_valid_{suffix}");
@@ -282,7 +282,7 @@ async fn test_cleanup_expired_sessions() {
 #[tokio::test]
 async fn test_create_user_mapping() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@saml_map_{suffix}:localhost");
     let name_id = format!("name_map_{suffix}");
     let issuer = format!("https://idp-{suffix}.example.com");
@@ -314,7 +314,7 @@ async fn test_create_user_mapping() {
 #[tokio::test]
 async fn test_create_user_mapping_on_conflict_updates() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id_a = format!("@saml_map_a_{suffix}:localhost");
     let user_id_b = format!("@saml_map_b_{suffix}:localhost");
     let name_id = format!("name_conflict_{suffix}");
@@ -362,7 +362,7 @@ async fn test_create_user_mapping_on_conflict_updates() {
 #[tokio::test]
 async fn test_get_user_mapping_by_name_id_found_and_not_found() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@saml_gmbn_{suffix}:localhost");
     let name_id = format!("name_gmbn_{suffix}");
     let issuer = format!("https://idp-{suffix}.example.com");
@@ -406,7 +406,7 @@ async fn test_get_user_mapping_by_name_id_found_and_not_found() {
 #[tokio::test]
 async fn test_get_user_mapping_by_user_id_found_and_not_found() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@saml_gmbu_{suffix}:localhost");
 
     cleanup_saml_test_data(&pool, &suffix).await;
@@ -442,7 +442,7 @@ async fn test_get_user_mapping_by_user_id_found_and_not_found() {
 #[tokio::test]
 async fn test_delete_user_mapping_and_idempotent() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@saml_del_map_{suffix}:localhost");
     let name_id = format!("name_del_{suffix}");
     let issuer = format!("https://idp-{suffix}.example.com");
@@ -475,7 +475,7 @@ async fn test_delete_user_mapping_and_idempotent() {
 #[tokio::test]
 async fn test_list_user_mappings_returns_list() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let name_a = format!("aaa_list_{suffix}");
     let name_b = format!("bbb_list_{suffix}");
     let issuer = format!("https://idp-{suffix}.example.com");
@@ -512,7 +512,7 @@ async fn test_list_user_mappings_returns_list() {
 #[tokio::test]
 async fn test_list_user_mappings_cursor_pagination() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let name_a = format!("aaa_cursor_{suffix}");
     let name_b = format!("bbb_cursor_{suffix}");
     let name_c = format!("ccc_cursor_{suffix}");
@@ -553,7 +553,7 @@ async fn test_list_user_mappings_cursor_pagination() {
 #[tokio::test]
 async fn test_get_user_mapping_any_issuer_found_and_not_found() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@saml_anyiss_{suffix}:localhost");
     let name_id = format!("name_anyiss_{suffix}");
     let issuer = format!("https://idp-{suffix}.example.com");
@@ -590,7 +590,7 @@ async fn test_get_user_mapping_any_issuer_found_and_not_found() {
 #[tokio::test]
 async fn test_update_user_mapping_by_name_id() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@saml_upd_map_{suffix}:localhost");
     let new_user_id = format!("@saml_upd_map_new_{suffix}:localhost");
     let name_id = format!("name_upd_{suffix}");
@@ -636,7 +636,7 @@ async fn test_update_user_mapping_by_name_id() {
 #[tokio::test]
 async fn test_delete_user_mapping_by_name_id() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id_1 = format!("@saml_delbn_1_{suffix}:localhost");
     let user_id_2 = format!("@saml_delbn_2_{suffix}:localhost");
     let name_id = format!("name_delbn_{suffix}");
@@ -684,7 +684,7 @@ async fn test_delete_user_mapping_by_name_id() {
 #[tokio::test]
 async fn test_create_identity_provider_with_all_fields() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let entity_id = format!("https://idp-create-{suffix}.example.com");
 
     cleanup_saml_test_data(&pool, &suffix).await;
@@ -717,7 +717,7 @@ async fn test_create_identity_provider_with_all_fields() {
 #[tokio::test]
 async fn test_get_identity_provider_found_and_not_found() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let entity_id = format!("https://idp-get-{suffix}.example.com");
 
     cleanup_saml_test_data(&pool, &suffix).await;
@@ -753,7 +753,7 @@ async fn test_get_identity_provider_found_and_not_found() {
 #[tokio::test]
 async fn test_get_all_identity_providers() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let entity_a = format!("https://idp-all-a-{suffix}.example.com");
     let entity_b = format!("https://idp-all-b-{suffix}.example.com");
 
@@ -792,7 +792,7 @@ async fn test_get_all_identity_providers() {
 #[tokio::test]
 async fn test_get_enabled_identity_providers() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let entity_enabled = format!("https://idp-on-{suffix}.example.com");
     let entity_disabled = format!("https://idp-off-{suffix}.example.com");
 
@@ -840,7 +840,7 @@ async fn test_get_enabled_identity_providers() {
 #[tokio::test]
 async fn test_update_idp_metadata() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let entity_id = format!("https://idp-meta-{suffix}.example.com");
 
     cleanup_saml_test_data(&pool, &suffix).await;
@@ -880,7 +880,7 @@ async fn test_update_idp_metadata() {
 #[tokio::test]
 async fn test_save_and_consume_pending_request() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let relay_state = format!("relay_{suffix}");
     let request_id = format!("id_{suffix}");
 
@@ -915,7 +915,7 @@ async fn test_save_and_consume_pending_request() {
 #[tokio::test]
 async fn test_save_pending_request_upserts_on_conflict() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let relay_state = format!("relay_{suffix}");
 
     cleanup_saml_test_data(&pool, &suffix).await;

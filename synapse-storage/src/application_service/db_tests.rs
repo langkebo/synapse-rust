@@ -79,7 +79,7 @@ fn make_registration(
 async fn test_register_creates_service() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let as_token = format!("token_{suffix}");
     let hs_token = format!("hs_{suffix}");
@@ -107,7 +107,7 @@ async fn test_register_creates_service() {
 async fn test_register_duplicate_as_id_fails() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let as_token = format!("token_{suffix}");
     let hs_token = format!("hs_{suffix}");
@@ -131,7 +131,7 @@ async fn test_register_duplicate_as_id_fails() {
 async fn test_upsert_registration_inserts_new() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let as_token = format!("token_{suffix}");
     let hs_token = format!("hs_{suffix}");
@@ -152,7 +152,7 @@ async fn test_upsert_registration_inserts_new() {
 async fn test_upsert_registration_updates_existing() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let as_token = format!("token_{suffix}");
     let hs_token = format!("hs_{suffix}");
@@ -188,7 +188,7 @@ async fn test_upsert_registration_updates_existing() {
 async fn test_get_by_id_found() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let as_token = format!("token_{suffix}");
     let hs_token = format!("hs_{suffix}");
@@ -210,7 +210,7 @@ async fn test_get_by_id_found() {
 async fn test_get_by_id_not_found() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_nonexistent_{suffix}");
 
     cleanup_with_suffix(&pool, &suffix).await;
@@ -227,7 +227,7 @@ async fn test_get_by_id_not_found() {
 async fn test_get_by_token_found() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let as_token = format!("token_{suffix}");
     let hs_token = format!("hs_{suffix}");
@@ -249,7 +249,7 @@ async fn test_get_by_token_found() {
 async fn test_get_by_token_not_found() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
 
     cleanup_with_suffix(&pool, &suffix).await;
 
@@ -263,7 +263,7 @@ async fn test_get_by_token_not_found() {
 async fn test_get_by_token_ignores_disabled_service() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let as_token = format!("token_{suffix}");
     let hs_token = format!("hs_{suffix}");
@@ -292,7 +292,7 @@ async fn test_get_by_token_ignores_disabled_service() {
 async fn test_get_by_hs_token_found() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let as_token = format!("token_{suffix}");
     let hs_token = format!("hs_{suffix}");
@@ -314,7 +314,7 @@ async fn test_get_by_hs_token_found() {
 async fn test_get_by_hs_token_not_found() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
 
     cleanup_with_suffix(&pool, &suffix).await;
 
@@ -330,7 +330,7 @@ async fn test_get_by_hs_token_not_found() {
 async fn test_get_all_active_returns_only_enabled() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id1 = format!("as_active_{suffix}");
     let as_id2 = format!("as_inactive_{suffix}");
 
@@ -370,7 +370,7 @@ async fn test_get_all_active_returns_only_enabled() {
 async fn test_get_all_active_returns_empty_when_no_enabled() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_inactive_{suffix}");
 
     cleanup_with_suffix(&pool, &suffix).await;
@@ -402,7 +402,7 @@ async fn test_get_all_active_returns_empty_when_no_enabled() {
 async fn test_update_modifies_fields() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let as_token = format!("token_{suffix}");
     let hs_token = format!("hs_{suffix}");
@@ -442,7 +442,7 @@ async fn test_update_modifies_fields() {
 async fn test_update_timestamp_sets_updated_ts() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let as_token = format!("token_{suffix}");
     let hs_token = format!("hs_{suffix}");
@@ -469,7 +469,7 @@ async fn test_update_timestamp_sets_updated_ts() {
 async fn test_unregister_removes_service() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let as_token = format!("token_{suffix}");
     let hs_token = format!("hs_{suffix}");
@@ -498,7 +498,7 @@ async fn test_unregister_removes_service() {
 async fn test_set_and_get_state() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
 
     cleanup_with_suffix(&pool, &suffix).await;
@@ -529,7 +529,7 @@ async fn test_set_and_get_state() {
 async fn test_set_state_overwrites_existing() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
 
     cleanup_with_suffix(&pool, &suffix).await;
@@ -556,7 +556,7 @@ async fn test_set_state_overwrites_existing() {
 async fn test_get_all_states_for_as_id() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
 
     cleanup_with_suffix(&pool, &suffix).await;
@@ -586,7 +586,7 @@ async fn test_get_all_states_for_as_id() {
 async fn test_get_state_not_found() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
 
     cleanup_with_suffix(&pool, &suffix).await;
@@ -603,7 +603,7 @@ async fn test_get_state_not_found() {
 async fn test_event_lifecycle() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let event_id = format!("ev_{suffix}");
     let room_id = format!("!room_{suffix}:test.example.com");
@@ -642,7 +642,7 @@ async fn test_event_lifecycle() {
 async fn test_get_pending_events_respects_limit() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let room_id = format!("!room_{suffix}:test.example.com");
 
@@ -676,7 +676,7 @@ async fn test_get_pending_events_respects_limit() {
 async fn test_mark_event_processed_idempotent() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let event_id = format!("ev_{suffix}");
     let room_id = format!("!room_{suffix}:test.example.com");
@@ -704,7 +704,7 @@ async fn test_mark_event_processed_idempotent() {
 async fn test_create_and_complete_transaction() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let txn_id = format!("txn_{suffix}");
 
@@ -740,7 +740,7 @@ async fn test_create_and_complete_transaction() {
 async fn test_fail_transaction_increments_retry() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let txn_id = format!("txn_{suffix}");
 
@@ -771,7 +771,7 @@ async fn test_fail_transaction_increments_retry() {
 async fn test_register_and_get_virtual_users() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let user1 = format!("@vu1_{suffix}:test.example.com");
     let user2 = format!("@vu2_{suffix}:test.example.com");
@@ -813,7 +813,7 @@ async fn test_register_and_get_virtual_users() {
 async fn test_register_virtual_user_upserts() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_test_{suffix}");
     let user_id = format!("@vu_{suffix}:test.example.com");
 
@@ -852,7 +852,7 @@ async fn test_register_virtual_user_upserts() {
 async fn test_get_virtual_users_empty_for_unknown_as_id() {
     let pool = test_pool().await;
     let storage = ApplicationServiceStorage::new(&pool);
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     let as_id = format!("as_unknown_{suffix}");
 
     cleanup_with_suffix(&pool, &suffix).await;

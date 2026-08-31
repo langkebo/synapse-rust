@@ -49,7 +49,7 @@ async fn insert_event(
     state_key: &str,
     content: &serde_json::Value,
 ) {
-    let event_id = format!("${}", uuid::Uuid::new_v4().simple());
+    let event_id = format!("${}:localhost", uuid::Uuid::new_v4().simple().to_string());
     let now = current_timestamp_millis();
     sqlx::query(
         "INSERT INTO events (event_id, room_id, sender, event_type, state_key, content, origin_server_ts, depth) VALUES ($1, $2, $3, $4, $5, $6, $7, 1)",
@@ -96,7 +96,7 @@ async fn cleanup_all(pool: &Pool<Postgres>, suffix: &str) {
 #[tokio::test]
 async fn test_get_friend_list_room_id() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -130,7 +130,7 @@ async fn test_get_friend_list_room_id() {
 #[tokio::test]
 async fn test_get_friend_list_content() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -171,7 +171,7 @@ async fn test_get_friend_list_content() {
 #[tokio::test]
 async fn test_get_friend_list_shard_returns_latest_per_state_key() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -202,7 +202,7 @@ async fn test_get_friend_list_shard_returns_latest_per_state_key() {
 #[tokio::test]
 async fn test_get_friend_list_all_shards_fan_out_merged_sorted() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -245,7 +245,7 @@ async fn test_get_friend_list_all_shards_fan_out_merged_sorted() {
 #[tokio::test]
 async fn test_get_friend_list_all_shards_empty_when_no_events() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let room_id = format!("!fr_empty_{suffix}:localhost");
@@ -265,7 +265,7 @@ async fn test_get_friend_list_all_shards_empty_when_no_events() {
 #[tokio::test]
 async fn test_find_friend_lists_by_dm_room_id() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -303,7 +303,7 @@ async fn test_find_friend_lists_by_dm_room_id() {
 #[tokio::test]
 async fn test_get_effective_direct_links_fallback() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_a = format!("@fr_a_{suffix}:localhost");
@@ -366,7 +366,7 @@ async fn test_get_effective_direct_links_fallback() {
 #[tokio::test]
 async fn test_get_existing_direct_room_id() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_a = format!("@fr_a_{suffix}:localhost");
@@ -424,7 +424,7 @@ async fn test_get_existing_direct_room_id() {
 #[tokio::test]
 async fn test_get_dm_partner_for_room() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_a = format!("@fr_a_{suffix}:localhost");
@@ -435,7 +435,7 @@ async fn test_get_dm_partner_for_room() {
     ensure_test_room(&pool, &room_id).await;
 
     sqlx::query(
-        "INSERT INTO room_memberships (room_id, user_id, membership, display_name, avatar_url) VALUES ($1, $2, 'join', 'User A', '') ON CONFLICT (room_id, user_id) DO NOTHING",
+        "INSERT INTO room_memberships (room_id, user_id, membership, display_name, avatar_url) VALUES ($1, $2, 'join', 'User A', NULL) ON CONFLICT (room_id, user_id) DO NOTHING",
     )
     .bind(&room_id)
     .bind(&user_a)
@@ -443,7 +443,7 @@ async fn test_get_dm_partner_for_room() {
     .await
     .ok();
     sqlx::query(
-        "INSERT INTO room_memberships (room_id, user_id, membership, display_name, avatar_url) VALUES ($1, $2, 'join', 'User B', '') ON CONFLICT (room_id, user_id) DO NOTHING",
+        "INSERT INTO room_memberships (room_id, user_id, membership, display_name, avatar_url) VALUES ($1, $2, 'join', 'User B', NULL) ON CONFLICT (room_id, user_id) DO NOTHING",
     )
     .bind(&room_id)
     .bind(&user_b)
@@ -486,7 +486,7 @@ async fn test_get_dm_partner_for_room() {
 #[tokio::test]
 async fn test_get_friend_requests() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -526,7 +526,7 @@ async fn test_get_friend_requests() {
 #[tokio::test]
 async fn test_is_friend() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -561,7 +561,7 @@ async fn test_is_friend() {
 #[tokio::test]
 async fn test_get_friend_info() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -572,7 +572,7 @@ async fn test_get_friend_info() {
 
     let friend_content = json!({
         "friends": [
-            {"user_id": &friend_id, "display_name": "My Friend", "avatar_url": "mxc://avatar"}
+            {"user_id": &friend_id, "display_name": "My Friend", "avatar_url": "mxc://localhost/avatar"}
         ]
     });
     insert_event(&pool, &room_id, &user_id, "m.friends.list", "", &friend_content).await;
@@ -584,7 +584,7 @@ async fn test_get_friend_info() {
     assert!(info.is_some(), "should find friend info");
     let info = info.unwrap();
     assert_eq!(info.get("display_name").and_then(|v| v.as_str()), Some("My Friend"));
-    assert_eq!(info.get("avatar_url").and_then(|v| v.as_str()), Some("mxc://avatar"));
+    assert_eq!(info.get("avatar_url").and_then(|v| v.as_str()), Some("mxc://localhost/avatar"));
 
     // Not found: friend not in list
     let stranger = format!("@stranger_{suffix}:localhost");
@@ -602,7 +602,7 @@ async fn test_get_friend_info() {
 #[tokio::test]
 async fn test_is_friend_routes_to_target_shard_only() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -644,7 +644,7 @@ async fn test_is_friend_routes_to_target_shard_only() {
 #[tokio::test]
 async fn test_get_friend_info_routes_to_target_shard_only() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -690,7 +690,7 @@ async fn test_get_friend_info_routes_to_target_shard_only() {
 #[tokio::test]
 async fn test_get_friend_groups() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -732,7 +732,7 @@ async fn test_get_friend_groups() {
 #[tokio::test]
 async fn test_get_friend_groups_for_user() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -773,7 +773,7 @@ async fn test_get_friend_groups_for_user() {
 #[tokio::test]
 async fn test_create_friend_group() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -808,7 +808,7 @@ async fn test_create_friend_group() {
 #[tokio::test]
 async fn test_delete_friend_group() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -845,7 +845,7 @@ async fn test_delete_friend_group() {
 #[tokio::test]
 async fn test_rename_friend_group() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -885,7 +885,7 @@ async fn test_rename_friend_group() {
 #[tokio::test]
 async fn test_add_friend_to_group() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -921,7 +921,7 @@ async fn test_add_friend_to_group() {
 #[tokio::test]
 async fn test_remove_friend_from_group() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let user_id = format!("@fr_test_{suffix}:localhost");
@@ -962,7 +962,7 @@ async fn test_remove_friend_from_group() {
 #[tokio::test]
 async fn test_create_friend_request() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let sender = format!("@fr_sender_{suffix}:localhost");
@@ -1000,7 +1000,7 @@ async fn test_create_friend_request() {
 #[tokio::test]
 async fn test_get_friend_request() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let sender = format!("@fr_sender_{suffix}:localhost");
@@ -1035,7 +1035,7 @@ async fn test_get_friend_request() {
 #[tokio::test]
 async fn test_get_pending_friend_request() {
     let pool = test_pool().await;
-    let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_all(&pool, &suffix).await;
 
     let sender = format!("@fr_sender_{suffix}:localhost");
