@@ -6,6 +6,7 @@ use crate::room_summary::RoomSummaryStoreApi;
 use crate::sliding_sync::SlidingSyncStoreApi;
 use crate::user::UserStore;
 use std::sync::Arc;
+#[cfg(feature = "burn-after-read")]
 use synapse_common::current_timestamp_millis;
 
 #[tokio::test]
@@ -612,6 +613,7 @@ async fn room_tag_empty_for_unknown_user() {
 
 #[cfg(feature = "burn-after-read")]
 #[derive(Clone, Default)]
+#[allow(clippy::type_complexity)]
 pub struct InMemoryBurnAfterReadStore {
     settings: std::sync::Arc<
         tokio::sync::RwLock<std::collections::HashMap<(String, String), crate::burn_after_read::BurnSettingsRow>>,
@@ -722,6 +724,17 @@ impl crate::burn_after_read::BurnAfterReadStoreApi for InMemoryBurnAfterReadStor
         Ok(())
     }
 
+    async fn mark_burn_processed_batch(&self, ids: &[i64]) -> Result<(), sqlx::Error> {
+        let id_set: std::collections::HashSet<i64> = ids.iter().copied().collect();
+        let mut pending = self.pending.write().await;
+        for p in pending.iter_mut() {
+            if id_set.contains(&p.id) {
+                p.is_processed = true;
+            }
+        }
+        Ok(())
+    }
+
     async fn log_burned_event(
         &self,
         user_id: &str,
@@ -737,6 +750,24 @@ impl crate::burn_after_read::BurnAfterReadStoreApi for InMemoryBurnAfterReadStor
             event_id: event_id.to_string(),
             burned_ts,
         });
+        Ok(())
+    }
+
+    async fn log_burned_event_batch(&self, entries: &[(String, String, String, i64)]) -> Result<(), sqlx::Error> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let mut logs = self.logs.write().await;
+        for (user_id, room_id, event_id, burned_ts) in entries {
+            let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            logs.push(crate::burn_after_read::BurnLogRow {
+                id,
+                user_id: user_id.clone(),
+                room_id: room_id.clone(),
+                event_id: event_id.clone(),
+                burned_ts: *burned_ts,
+            });
+        }
         Ok(())
     }
 

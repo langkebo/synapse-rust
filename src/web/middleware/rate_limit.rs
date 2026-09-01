@@ -10,7 +10,10 @@ use axum::{body::Body, middleware::Next};
 use std::net::SocketAddr;
 
 pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Request<Body>, next: Next) -> Response {
-    let config = ctx.config.rate_limit.clone();
+    // 配置启动后只读，无理由 clone：原版每次请求深拷 5 个堆分配字段
+    // （Vec<Rule>、Vec<String>、Vec<String>、Vec<String>、HashMap<String,String>）。
+    // 改为引用后，仅末尾少量需要 owned 的字段（endpoints）走引用或 clone。
+    let config = &ctx.config.rate_limit;
     let file_config = ctx.rate_limit_config();
 
     let enabled = file_config.as_ref().map_or(config.enabled, |c| c.enabled);
@@ -58,7 +61,7 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
             (id, r.per_second, r.burst_size)
         }
         None => {
-            let (id, r) = crate::common::select_endpoint_rule_runtime(&config, path);
+            let (id, r) = crate::common::select_endpoint_rule_runtime(config, path);
             (id, r.per_second, r.burst_size)
         }
     };

@@ -203,21 +203,43 @@ impl BurnAfterReadService {
             .await
             .map_err(|e| synapse_common::ApiError::internal_with_context("Failed to get expired burns", &e))?;
 
-        let mut expired = Vec::new();
+        if expired_rows.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Two-step classification to keep the timeline consistent:
+        //
+        // 1. For each expired row, try to redact content + emit redaction event.
+        //    Both must succeed; otherwise the row stays unprocessed and the
+        //    next sweep retries (idempotency is the contract: a half-finished
+        //    burn would otherwise produce duplicate redaction events on the
+        //    next pass and pollute the room timeline).
+        //
+        // 2. After the per-row redact/create phase, batch-mark only the rows
+        //    whose redact+create BOTH succeeded, in a single SQL UPDATE, and
+        //    batch-insert their audit log entries in a single UNNEST INSERT.
+        //    This collapses 2N round-trips into 2, eliminating the N+1 the
+        //    previous loop had.
+        let mut successfully_processed_ids: Vec<i64> = Vec::with_capacity(expired_rows.len());
+        let mut log_entries: Vec<(String, String, String, i64)> = Vec::with_capacity(expired_rows.len());
+        let mut expired = Vec::with_capacity(expired_rows.len());
 
         for row in &expired_rows {
-            if let Err(e) = self.event_writer.redact_event_content(&row.event_id, Some(&row.user_id)).await {
+            let redact_ok = self.event_writer.redact_event_content(&row.event_id, Some(&row.user_id)).await;
+
+            if let Err(e) = &redact_ok {
                 ::tracing::warn!(
                     error = %e,
                     burn_id = row.id,
                     user_id = %row.user_id,
                     room_id = %row.room_id,
                     event_id = %row.event_id,
-                    "Failed to redact event content for burn"
+                    "Failed to redact event content for burn; will retry next sweep"
                 );
+                continue;
             }
 
-            if let Err(e) = self
+            let create_ok = self
                 .event_writer
                 .create_event(
                     synapse_storage::event::CreateEventParams {
@@ -232,32 +254,23 @@ impl BurnAfterReadService {
                     },
                     None,
                 )
-                .await
-            {
+                .await;
+
+            if let Err(e) = &create_ok {
                 ::tracing::warn!(
                     error = %e,
                     burn_id = row.id,
                     user_id = %row.user_id,
                     room_id = %row.room_id,
                     event_id = %row.event_id,
-                    "Failed to create redaction event for burn"
+                    "Failed to create redaction event for burn; content already redacted — \
+                     will retry next sweep (idempotency: redact+create are re-entrant)"
                 );
+                continue;
             }
 
-            if let Err(e) = self.storage.mark_burn_processed(row.id).await {
-                ::tracing::warn!(error = %e, burn_id = row.id, event_id = %row.event_id, "Failed to mark burn processed");
-            }
-
-            if let Err(e) = self.storage.log_burned_event(&row.user_id, &row.room_id, &row.event_id, now).await {
-                ::tracing::warn!(
-                    error = %e,
-                    burn_id = row.id,
-                    user_id = %row.user_id,
-                    room_id = %row.room_id,
-                    event_id = %row.event_id,
-                    "Failed to log burned event"
-                );
-            }
+            successfully_processed_ids.push(row.id);
+            log_entries.push((row.user_id.clone(), row.room_id.clone(), row.event_id.clone(), now));
 
             expired.push(BurnEvent {
                 id: row.id,
@@ -267,6 +280,33 @@ impl BurnAfterReadService {
                 created_ts: row.created_ts,
                 delete_ts: row.delete_ts,
             });
+        }
+
+        if !successfully_processed_ids.is_empty() {
+            if let Err(e) = self.storage.mark_burn_processed_batch(&successfully_processed_ids).await {
+                ::tracing::error!(
+                    error = %e,
+                    count = successfully_processed_ids.len(),
+                    "Failed to mark burns processed in batch; redaction events have been \
+                     emitted but rows will be reprocessed — timeline may contain \
+                     duplicate redaction events (mark_burn_processed_batch failure)"
+                );
+                // Do NOT return Err here: the redaction events are already on the wire.
+                // Returning the BurnEvent list lets the caller (the processor loop) carry
+                // on, and the next sweep will see the row as still unprocessed and re-run
+                // the redact+create sequence. The redact API is documented idempotent
+                // and the create step will reuse the new event_id only if the previous
+                // mark never landed — so duplicate redaction is the bounded failure mode.
+            }
+
+            if let Err(e) = self.storage.log_burned_event_batch(&log_entries).await {
+                ::tracing::warn!(
+                    error = %e,
+                    count = log_entries.len(),
+                    "Failed to batch-insert burn log entries (ON CONFLICT DO NOTHING on \
+                     next sweep will repair partial state)"
+                );
+            }
         }
 
         Ok(expired)
@@ -383,7 +423,13 @@ mod tests {
         async fn mark_burn_processed(&self, _id: i64) -> Result<(), sqlx::Error> {
             Ok(())
         }
+        async fn mark_burn_processed_batch(&self, _ids: &[i64]) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
         async fn log_burned_event(&self, _u: &str, _r: &str, _e: &str, _ts: i64) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+        async fn log_burned_event_batch(&self, _entries: &[(String, String, String, i64)]) -> Result<(), sqlx::Error> {
             Ok(())
         }
         async fn get_user_stats(&self, _user_id: &str) -> Result<BurnStatsRow, sqlx::Error> {
@@ -594,6 +640,10 @@ mod tests {
             self.state.lock().expect("fake mutex poisoned").mark_processed_calls.push(id);
             Ok(())
         }
+        async fn mark_burn_processed_batch(&self, ids: &[i64]) -> Result<(), sqlx::Error> {
+            self.state.lock().expect("fake mutex poisoned").mark_processed_calls.extend(ids.to_vec());
+            Ok(())
+        }
         async fn log_burned_event(
             &self,
             user_id: &str,
@@ -607,6 +657,10 @@ mod tests {
                 event_id.into(),
                 ts,
             ));
+            Ok(())
+        }
+        async fn log_burned_event_batch(&self, entries: &[(String, String, String, i64)]) -> Result<(), sqlx::Error> {
+            self.state.lock().expect("fake mutex poisoned").log_burned_calls.extend(entries.to_vec());
             Ok(())
         }
         async fn get_user_stats(&self, _user_id: &str) -> Result<BurnStatsRow, sqlx::Error> {

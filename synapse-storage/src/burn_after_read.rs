@@ -78,6 +78,9 @@ pub trait BurnAfterReadStoreApi: Send + Sync {
     async fn get_pending_burns(&self, user_id: &str, room_id: &str) -> Result<Vec<BurnPendingRow>, sqlx::Error>;
     async fn get_expired_burns(&self, now_ms: i64) -> Result<Vec<BurnPendingRow>, sqlx::Error>;
     async fn mark_burn_processed(&self, id: i64) -> Result<(), sqlx::Error>;
+    /// Atomically mark multiple burn records as processed in a single query.
+    /// Succeeds if at least one row was updated; fails only on DB errors.
+    async fn mark_burn_processed_batch(&self, ids: &[i64]) -> Result<(), sqlx::Error>;
     async fn log_burned_event(
         &self,
         user_id: &str,
@@ -85,6 +88,9 @@ pub trait BurnAfterReadStoreApi: Send + Sync {
         event_id: &str,
         burned_ts: i64,
     ) -> Result<(), sqlx::Error>;
+    /// Batch-insert burned event log entries. Uses ON CONFLICT DO NOTHING so
+    /// retries are safe even when some rows were already inserted.
+    async fn log_burned_event_batch(&self, entries: &[(String, String, String, i64)]) -> Result<(), sqlx::Error>;
     async fn get_user_stats(&self, user_id: &str) -> Result<BurnStatsRow, sqlx::Error>;
     async fn get_user_default(&self, user_id: &str) -> Result<Option<BurnUserDefaultsRow>, sqlx::Error>;
     async fn set_user_default(&self, user_id: &str, default_burn_ms: i64) -> Result<(), sqlx::Error>;
@@ -229,6 +235,19 @@ impl BurnAfterReadStorage {
         Ok(())
     }
 
+    pub async fn mark_burn_processed_batch(&self, ids: &[i64]) -> Result<(), sqlx::Error> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        sqlx::query(
+            "UPDATE burn_after_read_pending SET is_processed = TRUE WHERE id = ANY($1) AND is_processed = FALSE",
+        )
+        .bind(ids)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn log_burned_event(
         &self,
         user_id: &str,
@@ -249,6 +268,32 @@ impl BurnAfterReadStorage {
         .execute(&*self.pool)
         .await?;
 
+        Ok(())
+    }
+
+    pub async fn log_burned_event_batch(&self, entries: &[(String, String, String, i64)]) -> Result<(), sqlx::Error> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        // Build (user_id, room_id, event_id, burned_ts) tuples for UNNEST.
+        let user_ids: Vec<&str> = entries.iter().map(|e| e.0.as_str()).collect();
+        let room_ids: Vec<&str> = entries.iter().map(|e| e.1.as_str()).collect();
+        let event_ids: Vec<&str> = entries.iter().map(|e| e.2.as_str()).collect();
+        let burned_ts: Vec<i64> = entries.iter().map(|e| e.3).collect();
+        sqlx::query(
+            r"
+            INSERT INTO burn_after_read_log (user_id, room_id, event_id, burned_ts)
+            SELECT u, r, e, t
+            FROM UNNEST($1::text[], $2::text[], $3::text[], $4::bigint[]) AS x(u, r, e, t)
+            ON CONFLICT (user_id, event_id) DO NOTHING
+            ",
+        )
+        .bind(&user_ids)
+        .bind(&room_ids)
+        .bind(&event_ids)
+        .bind(&burned_ts)
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
@@ -349,6 +394,10 @@ impl BurnAfterReadStoreApi for BurnAfterReadStorage {
         self.mark_burn_processed(id).await
     }
 
+    async fn mark_burn_processed_batch(&self, ids: &[i64]) -> Result<(), sqlx::Error> {
+        self.mark_burn_processed_batch(ids).await
+    }
+
     async fn log_burned_event(
         &self,
         user_id: &str,
@@ -357,6 +406,10 @@ impl BurnAfterReadStoreApi for BurnAfterReadStorage {
         burned_ts: i64,
     ) -> Result<(), sqlx::Error> {
         self.log_burned_event(user_id, room_id, event_id, burned_ts).await
+    }
+
+    async fn log_burned_event_batch(&self, entries: &[(String, String, String, i64)]) -> Result<(), sqlx::Error> {
+        self.log_burned_event_batch(entries).await
     }
 
     async fn get_user_stats(&self, user_id: &str) -> Result<BurnStatsRow, sqlx::Error> {
@@ -443,19 +496,21 @@ mod tests {
 
 #[cfg(test)]
 mod db_tests {
-    use std::time::Duration;
     use super::*;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
     use std::sync::Arc;
+    use std::time::Duration;
 
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-        let pool =
-            PgPoolOptions::new()
+        let pool = PgPoolOptions::new()
             .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
+            .acquire_timeout(Duration::from_secs(30))
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
         Arc::new(pool)
     }
 

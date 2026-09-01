@@ -904,6 +904,10 @@ impl SlidingSyncService {
     /// `tests::test_invalidate_connection_cache_covers_all_keys` 会锁住。
     async fn invalidate_connection_cache(&self, user_id: &str, device_id: &str, conn_id: Option<&str>) {
         // ── 前缀类：一个前缀下可能挂多个 key（如每个 list / room 一条） ──
+        //
+        // 旧实现：for prefix { for key { delete(key) } } —— N×M 次串行 RTT。
+        // 新实现：每个 prefix 的 key 收集到 Vec，用 delete_batch 一次 PIPELINE DEL。
+        //         4N 次 RTT → 3 次 RTT（prefix_scanner + 3×pipeline）。
         let prefixes = [
             Self::list_snapshot_cache_key_prefix(user_id, device_id, conn_id),
             Self::e2ee_device_list_stream_cache_key_prefix(user_id, device_id, conn_id),
@@ -912,17 +916,16 @@ impl SlidingSyncService {
 
         for prefix in prefixes {
             let keys = self.cache.get_keys_with_prefix(&prefix);
-            for key in keys {
-                self.cache.delete(&key).await;
+            if !keys.is_empty() {
+                self.cache.delete_batch(&keys).await;
             }
         }
 
         // ── 精确 key 类：extensions 去重缓存，一个连接固定一条 ──
         //
-        // 这些 key 走 `get_raw_shared`（L1 miss 回源 Redis 并回填 L1），
-        // 因此删除必须同时清 L1 与 Redis——`CacheManager::delete` 正是
-        // 两者都删并广播跨实例失效，勿换成 `RedisCache::delete`（那个
-        // 只发 DEL 到 Redis，L1 残留会让下次读立刻拿到已删的陈旧基线）。
+        // 旧实现：for key { delete(key) } —— 4 次串行 RTT。
+        // 新实现：futures::future::join_all 并发发出 4 个 delete，
+        //         延迟重叠，总耗时 ≈ max(各 RTT) 而非 sum(各 RTT)。
         let exact_keys = [
             Self::presence_cache_key(user_id, device_id, conn_id),
             Self::account_data_cache_key(user_id, device_id, conn_id),
@@ -930,9 +933,11 @@ impl SlidingSyncService {
             Self::e2ee_shared_users_cache_key(user_id, device_id, conn_id),
         ];
 
-        for key in exact_keys {
-            self.cache.delete(&key).await;
-        }
+        // 4 个精确 key 并发删除（各自 L1 + Redis + 广播，独立不变）。
+        // 提前 borrow cache 以让闭包不捕获整个 &self——可满足 Send + 'static。
+        let cache: &CacheManager = &self.cache;
+        let deletes: Vec<_> = exact_keys.into_iter().map(|key| async move { cache.delete(&key).await }).collect();
+        futures::future::join_all(deletes).await;
     }
 
     fn list_snapshot_cache_key_prefix(user_id: &str, device_id: &str, conn_id: Option<&str>) -> String {

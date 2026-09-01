@@ -684,6 +684,22 @@ impl RedisCache {
         .await
     }
 
+    /// Batch-delete multiple keys in a single Redis DEL command.
+    /// Sends one PIPELINE instead of N round-trips.
+    pub async fn delete_batch(&self, keys: &[String]) -> Result<(), CacheError> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        self.with_circuit_breaker("DEL (batch)", |mut conn| async move {
+            let mut pipe = redis::pipe();
+            for key in keys {
+                pipe.del(key.as_str());
+            }
+            pipe.query_async::<()>(&mut conn).await.map_err(|e| CacheError::OperationFailed(e.to_string()))
+        })
+        .await
+    }
+
     pub async fn hincrby(&self, key: &str, field: &str, delta: i64) -> Result<i64, redis::RedisError> {
         use redis::AsyncCommands;
         self.with_circuit_breaker("HINCRBY", |mut conn| async move { conn.hincr(key, field, delta).await }).await
@@ -1201,6 +1217,36 @@ impl CacheManager {
         }
         if let Err(e) = self.broadcast_invalidation(key, InvalidationType::Key).await {
             tracing::warn!("Failed to broadcast key invalidation: {}", e);
+        }
+    }
+
+    /// Batch-delete multiple keys. Clears L1 for each, fires a single
+    /// Redis `DEL k1 k2 k3 ...` pipeline, and broadcasts one
+    /// `InvalidationType::Key` per key (跨实例失效语义保持不变).
+    ///
+    /// Use when invalidating many keys at once (sliding sync 连接断开时
+    /// 清空 1 prefix + 4 精确 key). 把 N 次 RTT 折成 1 次 RTT.
+    pub async fn delete_batch(&self, keys: &[String]) {
+        if keys.is_empty() {
+            return;
+        }
+        for key in keys {
+            self.local.remove(key);
+        }
+        if let Some(redis) = &self.redis {
+            if let Err(e) = redis.delete_batch(keys).await {
+                ::tracing::warn!(
+                    target: "cache",
+                    count = keys.len(),
+                    error = %e,
+                    "Failed to batch-delete cache entries from Redis"
+                );
+            }
+        }
+        for key in keys {
+            if let Err(e) = self.broadcast_invalidation(key, InvalidationType::Key).await {
+                tracing::warn!("Failed to broadcast key invalidation: {}", e);
+            }
         }
     }
 
