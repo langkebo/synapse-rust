@@ -158,21 +158,22 @@ impl MessagingService {
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to begin send_message transaction", &e))?;
 
-        self.create_event(
-            CreateEventParams {
-                event_id: event_id.clone(),
-                room_id: room_id.to_string(),
-                user_id: user_id.to_string(),
-                event_type: event_type.to_string(),
-                content: content.clone(),
-                state_key: None,
-                origin_server_ts: now,
-                redacts: None,
-            },
-            Some(&mut tx),
-        )
-        .await
-        .map_err(|e| ApiError::internal_with_context("Failed to send message", &e))?;
+        let event = self
+            .create_event(
+                CreateEventParams {
+                    event_id: event_id.clone(),
+                    room_id: room_id.to_string(),
+                    user_id: user_id.to_string(),
+                    event_type: event_type.to_string(),
+                    content: content.clone(),
+                    state_key: None,
+                    origin_server_ts: now,
+                    redacts: None,
+                },
+                Some(&mut tx),
+            )
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to send message", &e))?;
         // create_event failed: `tx` drops here → sqlx auto-rollback → pool returns clean.
 
         if let Some(relates_to) = content.get("m.relates_to").or_else(|| content.get("relates_to")) {
@@ -215,6 +216,39 @@ impl MessagingService {
         tx.commit()
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to commit send_message transaction", &e))?;
+
+        // Post-commit fan-out. `create_event` skipped these when called with a
+        // transaction (`should_update_summary = tx.is_none()`), but send_message
+        // owns the event lifecycle here: room summary refresh, appservice event
+        // dispatch and federation broadcast must run *after* the commit so a
+        // rollback cannot leak a dispatched event. All three are best-effort.
+        if let Err(error) =
+            self.room_summary_service.queue_update(room_id, &event.event_id, &event.event_type, None).await
+        {
+            ::tracing::warn!(error = %error, room_id = %room_id, "Failed to queue room summary update");
+        } else if let Err(error) = self.room_summary_service.process_pending_updates(32).await {
+            ::tracing::warn!(error = %error, room_id = %room_id, batch_size = 32_u64, "Failed to process room summary updates");
+        }
+
+        self.dispatch_appservice_event(
+            &event.event_id,
+            &event.room_id,
+            &event.event_type,
+            &event.user_id,
+            &event.content,
+            None,
+        )
+        .await;
+
+        if let Err(e) = self.sign_and_broadcast_event(&event).await {
+            ::tracing::warn!(
+                event_id = %event.event_id,
+                room_id = %event.room_id,
+                event_type = %event.event_type,
+                error = %e,
+                "Failed to sign and broadcast event"
+            );
+        }
 
         #[cfg(feature = "beacons")]
         if let (Some(beacon_service), Some(params)) = (self.beacon_service.as_ref(), beacon_location_params) {
