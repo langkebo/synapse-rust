@@ -48,10 +48,7 @@ fn cached_baseline_tables() -> &'static Vec<&'static str> {
 /// baseline, but where they exist they cannot host CREATE TABLE statements
 /// without breaking the file's syntax anyway.
 fn parse_baseline_tables() -> Vec<&'static str> {
-    let mut names: Vec<&'static str> = BASELINE_SQL
-        .lines()
-        .filter_map(extract_table_name)
-        .collect();
+    let mut names: Vec<&'static str> = BASELINE_SQL.lines().filter_map(extract_table_name).collect();
 
     // Deduplicate (the baseline has a primary region and a consolidation
     // region that overlap).
@@ -78,16 +75,10 @@ fn extract_table_name(line: &str) -> Option<&'static str> {
     }
 
     let after_create = trimmed.strip_prefix("CREATE TABLE ")?;
-    let after_create = if let Some(rest) = after_create.strip_prefix("IF NOT EXISTS ") {
-        rest
-    } else {
-        after_create
-    };
+    let after_create = if let Some(rest) = after_create.strip_prefix("IF NOT EXISTS ") { rest } else { after_create };
 
     // End at the first whitespace, opening paren, or semicolon.
-    let end = after_create
-        .find(|c: char| c.is_whitespace() || c == '(' || c == ';')
-        .unwrap_or(after_create.len());
+    let end = after_create.find(|c: char| c.is_whitespace() || c == '(' || c == ';').unwrap_or(after_create.len());
 
     if end == 0 {
         return None;
@@ -135,10 +126,7 @@ mod tests {
         assert!(names.contains(&"users"), "expected 'users' in baseline");
         assert!(names.contains(&"rooms"), "expected 'rooms' in baseline");
         assert!(names.contains(&"events"), "expected 'events' in baseline");
-        assert!(
-            names.contains(&"event_relations"),
-            "expected 'event_relations' in baseline"
-        );
+        assert!(names.contains(&"event_relations"), "expected 'event_relations' in baseline");
         assert!(
             names.contains(&"schema_migrations"),
             "expected 'schema_migrations' in baseline (project-required business table)"
@@ -159,10 +147,7 @@ mod tests {
         let count = baseline_table_count();
         // The v10 baseline should contain well over 100 tables.
         // If this drops below 50, somebody removed half the schema.
-        assert!(
-            count >= 100,
-            "baseline has only {count} tables — this is suspiciously low for v10"
-        );
+        assert!(count >= 100, "baseline has only {count} tables — this is suspiciously low for v10");
     }
 
     #[test]

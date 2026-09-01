@@ -500,19 +500,22 @@ mod tests {
 #[cfg(test)]
 mod db_tests {
     use super::*;
-    use sqlx::postgres::PgPoolOptions;
-    use std::env;
-    use std::time::Duration;
     use std::sync::Arc;
 
-    async fn test_pool() -> Arc<PgPool> {
-        let db_url = env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-        let pool =
-            PgPoolOptions::new()
-            .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
-        Arc::new(pool)
+    /// Each test gets a fresh isolated schema (v11 baseline), so parallel
+    /// tests can't pollute each other. This is required because
+    /// `test_verify_captcha_expired_returns_false` inserts an *expired pending*
+    /// row, while `cleanup_expired_captchas` deletes *all* expired pending rows
+    /// in its schema — running both against the shared `public` schema makes
+    /// either test racy (the cleanup can delete the other test's row).
+    ///
+    /// Returns the `IsolatedTestPool` *and* the pool so callers can hold the
+    /// guard alive for the whole test — dropping it early spawns a background
+    /// `DROP SCHEMA` that can race with in-flight queries.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     fn unique_suffix() -> String {
@@ -538,7 +541,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_captcha_returns_valid_record() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_create_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -564,7 +567,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_captcha_with_minimal_fields() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_minimal_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -597,7 +600,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_captcha_finds_created() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_get_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -615,7 +618,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_captcha_returns_none_for_nonexistent() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
 
         let result = storage.get_captcha("nonexistent-captcha-id").await.expect("get should succeed");
@@ -628,7 +631,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_latest_captcha_returns_pending() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_latest_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -649,7 +652,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_latest_captcha_skips_used_captcha() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_latest_used_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -672,7 +675,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_latest_captcha_returns_none_for_no_match() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_latest_none_{}@example.com", unique_suffix());
 
@@ -687,7 +690,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_verify_captcha_correct_code_returns_true() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_verify_ok_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -710,7 +713,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_verify_captcha_wrong_code_returns_false() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_verify_wrong_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -732,7 +735,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_verify_captcha_not_found_returns_error() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
 
         let result = storage.verify_captcha("nonexistent-id", "anycode").await;
@@ -741,7 +744,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_verify_captcha_expired_returns_false() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_verify_expired_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -785,7 +788,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_verify_captcha_exhausted_attempts_returns_false() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_verify_exhausted_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -825,7 +828,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_invalidate_captcha_sets_status_used() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_invalidate_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -849,7 +852,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_send_log_returns_valid_record() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_sendlog_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -884,7 +887,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_send_log_with_failure() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_sendlog_fail_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -915,7 +918,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_check_rate_limit_within_limit_returns_true() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_ratelimit_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -945,7 +948,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_check_rate_limit_exceeded_returns_false() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_ratelimit_ex_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -975,7 +978,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_check_rate_limit_no_logs_returns_true() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_ratelimit_none_{}@example.com", unique_suffix());
 
@@ -990,7 +993,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_check_ip_rate_limit_within_limit_returns_true() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_iprl_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -1019,7 +1022,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_check_ip_rate_limit_exceeded_returns_false() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_iprl_ex_{}@example.com", unique_suffix());
         let sql_target = target.clone();
@@ -1052,7 +1055,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_template_returns_enabled_template() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let template_name = format!("test_template_{}", unique_suffix());
         let now = current_timestamp_millis();
@@ -1087,7 +1090,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_template_returns_none_for_disabled() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let template_name = format!("test_disabled_{}", unique_suffix());
         let now = current_timestamp_millis();
@@ -1117,7 +1120,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_template_returns_none_for_nonexistent() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
 
         let result = storage.get_template("nonexistent_template_xyz").await.expect("get_template should succeed");
@@ -1130,7 +1133,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_default_template_returns_default() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let template_name = format!("test_default_{}", unique_suffix());
         let captcha_type = format!("type_{}", unique_suffix());
@@ -1167,7 +1170,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_default_template_returns_none_for_disabled() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let template_name = format!("test_default_dis_{}", unique_suffix());
         let captcha_type = format!("type_dis_{}", unique_suffix());
@@ -1203,7 +1206,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_config_returns_value() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let config_key = format!("test_config_{}", unique_suffix());
         let now = current_timestamp_millis();
@@ -1225,7 +1228,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_config_returns_none_for_missing_key() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
 
         let result = storage.get_config("nonexistent_config_key_abc").await.expect("get_config should succeed");
@@ -1234,7 +1237,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_config_as_int_parses_value() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let config_key = format!("test_config_int_{}", unique_suffix());
         let now = current_timestamp_millis();
@@ -1256,7 +1259,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_config_as_int_falls_back_to_default_for_missing() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
 
         let value =
@@ -1266,7 +1269,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_config_as_int_falls_back_to_default_for_unparseable() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
         let config_key = format!("test_config_bad_{}", unique_suffix());
         let now = current_timestamp_millis();
@@ -1294,9 +1297,7 @@ mod db_tests {
     async fn test_cleanup_expired_captchas_deletes_expired_pending() {
         // IsolatedTestPool: each test gets a fresh schema, so parallel
         // `cleanup_expired_captchas()` calls can't race to delete our row.
-        let isolated = crate::test_isolation::IsolatedTestPool::new()
-            .await
-            .expect("isolated pool");
+        let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
         let pool = isolated.pool();
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_cleanup_{}@example.com", unique_suffix());
@@ -1345,9 +1346,7 @@ mod db_tests {
     async fn test_cleanup_expired_captchas_skips_non_pending() {
         // IsolatedTestPool: parallel tests can't mark our captcha as 'pending'
         // before our cleanup runs.
-        let isolated = crate::test_isolation::IsolatedTestPool::new()
-            .await
-            .expect("isolated pool");
+        let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
         let pool = isolated.pool();
         let storage = CaptchaStorage::new(&pool);
         let target = format!("test_cleanup_skip_{}@example.com", unique_suffix());
@@ -1397,7 +1396,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_cleanup_expired_captchas_returns_zero_when_nothing_to_clean() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
 
         // No expired pending captchas we control — cleanup is global so other tests

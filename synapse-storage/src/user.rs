@@ -1905,19 +1905,23 @@ mod tests {
 
 #[cfg(test)]
 mod db_tests {
-    use std::time::Duration;
     use super::*;
-    use sqlx::postgres::PgPoolOptions;
     use synapse_cache::{CacheConfig, CacheManager};
 
-    async fn test_pool() -> Arc<Pool<Postgres>> {
-        let db_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-        let pool =
-            PgPoolOptions::new()
-            .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
-        Arc::new(pool)
+    /// Each test gets a fresh isolated schema (v11 baseline), so parallel
+    /// tests can't pollute each other: several tests insert users with fixed
+    /// usernames (e.g. `uniqueuser99`) into the shared `public` schema, which
+    /// violates the `uq_users_username` unique constraint when they run
+    /// concurrently. Stale rows left behind by an earlier failed run also
+    /// cascade into later failures.
+    ///
+    /// Returns the `IsolatedTestPool` *and* the pool so callers can hold the
+    /// guard alive for the whole test — dropping it early spawns a background
+    /// `DROP SCHEMA` that can race with in-flight queries.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<Pool<Postgres>>) {
+        let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     fn test_cache() -> Arc<CacheManager> {
@@ -1928,7 +1932,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_user_returns_valid_record() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@create_test_{}:example.com", uuid::Uuid::new_v4());
@@ -1946,7 +1950,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_by_id_found() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@getbyid_{}:example.com", uuid::Uuid::new_v4());
@@ -1962,7 +1966,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_by_id_not_found() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let result = storage.get_user_by_id("@nonexistent:example.com").await.expect("get_user_by_id should succeed");
@@ -1973,7 +1977,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_user_exists_returns_true_for_existing_user() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@exists_{}:example.com", uuid::Uuid::new_v4());
@@ -1987,7 +1991,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_user_exists_returns_false_for_nonexistent() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         assert!(!storage.user_exists("@nobody:example.com").await.expect("user_exists should succeed"));
@@ -1995,7 +1999,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_by_username_found() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@byuser_{}:example.com", uuid::Uuid::new_v4());
@@ -2011,7 +2015,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_count_increases_after_create() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let uuid = uuid::Uuid::new_v4();
@@ -2038,7 +2042,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_displayname() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@displayname_{}:example.com", uuid::Uuid::new_v4());
@@ -2054,7 +2058,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_avatar_url() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@avatar_{}:example.com", uuid::Uuid::new_v4());
@@ -2070,7 +2074,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_password() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@pwd_{}:example.com", uuid::Uuid::new_v4());
@@ -2086,7 +2090,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_admin_status_toggle() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@admin_{}:example.com", uuid::Uuid::new_v4());
@@ -2109,7 +2113,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_deactivation_status() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@deact_{}:example.com", uuid::Uuid::new_v4());
@@ -2131,7 +2135,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_shadow_ban() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@shadow_{}:example.com", uuid::Uuid::new_v4());
@@ -2152,7 +2156,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_delete_user() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@delete_me_{}:example.com", uuid::Uuid::new_v4());
@@ -2166,7 +2170,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_all_users_respects_limit() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let users = storage.get_all_users(5).await.expect("get_all_users should succeed");
@@ -2175,7 +2179,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_filter_existing_users() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@filter_{}:example.com", uuid::Uuid::new_v4());
@@ -2196,7 +2200,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_lock_user_flow() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@lock_{}:example.com", uuid::Uuid::new_v4());
@@ -2220,7 +2224,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_users_batch() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let uid1 = format!("@batch1_{}:example.com", uuid::Uuid::new_v4());
@@ -2243,7 +2247,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_profile_found_and_not_found() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@profile_{}:example.com", uuid::Uuid::new_v4());
@@ -2262,7 +2266,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_count_sent_messages_returns_count() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@msgcount_{}:example.com", uuid::Uuid::new_v4());
@@ -2279,7 +2283,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_by_email_found() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@emailu_{}:example.com", uuid::Uuid::new_v4());
@@ -2303,7 +2307,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_by_email_not_found() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let result =
@@ -2313,7 +2317,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_by_identifier_user_id_path() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@ident_{}:example.com", uuid::Uuid::new_v4());
@@ -2331,7 +2335,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_by_identifier_username_path() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@ident2_{}:example.com", uuid::Uuid::new_v4());
@@ -2354,7 +2358,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_users_paginated_no_cursor() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let users =
@@ -2364,7 +2368,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_users_paginated_with_cursor() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@pag_{}:example.com", uuid::Uuid::new_v4());
@@ -2384,11 +2388,11 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_list_users_with_name_filter() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@listf_{}:example.com", uuid::Uuid::new_v4());
-        let username = format!("listfilter_{}", uuid::Uuid::new_v4().simple().to_string());
+        let username = format!("listfilter_{}", uuid::Uuid::new_v4().simple());
         let _ = storage.delete_user(&user_id).await;
         storage.create_user(&user_id, &username, None, false).await.unwrap();
 
@@ -2403,7 +2407,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_list_users_no_filter_respects_limit() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let users = storage.list_users(3, None, None, None).await.expect("list_users no filter should succeed");
@@ -2412,7 +2416,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_count_returns_non_negative() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let count = storage.get_user_count().await.expect("get_user_count should succeed");
@@ -2421,7 +2425,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_daily_active_users() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let count = storage.get_daily_active_users().await.expect("get_daily_active_users should succeed");
@@ -2430,7 +2434,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_monthly_active_users() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let count = storage.get_monthly_active_users().await.expect("get_monthly_active_users should succeed");
@@ -2439,7 +2443,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_r30_users() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let count = storage.get_r30_users().await.expect("get_r30_users should succeed");
@@ -2448,7 +2452,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_stats_summary() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@stats_{}:example.com", uuid::Uuid::new_v4());
@@ -2467,7 +2471,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_deactivate_user() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@deactfn_{}:example.com", uuid::Uuid::new_v4());
@@ -2484,7 +2488,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_guest_status_toggle() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@guest_{}:example.com", uuid::Uuid::new_v4());
@@ -2503,7 +2507,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_user_type() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@utype_{}:example.com", uuid::Uuid::new_v4());
@@ -2522,7 +2526,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_upgrade_guest_account() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@upgrade_{}:example.com", uuid::Uuid::new_v4());
@@ -2532,7 +2536,7 @@ mod db_tests {
         storage.set_guest_status(&user_id, true).await.unwrap();
         assert!(storage.get_user_by_id(&user_id).await.unwrap().unwrap().is_guest);
 
-        let new_username = format!("upgraded_{}", uuid::Uuid::new_v4().simple().to_string());
+        let new_username = format!("upgraded_{}", uuid::Uuid::new_v4().simple());
         storage
             .upgrade_guest_account(&user_id, &new_username, "new_hash")
             .await
@@ -2549,11 +2553,11 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_set_account_data_and_get_via_set_table() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@acctset_{}:example.com", uuid::Uuid::new_v4());
-        let event_type = format!("m.set_{}", uuid::Uuid::new_v4().simple().to_string());
+        let event_type = format!("m.set_{}", uuid::Uuid::new_v4().simple());
         let _ = storage.delete_user(&user_id).await;
         storage.create_user(&user_id, "acctsetuser", None, false).await.unwrap();
 
@@ -2577,11 +2581,11 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_upsert_and_get_account_data_content() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@acctup_{}:example.com", uuid::Uuid::new_v4());
-        let data_type = format!("m.up_{}", uuid::Uuid::new_v4().simple().to_string());
+        let data_type = format!("m.up_{}", uuid::Uuid::new_v4().simple());
         let _ = storage.delete_user(&user_id).await;
         storage.create_user(&user_id, "acctupuser", None, false).await.unwrap();
 
@@ -2623,7 +2627,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_search_users_empty_query() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let results = storage.search_users("", 10).await.expect("search_users empty should succeed");
@@ -2632,7 +2636,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_search_users_matches_username() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let unique = uuid::Uuid::new_v4().simple().to_string();
@@ -2649,7 +2653,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_search_users_with_presence_empty_query() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let results =
@@ -2659,7 +2663,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_search_users_with_presence_matches() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let unique = uuid::Uuid::new_v4().simple().to_string();
@@ -2677,7 +2681,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_search_directory_users_empty_query() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let results =
@@ -2687,7 +2691,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_search_directory_users_matches() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let unique = uuid::Uuid::new_v4().simple().to_string();
@@ -2707,7 +2711,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_profiles_batch_empty() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let result = storage.get_user_profiles_batch(&[]).await.expect("get_user_profiles_batch empty should succeed");
@@ -2716,7 +2720,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_profiles_batch_with_users() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let uid1 = format!("@pb1_{}:example.com", uuid::Uuid::new_v4());
@@ -2742,7 +2746,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_profiles_map_empty() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let map = storage.get_user_profiles_map(&[]).await.expect("get_user_profiles_map empty should succeed");
@@ -2751,7 +2755,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_user_profiles_map_with_users() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let uid1 = format!("@pm1_{}:example.com", uuid::Uuid::new_v4());
@@ -2776,7 +2780,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_users_map_empty() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let map = storage.get_users_map(&[]).await.expect("get_users_map empty should succeed");
@@ -2785,7 +2789,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_users_map_with_users() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let uid1 = format!("@um1_{}:example.com", uuid::Uuid::new_v4());
@@ -2807,7 +2811,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_displayname_batch_empty() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let count = storage.update_displayname_batch(&[]).await.expect("update_displayname_batch empty should succeed");
@@ -2816,7 +2820,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_update_displayname_batch_with_updates() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let uid1 = format!("@dbn1_{}:example.com", uuid::Uuid::new_v4());
@@ -2844,7 +2848,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_get_locked_users_pagination() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@lklist_{}:example.com", uuid::Uuid::new_v4());
@@ -2865,7 +2869,7 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_create_user_tx_in_transaction() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
         let user_id = format!("@createtx_{}:example.com", uuid::Uuid::new_v4());

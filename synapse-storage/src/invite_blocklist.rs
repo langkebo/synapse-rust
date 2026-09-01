@@ -264,17 +264,19 @@ mod tests {
 
 #[cfg(test)]
 mod db_tests {
-    use std::time::Duration;
     use super::*;
     use sqlx::postgres::PgPoolOptions;
+    use std::time::Duration;
 
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-        let pool =
-            PgPoolOptions::new()
+        let pool = PgPoolOptions::new()
             .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
+            .acquire_timeout(Duration::from_secs(30))
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -307,11 +309,7 @@ mod db_tests {
     /// Cleanup allowlist rows by suffix pattern (for test isolation).
     async fn cleanup_allowlist_by_suffix(pool: &PgPool, suffix: &uuid::Uuid) {
         let pattern = format!("%{suffix}%");
-        sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id LIKE $1").bind(&pattern).execute(pool).await.ok();
     }
 
     #[tokio::test]
@@ -571,9 +569,7 @@ mod db_tests {
         // IsolatedTestPool: each test gets a fresh schema, so parallel tests
         // can't add rows to our isolated room_invite_allowlist. This restores
         // the exact `== 2` assertion from the original design.
-        let isolated = crate::test_isolation::IsolatedTestPool::new()
-            .await
-            .expect("isolated pool");
+        let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
         let pool = isolated.pool();
         let storage = InviteBlocklistStorage::new(pool.clone());
         let suffix = uuid::Uuid::new_v4();
@@ -599,7 +595,12 @@ mod db_tests {
         let global = storage.get_global_invite_allowlist().await.expect("get_global_invite_allowlist should succeed");
 
         // Isolated schema: only our 2 rows exist, so exact count is stable.
-        assert_eq!(global.len(), 2, "global allowlist should have exactly 2 entries in isolated schema, got {}", global.len());
+        assert_eq!(
+            global.len(),
+            2,
+            "global allowlist should have exactly 2 entries in isolated schema, got {}",
+            global.len()
+        );
 
         let room_ids: Vec<&str> = global.iter().map(|v| v["room_id"].as_str().unwrap()).collect();
         assert!(room_ids.contains(&room_a.as_str()));

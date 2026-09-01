@@ -706,17 +706,19 @@ mod db_tests {
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
     use std::env;
-use std::time::Duration;
-use std::sync::Arc;
+    use std::sync::Arc;
+    use std::time::Duration;
     use uuid::Uuid;
 
     async fn test_pool() -> Arc<PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-        let pool =
-            PgPoolOptions::new()
+        let pool = PgPoolOptions::new()
             .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
+            .acquire_timeout(Duration::from_secs(30))
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -1069,9 +1071,7 @@ use std::sync::Arc;
     // share the same DB schema.
     #[tokio::test]
     async fn test_get_all_blacklist_pagination() {
-        let isolated = crate::test_isolation::IsolatedTestPool::new()
-            .await
-            .expect("isolated pool");
+        let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
         let pool = isolated.pool();
 
         let storage = FederationBlacklistStorage::new(&pool);

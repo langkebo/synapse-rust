@@ -1,21 +1,23 @@
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
-
-use std::time::Duration;
+use sqlx::postgres::PgPool;
 
 use super::*;
 
-async fn test_pool() -> Arc<PgPool> {
-    let db_url = std::env::var("TEST_DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-    let pool =
-        PgPoolOptions::new()
-            .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
-    Arc::new(pool)
+/// Each test gets a fresh isolated schema (v11 baseline), so parallel tests
+/// can't pollute each other: `get_default_config` asserts on the *absence* of
+/// a default row, which a concurrent `test_get_default_config_found` would
+/// otherwise violate by inserting `is_default=TRUE` into the shared `public`
+/// schema.
+///
+/// Returns the `IsolatedTestPool` *and* the pool so callers can hold the guard
+/// alive for the whole test — dropping it early spawns a background `DROP
+/// SCHEMA` that can race with in-flight queries.
+async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+    let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
+    let pool = isolated.pool();
+    (isolated, pool)
 }
 
 async fn ensure_test_user(pool: &PgPool, user_id: &str) {
@@ -53,7 +55,7 @@ async fn cleanup_test_data(pool: &PgPool, suffix: &str) {
 
 #[tokio::test]
 async fn test_get_default_config_found() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let config_name = format!("mq_default_config_{suffix}");
@@ -82,7 +84,7 @@ async fn test_get_default_config_found() {
 
 #[tokio::test]
 async fn test_get_default_config_not_found() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     cleanup_test_data(&pool, &suffix).await;
@@ -97,7 +99,7 @@ async fn test_get_default_config_not_found() {
 
 #[tokio::test]
 async fn test_create_config() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let config_name = format!("mq_crud_{suffix}");
@@ -130,7 +132,7 @@ async fn test_create_config() {
 
 #[tokio::test]
 async fn test_get_config() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let config_name = format!("mq_get_{suffix}");
@@ -165,7 +167,7 @@ async fn test_get_config() {
 
 #[tokio::test]
 async fn test_list_configs() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let name_a = format!("mq_list_a_{suffix}");
@@ -210,7 +212,7 @@ async fn test_list_configs() {
 
 #[tokio::test]
 async fn test_delete_config() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let config_name = format!("mq_delete_{suffix}");
@@ -250,7 +252,7 @@ async fn test_delete_config() {
 
 #[tokio::test]
 async fn test_get_user_quota_found() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_uq_{suffix}:localhost");
@@ -281,7 +283,7 @@ async fn test_get_user_quota_found() {
 
 #[tokio::test]
 async fn test_get_user_quota_not_found() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_nf_{suffix}:localhost");
@@ -298,7 +300,7 @@ async fn test_get_user_quota_not_found() {
 
 #[tokio::test]
 async fn test_get_or_create_user_quota_creates() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_goc_{suffix}:localhost");
@@ -317,7 +319,7 @@ async fn test_get_or_create_user_quota_creates() {
 
 #[tokio::test]
 async fn test_get_or_create_user_quota_returns_existing() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_goe_{suffix}:localhost");
@@ -341,7 +343,7 @@ async fn test_get_or_create_user_quota_returns_existing() {
 
 #[tokio::test]
 async fn test_set_user_quota_sets_custom_limit() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_sql_{suffix}:localhost");
@@ -371,7 +373,7 @@ async fn test_set_user_quota_sets_custom_limit() {
 
 #[tokio::test]
 async fn test_set_user_quota_updates_defaults() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_sqd_{suffix}:localhost");
@@ -415,7 +417,7 @@ async fn test_set_user_quota_updates_defaults() {
 
 #[tokio::test]
 async fn test_update_usage_upload_increments() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_up_{suffix}:localhost");
@@ -445,7 +447,7 @@ async fn test_update_usage_upload_increments() {
 
 #[tokio::test]
 async fn test_update_usage_multiple_accumulates() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_ma_{suffix}:localhost");
@@ -489,7 +491,7 @@ async fn test_update_usage_multiple_accumulates() {
 
 #[tokio::test]
 async fn test_update_usage_delete_decrements() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_del_{suffix}:localhost");
@@ -534,7 +536,7 @@ async fn test_update_usage_delete_decrements() {
 
 #[tokio::test]
 async fn test_check_quota_allowed() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_ca_{suffix}:localhost");
@@ -565,7 +567,7 @@ async fn test_check_quota_allowed() {
 
 #[tokio::test]
 async fn test_check_quota_exceeded() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_ce_{suffix}:localhost");
@@ -610,7 +612,7 @@ async fn test_check_quota_exceeded() {
 
 #[tokio::test]
 async fn test_check_quota_no_limit_always_allowed() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_cz_{suffix}:localhost");
@@ -631,7 +633,7 @@ async fn test_check_quota_no_limit_always_allowed() {
 
 #[tokio::test]
 async fn test_get_server_quota() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
 
     ensure_server_quota_row(&pool).await;
@@ -645,7 +647,7 @@ async fn test_get_server_quota() {
 
 #[tokio::test]
 async fn test_update_server_quota() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
 
     ensure_server_quota_row(&pool).await;
@@ -670,7 +672,7 @@ async fn test_update_server_quota() {
 
 #[tokio::test]
 async fn test_create_alert_and_get_user_alerts() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_alert_{suffix}:localhost");
@@ -699,7 +701,7 @@ async fn test_create_alert_and_get_user_alerts() {
 
 #[tokio::test]
 async fn test_get_user_alerts_unread_only() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_unread_{suffix}:localhost");
@@ -735,7 +737,7 @@ async fn test_get_user_alerts_unread_only() {
 
 #[tokio::test]
 async fn test_mark_alert_read_already_read() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_mar_{suffix}:localhost");
@@ -761,7 +763,7 @@ async fn test_mark_alert_read_already_read() {
 
 #[tokio::test]
 async fn test_get_usage_stats() {
-    let pool = test_pool().await;
+    let (_iso, pool) = test_pool().await;
     let storage = MediaQuotaStorage::new(&pool);
     let suffix = uuid::Uuid::new_v4().simple().to_string();
     let user_id = format!("@mq_stats_{suffix}:localhost");
