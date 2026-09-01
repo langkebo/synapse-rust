@@ -71,13 +71,14 @@ impl SecureBackupService {
         backup_id: &str,
         session_keys: Vec<SessionKeyData>,
     ) -> Result<i64, ApiError> {
-        let exists: Option<i64> =
-            sqlx::query_scalar::<_, i64>(r"SELECT 1 FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2")
-                .bind(user_id)
-                .bind(backup_id)
-                .fetch_optional(&*self.pool)
-                .await
-                .map_err(map_database!("store_session_keys"))?;
+        let exists: Option<i64> = sqlx::query_scalar::<_, i64>(
+            r"SELECT 1::bigint FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
+        )
+        .bind(user_id)
+        .bind(backup_id)
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(map_database!("store_session_keys"))?;
 
         if exists.is_none() {
             return Err(ApiError::not_found("Backup not found".to_string()));

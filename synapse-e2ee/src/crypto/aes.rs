@@ -936,7 +936,6 @@ mod tests {
     // 旧实现是「4 字节随机 + 8 字节计数器」，计数器在服务重建时归零，而加密密钥
     // 是配置里的长期密钥——跨重启后唯一性退化到 32 位随机前缀。这里锁住的是
     // 「计数器不再参与 nonce 构造」这件事：后 8 字节必须不可预测且随样本变化。
-    #[test]
     fn test_aes_gcm_nonce_is_fully_random_not_counter_derived() {
         let tracker = Arc::new(NonceTracker::new());
         let generator = SecureNonceGenerator::new(Arc::clone(&tracker));

@@ -154,8 +154,12 @@ impl MegolmVodozemacService {
     /// 计算在双写场景下要写入 `session_key` 的 legacy 加密格式
     ///
     /// 输入：vodozemac `GroupSession::session_key()` 的原始 32 字节
-    /// 输出：与 `MegolmService::encrypt_session_key` 兼容的 base64 JSON 格式
+    /// 输出：base64 编码的 AES-GCM 密文（nonce ‖ ciphertext）
     /// 当双写关闭或缺 encryption_key 时返回 None（仅写 vodozemac）。
+    ///
+    /// 注意：早期版本曾把密文先 `serde_json::to_string(&Vec<u8>)`（产出十进制 JSON 数组）
+    /// 再 base64，导致 60 字节密文膨胀到约 280 字节（4.7x）。现改为直接 base64 原始字节，
+    /// 60 字节 → 约 80 字节，消除双重冗余编码。
     fn dual_write_legacy_session_key(&self, raw_session_key: &[u8]) -> Option<String> {
         if !is_dual_write_enabled() {
             return None;
@@ -165,8 +169,8 @@ impl MegolmVodozemacService {
 
         let cipher_key = Aes256GcmKey::from_bytes(key);
         let encrypted = self.aes_cipher.encrypt_with_nonce(&cipher_key, raw_session_key).ok()?;
-        let json = serde_json::to_string(&encrypted).ok()?;
-        Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json.as_bytes()))
+        use base64::Engine;
+        Some(base64::engine::general_purpose::STANDARD.encode(&encrypted))
     }
 
     /// Create a new outbound Megolm session for a room.
