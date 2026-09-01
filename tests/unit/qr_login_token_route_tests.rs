@@ -20,9 +20,12 @@ use synapse_common::current_timestamp_millis;
 use synapse_rust::web::routes::qr_login_token::{consume_login_token, generate_login_token};
 use synapse_storage::login_token::{LoginToken, LoginTokenStoreApi};
 
+/// Stored entry for a pending login token: `(user_id, device_id, expires_at)`.
+type TokenEntry = (String, Option<String>, i64);
+
 /// In-memory `LoginTokenStoreApi` mirroring `login_tokens` single-use semantics.
 struct InMemoryLoginTokenStore {
-    tokens: Mutex<HashMap<String, (String, Option<String>, i64)>>,
+    tokens: Mutex<HashMap<String, TokenEntry>>,
 }
 
 impl InMemoryLoginTokenStore {

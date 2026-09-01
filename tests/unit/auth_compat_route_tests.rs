@@ -442,7 +442,7 @@ fn test_check_username_availability_constructs_user_id_from_localpart() {
 fn test_check_username_availability_propagates_validation_errors() {
     // The handler calls `ctx.validator.validate_username(username)?` first.
     // Validation failures return ApiError directly (mapped from ValidationError).
-    let invalid_username = "";
+    let invalid_username = String::new();
     assert!(invalid_username.is_empty());
 }
 
@@ -712,8 +712,8 @@ fn test_login_password_flow_requires_password() {
 
 #[test]
 fn test_login_password_flow_rejects_empty_username_or_password() {
-    let username = "";
-    let password = "";
+    let username = String::new();
+    let password = String::new();
     assert!(username.is_empty() || password.is_empty());
 
     let err = ApiError::bad_request("Username and password are required".to_string());
@@ -1091,8 +1091,8 @@ fn test_login_token_must_be_short_lived() {
 fn test_logout_invalidates_access_token() {
     // logout calls token_auth.logout(access_token, device_id) which
     // invalidates the specific token.
-    let access_token = "tok-abc";
-    let device_id = "DEVICE_XYZ";
+    let access_token = String::from("tok-abc");
+    let device_id = String::from("DEVICE_XYZ");
     // Verify the handler signature matches.
     assert!(!access_token.is_empty());
     assert!(!device_id.is_empty());

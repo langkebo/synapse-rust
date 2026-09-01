@@ -570,7 +570,7 @@ impl FriendRoomStorage {
         content: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
-        let event_id = format!("${}:localhost", uuid::Uuid::new_v4().simple().to_string());
+        let event_id = format!("${}:localhost", uuid::Uuid::new_v4().simple());
 
         sqlx::query(
             r"

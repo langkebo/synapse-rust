@@ -154,16 +154,18 @@ mod tests {
     }
 
     #[test]
-    fn test_environment_from_env_default() {
+    fn test_environment_from_env() {
+        // RUST_ENV is process-global state, so asserting it from two parallel
+        // `#[test]` fns races (each mutates the var the other asserts on).
+        // Verify both branches sequentially in one test instead.
         std::env::remove_var("RUST_ENV");
         assert_eq!(Environment::from_env(), Environment::Development);
-    }
 
-    #[test]
-    fn test_environment_from_env_production() {
         std::env::set_var("RUST_ENV", "production");
         assert_eq!(Environment::from_env(), Environment::Production);
+
         std::env::remove_var("RUST_ENV");
+        assert_eq!(Environment::from_env(), Environment::Development);
     }
 
     #[test]

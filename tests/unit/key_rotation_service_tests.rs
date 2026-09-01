@@ -72,6 +72,7 @@ fn test_key_rotation_config_auto_rotation_toggle() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn test_key_rotation_config_all_fields_mutable() {
     let mut config = KeyRotationConfig::default();
     config.olm_rotation_days = 14;

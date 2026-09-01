@@ -536,6 +536,7 @@ fn test_eleven_context_structs_exist() {
     // when `friends` is enabled). This test enumerates them by name to lock
     // the surface: removing or renaming a context silently breaks the
     // corresponding router group.
+    #[allow(clippy::too_many_arguments)]
     fn _assert_contexts(
         _a: CoreContext,
         _b: RoomContext,

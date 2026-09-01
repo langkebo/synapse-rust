@@ -1609,6 +1609,7 @@ mod tests {
     use super::{decode_friend_list_cursor, resolve_cursor_start_index};
     use crate::ServiceContainer;
     use serde_json::{json, Map, Value};
+    use serial_test::serial;
     use std::cmp::Ordering;
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
@@ -2157,7 +2158,10 @@ mod tests {
     // 走 idx_events_sync_covering（INCLUDE content），PG btree 单行
     // 限制 2704 字节。5008 字节超限 → PG 54000。生产 100 好友更真实，
     // 1000 是极端上限。100 已足够验证 W3 缓存优化效果。
+    // 性能断言对并行负载敏感（其他测试同时跑会放大 DB/CPU 延迟），
+    // 因此这些 bench 测试串行执行。
     #[tokio::test]
+    #[serial]
     async fn bench_friend_list_100_limit_50() {
         let Some(container) = setup_test_container().await else {
             return;
@@ -2282,7 +2286,10 @@ mod tests {
     //   单条 content 远小于 2704 字节上限
     // - 读取：fan-out 28 shard + 合并 + 排序 + sort_cache 写回 + 分页
     // - hot 路径：sort_cache hit，分页切片 O(1)
+    // 性能断言对并行负载敏感（其他测试同时跑会放大 DB/CPU 延迟），
+    // 因此这些 bench 测试串行执行。
     #[tokio::test]
+    #[serial]
     async fn bench_friend_list_1000_sharded() {
         let Some(container) = setup_test_container().await else {
             return;
@@ -2501,7 +2508,10 @@ mod tests {
     // 性能断言（两层）：
     // 1. 端到端 hot path < 20ms（DB RTT 噪声）—— 证明 cursor 翻页没引入回归
     // 2. 纯函数 resolve_cursor_start_index 1000 好友 < 50us —— 证明二分成本可忽略
+    // 性能断言对并行负载敏感（其他测试同时跑会放大 DB/CPU 延迟），
+    // 因此这些 bench 测试串行执行。
     #[tokio::test]
+    #[serial]
     async fn bench_friend_list_cursor_pagination_1000() {
         let Some(container) = setup_test_container().await else {
             return;

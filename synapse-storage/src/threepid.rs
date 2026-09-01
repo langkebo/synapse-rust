@@ -638,17 +638,20 @@ mod tests {
 
 #[cfg(test)]
 mod db_tests {
-    use std::time::Duration;
     use super::*;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
+    use std::time::Duration;
 
     async fn test_pool() -> PgPool {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
         PgPoolOptions::new()
             .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database")
+            .acquire_timeout(Duration::from_secs(30))
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database")
     }
 
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
@@ -992,7 +995,7 @@ mod db_tests {
         let session_id = format!("session_{uuid}");
         let address = format!("vsession_{uuid}@test.com");
         let now = current_timestamp_millis();
-        let expires_at = now + 3600_000;
+        let expires_at = now + 3_600_000;
 
         // Cleanup: delete any matching validation sessions
         let _ = sqlx::query("DELETE FROM threepid_validation_session WHERE session_id = $1")
@@ -1056,7 +1059,7 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
 
         // Add a threepid with an expired verification_expires_at
-        let past_time = current_timestamp_millis() - 3600_000;
+        let past_time = current_timestamp_millis() - 3_600_000;
         storage
             .add_threepid(CreateThreepidRequest {
                 user_id: user_id.clone(),
@@ -1087,7 +1090,7 @@ mod db_tests {
         let user_id = format!("@vbt_{uuid}:test.com");
         let address = format!("vbt_{uuid}@test.com");
         let token = format!("tok_{uuid}");
-        let future_expires = current_timestamp_millis() + 3600_000;
+        let future_expires = current_timestamp_millis() + 3_600_000;
 
         let _ = storage.remove_threepid(&user_id, "email", &address).await;
         ensure_test_user(&pool, &user_id).await;

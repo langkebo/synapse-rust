@@ -235,19 +235,19 @@ mod tests {
 #[cfg(test)]
 mod db_tests {
     use super::*;
-    use sqlx::postgres::PgPoolOptions;
-    use std::env;
-use std::time::Duration;
-use std::sync::Arc;
+    use std::sync::Arc;
 
-    async fn test_pool() -> Arc<PgPool> {
-        let db_url = env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-        let pool =
-            PgPoolOptions::new()
-            .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
-        Arc::new(pool)
+    /// Each test gets a fresh isolated schema (v11 baseline), so parallel
+    /// tests can't pollute each other (see `user::db_tests` for the same
+    /// pattern: shared-`public` tests race on `users` rows).
+    ///
+    /// Returns the `IsolatedTestPool` *and* the pool so callers can hold the
+    /// guard alive for the whole test — dropping it early spawns a background
+    /// `DROP SCHEMA` that can race with in-flight queries.
+    async fn test_pool() -> (crate::test_isolation::IsolatedTestPool, Arc<PgPool>) {
+        let isolated = crate::test_isolation::IsolatedTestPool::new().await.expect("isolated pool");
+        let pool = isolated.pool();
+        (isolated, pool)
     }
 
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
@@ -268,9 +268,9 @@ use std::sync::Arc;
 
     #[tokio::test]
     async fn test_create_token_returns_valid_record() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
-        let user_id = &format!("@openid_test_create_{}:localhost", uuid::Uuid::new_v4().simple().to_string());
+        let user_id = &format!("@openid_test_create_{}:localhost", uuid::Uuid::new_v4().simple());
         let token_str = format!("tok_create_{}", uuid::Uuid::new_v4());
         let far_future = current_timestamp_millis() + 86400000;
 
@@ -303,9 +303,9 @@ use std::sync::Arc;
 
     #[tokio::test]
     async fn test_get_token_finds_valid_token() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
-        let user_id = &format!("@openid_test_get_{}:localhost", uuid::Uuid::new_v4().simple().to_string());
+        let user_id = &format!("@openid_test_get_{}:localhost", uuid::Uuid::new_v4().simple());
         let token_str = format!("tok_get_{}", uuid::Uuid::new_v4());
         let far_future = current_timestamp_millis() + 86400000;
 
@@ -342,7 +342,7 @@ use std::sync::Arc;
 
     #[tokio::test]
     async fn test_get_token_returns_none_for_nonexistent() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
 
         let result = storage.get_token("nonexistent_token_12345_x").await.expect("query should succeed");
@@ -352,9 +352,9 @@ use std::sync::Arc;
 
     #[tokio::test]
     async fn test_validate_token_returns_token_if_not_expired() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
-        let user_id = &format!("@openid_test_val_{}:localhost", uuid::Uuid::new_v4().simple().to_string());
+        let user_id = &format!("@openid_test_val_{}:localhost", uuid::Uuid::new_v4().simple());
         let token_str = format!("tok_val_{}", uuid::Uuid::new_v4());
         let far_future = current_timestamp_millis() + 86400000;
 
@@ -387,9 +387,9 @@ use std::sync::Arc;
 
     #[tokio::test]
     async fn test_validate_token_returns_none_for_expired_token() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
-        let user_id = &format!("@openid_test_exp_{}:localhost", uuid::Uuid::new_v4().simple().to_string());
+        let user_id = &format!("@openid_test_exp_{}:localhost", uuid::Uuid::new_v4().simple());
         let token_str = format!("tok_exp_{}", uuid::Uuid::new_v4());
         let past = current_timestamp_millis() - 3600000; // 1 hour ago
 
@@ -421,9 +421,9 @@ use std::sync::Arc;
 
     #[tokio::test]
     async fn test_revoke_token_returns_true_and_makes_token_not_found() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
-        let user_id = &format!("@openid_test_revoke_{}:localhost", uuid::Uuid::new_v4().simple().to_string());
+        let user_id = &format!("@openid_test_revoke_{}:localhost", uuid::Uuid::new_v4().simple());
         let token_str = format!("tok_revoke_{}", uuid::Uuid::new_v4());
         let far_future = current_timestamp_millis() + 86400000;
 
@@ -460,7 +460,7 @@ use std::sync::Arc;
 
     #[tokio::test]
     async fn test_revoke_token_returns_false_for_nonexistent() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
 
         let revoked = storage.revoke_token("nonexistent_revoke_token_xyz").await.expect("revoke_token should succeed");
@@ -470,7 +470,7 @@ use std::sync::Arc;
 
     #[tokio::test]
     async fn test_revoke_user_tokens_revokes_all_for_user() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = &format!("@openid_bulk_revoke_{suffix}:test.com");
@@ -522,7 +522,7 @@ use std::sync::Arc;
 
     #[tokio::test]
     async fn test_cleanup_expired_tokens_removes_expired_and_invalid() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = &format!("@openid_cleanup_{suffix}:test.com");
@@ -591,7 +591,7 @@ use std::sync::Arc;
 
     #[tokio::test]
     async fn test_get_tokens_by_user_returns_ordered_desc() {
-        let pool = test_pool().await;
+        let (_iso, pool) = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
         let suffix = uuid::Uuid::new_v4();
         let user_id = &format!("@openid_list_{suffix}:test.com");

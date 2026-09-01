@@ -999,8 +999,8 @@ mod tests {
 mod db_tests {
     use super::*;
     use std::env;
-use std::time::Duration;
-use std::sync::Arc;
+    use std::sync::Arc;
+    use std::time::Duration;
 
     async fn test_pool() -> Arc<sqlx::Pool<sqlx::Postgres>> {
         let db_url = env::var("TEST_DATABASE_URL")

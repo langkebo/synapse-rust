@@ -203,6 +203,7 @@ fn service_container_database_pool_accessor_returns_arc_pgpool_type() {
     // This test verifies the `database_pool()` method's return type at
     // compile time. We can't call it without a fully-constructed container,
     // but the function signature is checked during compilation.
+    #[allow(clippy::unimplemented)]
     fn _type_check(_container: &ServiceContainer) -> Arc<sqlx::PgPool> {
         // This is a placeholder; the actual call requires a constructed
         // ServiceContainer. The point is that the signature compiles.

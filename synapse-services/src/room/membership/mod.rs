@@ -264,17 +264,16 @@ impl MembershipService {
             // If it is None, fall back to the previous best-effort behavior
             // rather than crashing, so legacy test setups keep working.
             match self.db_pool.as_ref() {
-                Some(pool) => Some(pool.begin().await.map_err(|e| {
-                    ApiError::internal_with_context("Failed to begin add_member transaction", &e)
-                })?),
+                Some(pool) => Some(
+                    pool.begin()
+                        .await
+                        .map_err(|e| ApiError::internal_with_context("Failed to begin add_member transaction", &e))?,
+                ),
                 None => None,
             }
         };
-        let effective_tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>> = if caller_supplied_tx {
-            tx
-        } else {
-            own_tx.as_mut()
-        };
+        let effective_tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>> =
+            if caller_supplied_tx { tx } else { own_tx.as_mut() };
 
         let member = self
             .member_storage

@@ -161,7 +161,8 @@ fn test_worker_type_all_returns_all_variants() {
 fn test_worker_type_from_str_roundtrip() {
     for variant in all_worker_types() {
         let s = variant.as_str();
-        let parsed: WorkerType = s.parse().expect(&format!("Failed to parse '{s}' back to WorkerType"));
+        let message = format!("Failed to parse '{s}' back to WorkerType");
+        let parsed: WorkerType = s.parse().expect(&message);
         assert_eq!(parsed, variant);
     }
 }
@@ -210,7 +211,8 @@ fn test_worker_status_as_str() {
 fn test_worker_status_from_str_roundtrip() {
     for variant in all_worker_statuses() {
         let s = variant.as_str();
-        let parsed: WorkerStatus = s.parse().expect(&format!("Failed to parse '{s}' back to WorkerStatus"));
+        let message = format!("Failed to parse '{s}' back to WorkerStatus");
+        let parsed: WorkerStatus = s.parse().expect(&message);
         assert_eq!(parsed, variant);
     }
 }

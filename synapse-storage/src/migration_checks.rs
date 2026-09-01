@@ -28,10 +28,9 @@ use tracing::{debug, warn};
 /// warning rather than block startup.
 pub async fn check_migration_completeness(pool: &Pool<Postgres>) -> Result<(i64, Vec<i64>), sqlx::Error> {
     // 1. List versions that have been applied according to sqlx.
-    let applied: Vec<i64> =
-        sqlx::query_scalar::<_, i64>("SELECT version FROM _sqlx_migrations ORDER BY version ASC")
-            .fetch_all(pool)
-            .await?;
+    let applied: Vec<i64> = sqlx::query_scalar::<_, i64>("SELECT version FROM _sqlx_migrations ORDER BY version ASC")
+        .fetch_all(pool)
+        .await?;
 
     debug!(applied_count = applied.len(), "queried _sqlx_migrations");
 
@@ -40,11 +39,7 @@ pub async fn check_migration_completeness(pool: &Pool<Postgres>) -> Result<(i64,
     let expected_set: std::collections::HashSet<i64> = expected.iter().copied().collect();
 
     // 3. Anything on disk that is not applied is missing.
-    let missing: Vec<i64> = expected_set
-        .iter()
-        .filter(|v| !applied.iter().any(|a| a == *v))
-        .copied()
-        .collect();
+    let missing: Vec<i64> = expected_set.iter().filter(|v| !applied.iter().any(|a| a == *v)).copied().collect();
 
     Ok((applied.len() as i64, missing))
 }
@@ -123,10 +118,9 @@ fn discover_migration_files() -> Vec<i64> {
 /// `public` (they do by default). The caller uses the count purely to
 /// compute a drift signal — it is not a hard correctness check.
 pub async fn count_public_tables(pool: &Pool<Postgres>) -> Result<usize, sqlx::Error> {
-    let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'")
-            .fetch_one(pool)
-            .await?;
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'")
+        .fetch_one(pool)
+        .await?;
     Ok(count as usize)
 }
 
@@ -161,10 +155,7 @@ mod tests {
     fn discover_excludes_baseline_and_undo() {
         let versions = discover_migration_files();
         // 00000000 (baseline) should not appear.
-        assert!(
-            !versions.iter().any(|v| v == &0_i64),
-            "baseline version 0 must be excluded"
-        );
+        assert!(!versions.iter().any(|v| v == &0_i64), "baseline version 0 must be excluded");
         // Verify by reading: no file starting with "00000000_unified" leaks in.
         // (Indirect check; we already filtered that prefix.)
     }

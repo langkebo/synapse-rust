@@ -30,6 +30,8 @@
 //! cargo bench --bench performance_sliding_sync_benchmarks
 //! ```
 
+#![allow(clippy::expect_used)]
+
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use serde_json::json;
 use std::collections::HashMap;

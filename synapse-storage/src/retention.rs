@@ -514,18 +514,20 @@ mod tests {
 
 #[cfg(test)]
 mod db_tests {
-    use std::time::Duration;
     use super::*;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
+    use std::time::Duration;
 
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-        let pool =
-            PgPoolOptions::new()
+        let pool = PgPoolOptions::new()
             .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
+            .acquire_timeout(Duration::from_secs(30))
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -893,11 +895,17 @@ mod db_tests {
         let old_ts = current_timestamp_millis() - 86_400_000; // 1 day ago
         let recent_ts = current_timestamp_millis() - 3_600_000; // 1 hour ago
 
-        ensure_test_event(&pool, &format!("$evt_old_{}:localhost", uuid::Uuid::new_v4().simple().to_string()), room_id, "@sender:test.com", old_ts)
-            .await;
         ensure_test_event(
             &pool,
-            &format!("$evt_recent_{}:localhost", uuid::Uuid::new_v4().simple().to_string()),
+            &format!("$evt_old_{}:localhost", uuid::Uuid::new_v4().simple()),
+            room_id,
+            "@sender:test.com",
+            old_ts,
+        )
+        .await;
+        ensure_test_event(
+            &pool,
+            &format!("$evt_recent_{}:localhost", uuid::Uuid::new_v4().simple()),
             room_id,
             "@sender:test.com",
             recent_ts,

@@ -9,10 +9,12 @@ use synapse_common::current_timestamp_millis;
 async fn test_pool() -> Arc<Pool<Postgres>> {
     let db_url = std::env::var("TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-    let pool =
-        PgPoolOptions::new()
-            .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(Duration::from_secs(30))
+        .connect(&db_url)
+        .await
+        .expect("Failed to connect to test database");
     Arc::new(pool)
 }
 
@@ -690,7 +692,7 @@ async fn test_create_event_with_graph_with_prev_events() {
         redacts: None,
     };
     storage
-        .create_event_with_graph(child_params, &[parent_id.clone()], &[], 2, None)
+        .create_event_with_graph(child_params, std::slice::from_ref(&parent_id), &[], 2, None)
         .await
         .expect("create_event_with_graph with prev should succeed");
 
@@ -859,8 +861,14 @@ async fn test_get_missing_events_between_walks_dag() {
         redacts: None,
     };
     storage.create_event(mk(root_id.clone(), 1000), None).await.unwrap();
-    storage.create_event_with_graph(mk(middle_id.clone(), 2000), &[root_id.clone()], &[], 1, None).await.unwrap();
-    storage.create_event_with_graph(mk(leaf_id.clone(), 3000), &[middle_id.clone()], &[], 2, None).await.unwrap();
+    storage
+        .create_event_with_graph(mk(middle_id.clone(), 2000), std::slice::from_ref(&root_id), &[], 1, None)
+        .await
+        .unwrap();
+    storage
+        .create_event_with_graph(mk(leaf_id.clone(), 3000), std::slice::from_ref(&middle_id), &[], 2, None)
+        .await
+        .unwrap();
 
     // Walk back from leaf, with root as earliest — should collect middle.
     let missing = storage
@@ -1787,7 +1795,7 @@ async fn test_search_joined_room_events_matches() {
 
     let pattern = format!("%{}%", needle.to_lowercase());
     let results = storage
-        .search_joined_room_events(&[room_id.clone()], &pattern, None, None, None, None, None, 10)
+        .search_joined_room_events(std::slice::from_ref(&room_id), &pattern, None, None, None, None, None, 10)
         .await
         .expect("search_joined_room_events should succeed");
     assert!(!results.is_empty());
@@ -2019,7 +2027,7 @@ async fn test_p2_14_get_state_dag_edges_returns_all_edges() {
             },
             &[],
             &[],
-            &[e1.clone()],
+            std::slice::from_ref(&e1),
             1,
             None,
         )
@@ -2041,7 +2049,7 @@ async fn test_p2_14_get_state_dag_edges_returns_all_edges() {
             },
             &[],
             &[],
-            &[e2.clone()],
+            std::slice::from_ref(&e2),
             2,
             None,
         )
@@ -2100,7 +2108,7 @@ async fn test_p2_14_find_events_referencing_missing_state() {
             },
             &[],
             &[],
-            &[missing_event.clone()],
+            std::slice::from_ref(&missing_event),
             1,
             None,
         )
@@ -2109,7 +2117,7 @@ async fn test_p2_14_find_events_referencing_missing_state() {
 
     // Query: which events reference the missing event in prev_state_events?
     let result = storage
-        .find_events_referencing_missing_state(&room_id, &[missing_event.clone()])
+        .find_events_referencing_missing_state(&room_id, std::slice::from_ref(&missing_event))
         .await
         .expect("find_events_referencing_missing_state should succeed");
 

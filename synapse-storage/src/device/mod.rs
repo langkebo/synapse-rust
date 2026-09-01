@@ -1575,17 +1575,19 @@ mod tests {
 
 #[cfg(test)]
 mod db_tests {
-    use std::time::Duration;
     use super::*;
     use sqlx::postgres::PgPoolOptions;
+    use std::time::Duration;
 
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-        let pool =
-            PgPoolOptions::new()
+        let pool = PgPoolOptions::new()
             .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
+            .acquire_timeout(Duration::from_secs(30))
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -1728,7 +1730,8 @@ mod db_tests {
     async fn test_update_device_display_name() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_updname_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
+        let device_id =
+            &format!("dev_updname_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@updatename:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -1747,7 +1750,8 @@ mod db_tests {
     async fn test_update_user_device_display_name_returns_rows_affected() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_upduser_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
+        let device_id =
+            &format!("dev_upduser_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@upduser:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -1765,7 +1769,8 @@ mod db_tests {
     async fn test_update_user_device_display_name_wrong_user_returns_zero() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_wrongusr_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
+        let device_id =
+            &format!("dev_wrongusr_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@rightuser:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -1832,7 +1837,8 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
         let device_id = &format!("dev_exists_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
-        let user_id = &format!("@exists_{}:example.com", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(8).0);
+        let user_id =
+            &format!("@exists_{}:example.com", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(8).0);
 
         ensure_test_user(&pool, user_id).await;
         storage.create_device(device_id, user_id, None).await.expect("create_device");
@@ -1889,7 +1895,8 @@ mod db_tests {
     async fn test_get_user_device_finds_by_user_and_device() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_userdev_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
+        let device_id =
+            &format!("dev_userdev_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@userdev:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -1905,7 +1912,8 @@ mod db_tests {
     async fn test_get_user_device_returns_none_for_wrong_user() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_wrongusr2_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
+        let device_id =
+            &format!("dev_wrongusr2_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@owner:example.com";
 
         ensure_test_user(&pool, user_id).await;
@@ -2014,7 +2022,8 @@ mod db_tests {
     async fn test_delete_device_by_id_cleans_up_record() {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
-        let device_id = &format!("dev_delbyid_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
+        let device_id =
+            &format!("dev_delbyid_{}", uuid::Uuid::new_v4().simple().to_string().to_string().split_at(12).0);
         let user_id = "@delbyid:example.com";
 
         ensure_test_user(&pool, user_id).await;

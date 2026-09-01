@@ -372,17 +372,19 @@ mod db_tests {
     use sqlx::postgres::PgPoolOptions;
     use sqlx::PgPool;
     use std::env;
-use std::time::Duration;
-use std::sync::Arc;
+    use std::sync::Arc;
+    use std::time::Duration;
     use uuid::Uuid;
 
     async fn test_pool() -> Arc<PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-        let pool =
-            PgPoolOptions::new()
+        let pool = PgPoolOptions::new()
             .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
+            .acquire_timeout(Duration::from_secs(30))
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -1013,7 +1015,7 @@ use std::sync::Arc;
         sqlx::query("INSERT INTO federation_cache (key, value, expiry_ts, created_ts) VALUES ($1, $2, $3, $4)")
             .bind(format!("test-cache-a-{}", suffix))
             .bind("value-a")
-            .bind(now + 3600_000)
+            .bind(now + 3_600_000)
             .bind(now)
             .execute(&*pool)
             .await
@@ -1022,7 +1024,7 @@ use std::sync::Arc;
         sqlx::query("INSERT INTO federation_cache (key, value, expiry_ts, created_ts) VALUES ($1, $2, $3, $4)")
             .bind(format!("test-cache-b-{}", suffix))
             .bind("value-b")
-            .bind(now + 7200_000)
+            .bind(now + 7_200_000)
             .bind(now)
             .execute(&*pool)
             .await
@@ -1082,7 +1084,7 @@ use std::sync::Arc;
         sqlx::query("INSERT INTO federation_cache (key, value, expiry_ts, created_ts) VALUES ($1, $2, $3, $4)")
             .bind(&key)
             .bind("temp-value")
-            .bind(now + 3600_000)
+            .bind(now + 3_600_000)
             .bind(now)
             .execute(&*pool)
             .await
@@ -1131,7 +1133,7 @@ use std::sync::Arc;
             sqlx::query("INSERT INTO federation_cache (key, value, expiry_ts, created_ts) VALUES ($1, $2, $3, $4)")
                 .bind(format!("test-cache-clear-{}-{}", i, suffix))
                 .bind(format!("value-{}", i))
-                .bind(now + (i + 1) as i64 * 3600_000)
+                .bind(now + (i + 1) as i64 * 3_600_000)
                 .bind(now)
                 .execute(&*pool)
                 .await

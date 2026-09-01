@@ -320,16 +320,16 @@ fn update_session_etag_mismatch_returns_bad_request() {
 #[test]
 fn update_session_empty_if_match_is_treated_as_absent() {
     // Route: filter(|s| !s.is_empty()) — an empty If-Match becomes None (unconditional).
-    let raw = "";
-    let if_match: Option<&str> = (!raw.is_empty()).then_some(raw);
+    let raw = String::new();
+    let if_match: Option<String> = (!raw.is_empty()).then_some(raw);
     assert!(if_match.is_none());
 }
 
 #[test]
 fn update_session_nonempty_if_match_is_used_as_precondition() {
-    let raw = "\"1700000000000\"";
-    let if_match: Option<&str> = (!raw.is_empty()).then_some(raw);
-    assert_eq!(if_match, Some("\"1700000000000\""));
+    let raw = String::from("\"1700000000000\"");
+    let if_match: Option<String> = (!raw.is_empty()).then_some(raw);
+    assert_eq!(if_match.as_deref(), Some("\"1700000000000\""));
 }
 
 #[test]
@@ -406,20 +406,20 @@ fn internal_error_message_redacts_internal_details() {
 #[test]
 fn create_session_body_is_opaque_text_plain() {
     // The SDK sends an opaque encrypted blob as text/plain; the server stores it verbatim.
-    let body = "base64-encoded-encrypted-payload";
+    let body = String::from("base64-encoded-encrypted-payload");
     assert!(!body.is_empty());
 }
 
 #[test]
 fn update_session_body_is_opaque_text_plain() {
-    let body = "new-base64-encoded-encrypted-payload";
+    let body = String::from("new-base64-encoded-encrypted-payload");
     assert!(!body.is_empty());
 }
 
 #[test]
 fn empty_create_body_is_accepted_by_storage() {
     // The route does not reject empty bodies — storage stores whatever it receives.
-    let body = "";
+    let body = String::new();
     assert!(body.is_empty());
 }
 

@@ -35,7 +35,7 @@ mod retention_tests {
     fn test_retention_policy_response_structure() {
         let response = json!({
             "room_id": "!test:example.com",
-            "max_lifetime": 3153_600_0000_i64,
+            "max_lifetime": 31_536_000_000_i64,
             "min_lifetime": 0_i64,
             "is_expire_on_clients": false,
             "is_server_default": false,

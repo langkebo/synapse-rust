@@ -17,6 +17,11 @@
 //! They emit per-iteration timings and let the human reading the
 //! criterion report do the comparison.
 
+// Benchmarks deliberately use `.expect()` for setup invariants (runtime
+// construction, client builder) — a failure there is a harness bug, not a
+// recoverable error. Criterion also panics internally on setup failures.
+#![allow(clippy::expect_used)]
+
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use serde_json::json;
 use std::time::{Duration, Instant};

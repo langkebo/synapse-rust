@@ -11,8 +11,6 @@
 // `burn_after_read_route_tests.rs` — the pure decision logic is extracted into
 // small `pub fn` helpers in `voice.rs` and exercised directly here.
 
-#![cfg(feature = "voice-extended")]
-
 use synapse_common::{ApiError, ApiErrorKind, ApiResult, MatrixErrorCode};
 use synapse_rust::web::routes::voice::{clamp_voice_list_limit, voice_upload_response};
 

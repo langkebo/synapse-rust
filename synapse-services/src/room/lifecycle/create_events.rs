@@ -170,9 +170,7 @@ impl LifecycleService {
                         Some(&mut *tx),
                     )
                     .await
-                    .map_err(|e| {
-                        ApiError::internal_with_context("Failed to record m.room.member invite event", &e)
-                    })?;
+                    .map_err(|e| ApiError::internal_with_context("Failed to record m.room.member invite event", &e))?;
                 offset += 1;
             }
         }

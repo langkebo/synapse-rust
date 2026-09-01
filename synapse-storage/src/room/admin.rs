@@ -789,19 +789,21 @@ mod tests {
 
 #[cfg(test)]
 mod db_tests {
-    use std::time::Duration;
     use super::*;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::{Pool, Postgres};
     use std::sync::Arc;
+    use std::time::Duration;
 
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-        let pool =
-            PgPoolOptions::new()
+        let pool = PgPoolOptions::new()
             .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
+            .acquire_timeout(Duration::from_secs(30))
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -829,7 +831,7 @@ mod db_tests {
         let _ = storage.delete_room(&room_id).await;
         ensure_test_room(&pool, &room_id).await;
 
-        let existing = storage.check_rooms_exist_batch(&[room_id.clone()]).await.expect("should succeed");
+        let existing = storage.check_rooms_exist_batch(std::slice::from_ref(&room_id)).await.expect("should succeed");
         assert!(existing.contains(&room_id), "batch should contain the room");
 
         // Clean up at end
@@ -1060,7 +1062,7 @@ mod db_tests {
 
         storage.set_room_alias(&room_id, &alias, "@test:example.com").await.expect("set alias should succeed");
 
-        let aliases = storage.get_room_aliases_batch(&[room_id.clone()]).await.expect("should succeed");
+        let aliases = storage.get_room_aliases_batch(std::slice::from_ref(&room_id)).await.expect("should succeed");
         assert!(aliases.contains_key(&room_id), "should contain room key in batch result");
         assert!(aliases[&room_id].contains(&alias), "should contain the alias for room");
 

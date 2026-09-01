@@ -11,15 +11,17 @@ use super::*;
 async fn test_pool() -> Arc<Pool<Postgres>> {
     let db_url = std::env::var("TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-    let pool =
-        PgPoolOptions::new()
-            .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(Duration::from_secs(30))
+        .connect(&db_url)
+        .await
+        .expect("Failed to connect to test database");
     Arc::new(pool)
 }
 
 fn unique_id(prefix: &str) -> String {
-    format!("{prefix}_{}:localhost", uuid::Uuid::new_v4().simple().to_string())
+    format!("{prefix}_{}:localhost", uuid::Uuid::new_v4().simple())
 }
 
 #[tokio::test]
@@ -776,7 +778,7 @@ async fn test_get_room_account_data_with_rows() {
     .expect("should insert room_account_data");
 
     let data = storage
-        .get_room_account_data(&user_id, &[room_id.clone()])
+        .get_room_account_data(&user_id, std::slice::from_ref(&room_id))
         .await
         .expect("get_room_account_data should succeed");
     let obj = data.as_object().expect("should be object");
@@ -820,7 +822,10 @@ async fn test_get_receipts_for_rooms_with_rows() {
     .await
     .expect("should insert event_receipt");
 
-    let data = storage.get_receipts_for_rooms(&[room_id.clone()]).await.expect("get_receipts_for_rooms should succeed");
+    let data = storage
+        .get_receipts_for_rooms(std::slice::from_ref(&room_id))
+        .await
+        .expect("get_receipts_for_rooms should succeed");
     let obj = data.as_object().expect("should be object");
     assert!(obj.contains_key(&room_id), "should contain the room_id key");
 
@@ -1053,7 +1058,7 @@ async fn seed_bump_test_room(pool: &Pool<Postgres>, room_id: &str, user_id: &str
 
 /// Insert a minimal event row (only NOT NULL columns) for the bump tests.
 async fn insert_bump_test_event(pool: &Pool<Postgres>, room_id: &str, user_id: &str, event_type: &str, ts: i64) {
-    let event_id = format!("$bump_{}:example.com", uuid::Uuid::new_v4().simple().to_string());
+    let event_id = format!("$bump_{}:example.com", uuid::Uuid::new_v4().simple());
     sqlx::query(
         r#"INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts)
            VALUES ($1, $2, $3, $4, $5, $6)"#,

@@ -106,6 +106,7 @@ fn make_user(user_id: &str, displayname: Option<&str>, avatar_url: Option<&str>)
 
 #[async_trait]
 impl UserStore for MockUserStore {
+    #[allow(clippy::unimplemented)]
     fn pool(&self) -> &Arc<sqlx::PgPool> {
         // UserService never calls this; return a leaked static reference would
         // be unsafe, so we panic to surface any accidental call.

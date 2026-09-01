@@ -66,7 +66,10 @@ impl RoomStateService {
             return Err(ApiError::forbidden("Only the room creator or a server admin can delete a room".to_string()));
         }
 
-        self.room_storage.delete_room(room_id).await.map_err(|e| ApiError::internal_with_context("Failed to delete room", &e))?;
+        self.room_storage
+            .delete_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to delete room", &e))?;
 
         tracing::info!(
             room_id = %room_id,

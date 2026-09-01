@@ -250,10 +250,7 @@ pub async fn run_schema_health_check(
 
     // 1. 检查核心表（DB-02：从 baseline 自动推导，覆盖全部 ~200+ 张表）
     let expected_tables: &[&str] = baseline_tables();
-    info!(
-        expected_table_count = expected_tables.len(),
-        "validating tables from baseline schema"
-    );
+    info!(expected_table_count = expected_tables.len(), "validating tables from baseline schema");
     result.missing_tables = check_missing_tables(pool, expected_tables).await?;
     if !result.missing_tables.is_empty() {
         result.passed = false;
@@ -292,11 +289,7 @@ pub async fn run_schema_health_check(
             if !missing.is_empty() {
                 result.passed = false;
                 let preview_count = missing.len().min(10);
-                error!(
-                    missing_count = missing.len(),
-                    "Missing sqlx migrations: {:?}",
-                    &missing[..preview_count]
-                );
+                error!(missing_count = missing.len(), "Missing sqlx migrations: {:?}", &missing[..preview_count]);
             }
         }
         Err(e) => {
@@ -550,10 +543,7 @@ mod tests {
         let tables = baseline_tables();
         // 这些表在 v10 baseline 中必须出现。
         for required in &["users", "rooms", "events", "background_updates", "room_retention_policies"] {
-            assert!(
-                tables.contains(required),
-                "baseline must contain '{required}' but it does not"
-            );
+            assert!(tables.contains(required), "baseline must contain '{required}' but it does not");
         }
     }
 }

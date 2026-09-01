@@ -208,7 +208,7 @@ mod tests {
         // Outbound pokes are per-destination delivery trackers; once sent they
         // are safe to prune sooner than the sync stream because they are not
         // read by clients.
-        assert!(DEVICE_LIST_OUTBOUND_POKES_RETENTION_DAYS < DEVICE_LIST_STREAM_RETENTION_DAYS);
+        const { assert!(DEVICE_LIST_OUTBOUND_POKES_RETENTION_DAYS < DEVICE_LIST_STREAM_RETENTION_DAYS) };
     }
 
     #[test]

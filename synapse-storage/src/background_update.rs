@@ -849,6 +849,7 @@ mod tests {
         .expect("Failed to create background_update_stats table");
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn insert_update_row(
         pool: &PgPool,
         update_name: &str,

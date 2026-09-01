@@ -119,11 +119,8 @@ struct DisconnectedBroadcaster;
 impl EventBroadcaster for DisconnectedBroadcaster {
     type Message = String;
 
-    fn broadcast_publish(
-        &self,
-        _message: Self::Message,
-    ) -> impl std::future::Future<Output = Result<(), BroadcastError>> + Send {
-        async { Err(BroadcastError::NotConnected) }
+    async fn broadcast_publish(&self, _message: Self::Message) -> Result<(), BroadcastError> {
+        Err(BroadcastError::NotConnected)
     }
 
     fn broadcast_subscriber_count(&self) -> usize {

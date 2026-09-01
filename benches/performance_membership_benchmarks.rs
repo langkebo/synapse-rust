@@ -2,6 +2,9 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use synapse_common::membership_transition::{is_legal, JoinRule, TransitionCtx};
 use synapse_common::Membership;
 
+/// `(case_name, from_membership, to_membership, transition_ctx, should_pass)`
+type MembershipCase<'a> = (&'a str, Option<Membership>, Membership, TransitionCtx, bool);
+
 fn state_only_ctx(actor_is_target: bool, target_is_banned: bool) -> TransitionCtx {
     TransitionCtx::state_only(JoinRule::Public, actor_is_target, target_is_banned, false)
 }
@@ -15,7 +18,7 @@ fn bench_membership_transitions(c: &mut Criterion) {
     group.sample_size(100);
     group.measurement_time(std::time::Duration::from_secs(5));
 
-    let cases: &[(&str, Option<Membership>, Membership, TransitionCtx, bool)] = &[
+    let cases: &[MembershipCase] = &[
         // Fail-closed paths (must reject)
         ("ban_to_join", Some(Membership::Ban), Membership::Join, state_only_ctx(true, false), false),
         ("ban_to_invite", Some(Membership::Ban), Membership::Invite, state_only_ctx(false, false), false),

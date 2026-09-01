@@ -46,6 +46,11 @@ use synapse_storage::test_mocks::FakeUserStore;
 // Mock ServerNotificationStoreApi
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Delivery log record: `(notice_id, room_id, event_id, user_id, method)`.
+type DeliveryLog = (i64, Option<String>, String, String, Option<String>);
+/// notice_id → `(room_id, event_id)` mapping.
+type NoticeRoomMapping = (Option<String>, Option<String>);
+
 /// In-memory `ServerNotificationStoreApi` fake. Stores notifications,
 /// templates, scheduled notifications, and notice→room/event mappings.
 /// Tracks side-effect calls (deletes, marks, delivery logs) for verification.
@@ -56,11 +61,11 @@ struct MockServerNotificationStore {
     user_settings: Mutex<HashMap<String, bool>>,
     user_pushers: Mutex<HashMap<String, Vec<serde_json::Value>>>,
     scheduled: Mutex<Vec<ScheduledNotification>>,
-    notice_rooms: Mutex<HashMap<i64, (Option<String>, Option<String>)>>,
+    notice_rooms: Mutex<HashMap<i64, NoticeRoomMapping>>,
     server_notices: Mutex<HashMap<i64, serde_json::Value>>,
 
     // Call tracking
-    delivery_logs: Mutex<Vec<(i64, Option<String>, String, String, Option<String>)>>,
+    delivery_logs: Mutex<Vec<DeliveryLog>>,
     deleted_rooms: Mutex<Vec<String>>,
     deleted_events: Mutex<Vec<String>>,
     deleted_notices: Mutex<Vec<i64>>,
@@ -112,7 +117,7 @@ impl MockServerNotificationStore {
         self.delivery_logs.lock().unwrap().len()
     }
 
-    fn last_delivery_log(&self) -> Option<(i64, Option<String>, String, String, Option<String>)> {
+    fn last_delivery_log(&self) -> Option<DeliveryLog> {
         self.delivery_logs.lock().unwrap().last().cloned()
     }
 
@@ -412,10 +417,7 @@ impl ServerNotificationStoreApi for MockServerNotificationStore {
         Ok(self.server_notices.lock().unwrap().get(&notice_id).cloned())
     }
 
-    async fn get_server_notice_with_room(
-        &self,
-        notice_id: i64,
-    ) -> Result<Option<(Option<String>, Option<String>)>, ApiError> {
+    async fn get_server_notice_with_room(&self, notice_id: i64) -> Result<Option<NoticeRoomMapping>, ApiError> {
         self.fail_check()?;
         Ok(self.notice_rooms.lock().unwrap().get(&notice_id).cloned())
     }

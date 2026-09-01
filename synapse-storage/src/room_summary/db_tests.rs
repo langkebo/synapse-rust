@@ -5,16 +5,18 @@ use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::env;
-    use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
 
 async fn test_pool() -> Arc<PgPool> {
     let db_url = env::var("TEST_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-    let pool =
-        PgPoolOptions::new()
-            .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(Duration::from_secs(30))
+        .connect(&db_url)
+        .await
+        .expect("Failed to connect to test database");
     Arc::new(pool)
 }
 
@@ -418,7 +420,7 @@ async fn test_get_summaries_by_ids_multiple() {
     assert_eq!(results.len(), 3);
 
     // Partial — one matching
-    let partial = storage.get_summaries_by_ids(&[room_a.clone()]).await.unwrap();
+    let partial = storage.get_summaries_by_ids(std::slice::from_ref(&room_a)).await.unwrap();
     assert_eq!(partial.len(), 1);
     assert_eq!(partial[0].room_id, room_a);
 

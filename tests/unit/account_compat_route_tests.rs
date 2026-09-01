@@ -783,8 +783,11 @@ fn test_get_threepids_response_empty_list() {
 fn test_get_threepids_response_validated_ts_defaults_to_zero() {
     // The handler uses `t.validated_at.unwrap_or(0)` — when validated_at is
     // NULL in the DB, the response field is 0.
-    let validated_at: Option<i64> = None;
-    let validated_ts = validated_at.unwrap_or(0);
+    #[allow(clippy::unnecessary_literal_unwrap)]
+    let validated_ts = {
+        let validated_at: Option<i64> = None;
+        validated_at.unwrap_or(0)
+    };
     assert_eq!(validated_ts, 0);
 }
 

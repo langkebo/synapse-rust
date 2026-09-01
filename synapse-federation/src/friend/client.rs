@@ -174,6 +174,7 @@ impl FriendFederationClient {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::await_holding_lock)]
     use super::*;
 
     #[test]

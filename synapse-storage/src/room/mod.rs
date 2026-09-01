@@ -865,10 +865,7 @@ impl RoomStorage {
         // Step 3: Now delete the room itself. This will succeed because
         // all events for this room have been removed (the FK is NO ACTION,
         // which is satisfied since no child rows exist).
-        let room_result = sqlx::query(r"DELETE FROM rooms WHERE room_id = $1")
-            .bind(room_id)
-            .execute(&mut *tx)
-            .await?;
+        let room_result = sqlx::query(r"DELETE FROM rooms WHERE room_id = $1").bind(room_id).execute(&mut *tx).await?;
 
         if room_result.rows_affected() == 0 {
             // Room did not exist. Roll back to avoid leaving the transaction
@@ -1367,17 +1364,19 @@ impl RoomStorage {
 
 #[cfg(test)]
 mod db_tests {
-    use std::time::Duration;
     use super::*;
     use sqlx::postgres::PgPoolOptions;
+    use std::time::Duration;
 
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
-        let pool =
-            PgPoolOptions::new()
+        let pool = PgPoolOptions::new()
             .max_connections(2)
-            .acquire_timeout(Duration::from_secs(30)).connect(&db_url).await.expect("Failed to connect to test database");
+            .acquire_timeout(Duration::from_secs(30))
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
