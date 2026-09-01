@@ -273,6 +273,16 @@ pub async fn require_test_pool() -> Arc<sqlx::PgPool> {
 
 pub fn clear_test_cache() {}
 
+/// Mutable access to the container config for test wiring.
+///
+/// `ServiceContainer` stores its config as an `Arc<Config>` (shared,
+/// read-only at runtime), so integration tests must use clone-on-write to
+/// tweak federation flags, server names, rate limits, etc. before the router
+/// is assembled.
+pub fn config_mut(container: &mut synapse_services::ServiceContainer) -> &mut synapse_common::Config {
+    std::sync::Arc::make_mut(&mut container.core.config)
+}
+
 static DEFAULT_APP: tokio::sync::OnceCell<Option<(axum::Router, synapse_rust::web::routes::state::AppState)>> =
     tokio::sync::OnceCell::const_new();
 
@@ -297,7 +307,7 @@ pub async fn setup_test_app_with_state() -> Option<(axum::Router, synapse_rust::
     let cached = FEDERATION_APP
         .get_or_init(|| async {
             build_test_app(|container| {
-                container.core.config.federation.allow_ingress = true;
+                config_mut(container).federation.allow_ingress = true;
             })
             .await
         })

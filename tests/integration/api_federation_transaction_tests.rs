@@ -22,13 +22,13 @@ async fn setup_federation_txn_test_app(
 ) -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
     let pool = super::require_test_pool().await;
     let mut container = synapse_services::ServiceContainer::new_test_with_pool(pool.clone()).await;
-    container.core.config.server.name = "localhost".to_string();
+    super::config_mut(&mut container).server.name = "localhost".to_string();
     container.core.server_name = "localhost".to_string();
-    container.core.config.federation.enabled = true;
-    container.core.config.federation.allow_ingress = true;
-    container.core.config.federation.server_name = "localhost".to_string();
-    container.core.config.federation.key_id = Some(key_id.to_string());
-    container.core.config.federation.signing_key = Some(signing_key_b64.to_string());
+    super::config_mut(&mut container).federation.enabled = true;
+    super::config_mut(&mut container).federation.allow_ingress = true;
+    super::config_mut(&mut container).federation.server_name = "localhost".to_string();
+    super::config_mut(&mut container).federation.key_id = Some(key_id.to_string());
+    super::config_mut(&mut container).federation.signing_key = Some(signing_key_b64.to_string());
     let cache =
         std::sync::Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
     let state = synapse_rust::web::routes::state::AppState::new(container, cache);
@@ -67,8 +67,8 @@ fn signed_federation_request(
 async fn test_send_transaction_rejects_missing_signature() {
     let pool = super::require_test_pool().await;
     let mut container = synapse_services::ServiceContainer::new_test_with_pool(pool.clone()).await;
-    container.core.config.federation.enabled = true;
-    container.core.config.federation.allow_ingress = true;
+    super::config_mut(&mut container).federation.enabled = true;
+    super::config_mut(&mut container).federation.allow_ingress = true;
     let cache =
         std::sync::Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
     let state = synapse_rust::web::routes::state::AppState::new(container, cache);

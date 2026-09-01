@@ -63,7 +63,7 @@ async fn create_room(app: &axum::Router, token: &str) -> String {
         .uri("/_matrix/client/v3/createRoom")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({"name": "Widget Room"}).to_string()))
+        .body(Body::from(json!({"name": format!("Widget Room {}", rand::random::<u32>())}).to_string()))
         .unwrap();
 
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();

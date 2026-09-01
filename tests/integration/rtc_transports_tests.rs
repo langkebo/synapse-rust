@@ -15,10 +15,10 @@ async fn setup_test_app_with_voip() -> Option<(axum::Router, Arc<sqlx::PgPool>)>
 
     // Rebuild the RTC infra service after mutating config because the service
     // captures `config.voip` during ServiceContainer construction.
-    container.core.config.voip.turn_uris = vec!["turn:turn.example.org?transport=udp".to_string()];
-    container.core.config.voip.stun_uris = vec!["stun:stun.example.org".to_string()];
-    container.core.config.voip.turn_shared_secret = Some("test_secret".to_string());
-    let voip_config = container.core.config.voip.clone();
+    super::config_mut(&mut container).voip.turn_uris = vec!["turn:turn.example.org?transport=udp".to_string()];
+    super::config_mut(&mut container).voip.stun_uris = vec!["stun:stun.example.org".to_string()];
+    super::config_mut(&mut container).voip.turn_shared_secret = Some("test_secret".to_string());
+    let voip_config = super::config_mut(&mut container).voip.clone();
     let rtc_domain_service = Arc::make_mut(&mut container.extensions.rtc_domain_service);
     rtc_domain_service.infra = Arc::new(synapse_services::rtc::RtcInfraService::new(Arc::new(voip_config)));
 

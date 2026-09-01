@@ -12,10 +12,10 @@ use tower::ServiceExt;
 async fn setup_test_app_with_replication_secret() -> Option<(axum::Router, String, String)> {
     let pool = super::require_test_pool().await;
     let mut container = ServiceContainer::new_test_with_pool(pool).await;
-    container.core.config.worker.enabled = true;
-    container.core.config.worker.replication.http.enabled = true;
-    container.core.config.worker.replication.http.secret = Some("test_worker_secret".to_string());
-    container.core.config.worker.replication.http.secret_path = None;
+    super::config_mut(&mut container).worker.enabled = true;
+    super::config_mut(&mut container).worker.replication.http.enabled = true;
+    super::config_mut(&mut container).worker.replication.http.secret = Some("test_worker_secret".to_string());
+    super::config_mut(&mut container).worker.replication.http.secret_path = None;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
@@ -102,10 +102,10 @@ async fn test_worker_endpoints_require_replication_secret_when_enabled() {
 async fn test_worker_endpoints_do_not_require_replication_secret_when_disabled() {
     let pool = super::require_test_pool().await;
     let mut container = ServiceContainer::new_test_with_pool(pool).await;
-    container.core.config.worker.enabled = true;
-    container.core.config.worker.replication.http.enabled = false;
-    container.core.config.worker.replication.http.secret = Some("test_worker_secret".to_string());
-    container.core.config.worker.replication.http.secret_path = None;
+    super::config_mut(&mut container).worker.enabled = true;
+    super::config_mut(&mut container).worker.replication.http.enabled = false;
+    super::config_mut(&mut container).worker.replication.http.secret = Some("test_worker_secret".to_string());
+    super::config_mut(&mut container).worker.replication.http.secret_path = None;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);

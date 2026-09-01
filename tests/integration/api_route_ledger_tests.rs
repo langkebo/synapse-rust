@@ -42,7 +42,7 @@ async fn default_fixture() -> TestFixture {
     DEFAULT_FIXTURE
         .get_or_init(|| async {
             setup_fresh_test_app_with_config(|container| {
-                container.core.config.federation.allow_ingress = true;
+                super::config_mut(container).federation.allow_ingress = true;
             })
             .await
         })
@@ -54,11 +54,11 @@ async fn worker_enabled_fixture() -> TestFixture {
     WORKER_ENABLED_FIXTURE
         .get_or_init(|| async {
             setup_fresh_test_app_with_config(|container| {
-                container.core.config.federation.allow_ingress = true;
-                container.core.config.worker.enabled = true;
-                container.core.config.worker.replication.http.enabled = true;
-                container.core.config.worker.replication.http.secret = Some("test_worker_secret".to_string());
-                container.core.config.worker.replication.http.secret_path = None;
+                super::config_mut(container).federation.allow_ingress = true;
+                super::config_mut(container).worker.enabled = true;
+                super::config_mut(container).worker.replication.http.enabled = true;
+                super::config_mut(container).worker.replication.http.secret = Some("test_worker_secret".to_string());
+                super::config_mut(container).worker.replication.http.secret_path = None;
             })
             .await
         })

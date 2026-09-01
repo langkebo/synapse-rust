@@ -16,10 +16,10 @@ async fn setup_test_app_with_sync_rate_limit(
 ) -> Option<axum::Router> {
     let pool = super::get_test_pool().await?;
     let mut container = ServiceContainer::new_test_with_pool(pool).await;
-    container.core.config.rate_limit.enabled = false;
-    container.core.config.rate_limit.sync.enabled = true;
-    container.core.config.rate_limit.sync.initial = initial;
-    container.core.config.rate_limit.sync.incremental = incremental;
+    super::config_mut(&mut container).rate_limit.enabled = false;
+    super::config_mut(&mut container).rate_limit.sync.enabled = true;
+    super::config_mut(&mut container).rate_limit.sync.initial = initial;
+    super::config_mut(&mut container).rate_limit.sync.incremental = incremental;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);

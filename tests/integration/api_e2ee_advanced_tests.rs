@@ -60,7 +60,10 @@ async fn test_e2ee_key_backup_lifecycle() {
     let user_token = json["access_token"].as_str().unwrap().to_string();
 
     // 2. 创建密钥备份
-    let passphrase = format!("secure_passphrase_{}", rand::random::<u32>());
+    // ISSUE-6.3: passphrase mode was removed — the server must never receive
+    // the passphrase. Clients derive the key locally and upload the public
+    // part via `algorithm` + `auth_data`.
+    let recovery_public_key = STANDARD.encode([9u8; 32]);
     let create_backup_request = Request::builder()
         .method("POST")
         .uri("/_matrix/client/v3/keys/backup/secure")
@@ -68,7 +71,8 @@ async fn test_e2ee_key_backup_lifecycle() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "passphrase": passphrase
+                "algorithm": "m.megolm_backup.v1.secure",
+                "auth_data": { "public_key": recovery_public_key }
             })
             .to_string(),
         ))
@@ -123,7 +127,6 @@ async fn test_e2ee_key_backup_lifecycle() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "passphrase": passphrase,
                 "session_keys": [
                     {
                         "room_id": "!test_room:localhost",
@@ -156,34 +159,29 @@ async fn test_e2ee_key_backup_lifecycle() {
         .unwrap();
 
     let response = app.clone().oneshot(store_keys_request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK, "Store session keys should return 200 OK");
+    let store_status = response.status();
+    assert_eq!(store_status, StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let store_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(store_json["count"].as_i64().unwrap(), 2, "Should store 2 session keys");
 
-    // 5. 验证备份密码
+    // 5. 验证密码（ISSUE-6.3：passphrase verification was removed server-side —
+    // the server has no key. Clients verify locally with the recovery key,
+    // so the endpoint must answer 410 Gone.)
     let verify_request = Request::builder()
         .method("POST")
         .uri(format!("/_matrix/client/v3/keys/backup/secure/{}/verify", backup_id))
         .header("Authorization", format!("Bearer {}", user_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({
-                "passphrase": passphrase
-            })
-            .to_string(),
-        ))
+        .body(Body::from(json!({ "passphrase": "unused" }).to_string()))
         .unwrap();
 
     let response = app.clone().oneshot(verify_request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK, "Verify passphrase should return 200 OK");
+    assert_eq!(response.status(), StatusCode::GONE, "Verify passphrase should be 410 Gone after ISSUE-6.3");
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
-    let verify_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(verify_json["valid"], true, "Correct passphrase should be valid");
-
-    // 6. 恢复备份
+    // 6. 恢复备份（ISSUE-6.3：restore returns ciphertext `sessions`; the
+    // client decrypts locally. `rooms` still filters which keys are returned.)
     let restore_request = Request::builder()
         .method("POST")
         .uri(format!("/_matrix/client/v3/keys/backup/secure/{}/restore", backup_id))
@@ -191,7 +189,6 @@ async fn test_e2ee_key_backup_lifecycle() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "passphrase": passphrase,
                 "rooms": ["!test_room:localhost"]
             })
             .to_string(),
@@ -203,8 +200,10 @@ async fn test_e2ee_key_backup_lifecycle() {
 
     let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let restore_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(restore_json["recovered_keys"].as_i64().unwrap(), 1);
     assert_eq!(restore_json["total_keys"].as_i64().unwrap(), 2);
+    let sessions = restore_json["sessions"].as_array().expect("sessions array");
+    assert_eq!(sessions.len(), 1, "rooms filter should return only the !test_room session");
+    assert_eq!(sessions[0]["room_id"], "!test_room:localhost");
 
     // 7. 删除备份
     let delete_request = Request::builder()
@@ -469,7 +468,7 @@ async fn test_e2ee_cross_signing_flow() {
 }
 
 /// P2-3: 密钥备份错误处理
-/// 验证：错误的密码被拒绝，不存在的备份返回 404
+/// 验证：ISSUE-6.3 后 verify 端点已移除（410 Gone），不存在的备份返回 404
 #[tokio::test]
 async fn test_e2ee_key_backup_error_handling() {
     let Some(app) = setup_fresh_test_app().await else {
@@ -501,8 +500,7 @@ async fn test_e2ee_key_backup_error_handling() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let user_token = json["access_token"].as_str().unwrap().to_string();
 
-    // 2. 创建密钥备份
-    let passphrase = format!("correct_passphrase_{}", rand::random::<u32>());
+    // 2. 创建密钥备份（ISSUE-6.3: client-derived key via algorithm + auth_data）
     let create_backup_request = Request::builder()
         .method("POST")
         .uri("/_matrix/client/v3/keys/backup/secure")
@@ -510,7 +508,8 @@ async fn test_e2ee_key_backup_error_handling() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "passphrase": passphrase
+                "algorithm": "m.megolm_backup.v1.secure",
+                "auth_data": { "public_key": STANDARD.encode([10u8; 32]) }
             })
             .to_string(),
         ))
@@ -523,26 +522,18 @@ async fn test_e2ee_key_backup_error_handling() {
     let backup_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let backup_id = backup_json["backup_id"].as_str().unwrap().to_string();
 
-    // 3. 测试错误的密码
+    // 3. 验证端点已随 ISSUE-6.3 移除：服务端不再持有密钥，passphrase
+    // 校验必须由客户端用 recovery key 本地完成 —— 端点应答 410 Gone。
     let wrong_verify_request = Request::builder()
         .method("POST")
         .uri(format!("/_matrix/client/v3/keys/backup/secure/{}/verify", backup_id))
         .header("Authorization", format!("Bearer {}", user_token))
         .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({
-                "passphrase": "wrong_passphrase"
-            })
-            .to_string(),
-        ))
+        .body(Body::from(json!({ "passphrase": "anything" }).to_string()))
         .unwrap();
 
     let response = app.clone().oneshot(wrong_verify_request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
-    let verify_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(verify_json["valid"], false, "Wrong passphrase should be invalid");
+    assert_eq!(response.status(), StatusCode::GONE, "verify endpoint should be removed (410 Gone) after ISSUE-6.3");
 
     // 4. 测试不存在的备份 ID
     let nonexistent_backup_request = Request::builder()

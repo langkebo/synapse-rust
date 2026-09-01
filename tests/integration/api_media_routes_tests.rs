@@ -121,7 +121,7 @@ async fn test_media_upload_with_id_accepts_over_2mb_body() {
     // 默认测试 config 为 1MB（对齐 /config 注释），无法承载 3MB 负载；此处显式
     // 放宽到生产默认 50MB，以验证 S27/G-2 的 DefaultBodyLimit 修复（>2MB 不被 413）。
     let Some(app) = super::setup_fresh_test_app_with_config(|container| {
-        container.core.config.server.max_upload_size = 50 * 1024 * 1024;
+        super::config_mut(container).server.max_upload_size = 50 * 1024 * 1024;
     })
     .await
     .map(|(app, _)| app) else {
@@ -175,7 +175,7 @@ async fn test_media_upload_with_id_accepts_over_2mb_body() {
 async fn test_media_preview_and_delete_boundaries() {
     // P2-11: preview_url endpoint requires msc4452_enabled=true to return 200.
     let Some(app) = super::setup_fresh_test_app_with_config(|container| {
-        container.core.config.experimental.msc4452_enabled = true;
+        super::config_mut(container).experimental.msc4452_enabled = true;
     })
     .await
     .map(|(app, _)| app) else {
@@ -292,7 +292,7 @@ async fn test_client_v1_authenticated_media_download_requires_access_token() {
 async fn test_client_v1_authenticated_media_thumbnail_and_preview_routes_work() {
     // P2-11: preview_url endpoint requires msc4452_enabled=true to return 200.
     let Some(app) = super::setup_fresh_test_app_with_config(|container| {
-        container.core.config.experimental.msc4452_enabled = true;
+        super::config_mut(container).experimental.msc4452_enabled = true;
     })
     .await
     .map(|(app, _)| app) else {
