@@ -789,7 +789,7 @@ impl ServerNotificationStorage {
                 room_id, name, topic, creator, is_public, join_rules,
                 room_version, history_visibility, created_ts, last_activity_ts
             )
-            VALUES ($1, $2, $3, $4, false, 'private', '6', 'joined', $5, $5)
+            VALUES ($1, $2, $3, $4, false, 'invite', '6', 'joined', $5, $5)
             ON CONFLICT (room_id) DO NOTHING
             "#,
         )
@@ -925,7 +925,7 @@ impl ServerNotificationStorage {
                 last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
             )
             VALUES (
-                $1, $2, $3, 'private', 'joined', 'forbidden',
+                $1, $2, $3, 'invite', 'joined', 'forbidden',
                 false, false, false, 1, 1,
                 0, '[]'::jsonb, $4, $5,
                 $5, 0, 0, $5, $5
