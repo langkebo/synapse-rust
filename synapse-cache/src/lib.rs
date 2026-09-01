@@ -7,8 +7,10 @@
 #![allow(missing_docs)]
 
 use deadpool_redis::{Config, Pool, PoolConfig, Runtime};
+use moka::ops::compute::Op;
 use moka::sync::Cache;
 use serde::{Deserialize, Serialize};
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -1569,27 +1571,43 @@ impl CacheManager {
             }
         }
 
-        let state = self
-            .rate_limit_local
-            .get(key)
-            .unwrap_or(LocalRateLimitState { tokens: burst_size as f64, last_ms: now_ms });
+        // 审计 #3：整个「读状态 → 补充 → 判定 → 扣减 → 写回」必须在单次原子操作内完成。
+        //
+        // 此前是 `get` 与 `insert` 两步分离。moka 保证单个操作线程安全，但不保证
+        // read-modify-write 序列。Tokio 多线程 runtime 下同一 key 的并发请求跑在不同
+        // worker 线程，可以同时读到 `tokens >= 1.0` 并全部放行，把 burst 上限放大到
+        // 接近并发数——而这恰恰发生在 Redis 不可用、后端已经不健康、最需要限流生效的
+        // 时刻。注意 `get`/`insert` 之间没有 `.await` 并不能排除该问题：不同 worker
+        // 线程之间是真正并行的。
+        //
+        // `and_compute_with` 用 key 级锁把同一 key 的 compute 串行化，读改写之间不再
+        // 存在窗口。它的闭包只能回传 `Op`，无法直接带出判定结果，所以用一个 `Cell`
+        // 把决策带回来（闭包同步执行于调用线程，`RateLimitDecision` 是 `Copy`）。
+        let decision = Cell::new(RateLimitDecision { allowed: false, retry_after_seconds: 0, remaining: 0 });
 
-        let delta_ms = now_ms.saturating_sub(state.last_ms);
-        let refill = (delta_ms as f64 / 1000.0) * (rate_per_second as f64);
-        let mut tokens = (state.tokens + refill).min(burst_size as f64);
-        let allowed = tokens >= 1.0;
-        let retry_after_seconds = if allowed || rate_per_second == 0 {
-            0
-        } else {
-            ((1.0 - tokens) / (rate_per_second as f64)).ceil().max(1.0) as u64
-        };
-        if allowed {
-            tokens -= 1.0;
-        }
+        let _ = self.rate_limit_local.entry_by_ref(key).and_compute_with(|existing| {
+            let prev = existing
+                .map_or(LocalRateLimitState { tokens: burst_size as f64, last_ms: now_ms }, |entry| entry.into_value());
 
-        self.rate_limit_local.insert(key.to_string(), LocalRateLimitState { tokens, last_ms: now_ms });
+            let delta_ms = now_ms.saturating_sub(prev.last_ms);
+            let refill = (delta_ms as f64 / 1000.0) * (rate_per_second as f64);
+            let mut tokens = (prev.tokens + refill).min(burst_size as f64);
+            let allowed = tokens >= 1.0;
+            let retry_after_seconds = if allowed || rate_per_second == 0 {
+                0
+            } else {
+                ((1.0 - tokens) / (rate_per_second as f64)).ceil().max(1.0) as u64
+            };
+            if allowed {
+                tokens -= 1.0;
+            }
 
-        Ok(RateLimitDecision { allowed, retry_after_seconds, remaining: tokens.floor().max(0.0) as u32 })
+            decision.set(RateLimitDecision { allowed, retry_after_seconds, remaining: tokens.floor().max(0.0) as u32 });
+
+            Op::Put(LocalRateLimitState { tokens, last_ms: now_ms })
+        });
+
+        Ok(decision.get())
     }
 }
 
@@ -1657,6 +1675,45 @@ mod tests {
         let b = manager.rate_limit_token_bucket_take("b", 1, 1).await.unwrap();
         assert!(a.allowed);
         assert!(b.allowed, "distinct keys must have independent buckets");
+    }
+
+    // 审计 #3：并发 take 不得突破 burst 上限。
+    //
+    // 改实现前 `get` 与 `insert` 分离，同一 key 的并发请求会各自读到「令牌充足」
+    // 并全部放行，实际放行量接近并发数。这里用 barrier 让所有任务同时进入临界区，
+    // 否则任务可能被顺序调度，竞态不会暴露、测试会假绿。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn test_rate_limit_token_bucket_concurrent_take_respects_burst() {
+        use std::sync::Arc;
+
+        const BURST: u32 = 5;
+        const CONCURRENCY: usize = 64;
+
+        let manager = Arc::new(CacheManager::new(&CacheConfig::default()));
+        let barrier = Arc::new(tokio::sync::Barrier::new(CONCURRENCY));
+
+        let mut handles = Vec::with_capacity(CONCURRENCY);
+        for _ in 0..CONCURRENCY {
+            let manager = Arc::clone(&manager);
+            let barrier = Arc::clone(&barrier);
+            handles.push(tokio::spawn(async move {
+                barrier.wait().await;
+                // rate_per_second = 0：不补充令牌，放行量应精确等于 burst。
+                manager.rate_limit_token_bucket_take("concurrent:key", 0, BURST).await.unwrap().allowed
+            }));
+        }
+
+        let mut allowed = 0usize;
+        for handle in handles {
+            if handle.await.unwrap() {
+                allowed += 1;
+            }
+        }
+
+        assert_eq!(
+            allowed, BURST as usize,
+            "concurrent takes must respect the burst limit (allowed {allowed}, burst {BURST})"
+        );
     }
 
     #[test]
