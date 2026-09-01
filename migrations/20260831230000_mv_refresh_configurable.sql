@@ -14,6 +14,10 @@
 --
 
 -- 1. 可重入配置函数（与 pg_cron 可用性解耦，始终创建）
+-- 注意：v11 baseline 中该函数参数名为 `cron_interval`，此处改为 `refresh_interval`。
+-- Postgres 的 CREATE OR REPLACE 不允许修改参数名（报 "cannot change name of input
+-- parameter"），因此先 DROP 旧定义再重建，保证迁移可重入。
+DROP FUNCTION IF EXISTS configure_rooms_summaries_refresh(TEXT);
 CREATE OR REPLACE FUNCTION configure_rooms_summaries_refresh(refresh_interval TEXT)
 RETURNS void
 LANGUAGE plpgsql
@@ -92,7 +96,9 @@ BEGIN
 
     RAISE NOTICE 'MV refresh schedules configured (rooms_summaries_mv: */5, public_room_directory: */10)';
 EXCEPTION
-    WHEN undefined_table OR undefined_function THEN
+    -- `schema "cron" does not exist` 是 SQLSTATE 3F000 (invalid_schema_name)，
+    -- 与 42P01/42883 一样都需要在 pg_cron 缺失时优雅降级。
+    WHEN undefined_table OR undefined_function OR invalid_schema_name THEN
         RAISE NOTICE 'pg_cron extension not available, MV refresh schedules not created (functions still available)';
 END $$;
 
