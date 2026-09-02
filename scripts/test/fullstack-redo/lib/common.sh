@@ -17,7 +17,7 @@ set -uo pipefail
 # ---------------------------------------------------------------------------
 BASE="${BASE:-https://matrix.test}"
 CONTAINER_NAME="${CONTAINER_NAME:-synapse-rust}"
-INTERNAL_URL="${INTERNAL_URL:-http://localhost:8008}"  # reachable inside container
+INTERNAL_URL="${INTERNAL_URL:-http://localhost:8008}" # reachable inside container
 
 # Account credentials (populated by setup_accounts.sh, sourced on demand)
 CREDS_FILE="${CREDS_FILE:-/Users/ljf/Desktop/hu_ts/synapse-rust/scripts/test/fullstack-redo/results/creds.env}"
@@ -39,7 +39,8 @@ SKIP=0
 # ---------------------------------------------------------------------------
 json_get() {
     # json_get <json-string> <key> [key...]
-    local data="$1"; shift
+    local data="$1"
+    shift
     python3 -c "
 import sys, json
 data = sys.argv[1]
@@ -95,7 +96,7 @@ http() {
     local raw status body_out
     raw=$("${args[@]}")
     status=$(echo "$raw" | grep -oE '__HTTP_STATUS__:[0-9]+' | tail -1 | cut -d: -f2)
-    body_out=$(echo "$raw" | sed 's/__HTTP_STATUS__:[0-9]*$//' )
+    body_out=$(echo "$raw" | sed 's/__HTTP_STATUS__:[0-9]*$//')
     # strip trailing newline added by curl -w
     body_out="${body_out%$'\n'}"
     printf '%s\t%s' "${status:-000}" "$body_out"
@@ -136,11 +137,11 @@ test_case() {
     local id="$1" desc="$2" expected="$3" actual="$4" body="${5:-}"
     local marker="✅"
     if [ "$actual" = "$expected" ]; then
-        PASS=$((PASS+1))
+        PASS=$((PASS + 1))
         marker="✅"
         printf '%s\n' "$marker $id | $desc | HTTP $actual"
     else
-        FAIL=$((FAIL+1))
+        FAIL=$((FAIL + 1))
         marker="❌"
         local short_body
         short_body=$(printf '%s' "$body" | head -c 200)
@@ -148,15 +149,15 @@ test_case() {
     fi
     # Append a TSV row: module<TAB>id<TAB>desc<TAB>expected<TAB>actual<TAB>body
     local module_name="${MODULE:-unknown}"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$module_name" "$id" "$desc" "$expected" "$actual" "$(printf '%s' "$body" | tr '\t\n' ' ')" >> "$DETAIL_FILE"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$module_name" "$id" "$desc" "$expected" "$actual" "$(printf '%s' "$body" | tr '\t\n' ' ')" >>"$DETAIL_FILE"
 }
 
 skip_case() {
     local id="$1" desc="$2" reason="${3:-}"
-    SKIP=$((SKIP+1))
+    SKIP=$((SKIP + 1))
     printf '⊘ SKIP %s | %s | %s\n' "$id" "$desc" "$reason"
     local module_name="${MODULE:-unknown}"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$module_name" "$id" "$desc" "SKIP" "SKIP" "$reason" >> "$DETAIL_FILE"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$module_name" "$id" "$desc" "SKIP" "SKIP" "$reason" >>"$DETAIL_FILE"
 }
 
 emit_summary() {
@@ -200,5 +201,5 @@ record_issue() {
     # record_issue <module> <severity> <testcase_id> <description>
     local module="$1" severity="$2" tcid="$3" description="$4"
     local file="$RESULTS_DIR/discovered_issues.txt"
-    printf 'MODULE=%s\tSEVERITY=%s\tTC=%s\tDESC=%s\n' "$module" "$severity" "$tcid" "$description" >> "$file"
+    printf 'MODULE=%s\tSEVERITY=%s\tTC=%s\tDESC=%s\n' "$module" "$severity" "$tcid" "$description" >>"$file"
 }

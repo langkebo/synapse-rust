@@ -22,9 +22,9 @@ UNIQ="t1ac${TS}"
 # burst 3 (rate_limit.yaml). Insert a 1.2s sleep between register-family calls
 # so we don't trip M_LIMIT_EXCEEDED.
 rl_register_sleep() { sleep 1.2; }
-rl_login_sleep()   { sleep 0.25; }   # 5/sec burst 50
-rl_refresh_sleep() { sleep 0.55; }  # 2/sec burst 5
-rl_email_sleep()   { sleep 1.2; }    # 1/sec burst 3
+rl_login_sleep() { sleep 0.25; }   # 5/sec burst 50
+rl_refresh_sleep() { sleep 0.55; } # 2/sec burst 5
+rl_email_sleep() { sleep 1.2; }    # 1/sec burst 3
 
 # ---------------------------------------------------------------------------
 # POST /_matrix/client/v3/register

@@ -45,7 +45,7 @@ while IFS= read -r s; do
     if [ $((COUNT % 200)) -eq 0 ]; then
         echo "    进度: $COUNT / $TOTAL"
     fi
-done <<< "$SCHEMAS"
+done <<<"$SCHEMAS"
 
 echo "==> 清理完成：$COUNT 个（失败 $FAILED 个）"
 REMAIN=$("${PSQL[@]}" -tAc "SELECT count(*) FROM information_schema.schemata WHERE schema_name LIKE 'test_%' AND schema_name NOT LIKE 'test_template%';" 2>/dev/null)

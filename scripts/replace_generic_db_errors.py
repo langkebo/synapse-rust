@@ -16,6 +16,7 @@
     python3 scripts/replace_generic_db_errors.py --apply    # 执行变体 A/A' 替换
     python3 scripts/replace_generic_db_errors.py --tsv out.tsv
 """
+
 from __future__ import annotations
 
 import argparse
@@ -34,9 +35,14 @@ SKIP_FILES = {
 DB_GENERIC_RE = re.compile(r'ApiError::database\("A database error occurred"')
 TRACING_RE = re.compile(r'tracing::(?:error|warn)!\("([^"]*)"')
 # map_err 可出现在行首、也可在方法链中间（`.xxx(...).map_err(|e| {`）
-MAP_ERR_RE = re.compile(r'\.map_err\(\|[a-zA-Z_][a-zA-Z0-9_]*\|\s*\{')
-FN_RE = re.compile(r'(?:pub\s+)?(?:async\s+)?fn\s+(\w+)')
-GENERIC_MSGS = {"Database error: {e}", "Database error: {}", "Database error", "database error"}
+MAP_ERR_RE = re.compile(r"\.map_err\(\|[a-zA-Z_][a-zA-Z0-9_]*\|\s*\{")
+FN_RE = re.compile(r"(?:pub\s+)?(?:async\s+)?fn\s+(\w+)")
+GENERIC_MSGS = {
+    "Database error: {e}",
+    "Database error: {}",
+    "Database error",
+    "database error",
+}
 
 
 @dataclass
@@ -57,7 +63,12 @@ class Finding:
     @property
     def replaceable_b(self) -> bool:
         """变体 B：仅当方法名有效（非 None、非 unknown）时才可机械替换。"""
-        return self.kind == "B" and self.map_err_line is not None and bool(self.fn_name) and self.operation != "<unknown_fn>"
+        return (
+            self.kind == "B"
+            and self.map_err_line is not None
+            and bool(self.fn_name)
+            and self.operation != "<unknown_fn>"
+        )
 
 
 def _extract_operation(msg: str) -> str:
@@ -114,8 +125,14 @@ def scan_file(path: Path) -> list[Finding]:
                 fn_name = fn_at_line[j]
                 break
 
-        f = Finding(path=str(path), db_line=i, map_err_line=map_err_line, single_line=single_line,
-                    tracing_msg=tracing_msg, fn_name=fn_name)
+        f = Finding(
+            path=str(path),
+            db_line=i,
+            map_err_line=map_err_line,
+            single_line=single_line,
+            tracing_msg=tracing_msg,
+            fn_name=fn_name,
+        )
         if tracing_msg is None:
             f.kind = "?"
         elif tracing_msg in GENERIC_MSGS:
@@ -158,14 +175,23 @@ def report(findings: list[Finding]) -> str:
         "=" * 100,
     ]
     for f in sorted(a, key=lambda x: (x.path, x.db_line)):
-        out.append(f"{f.path}:{f.db_line}\t-> .map_err(map_database!(\"{f.operation}\"))")
-    out += ["", "=" * 100, "【变体 B — 需人工补全】建议操作名取自方法名，替换前需人工确认语义", "=" * 100]
+        out.append(f'{f.path}:{f.db_line}\t-> .map_err(map_database!("{f.operation}"))')
+    out += [
+        "",
+        "=" * 100,
+        "【变体 B — 需人工补全】建议操作名取自方法名，替换前需人工确认语义",
+        "=" * 100,
+    ]
     for f in sorted(b, key=lambda x: (x.path, x.db_line)):
-        out.append(f"{f.path}:{f.db_line}\t方法 {f.fn_name} -> .map_err(map_database!(\"{f.operation}\"))")
+        out.append(
+            f'{f.path}:{f.db_line}\t方法 {f.fn_name} -> .map_err(map_database!("{f.operation}"))'
+        )
     if unknown:
         out += ["", "=" * 100, "【无 tracing 前缀 — 需人工核查】", "=" * 100]
         for f in sorted(unknown, key=lambda x: (x.path, x.db_line)):
-            out.append(f"{f.path}:{f.db_line}\t（无 tracing::error!/warn!，可能是注释或跨行消息）")
+            out.append(
+                f"{f.path}:{f.db_line}\t（无 tracing::error!/warn!，可能是注释或跨行消息）"
+            )
     return "\n".join(out)
 
 
@@ -209,7 +235,7 @@ def _apply_file(rel: str, fs: list[Finding], repo_root: Path) -> int:
             # 删除中间的 tracing/database 行与结尾 `})...` 行，`})` 之后的内容补到 map_err 行。
             map_line = lines[map_i]
             new_map = re.sub(
-                r'\.map_err\(\|[a-zA-Z_][a-zA-Z0-9_]*\|\s*\{\s*$',
+                r"\.map_err\(\|[a-zA-Z_][a-zA-Z0-9_]*\|\s*\{\s*$",
                 f'.map_err(map_database!("{f.operation}"))',
                 map_line,
             )
@@ -247,7 +273,11 @@ def apply_a(findings: list[Finding], include_b: bool = False) -> dict[str, int]:
 def main() -> int:
     ap = argparse.ArgumentParser(description="#18 泛化 DB 错误治理脚本")
     ap.add_argument("--apply", action="store_true", help="对变体 A/A' 执行替换")
-    ap.add_argument("--apply-b", action="store_true", help="同时替换变体 B（用方法名作 context，需 --apply）")
+    ap.add_argument(
+        "--apply-b",
+        action="store_true",
+        help="同时替换变体 B（用方法名作 context，需 --apply）",
+    )
     ap.add_argument("--tsv", metavar="FILE", help="额外输出 TSV 清单到指定文件")
     args = ap.parse_args()
 
@@ -258,7 +288,9 @@ def main() -> int:
         with open(args.tsv, "w", encoding="utf-8") as fh:
             fh.write("kind\tpath\tline\tfn\toperation\n")
             for f in sorted(findings, key=lambda x: (x.kind, x.path, x.db_line)):
-                fh.write(f"{f.kind}\t{f.path}\t{f.db_line}\t{f.fn_name or ''}\t{f.operation}\n")
+                fh.write(
+                    f"{f.kind}\t{f.path}\t{f.db_line}\t{f.fn_name or ''}\t{f.operation}\n"
+                )
 
     if args.apply:
         changed = apply_a(findings, include_b=args.apply_b)
@@ -268,13 +300,17 @@ def main() -> int:
             print(f"  {rel}: {n} 处")
         a_missing = [f for f in findings if f.kind == "A" and f.map_err_line is None]
         if a_missing:
-            print(f"[apply] 注意：{len(a_missing)} 处变体 A 因未定位到 map_err 未改，需人工。")
+            print(
+                f"[apply] 注意：{len(a_missing)} 处变体 A 因未定位到 map_err 未改，需人工。"
+            )
         if not args.apply_b:
             print("[apply] 变体 B 未改（加 --apply-b 用方法名作 context 批量替换）。")
         else:
             b_missing = [f for f in findings if f.kind == "B" and not f.replaceable_b]
             if b_missing:
-                print(f"[apply] 注意：{len(b_missing)} 处变体 B 无有效方法名，未改，需人工。")
+                print(
+                    f"[apply] 注意：{len(b_missing)} 处变体 B 无有效方法名，未改，需人工。"
+                )
     else:
         print("\n[dry-run] 仅生成报告，未修改任何文件。加 --apply 执行变体 A/A' 替换。")
 

@@ -24,6 +24,7 @@ refresh_openapi_specs.py — 一键刷新所有 profile 的 OpenAPI spec
   # 跳过 export (假定 ledger 已就绪)
   python3 scripts/api_test/refresh_openapi_specs.py --skip-export
 """
+
 from __future__ import annotations
 
 import argparse
@@ -41,7 +42,9 @@ ALL_PROFILES = ["default", "oidc", "worker", "saml", "all"]
 EXPORT_SCRIPT = SCRIPT_DIR / "export_ledger.sh"
 REPORTS_DIR = SCRIPT_DIR / "reports"
 OPENAPI_DIR = PROJECT_ROOT / "docs" / "openapi"
-LEDGER_DEFAULT = SCRIPT_DIR / "ledger.json"  # 兼容: export_ledger.sh 默认输出到 scripts/api_test/ledger.json
+LEDGER_DEFAULT = (
+    SCRIPT_DIR / "ledger.json"
+)  # 兼容: export_ledger.sh 默认输出到 scripts/api_test/ledger.json
 
 GENERATOR_SCRIPT = SCRIPT_DIR / "generate_openapi.py"
 
@@ -55,7 +58,12 @@ def export_ledger(profile: str) -> Path:
         raise FileNotFoundError(f"export script not found: {EXPORT_SCRIPT}")
 
     print(f"  [export] profile={profile} → {output_path}")
-    cmd = ["bash", str(EXPORT_SCRIPT), f"--profile={profile}", f"--output={output_path}"]
+    cmd = [
+        "bash",
+        str(EXPORT_SCRIPT),
+        f"--profile={profile}",
+        f"--output={output_path}",
+    ]
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT)
     if result.returncode != 0:
         print(f"  [export] FAILED: {result.stderr[:500]}", file=sys.stderr)
@@ -66,7 +74,13 @@ def export_ledger(profile: str) -> Path:
 
 def run_generator(profiles: list[str]) -> None:
     """调 generate_openapi.py --all-profiles 生成所有 spec + index.json."""
-    cmd = [sys.executable, str(GENERATOR_SCRIPT), "--all-profiles", "--profiles", ",".join(profiles)]
+    cmd = [
+        sys.executable,
+        str(GENERATOR_SCRIPT),
+        "--all-profiles",
+        "--profiles",
+        ",".join(profiles),
+    ]
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=PROJECT_ROOT)
     print(result.stdout, end="")
     if result.returncode != 0:
@@ -77,8 +91,14 @@ def run_generator(profiles: list[str]) -> None:
 def compute_changelog(old_index: dict | None, new_index: dict) -> dict:
     """对比新旧 index.json, 计算端点变化. 简化版 — 只比较 client_server_endpoints 数量."""
     return {
-        "old_endpoint_count": sum(s.get("client_server_endpoints", 0) for s in (old_index or {}).get("specs", {}).values()),
-        "new_endpoint_count": sum(s.get("client_server_endpoints", 0) for s in new_index.get("specs", {}).values()),
+        "old_endpoint_count": sum(
+            s.get("client_server_endpoints", 0)
+            for s in (old_index or {}).get("specs", {}).values()
+        ),
+        "new_endpoint_count": sum(
+            s.get("client_server_endpoints", 0)
+            for s in new_index.get("specs", {}).values()
+        ),
         "old_index": old_index,
         "new_index": new_index,
     }
@@ -87,10 +107,24 @@ def compute_changelog(old_index: dict | None, new_index: dict) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--profile", default="", help="单 profile 模式 (例: default)")
-    ap.add_argument("--profiles", default="", help="自定义 profile 列表 (例: default,oidc)")
-    ap.add_argument("--skip-export", action="store_true", help="跳过 export_ledger.sh,假定 ledger 已就绪")
-    ap.add_argument("--skip-generate", action="store_true", help="跳过 generate_openapi.py,只做 export")
-    ap.add_argument("--index", default=str(OPENAPI_DIR / "index.json"), help="Manifest index.json 路径")
+    ap.add_argument(
+        "--profiles", default="", help="自定义 profile 列表 (例: default,oidc)"
+    )
+    ap.add_argument(
+        "--skip-export",
+        action="store_true",
+        help="跳过 export_ledger.sh,假定 ledger 已就绪",
+    )
+    ap.add_argument(
+        "--skip-generate",
+        action="store_true",
+        help="跳过 generate_openapi.py,只做 export",
+    )
+    ap.add_argument(
+        "--index",
+        default=str(OPENAPI_DIR / "index.json"),
+        help="Manifest index.json 路径",
+    )
     args = ap.parse_args()
 
     # 决定 profile 列表
@@ -156,7 +190,9 @@ def main() -> int:
 
         # 列每个 profile 的统计
         for name, spec in new_index.get("specs", {}).items():
-            print(f"  [{name:10s}] {spec['client_server_endpoints']:4d} endpoints, {spec['operations']:4d} ops, {spec['tags']:2d} tags")
+            print(
+                f"  [{name:10s}] {spec['client_server_endpoints']:4d} endpoints, {spec['operations']:4d} ops, {spec['tags']:2d} tags"
+            )
 
     print()
     print("[refresh] done.")

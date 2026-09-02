@@ -6,16 +6,22 @@ Output: artifacts/registered_routes.json  (consumed by gen_contract_doc.py)
 
 Paths are resolved relative to the repo root (SYNAPSE_RUST_ROOT) so the script is portable in CI.
 """
+
 import os, re, json
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(os.path.dirname(SCRIPT_DIR))
+ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(
+    os.path.dirname(SCRIPT_DIR)
+)
 ROUTES_DIR = os.path.join(ROOT, "src", "web", "routes")
 METHODS = "(get|post|put|delete|patch|options|head)"
 
-re_route = re.compile(r'\.route\(\s*"([^"]+)"\s*,\s*' + METHODS + r'\s*\(')
-re_route_with = re.compile(r'\.route\(\s*"([^"]+)"\s*,\s*(?:axum::routing::)?' + METHODS + r'\)')
+re_route = re.compile(r'\.route\(\s*"([^"]+)"\s*,\s*' + METHODS + r"\s*\(")
+re_route_with = re.compile(
+    r'\.route\(\s*"([^"]+)"\s*,\s*(?:axum::routing::)?' + METHODS + r"\)"
+)
 re_nest = re.compile(r'\.nest\(\s*"([^"]+)"\s*,')
+
 
 def parse_file(path):
     with open(path) as f:
@@ -30,6 +36,7 @@ def parse_file(path):
         routes.append((m.group(2).upper(), m.group(1)))
     nests = [m.group(1) for m in re_nest.finditer(src)]
     return routes, nests
+
 
 def main():
     per_module = {}
@@ -61,8 +68,11 @@ def main():
     print(f"total registered route tuples: {report['total_routes']}")
     print(f"wrote {out_path}")
     print("\nTop modules by route count:")
-    for mod, cnt in sorted(((m, len(v)) for m, v in out.items()), key=lambda x: -x[1])[:30]:
+    for mod, cnt in sorted(((m, len(v)) for m, v in out.items()), key=lambda x: -x[1])[
+        :30
+    ]:
         print(f"  {cnt:4d}  {mod}")
+
 
 if __name__ == "__main__":
     main()

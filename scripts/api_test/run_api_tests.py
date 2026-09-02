@@ -65,7 +65,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 DEFAULT_CONFIG = SCRIPT_DIR / "config.yaml"
 DEFAULT_EXPECTATIONS = SCRIPT_DIR / "expectations.yaml"
-DEFAULT_LEDGER = PROJECT_ROOT / "tests" / "unit" / "fixtures" / "ledger_export" / "default.json"
+DEFAULT_LEDGER = (
+    PROJECT_ROOT / "tests" / "unit" / "fixtures" / "ledger_export" / "default.json"
+)
 
 VERDICT_PASS = "PASS"
 VERDICT_WARN = "WARN"
@@ -98,9 +100,9 @@ ENV_OVERRIDES = {
 class ProbeSpec:
     """单个请求探测（匿名 / 认证）的定义。"""
 
-    label: str                # anonymous | authed
+    label: str  # anonymous | authed
     method: str
-    url: str                  # 已实例化的完整 URL（不含 base_url）
+    url: str  # 已实例化的完整 URL（不含 base_url）
     body: Optional[str] = None
     is_write: bool = False
 
@@ -116,9 +118,9 @@ class ProbeResult:
     content_type: str = ""
     body: str = ""
     parsed_json: Optional[Any] = None
-    checks: List[str] = field(default_factory=list)   # 人类可读的校验说明
-    issues: List[str] = field(default_factory=list)   # 失败/警告原因
-    error: Optional[str] = None                       # 连接错误等
+    checks: List[str] = field(default_factory=list)  # 人类可读的校验说明
+    issues: List[str] = field(default_factory=list)  # 失败/警告原因
+    error: Optional[str] = None  # 连接错误等
 
 
 @dataclass
@@ -172,7 +174,9 @@ def load_config(cli: argparse.Namespace) -> dict:
     for key, env in ENV_OVERRIDES.items():
         if os.environ.get(env) is not None:
             raw = os.environ[env]
-            cfg[key] = _coerce_bool(raw) if key in {"verify_tls", "allow_write"} else raw
+            cfg[key] = (
+                _coerce_bool(raw) if key in {"verify_tls", "allow_write"} else raw
+            )
     # 命令行覆盖
     if cli.env:
         cfg["env"] = cli.env
@@ -227,7 +231,9 @@ def _find_mkcert_ca() -> Optional[str]:
     except (FileNotFoundError, subprocess.SubprocessError):
         pass
     # macOS 常见位置兜底
-    candidates.append(Path.home() / "Library" / "Application Support" / "mkcert" / "rootCA.pem")
+    candidates.append(
+        Path.home() / "Library" / "Application Support" / "mkcert" / "rootCA.pem"
+    )
     for c in candidates:
         if c.exists():
             return str(c)
@@ -244,19 +250,35 @@ def export_ledger(profile: str = "default") -> Optional[Path]:
     external-services,voice-extended,cas-sso,saml-sso,friends）。
     """
     features = "server,core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends"
-    out = SCRIPT_DIR / "reports" / f"ledger_{profile}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    out = (
+        SCRIPT_DIR
+        / "reports"
+        / f"ledger_{profile}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    )
     out.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
-        "cargo", "run", "--quiet", "--no-default-features",
-        "--features", features,
-        "--bin", "synapse_ledger_export",
-        "--", f"--profile={profile}", f"--output={out}",
+        "cargo",
+        "run",
+        "--quiet",
+        "--no-default-features",
+        "--features",
+        features,
+        "--bin",
+        "synapse_ledger_export",
+        "--",
+        f"--profile={profile}",
+        f"--output={out}",
     ]
     print(f"[ledger] 编译并导出路由清单（首次较慢）：{' '.join(cmd)}")
     t0 = time.time()
-    proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True, timeout=3600)
+    proc = subprocess.run(
+        cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True, timeout=3600
+    )
     if proc.returncode != 0:
-        print(f"[ledger] 导出失败（exit={proc.returncode}）：\n{proc.stderr[-2000:]}", file=sys.stderr)
+        print(
+            f"[ledger] 导出失败（exit={proc.returncode}）：\n{proc.stderr[-2000:]}",
+            file=sys.stderr,
+        )
         return None
     print(f"[ledger] 导出完成（{time.time() - t0:.1f}s）：{out}")
     return out
@@ -318,11 +340,14 @@ DEFAULT_PARAM_VALUES: Dict[str, str] = {
 }
 
 
-def instantiate_path(path: str, param_values: Dict[str, str]) -> Tuple[str, Optional[str]]:
+def instantiate_path(
+    path: str, param_values: Dict[str, str]
+) -> Tuple[str, Optional[str]]:
     """把 /rooms/{room_id}/messages 实例化为可请求路径。
 
     返回 (url, error)。无法实例化时 error 非空（如未知参数、参数值含非法字符）。
     """
+
     def repl(m: re.Match) -> str:
         name = m.group(1)
         val = param_values.get(name, DEFAULT_PARAM_VALUES.get(name, GENERIC_VALUE))
@@ -340,16 +365,25 @@ def instantiate_path(path: str, param_values: Dict[str, str]) -> Tuple[str, Opti
 # ---------------------------------------------------------------------------
 # 自动登录
 # ---------------------------------------------------------------------------
-def auto_login(cfg: dict, base_url: str, verify: Any, timeout: float) -> Tuple[Optional[str], Optional[str]]:
+def auto_login(
+    cfg: dict, base_url: str, verify: Any, timeout: float
+) -> Tuple[Optional[str], Optional[str]]:
     """尝试用普通用户凭据登录获取 token。返回 (token, error)。"""
     username = (cfg.get("auth") or {}).get("username")
     password = (cfg.get("auth") or {}).get("password")
     if not username or not password:
         return None, "未配置 auth.username/password"
-    payload = {"type": "m.login.password", "identifier": {"type": "m.id.user", "user": username}, "password": password}
+    payload = {
+        "type": "m.login.password",
+        "identifier": {"type": "m.id.user", "user": username},
+        "password": password,
+    }
     try:
         resp = requests.post(
-            f"{base_url}/_matrix/client/v3/login", json=payload, timeout=timeout, verify=verify
+            f"{base_url}/_matrix/client/v3/login",
+            json=payload,
+            timeout=timeout,
+            verify=verify,
         )
         if resp.status_code == 200:
             token = (resp.json() or {}).get("access_token")
@@ -361,16 +395,25 @@ def auto_login(cfg: dict, base_url: str, verify: Any, timeout: float) -> Tuple[O
         return None, f"登录请求异常：{e}"
 
 
-def auto_login_admin(cfg: dict, base_url: str, verify: Any, timeout: float) -> Tuple[Optional[str], Optional[str]]:
+def auto_login_admin(
+    cfg: dict, base_url: str, verify: Any, timeout: float
+) -> Tuple[Optional[str], Optional[str]]:
     admin_cfg = cfg.get("admin") or {}
     username = admin_cfg.get("username")
     password = admin_cfg.get("password")
     if not username or not password:
         return None, "未配置 admin.username/password"
-    payload = {"type": "m.login.password", "identifier": {"type": "m.id.user", "user": username}, "password": password}
+    payload = {
+        "type": "m.login.password",
+        "identifier": {"type": "m.id.user", "user": username},
+        "password": password,
+    }
     try:
         resp = requests.post(
-            f"{base_url}/_matrix/client/v3/login", json=payload, timeout=timeout, verify=verify
+            f"{base_url}/_matrix/client/v3/login",
+            json=payload,
+            timeout=timeout,
+            verify=verify,
         )
         if resp.status_code == 200:
             token = (resp.json() or {}).get("access_token")
@@ -422,28 +465,42 @@ def build_plan(entries: List[dict], cfg: dict) -> Tuple[List[CaseResult], List[s
         bearer_inapplicable = url.startswith(AUTH_BEARER_INAPPLICABLE_PREFIXES)
 
         # 1) 匿名探测（所有路由，验证「鉴权边界 + 路由存活 + 无 5xx」）
-        probes.append(ProbeSpec(
-            label="anonymous", method=method, url=url,
-            body="{}" if is_write and method not in {"DELETE"} else None,
-            is_write=False,
-        ))
+        probes.append(
+            ProbeSpec(
+                label="anonymous",
+                method=method,
+                url=url,
+                body="{}" if is_write and method not in {"DELETE"} else None,
+                is_write=False,
+            )
+        )
 
         # 2) 认证探测（无副作用方法：GET/HEAD；管理员端点使用 admin token）
         #    对 bearer 不适用的端点跳过（federation 签名 / appservice token）
         if method in SAFE_METHODS and token and not bearer_inapplicable:
-            if "/_synapse/admin" in url or re.search(r"/_matrix/client/(?:r0|v1|v3)/admin", url):
+            if "/_synapse/admin" in url or re.search(
+                r"/_matrix/client/(?:r0|v1|v3)/admin", url
+            ):
                 use_token = admin_token or token
             else:
                 use_token = token
-            probes.append(ProbeSpec(label="authed", method=method, url=url, body=None, is_write=False))
+            probes.append(
+                ProbeSpec(
+                    label="authed", method=method, url=url, body=None, is_write=False
+                )
+            )
 
         # 3) 写操作认证探测（仅在 --allow-write 时，空 body 预期 4xx）
         if is_write and allow_write and token and not bearer_inapplicable:
-            probes.append(ProbeSpec(
-                label="authed-write", method=method, url=url,
-                body="{}" if method != "DELETE" else None,
-                is_write=True,
-            ))
+            probes.append(
+                ProbeSpec(
+                    label="authed-write",
+                    method=method,
+                    url=url,
+                    body="{}" if method != "DELETE" else None,
+                    is_write=True,
+                )
+            )
 
         case = CaseResult(method=method, path=path, registered_by=registered_by)
         for spec in probes:
@@ -576,14 +633,18 @@ def validate_schema(result: ProbeResult, rule: dict, method: str, path: str) -> 
         if isinstance(result.parsed_json, dict) and fname in result.parsed_json:
             actual = _json_type_name(result.parsed_json[fname])
             if actual != ftype:
-                result.issues.append(f"字段 {fname!r} 类型不符：实际 {actual}，期望 {ftype}")
+                result.issues.append(
+                    f"字段 {fname!r} 类型不符：实际 {actual}，期望 {ftype}"
+                )
         elif isinstance(result.parsed_json, dict):
             result.issues.append(f"缺少字段 {fname!r}（期望 {ftype}）")
         else:
             result.issues.append(f"顶层不是对象，无法校验字段 {fname!r}")
     # 非空约束
     for fname in rule.get("non_empty") or []:
-        if isinstance(result.parsed_json, dict) and isinstance(result.parsed_json.get(fname), (list, dict, str)):
+        if isinstance(result.parsed_json, dict) and isinstance(
+            result.parsed_json.get(fname), (list, dict, str)
+        ):
             if len(result.parsed_json[fname]) == 0:
                 result.issues.append(f"字段 {fname!r} 不允许为空")
 
@@ -600,9 +661,15 @@ def apply_override_checks(
             )
     if "expect_json_field" in override:
         for k, v in override["expect_json_field"].items():
-            actual = (result.parsed_json or {}).get(k) if isinstance(result.parsed_json, dict) else None
+            actual = (
+                (result.parsed_json or {}).get(k)
+                if isinstance(result.parsed_json, dict)
+                else None
+            )
             if actual != v:
-                result.issues.append(f"业务字段 {k!r} 异常：实际 {actual!r}，期望 {v!r}")
+                result.issues.append(
+                    f"业务字段 {k!r} 异常：实际 {actual!r}，期望 {v!r}"
+                )
     if "expect_body_text" in override:
         if result.body.strip() != override["expect_body_text"]:
             result.issues.append(
@@ -634,7 +701,11 @@ def classify_verdict(result: ProbeResult, override: dict, rule: dict) -> str:
     status = result.http_status
 
     # 显式规则优先
-    if override and ("expect_status" in override or "expect_body_text" in override or "expect_json_field" in override):
+    if override and (
+        "expect_status" in override
+        or "expect_body_text" in override
+        or "expect_json_field" in override
+    ):
         if result.issues:
             return VERDICT_FAIL
         return VERDICT_PASS
@@ -687,10 +758,14 @@ def classify_verdict(result: ProbeResult, override: dict, rule: dict) -> str:
             errcode = _extract_errcode(result)
             if errcode == "M_FORBIDDEN":
                 # 业务权限拒绝：占位符资源不存在 / 非成员访问房间数据等，属预期
-                result.checks.append(f"业务权限拒绝（{errcode}，占位符资源/权限不足，属预期）")
+                result.checks.append(
+                    f"业务权限拒绝（{errcode}，占位符资源/权限不足，属预期）"
+                )
                 return VERDICT_PASS
             if errcode in ("M_UNKNOWN_TOKEN", "M_MISSING_TOKEN"):
-                result.issues.append(f"认证探测被 {status} 拒绝（{errcode}：token 无效）")
+                result.issues.append(
+                    f"认证探测被 {status} 拒绝（{errcode}：token 无效）"
+                )
                 return VERDICT_FAIL
             # M_UNAUTHORIZED 及其它：无法确认是 token 问题还是权限语义 → 存疑
             result.checks.append(
@@ -745,7 +820,8 @@ def build_report(
     }
     score = (
         sum(VERDICT_SCORE.get(c.verdict, 0.0) for c in counted) / len(counted) * 100
-        if counted else 0.0
+        if counted
+        else 0.0
     )
 
     failures = []
@@ -753,49 +829,56 @@ def build_report(
         if c.verdict == VERDICT_FAIL:
             for p in c.probes:
                 if p.verdict == VERDICT_FAIL:
-                    failures.append({
-                        "method": c.method,
-                        "path": c.path,
-                        "registered_by": c.registered_by,
-                        "probe": p.spec.label,
-                        "url": p.spec.url,
-                        "request": {
-                            "method": p.spec.method,
-                            "body": p.spec.body,
-                        },
-                        "actual": {
-                            "http_status": p.http_status,
-                            "duration_ms": round(p.duration_ms, 1),
-                            "content_type": p.content_type,
-                            "body": p.body,
-                            "error": p.error,
-                        },
-                        "expected": {
-                            "http_status": (
-                                "2xx 或占位符 4xx"
-                                if p.spec.label != "anonymous"
-                                else "2xx / 401-403（鉴权）/ 占位符 4xx"
-                            ),
-                            "diff": p.issues,
-                        },
-                    })
+                    failures.append(
+                        {
+                            "method": c.method,
+                            "path": c.path,
+                            "registered_by": c.registered_by,
+                            "probe": p.spec.label,
+                            "url": p.spec.url,
+                            "request": {
+                                "method": p.spec.method,
+                                "body": p.spec.body,
+                            },
+                            "actual": {
+                                "http_status": p.http_status,
+                                "duration_ms": round(p.duration_ms, 1),
+                                "content_type": p.content_type,
+                                "body": p.body,
+                                "error": p.error,
+                            },
+                            "expected": {
+                                "http_status": (
+                                    "2xx 或占位符 4xx"
+                                    if p.spec.label != "anonymous"
+                                    else "2xx / 401-403（鉴权）/ 占位符 4xx"
+                                ),
+                                "diff": p.issues,
+                            },
+                        }
+                    )
 
     warns = []
     for c in cases:
         if c.verdict == VERDICT_WARN:
             for p in c.probes:
                 if p.verdict == VERDICT_WARN:
-                    warns.append({
-                        "method": c.method,
-                        "path": c.path,
-                        "registered_by": c.registered_by,
-                        "http_status": p.http_status,
-                        "issues": p.issues,
-                    })
+                    warns.append(
+                        {
+                            "method": c.method,
+                            "path": c.path,
+                            "registered_by": c.registered_by,
+                            "http_status": p.http_status,
+                            "issues": p.issues,
+                        }
+                    )
 
     # 按模块（registered_by）统计
     from collections import Counter, defaultdict
-    by_module: Dict[str, Dict[str, int]] = defaultdict(lambda: {VERDICT_PASS: 0, VERDICT_WARN: 0, VERDICT_FAIL: 0, VERDICT_SKIP: 0})
+
+    by_module: Dict[str, Dict[str, int]] = defaultdict(
+        lambda: {VERDICT_PASS: 0, VERDICT_WARN: 0, VERDICT_FAIL: 0, VERDICT_SKIP: 0}
+    )
     for c in cases:
         by_module[c.registered_by][c.verdict] += 1
     modules = [
@@ -808,12 +891,23 @@ def build_report(
     dur = {
         "avg_ms": round(sum(durations) / len(durations), 1) if durations else 0.0,
         "max_ms": round(max(durations), 1) if durations else 0.0,
-        "p95_ms": round(sorted(durations)[int(len(durations) * 0.95)] , 1) if len(durations) >= 20 else None,
+        "p95_ms": (
+            round(sorted(durations)[int(len(durations) * 0.95)], 1)
+            if len(durations) >= 20
+            else None
+        ),
     }
 
     slowest = sorted(
-        [{"method": c.method, "path": c.path, "duration_ms": round(c.max_duration_ms, 1)}
-         for c in cases if c.probes and c.verdict != VERDICT_SKIP],
+        [
+            {
+                "method": c.method,
+                "path": c.path,
+                "duration_ms": round(c.max_duration_ms, 1),
+            }
+            for c in cases
+            if c.probes and c.verdict != VERDICT_SKIP
+        ],
         key=lambda x: -x["duration_ms"],
     )[:10]
 
@@ -837,7 +931,9 @@ def build_report(
             "warned": by_v[VERDICT_WARN],
             "failed": by_v[VERDICT_FAIL],
             "skipped": by_v[VERDICT_SKIP],
-            "pass_rate": round(by_v[VERDICT_PASS] / len(cases) * 100, 1) if cases else 0.0,
+            "pass_rate": (
+                round(by_v[VERDICT_PASS] / len(cases) * 100, 1) if cases else 0.0
+            ),
             "health_score": round(score, 1),
             "grade": score_grade(score),
             "probe_requests": sum(len(c.probes) for c in cases),
@@ -901,7 +997,12 @@ def render_markdown(report: dict) -> str:
         "",
     ]
     if s["failed"]:
-        lines += ["## 失败接口详情", "", "| 方法 | 路径 | 模块 | 探测 | 状态码 | 差异说明 |", "| --- | --- | --- | --- | --- | --- |"]
+        lines += [
+            "## 失败接口详情",
+            "",
+            "| 方法 | 路径 | 模块 | 探测 | 状态码 | 差异说明 |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
         for f in report["failures"]:
             diff = "; ".join(f["expected"]["diff"])[:200]
             lines.append(
@@ -910,18 +1011,36 @@ def render_markdown(report: dict) -> str:
             )
         lines += [""]
     if s["warned"]:
-        lines += ["## 警告接口", "", "| 方法 | 路径 | 模块 | 状态码 | 原因 |", "| --- | --- | --- | --- | --- |"]
+        lines += [
+            "## 警告接口",
+            "",
+            "| 方法 | 路径 | 模块 | 状态码 | 原因 |",
+            "| --- | --- | --- | --- | --- |",
+        ]
         for w in report["warnings"]:
-            lines.append(f"| {w['method']} | `{w['path']}` | {w['registered_by']} | {w['http_status']} | {'; '.join(w['issues'])[:150]} |")
+            lines.append(
+                f"| {w['method']} | `{w['path']}` | {w['registered_by']} | {w['http_status']} | {'; '.join(w['issues'])[:150]} |"
+            )
         lines += [""]
-    lines += ["## 按模块统计", "", "| 模块 | 总数 | 通过 | 警告 | 失败 | 跳过 |", "| --- | --- | --- | --- | --- | --- |"]
+    lines += [
+        "## 按模块统计",
+        "",
+        "| 模块 | 总数 | 通过 | 警告 | 失败 | 跳过 |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
     for mod in report["modules"]:
         lines.append(
             f"| {mod['module']} | {mod[VERDICT_PASS] + mod[VERDICT_WARN] + mod[VERDICT_FAIL] + mod[VERDICT_SKIP]} "
             f"| {mod[VERDICT_PASS]} | {mod[VERDICT_WARN]} | {mod[VERDICT_FAIL]} | {mod[VERDICT_SKIP]} |"
         )
     if report["slowest"]:
-        lines += ["", "## 最慢接口 TOP 10", "", "| 方法 | 路径 | 耗时(ms) |", "| --- | --- | --- |"]
+        lines += [
+            "",
+            "## 最慢接口 TOP 10",
+            "",
+            "| 方法 | 路径 | 耗时(ms) |",
+            "| --- | --- | --- |",
+        ]
         for sl in report["slowest"]:
             lines.append(f"| {sl['method']} | `{sl['path']}` | {sl['duration_ms']} |")
     lines += ["", "---", "由 `scripts/api_test/run_api_tests.py` 生成"]
@@ -958,7 +1077,12 @@ def render_html(report: dict) -> str:
         </tr>"""
     mod_rows = ""
     for mod in report["modules"]:
-        total = mod[VERDICT_PASS] + mod[VERDICT_WARN] + mod[VERDICT_FAIL] + mod[VERDICT_SKIP]
+        total = (
+            mod[VERDICT_PASS]
+            + mod[VERDICT_WARN]
+            + mod[VERDICT_FAIL]
+            + mod[VERDICT_SKIP]
+        )
         rate = mod[VERDICT_PASS] / total * 100 if total else 0
         mod_rows += f"""
         <tr>
@@ -1024,7 +1148,7 @@ def render_html(report: dict) -> str:
   <div class="meta">
     环境 <b>{m["env"]}</b> · 目标 <b>{m["base_url"]}</b> · 生成 {m["generated_at"]} ·
     总耗时 {m["duration_total_s"]}s · 并发 {m["concurrency"]} ·
-    写探测 {'开启' if m["allow_write"] else '关闭'} · TLS 校验 {'开启' if m["verify_tls"] else '关闭'}
+    写探测 {"开启" if m["allow_write"] else "关闭"} · TLS 校验 {"开启" if m["verify_tls"] else "关闭"}
   </div>
   <div class="grid">
     <div class="card" style="text-align:center">
@@ -1033,7 +1157,7 @@ def render_html(report: dict) -> str:
     </div>
     <div class="stats">
       <div class="stat"><div class="num">{s["total"]}</div><div class="lbl">接口总数</div></div>
-      <div class="stat"><div class="num ok">{s["passed"]}</div><div class="lbl">✅ 通过（{(s["passed"]/s["total"]*100 if s["total"] else 0):.1f}%）</div></div>
+      <div class="stat"><div class="num ok">{s["passed"]}</div><div class="lbl">✅ 通过（{(s["passed"] / s["total"] * 100 if s["total"] else 0):.1f}%）</div></div>
       <div class="stat"><div class="num warn">{s["warned"]}</div><div class="lbl">⚠️ 警告</div></div>
       <div class="stat"><div class="num bad">{s["failed"]}</div><div class="lbl">❌ 失败</div></div>
     </div>
@@ -1077,8 +1201,12 @@ def render_html(report: dict) -> str:
 def escape_html(s: str) -> str:
     if not s:
         return ""
-    return (s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-             .replace('"', "&quot;"))
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1093,16 +1221,31 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     p.add_argument("--base-url", help="目标基础 URL，如 https://matrix.test")
     p.add_argument("--token", help="访问令牌（跳过自动登录）")
     p.add_argument("--ledger", help="路由清单 JSON 路径（覆盖默认）")
-    p.add_argument("--export-ledger", action="store_true",
-                   help="先编译并导出最新路由清单（需要 cargo，耗时较长）")
-    p.add_argument("--verify-tls", dest="verify_tls", action="store_true", default=None,
-                   help="强制开启 TLS 证书校验")
-    p.add_argument("--no-verify-tls", dest="verify_tls", action="store_false",
-                   help="关闭 TLS 证书校验（自签名证书环境）")
+    p.add_argument(
+        "--export-ledger",
+        action="store_true",
+        help="先编译并导出最新路由清单（需要 cargo，耗时较长）",
+    )
+    p.add_argument(
+        "--verify-tls",
+        dest="verify_tls",
+        action="store_true",
+        default=None,
+        help="强制开启 TLS 证书校验",
+    )
+    p.add_argument(
+        "--no-verify-tls",
+        dest="verify_tls",
+        action="store_false",
+        help="关闭 TLS 证书校验（自签名证书环境）",
+    )
     p.add_argument("--timeout", type=float, help="单请求超时秒数")
     p.add_argument("--concurrency", type=int, help="并发请求数")
-    p.add_argument("--allow-write", action="store_true",
-                   help="开启写操作认证探测（空 body，预期 4xx；prod 环境自动忽略）")
+    p.add_argument(
+        "--allow-write",
+        action="store_true",
+        help="开启写操作认证探测（空 body，预期 4xx；prod 环境自动忽略）",
+    )
     p.add_argument("--only-module", help="只测试 registered_by 匹配该子串的路由")
     p.add_argument("--report-dir", help="报告输出目录（默认 config.yaml report_dir）")
     p.add_argument("--json-out", help="JSON 报告输出路径")
@@ -1127,7 +1270,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     if ledger_path is None:
         ledger_path = resolve_ledger(cfg)
     if ledger_path is None:
-        print("❌ 未找到路由清单。请先运行 --export-ledger 或检查 ledger_path 配置。", file=sys.stderr)
+        print(
+            "❌ 未找到路由清单。请先运行 --export-ledger 或检查 ledger_path 配置。",
+            file=sys.stderr,
+        )
         return 2
     ledger_data = json.loads(ledger_path.read_text(encoding="utf-8"))
     entries = load_ledger(ledger_path)
@@ -1141,11 +1287,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     }
 
     if cli.only_module:
-        entries = [e for e in entries if cli.only_module in (e.get("registered_by") or "")]
+        entries = [
+            e for e in entries if cli.only_module in (e.get("registered_by") or "")
+        ]
         print(f"[plan] 过滤模块 {cli.only_module!r}：{len(entries)} 条")
 
     # ---- 2. 认证准备 ----
-    verify = cfg.get("verify_tls", True)   # True | False | CA bundle 路径
+    verify = cfg.get("verify_tls", True)  # True | False | CA bundle 路径
     timeout = float(cfg.get("timeout"))
     token = cfg.get("auth_token") or ""
     token_src = "配置"
@@ -1154,7 +1302,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         if token:
             token_src = "自动登录"
         else:
-            print(f"⚠️ 未获取到普通用户 token（{login_err}），认证探测将被跳过，仅执行匿名探测")
+            print(
+                f"⚠️ 未获取到普通用户 token（{login_err}），认证探测将被跳过，仅执行匿名探测"
+            )
     cfg["_token"] = token
 
     admin_token, admin_err = auto_login_admin(cfg, cfg["base_url"], verify, timeout)
@@ -1164,7 +1314,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"[auth] 未获取到 admin token（{admin_err}），admin 端点仅做匿名探测")
     cfg["_admin_token"] = admin_token
 
-    print(f"[auth] token 来源：{token_src}{'；admin：已获取' if admin_token else '；admin：未获取'}")
+    print(
+        f"[auth] token 来源：{token_src}{'；admin：已获取' if admin_token else '；admin：未获取'}"
+    )
 
     # ---- 3. 构建计划并执行 ----
     cases, skipped = build_plan(entries, cfg)
@@ -1177,7 +1329,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     overrides = expectations.get("overrides") or {}
 
     total_probes = sum(len(c.probes) for c in cases)
-    print(f"[run] 共 {len(cases)} 条路由、{total_probes} 个请求探测，并发 {cfg.get('concurrency')} ...")
+    print(
+        f"[run] 共 {len(cases)} 条路由、{total_probes} 个请求探测，并发 {cfg.get('concurrency')} ..."
+    )
 
     done = 0
     fail_count = 0
@@ -1216,8 +1370,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             # 判定：显式规则（expect_* / schema status）失败即 FAIL；
             # 否则走自动学习（含 force_auth / force_public 语义）
             has_explicit = bool(
-                (override and ("expect_status" in override or "expect_body_text" in override
-                               or "expect_json_field" in override))
+                (
+                    override
+                    and (
+                        "expect_status" in override
+                        or "expect_body_text" in override
+                        or "expect_json_field" in override
+                    )
+                )
                 or (rule and "status" in rule)
             )
             if has_explicit:
@@ -1228,8 +1388,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         return case.method + " " + case.path, case.verdict
 
     # 注意：为避免共享可变结构问题，直接在列表上迭代修改（无跨线程共享写）
-    with concurrent.futures.ThreadPoolExecutor(max_workers=int(cfg.get("concurrency"))) as ex:
-        futures = {ex.submit(work, (c, {"token": token, "admin_token": admin_token})): c for c in cases}
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=int(cfg.get("concurrency"))
+    ) as ex:
+        futures = {
+            ex.submit(work, (c, {"token": token, "admin_token": admin_token})): c
+            for c in cases
+        }
         for fut in concurrent.futures.as_completed(futures):
             done += 1
             label, verdict = fut.result()
@@ -1250,11 +1415,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         report_dir = (SCRIPT_DIR / report_dir).resolve()
     report_dir.mkdir(parents=True, exist_ok=True)
 
-    json_out = Path(cli.json_out) if cli.json_out else report_dir / "api_test_report.json"
+    json_out = (
+        Path(cli.json_out) if cli.json_out else report_dir / "api_test_report.json"
+    )
     md_out = Path(cli.md_out) if cli.md_out else report_dir / "api_test_report.md"
-    html_out = Path(cli.html_out) if cli.html_out else report_dir / "api_test_report.html"
+    html_out = (
+        Path(cli.html_out) if cli.html_out else report_dir / "api_test_report.html"
+    )
 
-    json_out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    json_out.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     md_out.write_text(render_markdown(report), encoding="utf-8")
     html_out.write_text(render_html(report), encoding="utf-8")
 
@@ -1262,8 +1433,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     print()
     print("=" * 64)
     print(f"  环境: {cfg.get('env')}  目标: {cfg['base_url']}")
-    print(f"  接口总数 {s['total']} | 通过 {s['passed']} | 警告 {s['warned']} | "
-          f"失败 {s['failed']} | 跳过 {s['skipped']}")
+    print(
+        f"  接口总数 {s['total']} | 通过 {s['passed']} | 警告 {s['warned']} | "
+        f"失败 {s['failed']} | 跳过 {s['skipped']}"
+    )
     print(f"  健康度评分: {s['health_score']} / 100（{s['grade']}）")
     print("=" * 64)
     print(f"  报告：{html_out}")

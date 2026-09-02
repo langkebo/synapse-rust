@@ -37,9 +37,9 @@ count_fmt_diffs() {
     cargo fmt --all -- --check 2>/dev/null | grep -c '^Diff in' || true
 }
 
-if (( UPDATE )); then
+if ((UPDATE)); then
     current="$(count_fmt_diffs)"
-    printf '%s\n' "$current" > "$BASELINE_FILE"
+    printf '%s\n' "$current" >"$BASELINE_FILE"
     echo "fmt baseline updated: $current"
     exit 0
 fi
@@ -50,7 +50,7 @@ if [[ ! -f "$BASELINE_FILE" ]]; then
     exit 1
 fi
 
-baseline="$(tr -d '[:space:]' < "$BASELINE_FILE")"
+baseline="$(tr -d '[:space:]' <"$BASELINE_FILE")"
 if ! [[ "$baseline" =~ ^[0-9]+$ ]]; then
     echo "::error::baseline is not a number: '$baseline' (file: $BASELINE_FILE)" >&2
     exit 1
@@ -64,7 +64,7 @@ fi
 
 echo "fmt debt: current=$current baseline=$baseline"
 
-if (( current > baseline )); then
+if ((current > baseline)); then
     echo "" >&2
     echo "::error::fmt debt increased: $current > $baseline" >&2
     echo "  New formatting issues were introduced. Fix them with:" >&2
@@ -77,7 +77,7 @@ if (( current > baseline )); then
     exit 1
 fi
 
-if (( current < baseline )); then
+if ((current < baseline)); then
     echo "" >&2
     echo "::error::fmt debt decreased: $current < $baseline" >&2
     echo "  Good — the debt shrank, so the ratchet must be tightened." >&2

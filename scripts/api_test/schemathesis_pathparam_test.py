@@ -33,6 +33,7 @@ Week 2 Task 6 — Path Param 实例化扫描器
   python3 scripts/api_test/schemathesis_pathparam_test.py --limit 50  # 调试
   python3 scripts/api_test/schemathesis_pathparam_test.py --concurrency 16
 """
+
 from __future__ import annotations
 
 import argparse
@@ -57,7 +58,6 @@ REPORT_PATH = REPORTS_DIR / "schemathesis_pathparam.json"
 sys.path.insert(0, str(SCRIPT_DIR))
 from token_manager import TokenManager  # noqa: E402
 from errcode_validator import validate_errcode  # noqa: E402
-
 
 # =============================================================================
 # Path Param 默认值映射 — 覆盖 spec 中出现的 35 种 param 名
@@ -98,6 +98,7 @@ EXTENDED_PATH_PARAMS: dict[str, str] = {
 def discover_pathparam_endpoints(spec_path: Path) -> list[tuple[str, str]]:
     """从 client.yaml 发现所有 path-param operations (method, path)."""
     import yaml
+
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     targets: list[tuple[str, str]] = []
     for path, methods in spec.get("paths", {}).items():
@@ -115,6 +116,7 @@ def discover_pathparam_endpoints(spec_path: Path) -> list[tuple[str, str]]:
 def load_path_params(config_path: Path) -> dict[str, str]:
     """从 config.yaml:path_params + EXTENDED_PATH_PARAMS 合并."""
     import yaml
+
     cfg = {}
     try:
         cfg = yaml.safe_load(config_path.read_text(encoding="utf-8"))
@@ -149,9 +151,15 @@ def curl_probe(
     """curl 探针, 返回 (status, content_type, body)."""
     method = method.upper()  # 关键: HTTP method 大小写敏感
     cmd = [
-        "curl", "-s", "-w", "\n%{http_code}\n%{content_type}",
-        "-X", method, url,
-        "-m", str(timeout),
+        "curl",
+        "-s",
+        "-w",
+        "\n%{http_code}\n%{content_type}",
+        "-X",
+        method,
+        url,
+        "-m",
+        str(timeout),
     ]
     if headers:
         for k, v in headers.items():
@@ -159,7 +167,9 @@ def curl_probe(
     if not verify_tls:
         cmd += ["-k"]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 5)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout + 5
+        )
         parts = result.stdout.rsplit("\n", 2)
         body = parts[0] if len(parts) > 0 else ""
         status = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
@@ -236,17 +246,22 @@ def probe_one(
         # M_UNRECOGNIZED on 5xx is intentional: server doesn't implement this feature
         # Only real 5xx bugs (without M_UNRECOGNIZED) count as critical
         "unexpected": (500 <= status < 600 and errcode != "M_UNRECOGNIZED")
-                      or (status > 0 and errcode is not None and not validation["valid"]),
+        or (status > 0 and errcode is not None and not validation["valid"]),
     }
 
 
 def run(args: argparse.Namespace) -> int:
     # ---- 加载 token ----
-    tm = TokenManager(base_url=args.base_url, config_path=str(SCRIPT_DIR / "config.yaml"),
-                     verify_tls=args.verify_tls)
+    tm = TokenManager(
+        base_url=args.base_url,
+        config_path=str(SCRIPT_DIR / "config.yaml"),
+        verify_tls=args.verify_tls,
+    )
     user_token = tm.get_user_token() if not args.no_auth else None
     admin_token = tm.get_admin_token() if not args.no_auth else None
-    print(f"[auth] user_token={'yes' if user_token else 'no'}, admin_token={'yes' if admin_token else 'no'}")
+    print(
+        f"[auth] user_token={'yes' if user_token else 'no'}, admin_token={'yes' if admin_token else 'no'}"
+    )
 
     # ---- 加载 endpoints ----
     endpoints = discover_pathparam_endpoints(SPEC_PATH)
@@ -274,9 +289,14 @@ def run(args: argparse.Namespace) -> int:
         futures = {
             ex.submit(
                 probe_one,
-                method, path, url,
-                user_token, admin_token,
-                args.base_url, args.verify_tls, args.timeout,
+                method,
+                path,
+                url,
+                user_token,
+                admin_token,
+                args.base_url,
+                args.verify_tls,
+                args.timeout,
             ): (method, path)
             for method, path, url in instantiated
         }
@@ -286,12 +306,19 @@ def run(args: argparse.Namespace) -> int:
                 results.append(fut.result())
             except Exception as e:
                 m, p = futures[fut]
-                results.append({
-                    "method": m, "path": p, "error": str(e), "unexpected": True,
-                })
+                results.append(
+                    {
+                        "method": m,
+                        "path": p,
+                        "error": str(e),
+                        "unexpected": True,
+                    }
+                )
             done_count += 1
             if done_count % 50 == 0 or done_count == len(instantiated):
-                print(f"[probe] {done_count}/{len(instantiated)} done ({time.time()-started:.1f}s)")
+                print(
+                    f"[probe] {done_count}/{len(instantiated)} done ({time.time() - started:.1f}s)"
+                )
 
     # ---- 汇总 ----
     total = len(results)
@@ -310,10 +337,17 @@ def run(args: argparse.Namespace) -> int:
         path = r.get("path", "")
         parts = [s for s in path.split("/") if s]
         prefix = "/" + "/".join(parts[:4]) if len(parts) >= 4 else path
-        slot = by_prefix.setdefault(prefix, {
-            "total": 0, "2xx_3xx": 0, "4xx": 0, "5xx": 0,
-            "network_err": 0, "unexpected": 0,
-        })
+        slot = by_prefix.setdefault(
+            prefix,
+            {
+                "total": 0,
+                "2xx_3xx": 0,
+                "4xx": 0,
+                "5xx": 0,
+                "network_err": 0,
+                "unexpected": 0,
+            },
+        )
         slot["total"] += 1
         if st == -1 or st == -2:
             slot["network_err"] += 1
@@ -339,17 +373,17 @@ def run(args: argparse.Namespace) -> int:
         "tested_endpoints": total,
         "by_status": by_status,
         "by_prefix_top10": sorted(
-            [
-                {"prefix": k, **v}
-                for k, v in by_prefix.items()
-            ],
+            [{"prefix": k, **v} for k, v in by_prefix.items()],
             key=lambda x: -x["total"],
         )[:10],
         "errcode_distribution_top10": sorted(
             [{"errcode": k, "count": v} for k, v in errcode_distribution.items()],
             key=lambda x: -x["count"],
         )[:10],
-        "total_5xx": by_status.get("5xx", 0) + by_status.get("502", 0) + by_status.get("503", 0) + by_status.get("504", 0),
+        "total_5xx": by_status.get("5xx", 0)
+        + by_status.get("502", 0)
+        + by_status.get("503", 0)
+        + by_status.get("504", 0),
         "total_unexpected_cases": len(unexpected_cases),
         "elapsed_seconds": round(time.time() - started, 2),
     }
@@ -375,15 +409,21 @@ def main() -> int:
         description="Week 2 Task 6: path-param 实例化扫描器"
     )
     parser.add_argument("--base-url", default="https://matrix.test")
-    parser.add_argument("--no-auth", action="store_true",
-                        help="不发 Authorization 头 (用于匿名基线)")
-    parser.add_argument("--verify-tls", dest="verify_tls", action="store_true",
-                        default=False,
-                        help="开启 TLS 校验 (默认关闭, 适用于自签名证书环境)")
+    parser.add_argument(
+        "--no-auth", action="store_true", help="不发 Authorization 头 (用于匿名基线)"
+    )
+    parser.add_argument(
+        "--verify-tls",
+        dest="verify_tls",
+        action="store_true",
+        default=False,
+        help="开启 TLS 校验 (默认关闭, 适用于自签名证书环境)",
+    )
     parser.add_argument("--timeout", type=int, default=10)
     parser.add_argument("--concurrency", type=int, default=8)
-    parser.add_argument("--limit", type=int, default=0,
-                        help="限制探测端点数 (调试用, 0=全部)")
+    parser.add_argument(
+        "--limit", type=int, default=0, help="限制探测端点数 (调试用, 0=全部)"
+    )
     args = parser.parse_args()
     return run(args)
 

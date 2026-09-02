@@ -15,6 +15,7 @@ schemathesis_extended_test.py — 扩展冒烟测试 (Week 2 Task 1)
   python3 scripts/api_test/schemathesis_extended_test.py
   python3 scripts/api_test/schemathesis_extended_test.py --max-cases 50
 """
+
 from __future__ import annotations
 
 import json
@@ -35,23 +36,37 @@ REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 def ensure_schemathesis() -> str:
     try:
         import schemathesis
+
         return schemathesis.__version__
     except ImportError:
         print("[setup] installing schemathesis ...")
         result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", "--user", "schemathesis"],
-            capture_output=True, text=True,
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "--user",
+                "schemathesis",
+            ],
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             raise RuntimeError(f"pip install failed: {result.stderr[:300]}")
         import schemathesis
+
         return schemathesis.__version__
 
 
 def check_server(base_url: str) -> bool:
     import urllib.request
+
     try:
-        req = urllib.request.Request(f"{base_url}/_matrix/client/r0/capabilities", method="GET")
+        req = urllib.request.Request(
+            f"{base_url}/_matrix/client/r0/capabilities", method="GET"
+        )
         with urllib.request.urlopen(req, timeout=5) as resp:
             return resp.status == 200
     except Exception:
@@ -69,6 +84,7 @@ def discover_optional_endpoints(spec_path: Path) -> list[tuple[str, str]]:
         List of (method, path) tuples
     """
     import yaml
+
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
     targets = []
     for path, methods in spec.get("paths", {}).items():
@@ -112,15 +128,20 @@ def test_endpoint(schema, method: str, path: str, max_cases: int) -> dict[str, A
                 client_err += 1
             else:
                 successful += 1
-            cases_summary.append({
-                "case": i + 1,
-                "status": status,
-                "body_preview": (response.text or "")[:60],
-            })
+            cases_summary.append(
+                {
+                    "case": i + 1,
+                    "status": status,
+                    "body_preview": (response.text or "")[:60],
+                }
+            )
         except Exception as e:
             err_str = str(e)[:120]
             cases_summary.append({"case": i + 1, "exception": err_str})
-            is_network = any(k in err_str.lower() for k in ["proxy", "disconnected", "connection", "timed out", "reset"])
+            is_network = any(
+                k in err_str.lower()
+                for k in ["proxy", "disconnected", "connection", "timed out", "reset"]
+            )
             if is_network:
                 network_exc += 1
             else:
@@ -144,6 +165,7 @@ def test_endpoint(schema, method: str, path: str, max_cases: int) -> dict[str, A
 def run_extended_test(max_cases: int, base_url: str) -> dict[str, Any]:
     """跑全部 discovered optional 端点的测试."""
     import schemathesis
+
     print(f"\n[test] loading spec from {SPEC_PATH}")
     schema = schemathesis.openapi.from_path(str(SPEC_PATH))
     schema.config.update(base_url=base_url)
@@ -170,9 +192,13 @@ def run_extended_test(max_cases: int, base_url: str) -> dict[str, Any]:
         r = test_endpoint(schema, method, path, max_cases)
         results[f"{method} {path}"] = r
         if not r.get("passed", False):
-            print(f"[test]   ✗ FAILED: {r.get('server_errors_5xx', 0)} 5xx, {r.get('network_exceptions', 0)} net")
+            print(
+                f"[test]   ✗ FAILED: {r.get('server_errors_5xx', 0)} 5xx, {r.get('network_exceptions', 0)} net"
+            )
         else:
-            print(f"[test]   ✓ {r.get('successful_2xx_3xx', 0)} 2xx, {r.get('client_errors_4xx', 0)} 4xx")
+            print(
+                f"[test]   ✓ {r.get('successful_2xx_3xx', 0)} 2xx, {r.get('client_errors_4xx', 0)} 4xx"
+            )
 
     return {
         "discovered_count": len(targets),
@@ -187,12 +213,16 @@ def save_report(data: dict, output_path: Path, max_cases: int) -> None:
         "discovered_endpoints": data.get("discovered_count", 0),
         "tested_endpoints": len(results),
         "passed_endpoints": sum(1 for r in results.values() if r.get("passed", False)),
-        "failed_endpoints": sum(1 for r in results.values() if not r.get("passed", False)),
+        "failed_endpoints": sum(
+            1 for r in results.values() if not r.get("passed", False)
+        ),
         "total_cases": sum(r.get("total_cases", 0) for r in results.values()),
         "total_2xx_3xx": sum(r.get("successful_2xx_3xx", 0) for r in results.values()),
         "total_4xx": sum(r.get("client_errors_4xx", 0) for r in results.values()),
         "total_5xx": sum(r.get("server_errors_5xx", 0) for r in results.values()),
-        "total_network_exc": sum(r.get("network_exceptions", 0) for r in results.values()),
+        "total_network_exc": sum(
+            r.get("network_exceptions", 0) for r in results.values()
+        ),
     }
     report = {
         "test_type": "schemathesis_extended_test",
@@ -202,7 +232,9 @@ def save_report(data: dict, output_path: Path, max_cases: int) -> None:
         "summary": summary,
         "results": results,
     }
-    output_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    output_path.write_text(
+        json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     print(f"\n[report] saved: {output_path}")
 
 
@@ -223,8 +255,10 @@ def print_summary(data: dict) -> None:
 
     print(f"\n✓ Passed: {len(passed)}/{len(results)}")
     for k, r in passed[:5]:
-        print(f"  ✓ {k:60s}  {r['successful_2xx_3xx']:2d}/{r['total_cases']:2d} 2xx, "
-              f"{r['client_errors_4xx']:2d} 4xx")
+        print(
+            f"  ✓ {k:60s}  {r['successful_2xx_3xx']:2d}/{r['total_cases']:2d} 2xx, "
+            f"{r['client_errors_4xx']:2d} 4xx"
+        )
     if len(passed) > 5:
         print(f"  ... and {len(passed) - 5} more (all passed)")
 
@@ -253,6 +287,7 @@ def print_summary(data: dict) -> None:
 
 def main() -> int:
     import argparse
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--base-url", default="http://localhost:8008")
     ap.add_argument("--max-cases", type=int, default=30)
@@ -271,7 +306,7 @@ def main() -> int:
     if args.limit > 0:
         # 限制只测前 N 个
         all_results = data.get("results", {})
-        limited = dict(list(all_results.items())[:args.limit])
+        limited = dict(list(all_results.items())[: args.limit])
         data["results"] = limited
         data["discovered_count"] = args.limit
     save_report(data, Path(args.output), args.max_cases)

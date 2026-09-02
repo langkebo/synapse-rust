@@ -39,19 +39,19 @@ for mod_name in $MODULES; do
     # Skip infrastructure/trait/domain-group modules that don't represent
     # individual services needing direct wiring
     case "$mod_name" in
-        prelude|wiring|container|shutdown|test_utils|test_mocks|capability_governance)
+        prelude | wiring | container | shutdown | test_utils | test_mocks | capability_governance)
             continue
             ;;
         # Domain group modules — their sub-services are wired individually
-        account|admin|media|infra|identity|event)
+        account | admin | media | infra | identity | event)
             continue
             ;;
         # Trait definitions, not instantiable services
-        event_broadcaster_trait|extensible_events)
+        event_broadcaster_trait | extensible_events)
             continue
             ;;
         # Module aliases / re-exports (pub use synapse_X as Y)
-        auth|worker|sync|sync_helpers|user_service|presence_service|content_scanner)
+        auth | worker | sync | sync_helpers | user_service | presence_service | content_scanner)
             continue
             ;;
         # Non-default feature modules (review separately)
@@ -59,7 +59,7 @@ for mod_name in $MODULES; do
             continue
             ;;
         # Infrastructure initialization helpers
-        database_initializer|e2ee_audit)
+        database_initializer | e2ee_audit)
             continue
             ;;
     esac

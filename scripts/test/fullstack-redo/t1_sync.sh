@@ -12,7 +12,8 @@ load_creds || exit 1
 # prior tests (e.g. auth_compat logout/all) ran on the same account.
 TOKEN1=$(login_user "e2etest1" "Test@1234")
 if [ -z "$TOKEN1" ]; then
-    echo "ERROR: failed to login e2etest1"; exit 1
+    echo "ERROR: failed to login e2etest1"
+    exit 1
 fi
 
 echo ""

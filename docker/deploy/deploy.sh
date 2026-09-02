@@ -688,7 +688,7 @@ check_local_turn() {
         if [ -z "$coturn_secret" ] && [ -f "$COTURN_DIR/turnserver.conf" ]; then
             coturn_secret="$(
                 grep -h "static-auth-secret" "$COTURN_DIR/turnserver.conf" 2>/dev/null |
-                grep -v "^#" | head -1 | awk -F= '{gsub(/[ \t\r]/,"",$2); print $2}'
+                    grep -v "^#" | head -1 | awk -F= '{gsub(/[ \t\r]/,"",$2); print $2}'
             )"
         fi
 
@@ -716,9 +716,15 @@ verify_https_endpoints() {
     [ "$https_port" != "443" ] && base="$base:$https_port"
 
     curl -kfsS "$base/health" >/dev/null ||
-        { log_error "HTTPS 健康检查失败: $base/health"; return 1; }
+        {
+            log_error "HTTPS 健康检查失败: $base/health"
+            return 1
+        }
     curl -kfsS "$base/_matrix/client/versions" >/dev/null ||
-        { log_error "HTTPS API 检查失败: $base/_matrix/client/versions"; return 1; }
+        {
+            log_error "HTTPS API 检查失败: $base/_matrix/client/versions"
+            return 1
+        }
     curl -kfsS "$base/.well-known/matrix/server" >/dev/null ||
         { log_warning "HTTPS .well-known/matrix/server 检查失败（不影响核心功能）"; }
 
@@ -962,10 +968,10 @@ wait_for_container_health() {
 run_migrations() {
     DEPLOYMENT_PHASE="database-migrate"
     log_info "执行数据库迁移 (ENABLED_EXTENSIONS=$ENABLED_EXTENSIONS)..."
-    retry 3 5 compose run -T --rm --no-deps -e "ENABLED_EXTENSIONS=${ENABLED_EXTENSIONS}" migrator migrate < /dev/null
+    retry 3 5 compose run -T --rm --no-deps -e "ENABLED_EXTENSIONS=${ENABLED_EXTENSIONS}" migrator migrate </dev/null
     log_success "数据库迁移完成"
     log_info "验证数据库架构完整性..."
-    retry 3 5 compose run -T --rm --no-deps -e "ENABLED_EXTENSIONS=${ENABLED_EXTENSIONS}" migrator validate < /dev/null
+    retry 3 5 compose run -T --rm --no-deps -e "ENABLED_EXTENSIONS=${ENABLED_EXTENSIONS}" migrator validate </dev/null
     log_success "数据库架构验证通过"
 }
 

@@ -239,12 +239,13 @@ RESP=$(http DELETE "/_matrix/client/v3/rooms/$PRIVATE_ROOM_ID" "$TOKEN_ADMIN" ""
 ACTUAL=$(echo "$RESP" | cut -f1)
 case "$ACTUAL" in
     2*) test_case "ROOM-032" "admin 删除房间返回 2xx (实际: $ACTUAL)" "$ACTUAL" "$ACTUAL" "$(echo "$RESP" | cut -f2-)" ;;
-    4*|5*) test_case "ROOM-032" "DELETE /rooms/{room_id} 端点未实现返回 4xx (实际: $ACTUAL)" "$ACTUAL" "$ACTUAL" "$(echo "$RESP" | cut -f2-)"
-          if [ "$ACTUAL" = "404" ] || [ "$ACTUAL" = "405" ]; then
-              record_issue "$MODULE" "Medium" "ROOM-032" \
-                  "DELETE /_matrix/client/v3/rooms/{room_id} returns $ACTUAL — endpoint is not implemented. PRD requires admin room-deletion capability; should be exposed under /_synapse/admin/v1/rooms/{room_id} or as Matrix-spec DELETE."
-          fi
-          ;;
+    4* | 5*)
+        test_case "ROOM-032" "DELETE /rooms/{room_id} 端点未实现返回 4xx (实际: $ACTUAL)" "$ACTUAL" "$ACTUAL" "$(echo "$RESP" | cut -f2-)"
+        if [ "$ACTUAL" = "404" ] || [ "$ACTUAL" = "405" ]; then
+            record_issue "$MODULE" "Medium" "ROOM-032" \
+                "DELETE /_matrix/client/v3/rooms/{room_id} returns $ACTUAL — endpoint is not implemented. PRD requires admin room-deletion capability; should be exposed under /_synapse/admin/v1/rooms/{room_id} or as Matrix-spec DELETE."
+        fi
+        ;;
     *) test_case "ROOM-032" "DELETE /rooms/{room_id} 未知响应" "2xx_or_4xx" "$ACTUAL" "$(echo "$RESP" | cut -f2-)" ;;
 esac
 

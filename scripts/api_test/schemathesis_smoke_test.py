@@ -17,6 +17,7 @@ schemathesis_smoke_test.py — schemathesis 冒烟测试 (Week 1 Task 3)
 
 输出: scripts/api_test/reports/schemathesis_smoke.json
 """
+
 from __future__ import annotations
 
 import json
@@ -46,23 +47,37 @@ SMOKE_TARGETS = [
 def ensure_schemathesis() -> str:
     try:
         import schemathesis
+
         return schemathesis.__version__
     except ImportError:
         print("[setup] installing schemathesis ...")
         result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", "--user", "schemathesis"],
-            capture_output=True, text=True,
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "--user",
+                "schemathesis",
+            ],
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             raise RuntimeError(f"pip install failed: {result.stderr[:300]}")
         import schemathesis
+
         return schemathesis.__version__
 
 
 def check_server(base_url: str) -> bool:
     import urllib.request
+
     try:
-        req = urllib.request.Request(f"{base_url}/_matrix/client/r0/capabilities", method="GET")
+        req = urllib.request.Request(
+            f"{base_url}/_matrix/client/r0/capabilities", method="GET"
+        )
         with urllib.request.urlopen(req, timeout=5) as resp:
             return resp.status == 200
     except Exception:
@@ -92,28 +107,39 @@ def test_endpoint(schema, method: str, path: str, max_cases: int) -> dict[str, A
             is_4xx = 400 <= status < 500
             if is_5xx:
                 server_err += 1
-                print(f"[test]   ! case {i+1}: 5xx {status}: {(response.text or '')[:80]}")
+                print(
+                    f"[test]   ! case {i + 1}: 5xx {status}: {(response.text or '')[:80]}"
+                )
             elif is_4xx:
                 client_err += 1
             else:
                 successful += 1
-            cases_summary.append({
-                "case": i + 1,
-                "status": status,
-                "body_preview": (response.text or "")[:80],
-            })
+            cases_summary.append(
+                {
+                    "case": i + 1,
+                    "status": status,
+                    "body_preview": (response.text or "")[:80],
+                }
+            )
         except Exception as e:
             err_str = str(e)[:150]
             cases_summary.append({"case": i + 1, "exception": err_str})
             # 区分网络异常和服务器错误
-            is_network = any(k in err_str.lower() for k in ["proxy", "disconnected", "connection", "timed out", "reset"])
+            is_network = any(
+                k in err_str.lower()
+                for k in ["proxy", "disconnected", "connection", "timed out", "reset"]
+            )
             if is_network:
                 network_exc += 1
             else:
                 server_err += 1
-            print(f"[test]   ! case {i+1}: {'NETWORK' if is_network else 'EXCEPTION'}: {err_str[:80]}")
+            print(
+                f"[test]   ! case {i + 1}: {'NETWORK' if is_network else 'EXCEPTION'}: {err_str[:80]}"
+            )
 
-    print(f"[test]   2xx={successful} 4xx={client_err} 5xx={server_err} network_exc={network_exc}")
+    print(
+        f"[test]   2xx={successful} 4xx={client_err} 5xx={server_err} network_exc={network_exc}"
+    )
 
     return {
         "method": method,
@@ -131,6 +157,7 @@ def test_endpoint(schema, method: str, path: str, max_cases: int) -> dict[str, A
 
 def run_smoke_test(max_cases: int, base_url: str) -> dict[str, Any]:
     import schemathesis
+
     print(f"\n[test] loading spec from {SPEC_PATH}")
     schema = schemathesis.openapi.from_path(str(SPEC_PATH))
     schema.config.update(base_url=base_url)
@@ -152,7 +179,9 @@ def save_report(results: dict, output_path: Path, max_cases: int) -> None:
         "total_2xx_3xx": sum(r.get("successful_2xx_3xx", 0) for r in results.values()),
         "total_4xx": sum(r.get("client_errors_4xx", 0) for r in results.values()),
         "total_5xx": sum(r.get("server_errors_5xx", 0) for r in results.values()),
-        "total_network_exc": sum(r.get("network_exceptions", 0) for r in results.values()),
+        "total_network_exc": sum(
+            r.get("network_exceptions", 0) for r in results.values()
+        ),
     }
     report = {
         "test_type": "schemathesis_smoke_test",
@@ -163,7 +192,9 @@ def save_report(results: dict, output_path: Path, max_cases: int) -> None:
         "summary": summary,
         "results": results,
     }
-    output_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    output_path.write_text(
+        json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     print(f"\n[report] saved: {output_path}")
 
 
@@ -196,7 +227,9 @@ def print_summary(results: dict) -> None:
         elif server > 0:
             note = " ← REAL SERVER ERROR"
 
-        print(f"  {mark} {key:55s}  {passed:2d}/{total:2d} 4xx={client:2d} 5xx={server:2d} net={net}{note}")
+        print(
+            f"  {mark} {key:55s}  {passed:2d}/{total:2d} 4xx={client:2d} 5xx={server:2d} net={net}{note}"
+        )
 
     print()
     if all_passed:
@@ -210,6 +243,7 @@ def print_summary(results: dict) -> None:
 
 def main() -> int:
     import argparse
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--base-url", default="http://localhost:8008")
     ap.add_argument("--max-cases", type=int, default=30)
@@ -231,7 +265,8 @@ def main() -> int:
     has_real_error = any(
         r.get("server_errors_5xx", 0) > 0
         for r in results.values()
-        if r.get("network_exceptions", 0) == 0  # ignore endpoints with only network issues
+        if r.get("network_exceptions", 0)
+        == 0  # ignore endpoints with only network issues
     )
     return 0 if not has_real_error else 1
 

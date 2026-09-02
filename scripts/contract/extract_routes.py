@@ -7,22 +7,36 @@ and diffing against the *registered* surface (extract_registered.py).
 
 Paths are resolved relative to the repo root (SYNAPSE_RUST_ROOT) so the script is portable in CI.
 """
+
 import os, re, json
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(os.path.dirname(SCRIPT_DIR))
-ROUTES_DIR = os.environ.get("SYNAPSE_RUST_ROUTES") or os.path.join(REPO_ROOT, "src", "web", "routes")
+REPO_ROOT = os.environ.get("SYNAPSE_RUST_ROOT") or os.path.dirname(
+    os.path.dirname(SCRIPT_DIR)
+)
+ROUTES_DIR = os.environ.get("SYNAPSE_RUST_ROUTES") or os.path.join(
+    REPO_ROOT, "src", "web", "routes"
+)
 
-re_new = re.compile(r'RouteEntry::new\(\s*Method::(\w+)\s*,\s*"([^"]+)"\s*,\s*([A-Za-z0-9_]+|"[^"]+")')
-re_expand = re.compile(r'expand_under_prefixes\(\s*([A-Za-z0-9_]+|"[^"]+")\s*,\s*&\[(.*?)\]\s*,\s*&\[(.*?)\]', re.S)
+re_new = re.compile(
+    r'RouteEntry::new\(\s*Method::(\w+)\s*,\s*"([^"]+)"\s*,\s*([A-Za-z0-9_]+|"[^"]+")'
+)
+re_expand = re.compile(
+    r'expand_under_prefixes\(\s*([A-Za-z0-9_]+|"[^"]+")\s*,\s*&\[(.*?)\]\s*,\s*&\[(.*?)\]',
+    re.S,
+)
 re_const = re.compile(r'const\s+([A-Za-z0-9_]+)\s*:\s*&str\s*=\s*"([^"]+)"')
-re_manifest_fn = re.compile(r'fn\s+\w*(?:route_manifest|manifest_for|assembly_compat_manifest|top_level_inline_manifest)\w*\s*\(')
+re_manifest_fn = re.compile(
+    r"fn\s+\w*(?:route_manifest|manifest_for|assembly_compat_manifest|top_level_inline_manifest)\w*\s*\("
+)
+
 
 def unquote(s):
     s = s.strip()
     if s.startswith('"') and s.endswith('"'):
         return s[1:-1]
     return s
+
 
 def parse_file(path):
     with open(path) as f:
@@ -47,9 +61,10 @@ def parse_file(path):
         for pm in re.finditer(r'Method::(\w+)\s*,\s*"([^"]+)"', m.group(3)):
             meth, rel = pm.group(1), pm.group(2)
             for pfx in prefixes:
-                full = pfx.rstrip('/') + rel if rel.startswith('/') else pfx + rel
+                full = pfx.rstrip("/") + rel if rel.startswith("/") else pfx + rel
                 entries.append((meth, full, mod))
     return entries, has_manifest
+
 
 def main():
     declared = []
@@ -88,13 +103,16 @@ def main():
     print(f"files with manifest fn: {len(manifest_files)}")
     print(f"wrote {out_path}")
     print("\nAll modules:")
-    for mod, cnt in sorted(((m, len(v)) for m, v in by_mod.items()), key=lambda x: (-x[1], x[0])):
+    for mod, cnt in sorted(
+        ((m, len(v)) for m, v in by_mod.items()), key=lambda x: (-x[1], x[0])
+    ):
         print(f"  {cnt:4d}  {mod}")
     # modules that register routes but no manifest fn
     print(f"\nFiles with routes but NO manifest fn (contract gap candidates):")
     gaps = sorted(all_route_files - manifest_files)
     for g in gaps:
         print(f"  {g}")
+
 
 if __name__ == "__main__":
     main()

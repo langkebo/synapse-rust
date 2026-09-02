@@ -11,6 +11,7 @@ media/quota/check 并发压测 — 验证 get_or_create_user_quota 原子 UPSERT
       [--users N] [--rounds M] [--concurrency C]
   token 缺省时尝试用 admin 凭据自动登录。
 """
+
 import argparse
 import concurrent.futures as cf
 import random
@@ -54,7 +55,11 @@ def register_user(base, token, username):
     url = base.rstrip("/") + "/_matrix/client/v1/register?kind=user"
     r = requests.post(
         url,
-        json={"username": username, "password": "Stress@123", "auth": {"type": "m.login.dummy"}},
+        json={
+            "username": username,
+            "password": "Stress@123",
+            "auth": {"type": "m.login.dummy"},
+        },
         headers={"Authorization": f"Bearer {token}"},
         verify=False,
         timeout=15,
@@ -66,13 +71,20 @@ def quota_check(base, token, user_id):
     url = base.rstrip("/") + "/_matrix/media/v1/quota/check"
     t0 = time.monotonic()
     try:
-        r = requests.get(url, headers={"Authorization": f"Bearer {token}"}, verify=False, timeout=20)
+        r = requests.get(
+            url, headers={"Authorization": f"Bearer {token}"}, verify=False, timeout=20
+        )
         dt = (time.monotonic() - t0) * 1000
         try:
             body = r.json()
         except Exception:
             body = {"_raw": r.text[:200]}
-        return {"user": user_id, "status": r.status_code, "ms": round(dt, 1), "body": body}
+        return {
+            "user": user_id,
+            "status": r.status_code,
+            "ms": round(dt, 1),
+            "body": body,
+        }
     except Exception as e:  # noqa: BLE001
         return {"user": user_id, "status": -1, "ms": None, "body": {"_error": str(e)}}
 
@@ -85,7 +97,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default=None)
     ap.add_argument("--token", default=None)
-    ap.add_argument("--users", type=int, default=4, help="独立新用户数 (每用户并发首访)")
+    ap.add_argument(
+        "--users", type=int, default=4, help="独立新用户数 (每用户并发首访)"
+    )
     ap.add_argument("--concurrency", type=int, default=16, help="每用户并发请求数")
     ap.add_argument("--rounds", type=int, default=3)
     args = ap.parse_args()
@@ -122,8 +136,16 @@ def main():
         ok = sum(1 for x in results if x["status"] == 200)
         bad = [x for x in results if x["status"] != 200]
         statuses = sorted({x["status"] for x in results})
-        p99 = sorted(x["ms"] for x in results if x["ms"] is not None)[int(len(results) * 0.99) - 1] if results else 0
-        print(f"round {rnd}: {len(results)} reqs, {elapsed:.1f}s, 200={ok}, statuses={statuses}, p99={p99:.0f}ms")
+        p99 = (
+            sorted(x["ms"] for x in results if x["ms"] is not None)[
+                int(len(results) * 0.99) - 1
+            ]
+            if results
+            else 0
+        )
+        print(
+            f"round {rnd}: {len(results)} reqs, {elapsed:.1f}s, 200={ok}, statuses={statuses}, p99={p99:.0f}ms"
+        )
         failures.extend(bad)
         all_stats.extend(x["ms"] for x in results if x["ms"] is not None)
 
@@ -132,7 +154,9 @@ def main():
         for f in failures[:5]:
             print(f"  {f}")
         sys.exit(1)
-    print(f"\n[PASS] 全部 {len(all_stats)} 请求均 200; avg={sum(all_stats)/len(all_stats):.0f}ms p99={sorted(all_stats)[int(len(all_stats)*0.99)-1]:.0f}ms")
+    print(
+        f"\n[PASS] 全部 {len(all_stats)} 请求均 200; avg={sum(all_stats) / len(all_stats):.0f}ms p99={sorted(all_stats)[int(len(all_stats) * 0.99) - 1]:.0f}ms"
+    )
 
 
 if __name__ == "__main__":

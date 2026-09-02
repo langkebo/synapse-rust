@@ -41,13 +41,13 @@ SIGNING_KEY_PATH="${CONFIG_DIR}/signing.key"
 if [[ ! -f "${SIGNING_KEY_PATH}" ]]; then
     # Generate an ed25519 signing key (base64-encoded 32 bytes)
     KEY_BYTES=$(head -c 32 /dev/urandom | base64 -w 0)
-    echo "ed25519:0 ${KEY_BYTES}" > "${SIGNING_KEY_PATH}"
+    echo "ed25519:0 ${KEY_BYTES}" >"${SIGNING_KEY_PATH}"
     chmod 600 "${SIGNING_KEY_PATH}"
 fi
 
 # ── Generate homeserver.yaml ─────────────────────────────────────────────
 
-cat > "${CONFIG_FILE}" <<EOF
+cat >"${CONFIG_FILE}" <<EOF
 # Complement-generated homeserver.yaml for ${SERVER_NAME}
 
 server:
@@ -127,7 +127,7 @@ done
 
 # Create database if it doesn't exist
 psql -h "${PSQL_HOST}" -p "${PSQL_PORT}" -U postgres -tc \
-    "SELECT 1 FROM pg_database WHERE datname = '${DB_NAME}'" | grep -q 1 || \
+    "SELECT 1 FROM pg_database WHERE datname = '${DB_NAME}'" | grep -q 1 ||
     psql -h "${PSQL_HOST}" -p "${PSQL_PORT}" -U postgres -c "CREATE DATABASE \"${DB_NAME}\""
 
 echo "[complement] Database '${DB_NAME}' ready"
@@ -135,13 +135,13 @@ echo "[complement] Database '${DB_NAME}' ready"
 # ── Apply migrations ─────────────────────────────────────────────────────
 
 SYNAPSE_DB_HOST="${PSQL_HOST}" \
-SYNAPSE_DB_PORT="${PSQL_PORT}" \
-SYNAPSE_DB_USER="postgres" \
-SYNAPSE_DB_PASSWORD="postgres" \
-SYNAPSE_DB_NAME="${DB_NAME}" \
-SYNAPSE_DB_DATABASE="${DB_NAME}" \
-DATABASE_URL="postgres://postgres:postgres@${PSQL_HOST}:${PSQL_PORT}/${DB_NAME}" \
-bash /app/scripts/db_migrate.sh migrate 2>&1 || {
+    SYNAPSE_DB_PORT="${PSQL_PORT}" \
+    SYNAPSE_DB_USER="postgres" \
+    SYNAPSE_DB_PASSWORD="postgres" \
+    SYNAPSE_DB_NAME="${DB_NAME}" \
+    SYNAPSE_DB_DATABASE="${DB_NAME}" \
+    DATABASE_URL="postgres://postgres:postgres@${PSQL_HOST}:${PSQL_PORT}/${DB_NAME}" \
+    bash /app/scripts/db_migrate.sh migrate 2>&1 || {
     echo "[complement] WARNING: Migration failed, attempting to start anyway"
 }
 

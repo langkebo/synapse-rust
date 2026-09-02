@@ -14,6 +14,7 @@ token_manager.py — Matrix Access Token 管理器 (Week 2 Task 2)
     user_token = tm.get_user_token()
     admin_token = tm.get_admin_token()
 """
+
 from __future__ import annotations
 
 import json
@@ -55,6 +56,7 @@ class TokenManager:
             self._ssl_ctx = None  # use default
         else:
             import ssl
+
             self._ssl_ctx = ssl._create_unverified_context()
 
     def _load_config(self) -> dict:
@@ -69,11 +71,13 @@ class TokenManager:
     def _login(self, username: str, password: str) -> Optional[dict]:
         """调 /_matrix/client/r0/login 拿 access_token + user_id."""
         url = f"{self.base_url}/_matrix/client/r0/login"
-        body = json.dumps({
-            "identifier": {"type": "m.id.user", "user": username},
-            "password": password,
-            "auth": {"type": "m.login.password"},
-        }).encode("utf-8")
+        body = json.dumps(
+            {
+                "identifier": {"type": "m.id.user", "user": username},
+                "password": password,
+                "auth": {"type": "m.login.password"},
+            }
+        ).encode("utf-8")
         req = urllib.request.Request(url, data=body, method="POST")
         req.add_header("Content-Type", "application/json")
         try:
@@ -90,7 +94,11 @@ class TokenManager:
 
     def get_user_token(self, force_refresh: bool = False) -> Optional[str]:
         """获取 user token. 缓存 50 分钟 (Matrix tokens 默认无过期,但保守刷新)."""
-        if not force_refresh and self._user_token and (time.time() - self._user_token_time) < 3000:
+        if (
+            not force_refresh
+            and self._user_token
+            and (time.time() - self._user_token_time) < 3000
+        ):
             return self._user_token
         creds = self._config.get("auth", {})
         username = creds.get("username", "testuser1")
@@ -104,7 +112,11 @@ class TokenManager:
 
     def get_admin_token(self, force_refresh: bool = False) -> Optional[str]:
         """获取 admin token."""
-        if not force_refresh and self._admin_token and (time.time() - self._admin_token_time) < 3000:
+        if (
+            not force_refresh
+            and self._admin_token
+            and (time.time() - self._admin_token_time) < 3000
+        ):
             return self._admin_token
         creds = self._config.get("admin", {})
         username = creds.get("username", "admin")
@@ -118,7 +130,9 @@ class TokenManager:
 
     def auth_header(self, token_type: str = "user") -> dict[str, str]:
         """返回 Authorization header dict."""
-        token = self.get_user_token() if token_type == "user" else self.get_admin_token()
+        token = (
+            self.get_user_token() if token_type == "user" else self.get_admin_token()
+        )
         if not token:
             return {}
         return {"Authorization": f"Bearer {token}"}
@@ -126,6 +140,7 @@ class TokenManager:
 
 if __name__ == "__main__":
     import argparse
+
     ap = argparse.ArgumentParser(description="Test token manager")
     ap.add_argument("--base-url", default="http://localhost:8008")
     ap.add_argument("--config", default="scripts/api_test/config.yaml")
@@ -134,5 +149,9 @@ if __name__ == "__main__":
     tm = TokenManager(base_url=args.base_url, config_path=args.config)
     user_token = tm.get_user_token()
     admin_token = tm.get_admin_token()
-    print(f"User token:  {user_token[:20] if user_token else 'NONE'}... len={len(user_token) if user_token else 0}")
-    print(f"Admin token: {admin_token[:20] if admin_token else 'NONE'}... len={len(admin_token) if admin_token else 0}")
+    print(
+        f"User token:  {user_token[:20] if user_token else 'NONE'}... len={len(user_token) if user_token else 0}"
+    )
+    print(
+        f"Admin token: {admin_token[:20] if admin_token else 'NONE'}... len={len(admin_token) if admin_token else 0}"
+    )

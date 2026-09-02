@@ -8,6 +8,7 @@ Week 2 Task 4 — 补 OpenAPI request body schema (主脚本)
   Stage C: join A+B = path → TypeName 精确映射
   Stage D: 用映射更新 docs/openapi/client.yaml 中的 requestBody
 """
+
 from __future__ import annotations
 
 import json
@@ -24,7 +25,7 @@ OUTPUT_JSON = ROOT / "scripts/api_test/handler_schemas.json"
 # ============ Stage A: 路由注册 → path → handler 名 ============
 
 _ROUTE_RE = re.compile(r'\.route\s*\(\s*"([^"]+)"\s*,\s*([^)]+?)\)', re.DOTALL)
-_METHOD_FN_RE = re.compile(r'\b(get|post|put|patch|delete)\s*\(\s*([\w:]+)')
+_METHOD_FN_RE = re.compile(r"\b(get|post|put|patch|delete)\s*\(\s*([\w:]+)")
 
 
 def scan_route_registrations() -> dict[str, list[tuple[str, str]]]:
@@ -43,6 +44,7 @@ def scan_route_registrations() -> dict[str, list[tuple[str, str]]]:
 
 # ============ Stage B: handler 函数 → Json<TypeName> ============
 
+
 def scan_handler_signatures() -> dict[str, str]:
     """返回 {handler_name: type_name}.
 
@@ -51,8 +53,7 @@ def scan_handler_signatures() -> dict[str, str]:
     """
     out: dict[str, str] = {}
     fn_re = re.compile(
-        r'(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?'
-        r'(?:async\s+)?fn\s+(\w+)\s*\('
+        r"(?:^|\n)\s*(?:pub(?:\([^)]*\))?\s+)?" r"(?:async\s+)?fn\s+(\w+)\s*\("
     )
 
     for f in sorted(ROUTES_DIR.rglob("*.rs")):
@@ -68,7 +69,7 @@ def scan_handler_signatures() -> dict[str, str]:
 
             fn_name = m.group(1)
             # 收集从此行到 { 为止(不含函数体)
-            param_lines = [lines[i][m.end():]]
+            param_lines = [lines[i][m.end() :]]
             j = i
             brace_seen = False
             while j < len(lines) and j < i + 50:
@@ -88,7 +89,7 @@ def scan_handler_signatures() -> dict[str, str]:
 
             params_text = " ".join(param_lines)
             for tp in re.finditer(
-                r'(?:Matrix)?Json\s*\(\s*\w+\s*\)\s*:\s*(?:Matrix)?Json\s*<\s*([A-Z]\w*)\s*>',
+                r"(?:Matrix)?Json\s*\(\s*\w+\s*\)\s*:\s*(?:Matrix)?Json\s*<\s*([A-Z]\w*)\s*>",
                 params_text,
             ):
                 tn = tp.group(1)
@@ -101,11 +102,12 @@ def scan_handler_signatures() -> dict[str, str]:
 
 # ============ Stage B2: Struct 字段 → JSON Schema ============
 
+
 def extract_struct_fields(content: str, struct_name: str) -> Optional[list[dict]]:
     pattern = re.compile(
-        r'#\s*\[\s*derive\s*\(([^)]*\bDeserialize\b[^)]*)\)\s*\][^\n]*\n'
-        r'(?:#\s*\[[^\]]*\]\s*\n)*?'
-        r'pub\s+struct\s+' + re.escape(struct_name) + r'\s*\{',
+        r"#\s*\[\s*derive\s*\(([^)]*\bDeserialize\b[^)]*)\)\s*\][^\n]*\n"
+        r"(?:#\s*\[[^\]]*\]\s*\n)*?"
+        r"pub\s+struct\s+" + re.escape(struct_name) + r"\s*\{",
         re.MULTILINE,
     )
     m = pattern.search(content)
@@ -133,8 +135,8 @@ def extract_struct_fields(content: str, struct_name: str) -> Optional[list[dict]
             pending_attrs.append(stripped)
             continue
         if "//" in stripped:
-            stripped = stripped[:stripped.index("//")].strip()
-        fm = re.match(r'pub\s+(\w+)\s*:\s*(.+?)(?:\s*=\s*[^,;]+)?[,\s;]*$', stripped)
+            stripped = stripped[: stripped.index("//")].strip()
+        fm = re.match(r"pub\s+(\w+)\s*:\s*(.+?)(?:\s*=\s*[^,;]+)?[,\s;]*$", stripped)
         if not fm:
             pending_attrs = []
             continue
@@ -143,7 +145,7 @@ def extract_struct_fields(content: str, struct_name: str) -> Optional[list[dict]
         all_attrs = " ".join(pending_attrs + [stripped])
         json_name = rust_name
         has_default = "default" in all_attrs
-        is_skipped = re.search(r'\bskip\b', all_attrs) is not None
+        is_skipped = re.search(r"\bskip\b", all_attrs) is not None
         optional = rust_type.startswith("Option<") or has_default
         rm = re.search(r'rename\s*=\s*"([^"]+)"', all_attrs)
         if rm:
@@ -151,29 +153,34 @@ def extract_struct_fields(content: str, struct_name: str) -> Optional[list[dict]
         if is_skipped:
             pending_attrs = []
             continue
-        fields.append({
-            "name": rust_name,
-            "json_name": json_name,
-            "rust_type": rust_type,
-            "optional": optional,
-            "has_default": has_default,
-        })
+        fields.append(
+            {
+                "name": rust_name,
+                "json_name": json_name,
+                "rust_type": rust_type,
+                "optional": optional,
+                "has_default": has_default,
+            }
+        )
         pending_attrs = []
     return fields if fields else None
 
 
 def rust_type_to_schema(rust_type: str) -> dict:
     rust_type = rust_type.strip()
-    opt_match = re.match(r'Option<(.+)>', rust_type)
+    opt_match = re.match(r"Option<(.+)>", rust_type)
     if opt_match:
         return {"anyOf": [rust_type_to_schema(opt_match.group(1)), {"type": "null"}]}
-    vec_match = re.match(r'Vec<(.+)>', rust_type)
+    vec_match = re.match(r"Vec<(.+)>", rust_type)
     if vec_match:
         return {"type": "array", "items": rust_type_to_schema(vec_match.group(1))}
-    map_match = re.match(r'(?:BTreeMap|HashMap)<.+,\s*(.+)>', rust_type)
+    map_match = re.match(r"(?:BTreeMap|HashMap)<.+,\s*(.+)>", rust_type)
     if map_match:
-        return {"type": "object", "additionalProperties": rust_type_to_schema(map_match.group(1))}
-    unwrap_match = re.match(r'(?:Box|Arc|Rc)<(.+)>', rust_type)
+        return {
+            "type": "object",
+            "additionalProperties": rust_type_to_schema(map_match.group(1)),
+        }
+    unwrap_match = re.match(r"(?:Box|Arc|Rc)<(.+)>", rust_type)
     if unwrap_match:
         return rust_type_to_schema(unwrap_match.group(1))
     type_map = {
@@ -196,7 +203,11 @@ def rust_type_to_schema(rust_type: str) -> dict:
         return type_map[rust_type]
     if rust_type in ("Value", "serde_json::Value", "JsonValue"):
         return {"type": "object", "additionalProperties": True}
-    return {"type": "object", "description": f"rust: {rust_type}", "x-unknown-rust-type": rust_type}
+    return {
+        "type": "object",
+        "description": f"rust: {rust_type}",
+        "x-unknown-rust-type": rust_type,
+    }
 
 
 def build_object_schema(struct_name: str, fields: list[dict]) -> dict:
@@ -220,9 +231,9 @@ def struct_to_schema(file_path: Path, struct_name: str) -> Optional[dict]:
 
 # 全局 struct 索引 — 一次扫描建立 type_name -> file 映射
 _STRUCT_DEF_RE = re.compile(
-    r'#\s*\[\s*derive\s*\([^)]*\bDeserialize\b[^)]*\)\][^\n]*\n'
-    r'(?:#\s*\[[^\]]*\][^\n]*\n)*'
-    r'pub\s+struct\s+([A-Z]\w*)\s*\{'
+    r"#\s*\[\s*derive\s*\([^)]*\bDeserialize\b[^)]*\)\][^\n]*\n"
+    r"(?:#\s*\[[^\]]*\][^\n]*\n)*"
+    r"pub\s+struct\s+([A-Z]\w*)\s*\{"
 )
 
 
@@ -244,6 +255,7 @@ def build_struct_index(routes_dir: Path) -> dict[str, Path]:
 
 
 # ============ Stage C: join → path → type_name ============
+
 
 def build_path_type_mapping(
     route_map: dict[str, list[tuple[str, str]]],
@@ -273,8 +285,10 @@ def build_path_type_mapping(
 
 # ============ Stage D: patch openapi ============
 
+
 def patch_openapi(joined_map: dict, type_schemas: dict) -> tuple[dict, int, int, list]:
     import yaml
+
     spec = yaml.safe_load(OPENAPI_PATH.read_text())
 
     patched = 0
@@ -290,7 +304,9 @@ def patch_openapi(joined_map: dict, type_schemas: dict) -> tuple[dict, int, int,
             if key not in joined_map:
                 unmatched += 1
                 if len(unmatched_samples) < 5:
-                    unmatched_samples.append((method, path, operation.get("operationId", "")))
+                    unmatched_samples.append(
+                        (method, path, operation.get("operationId", ""))
+                    )
                 continue
             rel_path, _, type_name = joined_map[key]
             if type_name not in type_schemas:
@@ -300,12 +316,14 @@ def patch_openapi(joined_map: dict, type_schemas: dict) -> tuple[dict, int, int,
             content = operation.setdefault("requestBody", {}).setdefault("content", {})
             content.setdefault("application/json", {})["schema"] = schema
             operation["requestBody"]["required"] = True
-            matched_pairs.append({
-                "type": type_name,
-                "op_id": operation.get("operationId", ""),
-                "path": path,
-                "method": method.upper(),
-            })
+            matched_pairs.append(
+                {
+                    "type": type_name,
+                    "op_id": operation.get("operationId", ""),
+                    "path": path,
+                    "method": method.upper(),
+                }
+            )
             patched += 1
 
     spec["x-handler-scan"] = {
@@ -315,6 +333,7 @@ def patch_openapi(joined_map: dict, type_schemas: dict) -> tuple[dict, int, int,
         "matched_pairs": matched_pairs,
         "unmatched_samples": unmatched_samples,
     }
+
     # Ensure x-handler-scan values are JSON-native (no tuples)
     def _make_serializable(obj):
         if isinstance(obj, tuple):
@@ -324,6 +343,7 @@ def patch_openapi(joined_map: dict, type_schemas: dict) -> tuple[dict, int, int,
         if isinstance(obj, list):
             return [_make_serializable(i) for i in obj]
         return obj
+
     spec["x-handler-scan"] = _make_serializable(spec["x-handler-scan"])
     return spec, patched, unmatched, unmatched_samples
 
@@ -334,10 +354,14 @@ def main() -> int:
 
     # Stage A
     route_map = scan_route_registrations()
-    write_routes = {h: [(p, m) for p, m in r if m in ('post', 'put', 'patch')]
-                    for h, r in route_map.items()}
+    write_routes = {
+        h: [(p, m) for p, m in r if m in ("post", "put", "patch")]
+        for h, r in route_map.items()
+    }
     write_route_count = sum(len(v) for v in write_routes.values())
-    print(f"[A] found {len(route_map)} handler registrations, {write_route_count} write routes")
+    print(
+        f"[A] found {len(route_map)} handler registrations, {write_route_count} write routes"
+    )
 
     # Stage B (signatures)
     handler_map = scan_handler_signatures()
@@ -387,7 +411,10 @@ def main() -> int:
             print(f"   {m.upper():6s} {p}  op={op}")
 
     import yaml
-    OPENAPI_PATH.write_text(yaml.dump(spec, allow_unicode=True, sort_keys=False, default_flow_style=False))
+
+    OPENAPI_PATH.write_text(
+        yaml.dump(spec, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    )
     print(f"[D] wrote: {OPENAPI_PATH}")
     return 0
 

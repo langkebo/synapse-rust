@@ -30,6 +30,7 @@ CI 集成 (Week 1 Task 1 完成态):
   - 差异大于 5% → 提醒 "API 表面变更,需 review"
   - 差异 = 0 → 通过
 """
+
 from __future__ import annotations
 
 import argparse
@@ -41,13 +42,45 @@ from typing import Any
 
 # OpenAPI 3.0.3 标准状态码 schema (Minimal — 后续可扩)
 DEFAULT_RESPONSES: dict[str, dict[str, Any]] = {
-    "200": {"description": "OK", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GenericResponse"}}}},
+    "200": {
+        "description": "OK",
+        "content": {
+            "application/json": {
+                "schema": {"$ref": "#/components/schemas/GenericResponse"}
+            }
+        },
+    },
     "204": {"description": "No Content"},
-    "400": {"description": "Bad Request", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MatrixError"}}}},
-    "401": {"description": "Unauthorized", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MatrixError"}}}},
-    "403": {"description": "Forbidden", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MatrixError"}}}},
-    "404": {"description": "Not Found", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MatrixError"}}}},
-    "429": {"description": "Too Many Requests", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MatrixError"}}}},
+    "400": {
+        "description": "Bad Request",
+        "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/MatrixError"}}
+        },
+    },
+    "401": {
+        "description": "Unauthorized",
+        "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/MatrixError"}}
+        },
+    },
+    "403": {
+        "description": "Forbidden",
+        "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/MatrixError"}}
+        },
+    },
+    "404": {
+        "description": "Not Found",
+        "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/MatrixError"}}
+        },
+    },
+    "429": {
+        "description": "Too Many Requests",
+        "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/MatrixError"}}
+        },
+    },
 }
 
 # Matrix 错误响应 (Spec §5.1 — errcode/error)
@@ -55,7 +88,10 @@ MATRIX_ERROR_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["errcode", "error"],
     "properties": {
-        "errcode": {"type": "string", "description": "Matrix error code, e.g. M_FORBIDDEN"},
+        "errcode": {
+            "type": "string",
+            "description": "Matrix error code, e.g. M_FORBIDDEN",
+        },
         "error": {"type": "string", "description": "Human-readable error message"},
     },
     "additionalProperties": True,
@@ -95,7 +131,9 @@ PATH_PARAM_TYPES: dict[str, str] = {
 # Auth requirements from RouteLedger.auth field → OpenAPI security
 AUTH_TO_SECURITY: dict[str, list[dict[str, list[str]]]] = {
     "user": [{"AccessToken": []}],
-    "admin": [{"AccessToken": []}],  # Synapse: admin paths require user token with admin flag
+    "admin": [
+        {"AccessToken": []}
+    ],  # Synapse: admin paths require user token with admin flag
     "federation": [{"X-Matrix": []}],
     "optional": [],  # OpenAPI: omit security (公开端点)
     "none": [],
@@ -110,22 +148,62 @@ _AUTH_HEURISTICS: list[tuple[str, str, str]] = [
     # 公开端点 — 任何人可访问 (anonymous OK)
     # 注意: 路径变体 ① `/_matrix/client/versions` (无前缀) ② `/_matrix/client/{r0,v1,v3,unstable/...}/versions`
     (r"path", r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?login(?:/|$)", "optional"),
-    (r"path", r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?register(?:/|$)", "optional"),
-    (r"path", r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?account/3pid/email/requestToken$", "optional"),
-    (r"path", r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?account/3pid/email/submitToken$", "optional"),
-    (r"path", r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?account/password/email/requestToken$", "optional"),
-    (r"path", r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?account/password/email/submitToken$", "optional"),
-    (r"path", r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?capabilities(?:/|$)", "optional"),
+    (
+        r"path",
+        r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?register(?:/|$)",
+        "optional",
+    ),
+    (
+        r"path",
+        r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?account/3pid/email/requestToken$",
+        "optional",
+    ),
+    (
+        r"path",
+        r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?account/3pid/email/submitToken$",
+        "optional",
+    ),
+    (
+        r"path",
+        r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?account/password/email/requestToken$",
+        "optional",
+    ),
+    (
+        r"path",
+        r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?account/password/email/submitToken$",
+        "optional",
+    ),
+    (
+        r"path",
+        r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?capabilities(?:/|$)",
+        "optional",
+    ),
     (r"path", r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?versions$", "optional"),
     (r"path", r"^/_\.well-known/matrix/client$", "optional"),
     (r"path", r"^/_\.well-known/matrix/server$", "optional"),
     (r"path", r"^/_\.well-known/matrix/support$", "optional"),
     (r"path", r"^/_\.well-known/openid-configuration$", "optional"),
     (r"path", r"^/_\.well-known/jwks\.json$", "optional"),
-    (r"path", r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?publicRooms(?:/|$)", "optional"),
-    (r"path", r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?profile/{user_id}(?:/|$)", "optional"),
-    (r"path", r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?thirdparty/location(?:/|$)", "optional"),
-    (r"path", r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?thirdparty/protocol/(?:[A-Za-z0-9_.-]+)$", "optional"),
+    (
+        r"path",
+        r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?publicRooms(?:/|$)",
+        "optional",
+    ),
+    (
+        r"path",
+        r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?profile/{user_id}(?:/|$)",
+        "optional",
+    ),
+    (
+        r"path",
+        r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?thirdparty/location(?:/|$)",
+        "optional",
+    ),
+    (
+        r"path",
+        r"^/_matrix/client/(?:(?:r0|v\d+|unstable)/)?thirdparty/protocol/(?:[A-Za-z0-9_.-]+)$",
+        "optional",
+    ),
     # Admin 端点
     (r"path", r"^/_synapse/admin/", "admin"),
     # Federation 端点
@@ -203,13 +281,15 @@ def build_path_params(path: str, path_params: list[str]) -> list[dict[str, Any]]
     out: list[dict[str, Any]] = []
     for pname in path_params:
         ptype = PATH_PARAM_TYPES.get(pname, "string")
-        out.append({
-            "name": pname,
-            "in": "path",
-            "required": True,
-            "description": f"Path parameter {pname!r}",
-            "schema": {"type": ptype, "example": f"${{{pname}}}"},
-        })
+        out.append(
+            {
+                "name": pname,
+                "in": "path",
+                "required": True,
+                "description": f"Path parameter {pname!r}",
+                "schema": {"type": ptype, "example": f"${{{pname}}}"},
+            }
+        )
     return out
 
 
@@ -217,13 +297,15 @@ def build_query_params(query_params: list[str]) -> list[dict[str, Any]]:
     """从 ledger 的 query_params 字段构造 OpenAPI parameter 列表."""
     out: list[dict[str, Any]] = []
     for q in query_params:
-        out.append({
-            "name": q,
-            "in": "query",
-            "required": False,
-            "description": f"Query parameter {q!r} — TODO: type and description will be filled from handler signatures",
-            "schema": {"type": "string"},
-        })
+        out.append(
+            {
+                "name": q,
+                "in": "query",
+                "required": False,
+                "description": f"Query parameter {q!r} — TODO: type and description will be filled from handler signatures",
+                "schema": {"type": "string"},
+            }
+        )
     return out
 
 
@@ -239,7 +321,13 @@ def build_operation(entry: dict[str, Any]) -> dict[str, Any]:
             f"TODO: Hand-written description, request body schema, and detailed response schema will be added in subsequent iterations."
         ),
         "operationId": make_operation_id(entry["method"], path, entry["registered_by"]),
-        "tags": [entry["registered_by"].split("::")[0].split("/")[0] if "/" in entry["registered_by"] else entry["registered_by"]],
+        "tags": [
+            (
+                entry["registered_by"].split("::")[0].split("/")[0]
+                if "/" in entry["registered_by"]
+                else entry["registered_by"]
+            )
+        ],
         "responses": dict(DEFAULT_RESPONSES),  # 浅拷贝
     }
     # parameters
@@ -257,16 +345,24 @@ def build_operation(entry: dict[str, Any]) -> dict[str, Any]:
         op["requestBody"] = {
             "required": False,
             "description": "TODO: Per-endpoint request body schema will be filled from handler signatures",
-            "content": {"application/json": {"schema": {"type": "object", "additionalProperties": True}}},
+            "content": {
+                "application/json": {
+                    "schema": {"type": "object", "additionalProperties": True}
+                }
+            },
         }
     # rate-limit note (B-4)
     if entry.get("rate_limit_exempt"):
         op.setdefault("description", "")
-        op["description"] += "\n\n**Rate limit exempt**: This endpoint skips IP-level rate limiting (own per-user+device limit applies)."
+        op["description"] += (
+            "\n\n**Rate limit exempt**: This endpoint skips IP-level rate limiting (own per-user+device limit applies)."
+        )
     return op
 
 
-def build_openapi(ledger: dict[str, Any], server_url: str, profile_name: str = "") -> dict[str, Any]:
+def build_openapi(
+    ledger: dict[str, Any], server_url: str, profile_name: str = ""
+) -> dict[str, Any]:
     """构建完整 OpenAPI 3.0.3 文档.
 
     Args:
@@ -335,7 +431,16 @@ def build_openapi(ledger: dict[str, Any], server_url: str, profile_name: str = "
         },
         "servers": [
             {"url": server_url, "description": "Local development server"},
-            {"url": "https://{server_name}", "description": "Federated server (template)", "variables": {"server_name": {"default": "matrix.org", "description": "Target homeserver"}}},
+            {
+                "url": "https://{server_name}",
+                "description": "Federated server (template)",
+                "variables": {
+                    "server_name": {
+                        "default": "matrix.org",
+                        "description": "Target homeserver",
+                    }
+                },
+            },
         ],
         "tags": [],
         "paths": paths,
@@ -366,7 +471,13 @@ def build_openapi(ledger: dict[str, Any], server_url: str, profile_name: str = "
         for op in p.values():
             for t in op.get("tags", []):
                 tag_counts[t] += 1
-    doc["tags"] = [{"name": t, "description": f"{c} operation(s) (auto-grouped by ledger source module prefix)"} for t, c in sorted(tag_counts.items(), key=lambda x: -x[1])]
+    doc["tags"] = [
+        {
+            "name": t,
+            "description": f"{c} operation(s) (auto-grouped by ledger source module prefix)",
+        }
+        for t, c in sorted(tag_counts.items(), key=lambda x: -x[1])
+    ]
     return doc
 
 
@@ -403,19 +514,29 @@ def generate_per_profile_specs(
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, Any] = {
         "schema_version": "1",
-        "generated_at": max((l.get("generated_at", "") for l in ledgers.values()), default="?"),
+        "generated_at": max(
+            (l.get("generated_at", "") for l in ledgers.values()), default="?"
+        ),
         "primary_profile": primary_profile,
         "specs": {},
     }
 
     for profile_name, ledger in ledgers.items():
-        output_path = output_dir / (f"client-{profile_name}.yaml" if profile_name != primary_profile else "client.yaml")
+        output_path = output_dir / (
+            f"client-{profile_name}.yaml"
+            if profile_name != primary_profile
+            else "client.yaml"
+        )
         doc = build_openapi(ledger, server_url, profile_name=profile_name)
         output_path.write_text(to_yaml(doc), encoding="utf-8")
         cs_count = sum(1 for e in ledger["entries"] if "/_matrix/client/" in e["path"])
         op_count = sum(len(p) for p in doc["paths"].values())
         manifest["specs"][profile_name] = {
-            "file": str(output_path.relative_to(output_dir.parent)) if output_path.is_relative_to(output_dir.parent) else str(output_path),
+            "file": (
+                str(output_path.relative_to(output_dir.parent))
+                if output_path.is_relative_to(output_dir.parent)
+                else str(output_path)
+            ),
             "ledger_file": PROFILE_TO_PATH.get(profile_name, "?"),
             "profile_flags": ledger.get("profile_flags", {}),
             "ledger_generated_at": ledger.get("generated_at", "?"),
@@ -423,7 +544,9 @@ def generate_per_profile_specs(
             "operations": op_count,
             "tags": len(doc["tags"]),
         }
-        print(f"  [openapi] {profile_name:10s} → {output_path.name}  ({op_count} ops, {len(doc['tags'])} tags)")
+        print(
+            f"  [openapi] {profile_name:10s} → {output_path.name}  ({op_count} ops, {len(doc['tags'])} tags)"
+        )
 
     return manifest
 
@@ -431,6 +554,7 @@ def generate_per_profile_specs(
 def _is_yaml_available() -> bool:
     try:
         import yaml  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -448,6 +572,7 @@ def to_yaml(doc: dict[str, Any]) -> str:
 
         class NoAliasDumper(yaml.SafeDumper):
             """禁用 YAML anchor/alias,所有重复对象都展开为完整 value."""
+
             def ignore_aliases(self, data):
                 return True
 
@@ -460,7 +585,10 @@ def to_yaml(doc: dict[str, Any]) -> str:
             default_flow_style=False,
         )
     else:
-        return json.dumps(doc, indent=2, ensure_ascii=False, sort_keys=False) + "\n# NOTE: install PyYAML for YAML output\n"
+        return (
+            json.dumps(doc, indent=2, ensure_ascii=False, sort_keys=False)
+            + "\n# NOTE: install PyYAML for YAML output\n"
+        )
 
 
 def main() -> int:
@@ -474,16 +602,34 @@ def main() -> int:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--ledger", default="scripts/api_test/ledger.json", help="Path to ledger JSON (单 profile 模式)")
-    ap.add_argument("--output", default="docs/openapi/client.yaml", help="Output OpenAPI YAML")
-    ap.add_argument("--server-url", default="http://localhost:8008", help="Base URL of the synapse-rust server")
-    ap.add_argument("--all-profiles", action="store_true", help="生成所有已知 profile 的 spec (default/oidc/worker/saml/all)")
+    ap.add_argument(
+        "--ledger",
+        default="scripts/api_test/ledger.json",
+        help="Path to ledger JSON (单 profile 模式)",
+    )
+    ap.add_argument(
+        "--output", default="docs/openapi/client.yaml", help="Output OpenAPI YAML"
+    )
+    ap.add_argument(
+        "--server-url",
+        default="http://localhost:8008",
+        help="Base URL of the synapse-rust server",
+    )
+    ap.add_argument(
+        "--all-profiles",
+        action="store_true",
+        help="生成所有已知 profile 的 spec (default/oidc/worker/saml/all)",
+    )
     ap.add_argument(
         "--profiles",
         default="",
         help="逗号分隔的 profile 列表,例如: default,oidc,worker,saml,all (配合 --all-profiles 或单独使用)",
     )
-    ap.add_argument("--index", default="docs/openapi/index.json", help="Manifest JSON 输出路径 (--all-profiles 时生效)")
+    ap.add_argument(
+        "--index",
+        default="docs/openapi/index.json",
+        help="Manifest JSON 输出路径 (--all-profiles 时生效)",
+    )
     args = ap.parse_args()
 
     # ── Multi-profile mode ──────────────────────────────────────────────────────
@@ -513,7 +659,9 @@ def main() -> int:
                 missing.append(f"  {profile_name:10s} → {p} (不存在,跳过)")
 
         if missing:
-            print("[openapi] 缺少以下 profile ledger (需要先跑 cargo run --bin synapse_ledger_export):")
+            print(
+                "[openapi] 缺少以下 profile ledger (需要先跑 cargo run --bin synapse_ledger_export):"
+            )
             for m in missing:
                 print(m)
             print("[openapi] 已加载 profile:", list(ledgers.keys()))
@@ -525,7 +673,9 @@ def main() -> int:
         # 写 manifest
         index_path = Path(args.index)
         index_path.parent.mkdir(parents=True, exist_ok=True)
-        index_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        index_path.write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
         print(f"[openapi] manifest: {index_path}")
         return 0
 

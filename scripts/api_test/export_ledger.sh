@@ -17,15 +17,18 @@ OUTPUT=""
 
 # 简单解析 --key=value
 for arg in "$@"; do
-  case "$arg" in
-    --profile=*) PROFILE="${arg#*=}" ;;
-    --output=*)  OUTPUT="${arg#*=}" ;;
-    *) echo "未知参数: $arg" >&2; exit 2 ;;
-  esac
+    case "$arg" in
+        --profile=*) PROFILE="${arg#*=}" ;;
+        --output=*) OUTPUT="${arg#*=}" ;;
+        *)
+            echo "未知参数: $arg" >&2
+            exit 2
+            ;;
+    esac
 done
 
 if [ -z "$OUTPUT" ]; then
-  OUTPUT="$SCRIPT_DIR/reports/ledger_${PROFILE}.json"
+    OUTPUT="$SCRIPT_DIR/reports/ledger_${PROFILE}.json"
 fi
 mkdir -p "$(dirname "$OUTPUT")"
 
@@ -36,9 +39,9 @@ echo "[ledger] 编译并导出（首次较慢，之后增量秒级）..."
 
 cd "$PROJECT_ROOT"
 cargo run --quiet --no-default-features \
-  --features "$FEATURES" \
-  --bin synapse_ledger_export \
-  -- "--profile=$PROFILE" "--output=$OUTPUT"
+    --features "$FEATURES" \
+    --bin synapse_ledger_export \
+    -- "--profile=$PROFILE" "--output=$OUTPUT"
 
 echo "[ledger] 完成: $OUTPUT"
 echo "[ledger] 条目数: $(python3 -c "import json;print(json.load(open('$OUTPUT'))['entry_count'])")"

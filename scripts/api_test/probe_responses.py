@@ -14,6 +14,7 @@ Week 2 Task 5 — Probe 活服务器 → 补 response schema 进 OpenAPI
   - scripts/api_test/response_schemas.json (采集到的 schemas)
   - docs/openapi/client.yaml (原位更新)
 """
+
 from __future__ import annotations
 
 import json
@@ -61,6 +62,7 @@ def get_user_token(base_url: str, verify_tls: bool = False) -> Optional[str]:
     try:
         sys.path.insert(0, str(ROOT / "scripts/api_test"))
         from token_manager import TokenManager
+
         tm = TokenManager(base_url=base_url, config_path=str(CONFIG_PATH))
         return tm.get_user_token()
     except Exception as e:
@@ -78,9 +80,11 @@ def endpoint_requires_auth(spec: dict, path: str, method: str) -> bool:
 
 def substitute_path_params(path: str, params: dict[str, str]) -> str:
     """把 {param} 替换成实际值."""
+
     def repl(m):
         key = m.group(1)
         return params.get(key, m.group(0))
+
     return re.sub(r"\{(\w+)\}", repl, path)
 
 
@@ -94,16 +98,26 @@ def curl_request(
     """用 curl 发请求, 返回 (status, headers, body)."""
     # HTTP methods are case-sensitive — curl 默认 GET, 但只有 -X GET (大写) 才正确
     method = method.upper()
-    cmd = ["curl", "-s", "-w", "\n%{http_code}\n%{content_type}",
-           "-X", method, url,
-           "-m", str(timeout)]
+    cmd = [
+        "curl",
+        "-s",
+        "-w",
+        "\n%{http_code}\n%{content_type}",
+        "-X",
+        method,
+        url,
+        "-m",
+        str(timeout),
+    ]
     if headers:
         for k, v in headers.items():
             cmd += ["-H", f"{k}: {v}"]
     if not verify_tls:
         cmd += ["-k"]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 5)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout + 5
+        )
         parts = result.stdout.rsplit("\n", 2)
         body = parts[0] if len(parts) > 0 else ""
         status = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
@@ -177,14 +191,19 @@ def main() -> int:
 
     # 探测可用服务器
     for candidate in ("http://localhost:8008", "https://matrix.test"):
-        status, _, _ = curl_request(f"{candidate}/_matrix/client/v3/versions", timeout=5)
+        status, _, _ = curl_request(
+            f"{candidate}/_matrix/client/v3/versions", timeout=5
+        )
         if status == 200:
             base_url = candidate
             verify_tls = candidate.startswith("https")
             print(f"[probe] Using server: {base_url}")
             break
     else:
-        print("[probe] ERROR: no server reachable (tried localhost:8008, matrix.test)", file=sys.stderr)
+        print(
+            "[probe] ERROR: no server reachable (tried localhost:8008, matrix.test)",
+            file=sys.stderr,
+        )
         return 1
 
     import copy
@@ -274,11 +293,18 @@ def main() -> int:
     print(f"[probe] done: {summary}")
 
     # 写 JSON
-    OUTPUT_JSON.write_text(json.dumps({
-        "summary": summary,
-        "base_url": base_url,
-        "results": results,
-    }, indent=2, ensure_ascii=False, default=str))
+    OUTPUT_JSON.write_text(
+        json.dumps(
+            {
+                "summary": summary,
+                "base_url": base_url,
+                "results": results,
+            },
+            indent=2,
+            ensure_ascii=False,
+            default=str,
+        )
+    )
     print(f"[probe] wrote: {OUTPUT_JSON}")
 
     # Patch OpenAPI: 只更新 is_2xx + has schema 的端点
@@ -292,7 +318,11 @@ def main() -> int:
             r = results.get(key)
             if not r or not r.get("is_2xx") or not r.get("schema"):
                 continue
-            content = op.setdefault("responses", {}).setdefault("200", {}).setdefault("content", {})
+            content = (
+                op.setdefault("responses", {})
+                .setdefault("200", {})
+                .setdefault("content", {})
+            )
             content.setdefault("application/json", {})["schema"] = r["schema"]
             op["responses"]["200"]["description"] = "OK"
             patched += 1
@@ -304,7 +334,9 @@ def main() -> int:
     }
 
     # 写回 spec
-    SPEC_PATH.write_text(yaml.dump(spec, allow_unicode=True, sort_keys=False, default_flow_style=False))
+    SPEC_PATH.write_text(
+        yaml.dump(spec, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    )
     print(f"[probe] wrote: {SPEC_PATH} (patched {patched} response schemas)")
     return 0
 

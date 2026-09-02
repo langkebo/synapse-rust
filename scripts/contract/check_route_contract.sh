@@ -31,8 +31,8 @@ echo "==> Regenerating ${DOC} (gen_contract_doc.py) ..."
 python3 scripts/contract/gen_contract_doc.py
 
 if git diff --quiet -- "$DOC"; then
-  echo "✅ ROUTE_CONTRACT.md is up to date with the source route surface."
-  exit 0
+    echo "✅ ROUTE_CONTRACT.md is up to date with the source route surface."
+    exit 0
 fi
 
 # Working tree differs from HEAD. Normalize away the volatile generated-date line

@@ -57,7 +57,7 @@ if [[ ! -f "$V11_BASELINE" ]]; then
 fi
 
 # === 列出所有待应用的迁移 ===
-MIGRATION_LIST="$("${PROJECT_ROOT}/docker/db_migrate.sh" list 2>/dev/null || \
+MIGRATION_LIST="$("${PROJECT_ROOT}/docker/db_migrate.sh" list 2>/dev/null ||
     find "$MIGRATIONS_DIR" -maxdepth 1 -type f -name '*.sql' ! -name '*.undo.sql' | sort)"
 
 # === 重置数据库 ===
