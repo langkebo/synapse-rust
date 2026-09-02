@@ -5,7 +5,7 @@
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name='device_trust_status' AND column_name='verified_at'
+             WHERE table_schema=current_schema() AND table_name='device_trust_status' AND column_name='verified_at'
              AND data_type='timestamp with time zone') THEN
     ALTER TABLE device_trust_status ALTER COLUMN verified_at TYPE BIGINT
       USING EXTRACT(EPOCH FROM verified_at AT TIME ZONE 'UTC') * 1000;
@@ -14,7 +14,7 @@ END $$;
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name='cross_signing_trust' AND column_name='trusted_at'
+             WHERE table_schema=current_schema() AND table_name='cross_signing_trust' AND column_name='trusted_at'
              AND data_type='timestamp with time zone') THEN
     ALTER TABLE cross_signing_trust ALTER COLUMN trusted_at TYPE BIGINT
       USING EXTRACT(EPOCH FROM trusted_at AT TIME ZONE 'UTC') * 1000;
