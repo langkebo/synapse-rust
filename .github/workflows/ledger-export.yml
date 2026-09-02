@@ -58,6 +58,7 @@ jobs:
 
       - name: Notify SDK repo
         if: ${{ secrets.MATRIX_JS_SDK_DISPATCH_TOKEN != '' }}
+        continue-on-error: true
         env:
           DISPATCH_TOKEN: ${{ secrets.MATRIX_JS_SDK_DISPATCH_TOKEN }}
         run: |
@@ -122,7 +123,9 @@ jobs:
               f"  last error: {last_error}",
               file=sys.stderr,
           )
-          sys.exit(1)
+          # exit 0 so the step doesn't fail the job — the ledger artifact was already
+          # published; the dispatch is best-effort notification only
+          sys.exit(0)
           PY
 
       - name: Skip SDK notify when token is missing
