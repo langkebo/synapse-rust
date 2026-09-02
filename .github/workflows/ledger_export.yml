@@ -120,7 +120,7 @@ jobs:
               f"  last error: {last_error}",
               file=sys.stderr,
           )
-          # exit 0 so the step doesn't fail the job — the ledger artifact was already
+          # exit 0 so the step doesn't fail the job -- the ledger artifact was already
           # published; the dispatch is best-effort notification only
           sys.exit(0)
           PY
