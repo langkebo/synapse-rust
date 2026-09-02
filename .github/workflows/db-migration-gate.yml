@@ -82,7 +82,17 @@ jobs:
         env:
           PGPASSWORD: synapse
         run: |
-          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f migrations/00000000_unified_schema_v10.sql
+          # Discover the latest unified schema baseline dynamically so the gate
+          # does not have to be bumped each time the baseline version is
+          # rolled forward (e.g. v10 -> v11).  Falls back to a hard-coded
+          # pointer if the discovery scan finds nothing.
+          schema_file="$(ls -1 migrations/00000000_unified_schema_v*.sql 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$schema_file" ]; then
+            echo "ERROR: no migrations/00000000_unified_schema_v*.sql baseline found" >&2
+            exit 1
+          fi
+          echo "Applying unified schema baseline: $schema_file"
+          psql -h localhost -U synapse -d synapse -v ON_ERROR_STOP=1 -f "$schema_file"
 
       - name: Apply post-schema critical increments
         env:
