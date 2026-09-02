@@ -111,3 +111,5 @@ certs/
 
 # WorkBuddy project data (not source)
 .workbuddy/
+target_amd64/
+target_arm64/
