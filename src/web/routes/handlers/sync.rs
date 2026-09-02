@@ -82,13 +82,20 @@ pub(crate) async fn sync(
 
     // P-048: Validate the since token before using it. A malformed token
     // (e.g. "invalid_token") cannot be parsed as a SyncToken and must be
-    // rejected with M_UNKNOWN_TOKEN instead of being silently treated as an
-    // initial sync. An empty string is treated as "no since" (initial sync).
+    // rejected. An empty string is treated as "no since" (initial sync).
+    //
+    // P-048 / B2 fix: Use M_BAD_PAGINATION (HTTP 400) instead of
+    // M_UNKNOWN_TOKEN (HTTP 401). The access token is valid; only the
+    // pagination cursor is bad. Per Matrix client-server spec,
+    // M_BAD_PAGINATION is the correct errcode for "bad pagination query
+    // parameters" such as an unparseable `since` token. Returning 401
+    // M_UNKNOWN_TOKEN here caused SDK clients to discard their access
+    // token and force the user to re-login, which is wrong.
     if let Some(ref since_token) = since {
         if since_token.trim().is_empty() {
             since = None;
         } else if SyncToken::parse(since_token).is_none() {
-            return Err(ApiError::authentication("Invalid since token".to_string()));
+            return Err(ApiError::bad_pagination("Invalid since token".to_string()));
         }
     }
 

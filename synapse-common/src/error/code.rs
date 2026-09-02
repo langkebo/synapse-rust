@@ -56,6 +56,12 @@ pub enum MatrixErrorCode {
     /// (MSC4186). Distinct from `BadJson` so clients can reset their position
     /// and resync without mistaking other 400s for pos expiry.
     UnknownPos,
+    /// M_BAD_PAGINATION: Encountered when specifying bad pagination query
+    /// parameters (e.g. an unparseable `since` token on `/sync`).
+    /// Per Matrix client-server spec, this must be returned as HTTP 400
+    /// (Bad Request), NOT 401 M_UNKNOWN_TOKEN — the access token is fine,
+    /// the pagination cursor itself is invalid.
+    BadPagination,
 }
 
 impl MatrixErrorCode {
@@ -98,6 +104,7 @@ impl MatrixErrorCode {
             Self::UserLimitExceeded => "M_USER_LIMIT_EXCEEDED",
             Self::Unsupported => "M_UNSUPPORTED",
             Self::UnknownPos => "M_UNKNOWN_POS",
+            Self::BadPagination => "M_BAD_PAGINATION",
         }
     }
 
@@ -141,6 +148,7 @@ impl MatrixErrorCode {
             Self::UserLimitExceeded => StatusCode::TOO_MANY_REQUESTS,
             Self::Unsupported => StatusCode::METHOD_NOT_ALLOWED,
             Self::UnknownPos => StatusCode::BAD_REQUEST,
+            Self::BadPagination => StatusCode::BAD_REQUEST,
         }
     }
 
@@ -188,6 +196,7 @@ impl MatrixErrorCode {
             "M_USER_LIMIT_EXCEEDED" => Some(Self::UserLimitExceeded),
             "M_UNSUPPORTED" => Some(Self::Unsupported),
             "M_UNKNOWN_POS" => Some(Self::UnknownPos),
+            "M_BAD_PAGINATION" => Some(Self::BadPagination),
             _ => None,
         }
     }
@@ -254,6 +263,7 @@ impl<'de> Deserialize<'de> for MatrixErrorCode {
                     "M_USER_LIMIT_EXCEEDED",
                     "M_UNSUPPORTED",
                     "M_UNKNOWN_POS",
+                    "M_BAD_PAGINATION",
                 ],
             )
         })

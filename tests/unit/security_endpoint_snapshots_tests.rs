@@ -119,9 +119,10 @@ fn snapshot_auth_compat_register_uia_challenge_shape() {
 
 #[test]
 fn snapshot_auth_compat_login_invalid_credentials_error() {
-    // Mirrors the 403 error when login fails with wrong password.
-    // Handler returns ApiError::forbidden("Invalid credentials").
-    let err = ApiError::forbidden("Invalid credentials".to_string());
+    // P-007 fix: mirrors the 401 + M_FORBIDDEN error when login fails with
+    // wrong password (HTTP status is 401 Unauthorized, errcode stays
+    // M_FORBIDDEN per Matrix spec). Use the production constructor.
+    let err = ApiError::invalid_credentials();
     let body = api_error_json(&err);
     insta::assert_json_snapshot!("auth_compat_login_invalid_credentials_error", body);
 }

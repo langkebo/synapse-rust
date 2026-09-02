@@ -176,8 +176,11 @@ async fn snapshot_capabilities_v3() {
 }
 
 // ============================================================================
-// Authenticated login attempt: POST /login with invalid credentials → 403
-// Snapshot the error response shape to lock the Matrix error format.
+// Authenticated login attempt: POST /login with invalid credentials → 401
+// (P-007 fix: Matrix spec requires HTTP 401 + M_FORBIDDEN for invalid
+// credentials — the error body errcode stays M_FORBIDDEN, only the HTTP
+// status changed from 403 to 401). Snapshot the error response shape to
+// lock the Matrix error format.
 // ============================================================================
 
 #[tokio::test]
@@ -199,7 +202,7 @@ async fn snapshot_login_invalid_credentials_error_shape() {
         .unwrap();
     let login_resp =
         ServiceExt::<Request<Body>>::oneshot(app, super::with_local_connect_info(login_req)).await.unwrap();
-    assert_eq!(login_resp.status(), StatusCode::FORBIDDEN);
+    assert_eq!(login_resp.status(), StatusCode::UNAUTHORIZED);
     let body_bytes = axum::body::to_bytes(login_resp.into_body(), 8192).await.unwrap();
     let body: Value = serde_json::from_slice(&body_bytes).unwrap();
 

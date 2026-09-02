@@ -46,9 +46,9 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
 
-        // P-007: Matrix spec requires 403 M_FORBIDDEN for failed login
-        // (POST /_matrix/client/v3/login: "The credentials were rejected.").
-        let invalid = || ApiError::forbidden("Invalid credentials".to_string());
+        // P-007 fix: Matrix spec requires HTTP 401 + M_FORBIDDEN for invalid
+        // credentials (wrong password or unknown user).
+        let invalid = || ApiError::invalid_credentials();
 
         let (password_hash_owned, user_for_success) = match user_opt.as_ref() {
             Some(u) if !u.is_deactivated => match u.password_hash.as_deref() {
@@ -262,18 +262,18 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
 
-        let user = user_opt.ok_or_else(|| ApiError::forbidden("Invalid credentials".to_string()))?;
+        let user = user_opt.ok_or_else(ApiError::invalid_credentials)?;
 
         if user.is_deactivated {
-            return Err(ApiError::forbidden("Invalid credentials".to_string()));
+            return Err(ApiError::invalid_credentials());
         }
 
-        let password_hash = user.password_hash.ok_or_else(|| ApiError::forbidden("Invalid credentials".to_string()))?;
+        let password_hash = user.password_hash.ok_or_else(ApiError::invalid_credentials)?;
 
         let password_ok = self.verify_user_password(password, &password_hash).await?;
 
         if !password_ok {
-            return Err(ApiError::forbidden("Invalid credentials".to_string()));
+            return Err(ApiError::invalid_credentials());
         }
 
         Ok(())

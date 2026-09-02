@@ -136,11 +136,39 @@ impl ApiError {
         Self { kind: ApiErrorKind::BadRequest, code: MatrixErrorCode::UnknownPos, message: message.into(), cause: None }
     }
 
+    /// P-048 / B2 fix: Return HTTP 400 + M_BAD_PAGINATION when a pagination
+    /// parameter (e.g. `since` token on `/sync`) is unparseable or invalid.
+    /// Previously this used `ApiError::authentication()` → HTTP 401 M_UNKNOWN_TOKEN,
+    /// which is wrong because the access token is valid — only the pagination
+    /// cursor is bad. Matrix spec defines M_BAD_PAGINATION for "bad pagination
+    /// query parameters" with HTTP 400 (Bad Request).
+    pub fn bad_pagination(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::BadRequest,
+            code: MatrixErrorCode::BadPagination,
+            message: message.into(),
+            cause: None,
+        }
+    }
+
     pub fn unauthorized(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Unauthorized,
             code: MatrixErrorCode::Unauthorized,
             message: message.into(),
+            cause: None,
+        }
+    }
+
+    /// P-007 / Issue-2 fix: Matrix spec requires HTTP 401 + M_FORBIDDEN when
+    /// login credentials are invalid (wrong password or unknown user).
+    /// Previously this used `ApiError::forbidden()` (HTTP 403) which violates
+    /// the spec and breaks Matrix SDK clients that branch on HTTP status.
+    pub fn invalid_credentials() -> Self {
+        Self {
+            kind: ApiErrorKind::Unauthorized,
+            code: MatrixErrorCode::Forbidden,
+            message: "Invalid credentials".to_string(),
             cause: None,
         }
     }
@@ -877,6 +905,28 @@ mod tests {
         assert_eq!(err.message, "Invalid or expired position token");
     }
 
+    // P-048 / B2: M_BAD_PAGINATION constructor for unparseable `since` tokens
+    // on /sync. Per Matrix spec, the HTTP status must be 400 (Bad Request),
+    // NOT 401 M_UNKNOWN_TOKEN — the access token is valid; only the
+    // pagination cursor is bad.
+    #[test]
+    fn test_api_error_bad_pagination_construction() {
+        let err = ApiError::bad_pagination("Invalid since token");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::BadPagination);
+        assert_eq!(err.code.as_str(), "M_BAD_PAGINATION");
+        assert_eq!(err.code.http_status(), StatusCode::BAD_REQUEST);
+        assert_eq!(err.message, "Invalid since token");
+    }
+
+    #[test]
+    fn test_matrix_error_code_bad_pagination_round_trip() {
+        let json = serde_json::to_string(&MatrixErrorCode::BadPagination).unwrap();
+        assert_eq!(json, "\"M_BAD_PAGINATION\"");
+        let decoded: MatrixErrorCode = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, MatrixErrorCode::BadPagination);
+    }
+
     #[test]
     fn test_matrix_error_code_unknown_pos_round_trip() {
         let json = serde_json::to_string(&MatrixErrorCode::UnknownPos).unwrap();
@@ -1407,6 +1457,7 @@ mod tests {
             MatrixErrorCode::CannotLeaveServerNoticeRoom,
             MatrixErrorCode::Unimplemented,
             MatrixErrorCode::RequestTimeout,
+            MatrixErrorCode::BadPagination,
         ];
         for code in &codes {
             let s = code.as_str();
@@ -1457,6 +1508,7 @@ mod tests {
             MatrixErrorCode::MissingParam,
             MatrixErrorCode::InvalidParam,
             MatrixErrorCode::ThreepidNotFound,
+            MatrixErrorCode::BadPagination,
         ];
         for code in &bad_request_codes {
             assert_eq!(code.http_status(), StatusCode::BAD_REQUEST, "{code:?} should be BAD_REQUEST");
@@ -1526,6 +1578,7 @@ mod tests {
             MatrixErrorCode::UserLimitExceeded,
             MatrixErrorCode::Unsupported,
             MatrixErrorCode::UnknownPos,
+            MatrixErrorCode::BadPagination,
         ]
     }
 

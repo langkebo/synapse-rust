@@ -717,42 +717,52 @@ async fn test_login_success_returns_tokens() {
 }
 
 #[tokio::test]
-async fn test_login_wrong_password_returns_forbidden() {
+async fn test_login_wrong_password_returns_401_unauthorized() {
     let h = super::test_harness::build_test_auth_service();
     let hash = hash_password_with_params("right-password", 65536, 3, 1).unwrap();
     h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
 
     let err = h.service.login("@alice:test", "wrong-password", None, None).await.unwrap_err();
-    assert_eq!(err.kind, synapse_common::ApiErrorKind::Forbidden, "P-007: wrong password must be 403 M_FORBIDDEN");
+    // P-007 fix: Matrix spec requires HTTP 401 + M_FORBIDDEN for invalid credentials.
+    assert_eq!(
+        err.kind,
+        synapse_common::ApiErrorKind::Unauthorized,
+        "P-007 fix: wrong password must be 401 M_UNAUTHORIZED"
+    );
+    assert_eq!(err.code, synapse_common::MatrixErrorCode::Forbidden);
 }
 
 #[tokio::test]
-async fn test_login_unknown_user_returns_forbidden() {
+async fn test_login_unknown_user_returns_401_unauthorized() {
     let h = super::test_harness::build_test_auth_service();
 
-    // 不存在的用户也要走 dummy hash 校验，返回 403（防用户枚举）。
+    // 不存在的用户也要走 dummy hash 校验，返回 401（防用户枚举）。
     let err = h.service.login("@nobody:test", "whatever", None, None).await.unwrap_err();
-    assert_eq!(err.kind, synapse_common::ApiErrorKind::Forbidden);
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Unauthorized);
 }
 
 #[tokio::test]
-async fn test_login_deactivated_user_returns_forbidden() {
+async fn test_login_deactivated_user_returns_401_unauthorized() {
     let h = super::test_harness::build_test_auth_service();
     let hash = hash_password_with_params("pw", 65536, 3, 1).unwrap();
     h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, true)).await;
 
     let err = h.service.login("@alice:test", "pw", None, None).await.unwrap_err();
-    assert_eq!(err.kind, synapse_common::ApiErrorKind::Forbidden, "deactivated user must not log in");
+    // P-007 fix: deactivated user is indistinguishable from bad credentials (401).
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Unauthorized, "deactivated user must not log in");
+    assert_eq!(err.code, synapse_common::MatrixErrorCode::Forbidden);
 }
 
 #[tokio::test]
-async fn test_login_no_password_user_returns_forbidden() {
+async fn test_login_no_password_user_returns_401_unauthorized() {
     let h = super::test_harness::build_test_auth_service();
     // 无密码 hash 的用户（如仅 appservice 登录），密码登录必须被拒。
     h.user_store.seed_user(make_test_user("@alice:test", None, false, false)).await;
 
     let err = h.service.login("@alice:test", "anything", None, None).await.unwrap_err();
-    assert_eq!(err.kind, synapse_common::ApiErrorKind::Forbidden);
+    // P-007 fix: 与错误密码一致，返回 401 + M_FORBIDDEN（防用户枚举）。
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Unauthorized);
+    assert_eq!(err.code, synapse_common::MatrixErrorCode::Forbidden);
 }
 
 #[tokio::test]

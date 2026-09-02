@@ -145,3 +145,58 @@ async fn test_sync_filter_applies_room_timeline_matchers_before_limit() {
     assert_eq!(timeline[0]["type"], "m.room.message");
     assert_eq!(timeline[0]["content"]["body"], "message event");
 }
+
+#[tokio::test]
+async fn test_sync_malformed_since_token_returns_bad_pagination() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let (token, _) = register_user(&app, &format!("sync_since_{}", rand::random::<u32>())).await;
+
+    // P-048 / B2 fix: an unparseable since token must be HTTP 400
+    // M_BAD_PAGINATION (the access token is valid; only the cursor is bad),
+    // NOT 401 M_UNKNOWN_TOKEN — 401 would make SDK clients discard a valid
+    // access token and force re-login.
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/sync?since=invalid_token")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["errcode"], "M_BAD_PAGINATION");
+    assert_eq!(json["error"], "Invalid since token");
+}
+
+#[tokio::test]
+async fn test_sync_empty_since_token_treated_as_initial_sync() {
+    let Some(app) = super::setup_fresh_test_app().await else {
+        return;
+    };
+
+    let (token, _) = register_user(&app, &format!("sync_empty_{}", rand::random::<u32>())).await;
+
+    // An empty/blank since token is treated as "no since" → initial sync (200).
+    for since in ["", "%20%20%20"] {
+        let uri = if since.is_empty() {
+            "/_matrix/client/v3/sync".to_string()
+        } else {
+            format!("/_matrix/client/v3/sync?since={}", since)
+        };
+        let request = Request::builder()
+            .method("GET")
+            .uri(uri)
+            .header("Authorization", format!("Bearer {}", token.clone()))
+            .body(Body::empty())
+            .unwrap();
+
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "since={:?} should be initial sync", since);
+    }
+}
