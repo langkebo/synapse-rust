@@ -54,7 +54,6 @@ jobs:
           retention-days: 14
 
       - name: Notify SDK repo
-        if: ${{ secrets.MATRIX_JS_SDK_DISPATCH_TOKEN != '' }}
         continue-on-error: true
         env:
           DISPATCH_TOKEN: ${{ secrets.MATRIX_JS_SDK_DISPATCH_TOKEN }}
@@ -67,6 +66,14 @@ jobs:
           import time
           import urllib.error
           import urllib.request
+
+          # The dispatch token is optional; if it is not configured
+          # the ledger artifact was still published and we exit 0
+          # without making the dispatch call.
+          dispatch_token = os.environ.get("DISPATCH_TOKEN", "")
+          if not dispatch_token:
+              print("MATRIX_JS_SDK_DISPATCH_TOKEN is not configured; ledger export artifact was published but no downstream dispatch was sent.")
+              sys.exit(0)
 
           repository = os.environ["SDK_REPOSITORY"]
           payload = {
@@ -124,8 +131,3 @@ jobs:
           # published; the dispatch is best-effort notification only
           sys.exit(0)
           PY
-
-      - name: Skip SDK notify when token is missing
-        if: ${{ secrets.MATRIX_JS_SDK_DISPATCH_TOKEN == '' }}
-        run: |
-          echo "MATRIX_JS_SDK_DISPATCH_TOKEN is not configured; ledger export artifact was published but no downstream dispatch was sent."
