@@ -1,0 +1,7043 @@
+{
+  "route_registrations": {
+    "create_filter": [
+      [
+        "/user/{user_id}/filter",
+        "put"
+      ]
+    ],
+    "create_audit_event": [
+      [
+        "/_synapse/admin/v1/audit/events",
+        "post"
+      ]
+    ],
+    "cleanup_all": [
+      [
+        "/_synapse/admin/v1/cleanup/all",
+        "post"
+      ]
+    ],
+    "cleanup_rooms": [
+      [
+        "/_synapse/admin/v1/cleanup/rooms",
+        "post"
+      ]
+    ],
+    "cleanup_tokens": [
+      [
+        "/_synapse/admin/v1/cleanup/tokens",
+        "post"
+      ]
+    ],
+    "reset_connection": [
+      [
+        "/_synapse/admin/v1/federation/destinations/{destination}/reset_connection",
+        "post"
+      ],
+      [
+        "/_synapse/admin/v1/federation/destinations/{destination}/reset",
+        "post"
+      ]
+    ],
+    "rewrite_federation": [
+      [
+        "/_synapse/admin/v1/federation/rewrite",
+        "post"
+      ]
+    ],
+    "resolve_federation": [
+      [
+        "/_synapse/admin/v1/federation/resolve",
+        "post"
+      ]
+    ],
+    "confirm_federation": [
+      [
+        "/_synapse/admin/v1/federation/confirm",
+        "post"
+      ]
+    ],
+    "add_to_blacklist": [
+      [
+        "/_synapse/admin/v1/federation/blacklist/{server_name}",
+        "post"
+      ]
+    ],
+    "clear_federation_cache": [
+      [
+        "/_synapse/admin/v1/federation/cache/clear",
+        "post"
+      ]
+    ],
+    "update_user_notification": [
+      [
+        "/_synapse/admin/v1/users/{user_id}/notification",
+        "put"
+      ]
+    ],
+    "create_notification": [
+      [
+        "/_synapse/admin/v1/notifications",
+        "post"
+      ]
+    ],
+    "update_notification": [
+      [
+        "/_synapse/admin/v1/notifications/{notification_id}",
+        "put"
+      ]
+    ],
+    "deactivate_notification": [
+      [
+        "/_synapse/admin/v1/notifications/{notification_id}/deactivate",
+        "put"
+      ]
+    ],
+    "send_server_notice": [
+      [
+        "/_synapse/admin/v1/send_server_notice",
+        "post"
+      ]
+    ],
+    "check_policy": [
+      [
+        "/_synapse/admin/v1/policy/check",
+        "post"
+      ]
+    ],
+    "register": [
+      [
+        "/_synapse/admin/v1/register",
+        "post"
+      ]
+    ],
+    "set_retention_policy": [
+      [
+        "/_synapse/admin/v1/retention/policy",
+        "post"
+      ]
+    ],
+    "set_room_retention_policy": [
+      [
+        "/_synapse/admin/v1/retention/policy/{room_id}",
+        "post"
+      ]
+    ],
+    "run_retention": [
+      [
+        "/_synapse/admin/v1/retention/run",
+        "post"
+      ]
+    ],
+    "shadow_ban_user": [
+      [
+        "/_synapse/admin/v1/users/{user_id}/shadow_ban",
+        "post"
+      ]
+    ],
+    "set_user_rate_limit": [
+      [
+        "/_synapse/admin/v1/users/{user_id}/rate_limit",
+        "put"
+      ]
+    ],
+    "set_user_override_rate_limit": [
+      [
+        "/_synapse/admin/v1/users/{user_id}/override_ratelimit",
+        "post"
+      ]
+    ],
+    "purge_media_cache": [
+      [
+        "/_synapse/admin/v1/purge_media_cache",
+        "post"
+      ]
+    ],
+    "restart_server": [
+      [
+        "/_synapse/admin/v1/restart",
+        "post"
+      ]
+    ],
+    "create_registration_token": [
+      [
+        "/_synapse/admin/v1/registration_tokens",
+        "post"
+      ]
+    ],
+    "update_registration_token": [
+      [
+        "/_synapse/admin/v1/registration_tokens/{token}",
+        "post"
+      ]
+    ],
+    "set_admin": [
+      [
+        "/_synapse/admin/v1/users/{user_id}/admin",
+        "put"
+      ]
+    ],
+    "evict_user": [
+      [
+        "/_synapse/admin/v1/users/{user_id}/evict",
+        "post"
+      ]
+    ],
+    "deactivate_user": [
+      [
+        "/_synapse/admin/v1/users/{user_id}/deactivate",
+        "post"
+      ]
+    ],
+    "reset_user_password": [
+      [
+        "/_synapse/admin/v1/users/{user_id}/password",
+        "post"
+      ]
+    ],
+    "login_as_user": [
+      [
+        "/_synapse/admin/v1/users/{user_id}/login",
+        "post"
+      ]
+    ],
+    "logout_user_devices": [
+      [
+        "/_synapse/admin/v1/users/{user_id}/logout",
+        "post"
+      ],
+      [
+        "/_synapse/admin/v1/users/{user_id}/devices/delete",
+        "post"
+      ]
+    ],
+    "delete_user_device_admin_compat": [
+      [
+        "/_synapse/admin/v1/users/{user_id}/devices/{device_id}/delete",
+        "post"
+      ]
+    ],
+    "create_or_update_user_v2": [
+      [
+        "/_synapse/admin/v2/users/{user_id}",
+        "put"
+      ]
+    ],
+    "batch_create_users": [
+      [
+        "/_synapse/admin/v1/users/batch",
+        "post"
+      ]
+    ],
+    "batch_deactivate_users": [
+      [
+        "/_synapse/admin/v1/users/batch_deactivate",
+        "post"
+      ]
+    ],
+    "invalidate_user_sessions": [
+      [
+        "/_synapse/admin/v1/user_sessions/{user_id}/invalidate",
+        "post"
+      ]
+    ],
+    "update_account": [
+      [
+        "/_synapse/admin/v1/account/{user_id}",
+        "post"
+      ]
+    ],
+    "app_service_ping": [
+      [
+        "/_matrix/app/v1/ping",
+        "post"
+      ]
+    ],
+    "app_service_transactions": [
+      [
+        "/_matrix/app/v1/transactions/{as_id}/{txn_id}",
+        "put"
+      ]
+    ],
+    "register_app_service": [
+      [
+        "/_synapse/admin/v1/appservices",
+        "post"
+      ]
+    ],
+    "update_app_service": [
+      [
+        "/_synapse/admin/v1/appservices/{as_id}",
+        "put"
+      ]
+    ],
+    "ping_app_service": [
+      [
+        "/_synapse/admin/v1/appservices/{as_id}/ping",
+        "post"
+      ]
+    ],
+    "set_app_service_state": [
+      [
+        "/_synapse/admin/v1/appservices/{as_id}/state",
+        "post"
+      ]
+    ],
+    "register_virtual_user": [
+      [
+        "/_synapse/admin/v1/appservices/{as_id}/users",
+        "post"
+      ]
+    ],
+    "push_event": [
+      [
+        "/_synapse/admin/v1/appservices/{as_id}/events",
+        "post"
+      ]
+    ],
+    "voip::call_invite": [
+      [
+        "/rooms/{room_id}/send/m.call.invite/{txn_id}",
+        "put"
+      ]
+    ],
+    "voip::call_candidates": [
+      [
+        "/rooms/{room_id}/send/m.call.candidates/{txn_id}",
+        "put"
+      ]
+    ],
+    "voip::call_answer": [
+      [
+        "/rooms/{room_id}/send/m.call.answer/{txn_id}",
+        "put"
+      ]
+    ],
+    "voip::call_hangup": [
+      [
+        "/rooms/{room_id}/send/m.call.hangup/{txn_id}",
+        "put"
+      ]
+    ],
+    "handlers::search::search::search_rooms": [
+      [
+        "/search_rooms",
+        "post"
+      ]
+    ],
+    "handlers::search::search::search_recipients": [
+      [
+        "/search_recipients",
+        "post"
+      ]
+    ],
+    "handlers::dehydrated_device::post_dehydrated_device_events": [
+      [
+        "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
+        "post"
+      ]
+    ],
+    "request_email_verification": [
+      [
+        "/register/email/requestToken",
+        "post"
+      ]
+    ],
+    "submit_email_token": [
+      [
+        "/register/email/submitToken",
+        "post"
+      ],
+      [
+        "/account/password/email/submitToken",
+        "post"
+      ],
+      [
+        "/account/3pid/email/submitToken",
+        "post"
+      ]
+    ],
+    "logout": [
+      [
+        "/logout",
+        "post"
+      ]
+    ],
+    "logout_all": [
+      [
+        "/logout/all",
+        "post"
+      ]
+    ],
+    "refresh_token": [
+      [
+        "/refresh",
+        "post"
+      ]
+    ],
+    "auth_compat::generate_qr_login_token": [
+      [
+        "/_matrix/client/v1/login/qr_token",
+        "post"
+      ]
+    ],
+    "change_password_uia": [
+      [
+        "/account/password",
+        "post"
+      ]
+    ],
+    "request_password_email_verification": [
+      [
+        "/account/password/email/requestToken",
+        "post"
+      ]
+    ],
+    "deactivate_account": [
+      [
+        "/account/deactivate",
+        "post"
+      ]
+    ],
+    "add_threepid": [
+      [
+        "/account/3pid/add",
+        "post"
+      ],
+      [
+        "/account/3pid/bind",
+        "post"
+      ]
+    ],
+    "request_3pid_add_email_verification": [
+      [
+        "/account/3pid/email/requestToken",
+        "post"
+      ]
+    ],
+    "delete_threepid": [
+      [
+        "/account/3pid/delete",
+        "post"
+      ]
+    ],
+    "unbind_threepid": [
+      [
+        "/account/3pid/unbind",
+        "post"
+      ]
+    ],
+    "update_displayname": [
+      [
+        "/account/profile/{user_id}/displayname",
+        "put"
+      ]
+    ],
+    "update_avatar": [
+      [
+        "/account/profile/{user_id}/avatar_url",
+        "put"
+      ]
+    ],
+    "search_user_directory": [
+      [
+        "/user_directory/search",
+        "post"
+      ]
+    ],
+    "list_user_directory": [
+      [
+        "/user_directory/list",
+        "post"
+      ]
+    ],
+    "set_room_alias": [
+      [
+        "/directory/room/{room_id}/alias/{room_alias}",
+        "put"
+      ]
+    ],
+    "create_update": [
+      [
+        "/_synapse/admin/v1/background_updates",
+        "post"
+      ]
+    ],
+    "retry_failed": [
+      [
+        "/_synapse/admin/v1/background_updates/retry_failed",
+        "post"
+      ]
+    ],
+    "cleanup_locks": [
+      [
+        "/_synapse/admin/v1/background_updates/cleanup_locks",
+        "post"
+      ]
+    ],
+    "start_update": [
+      [
+        "/_synapse/admin/v1/background_updates/{job_name}/start",
+        "post"
+      ]
+    ],
+    "update_progress": [
+      [
+        "/_synapse/admin/v1/background_updates/{job_name}/progress",
+        "post"
+      ]
+    ],
+    "complete_update": [
+      [
+        "/_synapse/admin/v1/background_updates/{job_name}/complete",
+        "post"
+      ]
+    ],
+    "fail_update": [
+      [
+        "/_synapse/admin/v1/background_updates/{job_name}/fail",
+        "post"
+      ]
+    ],
+    "cancel_update": [
+      [
+        "/_synapse/admin/v1/background_updates/{job_name}/cancel",
+        "post"
+      ]
+    ],
+    "enable_burn": [
+      [
+        "/_matrix/client/v1/rooms/{room_id}/burn",
+        "put"
+      ],
+      [
+        "/_matrix/client/v3/rooms/{room_id}/burn",
+        "put"
+      ],
+      [
+        "/_matrix/vendor/v1/rooms/{room_id}/burn",
+        "put"
+      ]
+    ],
+    "mark_burn_read": [
+      [
+        "/_matrix/client/v1/rooms/{room_id}/burn/{event_id}",
+        "post"
+      ],
+      [
+        "/_matrix/client/v3/rooms/{room_id}/burn/{event_id}",
+        "post"
+      ],
+      [
+        "/_matrix/vendor/v1/rooms/{room_id}/burn/{event_id}",
+        "post"
+      ]
+    ],
+    "set_global_burn_config": [
+      [
+        "/_matrix/client/v1/user/burn/config",
+        "put"
+      ],
+      [
+        "/_matrix/client/v3/user/burn/config",
+        "put"
+      ],
+      [
+        "/_matrix/vendor/v1/user/burn/config",
+        "put"
+      ]
+    ],
+    "send_captcha": [
+      [
+        "/_matrix/client/r0/register/captcha/send",
+        "post"
+      ],
+      [
+        "/_matrix/client/v3/register/captcha/send",
+        "post"
+      ]
+    ],
+    "verify_captcha": [
+      [
+        "/_matrix/client/r0/register/captcha/verify",
+        "post"
+      ],
+      [
+        "/_matrix/client/v3/register/captcha/verify",
+        "post"
+      ]
+    ],
+    "cleanup_expired": [
+      [
+        "/_synapse/admin/v1/captcha/cleanup",
+        "post"
+      ]
+    ],
+    "register_service": [
+      [
+        "/_synapse/admin/v1/cas/services",
+        "post"
+      ],
+      [
+        "/admin/services",
+        "post"
+      ]
+    ],
+    "set_user_attribute": [
+      [
+        "/_synapse/admin/v1/cas/users/{user_id}/attributes",
+        "post"
+      ],
+      [
+        "/admin/users/{user_id}/attributes",
+        "post"
+      ]
+    ],
+    "manage_delayed_event": [
+      [
+        "/delayed_events/{delay_id}",
+        "post"
+      ]
+    ],
+    "delete_devices": [
+      [
+        "/delete_devices",
+        "post"
+      ]
+    ],
+    "get_device_list_updates": [
+      [
+        "/keys/device_list_updates",
+        "post"
+      ]
+    ],
+    "update_dm_room": [
+      [
+        "/direct/{room_id}",
+        "put"
+      ],
+      [
+        "/_matrix/client/r0/direct/{room_id}",
+        "put"
+      ]
+    ],
+    "create_dm_room": [
+      [
+        "/_matrix/client/r0/create_dm",
+        "post"
+      ],
+      [
+        "/_matrix/client/v3/create_dm",
+        "post"
+      ]
+    ],
+    "upload_keys": [
+      [
+        "/keys/upload",
+        "post"
+      ],
+      [
+        "/keys/upload/{device_id}",
+        "post"
+      ]
+    ],
+    "query_keys": [
+      [
+        "/keys/query",
+        "post"
+      ]
+    ],
+    "claim_keys": [
+      [
+        "/keys/claim",
+        "post"
+      ]
+    ],
+    "device_list_update": [
+      [
+        "/keys/device_list/update",
+        "post"
+      ]
+    ],
+    "upload_signatures": [
+      [
+        "/keys/signatures",
+        "post"
+      ],
+      [
+        "/keys/signatures/upload",
+        "post"
+      ]
+    ],
+    "upload_device_signing": [
+      [
+        "/keys/device_signing/upload",
+        "post"
+      ]
+    ],
+    "create_room_key_request": [
+      [
+        "/room_keys/request",
+        "post"
+      ]
+    ],
+    "send_to_device": [
+      [
+        "/sendToDevice/{event_type}/{transaction_id}",
+        "put"
+      ]
+    ],
+    "request_device_verification": [
+      [
+        "/device_verification/request",
+        "post"
+      ]
+    ],
+    "respond_device_verification": [
+      [
+        "/device_verification/respond",
+        "post"
+      ]
+    ],
+    "create_secure_backup": [
+      [
+        "/keys/backup/secure",
+        "post"
+      ]
+    ],
+    "store_secure_backup_keys": [
+      [
+        "/keys/backup/secure/{backup_id}/keys",
+        "post"
+      ]
+    ],
+    "restore_secure_backup": [
+      [
+        "/keys/backup/secure/{backup_id}/restore",
+        "post"
+      ]
+    ],
+    "verify_secure_backup_passphrase": [
+      [
+        "/keys/backup/secure/{backup_id}/verify",
+        "post"
+      ]
+    ],
+    "create_report": [
+      [
+        "/_synapse/admin/v1/event_reports",
+        "post"
+      ]
+    ],
+    "update_report": [
+      [
+        "/_synapse/admin/v1/event_reports/{id}",
+        "put"
+      ]
+    ],
+    "resolve_report": [
+      [
+        "/_synapse/admin/v1/event_reports/{id}/resolve",
+        "post"
+      ]
+    ],
+    "dismiss_report": [
+      [
+        "/_synapse/admin/v1/event_reports/{id}/dismiss",
+        "post"
+      ]
+    ],
+    "escalate_report": [
+      [
+        "/_synapse/admin/v1/event_reports/{id}/escalate",
+        "post"
+      ]
+    ],
+    "block_user": [
+      [
+        "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block",
+        "post"
+      ]
+    ],
+    "unblock_user": [
+      [
+        "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/unblock",
+        "post"
+      ]
+    ],
+    "check_service_health": [
+      [
+        "/_synapse/admin/v1/external_services/{as_id}/health/check",
+        "post"
+      ]
+    ],
+    "update_external_service": [
+      [
+        "/_synapse/admin/v1/external_services/{as_id}",
+        "put"
+      ],
+      [
+        "/_matrix/admin/v1/external_services/{as_id}",
+        "put"
+      ]
+    ],
+    "client_update_external_service": [
+      [
+        "/_matrix/client/v1/external_services/{service_id}",
+        "put"
+      ],
+      [
+        "/_matrix/vendor/v1/external_services/{service_id}",
+        "put"
+      ]
+    ],
+    "handle_trendradar_webhook": [
+      [
+        "/_synapse/external/trendradar/{service_id}/webhook",
+        "post"
+      ]
+    ],
+    "handle_generic_webhook": [
+      [
+        "/_synapse/external/webhook/{service_id}",
+        "post"
+      ]
+    ],
+    "create_feature_flag": [
+      [
+        "/_synapse/admin/v1/feature-flags",
+        "post"
+      ]
+    ],
+    "send_friend_request": [
+      [
+        "/_matrix/client/v3/friends",
+        "post"
+      ],
+      [
+        "/_matrix/client/v1/friends",
+        "post"
+      ],
+      [
+        "/_matrix/client/r0/friendships",
+        "post"
+      ],
+      [
+        "/_matrix/client/v1/friends/request",
+        "post"
+      ],
+      [
+        "/_matrix/client/r0/friends/request",
+        "post"
+      ],
+      [
+        "/_matrix/vendor/v1/friends/request",
+        "post"
+      ]
+    ],
+    "accept_friend_request": [
+      [
+        "/_matrix/client/v1/friends/request/{user_id}/accept",
+        "post"
+      ],
+      [
+        "/_matrix/client/r0/friends/request/{user_id}/accept",
+        "post"
+      ],
+      [
+        "/_matrix/vendor/v1/friends/request/{user_id}/accept",
+        "post"
+      ]
+    ],
+    "reject_friend_request": [
+      [
+        "/_matrix/client/v1/friends/request/{user_id}/reject",
+        "post"
+      ],
+      [
+        "/_matrix/client/r0/friends/request/{user_id}/reject",
+        "post"
+      ],
+      [
+        "/_matrix/vendor/v1/friends/request/{user_id}/reject",
+        "post"
+      ]
+    ],
+    "cancel_friend_request": [
+      [
+        "/_matrix/client/v1/friends/request/{user_id}/cancel",
+        "post"
+      ],
+      [
+        "/_matrix/client/r0/friends/request/{user_id}/cancel",
+        "post"
+      ],
+      [
+        "/_matrix/vendor/v1/friends/request/{user_id}/cancel",
+        "post"
+      ]
+    ],
+    "update_friend_note": [
+      [
+        "/_matrix/client/v1/friends/{user_id}/note",
+        "put"
+      ],
+      [
+        "/_matrix/client/r0/friends/{user_id}/note",
+        "put"
+      ],
+      [
+        "/_matrix/vendor/v1/friends/{user_id}/note",
+        "put"
+      ]
+    ],
+    "update_friend_status": [
+      [
+        "/_matrix/client/v1/friends/{user_id}/status",
+        "put"
+      ],
+      [
+        "/_matrix/client/r0/friends/{user_id}/status",
+        "put"
+      ]
+    ],
+    "update_friend_displayname": [
+      [
+        "/_matrix/client/v1/friends/{user_id}/displayname",
+        "put"
+      ],
+      [
+        "/_matrix/client/r0/friends/{user_id}/displayname",
+        "put"
+      ],
+      [
+        "/_matrix/vendor/v1/friends/{user_id}/displayname",
+        "put"
+      ]
+    ],
+    "create_friend_group": [
+      [
+        "/_matrix/client/v1/friends/groups",
+        "post"
+      ],
+      [
+        "/_matrix/client/r0/friends/groups",
+        "post"
+      ]
+    ],
+    "rename_friend_group": [
+      [
+        "/_matrix/client/v1/friends/groups/{group_id}/name",
+        "put"
+      ],
+      [
+        "/_matrix/client/r0/friends/groups/{group_id}/name",
+        "put"
+      ],
+      [
+        "/_matrix/vendor/v1/friends/groups/{group_id}/name",
+        "put"
+      ]
+    ],
+    "add_friend_to_group": [
+      [
+        "/_matrix/client/v1/friends/groups/{group_id}/add/{user_id}",
+        "post"
+      ],
+      [
+        "/_matrix/client/r0/friends/groups/{group_id}/add/{user_id}",
+        "post"
+      ],
+      [
+        "/_matrix/vendor/v1/friends/groups/{group_id}/add/{user_id}",
+        "post"
+      ]
+    ],
+    "register_guest": [
+      [
+        "/_matrix/client/v3/register/guest",
+        "post"
+      ]
+    ],
+    "upgrade_guest": [
+      [
+        "/_matrix/client/v3/account/guest/upgrade",
+        "post"
+      ]
+    ],
+    "create_thread_global": [
+      [
+        "/_matrix/client/v1/threads",
+        "post"
+      ]
+    ],
+    "create_thread": [
+      [
+        "/_matrix/client/v1/rooms/{room_id}/threads",
+        "post"
+      ]
+    ],
+    "freeze_thread": [
+      [
+        "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/freeze",
+        "post"
+      ]
+    ],
+    "unfreeze_thread": [
+      [
+        "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unfreeze",
+        "post"
+      ]
+    ],
+    "add_reply": [
+      [
+        "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies",
+        "post"
+      ]
+    ],
+    "subscribe_thread": [
+      [
+        "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe",
+        "post"
+      ]
+    ],
+    "unsubscribe_thread": [
+      [
+        "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/unsubscribe",
+        "post"
+      ]
+    ],
+    "mute_thread": [
+      [
+        "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/mute",
+        "post"
+      ]
+    ],
+    "mark_read": [
+      [
+        "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/read",
+        "post"
+      ]
+    ],
+    "redact_reply": [
+      [
+        "/_matrix/client/v1/rooms/{room_id}/replies/{event_id}/redact",
+        "post"
+      ]
+    ],
+    "recover_keys": [
+      [
+        "/room_keys/recover",
+        "post"
+      ]
+    ],
+    "batch_recover_keys": [
+      [
+        "/room_keys/batch_recover",
+        "post"
+      ]
+    ],
+    "import_keys": [
+      [
+        "/room_keys/import",
+        "post"
+      ]
+    ],
+    "import_keys_by_version": [
+      [
+        "/room_keys/import/{version}",
+        "post"
+      ]
+    ],
+    "rotate_keys": [
+      [
+        "/_matrix/client/v1/keys/rotation/rotate",
+        "post"
+      ],
+      [
+        "/_matrix/vendor/v1/keys/rotation/rotate",
+        "post"
+      ]
+    ],
+    "revoke_old_keys": [
+      [
+        "/_matrix/client/v1/keys/rotation/revoke",
+        "post"
+      ],
+      [
+        "/_matrix/vendor/v1/keys/rotation/revoke",
+        "post"
+      ]
+    ],
+    "configure_key_rotation": [
+      [
+        "/_matrix/client/v1/keys/rotation/config",
+        "put"
+      ],
+      [
+        "/_matrix/vendor/v1/keys/rotation/config",
+        "put"
+      ]
+    ],
+    "report_event": [
+      [
+        "/rooms/{room_id}/report/{event_id}",
+        "post"
+      ]
+    ],
+    "update_report_score": [
+      [
+        "/rooms/{room_id}/report/{event_id}/score",
+        "put"
+      ]
+    ],
+    "report_room": [
+      [
+        "/rooms/{room_id}/report",
+        "post"
+      ]
+    ],
+    "report_user": [
+      [
+        "/users/{user_id}/report",
+        "post"
+      ]
+    ],
+    "create_module": [
+      [
+        "/_synapse/admin/v1/modules",
+        "post"
+      ]
+    ],
+    "update_module_config": [
+      [
+        "/_synapse/admin/v1/modules/{module_name}/config",
+        "put"
+      ]
+    ],
+    "enable_module": [
+      [
+        "/_synapse/admin/v1/modules/{module_name}/enable",
+        "post"
+      ]
+    ],
+    "check_spam": [
+      [
+        "/_synapse/admin/v1/modules/check_spam",
+        "post"
+      ]
+    ],
+    "check_third_party_rule": [
+      [
+        "/_synapse/admin/v1/modules/check_third_party_rule",
+        "post"
+      ]
+    ],
+    "create_account_validity": [
+      [
+        "/_synapse/admin/v1/account_validity",
+        "post"
+      ]
+    ],
+    "renew_account": [
+      [
+        "/_synapse/admin/v1/account_validity/{user_id}/renew",
+        "post"
+      ]
+    ],
+    "create_password_auth_provider": [
+      [
+        "/_synapse/admin/v1/password_auth_providers",
+        "post"
+      ]
+    ],
+    "create_media_callback": [
+      [
+        "/_synapse/admin/v1/media_callbacks",
+        "post"
+      ]
+    ],
+    "create_account_data_callback": [
+      [
+        "/_synapse/admin/v1/account_data_callbacks",
+        "post"
+      ]
+    ],
+    "create_session": [
+      [
+        "/_matrix/client/unstable/org.matrix.msc4108/rendezvous",
+        "post"
+      ],
+      [
+        "/_matrix/client/v1/rendezvous",
+        "post"
+      ]
+    ],
+    "presence_list": [
+      [
+        "/_matrix/client/v3/presence/list",
+        "post"
+      ]
+    ],
+    "set_pusher": [
+      [
+        "/pushers/set",
+        "post"
+      ]
+    ],
+    "ack_notification": [
+      [
+        "/notifications/{notification_id}/ack",
+        "post"
+      ]
+    ],
+    "set_push_rule_actions": [
+      [
+        "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}/actions",
+        "put"
+      ]
+    ],
+    "register_device": [
+      [
+        "/_matrix/client/r0/push/devices",
+        "post"
+      ]
+    ],
+    "send_notification": [
+      [
+        "/_matrix/client/r0/push/send",
+        "post"
+      ]
+    ],
+    "create_rule": [
+      [
+        "/_matrix/client/r0/push/rules",
+        "post"
+      ]
+    ],
+    "process_queue": [
+      [
+        "/_synapse/admin/v1/push/process",
+        "post"
+      ]
+    ],
+    "cleanup_logs": [
+      [
+        "/_synapse/admin/v1/push/cleanup",
+        "post"
+      ]
+    ],
+    "add_reaction": [
+      [
+        "/rooms/{room_id}/send/m.reaction/{txn_id}",
+        "put"
+      ]
+    ],
+    "send_relation": [
+      [
+        "/rooms/{room_id}/relations/{event_id}/{rel_type}/{txn_id}",
+        "put"
+      ]
+    ],
+    "update_session": [
+      [
+        "/_matrix/client/v1/rendezvous/{session_id}",
+        "put"
+      ]
+    ],
+    "send_message": [
+      [
+        "/_matrix/client/v1/rendezvous/{session_id}/messages",
+        "post"
+      ],
+      [
+        "/rooms/{room_id}/send/{event_type}/{txn_id}",
+        "put"
+      ]
+    ],
+    "search_room_messages": [
+      [
+        "/rooms/{room_id}/search",
+        "post"
+      ]
+    ],
+    "send_receipt": [
+      [
+        "/rooms/{room_id}/receipt/{receipt_type}/{event_id}",
+        "post"
+      ]
+    ],
+    "set_read_markers": [
+      [
+        "/rooms/{room_id}/read_markers",
+        "post"
+      ]
+    ],
+    "join_room": [
+      [
+        "/rooms/{room_id}/join",
+        "post"
+      ]
+    ],
+    "leave_room": [
+      [
+        "/rooms/{room_id}/leave",
+        "post"
+      ]
+    ],
+    "super::upgrade_room": [
+      [
+        "/rooms/{room_id}/upgrade",
+        "post"
+      ]
+    ],
+    "forget_room": [
+      [
+        "/rooms/{room_id}/forget",
+        "post"
+      ]
+    ],
+    "invite_user": [
+      [
+        "/rooms/{room_id}/invite",
+        "post"
+      ],
+      [
+        "/spaces/{space_id}/invite",
+        "post"
+      ]
+    ],
+    "put_state_event": [
+      [
+        "/rooms/{room_id}/state/{event_type}/{state_key}",
+        "put"
+      ]
+    ],
+    "put_state_event_empty_key": [
+      [
+        "/rooms/{room_id}/state/{event_type}/",
+        "put"
+      ]
+    ],
+    "put_state_event_no_key": [
+      [
+        "/rooms/{room_id}/state/{event_type}",
+        "put"
+      ]
+    ],
+    "redact_event": [
+      [
+        "/rooms/{room_id}/redact/{event_id}/{txn_id}",
+        "put"
+      ]
+    ],
+    "kick_user": [
+      [
+        "/rooms/{room_id}/kick",
+        "post"
+      ]
+    ],
+    "ban_user": [
+      [
+        "/rooms/{room_id}/ban",
+        "post"
+      ]
+    ],
+    "unban_user": [
+      [
+        "/rooms/{room_id}/unban",
+        "post"
+      ]
+    ],
+    "create_room": [
+      [
+        "/createRoom",
+        "post"
+      ],
+      [
+        "/createRoom",
+        "post"
+      ]
+    ],
+    "get_membership_events": [
+      [
+        "/rooms/{room_id}/get_membership_events",
+        "post"
+      ]
+    ],
+    "translate_room_event": [
+      [
+        "/rooms/{room_id}/translate/{event_id}",
+        "post"
+      ]
+    ],
+    "translate_text": [
+      [
+        "/translate",
+        "post"
+      ]
+    ],
+    "convert_room_event": [
+      [
+        "/rooms/{room_id}/convert/{event_id}",
+        "post"
+      ]
+    ],
+    "sign_room_event": [
+      [
+        "/rooms/{room_id}/sign/{event_id}",
+        "put"
+      ]
+    ],
+    "verify_room_event": [
+      [
+        "/rooms/{room_id}/verify/{event_id}",
+        "post"
+      ]
+    ],
+    "claim_room_keys": [
+      [
+        "/rooms/{room_id}/keys/claim",
+        "post"
+      ]
+    ],
+    "forward_room_keys": [
+      [
+        "/rooms/{room_id}/room_keys/keys",
+        "put"
+      ]
+    ],
+    "join_room_by_id_or_alias": [
+      [
+        "/join/{room_id_or_alias}",
+        "post"
+      ]
+    ],
+    "knock_room": [
+      [
+        "/knock/{room_id_or_alias}",
+        "post"
+      ]
+    ],
+    "invite_user_by_room": [
+      [
+        "/invite/{room_id}",
+        "post"
+      ]
+    ],
+    "create_private_room": [
+      [
+        "/_matrix/client/v3/rooms/create_private",
+        "post"
+      ],
+      [
+        "/_matrix/client/v1/rooms/create_private",
+        "post"
+      ]
+    ],
+    "create_room_summary": [
+      [
+        "/rooms/{room_id}/summary",
+        "post"
+      ]
+    ],
+    "update_room_summary": [
+      [
+        "/rooms/{room_id}/summary",
+        "put"
+      ]
+    ],
+    "sync_room_summary": [
+      [
+        "/rooms/{room_id}/summary/sync",
+        "post"
+      ]
+    ],
+    "add_member": [
+      [
+        "/rooms/{room_id}/summary/members",
+        "post"
+      ]
+    ],
+    "update_member": [
+      [
+        "/rooms/{room_id}/summary/members/{user_id}",
+        "put"
+      ]
+    ],
+    "update_state": [
+      [
+        "/rooms/{room_id}/summary/state/{event_type}/{state_key}",
+        "put"
+      ]
+    ],
+    "recalculate_stats": [
+      [
+        "/rooms/{room_id}/summary/stats/recalculate",
+        "post"
+      ]
+    ],
+    "recalculate_heroes": [
+      [
+        "/rooms/{room_id}/summary/heroes/recalculate",
+        "post"
+      ]
+    ],
+    "clear_unread": [
+      [
+        "/rooms/{room_id}/summary/unread/clear",
+        "post"
+      ]
+    ],
+    "create_internal_room_summary": [
+      [
+        "/_synapse/room_summary/v1/summaries",
+        "post"
+      ]
+    ],
+    "batch_get_room_summaries": [
+      [
+        "/_synapse/room_summary/v1/summaries/batch",
+        "post"
+      ]
+    ],
+    "process_updates": [
+      [
+        "/_synapse/room_summary/v1/updates/process",
+        "post"
+      ]
+    ],
+    "saml_login": [
+      [
+        "/_matrix/client/r0/login/sso/redirect/saml",
+        "post"
+      ]
+    ],
+    "saml_callback_post": [
+      [
+        "/_matrix/client/r0/login/saml/callback",
+        "post"
+      ],
+      [
+        "/_matrix/client/v3/login/saml/callback",
+        "post"
+      ]
+    ],
+    "refresh_idp_metadata": [
+      [
+        "/_synapse/admin/v1/saml/metadata/refresh",
+        "post"
+      ]
+    ],
+    "saml_logout_admin": [
+      [
+        "/_synapse/admin/v1/saml/logout",
+        "post"
+      ]
+    ],
+    "sliding_sync": [
+      [
+        "/_matrix/client/v1/sync",
+        "post"
+      ],
+      [
+        "/_matrix/client/v4/sync",
+        "post"
+      ],
+      [
+        "/_matrix/client/unstable/org.matrix.msc3575/sync",
+        "post"
+      ],
+      [
+        "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync",
+        "post"
+      ]
+    ],
+    "add_child": [
+      [
+        "/spaces/{space_id}/children",
+        "post"
+      ]
+    ],
+    "create_space": [
+      [
+        "/spaces",
+        "post"
+      ]
+    ],
+    "update_space": [
+      [
+        "/spaces/{space_id}",
+        "put"
+      ]
+    ],
+    "join_space": [
+      [
+        "/spaces/{space_id}/join",
+        "post"
+      ]
+    ],
+    "leave_space": [
+      [
+        "/spaces/{space_id}/leave",
+        "post"
+      ]
+    ],
+    "put_tag": [
+      [
+        "/user/{user_id}/rooms/{room_id}/tags/{tag}",
+        "put"
+      ]
+    ],
+    "acknowledge_alert": [
+      [
+        "/_synapse/admin/v1/telemetry/alerts/{alert_id}/ack",
+        "post"
+      ]
+    ],
+    "request_token": [
+      [
+        "/requestToken",
+        "post"
+      ]
+    ],
+    "submit_token": [
+      [
+        "/submitToken",
+        "post"
+      ]
+    ],
+    "set_typing": [
+      [
+        "/_matrix/client/v3/rooms/{room_id}/typing/{user_id}",
+        "put"
+      ],
+      [
+        "/_matrix/client/r0/rooms/{room_id}/typing/{user_id}",
+        "put"
+      ]
+    ],
+    "bulk_get_typing": [
+      [
+        "/_matrix/client/v3/rooms/typing",
+        "post"
+      ],
+      [
+        "/_matrix/client/r0/rooms/typing",
+        "post"
+      ]
+    ],
+    "verification_start": [
+      [
+        "/keys/device_signing/verify_start",
+        "post"
+      ]
+    ],
+    "verification_accept": [
+      [
+        "/keys/device_signing/verify_accept",
+        "put"
+      ]
+    ],
+    "verification_key_agreement": [
+      [
+        "/keys/device_signing/verify_key_agreement",
+        "post"
+      ]
+    ],
+    "verification_mac": [
+      [
+        "/keys/device_signing/verify_mac",
+        "post"
+      ]
+    ],
+    "verification_done": [
+      [
+        "/keys/device_signing/verify_done",
+        "post"
+      ]
+    ],
+    "verification_cancel": [
+      [
+        "/keys/device_signing/verify_cancel",
+        "post"
+      ]
+    ],
+    "scan_qr_code": [
+      [
+        "/keys/qr_code/scan",
+        "post"
+      ]
+    ],
+    "compat_verification_request": [
+      [
+        "/keys/verification/request",
+        "post"
+      ]
+    ],
+    "compat_verification_cancel": [
+      [
+        "/keys/verification/{transaction_id}/cancel",
+        "post"
+      ]
+    ],
+    "upload_voice_message": [
+      [
+        "/_matrix/client/r0/voice/upload",
+        "post"
+      ],
+      [
+        "/_matrix/client/v1/voice/upload",
+        "post"
+      ],
+      [
+        "/_matrix/client/v3/voice/upload",
+        "post"
+      ],
+      [
+        "/_matrix/vendor/v1/voice/upload",
+        "post"
+      ]
+    ],
+    "convert_voice_message": [
+      [
+        "/_matrix/client/v3/voice/{media_id}/convert",
+        "post"
+      ],
+      [
+        "/_matrix/vendor/v1/voice/{media_id}/convert",
+        "post"
+      ]
+    ],
+    "optimize_voice_message": [
+      [
+        "/_matrix/client/v3/voice/{media_id}/optimize",
+        "post"
+      ],
+      [
+        "/_matrix/vendor/v1/voice/{media_id}/optimize",
+        "post"
+      ]
+    ],
+    "transcribe_voice_message": [
+      [
+        "/_matrix/client/v3/voice/{media_id}/transcription",
+        "post"
+      ],
+      [
+        "/_matrix/vendor/v1/voice/{media_id}/transcription",
+        "post"
+      ]
+    ],
+    "create_widget": [
+      [
+        "/_matrix/client/v1/widgets",
+        "post"
+      ],
+      [
+        "/_matrix/client/v3/widgets/create",
+        "post"
+      ]
+    ],
+    "update_widget": [
+      [
+        "/_matrix/client/v1/widgets/{widget_id}",
+        "put"
+      ]
+    ],
+    "send_room_widget_message": [
+      [
+        "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send",
+        "post"
+      ]
+    ],
+    "set_widget_permission": [
+      [
+        "/_matrix/client/v1/widgets/{widget_id}/permissions",
+        "post"
+      ]
+    ],
+    "create_widget_session": [
+      [
+        "/_matrix/client/v1/widgets/{widget_id}/sessions",
+        "post"
+      ]
+    ],
+    "register_worker": [
+      [
+        "/_synapse/worker/v1/register",
+        "post"
+      ]
+    ],
+    "send_command": [
+      [
+        "/_synapse/worker/v1/workers/{worker_id}/commands",
+        "post"
+      ]
+    ],
+    "assign_task": [
+      [
+        "/_synapse/worker/v1/tasks",
+        "post"
+      ]
+    ],
+    "claim_next_task": [
+      [
+        "/_synapse/worker/v1/tasks/claim/{worker_id}",
+        "post"
+      ]
+    ],
+    "claim_task": [
+      [
+        "/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}",
+        "post"
+      ]
+    ],
+    "heartbeat": [
+      [
+        "/_synapse/worker/v1/workers/{worker_id}/heartbeat",
+        "post"
+      ]
+    ],
+    "connect_worker": [
+      [
+        "/_synapse/worker/v1/workers/{worker_id}/connect",
+        "post"
+      ]
+    ],
+    "disconnect_worker": [
+      [
+        "/_synapse/worker/v1/workers/{worker_id}/disconnect",
+        "post"
+      ]
+    ],
+    "complete_command": [
+      [
+        "/_synapse/worker/v1/commands/{command_id}/complete",
+        "post"
+      ]
+    ],
+    "fail_command": [
+      [
+        "/_synapse/worker/v1/commands/{command_id}/fail",
+        "post"
+      ]
+    ],
+    "complete_task": [
+      [
+        "/_synapse/worker/v1/tasks/{task_id}/complete",
+        "post"
+      ]
+    ],
+    "fail_task": [
+      [
+        "/_synapse/worker/v1/tasks/{task_id}/fail",
+        "post"
+      ]
+    ],
+    "update_replication_position": [
+      [
+        "/_synapse/worker/v1/replication/{worker_id}/{stream_name}",
+        "put"
+      ]
+    ]
+  },
+  "handler_signatures": {
+    "delete_threepid": "DeleteThreepidRequest",
+    "unbind_threepid": "DeleteThreepidRequest",
+    "create_audit_event": "CreateAuditEventBody",
+    "rewrite_federation": "RewriteRequest",
+    "resolve_federation": "ResolveRequest",
+    "confirm_federation": "ConfirmRequest",
+    "create_notification": "CreateNotificationRequest",
+    "update_notification": "UpdateNotificationRequest",
+    "send_server_notice": "ServerNoticeRequest",
+    "update_user_notification": "UserNotificationRequest",
+    "check_policy": "PolicyCheckRequest",
+    "register": "RegisterRequest",
+    "set_retention_policy": "RetentionPolicyRequest",
+    "set_room_retention_policy": "RetentionPolicyRequest",
+    "run_retention": "RunRetentionRequest",
+    "block_room": "BlockRoomRequest",
+    "make_room_admin": "MakeRoomAdminRequest",
+    "ban_user": "BanRequest",
+    "ban_user_by_body": "RoomUserActionRequest",
+    "kick_user": "BanRequest",
+    "kick_user_by_body": "RoomUserActionRequest",
+    "set_user_rate_limit": "RateLimitRequest",
+    "create_registration_token": "CreateTokenRequest",
+    "update_registration_token": "UpdateTokenRequest",
+    "reset_user_password": "ResetPasswordBody",
+    "create_or_update_user_v2": "CreateUpdateUserRequest",
+    "batch_create_users": "BatchCreateUsersRequest",
+    "batch_deactivate_users": "BatchDeactivateRequest",
+    "update_account": "UpdateAccountRequest",
+    "register_app_service": "RegisterAppServiceBody",
+    "update_app_service": "UpdateAppServiceBody",
+    "set_app_service_state": "SetStateBody",
+    "register_virtual_user": "RegisterVirtualUserBody",
+    "push_event": "PushEventBody",
+    "create_update": "CreateUpdateBody",
+    "update_progress": "UpdateProgressBody",
+    "fail_update": "FailUpdateBody",
+    "send_captcha": "SendCaptchaBody",
+    "verify_captcha": "VerifyCaptchaBody",
+    "register_service": "RegisterServiceBody",
+    "set_user_attribute": "SetAttributeBody",
+    "set_room_alias_handler": "SetRoomAliasBody",
+    "create_dm_room": "CreateDmRequest",
+    "update_dm_room": "UpdateDmRequest",
+    "restore_secure_backup": "RestoreSecureBackupRequest",
+    "create_report": "CreateReportBody",
+    "update_report": "UpdateReportBody",
+    "resolve_report": "ResolveReportBody",
+    "dismiss_report": "DismissReportBody",
+    "block_user": "BlockUserBody",
+    "register_external_service": "RegisterExternalServiceBody",
+    "update_external_service": "UpdateExternalServiceBody",
+    "handle_trendradar_webhook": "TrendRadarPayload",
+    "handle_generic_webhook": "WebhookPayload",
+    "client_update_external_service": "UpdateExternalServiceBody",
+    "create_feature_flag": "CreateFeatureFlagRequest",
+    "update_feature_flag": "UpdateFeatureFlagRequest",
+    "send_friend_request": "AddFriendRequest",
+    "update_friend_note": "UpdateNoteRequest",
+    "update_friend_status": "UpdateStatusRequest",
+    "update_friend_displayname": "UpdateDisplaynameRequest",
+    "create_friend_group": "CreateGroupRequest",
+    "rename_friend_group": "RenameGroupRequest",
+    "upgrade_guest": "UpgradeGuestRequest",
+    "upgrade_room": "UpgradeRoomRequest",
+    "search": "SearchRequest",
+    "search_recipients": "SearchRecipientsRequest",
+    "search_rooms": "SearchRoomsRequest",
+    "create_thread": "CreateThreadBody",
+    "add_reply": "CreateReplyBody",
+    "subscribe_thread": "SubscribeBody",
+    "mark_read": "MarkReadBody",
+    "create_thread_global": "CreateThreadBody",
+    "update_backup_version": "UpdateBackupVersionBody",
+    "put_room_keys_all": "RoomKeysBody",
+    "put_room_keys_all_legacy": "RoomKeysBody",
+    "put_room_keys_for_room": "RoomSessionsBody",
+    "put_room_keys_for_room_legacy": "RoomSessionsBody",
+    "recover_keys": "RecoverKeysBody",
+    "batch_recover_keys": "BatchRecoverBody",
+    "create_module": "CreateModuleBody",
+    "update_module_config": "UpdateModuleConfigBody",
+    "enable_module": "EnableModuleBody",
+    "check_spam": "CheckSpamBody",
+    "check_third_party_rule": "CheckThirdPartyRuleBody",
+    "create_account_validity": "CreateAccountValidityBody",
+    "renew_account": "RenewAccountBody",
+    "create_password_auth_provider": "CreatePasswordAuthProviderBody",
+    "create_media_callback": "CreateMediaCallbackBody",
+    "create_account_data_callback": "CreateAccountDataCallbackBody",
+    "oidc_token": "OidcTokenRequest",
+    "oidc_logout": "OidcLogoutRequest",
+    "pin_event": "PinRequest",
+    "register_device": "RegisterDeviceBody",
+    "send_notification": "SendNotificationBody",
+    "create_rule": "CreateRuleBody",
+    "set_anti_screenshot": "AntiScreenshotPayload",
+    "create_room_summary": "CreateRoomSummaryRequest",
+    "create_internal_room_summary": "CreateRoomSummaryRequest",
+    "update_room_summary": "UpdateSummaryBody",
+    "add_member": "CreateSummaryMemberRequest",
+    "update_member": "UpdateMemberBody",
+    "update_state": "UpdateStateBody",
+    "batch_get_room_summaries": "RoomSummaryBatchRequest",
+    "saml_callback_post": "SamlCallbackBody",
+    "update_saml_mapping_admin": "UpdateSamlMappingBody",
+    "saml_logout_admin": "SamlLogoutAdminBody",
+    "add_child": "AddChildBody",
+    "create_space": "CreateSpaceBody",
+    "update_space": "UpdateSpaceBody",
+    "invite_user": "InviteUserBody",
+    "put_tag": "TagContent",
+    "request_token": "RequestTokenRequest",
+    "submit_token": "SubmitTokenRequest",
+    "verification_start": "VerificationStartBody",
+    "verification_accept": "VerificationAcceptBody",
+    "verification_key_agreement": "KeyAgreementBody",
+    "verification_mac": "VerificationMacBody",
+    "verification_cancel": "VerificationCancelBody",
+    "scan_qr_code": "ScanQrBody",
+    "compat_verification_request": "CompatVerificationRequestBody",
+    "call_invite": "CallInviteEvent",
+    "call_candidates": "CallCandidatesEvent",
+    "call_answer": "CallAnswerEvent",
+    "call_hangup": "CallHangupEvent",
+    "update_widget": "UpdateWidgetBody",
+    "set_widget_permission": "SetPermissionBody",
+    "create_widget_session": "CreateSessionBody",
+    "set_room_widget_capabilities": "WidgetCapabilitiesBody",
+    "send_room_widget_message": "SendWidgetMessageBody",
+    "register_worker": "RegisterWorkerBody",
+    "heartbeat": "HeartbeatBody",
+    "send_command": "SendCommandBody",
+    "fail_command": "FailTaskBody",
+    "assign_task": "AssignTaskBody",
+    "complete_task": "CompleteTaskBody",
+    "fail_task": "FailTaskBody",
+    "connect_worker": "ConnectWorkerBody",
+    "update_replication_position": "StreamPosition"
+  },
+  "type_schemas": {
+    "CreateAuditEventBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "actor_id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "resource_type": {
+            "type": "string"
+          },
+          "resource_id": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "actor_id",
+          "action",
+          "resource_type",
+          "resource_id",
+          "result",
+          "request_id"
+        ]
+      },
+      "file": "src/web/routes/admin/audit.rs",
+      "field_count": 7
+    },
+    "RewriteRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ]
+      },
+      "file": "src/web/routes/admin/federation.rs",
+      "field_count": 2
+    },
+    "ResolveRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "server_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_name"
+        ]
+      },
+      "file": "src/web/routes/admin/federation.rs",
+      "field_count": 1
+    },
+    "ConfirmRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "server_name": {
+            "type": "string"
+          },
+          "accept": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "server_name",
+          "accept"
+        ]
+      },
+      "file": "src/web/routes/admin/federation.rs",
+      "field_count": 2
+    },
+    "ServerNoticeRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "content": {
+            "type": "object",
+            "description": "rust: NoticeContent",
+            "x-unknown-rust-type": "NoticeContent"
+          }
+        },
+        "required": [
+          "user_id",
+          "content"
+        ]
+      },
+      "file": "src/web/routes/admin/notification.rs",
+      "field_count": 2
+    },
+    "UserNotificationRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "is_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "is_enabled"
+        ]
+      },
+      "file": "src/web/routes/admin/notification.rs",
+      "field_count": 1
+    },
+    "UpdateNotificationRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notification_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target_audience": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target_user_ids": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "starts_at": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_dismissable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "action_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "action_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/admin/notification.rs",
+      "field_count": 11
+    },
+    "PolicyCheckRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "room_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room_id",
+          "user_id",
+          "action"
+        ]
+      },
+      "file": "src/web/routes/admin/policy.rs",
+      "field_count": 3
+    },
+    "RetentionPolicyRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "max_lifetime": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "min_lifetime": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_expire_on_clients": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/admin/retention.rs",
+      "field_count": 3
+    },
+    "RunRetentionRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "room_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/admin/retention.rs",
+      "field_count": 1
+    },
+    "BlockRoomRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "block": {
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "block"
+        ]
+      },
+      "file": "src/web/routes/admin/room/types.rs",
+      "field_count": 2
+    },
+    "MakeRoomAdminRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      },
+      "file": "src/web/routes/admin/room/types.rs",
+      "field_count": 1
+    },
+    "BanRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/admin/room/types.rs",
+      "field_count": 1
+    },
+    "RoomUserActionRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      },
+      "file": "src/web/routes/admin/room/types.rs",
+      "field_count": 2
+    },
+    "RateLimitRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "messages_per_second": {
+            "anyOf": [
+              {
+                "type": "number",
+                "format": "double"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "burst_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/admin/security.rs",
+      "field_count": 2
+    },
+    "CreateTokenRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "uses_allowed": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expiry_time": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "length": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/admin/token.rs",
+      "field_count": 4
+    },
+    "UpdateTokenRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "uses_allowed": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expiry_time": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/admin/token.rs",
+      "field_count": 2
+    },
+    "ResetPasswordBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "new_password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "new_password"
+        ]
+      },
+      "file": "src/web/routes/admin/user.rs",
+      "field_count": 1
+    },
+    "CreateUpdateUserRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "displayname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "admin": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deactivated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/admin/user.rs",
+      "field_count": 6
+    },
+    "BatchCreateUsersRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "users": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "rust: BatchCreateUser",
+              "x-unknown-rust-type": "BatchCreateUser"
+            }
+          }
+        },
+        "required": [
+          "users"
+        ]
+      },
+      "file": "src/web/routes/admin/user.rs",
+      "field_count": 1
+    },
+    "BatchDeactivateRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "users": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "erase": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "users"
+        ]
+      },
+      "file": "src/web/routes/admin/user.rs",
+      "field_count": 2
+    },
+    "UpdateAccountRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "displayname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "admin": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/admin/user.rs",
+      "field_count": 3
+    },
+    "RegisterAppServiceBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "as_token": {
+            "type": "string"
+          },
+          "hs_token": {
+            "type": "string"
+          },
+          "sender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sender_localpart": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rate_limited": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "protocols": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "namespaces": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "as_token",
+          "hs_token"
+        ]
+      },
+      "file": "src/web/routes/app_service.rs",
+      "field_count": 10
+    },
+    "UpdateAppServiceBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rate_limited": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "protocols": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/app_service.rs",
+      "field_count": 5
+    },
+    "SetStateBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "state_key": {
+            "type": "string"
+          },
+          "state_value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state_key",
+          "state_value"
+        ]
+      },
+      "file": "src/web/routes/app_service.rs",
+      "field_count": 2
+    },
+    "RegisterVirtualUserBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "displayname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      },
+      "file": "src/web/routes/app_service.rs",
+      "field_count": 3
+    },
+    "PushEventBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "room_id": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "sender": {
+            "type": "string"
+          },
+          "content": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "state_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "room_id",
+          "event_type",
+          "sender",
+          "content"
+        ]
+      },
+      "file": "src/web/routes/app_service.rs",
+      "field_count": 5
+    },
+    "CreateUpdateBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "job_name": {
+            "type": "string"
+          },
+          "job_type": {
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "table_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "column_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "total_items": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "batch_size": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sleep_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "depends_on": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "job_name",
+          "job_type"
+        ]
+      },
+      "file": "src/web/routes/background_update.rs",
+      "field_count": 10
+    },
+    "UpdateProgressBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "items_processed": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total_items": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items_processed"
+        ]
+      },
+      "file": "src/web/routes/background_update.rs",
+      "field_count": 2
+    },
+    "FailUpdateBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "error_message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error_message"
+        ]
+      },
+      "file": "src/web/routes/background_update.rs",
+      "field_count": 1
+    },
+    "SendCaptchaBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "captcha_type": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "template_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "captcha_type",
+          "target"
+        ]
+      },
+      "file": "src/web/routes/captcha.rs",
+      "field_count": 3
+    },
+    "VerifyCaptchaBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "captcha_id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "captcha_id",
+          "code"
+        ]
+      },
+      "file": "src/web/routes/captcha.rs",
+      "field_count": 2
+    },
+    "SetRoomAliasBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "room_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room_id"
+        ]
+      },
+      "file": "src/web/routes/directory.rs",
+      "field_count": 1
+    },
+    "CreateDmRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "invite": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_direct": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/dm.rs",
+      "field_count": 6
+    },
+    "UpdateDmRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "users": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/dm.rs",
+      "field_count": 2
+    },
+    "CreateReportBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string"
+          },
+          "room_id": {
+            "type": "string"
+          },
+          "reported_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event_json": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "event_id",
+          "room_id"
+        ]
+      },
+      "file": "src/web/routes/event_report.rs",
+      "field_count": 7
+    },
+    "UpdateReportBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/event_report.rs",
+      "field_count": 2
+    },
+    "ResolveReportBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "file": "src/web/routes/event_report.rs",
+      "field_count": 1
+    },
+    "DismissReportBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "file": "src/web/routes/event_report.rs",
+      "field_count": 1
+    },
+    "BlockUserBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "blocked_until": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blocked_until",
+          "reason"
+        ]
+      },
+      "file": "src/web/routes/event_report.rs",
+      "field_count": 2
+    },
+    "RegisterExternalServiceBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "service_type": {
+            "type": "string"
+          },
+          "service_id": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "config": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "service_type",
+          "service_id",
+          "display_name"
+        ]
+      },
+      "file": "src/web/routes/external_service.rs",
+      "field_count": 6
+    },
+    "UpdateExternalServiceBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "config": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/external_service.rs",
+      "field_count": 4
+    },
+    "AddFriendRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      },
+      "file": "src/web/routes/friend_room.rs",
+      "field_count": 2
+    },
+    "UpdateNoteRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
+        ]
+      },
+      "file": "src/web/routes/friend_room.rs",
+      "field_count": 1
+    },
+    "UpdateStatusRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "file": "src/web/routes/friend_room.rs",
+      "field_count": 1
+    },
+    "UpdateDisplaynameRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "displayname": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "displayname"
+        ]
+      },
+      "file": "src/web/routes/friend_room.rs",
+      "field_count": 1
+    },
+    "CreateGroupRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "file": "src/web/routes/friend_room.rs",
+      "field_count": 1
+    },
+    "RenameGroupRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "file": "src/web/routes/friend_room.rs",
+      "field_count": 1
+    },
+    "UpdateBackupVersionBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "auth_data": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/key_backup.rs",
+      "field_count": 1
+    },
+    "RecoverKeysBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "rooms": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "file": "src/web/routes/key_backup.rs",
+      "field_count": 2
+    },
+    "BatchRecoverBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "room_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "session_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "version",
+          "room_ids"
+        ]
+      },
+      "file": "src/web/routes/key_backup.rs",
+      "field_count": 3
+    },
+    "CreateModuleBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "module_name": {
+            "type": "string"
+          },
+          "module_type": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "config": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "module_name",
+          "module_type",
+          "version"
+        ]
+      },
+      "file": "src/web/routes/module.rs",
+      "field_count": 7
+    },
+    "UpdateModuleConfigBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "config"
+        ]
+      },
+      "file": "src/web/routes/module.rs",
+      "field_count": 1
+    },
+    "EnableModuleBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "is_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "is_enabled"
+        ]
+      },
+      "file": "src/web/routes/module.rs",
+      "field_count": 1
+    },
+    "CheckSpamBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string"
+          },
+          "room_id": {
+            "type": "string"
+          },
+          "sender": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "content": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "event_id",
+          "room_id",
+          "sender",
+          "event_type",
+          "content"
+        ]
+      },
+      "file": "src/web/routes/module.rs",
+      "field_count": 5
+    },
+    "CheckThirdPartyRuleBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string"
+          },
+          "room_id": {
+            "type": "string"
+          },
+          "sender": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "content": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "state_events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "event_id",
+          "room_id",
+          "sender",
+          "event_type",
+          "content",
+          "state_events"
+        ]
+      },
+      "file": "src/web/routes/module.rs",
+      "field_count": 6
+    },
+    "CreateAccountValidityBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "expiration_ts": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "is_valid": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "user_id",
+          "expiration_ts"
+        ]
+      },
+      "file": "src/web/routes/module.rs",
+      "field_count": 3
+    },
+    "RenewAccountBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "renewal_token": {
+            "type": "string"
+          },
+          "new_expiration_ts": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "renewal_token",
+          "new_expiration_ts"
+        ]
+      },
+      "file": "src/web/routes/module.rs",
+      "field_count": 2
+    },
+    "CreatePasswordAuthProviderBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "provider_name": {
+            "type": "string"
+          },
+          "provider_type": {
+            "type": "string"
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "is_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "provider_name",
+          "provider_type",
+          "config"
+        ]
+      },
+      "file": "src/web/routes/module.rs",
+      "field_count": 5
+    },
+    "CreateMediaCallbackBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "callback_name": {
+            "type": "string"
+          },
+          "callback_type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "headers": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeout_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retry_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "callback_name",
+          "callback_type",
+          "url"
+        ]
+      },
+      "file": "src/web/routes/module.rs",
+      "field_count": 8
+    },
+    "CreateAccountDataCallbackBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "callback_name": {
+            "type": "string"
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "is_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "data_types": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "callback_name",
+          "config"
+        ]
+      },
+      "file": "src/web/routes/module.rs",
+      "field_count": 4
+    },
+    "PinRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id"
+        ]
+      },
+      "file": "src/web/routes/pinned.rs",
+      "field_count": 1
+    },
+    "RegisterDeviceBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "type": "string"
+          },
+          "push_token": {
+            "type": "string"
+          },
+          "push_type": {
+            "type": "string"
+          },
+          "app_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "platform_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "app_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "locale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "device_id",
+          "push_token",
+          "push_type"
+        ]
+      },
+      "file": "src/web/routes/push_notification.rs",
+      "field_count": 9
+    },
+    "SendNotificationBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "room_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notification_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "title",
+          "body"
+        ]
+      },
+      "file": "src/web/routes/push_notification.rs",
+      "field_count": 8
+    },
+    "CreateRuleBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "conditions": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "actions": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "rule_id",
+          "scope",
+          "kind",
+          "priority",
+          "conditions",
+          "actions",
+          "enabled"
+        ]
+      },
+      "file": "src/web/routes/push_notification.rs",
+      "field_count": 7
+    },
+    "UpdateSummaryBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/room_summary.rs",
+      "field_count": 3
+    },
+    "UpdateMemberBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "membership": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/room_summary.rs",
+      "field_count": 3
+    },
+    "UpdateStateBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "content": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "content"
+        ]
+      },
+      "file": "src/web/routes/room_summary.rs",
+      "field_count": 2
+    },
+    "RoomSummaryBatchRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "rooms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "suggested_only": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "rooms"
+        ]
+      },
+      "file": "src/web/routes/room_summary.rs",
+      "field_count": 2
+    },
+    "SamlCallbackBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "saml_response": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "saml_request": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relay_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/saml.rs",
+      "field_count": 3
+    },
+    "UpdateSamlMappingBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "attributes": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/saml.rs",
+      "field_count": 2
+    },
+    "SamlLogoutAdminBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      },
+      "file": "src/web/routes/saml.rs",
+      "field_count": 1
+    },
+    "CreateSpaceBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "room_id": {
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "join_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_public": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parent_space_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "room_id"
+        ]
+      },
+      "file": "src/web/routes/space/types.rs",
+      "field_count": 8
+    },
+    "AddChildBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "room_id": {
+            "type": "string"
+          },
+          "via_servers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "suggested": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "room_id",
+          "via_servers"
+        ]
+      },
+      "file": "src/web/routes/space/types.rs",
+      "field_count": 3
+    },
+    "UpdateSpaceBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "join_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_public": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/space/types.rs",
+      "field_count": 6
+    },
+    "InviteUserBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      },
+      "file": "src/web/routes/space/types.rs",
+      "field_count": 1
+    },
+    "TagContent": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "order": {
+            "anyOf": [
+              {
+                "type": "number",
+                "format": "double"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/tags.rs",
+      "field_count": 1
+    },
+    "RequestTokenRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "client_secret": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "send_attempt": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id_server": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id_access_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "client_secret",
+          "email"
+        ]
+      },
+      "file": "src/web/routes/threepid.rs",
+      "field_count": 6
+    },
+    "SubmitTokenRequest": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "client_secret": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "sid": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_secret",
+          "token",
+          "sid"
+        ]
+      },
+      "file": "src/web/routes/threepid.rs",
+      "field_count": 3
+    },
+    "VerificationStartBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from_device": {
+            "type": "string"
+          },
+          "to_user": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to_device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "methods": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "from_device"
+        ]
+      },
+      "file": "src/web/routes/verification_routes.rs",
+      "field_count": 6
+    },
+    "VerificationAcceptBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {
+            "type": "string"
+          },
+          "key_agreement_protocol": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "commitment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "transaction_id",
+          "key_agreement_protocol",
+          "hash"
+        ]
+      },
+      "file": "src/web/routes/verification_routes.rs",
+      "field_count": 4
+    },
+    "KeyAgreementBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {
+            "type": "string"
+          },
+          "pubkey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction_id",
+          "pubkey"
+        ]
+      },
+      "file": "src/web/routes/verification_routes.rs",
+      "field_count": 2
+    },
+    "VerificationMacBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {
+            "type": "string"
+          },
+          "mac": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction_id",
+          "mac"
+        ]
+      },
+      "file": "src/web/routes/verification_routes.rs",
+      "field_count": 2
+    },
+    "VerificationCancelBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction_id",
+          "code",
+          "reason"
+        ]
+      },
+      "file": "src/web/routes/verification_routes.rs",
+      "field_count": 3
+    },
+    "ScanQrBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {
+            "type": "string"
+          },
+          "server_name": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": "string"
+          },
+          "device_ed25519_key": {
+            "type": "string"
+          },
+          "device_curve25519_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction_id",
+          "server_name",
+          "user_id",
+          "device_id",
+          "device_ed25519_key",
+          "device_curve25519_key"
+        ]
+      },
+      "file": "src/web/routes/verification_routes.rs",
+      "field_count": 6
+    },
+    "CompatVerificationRequestBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "transaction_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from_device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to_user": {
+            "type": "string"
+          },
+          "to_device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "methods": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "to_user"
+        ]
+      },
+      "file": "src/web/routes/verification_routes.rs",
+      "field_count": 6
+    },
+    "UpdateWidgetBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/widget.rs",
+      "field_count": 3
+    },
+    "SetPermissionBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "user_id",
+          "permissions"
+        ]
+      },
+      "file": "src/web/routes/widget.rs",
+      "field_count": 2
+    },
+    "CreateSessionBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "widget_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expires_in_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/widget.rs",
+      "field_count": 3
+    },
+    "WidgetCapabilitiesBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "capabilities"
+        ]
+      },
+      "file": "src/web/routes/widget.rs",
+      "field_count": 1
+    },
+    "SendWidgetMessageBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "content": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "type",
+          "content"
+        ]
+      },
+      "file": "src/web/routes/widget.rs",
+      "field_count": 2
+    },
+    "RegisterWorkerBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "worker_id": {
+            "type": "string"
+          },
+          "worker_name": {
+            "type": "string"
+          },
+          "worker_type": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "format": "uint16"
+          },
+          "config": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "worker_id",
+          "worker_name",
+          "worker_type",
+          "host",
+          "port"
+        ]
+      },
+      "file": "src/web/routes/worker.rs",
+      "field_count": 8
+    },
+    "HeartbeatBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "load_stats": {
+            "anyOf": [
+              {
+                "type": "object",
+                "description": "rust: WorkerLoadStatsUpdate",
+                "x-unknown-rust-type": "WorkerLoadStatsUpdate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "file": "src/web/routes/worker.rs",
+      "field_count": 2
+    },
+    "SendCommandBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "command_type": {
+            "type": "string"
+          },
+          "command_data": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_retries": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "command_type",
+          "command_data"
+        ]
+      },
+      "file": "src/web/routes/worker.rs",
+      "field_count": 4
+    },
+    "AssignTaskBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "task_type": {
+            "type": "string"
+          },
+          "task_data": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "format": "int32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "preferred_worker_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "task_type",
+          "task_data"
+        ]
+      },
+      "file": "src/web/routes/worker.rs",
+      "field_count": 4
+    },
+    "ConnectWorkerBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      },
+      "file": "src/web/routes/worker.rs",
+      "field_count": 1
+    },
+    "CompleteTaskBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "file": "src/web/routes/worker.rs",
+      "field_count": 1
+    },
+    "FailTaskBody": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "file": "src/web/routes/worker.rs",
+      "field_count": 1
+    }
+  },
+  "joined_mapping": {
+    "post /_matrix/client/r0/account/3pid/delete": [
+      "/account/3pid/delete",
+      "post",
+      "DeleteThreepidRequest"
+    ],
+    "post /_matrix/client/v3/account/3pid/delete": [
+      "/account/3pid/delete",
+      "post",
+      "DeleteThreepidRequest"
+    ],
+    "post /_matrix/client/v1/account/3pid/delete": [
+      "/account/3pid/delete",
+      "post",
+      "DeleteThreepidRequest"
+    ],
+    "post /_matrix/client/r0/account/3pid/unbind": [
+      "/account/3pid/unbind",
+      "post",
+      "DeleteThreepidRequest"
+    ],
+    "post /_matrix/client/v3/account/3pid/unbind": [
+      "/account/3pid/unbind",
+      "post",
+      "DeleteThreepidRequest"
+    ],
+    "post /_matrix/client/v1/account/3pid/unbind": [
+      "/account/3pid/unbind",
+      "post",
+      "DeleteThreepidRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/audit/events": [
+      "/_synapse/admin/v1/audit/events",
+      "post",
+      "CreateAuditEventBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/audit/events": [
+      "/_synapse/admin/v1/audit/events",
+      "post",
+      "CreateAuditEventBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/audit/events": [
+      "/_synapse/admin/v1/audit/events",
+      "post",
+      "CreateAuditEventBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/federation/rewrite": [
+      "/_synapse/admin/v1/federation/rewrite",
+      "post",
+      "RewriteRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/federation/rewrite": [
+      "/_synapse/admin/v1/federation/rewrite",
+      "post",
+      "RewriteRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/federation/rewrite": [
+      "/_synapse/admin/v1/federation/rewrite",
+      "post",
+      "RewriteRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/federation/resolve": [
+      "/_synapse/admin/v1/federation/resolve",
+      "post",
+      "ResolveRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/federation/resolve": [
+      "/_synapse/admin/v1/federation/resolve",
+      "post",
+      "ResolveRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/federation/resolve": [
+      "/_synapse/admin/v1/federation/resolve",
+      "post",
+      "ResolveRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/federation/confirm": [
+      "/_synapse/admin/v1/federation/confirm",
+      "post",
+      "ConfirmRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/federation/confirm": [
+      "/_synapse/admin/v1/federation/confirm",
+      "post",
+      "ConfirmRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/federation/confirm": [
+      "/_synapse/admin/v1/federation/confirm",
+      "post",
+      "ConfirmRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/notifications": [
+      "/_synapse/admin/v1/notifications",
+      "post",
+      "CreateNotificationRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/notifications": [
+      "/_synapse/admin/v1/notifications",
+      "post",
+      "CreateNotificationRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/notifications": [
+      "/_synapse/admin/v1/notifications",
+      "post",
+      "CreateNotificationRequest"
+    ],
+    "put /_matrix/client/r0/_synapse/admin/v1/notifications/{notification_id}": [
+      "/_synapse/admin/v1/notifications/{notification_id}",
+      "put",
+      "UpdateNotificationRequest"
+    ],
+    "put /_matrix/client/v3/_synapse/admin/v1/notifications/{notification_id}": [
+      "/_synapse/admin/v1/notifications/{notification_id}",
+      "put",
+      "UpdateNotificationRequest"
+    ],
+    "put /_matrix/client/v1/_synapse/admin/v1/notifications/{notification_id}": [
+      "/_synapse/admin/v1/notifications/{notification_id}",
+      "put",
+      "UpdateNotificationRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/send_server_notice": [
+      "/_synapse/admin/v1/send_server_notice",
+      "post",
+      "ServerNoticeRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/send_server_notice": [
+      "/_synapse/admin/v1/send_server_notice",
+      "post",
+      "ServerNoticeRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/send_server_notice": [
+      "/_synapse/admin/v1/send_server_notice",
+      "post",
+      "ServerNoticeRequest"
+    ],
+    "put /_matrix/client/r0/_synapse/admin/v1/users/{user_id}/notification": [
+      "/_synapse/admin/v1/users/{user_id}/notification",
+      "put",
+      "UserNotificationRequest"
+    ],
+    "put /_matrix/client/v3/_synapse/admin/v1/users/{user_id}/notification": [
+      "/_synapse/admin/v1/users/{user_id}/notification",
+      "put",
+      "UserNotificationRequest"
+    ],
+    "put /_matrix/client/v1/_synapse/admin/v1/users/{user_id}/notification": [
+      "/_synapse/admin/v1/users/{user_id}/notification",
+      "put",
+      "UserNotificationRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/policy/check": [
+      "/_synapse/admin/v1/policy/check",
+      "post",
+      "PolicyCheckRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/policy/check": [
+      "/_synapse/admin/v1/policy/check",
+      "post",
+      "PolicyCheckRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/policy/check": [
+      "/_synapse/admin/v1/policy/check",
+      "post",
+      "PolicyCheckRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/register": [
+      "/_synapse/admin/v1/register",
+      "post",
+      "RegisterRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/register": [
+      "/_synapse/admin/v1/register",
+      "post",
+      "RegisterRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/register": [
+      "/_synapse/admin/v1/register",
+      "post",
+      "RegisterRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/retention/policy": [
+      "/_synapse/admin/v1/retention/policy",
+      "post",
+      "RetentionPolicyRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/retention/policy": [
+      "/_synapse/admin/v1/retention/policy",
+      "post",
+      "RetentionPolicyRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/retention/policy": [
+      "/_synapse/admin/v1/retention/policy",
+      "post",
+      "RetentionPolicyRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/retention/policy/{room_id}": [
+      "/_synapse/admin/v1/retention/policy/{room_id}",
+      "post",
+      "RetentionPolicyRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/retention/policy/{room_id}": [
+      "/_synapse/admin/v1/retention/policy/{room_id}",
+      "post",
+      "RetentionPolicyRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/retention/policy/{room_id}": [
+      "/_synapse/admin/v1/retention/policy/{room_id}",
+      "post",
+      "RetentionPolicyRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/retention/run": [
+      "/_synapse/admin/v1/retention/run",
+      "post",
+      "RunRetentionRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/retention/run": [
+      "/_synapse/admin/v1/retention/run",
+      "post",
+      "RunRetentionRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/retention/run": [
+      "/_synapse/admin/v1/retention/run",
+      "post",
+      "RunRetentionRequest"
+    ],
+    "post /_matrix/client/r0/rooms/{room_id}/ban": [
+      "/rooms/{room_id}/ban",
+      "post",
+      "BanRequest"
+    ],
+    "post /_matrix/client/v3/rooms/{room_id}/ban": [
+      "/rooms/{room_id}/ban",
+      "post",
+      "BanRequest"
+    ],
+    "post /_matrix/client/v1/rooms/{room_id}/ban": [
+      "/rooms/{room_id}/ban",
+      "post",
+      "BanRequest"
+    ],
+    "post /_matrix/client/r0/rooms/{room_id}/kick": [
+      "/rooms/{room_id}/kick",
+      "post",
+      "BanRequest"
+    ],
+    "post /_matrix/client/v3/rooms/{room_id}/kick": [
+      "/rooms/{room_id}/kick",
+      "post",
+      "BanRequest"
+    ],
+    "post /_matrix/client/v1/rooms/{room_id}/kick": [
+      "/rooms/{room_id}/kick",
+      "post",
+      "BanRequest"
+    ],
+    "put /_matrix/client/r0/_synapse/admin/v1/users/{user_id}/rate_limit": [
+      "/_synapse/admin/v1/users/{user_id}/rate_limit",
+      "put",
+      "RateLimitRequest"
+    ],
+    "put /_matrix/client/v3/_synapse/admin/v1/users/{user_id}/rate_limit": [
+      "/_synapse/admin/v1/users/{user_id}/rate_limit",
+      "put",
+      "RateLimitRequest"
+    ],
+    "put /_matrix/client/v1/_synapse/admin/v1/users/{user_id}/rate_limit": [
+      "/_synapse/admin/v1/users/{user_id}/rate_limit",
+      "put",
+      "RateLimitRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/registration_tokens": [
+      "/_synapse/admin/v1/registration_tokens",
+      "post",
+      "CreateTokenRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/registration_tokens": [
+      "/_synapse/admin/v1/registration_tokens",
+      "post",
+      "CreateTokenRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/registration_tokens": [
+      "/_synapse/admin/v1/registration_tokens",
+      "post",
+      "CreateTokenRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/registration_tokens/{token}": [
+      "/_synapse/admin/v1/registration_tokens/{token}",
+      "post",
+      "UpdateTokenRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/registration_tokens/{token}": [
+      "/_synapse/admin/v1/registration_tokens/{token}",
+      "post",
+      "UpdateTokenRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/registration_tokens/{token}": [
+      "/_synapse/admin/v1/registration_tokens/{token}",
+      "post",
+      "UpdateTokenRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/users/{user_id}/password": [
+      "/_synapse/admin/v1/users/{user_id}/password",
+      "post",
+      "ResetPasswordBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/users/{user_id}/password": [
+      "/_synapse/admin/v1/users/{user_id}/password",
+      "post",
+      "ResetPasswordBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/users/{user_id}/password": [
+      "/_synapse/admin/v1/users/{user_id}/password",
+      "post",
+      "ResetPasswordBody"
+    ],
+    "put /_matrix/client/r0/_synapse/admin/v2/users/{user_id}": [
+      "/_synapse/admin/v2/users/{user_id}",
+      "put",
+      "CreateUpdateUserRequest"
+    ],
+    "put /_matrix/client/v3/_synapse/admin/v2/users/{user_id}": [
+      "/_synapse/admin/v2/users/{user_id}",
+      "put",
+      "CreateUpdateUserRequest"
+    ],
+    "put /_matrix/client/v1/_synapse/admin/v2/users/{user_id}": [
+      "/_synapse/admin/v2/users/{user_id}",
+      "put",
+      "CreateUpdateUserRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/users/batch": [
+      "/_synapse/admin/v1/users/batch",
+      "post",
+      "BatchCreateUsersRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/users/batch": [
+      "/_synapse/admin/v1/users/batch",
+      "post",
+      "BatchCreateUsersRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/users/batch": [
+      "/_synapse/admin/v1/users/batch",
+      "post",
+      "BatchCreateUsersRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/users/batch_deactivate": [
+      "/_synapse/admin/v1/users/batch_deactivate",
+      "post",
+      "BatchDeactivateRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/users/batch_deactivate": [
+      "/_synapse/admin/v1/users/batch_deactivate",
+      "post",
+      "BatchDeactivateRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/users/batch_deactivate": [
+      "/_synapse/admin/v1/users/batch_deactivate",
+      "post",
+      "BatchDeactivateRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/account/{user_id}": [
+      "/_synapse/admin/v1/account/{user_id}",
+      "post",
+      "UpdateAccountRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/account/{user_id}": [
+      "/_synapse/admin/v1/account/{user_id}",
+      "post",
+      "UpdateAccountRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/account/{user_id}": [
+      "/_synapse/admin/v1/account/{user_id}",
+      "post",
+      "UpdateAccountRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/appservices": [
+      "/_synapse/admin/v1/appservices",
+      "post",
+      "RegisterAppServiceBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/appservices": [
+      "/_synapse/admin/v1/appservices",
+      "post",
+      "RegisterAppServiceBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/appservices": [
+      "/_synapse/admin/v1/appservices",
+      "post",
+      "RegisterAppServiceBody"
+    ],
+    "put /_matrix/client/r0/_synapse/admin/v1/appservices/{as_id}": [
+      "/_synapse/admin/v1/appservices/{as_id}",
+      "put",
+      "UpdateAppServiceBody"
+    ],
+    "put /_matrix/client/v3/_synapse/admin/v1/appservices/{as_id}": [
+      "/_synapse/admin/v1/appservices/{as_id}",
+      "put",
+      "UpdateAppServiceBody"
+    ],
+    "put /_matrix/client/v1/_synapse/admin/v1/appservices/{as_id}": [
+      "/_synapse/admin/v1/appservices/{as_id}",
+      "put",
+      "UpdateAppServiceBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/appservices/{as_id}/state": [
+      "/_synapse/admin/v1/appservices/{as_id}/state",
+      "post",
+      "SetStateBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/appservices/{as_id}/state": [
+      "/_synapse/admin/v1/appservices/{as_id}/state",
+      "post",
+      "SetStateBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/appservices/{as_id}/state": [
+      "/_synapse/admin/v1/appservices/{as_id}/state",
+      "post",
+      "SetStateBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/appservices/{as_id}/users": [
+      "/_synapse/admin/v1/appservices/{as_id}/users",
+      "post",
+      "RegisterVirtualUserBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/appservices/{as_id}/users": [
+      "/_synapse/admin/v1/appservices/{as_id}/users",
+      "post",
+      "RegisterVirtualUserBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/appservices/{as_id}/users": [
+      "/_synapse/admin/v1/appservices/{as_id}/users",
+      "post",
+      "RegisterVirtualUserBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/appservices/{as_id}/events": [
+      "/_synapse/admin/v1/appservices/{as_id}/events",
+      "post",
+      "PushEventBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/appservices/{as_id}/events": [
+      "/_synapse/admin/v1/appservices/{as_id}/events",
+      "post",
+      "PushEventBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/appservices/{as_id}/events": [
+      "/_synapse/admin/v1/appservices/{as_id}/events",
+      "post",
+      "PushEventBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/background_updates": [
+      "/_synapse/admin/v1/background_updates",
+      "post",
+      "CreateUpdateBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/background_updates": [
+      "/_synapse/admin/v1/background_updates",
+      "post",
+      "CreateUpdateBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/background_updates": [
+      "/_synapse/admin/v1/background_updates",
+      "post",
+      "CreateUpdateBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/background_updates/{job_name}/progress": [
+      "/_synapse/admin/v1/background_updates/{job_name}/progress",
+      "post",
+      "UpdateProgressBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/background_updates/{job_name}/progress": [
+      "/_synapse/admin/v1/background_updates/{job_name}/progress",
+      "post",
+      "UpdateProgressBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/background_updates/{job_name}/progress": [
+      "/_synapse/admin/v1/background_updates/{job_name}/progress",
+      "post",
+      "UpdateProgressBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/background_updates/{job_name}/fail": [
+      "/_synapse/admin/v1/background_updates/{job_name}/fail",
+      "post",
+      "FailUpdateBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/background_updates/{job_name}/fail": [
+      "/_synapse/admin/v1/background_updates/{job_name}/fail",
+      "post",
+      "FailUpdateBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/background_updates/{job_name}/fail": [
+      "/_synapse/admin/v1/background_updates/{job_name}/fail",
+      "post",
+      "FailUpdateBody"
+    ],
+    "post /_matrix/client/r0/register/captcha/send": [
+      "/_matrix/client/r0/register/captcha/send",
+      "post",
+      "SendCaptchaBody"
+    ],
+    "post /_matrix/client/v3/register/captcha/send": [
+      "/_matrix/client/v3/register/captcha/send",
+      "post",
+      "SendCaptchaBody"
+    ],
+    "post /_matrix/client/r0/register/captcha/verify": [
+      "/_matrix/client/r0/register/captcha/verify",
+      "post",
+      "VerifyCaptchaBody"
+    ],
+    "post /_matrix/client/v3/register/captcha/verify": [
+      "/_matrix/client/v3/register/captcha/verify",
+      "post",
+      "VerifyCaptchaBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/cas/services": [
+      "/_synapse/admin/v1/cas/services",
+      "post",
+      "RegisterServiceBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/cas/services": [
+      "/_synapse/admin/v1/cas/services",
+      "post",
+      "RegisterServiceBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/cas/services": [
+      "/_synapse/admin/v1/cas/services",
+      "post",
+      "RegisterServiceBody"
+    ],
+    "post /_matrix/client/r0/admin/services": [
+      "/admin/services",
+      "post",
+      "RegisterServiceBody"
+    ],
+    "post /_matrix/client/v3/admin/services": [
+      "/admin/services",
+      "post",
+      "RegisterServiceBody"
+    ],
+    "post /_matrix/client/v1/admin/services": [
+      "/admin/services",
+      "post",
+      "RegisterServiceBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/cas/users/{user_id}/attributes": [
+      "/_synapse/admin/v1/cas/users/{user_id}/attributes",
+      "post",
+      "SetAttributeBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/cas/users/{user_id}/attributes": [
+      "/_synapse/admin/v1/cas/users/{user_id}/attributes",
+      "post",
+      "SetAttributeBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/cas/users/{user_id}/attributes": [
+      "/_synapse/admin/v1/cas/users/{user_id}/attributes",
+      "post",
+      "SetAttributeBody"
+    ],
+    "post /_matrix/client/r0/admin/users/{user_id}/attributes": [
+      "/admin/users/{user_id}/attributes",
+      "post",
+      "SetAttributeBody"
+    ],
+    "post /_matrix/client/v3/admin/users/{user_id}/attributes": [
+      "/admin/users/{user_id}/attributes",
+      "post",
+      "SetAttributeBody"
+    ],
+    "post /_matrix/client/v1/admin/users/{user_id}/attributes": [
+      "/admin/users/{user_id}/attributes",
+      "post",
+      "SetAttributeBody"
+    ],
+    "post /_matrix/client/r0/create_dm": [
+      "/_matrix/client/r0/create_dm",
+      "post",
+      "CreateDmRequest"
+    ],
+    "post /_matrix/client/v3/create_dm": [
+      "/_matrix/client/v3/create_dm",
+      "post",
+      "CreateDmRequest"
+    ],
+    "put /_matrix/client/r0/direct/{room_id}": [
+      "/_matrix/client/r0/direct/{room_id}",
+      "put",
+      "UpdateDmRequest"
+    ],
+    "put /_matrix/client/v3/direct/{room_id}": [
+      "/direct/{room_id}",
+      "put",
+      "UpdateDmRequest"
+    ],
+    "put /_matrix/client/v1/direct/{room_id}": [
+      "/direct/{room_id}",
+      "put",
+      "UpdateDmRequest"
+    ],
+    "post /_matrix/client/r0/keys/backup/secure/{backup_id}/restore": [
+      "/keys/backup/secure/{backup_id}/restore",
+      "post",
+      "RestoreSecureBackupRequest"
+    ],
+    "post /_matrix/client/v3/keys/backup/secure/{backup_id}/restore": [
+      "/keys/backup/secure/{backup_id}/restore",
+      "post",
+      "RestoreSecureBackupRequest"
+    ],
+    "post /_matrix/client/v1/keys/backup/secure/{backup_id}/restore": [
+      "/keys/backup/secure/{backup_id}/restore",
+      "post",
+      "RestoreSecureBackupRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/event_reports": [
+      "/_synapse/admin/v1/event_reports",
+      "post",
+      "CreateReportBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/event_reports": [
+      "/_synapse/admin/v1/event_reports",
+      "post",
+      "CreateReportBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/event_reports": [
+      "/_synapse/admin/v1/event_reports",
+      "post",
+      "CreateReportBody"
+    ],
+    "put /_matrix/client/r0/_synapse/admin/v1/event_reports/{id}": [
+      "/_synapse/admin/v1/event_reports/{id}",
+      "put",
+      "UpdateReportBody"
+    ],
+    "put /_matrix/client/v3/_synapse/admin/v1/event_reports/{id}": [
+      "/_synapse/admin/v1/event_reports/{id}",
+      "put",
+      "UpdateReportBody"
+    ],
+    "put /_matrix/client/v1/_synapse/admin/v1/event_reports/{id}": [
+      "/_synapse/admin/v1/event_reports/{id}",
+      "put",
+      "UpdateReportBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/event_reports/{id}/resolve": [
+      "/_synapse/admin/v1/event_reports/{id}/resolve",
+      "post",
+      "ResolveReportBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/event_reports/{id}/resolve": [
+      "/_synapse/admin/v1/event_reports/{id}/resolve",
+      "post",
+      "ResolveReportBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/event_reports/{id}/resolve": [
+      "/_synapse/admin/v1/event_reports/{id}/resolve",
+      "post",
+      "ResolveReportBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/event_reports/{id}/dismiss": [
+      "/_synapse/admin/v1/event_reports/{id}/dismiss",
+      "post",
+      "DismissReportBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/event_reports/{id}/dismiss": [
+      "/_synapse/admin/v1/event_reports/{id}/dismiss",
+      "post",
+      "DismissReportBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/event_reports/{id}/dismiss": [
+      "/_synapse/admin/v1/event_reports/{id}/dismiss",
+      "post",
+      "DismissReportBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block": [
+      "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block",
+      "post",
+      "BlockUserBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block": [
+      "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block",
+      "post",
+      "BlockUserBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block": [
+      "/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block",
+      "post",
+      "BlockUserBody"
+    ],
+    "put /_matrix/client/r0/_synapse/admin/v1/external_services/{as_id}": [
+      "/_synapse/admin/v1/external_services/{as_id}",
+      "put",
+      "UpdateExternalServiceBody"
+    ],
+    "put /_matrix/client/v3/_synapse/admin/v1/external_services/{as_id}": [
+      "/_synapse/admin/v1/external_services/{as_id}",
+      "put",
+      "UpdateExternalServiceBody"
+    ],
+    "put /_matrix/client/v1/_synapse/admin/v1/external_services/{as_id}": [
+      "/_synapse/admin/v1/external_services/{as_id}",
+      "put",
+      "UpdateExternalServiceBody"
+    ],
+    "put /_matrix/admin/v1/external_services/{as_id}": [
+      "/_matrix/admin/v1/external_services/{as_id}",
+      "put",
+      "UpdateExternalServiceBody"
+    ],
+    "post /_matrix/client/r0/_synapse/external/trendradar/{service_id}/webhook": [
+      "/_synapse/external/trendradar/{service_id}/webhook",
+      "post",
+      "TrendRadarPayload"
+    ],
+    "post /_matrix/client/v3/_synapse/external/trendradar/{service_id}/webhook": [
+      "/_synapse/external/trendradar/{service_id}/webhook",
+      "post",
+      "TrendRadarPayload"
+    ],
+    "post /_matrix/client/v1/_synapse/external/trendradar/{service_id}/webhook": [
+      "/_synapse/external/trendradar/{service_id}/webhook",
+      "post",
+      "TrendRadarPayload"
+    ],
+    "post /_matrix/client/r0/_synapse/external/webhook/{service_id}": [
+      "/_synapse/external/webhook/{service_id}",
+      "post",
+      "WebhookPayload"
+    ],
+    "post /_matrix/client/v3/_synapse/external/webhook/{service_id}": [
+      "/_synapse/external/webhook/{service_id}",
+      "post",
+      "WebhookPayload"
+    ],
+    "post /_matrix/client/v1/_synapse/external/webhook/{service_id}": [
+      "/_synapse/external/webhook/{service_id}",
+      "post",
+      "WebhookPayload"
+    ],
+    "put /_matrix/client/v1/external_services/{service_id}": [
+      "/_matrix/client/v1/external_services/{service_id}",
+      "put",
+      "UpdateExternalServiceBody"
+    ],
+    "put /_matrix/vendor/v1/external_services/{service_id}": [
+      "/_matrix/vendor/v1/external_services/{service_id}",
+      "put",
+      "UpdateExternalServiceBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/feature-flags": [
+      "/_synapse/admin/v1/feature-flags",
+      "post",
+      "CreateFeatureFlagRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/feature-flags": [
+      "/_synapse/admin/v1/feature-flags",
+      "post",
+      "CreateFeatureFlagRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/feature-flags": [
+      "/_synapse/admin/v1/feature-flags",
+      "post",
+      "CreateFeatureFlagRequest"
+    ],
+    "post /_matrix/client/v3/friends": [
+      "/_matrix/client/v3/friends",
+      "post",
+      "AddFriendRequest"
+    ],
+    "post /_matrix/client/v1/friends": [
+      "/_matrix/client/v1/friends",
+      "post",
+      "AddFriendRequest"
+    ],
+    "post /_matrix/client/r0/friendships": [
+      "/_matrix/client/r0/friendships",
+      "post",
+      "AddFriendRequest"
+    ],
+    "post /_matrix/client/v1/friends/request": [
+      "/_matrix/client/v1/friends/request",
+      "post",
+      "AddFriendRequest"
+    ],
+    "post /_matrix/client/r0/friends/request": [
+      "/_matrix/client/r0/friends/request",
+      "post",
+      "AddFriendRequest"
+    ],
+    "post /_matrix/vendor/v1/friends/request": [
+      "/_matrix/vendor/v1/friends/request",
+      "post",
+      "AddFriendRequest"
+    ],
+    "put /_matrix/client/v1/friends/{user_id}/note": [
+      "/_matrix/client/v1/friends/{user_id}/note",
+      "put",
+      "UpdateNoteRequest"
+    ],
+    "put /_matrix/client/r0/friends/{user_id}/note": [
+      "/_matrix/client/r0/friends/{user_id}/note",
+      "put",
+      "UpdateNoteRequest"
+    ],
+    "put /_matrix/vendor/v1/friends/{user_id}/note": [
+      "/_matrix/vendor/v1/friends/{user_id}/note",
+      "put",
+      "UpdateNoteRequest"
+    ],
+    "put /_matrix/client/v1/friends/{user_id}/status": [
+      "/_matrix/client/v1/friends/{user_id}/status",
+      "put",
+      "UpdateStatusRequest"
+    ],
+    "put /_matrix/client/r0/friends/{user_id}/status": [
+      "/_matrix/client/r0/friends/{user_id}/status",
+      "put",
+      "UpdateStatusRequest"
+    ],
+    "put /_matrix/client/v1/friends/{user_id}/displayname": [
+      "/_matrix/client/v1/friends/{user_id}/displayname",
+      "put",
+      "UpdateDisplaynameRequest"
+    ],
+    "put /_matrix/client/r0/friends/{user_id}/displayname": [
+      "/_matrix/client/r0/friends/{user_id}/displayname",
+      "put",
+      "UpdateDisplaynameRequest"
+    ],
+    "put /_matrix/vendor/v1/friends/{user_id}/displayname": [
+      "/_matrix/vendor/v1/friends/{user_id}/displayname",
+      "put",
+      "UpdateDisplaynameRequest"
+    ],
+    "post /_matrix/client/v1/friends/groups": [
+      "/_matrix/client/v1/friends/groups",
+      "post",
+      "CreateGroupRequest"
+    ],
+    "post /_matrix/client/r0/friends/groups": [
+      "/_matrix/client/r0/friends/groups",
+      "post",
+      "CreateGroupRequest"
+    ],
+    "put /_matrix/client/v1/friends/groups/{group_id}/name": [
+      "/_matrix/client/v1/friends/groups/{group_id}/name",
+      "put",
+      "RenameGroupRequest"
+    ],
+    "put /_matrix/client/r0/friends/groups/{group_id}/name": [
+      "/_matrix/client/r0/friends/groups/{group_id}/name",
+      "put",
+      "RenameGroupRequest"
+    ],
+    "put /_matrix/vendor/v1/friends/groups/{group_id}/name": [
+      "/_matrix/vendor/v1/friends/groups/{group_id}/name",
+      "put",
+      "RenameGroupRequest"
+    ],
+    "post /_matrix/client/v3/account/guest/upgrade": [
+      "/_matrix/client/v3/account/guest/upgrade",
+      "post",
+      "UpgradeGuestRequest"
+    ],
+    "post /_matrix/client/v1/rooms/{room_id}/threads": [
+      "/_matrix/client/v1/rooms/{room_id}/threads",
+      "post",
+      "CreateThreadBody"
+    ],
+    "post /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies": [
+      "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/replies",
+      "post",
+      "CreateReplyBody"
+    ],
+    "post /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe": [
+      "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/subscribe",
+      "post",
+      "SubscribeBody"
+    ],
+    "post /_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/read": [
+      "/_matrix/client/v1/rooms/{room_id}/threads/{thread_id}/read",
+      "post",
+      "MarkReadBody"
+    ],
+    "post /_matrix/client/v1/threads": [
+      "/_matrix/client/v1/threads",
+      "post",
+      "CreateThreadBody"
+    ],
+    "post /_matrix/client/r0/room_keys/recover": [
+      "/room_keys/recover",
+      "post",
+      "RecoverKeysBody"
+    ],
+    "post /_matrix/client/v3/room_keys/recover": [
+      "/room_keys/recover",
+      "post",
+      "RecoverKeysBody"
+    ],
+    "post /_matrix/client/v1/room_keys/recover": [
+      "/room_keys/recover",
+      "post",
+      "RecoverKeysBody"
+    ],
+    "post /_matrix/client/r0/room_keys/batch_recover": [
+      "/room_keys/batch_recover",
+      "post",
+      "BatchRecoverBody"
+    ],
+    "post /_matrix/client/v3/room_keys/batch_recover": [
+      "/room_keys/batch_recover",
+      "post",
+      "BatchRecoverBody"
+    ],
+    "post /_matrix/client/v1/room_keys/batch_recover": [
+      "/room_keys/batch_recover",
+      "post",
+      "BatchRecoverBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/modules": [
+      "/_synapse/admin/v1/modules",
+      "post",
+      "CreateModuleBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/modules": [
+      "/_synapse/admin/v1/modules",
+      "post",
+      "CreateModuleBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/modules": [
+      "/_synapse/admin/v1/modules",
+      "post",
+      "CreateModuleBody"
+    ],
+    "put /_matrix/client/r0/_synapse/admin/v1/modules/{module_name}/config": [
+      "/_synapse/admin/v1/modules/{module_name}/config",
+      "put",
+      "UpdateModuleConfigBody"
+    ],
+    "put /_matrix/client/v3/_synapse/admin/v1/modules/{module_name}/config": [
+      "/_synapse/admin/v1/modules/{module_name}/config",
+      "put",
+      "UpdateModuleConfigBody"
+    ],
+    "put /_matrix/client/v1/_synapse/admin/v1/modules/{module_name}/config": [
+      "/_synapse/admin/v1/modules/{module_name}/config",
+      "put",
+      "UpdateModuleConfigBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/modules/{module_name}/enable": [
+      "/_synapse/admin/v1/modules/{module_name}/enable",
+      "post",
+      "EnableModuleBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/modules/{module_name}/enable": [
+      "/_synapse/admin/v1/modules/{module_name}/enable",
+      "post",
+      "EnableModuleBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/modules/{module_name}/enable": [
+      "/_synapse/admin/v1/modules/{module_name}/enable",
+      "post",
+      "EnableModuleBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/modules/check_spam": [
+      "/_synapse/admin/v1/modules/check_spam",
+      "post",
+      "CheckSpamBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/modules/check_spam": [
+      "/_synapse/admin/v1/modules/check_spam",
+      "post",
+      "CheckSpamBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/modules/check_spam": [
+      "/_synapse/admin/v1/modules/check_spam",
+      "post",
+      "CheckSpamBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/modules/check_third_party_rule": [
+      "/_synapse/admin/v1/modules/check_third_party_rule",
+      "post",
+      "CheckThirdPartyRuleBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/modules/check_third_party_rule": [
+      "/_synapse/admin/v1/modules/check_third_party_rule",
+      "post",
+      "CheckThirdPartyRuleBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/modules/check_third_party_rule": [
+      "/_synapse/admin/v1/modules/check_third_party_rule",
+      "post",
+      "CheckThirdPartyRuleBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/account_validity": [
+      "/_synapse/admin/v1/account_validity",
+      "post",
+      "CreateAccountValidityBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/account_validity": [
+      "/_synapse/admin/v1/account_validity",
+      "post",
+      "CreateAccountValidityBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/account_validity": [
+      "/_synapse/admin/v1/account_validity",
+      "post",
+      "CreateAccountValidityBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/account_validity/{user_id}/renew": [
+      "/_synapse/admin/v1/account_validity/{user_id}/renew",
+      "post",
+      "RenewAccountBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/account_validity/{user_id}/renew": [
+      "/_synapse/admin/v1/account_validity/{user_id}/renew",
+      "post",
+      "RenewAccountBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/account_validity/{user_id}/renew": [
+      "/_synapse/admin/v1/account_validity/{user_id}/renew",
+      "post",
+      "RenewAccountBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/password_auth_providers": [
+      "/_synapse/admin/v1/password_auth_providers",
+      "post",
+      "CreatePasswordAuthProviderBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/password_auth_providers": [
+      "/_synapse/admin/v1/password_auth_providers",
+      "post",
+      "CreatePasswordAuthProviderBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/password_auth_providers": [
+      "/_synapse/admin/v1/password_auth_providers",
+      "post",
+      "CreatePasswordAuthProviderBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/media_callbacks": [
+      "/_synapse/admin/v1/media_callbacks",
+      "post",
+      "CreateMediaCallbackBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/media_callbacks": [
+      "/_synapse/admin/v1/media_callbacks",
+      "post",
+      "CreateMediaCallbackBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/media_callbacks": [
+      "/_synapse/admin/v1/media_callbacks",
+      "post",
+      "CreateMediaCallbackBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/account_data_callbacks": [
+      "/_synapse/admin/v1/account_data_callbacks",
+      "post",
+      "CreateAccountDataCallbackBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/account_data_callbacks": [
+      "/_synapse/admin/v1/account_data_callbacks",
+      "post",
+      "CreateAccountDataCallbackBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/account_data_callbacks": [
+      "/_synapse/admin/v1/account_data_callbacks",
+      "post",
+      "CreateAccountDataCallbackBody"
+    ],
+    "post /_matrix/client/r0/push/devices": [
+      "/_matrix/client/r0/push/devices",
+      "post",
+      "RegisterDeviceBody"
+    ],
+    "post /_matrix/client/r0/push/send": [
+      "/_matrix/client/r0/push/send",
+      "post",
+      "SendNotificationBody"
+    ],
+    "post /_matrix/client/r0/push/rules": [
+      "/_matrix/client/r0/push/rules",
+      "post",
+      "CreateRuleBody"
+    ],
+    "post /_matrix/client/r0/rooms/{room_id}/summary": [
+      "/rooms/{room_id}/summary",
+      "post",
+      "CreateRoomSummaryRequest"
+    ],
+    "post /_matrix/client/v3/rooms/{room_id}/summary": [
+      "/rooms/{room_id}/summary",
+      "post",
+      "CreateRoomSummaryRequest"
+    ],
+    "post /_matrix/client/v1/rooms/{room_id}/summary": [
+      "/rooms/{room_id}/summary",
+      "post",
+      "CreateRoomSummaryRequest"
+    ],
+    "post /_matrix/client/r0/_synapse/room_summary/v1/summaries": [
+      "/_synapse/room_summary/v1/summaries",
+      "post",
+      "CreateRoomSummaryRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/room_summary/v1/summaries": [
+      "/_synapse/room_summary/v1/summaries",
+      "post",
+      "CreateRoomSummaryRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/room_summary/v1/summaries": [
+      "/_synapse/room_summary/v1/summaries",
+      "post",
+      "CreateRoomSummaryRequest"
+    ],
+    "put /_matrix/client/r0/rooms/{room_id}/summary": [
+      "/rooms/{room_id}/summary",
+      "put",
+      "UpdateSummaryBody"
+    ],
+    "put /_matrix/client/v3/rooms/{room_id}/summary": [
+      "/rooms/{room_id}/summary",
+      "put",
+      "UpdateSummaryBody"
+    ],
+    "put /_matrix/client/v1/rooms/{room_id}/summary": [
+      "/rooms/{room_id}/summary",
+      "put",
+      "UpdateSummaryBody"
+    ],
+    "post /_matrix/client/r0/rooms/{room_id}/summary/members": [
+      "/rooms/{room_id}/summary/members",
+      "post",
+      "CreateSummaryMemberRequest"
+    ],
+    "post /_matrix/client/v3/rooms/{room_id}/summary/members": [
+      "/rooms/{room_id}/summary/members",
+      "post",
+      "CreateSummaryMemberRequest"
+    ],
+    "post /_matrix/client/v1/rooms/{room_id}/summary/members": [
+      "/rooms/{room_id}/summary/members",
+      "post",
+      "CreateSummaryMemberRequest"
+    ],
+    "put /_matrix/client/r0/rooms/{room_id}/summary/members/{user_id}": [
+      "/rooms/{room_id}/summary/members/{user_id}",
+      "put",
+      "UpdateMemberBody"
+    ],
+    "put /_matrix/client/v3/rooms/{room_id}/summary/members/{user_id}": [
+      "/rooms/{room_id}/summary/members/{user_id}",
+      "put",
+      "UpdateMemberBody"
+    ],
+    "put /_matrix/client/v1/rooms/{room_id}/summary/members/{user_id}": [
+      "/rooms/{room_id}/summary/members/{user_id}",
+      "put",
+      "UpdateMemberBody"
+    ],
+    "put /_matrix/client/r0/rooms/{room_id}/summary/state/{event_type}/{state_key}": [
+      "/rooms/{room_id}/summary/state/{event_type}/{state_key}",
+      "put",
+      "UpdateStateBody"
+    ],
+    "put /_matrix/client/v3/rooms/{room_id}/summary/state/{event_type}/{state_key}": [
+      "/rooms/{room_id}/summary/state/{event_type}/{state_key}",
+      "put",
+      "UpdateStateBody"
+    ],
+    "put /_matrix/client/v1/rooms/{room_id}/summary/state/{event_type}/{state_key}": [
+      "/rooms/{room_id}/summary/state/{event_type}/{state_key}",
+      "put",
+      "UpdateStateBody"
+    ],
+    "post /_matrix/client/r0/_synapse/room_summary/v1/summaries/batch": [
+      "/_synapse/room_summary/v1/summaries/batch",
+      "post",
+      "RoomSummaryBatchRequest"
+    ],
+    "post /_matrix/client/v3/_synapse/room_summary/v1/summaries/batch": [
+      "/_synapse/room_summary/v1/summaries/batch",
+      "post",
+      "RoomSummaryBatchRequest"
+    ],
+    "post /_matrix/client/v1/_synapse/room_summary/v1/summaries/batch": [
+      "/_synapse/room_summary/v1/summaries/batch",
+      "post",
+      "RoomSummaryBatchRequest"
+    ],
+    "post /_matrix/client/r0/login/saml/callback": [
+      "/_matrix/client/r0/login/saml/callback",
+      "post",
+      "SamlCallbackBody"
+    ],
+    "post /_matrix/client/v3/login/saml/callback": [
+      "/_matrix/client/v3/login/saml/callback",
+      "post",
+      "SamlCallbackBody"
+    ],
+    "post /_matrix/client/r0/_synapse/admin/v1/saml/logout": [
+      "/_synapse/admin/v1/saml/logout",
+      "post",
+      "SamlLogoutAdminBody"
+    ],
+    "post /_matrix/client/v3/_synapse/admin/v1/saml/logout": [
+      "/_synapse/admin/v1/saml/logout",
+      "post",
+      "SamlLogoutAdminBody"
+    ],
+    "post /_matrix/client/v1/_synapse/admin/v1/saml/logout": [
+      "/_synapse/admin/v1/saml/logout",
+      "post",
+      "SamlLogoutAdminBody"
+    ],
+    "post /_matrix/client/r0/spaces/{space_id}/children": [
+      "/spaces/{space_id}/children",
+      "post",
+      "AddChildBody"
+    ],
+    "post /_matrix/client/v3/spaces/{space_id}/children": [
+      "/spaces/{space_id}/children",
+      "post",
+      "AddChildBody"
+    ],
+    "post /_matrix/client/v1/spaces/{space_id}/children": [
+      "/spaces/{space_id}/children",
+      "post",
+      "AddChildBody"
+    ],
+    "post /_matrix/client/r0/spaces": [
+      "/spaces",
+      "post",
+      "CreateSpaceBody"
+    ],
+    "post /_matrix/client/v3/spaces": [
+      "/spaces",
+      "post",
+      "CreateSpaceBody"
+    ],
+    "post /_matrix/client/v1/spaces": [
+      "/spaces",
+      "post",
+      "CreateSpaceBody"
+    ],
+    "put /_matrix/client/r0/spaces/{space_id}": [
+      "/spaces/{space_id}",
+      "put",
+      "UpdateSpaceBody"
+    ],
+    "put /_matrix/client/v3/spaces/{space_id}": [
+      "/spaces/{space_id}",
+      "put",
+      "UpdateSpaceBody"
+    ],
+    "put /_matrix/client/v1/spaces/{space_id}": [
+      "/spaces/{space_id}",
+      "put",
+      "UpdateSpaceBody"
+    ],
+    "post /_matrix/client/r0/rooms/{room_id}/invite": [
+      "/rooms/{room_id}/invite",
+      "post",
+      "InviteUserBody"
+    ],
+    "post /_matrix/client/v3/rooms/{room_id}/invite": [
+      "/rooms/{room_id}/invite",
+      "post",
+      "InviteUserBody"
+    ],
+    "post /_matrix/client/v1/rooms/{room_id}/invite": [
+      "/rooms/{room_id}/invite",
+      "post",
+      "InviteUserBody"
+    ],
+    "post /_matrix/client/r0/spaces/{space_id}/invite": [
+      "/spaces/{space_id}/invite",
+      "post",
+      "InviteUserBody"
+    ],
+    "post /_matrix/client/v3/spaces/{space_id}/invite": [
+      "/spaces/{space_id}/invite",
+      "post",
+      "InviteUserBody"
+    ],
+    "post /_matrix/client/v1/spaces/{space_id}/invite": [
+      "/spaces/{space_id}/invite",
+      "post",
+      "InviteUserBody"
+    ],
+    "put /_matrix/client/r0/user/{user_id}/rooms/{room_id}/tags/{tag}": [
+      "/user/{user_id}/rooms/{room_id}/tags/{tag}",
+      "put",
+      "TagContent"
+    ],
+    "put /_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags/{tag}": [
+      "/user/{user_id}/rooms/{room_id}/tags/{tag}",
+      "put",
+      "TagContent"
+    ],
+    "put /_matrix/client/v1/user/{user_id}/rooms/{room_id}/tags/{tag}": [
+      "/user/{user_id}/rooms/{room_id}/tags/{tag}",
+      "put",
+      "TagContent"
+    ],
+    "post /_matrix/client/r0/requestToken": [
+      "/requestToken",
+      "post",
+      "RequestTokenRequest"
+    ],
+    "post /_matrix/client/v3/requestToken": [
+      "/requestToken",
+      "post",
+      "RequestTokenRequest"
+    ],
+    "post /_matrix/client/v1/requestToken": [
+      "/requestToken",
+      "post",
+      "RequestTokenRequest"
+    ],
+    "post /_matrix/client/r0/submitToken": [
+      "/submitToken",
+      "post",
+      "SubmitTokenRequest"
+    ],
+    "post /_matrix/client/v3/submitToken": [
+      "/submitToken",
+      "post",
+      "SubmitTokenRequest"
+    ],
+    "post /_matrix/client/v1/submitToken": [
+      "/submitToken",
+      "post",
+      "SubmitTokenRequest"
+    ],
+    "post /_matrix/client/r0/keys/device_signing/verify_start": [
+      "/keys/device_signing/verify_start",
+      "post",
+      "VerificationStartBody"
+    ],
+    "post /_matrix/client/v3/keys/device_signing/verify_start": [
+      "/keys/device_signing/verify_start",
+      "post",
+      "VerificationStartBody"
+    ],
+    "post /_matrix/client/v1/keys/device_signing/verify_start": [
+      "/keys/device_signing/verify_start",
+      "post",
+      "VerificationStartBody"
+    ],
+    "put /_matrix/client/r0/keys/device_signing/verify_accept": [
+      "/keys/device_signing/verify_accept",
+      "put",
+      "VerificationAcceptBody"
+    ],
+    "put /_matrix/client/v3/keys/device_signing/verify_accept": [
+      "/keys/device_signing/verify_accept",
+      "put",
+      "VerificationAcceptBody"
+    ],
+    "put /_matrix/client/v1/keys/device_signing/verify_accept": [
+      "/keys/device_signing/verify_accept",
+      "put",
+      "VerificationAcceptBody"
+    ],
+    "post /_matrix/client/r0/keys/device_signing/verify_key_agreement": [
+      "/keys/device_signing/verify_key_agreement",
+      "post",
+      "KeyAgreementBody"
+    ],
+    "post /_matrix/client/v3/keys/device_signing/verify_key_agreement": [
+      "/keys/device_signing/verify_key_agreement",
+      "post",
+      "KeyAgreementBody"
+    ],
+    "post /_matrix/client/v1/keys/device_signing/verify_key_agreement": [
+      "/keys/device_signing/verify_key_agreement",
+      "post",
+      "KeyAgreementBody"
+    ],
+    "post /_matrix/client/r0/keys/device_signing/verify_mac": [
+      "/keys/device_signing/verify_mac",
+      "post",
+      "VerificationMacBody"
+    ],
+    "post /_matrix/client/v3/keys/device_signing/verify_mac": [
+      "/keys/device_signing/verify_mac",
+      "post",
+      "VerificationMacBody"
+    ],
+    "post /_matrix/client/v1/keys/device_signing/verify_mac": [
+      "/keys/device_signing/verify_mac",
+      "post",
+      "VerificationMacBody"
+    ],
+    "post /_matrix/client/r0/keys/device_signing/verify_cancel": [
+      "/keys/device_signing/verify_cancel",
+      "post",
+      "VerificationCancelBody"
+    ],
+    "post /_matrix/client/v3/keys/device_signing/verify_cancel": [
+      "/keys/device_signing/verify_cancel",
+      "post",
+      "VerificationCancelBody"
+    ],
+    "post /_matrix/client/v1/keys/device_signing/verify_cancel": [
+      "/keys/device_signing/verify_cancel",
+      "post",
+      "VerificationCancelBody"
+    ],
+    "post /_matrix/client/r0/keys/qr_code/scan": [
+      "/keys/qr_code/scan",
+      "post",
+      "ScanQrBody"
+    ],
+    "post /_matrix/client/v3/keys/qr_code/scan": [
+      "/keys/qr_code/scan",
+      "post",
+      "ScanQrBody"
+    ],
+    "post /_matrix/client/v1/keys/qr_code/scan": [
+      "/keys/qr_code/scan",
+      "post",
+      "ScanQrBody"
+    ],
+    "post /_matrix/client/r0/keys/verification/request": [
+      "/keys/verification/request",
+      "post",
+      "CompatVerificationRequestBody"
+    ],
+    "post /_matrix/client/v3/keys/verification/request": [
+      "/keys/verification/request",
+      "post",
+      "CompatVerificationRequestBody"
+    ],
+    "post /_matrix/client/v1/keys/verification/request": [
+      "/keys/verification/request",
+      "post",
+      "CompatVerificationRequestBody"
+    ],
+    "put /_matrix/client/v1/widgets/{widget_id}": [
+      "/_matrix/client/v1/widgets/{widget_id}",
+      "put",
+      "UpdateWidgetBody"
+    ],
+    "post /_matrix/client/v1/widgets/{widget_id}/permissions": [
+      "/_matrix/client/v1/widgets/{widget_id}/permissions",
+      "post",
+      "SetPermissionBody"
+    ],
+    "post /_matrix/client/v1/widgets/{widget_id}/sessions": [
+      "/_matrix/client/v1/widgets/{widget_id}/sessions",
+      "post",
+      "CreateSessionBody"
+    ],
+    "post /_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send": [
+      "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/send",
+      "post",
+      "SendWidgetMessageBody"
+    ],
+    "post /_matrix/client/r0/_synapse/worker/v1/register": [
+      "/_synapse/worker/v1/register",
+      "post",
+      "RegisterWorkerBody"
+    ],
+    "post /_matrix/client/v3/_synapse/worker/v1/register": [
+      "/_synapse/worker/v1/register",
+      "post",
+      "RegisterWorkerBody"
+    ],
+    "post /_matrix/client/v1/_synapse/worker/v1/register": [
+      "/_synapse/worker/v1/register",
+      "post",
+      "RegisterWorkerBody"
+    ],
+    "post /_matrix/client/r0/_synapse/worker/v1/workers/{worker_id}/heartbeat": [
+      "/_synapse/worker/v1/workers/{worker_id}/heartbeat",
+      "post",
+      "HeartbeatBody"
+    ],
+    "post /_matrix/client/v3/_synapse/worker/v1/workers/{worker_id}/heartbeat": [
+      "/_synapse/worker/v1/workers/{worker_id}/heartbeat",
+      "post",
+      "HeartbeatBody"
+    ],
+    "post /_matrix/client/v1/_synapse/worker/v1/workers/{worker_id}/heartbeat": [
+      "/_synapse/worker/v1/workers/{worker_id}/heartbeat",
+      "post",
+      "HeartbeatBody"
+    ],
+    "post /_matrix/client/r0/_synapse/worker/v1/workers/{worker_id}/commands": [
+      "/_synapse/worker/v1/workers/{worker_id}/commands",
+      "post",
+      "SendCommandBody"
+    ],
+    "post /_matrix/client/v3/_synapse/worker/v1/workers/{worker_id}/commands": [
+      "/_synapse/worker/v1/workers/{worker_id}/commands",
+      "post",
+      "SendCommandBody"
+    ],
+    "post /_matrix/client/v1/_synapse/worker/v1/workers/{worker_id}/commands": [
+      "/_synapse/worker/v1/workers/{worker_id}/commands",
+      "post",
+      "SendCommandBody"
+    ],
+    "post /_matrix/client/r0/_synapse/worker/v1/commands/{command_id}/fail": [
+      "/_synapse/worker/v1/commands/{command_id}/fail",
+      "post",
+      "FailTaskBody"
+    ],
+    "post /_matrix/client/v3/_synapse/worker/v1/commands/{command_id}/fail": [
+      "/_synapse/worker/v1/commands/{command_id}/fail",
+      "post",
+      "FailTaskBody"
+    ],
+    "post /_matrix/client/v1/_synapse/worker/v1/commands/{command_id}/fail": [
+      "/_synapse/worker/v1/commands/{command_id}/fail",
+      "post",
+      "FailTaskBody"
+    ],
+    "post /_matrix/client/r0/_synapse/worker/v1/tasks": [
+      "/_synapse/worker/v1/tasks",
+      "post",
+      "AssignTaskBody"
+    ],
+    "post /_matrix/client/v3/_synapse/worker/v1/tasks": [
+      "/_synapse/worker/v1/tasks",
+      "post",
+      "AssignTaskBody"
+    ],
+    "post /_matrix/client/v1/_synapse/worker/v1/tasks": [
+      "/_synapse/worker/v1/tasks",
+      "post",
+      "AssignTaskBody"
+    ],
+    "post /_matrix/client/r0/_synapse/worker/v1/tasks/{task_id}/complete": [
+      "/_synapse/worker/v1/tasks/{task_id}/complete",
+      "post",
+      "CompleteTaskBody"
+    ],
+    "post /_matrix/client/v3/_synapse/worker/v1/tasks/{task_id}/complete": [
+      "/_synapse/worker/v1/tasks/{task_id}/complete",
+      "post",
+      "CompleteTaskBody"
+    ],
+    "post /_matrix/client/v1/_synapse/worker/v1/tasks/{task_id}/complete": [
+      "/_synapse/worker/v1/tasks/{task_id}/complete",
+      "post",
+      "CompleteTaskBody"
+    ],
+    "post /_matrix/client/r0/_synapse/worker/v1/tasks/{task_id}/fail": [
+      "/_synapse/worker/v1/tasks/{task_id}/fail",
+      "post",
+      "FailTaskBody"
+    ],
+    "post /_matrix/client/v3/_synapse/worker/v1/tasks/{task_id}/fail": [
+      "/_synapse/worker/v1/tasks/{task_id}/fail",
+      "post",
+      "FailTaskBody"
+    ],
+    "post /_matrix/client/v1/_synapse/worker/v1/tasks/{task_id}/fail": [
+      "/_synapse/worker/v1/tasks/{task_id}/fail",
+      "post",
+      "FailTaskBody"
+    ],
+    "post /_matrix/client/r0/_synapse/worker/v1/workers/{worker_id}/connect": [
+      "/_synapse/worker/v1/workers/{worker_id}/connect",
+      "post",
+      "ConnectWorkerBody"
+    ],
+    "post /_matrix/client/v3/_synapse/worker/v1/workers/{worker_id}/connect": [
+      "/_synapse/worker/v1/workers/{worker_id}/connect",
+      "post",
+      "ConnectWorkerBody"
+    ],
+    "post /_matrix/client/v1/_synapse/worker/v1/workers/{worker_id}/connect": [
+      "/_synapse/worker/v1/workers/{worker_id}/connect",
+      "post",
+      "ConnectWorkerBody"
+    ],
+    "put /_matrix/client/r0/_synapse/worker/v1/replication/{worker_id}/{stream_name}": [
+      "/_synapse/worker/v1/replication/{worker_id}/{stream_name}",
+      "put",
+      "StreamPosition"
+    ],
+    "put /_matrix/client/v3/_synapse/worker/v1/replication/{worker_id}/{stream_name}": [
+      "/_synapse/worker/v1/replication/{worker_id}/{stream_name}",
+      "put",
+      "StreamPosition"
+    ],
+    "put /_matrix/client/v1/_synapse/worker/v1/replication/{worker_id}/{stream_name}": [
+      "/_synapse/worker/v1/replication/{worker_id}/{stream_name}",
+      "put",
+      "StreamPosition"
+    ]
+  },
+  "skipped": [
+    {
+      "type_name": "UpgradeGuestRequest",
+      "file": "src/web/routes/guest.rs"
+    }
+  ]
+}

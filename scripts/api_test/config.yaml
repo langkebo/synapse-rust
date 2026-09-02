@@ -22,14 +22,25 @@ base_url: "https://matrix.test"
 auth_token: ""
 
 # 认证探测使用的用户凭据（用于自动登录获取 token；可用任意有效用户替换）
+# 注意: 必须是非 admin 用户,否则 user 端点和 admin 端点用的是同一个 token
 auth:
-  username: "admin"
-  password: "Admin@123"
+  username: "test2"
+  password: "Ljf@1234"
 
 # Admin 凭据（用于 /_synapse/admin 端点的认证探测；留空则 admin 端点仅做匿名 401 探测）
 admin:
   username: "admin"
   password: "Admin@123"
+
+# 权限/边界/功能阶段使用的双非管理员用户（用于跨账户越权测试）
+# 注意：必须是非 admin 用户，否则 admin 端点和 user 端点用的是同一个 token
+test_users:
+  user_a:
+    username: "test2"
+    password: "Ljf@1234"
+  user_b:
+    username: "test4"
+    password: "Ljf@1234"
 
 # TLS 校验开关（测试环境使用 mkcert 受信证书可保持 true；自签名环境设 false）
 verify_tls: true

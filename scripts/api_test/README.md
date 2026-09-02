@@ -11,8 +11,17 @@
 | `config.yaml` | 环境配置：base_url / token / 超时 / 并发 / 路径参数 |
 | `expectations.yaml` | 关键端点的响应字段与类型精确校验规则 |
 | `export_ledger.sh` | 导出最新路由清单（与 Docker 镜像相同 features） |
-| `ledger.json` | 默认路由清单（已按 Docker features 导出，1292 条） |
+| `generate_openapi.py` | **Week 1 Task 1+2** — 从 ledger JSON 生成 OpenAPI 3.0 规范（支持多 profile） |
+| `refresh_openapi_specs.py` | **Week 1 Task 2** — 一键导出所有 profile ledger + 生成所有 OpenAPI spec |
+| `schemathesis_smoke_test.py` | **Week 1 Task 3** — schemathesis 4.x 冒烟测试 (5 端点) |
+| `schemathesis_extended_test.py` | **Week 2 Task 1** — 自动发现全部 optional 端点,扩展到 48 端点 |
+| `schemathesis_authenticated_test.py` | **Week 2 Task 2** — user-auth token 测试,扩展到 278 端点 |
+| `token_manager.py` | Token 管理器 (user + admin login, 缓存 50min) |
+| `errcode_validator.py` | **Week 2 Task 3** — 4xx errcode 规范校验规则 (39 标准 errcode, 82 端点规则) |
+| `scan_handler_schemas.py` | **Week 2 Task 4** — 扫描 handler 签名补 OpenAPI requestBody schema |
 | `reports/` | 测试报告输出目录 |
+| `../../docs/openapi/client.yaml` | 生成的 OpenAPI 规范（可被 Swagger UI / schemathesis 使用） |
+| `../../docs/openapi/index.json` | OpenAPI manifest 索引 |
 
 > **关于路由清单**：`ledger.json` 使用与 Docker 镜像一致的 features
 > （`server,core-private-chat,widgets,external-services,voice-extended,cas-sso,saml-sso,friends`）
@@ -99,6 +108,98 @@ python3 run_api_tests.py --report-dir /tmp/api-reports
   - `api_test_report.json` — 完整机器可读数据（含每请求明细）
   - `api_test_report.md` — 摘要 + 失败明细 + 模块统计
   - `api_test_report.html` — 自包含可视化报告（评分环、状态卡、失败表格）
+
+## OpenAPI requestBody Schema 补全 (Week 2 Task 4 — 2026-09-01)
+
+**目标**: 将 Rust handler 函数的 `Json<TypeName>` 签名映射到 OpenAPI `requestBody` schema。
+
+```bash
+# 一次性扫描 + 补全 (会修改 docs/openapi/client.yaml)
+python3 scripts/api_test/scan_handler_schemas.py
+```
+
+**原理 (4 阶段)**:
+1. **Stage A** — 解析 `src/web/routes/*.rs` 中所有 `.route("/path", METHOD(handler))` 注册 → 648 个路由,328 个 write routes
+2. **Stage B** — 解析 handler 函数签名,提取 `Json<TypeName>`  extractor → 139 个 handler 用强类型
+3. **Stage C** — 从 handler 所在文件找 `#[derive(Deserialize)] struct TypeName` → 98 个 struct 提取成功
+4. **Stage D** — join 路由注册 × handler × struct → 精确 path → schema 映射,补入 `client.yaml`
+
+**当前成果**:
+- 82/409 个 write operations 已补上 `requestBody` schema (`required: true`)
+- 每个 schema 包含精确字段名(serde rename)、类型(Option/Vec/primitive)、required 列表
+- `scripts/api_test/handler_schemas.json` 存档全部扫描结果,供后续复用
+
+**使用方式**:
+```bash
+# 补全后验证 (schemathesis 读补全后的 spec)
+python3 scripts/api_test/schemathesis_authenticated_test.py --limit 10 --max-cases 3
+```
+
+**已知局限**:
+- 509 个 handler 用 `Json<Value>` 类型擦除 → 无法自动提取 schema,需手动加 `#[derive(Deserialize)]`
+- 某些路由(如 `account/3pid/add`, `account/3pid/bind`)共用一个 handler 但无 body schema → 同上
+
+---
+
+## OpenAPI Response Schema 探活 (Week 2 Task 5 — 2026-09-01)
+
+**目标**: 探活 localhost:8008 活服务器,采集 2xx 响应 JSON 结构 → 补进 OpenAPI spec 的 `responses.200.schema`。
+
+```bash
+# 探测所有无 path param 的 GET 端点,补 response schema
+python3 scripts/api_test/probe_responses.py
+```
+
+**原理**:
+1. 从 `docs/openapi/client.yaml` 读所有 GET 端点,过滤无 path param 且非 unstable 的 (138 个)
+2. 根据 spec `security` 字段决定是否带 token — 公开端点不带,需要认证端点带
+3. 逐端点发 curl 请求,采集 200 响应 JSON → 用 `infer_schema()` 转 JSON Schema
+4. 更新 spec 的 `responses.200.content.application/json.schema`
+5. `scripts/api_test/response_schemas.json` 存档原始采集结果
+
+**当前成果**:
+- 107/138 GET 端点探到 2xx 响应,补上精确 JSON Schema
+- Schema 包含真实字段名 (如 `sync.next_batch`, `devices[].last_seen_ts` 等)
+- 31 个端点返回 4xx (SAML/SSO 禁用、需 query param、需要管理员权限等)
+
+**关键技术问题**:
+- **YAML alias 污染**: 原始 spec 用 YAML anchors/aliases 共享 `responses.200` 对象 → 修一个等于修全部。
+  解决: `generate_openapi.py` 用自定义 `NoAliasDumper` 关闭 anchor detection。
+- **HTTP method case-sensitivity**: curl `-X get` (小写) 让 curl 发送字面量 "get" 而非 HTTP GET → 405。
+  解决: 在 `curl_request()` 里强制 `.upper()`。
+- **cross-origin token**: 从 matrix.test 拿的 token 在 localhost:8008 上无效 → 正确做法是先探服务器是否可达。
+
+**验证**:
+```bash
+$ python3 scripts/api_test/schemathesis_authenticated_test.py --limit 10 --max-cases 5
+✓ Passed: 10/10, ✓ Errcode Validation: all endpoints returned expected errcodes
+```
+
+---
+
+## OpenAPI 规范生成 (Week 1 Task 1 — 2026-09-01)
+
+**策略 A — 零侵入**: 不改任何 Rust 代码,直接从 `synapse_ledger_export` 的 JSON 产物生成 OpenAPI 3.0。
+
+```bash
+# 依赖: pip install pyyaml
+# 生成 (或刷新):
+python3 scripts/api_test/generate_openapi.py \
+    --ledger scripts/api_test/ledger.json \
+    --output docs/openapi/client.yaml
+
+# 验证:
+python3 -c "import yaml; d=yaml.safe_load(open('docs/openapi/client.yaml')); print(d['openapi'], d['info']['version'], 'paths:', len(d['paths']), 'ops:', sum(len(p) for p in d['paths'].values()))"
+```
+
+**已知局限 (Week 2 待补)**:
+- ledger 的 `auth` 字段覆盖率不足 (仅 1/898 端点有标记) → Week 2 用 profile split 补充
+- 响应 schema 均为 TODO placeholder → Week 2~3 用 schemathesis 探测补充
+- 所有端点默认 200/400/401/403/404/429 响应
+
+**CI 集成**: 每次 PR diff `docs/openapi/client.yaml`; 端点增加 >5% 触发 review 提醒。
+
+---
 
 ## 退出码
 
