@@ -25,6 +25,10 @@ ignore = [
     # only; no decryption code path. Review-by 2026-06-30 (target: ES256
     # migration).
     "RUSTSEC-2023-0071",
+    # RUSTSEC-2024-0388 — derivative 2.2.0 unmaintained. Transitive via
+    # synapse-common. Compile-time proc-macro only; no runtime risk.
+    # Review-by 2026-12-31.
+    "RUSTSEC-2024-0388",
     # RUSTSEC-2024-0436 — paste 1.0.15 unmaintained. Transitive via
     # image → ravif → rav1e → paste. Compile-time macro use only.
     "RUSTSEC-2024-0436",
