@@ -413,7 +413,10 @@ jobs:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           INTEGRATION_TESTS_REQUIRED: "1"
-        run: cargo test --locked --test integration api_placeholder_contract_p1p2_tests -- --test-threads=1 --nocapture
+        run: |
+          cargo test --locked \
+            --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications \
+            --test integration api_placeholder_contract_p1p2_tests -- --test-threads=1 --nocapture
 
       - name: Run database integrity migration gates
         env:
@@ -430,7 +433,9 @@ jobs:
             "database_integrity_tests::tests::test_orphan_data_diagnostics_query_executes"
           )
           for test_name in "${tests[@]}"; do
-            cargo test --locked --test integration "$test_name" -- --exact --nocapture
+            cargo test --locked \
+              --features test-utils,privacy-ext,voice-extended,voip-tracking,beacons,server-notifications \
+              --test integration "$test_name" -- --exact --nocapture
           done
 
       - name: Run invite blocklist database smoke tests
