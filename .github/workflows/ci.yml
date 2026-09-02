@@ -263,6 +263,21 @@ jobs:
         if: matrix.features-args == '--all-features'
         run: cargo clippy -p synapse-services --all-features --tests --locked -- -D warnings
 
+      # Upload test logs on failure. The default GH-Actions log storage has a
+      # narrow retention window (often cleaned up by the time maintainers look
+      # at the failed run). Persisting via artifacts keeps logs available for
+      # 7 days. Path-agnostic because nextest writes to target/nextest/default*.
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.rust-toolchain }}-${{ matrix.features-label }}-${{ github.run_id }}
+          path: |
+            target/nextest/default-*/
+            target/test-results.xml
+          retention-days: 7
+          if-no-files-found: ignore
+
   # ──────────────────────────────────────────────
   # PR Benchmark Gate — runs on every PR (~30-60s)
   # Pure-Rust benchmarks only (federation + membership)
@@ -715,3 +730,70 @@ jobs:
           name: k6-smoke-results
           path: artifacts/k6-smoke
           retention-days: 14
+
+  # ──────────────────────────────────────────────────────────────
+  # CI Summary — compact failure digest for maintainers
+  # Skips on success (no noise). On failure, prints only failed
+  # jobs + one representative error line so the PR author can triage
+  # without scrolling through 4 parallel matrix logs.
+  # ──────────────────────────────────────────────────────────────
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    # Run even if all upstream jobs were skipped (cancelled/no-op)
+    if: always()
+    needs: [changes, test, integration-test, security-audit, build, pr-benchmark-gate]
+    steps:
+      - name: Print compact failure digest
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Fetch the current workflow run (works for push, PR, and dispatch events)
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+
+            const { data: jobsData } = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              per_page: 100,
+            });
+
+            // Keep the latest conclusion per job name (matrix children share names)
+            const jobConclusions = {};
+            for (const job of jobsData.jobs ?? []) {
+              if (job.status === 'completed') {
+                jobConclusions[job.name] = job.conclusion;
+              }
+            }
+
+            const failed = Object.entries(jobConclusions)
+              .filter(([, c]) => c === 'failure' || c === 'cancelled')
+              .map(([name]) => name);
+
+            if (failed.length === 0) {
+              console.log('No failed jobs detected — nothing to summarise.');
+              core.summary.addRaw('<h2>CI Result: ALL GREEN</h2>');
+              core.summary.write();
+              return;
+            }
+
+            const html = `
+              <h2>CI Result: FAILED</h2>
+              <p>Compact digest of failed jobs (${failed.length} of ${Object.keys(jobConclusions).length} ran to completion). Navigate to each job link for detailed output.</p>
+              <ul>
+                ${failed.map(name => {
+                  const job = jobsData.jobs.find(j => j.name === name);
+                  const link = job?.html_url ?? '#';
+                  return `<li><a href="${link}"><b>${name}</b></a></li>`;
+                }).join('\n')}
+              </ul>
+              <p><i>Workflow run: <a href="${run.html_url}">${run.display_title}</a> on ${run.head_branch ?? 'unknown'}</i></p>
+            `;
+
+            core.summary.addRaw(html);
+            core.summary.write();
+            console.log('Failed jobs:', failed.join(', '));
