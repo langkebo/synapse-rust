@@ -176,7 +176,7 @@ for c in sorted(bycat):
         lines.append("")
 lines.append("---")
 lines.append(
-    "*本文件由 `scripts/contract/extract_registered.py` + `gen_contract_doc.py` 生成。路由面随代码变化，请定期重新生成（或运行 `make route-contract-check` / CI `route-contract-gate` 门禁）。*"
+    "> 本文件由 `scripts/contract/extract_registered.py` + `gen_contract_doc.py` 生成。路由面随代码变化，请定期重新生成（或运行 `make route-contract-check` / CI `route-contract-gate` 门禁）。"
 )
 
 # 保留旧文件 `## 附录` 之后的人工维护内容（如「附录 A」），防止重新生成覆盖
