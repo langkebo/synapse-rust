@@ -181,6 +181,24 @@ fn describe_integration_test_setup(mode: &str, elapsed: Duration) -> String {
     )
 }
 
+async fn prepare_test_pool_with_fallback() -> Result<Arc<sqlx::PgPool>, String> {
+    let use_isolated =
+        std::env::var("TEST_ISOLATED_SCHEMAS").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+
+    if use_isolated {
+        return synapse_rust::test_utils::prepare_isolated_test_pool().await;
+    }
+
+    match synapse_rust::test_utils::prepare_shared_test_pool().await {
+        Ok(pool) => Ok(pool),
+        Err(error) if should_fallback_to_isolated_pool(&error) => {
+            eprintln!("Shared test schema clone failed ({error}); retrying with isolated schema initialization");
+            synapse_rust::test_utils::prepare_isolated_test_pool().await
+        }
+        Err(error) => Err(error),
+    }
+}
+
 pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
     init_tracing();
     // 关键修复（pool timed out 根因）：不再使用 TEST_POOL OnceCell 缓存。
@@ -190,30 +208,14 @@ pub async fn get_test_pool() -> Option<Arc<sqlx::PgPool>> {
     // 连接上，最终报 "pool timed out while waiting for an open connection"
     // （复现于 api_rate_limit_contract_tests 等）。因此每次调用返回隔离 schema
     // 的独立 pool，与 require_test_pool() 语义一致。
+    // 与 get_test_pool() 同一段 env-var 解析：宽行宽时 fmt 会拆，这里保持单行。
     let use_isolated =
         std::env::var("TEST_ISOLATED_SCHEMAS").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
     let mode = if use_isolated { "isolated-schema" } else { "shared-template-schema" };
     let setup_timeout = integration_test_setup_timeout();
     let started = Instant::now();
 
-    let setup = async {
-        if use_isolated {
-            synapse_rust::test_utils::prepare_isolated_test_pool().await
-        } else {
-            match synapse_rust::test_utils::prepare_shared_test_pool().await {
-                Ok(pool) => Ok(pool),
-                Err(error) if should_fallback_to_isolated_pool(&error) => {
-                    eprintln!(
-                        "Shared test schema clone failed ({error}); retrying with isolated schema initialization"
-                    );
-                    synapse_rust::test_utils::prepare_isolated_test_pool().await
-                }
-                Err(error) => Err(error),
-            }
-        }
-    };
-
-    let result = match tokio::time::timeout(setup_timeout, setup).await {
+    let result = match tokio::time::timeout(setup_timeout, prepare_test_pool_with_fallback()).await {
         Ok(result) => result,
         Err(_) => Err(format!(
             "integration test database setup timed out after {setup_timeout:?}. \
@@ -264,11 +266,36 @@ fn should_fallback_to_isolated_pool(error: &str) -> bool {
 /// Now each call returns a fresh schema cloned from the template (fast —
 /// ~100x faster than re-running migrations), providing per-test isolation.
 pub async fn require_test_pool() -> Arc<sqlx::PgPool> {
-    synapse_rust::test_utils::prepare_shared_test_pool().await.unwrap_or_else(|error| {
-        panic!(
-            "Integration test requires database setup. For local runs, start PostgreSQL and apply migrations first; in CI this must already succeed. Error: {error}"
-        )
-    })
+    init_tracing();
+    // 行为对齐 get_test_pool()：先试 shared template schema，失败时按
+    // should_fallback_to_isolated_pool 自动回退到 isolated schema
+    // （解决本地 8 线程并发时 test_template_v2 schema 偶发不存在导致
+    // 128/1396 集成测试假失败的根因）。CI / INTEGRATION_TESTS_REQUIRED=1
+    // 模式下，preparation 整体失败才 panic；本地非 required 模式下回退
+    // 到 isolated 后仍失败才 panic，保留对真实 schema 损坏的硬检测。
+    let setup_timeout = integration_test_setup_timeout();
+    let result = match tokio::time::timeout(setup_timeout, prepare_test_pool_with_fallback()).await {
+        Ok(result) => result,
+        Err(_) => Err(format!(
+            "integration test database setup timed out after {setup_timeout:?}. \
+             Set INTEGRATION_TEST_SETUP_TIMEOUT_SECS to override, or INTEGRATION_TESTS_REQUIRED=1/CI=1 to fail hard.",
+        )),
+    };
+
+    match result {
+        Ok(pool) => pool,
+        Err(error) => {
+            if integration_tests_required() {
+                panic!(
+                    "Integration test requires database setup. For local runs, start PostgreSQL and apply migrations first; in CI this must already succeed. Error: {error}"
+                );
+            }
+            panic!(
+                "Integration test requires database setup but schema preparation failed: {error}. \
+                 Set INTEGRATION_TESTS_REQUIRED=1 to surface this as a hard failure."
+            );
+        }
+    }
 }
 
 pub fn clear_test_cache() {}
