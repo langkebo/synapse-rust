@@ -13,12 +13,24 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-IGNORED_PARTS = {".git", "target", "node_modules", ".next", "coverage", "dist"}
+IGNORED_PARTS = {
+    ".git",
+    "target",
+    "node_modules",
+    ".next",
+    "coverage",
+    "dist",
+    ".gstack",
+    ".claude",
+    ".scratch",
+}
 IGNORED_PATH_SUBSTRINGS = (
     "docker/deploy/backups/",
     "docker/artifacts/",
     "artifacts/sqlx-migrations/",
     "artifacts/sqlx-migrations-test/",
+    "target_arm64/",
+    "target_x86_64/",
 )
 SCANNED_EXTENSIONS = {
     ".rs",
@@ -33,9 +45,39 @@ SCANNED_EXTENSIONS = {
 }
 
 
+def _git_tracked_files() -> list[Path] | None:
+    """Return git-tracked files, or None if git is unavailable."""
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None:
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "-z"],
+            capture_output=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        return None
+    paths: list[Path] = []
+    for entry in result.stdout.decode("utf-8", errors="ignore").split("\x00"):
+        if not entry:
+            continue
+        paths.append(REPO_ROOT / entry)
+    return paths
+
+
 def iter_files() -> list[Path]:
     files: list[Path] = []
-    for path in REPO_ROOT.rglob("*"):
+    tracked = _git_tracked_files()
+    if tracked is not None:
+        # Audit only git-tracked files so build artifacts and tool-generated
+        # outputs in working trees do not create noise locally vs CI parity.
+        candidates = tracked
+    else:
+        candidates = list(REPO_ROOT.rglob("*"))
+    for path in candidates:
         if not path.is_file():
             continue
         if any(part in IGNORED_PARTS for part in path.parts):
