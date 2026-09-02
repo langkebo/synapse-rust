@@ -588,6 +588,14 @@ pub async fn login_as_user(
     let device_id = crate::common::random_string(10);
     let is_admin = user.is_admin;
 
+    // 在插入 access_tokens 之前必须先在 devices 表中创建对应设备记录，
+    // 否则 access_tokens.device_id 上的 fk_access_tokens_device 外键约束会拒绝插入。
+    // 见 Admin User Login 500 Internal Error 修复 (2026-09-01)。
+    ctx.account_device_list_service
+        .create_device(&device_id, &user.user_id, Some("Admin Login Device"))
+        .await
+        .map_err(|e| ApiError::internal_with_context("Failed to create device for admin login", &e))?;
+
     let token = ctx
         .token_auth
         .generate_access_token(&user.user_id, &device_id, is_admin)

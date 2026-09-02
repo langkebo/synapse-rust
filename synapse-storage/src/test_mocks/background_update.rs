@@ -95,9 +95,12 @@ impl BackgroundUpdateStoreApi for InMemoryBackgroundUpdateStore {
         Ok(self.updates.read().await.values().filter(|u| u.status == "running").cloned().collect())
     }
 
-    async fn update_status(&self, job_name: &str, status: &str) -> Result<BackgroundUpdate, sqlx::Error> {
+    async fn update_status(&self, job_name: &str, status: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         let mut updates = self.updates.write().await;
-        let update = updates.get_mut(job_name).ok_or_else(|| sqlx::Error::RowNotFound)?;
+        let update = match updates.get_mut(job_name) {
+            Some(u) => u,
+            None => return Ok(None),
+        };
         let now = current_timestamp_millis();
         update.status = status.to_string();
         update.updated_ts = Some(now);
@@ -107,7 +110,7 @@ impl BackgroundUpdateStoreApi for InMemoryBackgroundUpdateStore {
         if status == "completed" {
             update.completed_ts = Some(now);
         }
-        Ok(update.clone())
+        Ok(Some(update.clone()))
     }
 
     async fn update_progress(
@@ -115,9 +118,12 @@ impl BackgroundUpdateStoreApi for InMemoryBackgroundUpdateStore {
         job_name: &str,
         items_processed: i32,
         total_items: Option<i32>,
-    ) -> Result<BackgroundUpdate, sqlx::Error> {
+    ) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         let mut updates = self.updates.write().await;
-        let update = updates.get_mut(job_name).ok_or_else(|| sqlx::Error::RowNotFound)?;
+        let update = match updates.get_mut(job_name) {
+            Some(u) => u,
+            None => return Ok(None),
+        };
         update.processed_items += items_processed;
         if let Some(t) = total_items {
             update.total_items = t;
@@ -127,17 +133,20 @@ impl BackgroundUpdateStoreApi for InMemoryBackgroundUpdateStore {
                 serde_json::json!(((update.processed_items as f64 / update.total_items as f64) * 100.0).round() as i64);
         }
         update.updated_ts = Some(current_timestamp_millis());
-        Ok(update.clone())
+        Ok(Some(update.clone()))
     }
 
-    async fn set_error(&self, job_name: &str, error_message: &str) -> Result<BackgroundUpdate, sqlx::Error> {
+    async fn set_error(&self, job_name: &str, error_message: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         let mut updates = self.updates.write().await;
-        let update = updates.get_mut(job_name).ok_or_else(|| sqlx::Error::RowNotFound)?;
+        let update = match updates.get_mut(job_name) {
+            Some(u) => u,
+            None => return Ok(None),
+        };
         update.status = "failed".to_string();
         update.error_message = Some(error_message.to_string());
         update.updated_ts = Some(current_timestamp_millis());
         update.retry_count += 1;
-        Ok(update.clone())
+        Ok(Some(update.clone()))
     }
 
     async fn delete_update(&self, job_name: &str) -> Result<(), sqlx::Error> {

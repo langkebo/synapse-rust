@@ -18,7 +18,7 @@ pub trait ApplicationServiceStoreApi: Send + Sync {
         &self,
         as_id: &str,
         request: &UpdateApplicationServiceRequest,
-    ) -> Result<ApplicationService, sqlx::Error>;
+    ) -> Result<Option<ApplicationService>, sqlx::Error>;
     async fn update_timestamp(&self, as_id: &str) -> Result<(), sqlx::Error>;
     async fn unregister(&self, as_id: &str) -> Result<(), sqlx::Error>;
     async fn set_state(
@@ -125,7 +125,7 @@ impl ApplicationServiceStoreApi for ApplicationServiceStorage {
         &self,
         as_id: &str,
         request: &UpdateApplicationServiceRequest,
-    ) -> Result<ApplicationService, sqlx::Error> {
+    ) -> Result<Option<ApplicationService>, sqlx::Error> {
         self.update(as_id, request).await
     }
 

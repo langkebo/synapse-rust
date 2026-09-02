@@ -516,7 +516,8 @@ impl ExternalServiceIntegration {
         self.storage
             .update(as_id, &request)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to update service", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to update service", &e))?
+            .ok_or_else(|| ApiError::not_found("Service not found"))
     }
 
     #[instrument(skip(self))]

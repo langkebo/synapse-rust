@@ -152,7 +152,8 @@ impl ApplicationServiceManager {
             .storage
             .update(as_id, &request)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to update application service", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to update application service", &e))?
+            .ok_or_else(|| ApiError::not_found("Application service not found"))?;
 
         info!(as_id = %as_id, "Application service updated successfully");
         Ok(service)

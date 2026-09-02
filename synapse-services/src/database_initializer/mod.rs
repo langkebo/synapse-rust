@@ -537,7 +537,17 @@ impl DatabaseInitService {
 
             let execution_time_ms = start_time.elapsed().as_millis() as i64;
 
-            let _ = self.record_migration(version, &checksum, execution_time_ms, file_success).await;
+            // Recording the migration must not silently fail: if the row is
+            // missing, the same file would be replayed on the next startup
+            // (non-idempotent statements would fail or double-apply).
+            if let Err(e) = self.record_migration(version, &checksum, execution_time_ms, file_success).await {
+                error!(
+                    filename = %filename,
+                    version = %version,
+                    error = %e,
+                    "迁移执行记录写入失败 —— 下次启动可能重放该迁移"
+                );
+            }
 
             if file_success {
                 info!(filename = %filename, execution_time_ms, "迁移执行成功");

@@ -39,25 +39,50 @@ impl RoomStorage {
 
         let mut results = serde_json::Map::new();
 
-        // 1. Clean up rooms with no members and older than min_age
-        let deleted_empty_rooms = sqlx::query(
+        // 1. Find empty rooms (no members, older than min_age)
+        //    We must NOT delete rooms directly here — doing so before deleting their events
+        //    triggers "violates foreign key constraint fk_events_room_no_action".
+        //    Instead, collect their IDs, delete events first, then delete rooms.
+        let empty_room_ids: Vec<String> = sqlx::query_scalar(
             r"
-            DELETE FROM rooms
-            WHERE created_ts < $1
+            SELECT r.room_id FROM rooms r
+            WHERE r.created_ts < $1
             AND NOT EXISTS (
-                SELECT 1 FROM room_memberships
-                WHERE room_memberships.room_id = rooms.room_id
-                AND membership = 'join'
+                SELECT 1 FROM room_memberships rm
+                WHERE rm.room_id = r.room_id AND rm.membership = 'join'
             )
             ",
         )
         .bind(cutoff)
-        .execute(&*self.pool)
-        .await?
-        .rows_affected();
+        .fetch_all(&*self.pool)
+        .await?;
+
+        // 1a. Delete events belonging to those rooms (children must be removed before parent)
+        let deleted_events_in_empty_rooms = if !empty_room_ids.is_empty() {
+            sqlx::query(r"DELETE FROM events WHERE room_id = ANY($1)")
+                .bind(&empty_room_ids)
+                .execute(&*self.pool)
+                .await?
+                .rows_affected()
+        } else {
+            0
+        };
+        results.insert("deleted_events_in_empty_rooms".to_string(), json!(deleted_events_in_empty_rooms));
+
+        // 1b. Now safe to delete the empty rooms
+        let deleted_empty_rooms = if !empty_room_ids.is_empty() {
+            sqlx::query(r"DELETE FROM rooms WHERE room_id = ANY($1)")
+                .bind(&empty_room_ids)
+                .execute(&*self.pool)
+                .await?
+                .rows_affected()
+        } else {
+            0
+        };
         results.insert("deleted_empty_rooms".to_string(), json!(deleted_empty_rooms));
 
         // 2. Clean up orphan events (events pointing to non-existent rooms)
+        //    These rooms were already deleted above or were pre-existing orphans.
         let deleted_orphan_events = sqlx::query(
             r"
             DELETE FROM events

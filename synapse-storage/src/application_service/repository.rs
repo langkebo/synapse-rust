@@ -237,7 +237,7 @@ impl ApplicationServiceStorage {
         &self,
         as_id: &str,
         request: &UpdateApplicationServiceRequest,
-    ) -> Result<ApplicationService, sqlx::Error> {
+    ) -> Result<Option<ApplicationService>, sqlx::Error> {
         let protocols = request.protocols.clone();
         let config = request.config.clone();
         sqlx::query_as::<_, ApplicationService>(
@@ -264,7 +264,7 @@ impl ApplicationServiceStorage {
         .bind(&request.api_key)
         .bind(&config)
         .bind(current_timestamp_millis())
-        .fetch_one(&*self.pool)
+        .fetch_optional(&*self.pool)
         .await
     }
 

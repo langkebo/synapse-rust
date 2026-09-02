@@ -126,14 +126,14 @@ pub trait BackgroundUpdateStoreApi: Send + Sync {
     ) -> Result<(Vec<BackgroundUpdate>, Option<String>), sqlx::Error>;
     async fn get_pending_updates(&self) -> Result<Vec<BackgroundUpdate>, sqlx::Error>;
     async fn get_running_updates(&self) -> Result<Vec<BackgroundUpdate>, sqlx::Error>;
-    async fn update_status(&self, job_name: &str, status: &str) -> Result<BackgroundUpdate, sqlx::Error>;
+    async fn update_status(&self, job_name: &str, status: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error>;
     async fn update_progress(
         &self,
         job_name: &str,
         items_processed: i32,
         total_items: Option<i32>,
-    ) -> Result<BackgroundUpdate, sqlx::Error>;
-    async fn set_error(&self, job_name: &str, error_message: &str) -> Result<BackgroundUpdate, sqlx::Error>;
+    ) -> Result<Option<BackgroundUpdate>, sqlx::Error>;
+    async fn set_error(&self, job_name: &str, error_message: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error>;
     async fn delete_update(&self, job_name: &str) -> Result<(), sqlx::Error>;
     async fn acquire_lock_with_retry(
         &self,
@@ -267,7 +267,7 @@ impl BackgroundUpdateStorage {
         self.get_updates_by_status("running").await
     }
 
-    pub async fn update_status(&self, job_name: &str, status: &str) -> Result<BackgroundUpdate, sqlx::Error> {
+    pub async fn update_status(&self, job_name: &str, status: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         let now = current_timestamp_millis();
 
         let started_ts = if status == "running" { Some(now) } else { None };
@@ -290,7 +290,7 @@ impl BackgroundUpdateStorage {
         .bind(started_ts)
         .bind(completed_ts)
         .bind(now)
-        .fetch_one(&*self.pool)
+        .fetch_optional(&*self.pool)
         .await?;
 
         Ok(row)
@@ -301,7 +301,7 @@ impl BackgroundUpdateStorage {
         job_name: &str,
         items_processed: i32,
         total_items: Option<i32>,
-    ) -> Result<BackgroundUpdate, sqlx::Error> {
+    ) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         let now = current_timestamp_millis();
 
         // Schema column `progress` is JSONB (default '{}'), so wrap the
@@ -326,13 +326,17 @@ impl BackgroundUpdateStorage {
         .bind(items_processed)
         .bind(total_items)
         .bind(now)
-        .fetch_one(&*self.pool)
+        .fetch_optional(&*self.pool)
         .await?;
 
         Ok(row)
     }
 
-    pub async fn set_error(&self, job_name: &str, error_message: &str) -> Result<BackgroundUpdate, sqlx::Error> {
+    pub async fn set_error(
+        &self,
+        job_name: &str,
+        error_message: &str,
+    ) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         let now = current_timestamp_millis();
 
         let row = sqlx::query_as::<_, BackgroundUpdate>(
@@ -349,7 +353,7 @@ impl BackgroundUpdateStorage {
         .bind(job_name)
         .bind(error_message)
         .bind(now)
-        .fetch_one(&*self.pool)
+        .fetch_optional(&*self.pool)
         .await?;
 
         Ok(row)
@@ -575,7 +579,7 @@ impl BackgroundUpdateStoreApi for BackgroundUpdateStorage {
     async fn get_running_updates(&self) -> Result<Vec<BackgroundUpdate>, sqlx::Error> {
         self.get_running_updates().await
     }
-    async fn update_status(&self, job_name: &str, status: &str) -> Result<BackgroundUpdate, sqlx::Error> {
+    async fn update_status(&self, job_name: &str, status: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         self.update_status(job_name, status).await
     }
     async fn update_progress(
@@ -583,10 +587,10 @@ impl BackgroundUpdateStoreApi for BackgroundUpdateStorage {
         job_name: &str,
         items_processed: i32,
         total_items: Option<i32>,
-    ) -> Result<BackgroundUpdate, sqlx::Error> {
+    ) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         self.update_progress(job_name, items_processed, total_items).await
     }
-    async fn set_error(&self, job_name: &str, error_message: &str) -> Result<BackgroundUpdate, sqlx::Error> {
+    async fn set_error(&self, job_name: &str, error_message: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         self.set_error(job_name, error_message).await
     }
     async fn delete_update(&self, job_name: &str) -> Result<(), sqlx::Error> {
@@ -1087,7 +1091,11 @@ mod tests {
         let now = current_timestamp_millis();
         insert_update_row(&pool, "status_job", "pending", now, 100, 0, 0, 3).await;
 
-        let updated = storage.update_status("status_job", "running").await.expect("Failed to update status to running");
+        let updated = storage
+            .update_status("status_job", "running")
+            .await
+            .expect("Failed to update status to running")
+            .expect("status_job row should exist");
 
         assert_eq!(updated.status, "running");
         assert!(updated.started_ts.is_some());
@@ -1106,8 +1114,11 @@ mod tests {
         let now = current_timestamp_millis();
         insert_update_row(&pool, "complete_job", "running", now, 100, 100, 0, 3).await;
 
-        let updated =
-            storage.update_status("complete_job", "completed").await.expect("Failed to update status to completed");
+        let updated = storage
+            .update_status("complete_job", "completed")
+            .await
+            .expect("Failed to update status to completed")
+            .expect("complete_job row should exist");
 
         assert_eq!(updated.status, "completed");
         assert!(updated.completed_ts.is_some());
@@ -1125,14 +1136,21 @@ mod tests {
         let now = current_timestamp_millis();
         insert_update_row(&pool, "progress_job", "running", now, 100, 0, 0, 3).await;
 
-        let updated = storage.update_progress("progress_job", 25, Some(100)).await.expect("Failed to update progress");
+        let updated = storage
+            .update_progress("progress_job", 25, Some(100))
+            .await
+            .expect("Failed to update progress")
+            .expect("progress_job row should exist");
 
         assert_eq!(updated.processed_items, 25);
         assert_eq!(updated.total_items, 100);
 
         // Update again without total_items (should keep existing total)
-        let updated2 =
-            storage.update_progress("progress_job", 25, None).await.expect("Failed to update progress again");
+        let updated2 = storage
+            .update_progress("progress_job", 25, None)
+            .await
+            .expect("Failed to update progress again")
+            .expect("progress_job row should exist");
         assert_eq!(updated2.processed_items, 50);
         assert_eq!(updated2.total_items, 100);
     }
@@ -1149,7 +1167,11 @@ mod tests {
         let now = current_timestamp_millis();
         insert_update_row(&pool, "error_job", "running", now, 100, 50, 0, 3).await;
 
-        let updated = storage.set_error("error_job", "DB connection lost").await.expect("Failed to set error");
+        let updated = storage
+            .set_error("error_job", "DB connection lost")
+            .await
+            .expect("Failed to set error")
+            .expect("error_job row should exist");
 
         assert_eq!(updated.status, "failed");
         assert_eq!(updated.error_message.as_deref(), Some("DB connection lost"));

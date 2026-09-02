@@ -422,7 +422,11 @@ async fn test_update_modifies_fields() {
         .protocols(vec!["irc".to_string(), "matrix".to_string()])
         .api_key("new_key");
 
-    let updated = storage.update(&as_id, &update_req).await.expect("update should succeed");
+    let updated = storage
+        .update(&as_id, &update_req)
+        .await
+        .expect("update should succeed")
+        .expect("app service should exist after registration");
     assert_eq!(updated.url, "http://localhost:9999");
     assert_eq!(updated.description.as_deref(), Some("Updated description"));
     assert!(updated.is_rate_limited);

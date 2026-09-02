@@ -159,7 +159,8 @@ impl BackgroundUpdateService {
             .storage
             .update_status(job_name, "running")
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to start update", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to start update", &e))?
+            .ok_or_else(|| ApiError::not_found("Update not found"))?;
 
         Ok(update)
     }
@@ -175,7 +176,8 @@ impl BackgroundUpdateService {
             .storage
             .update_progress(job_name, items_processed, total_items)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to update progress", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to update progress", &e))?
+            .ok_or_else(|| ApiError::not_found("Update not found"))?;
 
         let progress_value = update.progress.as_i64().unwrap_or(0);
         if progress_value >= 100 || (update.total_items > 0 && update.processed_items >= update.total_items) {
@@ -193,7 +195,8 @@ impl BackgroundUpdateService {
             .storage
             .update_status(job_name, "completed")
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to complete update", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to complete update", &e))?
+            .ok_or_else(|| ApiError::not_found("Update not found"))?;
 
         self.storage.release_lock(job_name).await.ok();
 
@@ -215,7 +218,8 @@ impl BackgroundUpdateService {
             .storage
             .set_error(job_name, error_message)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to fail update", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to fail update", &e))?
+            .ok_or_else(|| ApiError::not_found("Update not found"))?;
 
         self.storage.release_lock(job_name).await.ok();
 
@@ -232,7 +236,8 @@ impl BackgroundUpdateService {
             .storage
             .update_status(job_name, "cancelled")
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to cancel update", &e))?;
+            .map_err(|e| ApiError::internal_with_context("Failed to cancel update", &e))?
+            .ok_or_else(|| ApiError::not_found("Update not found"))?;
 
         self.storage.release_lock(job_name).await.ok();
 
