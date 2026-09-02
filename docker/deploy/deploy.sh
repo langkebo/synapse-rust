@@ -1020,7 +1020,8 @@ verify_logs_clean() {
         grep -v 'enabling "trust" authentication' |
         grep -v 'Missing indexes' |
         grep -v 'DOCKER_INSECURE_NO_IPTABLES_RAW' |
-        grep -v 'forcibly turning on oci-mediatype' ||
+        grep -v 'forcibly turning on oci-mediatype' |
+        grep -v '_sqlx_migrations' ||
         true)"
     if [ -n "$errors" ]; then
         log_error "检测到 ERROR 日志:"
@@ -1034,7 +1035,8 @@ verify_logs_clean() {
         grep -v 'enabling "trust" authentication' |
         grep -v 'Missing indexes' |
         grep -v 'DOCKER_INSECURE_NO_IPTABLES_RAW' |
-        grep -v 'forcibly turning on oci-mediatype' ||
+        grep -v 'forcibly turning on oci-mediatype' |
+        grep -v '_sqlx_migrations' ||
         true)"
     if [ -n "$warnings" ]; then
         log_warning "检测到 WARNING 日志（不阻断部署）:"

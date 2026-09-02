@@ -4221,22 +4221,26 @@ CREATE INDEX IF NOT EXISTS idx_rooms_summaries_mv_members
     ON rooms_summaries_mv(joined_members DESC, last_activity_ts DESC);
 
 -- P1-6: 可重入 MV refresh 配置管理函数（仅在 pg_cron 可用时生效）
-CREATE OR REPLACE FUNCTION configure_rooms_summaries_refresh(cron_interval TEXT)
+-- 注意：Postgres 的 CREATE OR REPLACE 不允许修改输入参数名（"cannot change name
+-- of input parameter"），因此先 DROP 旧定义再重建，保证迁移可重入。
+-- 参数名统一为 refresh_interval，与增量迁移 20260831230000_mv_refresh_configurable.sql 一致。
+DROP FUNCTION IF EXISTS configure_rooms_summaries_refresh(TEXT);
+CREATE OR REPLACE FUNCTION configure_rooms_summaries_refresh(refresh_interval TEXT)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 BEGIN
-    IF cron_interval IS NULL OR cron_interval = '' THEN
-        RAISE EXCEPTION 'cron_interval cannot be null or empty';
+    IF refresh_interval IS NULL OR refresh_interval = '' THEN
+        RAISE EXCEPTION 'refresh_interval cannot be null or empty';
     END IF;
     PERFORM cron.unschedule('refresh-rooms-summaries');
     PERFORM cron.schedule(
         'refresh-rooms-summaries',
-        cron_interval,
+        refresh_interval,
         'REFRESH MATERIALIZED VIEW CONCURRENTLY rooms_summaries_mv'
     );
-    RAISE NOTICE 'rooms_summaries_mv refresh cron_interval updated to: %', cron_interval;
+    RAISE NOTICE 'rooms_summaries_mv refresh interval updated to: %', refresh_interval;
 END;
 $$;
 
@@ -4652,10 +4656,12 @@ CREATE TABLE IF NOT EXISTS url_preview_cache (
     og_site_name TEXT,
     og_type TEXT,
     created_ts BIGINT NOT NULL,
-    expires_ts BIGINT NOT NULL
+    expires_at BIGINT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_url_preview_cache_expires ON url_preview_cache(expires_ts);
+-- 索引名/列名与增量迁移 20260710190000_rename_url_preview_expires.sql 一致
+-- （expires_ts -> expires_at, idx_url_preview_cache_expires -> idx_url_preview_cache_expires_at）
+CREATE INDEX IF NOT EXISTS idx_url_preview_cache_expires_at ON url_preview_cache(expires_at);
 
 -- ============================================================================
 -- Finalization notice
@@ -5151,11 +5157,13 @@ BEGIN
 END $$;
 
 -- event_id 格式: $opaque:domain
+-- opaque 允许包含 '$'（本地生成格式为 $<millis>$<base64url>:server，
+-- 见 synapse-common/src/crypto.rs generate_event_id）
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_events_event_id_format') THEN
         ALTER TABLE events ADD CONSTRAINT ck_events_event_id_format
-            CHECK (event_id ~ '^\$[a-zA-Z0-9._=+./-]+:[a-zA-Z0-9.-]+$');
+            CHECK (event_id ~ '^\$[a-zA-Z0-9._=+./$-]+:[a-zA-Z0-9.-]+$');
     END IF;
 END $$;
 
@@ -5168,7 +5176,7 @@ BEGIN
     END IF;
 END $$;
 
--- mxc:// URL 格式
+-- mxc:// URL 格式（允许 NULL 与空字符串，空串常见于客户端未设置头像/内容时）
 DO $$
 DECLARE
     rec RECORD;
@@ -5181,8 +5189,8 @@ BEGIN
     LOOP
         EXECUTE format(
                 'ALTER TABLE %I ADD CONSTRAINT ck_%I_mxc_format
-                    CHECK (%I IS NULL OR %I ~ ''^mxc://[a-zA-Z0-9.-]+(/[a-zA-Z0-9._~-]+)?$'');',
-                rec.table_name, rec.table_name, rec.column_name, rec.column_name
+                    CHECK (%I IS NULL OR %I = '''' OR %I ~ ''^mxc://[a-zA-Z0-9.-]+(/[a-zA-Z0-9._~-]+)?$'');',
+                rec.table_name, rec.table_name, rec.column_name, rec.column_name, rec.column_name
             );
     END LOOP;
 END $$;
@@ -5265,6 +5273,9 @@ FOR EACH ROW EXECUTE FUNCTION sync_room_member_count();
 -- 在 v11 中保留 CONSTRAINT（PG 自动建索引），删除显式 INDEX
 --
 -- 策略：删除所有 uq_* 命名的显式 UNIQUE INDEX（v10 baseline 中 CREATE UNIQUE INDEX 显式定义的）
+-- 例外：uq_to_device_txn_msgid 是应用层 to-device 去重依赖（INSERT ... ON CONFLICT
+-- (sender_user_id, sender_device_id, message_id)，见增量迁移 20260710120000），
+-- 必须保留，否则 record_transaction 报 "no unique constraint matching the ON CONFLICT specification"。
 
 DO $$
 DECLARE
@@ -5280,6 +5291,7 @@ BEGIN
           AND i.indisprimary = false
           AND n.nspname = 'public'
           AND c.relname LIKE 'uq_%'
+          AND c.relname NOT IN ('uq_to_device_txn_msgid')
           -- 排除 CONSTRAINT 创建的索引（它们通常叫 <table>_<col>_key）
           AND NOT EXISTS (
               SELECT 1 FROM pg_constraint con
