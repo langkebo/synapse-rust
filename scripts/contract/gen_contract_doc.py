@@ -163,7 +163,7 @@ lines.append("")
 lines.append("## 模块级路由清单（逐模块）")
 lines.append("")
 for c in sorted(bycat):
-    mods = sorted(bycat[c], key=lambda x: -len(x[1]))
+    mods = sorted(bycat[c], key=lambda x: (-len(x[1]), x[0]))
     cat_total = sum(len(r) for _, r in mods)
     lines.append(f"### {c} （{cat_total} 条）")
     lines.append("")

@@ -911,15 +911,15 @@
 - `POST` `/_synapse/admin/v1/cleanup/rooms`
 - `POST` `/_synapse/admin/v1/cleanup/tokens`
 
-#### `admin/policy.rs` — 2 条 ✅manifest
-
-- `GET` `/_synapse/admin/v1/policy/status`
-- `POST` `/_synapse/admin/v1/policy/check`
-
 #### `admin/audit.rs` — 2 条 ✅manifest
 
 - `GET` `/_synapse/admin/v1/audit/events/{event_id}`
 - `POST` `/_synapse/admin/v1/audit/events`
+
+#### `admin/policy.rs` — 2 条 ✅manifest
+
+- `GET` `/_synapse/admin/v1/policy/status`
+- `POST` `/_synapse/admin/v1/policy/check`
 
 #### `admin/register.rs` — 2 条 ✅manifest
 

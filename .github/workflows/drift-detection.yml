@@ -192,8 +192,8 @@ jobs:
               continue
             fi
 
-            if [[ "$filename" == "00000000_unified_schema_v10.sql" ]] || \
-               [[ "$filename" == "00000001_extensions_v10.sql" ]] || \
+            if [[ "$filename" =~ ^00000000_unified_schema_v[0-9]+\.sql$ ]] || \
+               [[ "$filename" =~ ^00000001_extensions_v[0-9]+\.sql$ ]] || \
                [[ "$filename" == "99999999_unified_incremental_migration.sql" ]] || \
                [[ "$filename" == "MANIFEST-template.txt" ]]; then
               echo "[SPECIAL] $filename - baseline/unified migration"
@@ -244,8 +244,8 @@ jobs:
 
           for f in migrations/*.sql; do
             filename=$(basename "$f")
-            if [[ "$filename" == "00000000_unified_schema_v10.sql" ]] || \
-               [[ "$filename" == "00000001_extensions_v10.sql" ]] || \
+            if [[ "$filename" =~ ^00000000_unified_schema_v[0-9]+\.sql$ ]] || \
+               [[ "$filename" =~ ^00000001_extensions_v[0-9]+\.sql$ ]] || \
                [[ "$filename" == "99999999_unified_incremental_migration.sql" ]] || \
                [[ "$filename" == *.undo.sql ]] || \
                [[ "$filename" == *.down.sql ]] || \
