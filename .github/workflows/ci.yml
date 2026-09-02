@@ -222,6 +222,18 @@ jobs:
         run: |
           sqlx database create
           sqlx migrate run --source artifacts/sqlx-migrations
+          # P2 fail-fast: 关键表缺失直接报错，避免下游 11 个 burn_after_read::db_tests 全部 42P01
+          missing=0
+          for table in burn_after_read_pending burn_after_read_settings burn_after_read_log burn_after_read_user_defaults; do
+            if ! psql -d synapse -tAc "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='$table'" | grep -q 1; then
+              echo "::error::Required table missing after migration: $table (schema drift — v11 baseline not applied)"
+              missing=$((missing+1))
+            fi
+          done
+          if [ "$missing" -gt 0 ]; then
+            echo "::error::$missing critical table(s) missing — refusing to run tests to avoid cascading 42P01 failures"
+            exit 1
+          fi
 
       - name: Run doc tests
         if: matrix.features-args == '--all-features'
@@ -405,6 +417,32 @@ jobs:
         run: |
           sqlx database create
           sqlx migrate run --source artifacts/sqlx-migrations
+          # P2 fail-fast: same guard as Test & Lint job — refuse to start tests
+          # if critical tables are missing after migration.
+          missing=0
+          for table in burn_after_read_pending burn_after_read_settings burn_after_read_log burn_after_read_user_defaults; do
+            if ! psql -d synapse -tAc "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='$table'" | grep -q 1; then
+              echo "::error::Required table missing after migration: $table"
+              missing=$((missing+1))
+            fi
+          done
+          if [ "$missing" -gt 0 ]; then
+            echo "::error::$missing critical table(s) missing — aborting"
+            exit 1
+          fi
+
+      # P6 fix: run admin registration integration tests serially to avoid deadlock.
+      # Multiple tests sharing the same nonce key + concurrent writes to users table
+      # cause PostgreSQL deadlock at --test-threads > 1.
+      - name: Run integration tests (serial — admin registration)
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          REDIS_URL: redis://localhost:6379
+          RUST_BACKTRACE: 1
+          RUST_LOG: info
+          NEXTEST_RETRIES: 2
+        run: cargo nextest run --test integration 'admin_registration_service_tests_migrated' --all-features --locked --test-threads 1
 
       - name: Run integration tests (--test integration)
         env:
@@ -414,7 +452,7 @@ jobs:
           RUST_BACKTRACE: 1
           RUST_LOG: info
           NEXTEST_RETRIES: 2
-        run: cargo nextest run --test integration --all-features --locked --test-threads 8
+        run: cargo nextest run --test integration --all-features --locked --test-threads 6
 
       # Snapshot gate: fail if any insta snapshot drifted or is missing.
       # Local devs must run `cargo insta test --review` to accept new snapshots
