@@ -10,9 +10,6 @@ concurrency:
   group: ledger-export-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 env:
   CARGO_TERM_COLOR: always
   SDK_REPOSITORY: langkebo/matrix-js-sdk
