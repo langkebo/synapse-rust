@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -271,6 +271,15 @@ impl UserStore for FakeUserStore {
 
     async fn set_deactivation_status(&self, _user_id: &str, _is_deactivated: bool) -> Result<bool, sqlx::Error> {
         Ok(true)
+    }
+
+    async fn set_deactivation_status_batch(
+        &self,
+        user_ids: &[String],
+        _is_deactivated: bool,
+    ) -> Result<HashSet<String>, sqlx::Error> {
+        // The fake always succeeds for all provided user IDs.
+        Ok(user_ids.iter().cloned().collect())
     }
 
     async fn set_admin_status(&self, _user_id: &str, _is_admin: bool) -> Result<(), sqlx::Error> {

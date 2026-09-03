@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Row};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::constants::USER_PROFILE_CACHE_TTL;
@@ -208,6 +208,15 @@ pub trait UserStore: Send + Sync {
     async fn update_avatar_url(&self, user_id: &str, avatar_url: Option<&str>) -> Result<(), sqlx::Error>;
 
     async fn set_deactivation_status(&self, user_id: &str, is_deactivated: bool) -> Result<bool, sqlx::Error>;
+
+    /// B-1.2: Batch counterpart of [`set_deactivation_status`]. Returns the set
+    /// of `user_id`s whose `is_deactivated` was actually changed. See
+    /// [`UserStorage::set_deactivation_status_batch`] for semantics.
+    async fn set_deactivation_status_batch(
+        &self,
+        user_ids: &[String],
+        is_deactivated: bool,
+    ) -> Result<HashSet<String>, sqlx::Error>;
 
     async fn set_admin_status(&self, user_id: &str, is_admin: bool) -> Result<(), sqlx::Error>;
 
@@ -714,6 +723,33 @@ impl UserStorage {
             .execute(&*self.pool)
             .await?;
         Ok(result.rows_affected() > 0)
+    }
+
+    /// B-1.2: Batch counterpart of [`set_deactivation_status`].
+    ///
+    /// Replaces the N-round-trip loop in `batch_deactivate_users` with a single
+    /// `UPDATE ... WHERE user_id = ANY($1) RETURNING user_id` so that admin
+    /// deactivation of N users is always O(1) DB round-trips regardless of batch size.
+    ///
+    /// Returns the set of `user_id`s that were actually updated (existed in the DB).
+    /// The service layer derives "failed" as "input minus returned".
+    pub async fn set_deactivation_status_batch(
+        &self,
+        user_ids: &[String],
+        is_deactivated: bool,
+    ) -> Result<HashSet<String>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(HashSet::new());
+        }
+        tracing::info!(count = user_ids.len(), is_deactivated, "Batch updating user deactivation status");
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r"UPDATE users SET is_deactivated = $1 WHERE user_id = ANY($2) RETURNING user_id",
+        )
+        .bind(is_deactivated)
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(uid,)| uid).collect())
     }
 
     pub async fn deactivate_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
@@ -1550,6 +1586,14 @@ impl UserStore for UserStorage {
 
     async fn set_deactivation_status(&self, user_id: &str, is_deactivated: bool) -> Result<bool, sqlx::Error> {
         self.set_deactivation_status(user_id, is_deactivated).await
+    }
+
+    async fn set_deactivation_status_batch(
+        &self,
+        user_ids: &[String],
+        is_deactivated: bool,
+    ) -> Result<HashSet<String>, sqlx::Error> {
+        self.set_deactivation_status_batch(user_ids, is_deactivated).await
     }
 
     async fn set_admin_status(&self, user_id: &str, is_admin: bool) -> Result<(), sqlx::Error> {
