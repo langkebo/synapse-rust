@@ -702,6 +702,35 @@ impl RedisCache {
         .await
     }
 
+    /// Atomically acquire a distributed lock using SET NX EX.
+    ///
+    /// Returns `Ok(true)` if the lock was acquired (key was set);
+    /// `Ok(false)` if the key already existed (lock held by another process).
+    /// Returns `Err` if Redis is unavailable or circuit breaker is open.
+    pub async fn set_nx(&self, key: &str, value: &str, ttl_secs: u64) -> Result<bool, CacheError> {
+        self.with_circuit_breaker("SETNX", |mut conn| async move {
+            let mut cmd = redis::cmd("SET");
+            cmd.arg(key).arg(value).arg("NX").arg("EX").arg(ttl_secs);
+            let result: Option<String> = cmd.query_async(&mut conn).await
+                .map_err(|e| CacheError::OperationFailed(e.to_string()))?;
+            Ok(result.is_some())
+        })
+        .await
+    }
+
+    /// Release a distributed lock by deleting its key.
+    ///
+    /// Errors are swallowed — lock release is best-effort. The TTL ensures
+    /// the lock auto-expires if the holder crashes.
+    pub async fn delete_lock(&self, key: &str) {
+        let _: Result<(), CacheErrorWrapper> = self
+            .with_circuit_breaker("DEL (lock)", |mut conn| async move {
+                use redis::AsyncCommands;
+                conn.del(key).await.map_err(|_| CacheErrorWrapper::OperationFailed)
+            })
+            .await;
+    }
+
     pub async fn hincrby(&self, key: &str, field: &str, delta: i64) -> Result<i64, redis::RedisError> {
         use redis::AsyncCommands;
         self.with_circuit_breaker("HINCRBY", |mut conn| async move { conn.hincr(key, field, delta).await }).await
@@ -1418,6 +1447,38 @@ impl CacheManager {
             }
         }
         Ok(())
+    }
+
+    /// Try to acquire a distributed lock (Redis SET NX EX).
+    ///
+    /// Returns `Ok(true)` if acquired; `Ok(false)` if already held by another
+    /// process. Returns `Err` if Redis is unavailable (caller should decide
+    /// whether to fail-open or fail-closed).
+    pub async fn try_acquire_lock(&self, lock_key: &str, ttl_secs: u64) -> Result<bool, ApiError> {
+        if self.use_redis {
+            if let Some(redis) = &self.redis {
+                redis
+                    .set_nx(lock_key, "locked", ttl_secs)
+                    .await
+                    .map_err(|e| ApiError::internal_with_context("Redis SETNX failed", &e))
+            } else {
+                Err(ApiError::internal("Redis not available"))
+            }
+        } else {
+            // No Redis: fail-open (let the DB's UNIQUE constraint protect idempotency)
+            Ok(true)
+        }
+    }
+
+    /// Release a distributed lock (best-effort, errors swallowed).
+    ///
+    /// Lock auto-expires via TTL if the holder crashes, so failures are safe.
+    pub async fn release_lock(&self, lock_key: &str) {
+        if self.use_redis {
+            if let Some(redis) = &self.redis {
+                redis.delete_lock(lock_key).await;
+            }
+        }
     }
 
     /// C-3: Batch set multiple key-value pairs with a single Redis pipeline.
