@@ -264,12 +264,8 @@ impl SynapseServer {
             ::tracing::warn!("Warmup encountered minor errors: {}", e);
         }
 
-        let worker_config = &self.app_state.services.core.config.worker;
-        let current_worker_type = current_instance_worker_type(worker_config);
-        let maintenance_owner = global_maintenance_owner(worker_config);
-        let maintenance_runtime_enabled = global_maintenance_tasks_enabled();
-        let run_global_maintenance = should_run_global_maintenance(worker_config) && maintenance_runtime_enabled;
-
+        let (current_worker_type, maintenance_owner, maintenance_runtime_enabled, run_global_maintenance) =
+            self.eval_maintenance_state();
         ::tracing::info!(
             worker_type = current_worker_type.as_str(),
             maintenance_owner = maintenance_owner.as_str(),
@@ -280,7 +276,6 @@ impl SynapseServer {
 
         if run_global_maintenance {
             self.app_state.services.federation.key_rotation_manager.start_auto_rotation().await;
-
             ::tracing::info!("Starting scheduled database monitoring and maintenance tasks...");
             self.scheduled_tasks.start_all();
         } else {
@@ -375,18 +370,7 @@ impl SynapseServer {
 
         let client_listener = tokio::net::TcpListener::bind(self.address).await?;
         let federation_listener = tokio::net::TcpListener::bind(self.federation_address).await?;
-        let prometheus_config = self.app_state.services.core.config.prometheus.clone();
-        let prometheus_listener = if prometheus_config.enabled {
-            Some(
-                tokio::net::TcpListener::bind(format!(
-                    "{}:{}",
-                    self.app_state.services.core.config.server.host, prometheus_config.port
-                ))
-                .await?,
-            )
-        } else {
-            None
-        };
+        let prometheus_listener = self.bind_prometheus_listener_if_enabled().await?;
 
         let (client_tx, client_rx) = tokio::sync::oneshot::channel();
         let (fed_tx, fed_rx) = tokio::sync::oneshot::channel();
@@ -626,11 +610,11 @@ impl SynapseServer {
         });
 
         if let Some(prometheus_listener) = prometheus_listener {
+            let prometheus_path = self.app_state.services.core.config.prometheus.path.clone();
             let metrics_state = PrometheusMetricsState {
                 metrics: self.app_state.services.core.metrics.clone(),
                 app_service_manager: self.app_state.services.admin.modules.app_service_manager.clone(),
             };
-            let prometheus_path = prometheus_config.path.clone();
             let prometheus_router =
                 Router::new().route(&prometheus_path, get(render_prometheus_metrics)).with_state(metrics_state);
 
@@ -649,16 +633,7 @@ impl SynapseServer {
 
         ::tracing::info!("[启动完成] ✅ Synapse Rust Matrix Server 已启动并准备接受请求 (4/4 阶段全部完成)");
 
-        // Spawn signal handler for graceful shutdown (ctrl_c / SIGTERM).
-        let shutdown_tx_signal = shutdown_tx.clone();
-        let shutdown_token = self.app_state.services.shutdown_token.clone();
-        let worker_instance = std::env::var("WORKER_INSTANCE_NAME").unwrap_or_else(|_| "master".to_string());
-        let start_ts = current_timestamp_millis();
-        tokio::spawn(spawn_shutdown_signal_handler(shutdown_tx.clone(), shutdown_token, worker_instance, start_ts));
-
-        // Wait for a shutdown signal before entering the drain phase.
-        // Without this gate, the drain timeout fires immediately and kills
-        // the server even when no SIGTERM/SIGINT has been received.
+        self.spawn_shutdown_signal_listener(shutdown_tx.clone());
         shutdown_rx_drain_gate.recv().await.ok();
 
         // Wait for all listeners to drain, with a hard cap to prevent
@@ -668,28 +643,7 @@ impl SynapseServer {
         Self::await_listeners_drained(client_rx, fed_rx, prom_rx, configured_drain_secs).await;
         ::tracing::info!("Servers shutdown complete");
 
-        // Pre-exit logging for key worker types: capture queue state, restart count, and exit reason.
-        let worker_instance = std::env::var("WORKER_INSTANCE_NAME").unwrap_or_else(|_| "master".to_string());
-        let restart_count = std::env::var("RESTART_COUNT").ok().and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
-        match worker_instance.as_str() {
-            "federation_reader" | "federation_sender" | "pusher" => {
-                ::tracing::warn!(
-                    target: "worker_exit",
-                    worker_instance = %worker_instance,
-                    restart_count = %restart_count,
-                    "Worker exiting — check container restart policy and upstream logs for crash-loop evidence"
-                );
-            }
-            _ => {
-                ::tracing::info!(
-                    target: "worker_exit",
-                    worker_instance = %worker_instance,
-                    restart_count = %restart_count,
-                    "Worker shutdown complete"
-                );
-            }
-        }
-
+        self.log_worker_exit_summary();
         Ok(())
     }
 
@@ -766,6 +720,80 @@ impl SynapseServer {
 
     pub fn metrics_collector(&self) -> &Arc<TaskMetricsCollector> {
         &self.metrics_collector
+    }
+
+    /// Evaluate whether the current worker instance owns global maintenance tasks.
+    ///
+    /// Returns `(worker_type, maintenance_owner, maintenance_runtime_enabled, run_global_maintenance)`.
+    /// Extracted from `run()` so the policy logic is independently reviewable
+    /// and unit-testable without booting the whole server.
+    fn eval_maintenance_state(&self) -> (String, String, bool, bool) {
+        let worker_config = &self.app_state.services.core.config.worker;
+        let current_worker_type = current_instance_worker_type(worker_config).as_str().to_string();
+        let maintenance_owner = global_maintenance_owner(worker_config).as_str().to_string();
+        let maintenance_runtime_enabled = global_maintenance_tasks_enabled();
+        let run_global_maintenance = should_run_global_maintenance(worker_config) && maintenance_runtime_enabled;
+        (current_worker_type, maintenance_owner, maintenance_runtime_enabled, run_global_maintenance)
+    }
+
+    /// Bind the Prometheus metrics listener if `prometheus.enabled` is true in config.
+    ///
+    /// Extracted from `run()` so the bind path is testable in isolation and
+    /// the conditional listener setup is obvious at the call site.
+    async fn bind_prometheus_listener_if_enabled(
+        &self,
+    ) -> Result<Option<tokio::net::TcpListener>, Box<dyn std::error::Error>> {
+        let prometheus_config = &self.app_state.services.core.config.prometheus;
+        if !prometheus_config.enabled {
+            return Ok(None);
+        }
+        let listener = tokio::net::TcpListener::bind(format!(
+            "{}:{}",
+            self.app_state.services.core.config.server.host, prometheus_config.port
+        ))
+        .await?;
+        Ok(Some(listener))
+    }
+
+    /// Emit a final structured log line capturing worker identity and restart count.
+    ///
+    /// Distinguishes crash-loop-prone worker types (`federation_reader`,
+    /// `federation_sender`, `pusher`) at WARN level from routine shutdowns at
+    /// INFO level. Extracted from `run()` so the audit-friendly summary is
+    /// independently reviewable.
+    fn log_worker_exit_summary(&self) {
+        let worker_instance = std::env::var("WORKER_INSTANCE_NAME").unwrap_or_else(|_| "master".to_string());
+        let restart_count = std::env::var("RESTART_COUNT").ok().and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
+        match worker_instance.as_str() {
+            "federation_reader" | "federation_sender" | "pusher" => {
+                ::tracing::warn!(
+                    target: "worker_exit",
+                    worker_instance = %worker_instance,
+                    restart_count = %restart_count,
+                    "Worker exiting — check container restart policy and upstream logs for crash-loop evidence"
+                );
+            }
+            _ => {
+                ::tracing::info!(
+                    target: "worker_exit",
+                    worker_instance = %worker_instance,
+                    restart_count = %restart_count,
+                    "Worker shutdown complete"
+                );
+            }
+        }
+    }
+
+    /// Spawn the SIGINT/SIGTERM/Ctrl+C handler that triggers a graceful shutdown.
+    ///
+    /// Extracted from `run()` so the signal-path wiring is a one-liner at the
+    /// call site and the underlying `spawn_shutdown_signal_handler` free
+    /// function remains the single source of truth for the signal semantics.
+    fn spawn_shutdown_signal_listener(&self, shutdown_tx: tokio::sync::broadcast::Sender<()>) {
+        let shutdown_token = self.app_state.services.shutdown_token.clone();
+        let worker_instance = std::env::var("WORKER_INSTANCE_NAME").unwrap_or_else(|_| "master".to_string());
+        let start_ts = current_timestamp_millis();
+        tokio::spawn(spawn_shutdown_signal_handler(shutdown_tx, shutdown_token, worker_instance, start_ts));
     }
 }
 
