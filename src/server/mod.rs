@@ -29,7 +29,10 @@ const MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS: u64 = 300;
 
 // --- Tuning constants ---
 
-/// Interval (seconds) between background maintenance task ticks.
+/// Fallback interval (seconds) for background maintenance task ticks.
+///
+/// Used only when the configured `server.background_tasks_interval` is zero
+/// (e.g. unset or invalid). Default in [`ServerConfig`] is 60s.
 const BACKGROUND_TASK_INTERVAL_SECS: u64 = 60;
 
 /// Minimum interval (seconds) between background task executions to prevent
@@ -39,17 +42,16 @@ const MIN_BACKGROUND_INTERVAL_SECS: u64 = 10;
 /// Capacity of the tokio broadcast channel used for graceful shutdown signaling.
 const SHUTDOWN_BROADCAST_CAPACITY: usize = 3;
 
-/// Maximum retries for federation destination connection attempts
-/// before marking a destination as unreachable.
+/// Fallback for [`ServerConfig::federation_retry_max_count`] when config is 0.
 const FEDERATION_RETRY_MAX_COUNT: u64 = 5;
 
-/// Timeout (seconds) for draining in-flight requests during graceful shutdown.
+/// Fallback for [`ServerConfig::drain_timeout_secs`] when config is 0.
 const DRAIN_TIMEOUT_SECS: u64 = 30;
 
-/// Interval (seconds) between megolm session key cleanup runs.
+/// Fallback for [`ServerConfig::megolm_cleanup_interval_secs`] when config is 0.
 const MEGOLM_CLEANUP_INTERVAL_SECS: u64 = 6 * 3600;
 
-/// Interval (seconds) between event pruning runs.
+/// Fallback for [`ServerConfig::pruning_interval_secs`] when config is 0.
 const PRUNING_INTERVAL_SECS: u64 = 86400;
 
 /// Helper macro for pruning background tasks.
@@ -229,8 +231,10 @@ impl SynapseServer {
             app_state
         };
 
-        let scheduled_tasks =
-            Arc::new(ScheduledTasks::new(Arc::new(Database::from_pool((*pool).clone(), redis_pool_option))));
+        let scheduled_tasks = Arc::new(ScheduledTasks::from_config(
+            Arc::new(Database::from_pool((*pool).clone(), redis_pool_option)),
+            &config.server,
+        ));
         let metrics_collector = Arc::new(TaskMetricsCollector::new(scheduled_tasks.clone()));
 
         let address = format!("{}:{}", config.server.host, config.server.port).parse::<SocketAddr>()?;
@@ -416,11 +420,16 @@ impl SynapseServer {
             let event_broadcaster = self.app_state.services.core.event_broadcaster.clone();
             let remote_media_lifetime = self.app_state.services.core.config.server.remote_media_lifetime;
             let local_media_lifetime = self.app_state.services.core.config.server.local_media_lifetime;
+            let configured_bg_interval = self.app_state.services.core.config.server.background_tasks_interval;
+            let bg_tick_secs =
+                if configured_bg_interval > 0 { configured_bg_interval } else { BACKGROUND_TASK_INTERVAL_SECS };
+            let configured_fed_retry = self.app_state.services.core.config.server.federation_retry_max_count;
+            let fed_retry_threshold =
+                if configured_fed_retry > 0 { configured_fed_retry } else { FEDERATION_RETRY_MAX_COUNT };
             let mut media_cleanup_counter: u64 = 0;
             let mut federation_retry_counter: u64 = 0;
             tokio::spawn(async move {
-                let mut interval =
-                    tokio::time::interval(tokio::time::Duration::from_secs(BACKGROUND_TASK_INTERVAL_SECS));
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(bg_tick_secs));
                 loop {
                     tokio::select! {
                         _ = interval.tick() => {
@@ -452,7 +461,7 @@ impl SynapseServer {
                                 }
                             }
                             federation_retry_counter += 1;
-                            if federation_retry_counter >= FEDERATION_RETRY_MAX_COUNT {
+                            if federation_retry_counter >= fed_retry_threshold {
                                 federation_retry_counter = 0;
                                 if let Ok(retried) = event_broadcaster.retry_pending_transactions().await {
                                     if retried > 0 {
@@ -522,9 +531,11 @@ impl SynapseServer {
             // Expired sessions should be cleaned up
             // automatically. Runs every 6 hours by default.
             let key_rotation_storage = self.app_state.services.core.key_rotation_storage.clone();
+            let configured_megolm_secs = self.app_state.services.core.config.server.megolm_cleanup_interval_secs;
+            let megolm_interval_secs =
+                if configured_megolm_secs > 0 { configured_megolm_secs } else { MEGOLM_CLEANUP_INTERVAL_SECS };
             tokio::spawn(async move {
-                let mut interval_timer =
-                    tokio::time::interval(tokio::time::Duration::from_secs(MEGOLM_CLEANUP_INTERVAL_SECS));
+                let mut interval_timer = tokio::time::interval(tokio::time::Duration::from_secs(megolm_interval_secs));
                 interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 interval_timer.tick().await; // skip immediate tick after startup
 
@@ -566,8 +577,11 @@ impl SynapseServer {
             //   - one-time keys that are used or older than 7 days
             // Runs daily.
             let pruning_pool = self.app_state.services.account.user_storage.pool().clone();
+            let configured_pruning_secs = self.app_state.services.core.config.server.pruning_interval_secs;
+            let pruning_interval_secs =
+                if configured_pruning_secs > 0 { configured_pruning_secs } else { PRUNING_INTERVAL_SECS };
             tokio::spawn(async move {
-                let mut interval_timer = tokio::time::interval(Duration::from_secs(PRUNING_INTERVAL_SECS));
+                let mut interval_timer = tokio::time::interval(Duration::from_secs(pruning_interval_secs));
                 interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 interval_timer.tick().await; // skip immediate tick after startup
 
@@ -684,10 +698,12 @@ impl SynapseServer {
         // the server even when no SIGTERM/SIGINT has been received.
         shutdown_rx_drain_gate.recv().await.ok();
 
-        // Wait for all listeners to drain, with a hard 30s cap to prevent
+        // Wait for all listeners to drain, with a hard cap to prevent
         // long-polling endpoints (e.g. /sync with 90s+ timeout) from blocking
         // rolling updates indefinitely.
-        let drain_timeout = Duration::from_secs(DRAIN_TIMEOUT_SECS);
+        let configured_drain_secs = self.app_state.services.core.config.server.drain_timeout_secs;
+        let drain_secs = if configured_drain_secs > 0 { configured_drain_secs } else { DRAIN_TIMEOUT_SECS };
+        let drain_timeout = Duration::from_secs(drain_secs);
         let drain_result = tokio::time::timeout(drain_timeout, async {
             client_rx.await.ok();
             fed_rx.await.ok();

@@ -20,6 +20,16 @@ server:
   megolm_encryption_key_path: "/app/data/megolm.key"
   suppress_r0_deprecation_warning: true
   suppress_vendor_endpoint_warning: true
+  # Background-task tuning (seconds). Defaults shown; 0 falls back to compile-time constant.
+  # federation_retry_max_count: 5
+  # drain_timeout_secs: 30
+  # megolm_cleanup_interval_secs: 21600
+  # pruning_interval_secs: 86400
+  # Scheduled DB housekeeping intervals (seconds).
+  # health_check_interval_secs: 10
+  # performance_check_interval_secs: 300
+  # integrity_check_interval_secs: 3600
+  # maintenance_interval_secs: 86400
 
 rate_limit:
   enabled: true

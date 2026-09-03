@@ -275,6 +275,68 @@ pub struct ServerConfig {
     /// `SYNAPSE__SERVER__ENABLE_BURN_AFTER_READ_PROCESSOR` 覆盖。
     #[serde(default = "default_true")]
     pub enable_burn_after_read_processor: bool,
+
+    /// 联邦重试最大次数。
+    ///
+    /// 后台任务对每个待处理事务最多重试多少次后放弃。达到上限后重试计数器
+    /// 重置，下次 tick 重新开始尝试。增大可提高 federation 可靠性，
+    /// 但会增加服务器负载。
+    #[serde(default = "default_federation_retry_max_count")]
+    pub federation_retry_max_count: u64,
+
+    /// 优雅关闭时等待 in-flight 请求排空的超时时间（秒）。
+    ///
+    /// SIGTERM 收到后，服务器停止接收新请求并等待已有请求完成。
+    /// 如果超过此时间还有请求未完成则强制退出，防止长轮询（如 90s+ /sync）
+    /// 永久阻塞滚动更新。增大可给请求更多时间完成，但会延迟重启。
+    #[serde(default = "default_drain_timeout_secs")]
+    pub drain_timeout_secs: u64,
+
+    /// Megolm 会话密钥清理间隔（秒）。
+    ///
+    /// 定期删除已过期的 Megolm 加密会话密钥，防止 megolm_sessions 表无限增长。
+    /// 每次清理还会重新加密设备列表中的会话密钥。调大可减少清理频率，
+    /// 但会增加存储占用；调小则更积极释放空间。
+    #[serde(default = "default_megolm_cleanup_interval_secs")]
+    pub megolm_cleanup_interval_secs: u64,
+
+    /// 数据裁剪间隔（秒）。
+    ///
+    /// 定期裁剪以下过期数据：
+    /// - device list changes（默认 90 天）
+    /// - device lists stream
+    /// - 用户 session（默认 90 天）
+    /// - presence 记录（默认 7 天）
+    /// - 一次性密钥（默认 7 天）
+    ///
+    /// 增大间隔会延迟数据清理，占用更多存储但减少清理开销。
+    #[serde(default = "default_pruning_interval_secs")]
+    pub pruning_interval_secs: u64,
+
+    /// 数据库健康检查间隔（秒）。
+    ///
+    /// 定期检查数据库连接池使用率、超时率等指标。
+    #[serde(default = "default_health_check_interval_secs")]
+    pub health_check_interval_secs: u64,
+
+    /// 性能指标采集间隔（秒）。
+    ///
+    /// 定期采集慢查询数、平均查询时间、TPS、缓存命中率等。
+    #[serde(default = "default_performance_check_interval_secs")]
+    pub performance_check_interval_secs: u64,
+
+    /// 数据完整性检查间隔（秒）。
+    ///
+    /// 定期检查外键完整性、孤立记录、重复条目等。
+    #[serde(default = "default_integrity_check_interval_secs")]
+    pub integrity_check_interval_secs: u64,
+
+    /// 数据库维护任务间隔（秒）。
+    ///
+    /// 定期执行 VACUUM ANALYZE、重建索引等维护操作。
+    /// 维护任务启动后有 5 分钟预热期避免与冷启动流量冲突。
+    #[serde(default = "default_maintenance_interval_secs")]
+    pub maintenance_interval_secs: u64,
 }
 
 fn default_suppress_key_server_warning() -> bool {
@@ -323,6 +385,38 @@ fn default_sync_online_timeout() -> u64 {
 
 fn default_idle_timeout() -> u64 {
     300_000
+}
+
+fn default_federation_retry_max_count() -> u64 {
+    5
+}
+
+fn default_drain_timeout_secs() -> u64 {
+    30
+}
+
+fn default_megolm_cleanup_interval_secs() -> u64 {
+    21600 // 6 hours
+}
+
+fn default_pruning_interval_secs() -> u64 {
+    86400 // 24 hours
+}
+
+fn default_health_check_interval_secs() -> u64 {
+    10
+}
+
+fn default_performance_check_interval_secs() -> u64 {
+    300 // 5 minutes
+}
+
+fn default_integrity_check_interval_secs() -> u64 {
+    3600 // 1 hour
+}
+
+fn default_maintenance_interval_secs() -> u64 {
+    86400 // 24 hours
 }
 
 impl ServerConfig {

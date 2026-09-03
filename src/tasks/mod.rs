@@ -9,18 +9,25 @@ use synapse_storage::maintenance::{DatabaseMaintenance, MaintenanceReport};
 use synapse_storage::monitoring::{DataIntegrityReport, DatabaseHealthStatus, PerformanceMetrics};
 use synapse_storage::Database;
 
-/// Grace period after startup before the first run of expensive periodic
-/// tasks (performance metrics, integrity check, maintenance/VACUUM).
-///
-/// `tokio::time::interval` fires immediately on the first tick, which used to
-/// race with the very first user requests and produced 30+s `VACUUM ANALYZE`
-/// stalls during cold start. Letting the first ~60s be reserved for warming up
-/// connections and handling early traffic gives the server a clean ramp.
+/// Startup grace period: time to let connections warm up before the first
+/// heavy metric collection run (performance / integrity / maintenance).
 const STARTUP_GRACE_PERIOD: Duration = Duration::from_secs(60);
 
-/// Reserve the maintenance task for a longer warmup; VACUUM is the most
-/// disruptive operation and on a cold container can take tens of seconds.
+/// Maintenance tasks get a longer grace period — VACUUM ANALYZE on cold tables
+/// can stall for tens of seconds, so we give it 5 minutes.
 const MAINTENANCE_STARTUP_DELAY: Duration = Duration::from_secs(300);
+
+/// Default health check interval (seconds) when not configured.
+const DEFAULT_HEALTH_CHECK_INTERVAL_SECS: u64 = 10;
+
+/// Default performance check interval (seconds) when not configured.
+const DEFAULT_PERFORMANCE_CHECK_INTERVAL_SECS: u64 = 300;
+
+/// Default integrity check interval (seconds) when not configured.
+const DEFAULT_INTEGRITY_CHECK_INTERVAL_SECS: u64 = 3600;
+
+/// Default maintenance interval (seconds) when not configured.
+const DEFAULT_MAINTENANCE_INTERVAL_SECS: u64 = 86400;
 
 pub struct ScheduledTasks {
     database: Arc<Database>,
@@ -36,16 +43,61 @@ pub struct ScheduledTasks {
 
 impl ScheduledTasks {
     pub fn new(database: Arc<Database>) -> Self {
+        // Backwards-compatible constructor: reads no Config, uses hardcoded defaults.
+        // New code should use [`Self::from_config`].
+        Self::from_parts(
+            database,
+            Duration::from_secs(DEFAULT_HEALTH_CHECK_INTERVAL_SECS),
+            Duration::from_secs(DEFAULT_PERFORMANCE_CHECK_INTERVAL_SECS),
+            Duration::from_secs(DEFAULT_INTEGRITY_CHECK_INTERVAL_SECS),
+            Duration::from_secs(DEFAULT_MAINTENANCE_INTERVAL_SECS),
+        )
+    }
+
+    /// Construct [`ScheduledTasks`] using intervals from [`ServerConfig`].
+    ///
+    /// A zero / unset value in config falls back to the historical default.
+    pub fn from_config(database: Arc<Database>, server_config: &synapse_common::config::ServerConfig) -> Self {
+        let health = if server_config.health_check_interval_secs > 0 {
+            Duration::from_secs(server_config.health_check_interval_secs)
+        } else {
+            Duration::from_secs(DEFAULT_HEALTH_CHECK_INTERVAL_SECS)
+        };
+        let performance = if server_config.performance_check_interval_secs > 0 {
+            Duration::from_secs(server_config.performance_check_interval_secs)
+        } else {
+            Duration::from_secs(DEFAULT_PERFORMANCE_CHECK_INTERVAL_SECS)
+        };
+        let integrity = if server_config.integrity_check_interval_secs > 0 {
+            Duration::from_secs(server_config.integrity_check_interval_secs)
+        } else {
+            Duration::from_secs(DEFAULT_INTEGRITY_CHECK_INTERVAL_SECS)
+        };
+        let maintenance = if server_config.maintenance_interval_secs > 0 {
+            Duration::from_secs(server_config.maintenance_interval_secs)
+        } else {
+            Duration::from_secs(DEFAULT_MAINTENANCE_INTERVAL_SECS)
+        };
+        Self::from_parts(database, health, performance, integrity, maintenance)
+    }
+
+    fn from_parts(
+        database: Arc<Database>,
+        health_check_interval: Duration,
+        performance_check_interval: Duration,
+        integrity_check_interval: Duration,
+        maintenance_interval: Duration,
+    ) -> Self {
         Self {
             database,
             last_health_status: Arc::new(RwLock::new(None)),
             last_performance_metrics: Arc::new(RwLock::new(None)),
             last_integrity_report: Arc::new(RwLock::new(None)),
             last_maintenance_report: Arc::new(RwLock::new(None)),
-            health_check_interval: Duration::from_secs(10),
-            performance_check_interval: Duration::from_secs(300),
-            integrity_check_interval: Duration::from_secs(3600),
-            maintenance_interval: Duration::from_secs(86400),
+            health_check_interval,
+            performance_check_interval,
+            integrity_check_interval,
+            maintenance_interval,
         }
     }
 
