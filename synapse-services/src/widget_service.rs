@@ -423,88 +423,189 @@ mod tests {
     impl MockWidgetStore {
         fn new() -> Self {
             Self {
-                create_widget: Arc::new(std::sync::Mutex::new((Err(sqlx::Error::RowNotFound), 0))),
-                get_widget: Arc::new(std::sync::Mutex::new((Ok(None), 0))),
-                get_room_widgets: Arc::new(std::sync::Mutex::new((Ok(vec![]), 0))),
-                get_user_widgets: Arc::new(std::sync::Mutex::new((Ok(vec![]), 0))),
-                update_widget: Arc::new(std::sync::Mutex::new((Ok(None), 0))),
-                delete_widget: Arc::new(std::sync::Mutex::new((Ok(false), 0))),
-                set_permission: Arc::new(std::sync::Mutex::new((Err(sqlx::Error::RowNotFound), 0))),
-                get_permissions: Arc::new(std::sync::Mutex::new((Ok(vec![]), 0))),
-                get_user_permission: Arc::new(std::sync::Mutex::new((Ok(None), 0))),
-                delete_permission: Arc::new(std::sync::Mutex::new((Ok(false), 0))),
-                create_session: Arc::new(std::sync::Mutex::new((Err(sqlx::Error::RowNotFound), 0))),
-                get_session: Arc::new(std::sync::Mutex::new((Ok(None), 0))),
-                update_activity: Arc::new(std::sync::Mutex::new((Ok(false), 0))),
-                terminate_session: Arc::new(std::sync::Mutex::new((Ok(false), 0))),
-                get_sessions: Arc::new(std::sync::Mutex::new((Ok(vec![]), 0))),
-                cleanup_expired: Arc::new(std::sync::Mutex::new((Ok(0), 0))),
+                create_widget: Arc::new(std::sync::Mutex::new(Some(Err(sqlx::Error::RowNotFound)))),
+                get_widget: Arc::new(std::sync::Mutex::new(Some(Ok(None)))),
+                get_room_widgets: Arc::new(std::sync::Mutex::new(Some(Ok(vec![])))),
+                get_user_widgets: Arc::new(std::sync::Mutex::new(Some(Ok(vec![])))),
+                update_widget: Arc::new(std::sync::Mutex::new(Some(Ok(None)))),
+                delete_widget: Arc::new(std::sync::Mutex::new(Some(Ok(false)))),
+                set_permission: Arc::new(std::sync::Mutex::new(Some(Err(sqlx::Error::RowNotFound)))),
+                get_permissions: Arc::new(std::sync::Mutex::new(Some(Ok(vec![])))),
+                get_user_permission: Arc::new(std::sync::Mutex::new(Some(Ok(None)))),
+                delete_permission: Arc::new(std::sync::Mutex::new(Some(Ok(false)))),
+                create_session: Arc::new(std::sync::Mutex::new(Some(Err(sqlx::Error::RowNotFound)))),
+                get_session: Arc::new(std::sync::Mutex::new(Some(Ok(None)))),
+                update_activity: Arc::new(std::sync::Mutex::new(Some(Ok(false)))),
+                terminate_session: Arc::new(std::sync::Mutex::new(Some(Ok(false)))),
+                get_sessions: Arc::new(std::sync::Mutex::new(Some(Ok(vec![])))),
+                cleanup_expired: Arc::new(std::sync::Mutex::new(Some(Ok(0)))),
             }
         }
 
-
-        fn set_create_widget(&self, r: Result<Widget, sqlx::Error>) { self.create_widget.lock().unwrap().0 = r; }
-        fn set_get_widget(&self, r: Result<Option<Widget>, sqlx::Error>) { self.get_widget.lock().unwrap().0 = r; }
-        fn set_get_room_widgets(&self, r: Result<Vec<Widget>, sqlx::Error>) { self.get_room_widgets.lock().unwrap().0 = r; }
-        fn set_get_user_widgets(&self, r: Result<Vec<Widget>, sqlx::Error>) { self.get_user_widgets.lock().unwrap().0 = r; }
-        fn set_update_widget(&self, r: Result<Option<Widget>, sqlx::Error>) { self.update_widget.lock().unwrap().0 = r; }
-        fn set_delete_widget(&self, r: Result<bool, sqlx::Error>) { self.delete_widget.lock().unwrap().0 = r; }
-        fn set_set_permission(&self, r: Result<WidgetPermission, sqlx::Error>) { self.set_permission.lock().unwrap().0 = r; }
-        fn set_get_permissions(&self, r: Result<Vec<WidgetPermission>, sqlx::Error>) { self.get_permissions.lock().unwrap().0 = r; }
-        fn set_get_user_permission(&self, r: Result<Option<WidgetPermission>, sqlx::Error>) { self.get_user_permission.lock().unwrap().0 = r; }
-        fn set_delete_permission(&self, r: Result<bool, sqlx::Error>) { self.delete_permission.lock().unwrap().0 = r; }
-        fn set_create_session(&self, r: Result<WidgetSession, sqlx::Error>) { self.create_session.lock().unwrap().0 = r; }
-        fn set_get_session(&self, r: Result<Option<WidgetSession>, sqlx::Error>) { self.get_session.lock().unwrap().0 = r; }
-        fn set_update_activity(&self, r: Result<bool, sqlx::Error>) { self.update_activity.lock().unwrap().0 = r; }
-        fn set_terminate_session(&self, r: Result<bool, sqlx::Error>) { self.terminate_session.lock().unwrap().0 = r; }
-        fn set_get_sessions(&self, r: Result<Vec<WidgetSession>, sqlx::Error>) { self.get_sessions.lock().unwrap().0 = r; }
-        fn set_cleanup_expired(&self, r: Result<u64, sqlx::Error>) { self.cleanup_expired.lock().unwrap().0 = r; }
+        fn set_create_widget(&self, r: Result<Widget, sqlx::Error>) {
+            *self.create_widget.lock().unwrap() = Some(r);
+        }
+        fn set_get_widget(&self, r: Result<Option<Widget>, sqlx::Error>) {
+            *self.get_widget.lock().unwrap() = Some(r);
+        }
+        fn set_get_room_widgets(&self, r: Result<Vec<Widget>, sqlx::Error>) {
+            *self.get_room_widgets.lock().unwrap() = Some(r);
+        }
+        fn set_get_user_widgets(&self, r: Result<Vec<Widget>, sqlx::Error>) {
+            *self.get_user_widgets.lock().unwrap() = Some(r);
+        }
+        fn set_update_widget(&self, r: Result<Option<Widget>, sqlx::Error>) {
+            *self.update_widget.lock().unwrap() = Some(r);
+        }
+        fn set_delete_widget(&self, r: Result<bool, sqlx::Error>) {
+            *self.delete_widget.lock().unwrap() = Some(r);
+        }
+        fn set_set_permission(&self, r: Result<WidgetPermission, sqlx::Error>) {
+            *self.set_permission.lock().unwrap() = Some(r);
+        }
+        fn set_get_permissions(&self, r: Result<Vec<WidgetPermission>, sqlx::Error>) {
+            *self.get_permissions.lock().unwrap() = Some(r);
+        }
+        fn set_get_user_permission(&self, r: Result<Option<WidgetPermission>, sqlx::Error>) {
+            *self.get_user_permission.lock().unwrap() = Some(r);
+        }
+        fn set_delete_permission(&self, r: Result<bool, sqlx::Error>) {
+            *self.delete_permission.lock().unwrap() = Some(r);
+        }
+        fn set_create_session(&self, r: Result<WidgetSession, sqlx::Error>) {
+            *self.create_session.lock().unwrap() = Some(r);
+        }
+        fn set_get_session(&self, r: Result<Option<WidgetSession>, sqlx::Error>) {
+            *self.get_session.lock().unwrap() = Some(r);
+        }
+        fn set_update_activity(&self, r: Result<bool, sqlx::Error>) {
+            *self.update_activity.lock().unwrap() = Some(r);
+        }
+        fn set_terminate_session(&self, r: Result<bool, sqlx::Error>) {
+            *self.terminate_session.lock().unwrap() = Some(r);
+        }
+        fn set_get_sessions(&self, r: Result<Vec<WidgetSession>, sqlx::Error>) {
+            *self.get_sessions.lock().unwrap() = Some(r);
+        }
+        fn set_cleanup_expired(&self, r: Result<u64, sqlx::Error>) {
+            *self.cleanup_expired.lock().unwrap() = Some(r);
+        }
 
         async fn pop_field<T>(field: &Arc<std::sync::Mutex<Option<Result<T, sqlx::Error>>>>) -> Result<T, sqlx::Error> {
-            let r = field.lock().unwrap().take()
-                .unwrap_or(Err(sqlx::Error::RowNotFound));
+            let r = field.lock().unwrap().take().unwrap_or(Err(sqlx::Error::RowNotFound));
             r
         }
     }
 
-
     #[async_trait]
     impl WidgetStoreApi for MockWidgetStore {
-        async fn create_widget(&self, _: CreateWidgetParams) -> Result<Widget, sqlx::Error> { Self::pop_field(&self.create_widget).await }
-        async fn get_widget(&self, _: &str) -> Result<Option<Widget>, sqlx::Error> { Self::pop_field(&self.get_widget).await }
-        async fn get_room_widgets(&self, _: &str) -> Result<Vec<Widget>, sqlx::Error> { Self::pop_field(&self.get_room_widgets).await }
-        async fn get_user_widgets(&self, _: &str) -> Result<Vec<Widget>, sqlx::Error> { Self::pop_field(&self.get_user_widgets).await }
-        async fn update_widget(&self, _: &str, _: Option<&str>, _: Option<&str>, _: Option<&serde_json::Value>) -> Result<Option<Widget>, sqlx::Error> { Self::pop_field(&self.update_widget).await }
-        async fn delete_widget(&self, _: &str) -> Result<bool, sqlx::Error> { Self::pop_field(&self.delete_widget).await }
-        async fn set_widget_permission(&self, _: &str, _: &str, _: serde_json::Value) -> Result<WidgetPermission, sqlx::Error> { Self::pop_field(&self.set_permission).await }
-        async fn get_widget_permissions(&self, _: &str) -> Result<Vec<WidgetPermission>, sqlx::Error> { Self::pop_field(&self.get_permissions).await }
-        async fn get_user_widget_permission(&self, _: &str, _: &str) -> Result<Option<WidgetPermission>, sqlx::Error> { Self::pop_field(&self.get_user_permission).await }
-        async fn delete_widget_permission(&self, _: &str, _: &str) -> Result<bool, sqlx::Error> { Self::pop_field(&self.delete_permission).await }
-        async fn create_session(&self, _: &str, _: &str, _: &str, _: Option<&str>, _: Option<i64>) -> Result<WidgetSession, sqlx::Error> { Self::pop_field(&self.create_session).await }
-        async fn get_session(&self, _: &str) -> Result<Option<WidgetSession>, sqlx::Error> { Self::pop_field(&self.get_session).await }
-        async fn update_session_activity(&self, _: &str) -> Result<bool, sqlx::Error> { Self::pop_field(&self.update_activity).await }
-        async fn terminate_session(&self, _: &str) -> Result<bool, sqlx::Error> { Self::pop_field(&self.terminate_session).await }
-        async fn get_widget_sessions(&self, _: &str) -> Result<Vec<WidgetSession>, sqlx::Error> { Self::pop_field(&self.get_sessions).await }
-        async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error> { Self::pop_field(&self.cleanup_expired).await }
+        async fn create_widget(&self, _: CreateWidgetParams) -> Result<Widget, sqlx::Error> {
+            Self::pop_field(&self.create_widget).await
+        }
+        async fn get_widget(&self, _: &str) -> Result<Option<Widget>, sqlx::Error> {
+            Self::pop_field(&self.get_widget).await
+        }
+        async fn get_room_widgets(&self, _: &str) -> Result<Vec<Widget>, sqlx::Error> {
+            Self::pop_field(&self.get_room_widgets).await
+        }
+        async fn get_user_widgets(&self, _: &str) -> Result<Vec<Widget>, sqlx::Error> {
+            Self::pop_field(&self.get_user_widgets).await
+        }
+        async fn update_widget(
+            &self,
+            _: &str,
+            _: Option<&str>,
+            _: Option<&str>,
+            _: Option<&serde_json::Value>,
+        ) -> Result<Option<Widget>, sqlx::Error> {
+            Self::pop_field(&self.update_widget).await
+        }
+        async fn delete_widget(&self, _: &str) -> Result<bool, sqlx::Error> {
+            Self::pop_field(&self.delete_widget).await
+        }
+        async fn set_widget_permission(
+            &self,
+            _: &str,
+            _: &str,
+            _: serde_json::Value,
+        ) -> Result<WidgetPermission, sqlx::Error> {
+            Self::pop_field(&self.set_permission).await
+        }
+        async fn get_widget_permissions(&self, _: &str) -> Result<Vec<WidgetPermission>, sqlx::Error> {
+            Self::pop_field(&self.get_permissions).await
+        }
+        async fn get_user_widget_permission(&self, _: &str, _: &str) -> Result<Option<WidgetPermission>, sqlx::Error> {
+            Self::pop_field(&self.get_user_permission).await
+        }
+        async fn delete_widget_permission(&self, _: &str, _: &str) -> Result<bool, sqlx::Error> {
+            Self::pop_field(&self.delete_permission).await
+        }
+        async fn create_session(
+            &self,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: Option<&str>,
+            _: Option<i64>,
+        ) -> Result<WidgetSession, sqlx::Error> {
+            Self::pop_field(&self.create_session).await
+        }
+        async fn get_session(&self, _: &str) -> Result<Option<WidgetSession>, sqlx::Error> {
+            Self::pop_field(&self.get_session).await
+        }
+        async fn update_session_activity(&self, _: &str) -> Result<bool, sqlx::Error> {
+            Self::pop_field(&self.update_activity).await
+        }
+        async fn terminate_session(&self, _: &str) -> Result<bool, sqlx::Error> {
+            Self::pop_field(&self.terminate_session).await
+        }
+        async fn get_widget_sessions(&self, _: &str) -> Result<Vec<WidgetSession>, sqlx::Error> {
+            Self::pop_field(&self.get_sessions).await
+        }
+        async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error> {
+            Self::pop_field(&self.cleanup_expired).await
+        }
     }
 
     fn make_widget() -> Widget {
-        Widget { id: 1, widget_id: "widget_test123".to_string(), room_id: Some("!room:test.com".to_string()),
-            user_id: "@alice:test.com".to_string(), widget_type: "m.custom".to_string(),
-            url: "https://example.com/widget".to_string(), name: "Test Widget".to_string(),
-            data: serde_json::json!({}), created_ts: 1_700_000_000_000, updated_ts: None, is_active: true }
+        Widget {
+            id: 1,
+            widget_id: "widget_test123".to_string(),
+            room_id: Some("!room:test.com".to_string()),
+            user_id: "@alice:test.com".to_string(),
+            widget_type: "m.custom".to_string(),
+            url: "https://example.com/widget".to_string(),
+            name: "Test Widget".to_string(),
+            data: serde_json::json!({}),
+            created_ts: 1_700_000_000_000,
+            updated_ts: None,
+            is_active: true,
+        }
     }
 
     fn make_session() -> WidgetSession {
-        WidgetSession { id: 1, session_id: "session_test123".to_string(), widget_id: "widget_test123".to_string(),
-            user_id: "@alice:test.com".to_string(), device_id: Some("DEVICE1".to_string()),
-            created_ts: 1_700_000_000_000, last_active_ts: Some(1_700_000_000_000),
-            expires_at: Some(1_700_010_000_000), is_active: true }
+        WidgetSession {
+            id: 1,
+            session_id: "session_test123".to_string(),
+            widget_id: "widget_test123".to_string(),
+            user_id: "@alice:test.com".to_string(),
+            device_id: Some("DEVICE1".to_string()),
+            created_ts: 1_700_000_000_000,
+            last_active_ts: Some(1_700_000_000_000),
+            expires_at: Some(1_700_010_000_000),
+            is_active: true,
+        }
     }
 
     fn make_permission() -> WidgetPermission {
-        WidgetPermission { id: 1, widget_id: "widget_test123".to_string(), user_id: "@alice:test.com".to_string(),
-            permissions: serde_json::json!(["read", "write"]), created_ts: 1_700_000_000_000, updated_ts: None }
+        WidgetPermission {
+            id: 1,
+            widget_id: "widget_test123".to_string(),
+            user_id: "@alice:test.com".to_string(),
+            permissions: serde_json::json!(["read", "write"]),
+            created_ts: 1_700_000_000_000,
+            updated_ts: None,
+        }
     }
 
     // --- Widget CRUD ---
@@ -514,10 +615,19 @@ mod tests {
         let store = MockWidgetStore::new();
         store.set_create_widget(Ok(make_widget()));
         let svc = WidgetService::new(Arc::new(store));
-        let widget = svc.create_widget("@alice:test.com",
-            CreateWidgetRequest { room_id: Some("!room:test.com".to_string()), widget_type: "m.custom".to_string(),
-                url: "https://example.com/widget".to_string(), name: "Test Widget".to_string(), data: None })
-            .await.expect("create_widget should succeed");
+        let widget = svc
+            .create_widget(
+                "@alice:test.com",
+                CreateWidgetRequest {
+                    room_id: Some("!room:test.com".to_string()),
+                    widget_type: "m.custom".to_string(),
+                    url: "https://example.com/widget".to_string(),
+                    name: "Test Widget".to_string(),
+                    data: None,
+                },
+            )
+            .await
+            .expect("create_widget should succeed");
         assert_eq!(widget.widget_id, "widget_test123");
         assert_eq!(widget.widget_type, "m.custom");
     }
@@ -527,10 +637,19 @@ mod tests {
         let store = MockWidgetStore::new();
         store.set_create_widget(Err(sqlx::Error::Protocol("db error".to_string())));
         let svc = WidgetService::new(Arc::new(store));
-        let err = svc.create_widget("@alice:test.com",
-            CreateWidgetRequest { room_id: None, widget_type: "m.custom".to_string(),
-                url: "https://example.com".to_string(), name: "W".to_string(), data: None })
-            .await.expect_err("should propagate storage error");
+        let err = svc
+            .create_widget(
+                "@alice:test.com",
+                CreateWidgetRequest {
+                    room_id: None,
+                    widget_type: "m.custom".to_string(),
+                    url: "https://example.com".to_string(),
+                    name: "W".to_string(),
+                    data: None,
+                },
+            )
+            .await
+            .expect_err("should propagate storage error");
         assert!(err.message.contains("Failed to create widget"));
     }
 
@@ -574,12 +693,17 @@ mod tests {
     #[tokio::test]
     async fn update_widget_found() {
         let store = MockWidgetStore::new();
-        let mut w = make_widget(); w.name = "Updated Name".to_string();
+        let mut w = make_widget();
+        w.name = "Updated Name".to_string();
         store.set_update_widget(Ok(Some(w)));
         let svc = WidgetService::new(Arc::new(store));
-        let result = svc.update_widget("widget_test123",
-            UpdateWidgetRequest { url: None, name: Some("Updated Name".to_string()), data: None })
-            .await.expect("should succeed");
+        let result = svc
+            .update_widget(
+                "widget_test123",
+                UpdateWidgetRequest { url: None, name: Some("Updated Name".to_string()), data: None },
+            )
+            .await
+            .expect("should succeed");
         assert!(result.is_some());
         assert_eq!(result.unwrap().name, "Updated Name");
     }
@@ -589,9 +713,10 @@ mod tests {
         let store = MockWidgetStore::new();
         store.set_update_widget(Ok(None));
         let svc = WidgetService::new(Arc::new(store));
-        let result = svc.update_widget("nonexistent",
-            UpdateWidgetRequest { url: None, name: None, data: None })
-            .await.expect("should succeed");
+        let result = svc
+            .update_widget("nonexistent", UpdateWidgetRequest { url: None, name: None, data: None })
+            .await
+            .expect("should succeed");
         assert!(result.is_none());
     }
 
@@ -620,10 +745,16 @@ mod tests {
         let store = MockWidgetStore::new();
         store.set_set_permission(Ok(make_permission()));
         let svc = WidgetService::new(Arc::new(store));
-        let result = svc.set_permission("widget_test123",
-            SetPermissionRequest { user_id: "@alice:test.com".to_string(),
-                permissions: vec!["read".to_string(), "write".to_string()] })
-            .await.expect("set_permission should succeed");
+        let result = svc
+            .set_permission(
+                "widget_test123",
+                SetPermissionRequest {
+                    user_id: "@alice:test.com".to_string(),
+                    permissions: vec!["read".to_string(), "write".to_string()],
+                },
+            )
+            .await
+            .expect("set_permission should succeed");
         assert_eq!(result.widget_id, "widget_test123");
     }
 
@@ -632,10 +763,13 @@ mod tests {
         let store = MockWidgetStore::new();
         store.set_set_permission(Err(sqlx::Error::RowNotFound));
         let svc = WidgetService::new(Arc::new(store));
-        let err = svc.set_permission("widget_test123",
-            SetPermissionRequest { user_id: "@bob:test.com".to_string(),
-                permissions: vec!["read".to_string()] })
-            .await.expect_err("should propagate storage error");
+        let err = svc
+            .set_permission(
+                "widget_test123",
+                SetPermissionRequest { user_id: "@bob:test.com".to_string(), permissions: vec!["read".to_string()] },
+            )
+            .await
+            .expect_err("should propagate storage error");
         assert!(err.message.contains("Failed to set widget permission"));
     }
 
@@ -691,10 +825,17 @@ mod tests {
         let store = MockWidgetStore::new();
         store.set_create_session(Ok(make_session()));
         let svc = WidgetService::new(Arc::new(store));
-        let session = svc.create_session("@alice:test.com",
-            CreateSessionRequest { widget_id: "widget_test123".to_string(),
-                device_id: Some("DEVICE1".to_string()), expires_in_ms: Some(3_600_000) })
-            .await.expect("create_session should succeed");
+        let session = svc
+            .create_session(
+                "@alice:test.com",
+                CreateSessionRequest {
+                    widget_id: "widget_test123".to_string(),
+                    device_id: Some("DEVICE1".to_string()),
+                    expires_in_ms: Some(3_600_000),
+                },
+            )
+            .await
+            .expect("create_session should succeed");
         assert_eq!(session.session_id, "session_test123");
     }
 
@@ -703,9 +844,13 @@ mod tests {
         let store = MockWidgetStore::new();
         store.set_create_session(Err(sqlx::Error::RowNotFound));
         let svc = WidgetService::new(Arc::new(store));
-        let err = svc.create_session("@alice:test.com",
-            CreateSessionRequest { widget_id: "widget_test123".to_string(), device_id: None, expires_in_ms: None })
-            .await.expect_err("should propagate storage error");
+        let err = svc
+            .create_session(
+                "@alice:test.com",
+                CreateSessionRequest { widget_id: "widget_test123".to_string(), device_id: None, expires_in_ms: None },
+            )
+            .await
+            .expect_err("should propagate storage error");
         assert!(err.message.contains("Failed to create widget session"));
     }
 
@@ -770,7 +915,9 @@ mod tests {
         let store = MockWidgetStore::new();
         store.set_get_user_permission(Ok(Some(make_permission())));
         let svc = WidgetService::new(Arc::new(store));
-        let has_read = svc.check_permission("widget_test123", "@alice:test.com", "read").await
+        let has_read = svc
+            .check_permission("widget_test123", "@alice:test.com", "read")
+            .await
             .expect("check_permission should succeed");
         assert!(has_read);
     }
@@ -780,7 +927,9 @@ mod tests {
         let store = MockWidgetStore::new();
         store.set_get_user_permission(Ok(Some(make_permission())));
         let svc = WidgetService::new(Arc::new(store));
-        let has_admin = svc.check_permission("widget_test123", "@alice:test.com", "admin").await
+        let has_admin = svc
+            .check_permission("widget_test123", "@alice:test.com", "admin")
+            .await
             .expect("check_permission should succeed");
         assert!(!has_admin);
     }
@@ -790,9 +939,10 @@ mod tests {
         let store = MockWidgetStore::new();
         store.set_get_user_permission(Ok(None));
         let svc = WidgetService::new(Arc::new(store));
-        let has_read = svc.check_permission("widget_test123", "@bob:test.com", "read").await
+        let has_read = svc
+            .check_permission("widget_test123", "@bob:test.com", "read")
+            .await
             .expect("check_permission should succeed");
         assert!(!has_read);
     }
-
 }
