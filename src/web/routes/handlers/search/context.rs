@@ -77,7 +77,7 @@ pub(crate) async fn get_event_context(
 pub(crate) async fn timestamp_to_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let ts: i64 = params

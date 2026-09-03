@@ -2,6 +2,7 @@ use super::types::*;
 use crate::common::ApiError;
 use crate::web::routes::admin::audit::{record_audit_event, resolve_request_id};
 use crate::web::routes::context::AdminContext;
+use crate::web::routes::extractors::{RoomId, UserId};
 use crate::web::routes::AdminUser;
 use axum::{
     extract::{Path, State},
@@ -28,7 +29,7 @@ pub async fn cleanup_abnormal_rooms(
 pub async fn block_room(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     headers: HeaderMap,
     Json(body): Json<BlockRoomRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -59,7 +60,7 @@ pub async fn block_room(
 pub async fn get_room_block_status(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -80,7 +81,7 @@ pub async fn get_room_block_status(
 pub async fn unblock_room(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -107,7 +108,7 @@ pub async fn unblock_room(
 pub async fn make_room_admin(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<MakeRoomAdminRequest>,
 ) -> Result<Json<Value>, ApiError> {
     crate::web::routes::admin::ensure_super_admin_for_privilege_change(&admin)?;
@@ -171,16 +172,16 @@ pub async fn purge_history(
 pub async fn purge_history_by_room(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let merged_body = match body {
         Value::Object(mut map) => {
-            map.insert("room_id".to_string(), Value::String(room_id));
+            map.insert("room_id".to_string(), Value::String(room_id.to_string()));
             Value::Object(map)
         }
-        _ => json!({ "room_id": room_id }),
+        _ => json!({ "room_id": room_id.to_string() }),
     };
 
     purge_history(admin, State(ctx), headers, Json(merged_body)).await
@@ -210,7 +211,7 @@ pub async fn purge_history_by_room(
 pub async fn backfill_room(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -270,7 +271,7 @@ pub async fn join_room_member(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
-    Path((room_id, user_id)): Path<(String, String)>,
+    Path((room_id, user_id)): Path<(RoomId, UserId)>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     Ok(Json(join_room_member_internal(&ctx, &room_id, &user_id, &request_id).await?))
@@ -282,7 +283,7 @@ pub async fn remove_room_member(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
-    Path((room_id, user_id)): Path<(String, String)>,
+    Path((room_id, user_id)): Path<(RoomId, UserId)>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     Ok(Json(remove_room_member_internal(&ctx, &room_id, &user_id, &request_id).await?))
@@ -293,7 +294,7 @@ pub async fn ban_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
-    Path((room_id, user_id)): Path<(String, String)>,
+    Path((room_id, user_id)): Path<(RoomId, UserId)>,
     Json(body): Json<BanRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -304,7 +305,7 @@ pub async fn ban_user(
 pub async fn ban_user_by_body(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     headers: HeaderMap,
     Json(body): Json<RoomUserActionRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -320,7 +321,7 @@ pub async fn unban_user(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
-    Path((room_id, user_id)): Path<(String, String)>,
+    Path((room_id, user_id)): Path<(RoomId, UserId)>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     Ok(Json(unban_user_internal(&ctx, &room_id, &user_id, &request_id).await?))
@@ -332,7 +333,7 @@ pub async fn kick_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
-    Path((room_id, user_id)): Path<(String, String)>,
+    Path((room_id, user_id)): Path<(RoomId, UserId)>,
     Json(body): Json<BanRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -343,7 +344,7 @@ pub async fn kick_user(
 pub async fn kick_user_by_body(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     headers: HeaderMap,
     Json(body): Json<RoomUserActionRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -558,7 +559,7 @@ pub async fn redact_room_events(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let before_ts = body.get("before_ts").and_then(|v| v.as_i64());

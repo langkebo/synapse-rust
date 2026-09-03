@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
 use super::{dispatch_federation_member_event_to_appservice, federatable_room_version};
+use crate::web::routes::extractors::RoomId;
 
 pub(crate) async fn thirdparty_invite(
     State(ctx): State<FederationContext>,
@@ -156,7 +157,7 @@ pub(crate) async fn invite(
 pub(crate) async fn exchange_third_party_invite(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     if !room_id.starts_with('!') || !room_id.contains(':') {

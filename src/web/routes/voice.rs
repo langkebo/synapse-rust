@@ -2,6 +2,7 @@
 use super::{ensure_room_member_ctx, validate_user_id, AppState, AuthenticatedUser};
 use crate::common::{ApiError, ApiResult};
 use crate::web::routes::context::RoomContext;
+use crate::web::routes::extractors::RoomId;
 use crate::web::routes::extractors::UserId;
 use axum::{
     extract::{Path, Query, State},
@@ -223,7 +224,7 @@ async fn get_voice_stats(
 async fn get_room_voice_stats(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a member of this room to view voice stats").await?;
     let stats = ctx.voice_service.get_room_voice_stats(&room_id).await?;
@@ -248,7 +249,7 @@ async fn get_user_voice_stats(
 async fn get_room_voice_messages(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(query): Query<VoiceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a member of this room to view voice messages")
@@ -277,7 +278,7 @@ async fn get_user_voice_messages(
 async fn get_voice_message_content(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(media_id): Path<String>,
+    Path(media_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     // FT-105: 先取出内容（含归属信息），在返回给调用者之前完成所有权校验，防止 IDOR
     let result = ctx.voice_service.get_voice_message_content(&media_id).await?;
@@ -323,7 +324,7 @@ async fn get_voice_message_content(
 async fn convert_voice_message(
     _state: State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Path(_media_id): Path<String>,
+    Path(_media_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     Err(ApiError::not_implemented(
         "Voice conversion is handled client-side per MSC3245. Server-side processing is not supported",
@@ -334,7 +335,7 @@ async fn convert_voice_message(
 async fn optimize_voice_message(
     _state: State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Path(_media_id): Path<String>,
+    Path(_media_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     Err(ApiError::not_implemented(
         "Voice optimization is handled client-side per MSC3245. Server-side processing is not supported",
@@ -345,7 +346,7 @@ async fn optimize_voice_message(
 async fn transcribe_voice_message(
     _state: State<RoomContext>,
     _auth_user: AuthenticatedUser,
-    Path(_media_id): Path<String>,
+    Path(_media_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     Err(ApiError::not_implemented(
         "Voice transcription is handled client-side per MSC3245. Use Web Speech API or local Whisper model on the client",

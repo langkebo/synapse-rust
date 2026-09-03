@@ -1,5 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::context::AdminContext;
+use crate::web::routes::extractors::RoomId;
 use crate::web::routes::AdminUser;
 use axum::{
     extract::{Path, State},
@@ -92,7 +93,7 @@ pub async fn set_retention_policy(
 pub async fn get_room_retention_policy(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = ctx.room_service.state().room_exists(&room_id).await?;
 
@@ -122,7 +123,7 @@ pub async fn get_room_retention_policy(
 pub async fn set_room_retention_policy(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<RetentionPolicyRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -132,7 +133,7 @@ pub async fn set_room_retention_policy(
     let policy = ctx
         .retention_service
         .set_room_policy(CreateRoomRetentionPolicyRequest {
-            room_id: room_id.clone(),
+            room_id: room_id.clone().to_string(),
             max_lifetime: body.max_lifetime,
             min_lifetime: body.min_lifetime,
             is_expire_on_clients: body.is_expire_on_clients,

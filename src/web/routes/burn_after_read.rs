@@ -110,7 +110,7 @@ pub fn burn_after_read_route_manifest() -> Vec<crate::web::routes::route_ledger:
 pub async fn enable_burn(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validators::validate_room_id(&room_id)?;
@@ -148,7 +148,7 @@ pub async fn enable_burn(
 pub async fn get_burn_settings(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validators::validate_room_id(&room_id)?;
     let room_exists: bool = ctx
@@ -238,7 +238,7 @@ pub async fn mark_burn_read(
 pub async fn get_pending_burns(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validators::validate_room_id(&room_id)?;
     let room_exists: bool = ctx

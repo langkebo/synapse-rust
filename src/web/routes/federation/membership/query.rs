@@ -6,11 +6,12 @@ use axum::extract::{Extension, Json, Path, State};
 use serde_json::{json, Value};
 
 use super::federatable_room_version;
+use crate::web::routes::extractors::RoomId;
 
 pub(crate) async fn get_room_members(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     // OPT-017: Use can_observe (returns 404) instead of in_room (returns 403)
     // to prevent room existence leaking through distinct HTTP status codes.
@@ -43,7 +44,7 @@ pub(crate) async fn get_room_members(
 pub(crate) async fn get_joined_room_members(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     // OPT-017: Use can_observe (returns 404) instead of in_room (returns 403)
     // to prevent room existence leaking through distinct HTTP status codes.
@@ -125,7 +126,7 @@ pub(crate) async fn get_user_devices(
 pub(crate) async fn get_joining_rules(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let join_rule_content = super::get_effective_room_join_rule_content(&ctx, &room_id).await?;
     let join_rule = super::get_effective_room_join_rule(&ctx, &room_id).await?;

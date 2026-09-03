@@ -2,6 +2,7 @@
 // Typing indicator management
 
 use crate::web::routes::context::RoomContext;
+use crate::web::routes::extractors::RoomId;
 use crate::web::routes::{ensure_room_member_strict_ctx, ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -92,7 +93,7 @@ pub async fn set_typing(
 pub async fn get_typing_users(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_typing_room_access(&ctx, &auth_user, &room_id).await?;
 

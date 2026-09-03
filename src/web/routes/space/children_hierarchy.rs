@@ -1,5 +1,6 @@
 use super::*;
 use crate::web::routes::context::RoomContext;
+use crate::web::routes::extractors::RoomId;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct HierarchyV1Query {
@@ -11,10 +12,10 @@ pub(crate) struct HierarchyV1Query {
 
 pub(super) async fn get_space_children(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<String>,
+    Path(space_id): Path<RoomId>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(ctx, space_id, auth_user, |ctx, space, _auth_user| async move {
+    with_visible_space(ctx, space_id.to_string(), auth_user, |ctx, space, _auth_user| async move {
         let children = ctx.space_service.get_space_children(&space.space_id).await?;
 
         Ok(json_vec_from::<_, SpaceChildResponse>(children))
@@ -24,13 +25,13 @@ pub(super) async fn get_space_children(
 
 pub(super) async fn add_child(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<String>,
+    Path(space_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
     Json(body): Json<AddChildBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_request(&body)?;
 
-    with_resolved_space(ctx, space_id, |ctx, space| async move {
+    with_resolved_space(ctx, space_id.to_string(), |ctx, space| async move {
         let request = body.into_request(space.space_id, auth_user.user_id.clone());
 
         let child = ctx.space_service.add_child(request).await?;
@@ -55,13 +56,13 @@ pub(super) async fn remove_child(
 
 pub(super) async fn get_space_hierarchy(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<String>,
+    Path(space_id): Path<RoomId>,
     Query(query): Query<HierarchyQuery>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let max_depth = query.max_depth.unwrap_or(1).clamp(1, 10);
 
-    with_visible_space(ctx, space_id, auth_user, |ctx, space, _auth_user| async move {
+    with_visible_space(ctx, space_id.to_string(), auth_user, |ctx, space, _auth_user| async move {
         let hierarchy = ctx.space_service.get_space_hierarchy(&space.space_id, max_depth).await?;
 
         let rooms = ctx.space_service.build_hierarchy_rooms(&hierarchy.children).await;
@@ -80,14 +81,14 @@ pub(super) async fn get_space_hierarchy(
 
 pub(super) async fn get_space_hierarchy_v1(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<String>,
+    Path(space_id): Path<RoomId>,
     Query(query): Query<HierarchyV1Query>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let max_depth = query.max_depth.unwrap_or(1);
     let suggested_only = query.suggested_only.unwrap_or(false);
 
-    with_visible_space(ctx, space_id, auth_user, |ctx, space, auth_user| async move {
+    with_visible_space(ctx, space_id.to_string(), auth_user, |ctx, space, auth_user| async move {
         let response = ctx
             .space_service
             .get_space_hierarchy_v1(
@@ -107,7 +108,7 @@ pub(super) async fn get_space_hierarchy_v1(
 
 pub(super) async fn get_parent_spaces(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let spaces = ctx.space_service.get_parent_spaces(&room_id).await?;
@@ -124,10 +125,10 @@ pub(super) async fn get_parent_spaces(
 
 pub(super) async fn get_space_tree_path(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<String>,
+    Path(space_id): Path<RoomId>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(ctx, space_id, auth_user, |ctx, space, auth_user| async move {
+    with_visible_space(ctx, space_id.to_string(), auth_user, |ctx, space, auth_user| async move {
         let path = ctx.space_service.get_space_tree_path(&space.space_id).await?;
 
         let mut visible_path = Vec::new();

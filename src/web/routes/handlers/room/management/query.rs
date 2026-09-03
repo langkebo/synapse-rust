@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::web::routes::extractors::UserId;
+use crate::web::routes::extractors::{RoomId, UserId};
 use crate::web::routes::{validate_room_id, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
@@ -9,7 +9,7 @@ use crate::web::routes::context::RoomContext;
 pub(crate) async fn get_room_info(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 

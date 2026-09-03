@@ -9,6 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
+use crate::web::routes::extractors::RoomId;
 use crate::web::routes::response_helpers::{created_json, created_json_from, json_from, json_vec_from, require_found};
 use crate::web::routes::AppState;
 use crate::web::routes::{ensure_room_member_strict_ctx, AdminUser, AuthenticatedUser};
@@ -192,7 +193,7 @@ async fn ensure_room_summary_manage_access(
 
 pub async fn get_room_summary(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_read_access(&ctx, &auth_user, &room_id).await?;
@@ -219,13 +220,13 @@ pub async fn get_user_summaries(
 
 pub async fn create_room_summary(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
     Json(body): Json<CreateRoomSummaryRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
 
-    let request: CreateRoomSummaryRequest = create_summary_request_for_room(room_id, body)?;
+    let request: CreateRoomSummaryRequest = create_summary_request_for_room(room_id.to_string(), body)?;
 
     let summary: RoomSummaryResponse = ctx.room_service.room_summary_service().create_summary(request).await?;
 
@@ -244,7 +245,7 @@ pub async fn create_internal_room_summary(
 
 pub async fn update_room_summary(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
     Json(body): Json<UpdateSummaryBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -260,7 +261,7 @@ pub async fn update_room_summary(
 
 pub async fn delete_room_summary(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
@@ -272,7 +273,7 @@ pub async fn delete_room_summary(
 
 pub async fn sync_room_summary(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
@@ -284,7 +285,7 @@ pub async fn sync_room_summary(
 
 pub async fn get_members(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_read_access(&ctx, &auth_user, &room_id).await?;
@@ -296,13 +297,13 @@ pub async fn get_members(
 
 pub async fn add_member(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
     Json(body): Json<CreateSummaryMemberRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
 
-    let request: CreateSummaryMemberRequest = create_summary_member_request_for_room(room_id, body);
+    let request: CreateSummaryMemberRequest = create_summary_member_request_for_room(room_id.to_string(), body);
 
     let member: RoomSummaryMember = ctx.room_service.room_summary_service().add_member(request).await?;
 
@@ -369,7 +370,7 @@ pub async fn update_state(
 
 pub async fn get_all_state(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_read_access(&ctx, &auth_user, &room_id).await?;
@@ -393,7 +394,7 @@ pub async fn get_all_state(
 
 pub async fn get_stats(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_read_access(&ctx, &auth_user, &room_id).await?;
@@ -410,7 +411,7 @@ pub async fn get_stats(
 
 pub async fn recalculate_stats(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
@@ -436,7 +437,7 @@ pub async fn process_updates(
 
 pub async fn recalculate_heroes(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;
@@ -450,7 +451,7 @@ pub async fn recalculate_heroes(
 
 pub async fn clear_unread(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&ctx, &auth_user, &room_id).await?;

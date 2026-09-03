@@ -1,6 +1,7 @@
 use crate::common::ApiError;
 use crate::common::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::web::routes::context::AdminContext;
+use crate::web::routes::extractors::RoomId;
 use crate::web::routes::AdminUser;
 use axum::{
     extract::{Path, State},
@@ -109,7 +110,7 @@ pub async fn delete_report(
 pub async fn get_room_reports(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = ctx.room_service.state().room_exists(&room_id).await?;

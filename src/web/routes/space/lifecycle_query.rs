@@ -1,5 +1,6 @@
 use super::*;
 use crate::web::routes::context::RoomContext;
+use crate::web::routes::extractors::RoomId;
 
 fn decode_public_space_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
     let cursor = cursor?;
@@ -47,12 +48,12 @@ pub(super) async fn create_space(
 
 pub(super) async fn get_space(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<String>,
+    Path(space_id): Path<RoomId>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(
         ctx,
-        space_id,
+        space_id.to_string(),
         auth_user,
         |_state, space: synapse_storage::space::Space, _auth_user| async move {
             Ok(json_from::<_, SpaceResponse>(SpaceResponse::from(space)))
@@ -63,25 +64,30 @@ pub(super) async fn get_space(
 
 pub(super) async fn get_space_by_room(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(ctx, room_id, auth_user, |_state, space: synapse_storage::space::Space, _auth_user| async move {
-        Ok(json_from::<_, SpaceResponse>(SpaceResponse::from(space)))
-    })
+    with_visible_space(
+        ctx,
+        room_id.to_string(),
+        auth_user,
+        |_state, space: synapse_storage::space::Space, _auth_user| async move {
+            Ok(json_from::<_, SpaceResponse>(SpaceResponse::from(space)))
+        },
+    )
     .await
 }
 
 pub(super) async fn update_space(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<String>,
+    Path(space_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
     Json(body): Json<UpdateSpaceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_request(&body)?;
     let request: synapse_storage::space::UpdateSpaceRequest = body.into_request();
 
-    with_resolved_space(ctx, space_id, |ctx, space: synapse_storage::space::Space| async move {
+    with_resolved_space(ctx, space_id.to_string(), |ctx, space: synapse_storage::space::Space| async move {
         let space: synapse_storage::space::Space =
             ctx.space_service.update_space(&space.space_id, &request, &auth_user.user_id).await?;
 
@@ -92,10 +98,10 @@ pub(super) async fn update_space(
 
 pub(super) async fn delete_space(
     State(ctx): State<RoomContext>,
-    Path(space_id): Path<String>,
+    Path(space_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_resolved_space(ctx, space_id, |ctx, space: synapse_storage::space::Space| async move {
+    with_resolved_space(ctx, space_id.to_string(), |ctx, space: synapse_storage::space::Space| async move {
         ctx.space_service.delete_space(&space.space_id, &auth_user.user_id).await?;
 
         Ok(StatusCode::NO_CONTENT)

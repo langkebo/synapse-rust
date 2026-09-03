@@ -1,5 +1,6 @@
 use crate::common::error::ApiError;
 use crate::web::routes::context::AdminContext;
+use crate::web::routes::extractors::RoomId;
 use crate::web::routes::room_access::ensure_room_member_strict_admin;
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
@@ -200,7 +201,7 @@ async fn create_widget(
 async fn get_widget(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    Path(widget_id): Path<RoomId>,
 ) -> Result<Json<WidgetApiResponse>, ApiError> {
     let widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "read").await?;
 
@@ -210,7 +211,7 @@ async fn get_widget(
 async fn update_widget(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    Path(widget_id): Path<RoomId>,
     Json(body): Json<UpdateWidgetBody>,
 ) -> Result<Json<WidgetApiResponse>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
@@ -228,7 +229,7 @@ async fn update_widget(
 async fn delete_widget(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    Path(widget_id): Path<RoomId>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
     let deleted = ctx.widget_service.delete_widget(&widget_id).await?;
@@ -243,7 +244,7 @@ async fn delete_widget(
 async fn get_room_widgets(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<WidgetListResponse>, ApiError> {
     ensure_room_widget_access(&ctx, &auth_user, &room_id).await?;
     let widgets = ctx.widget_service.get_room_widgets(&room_id).await?;
@@ -254,7 +255,7 @@ async fn get_room_widgets(
 async fn get_widget_config(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    Path(widget_id): Path<RoomId>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "read").await?;
 
@@ -271,7 +272,7 @@ async fn get_widget_config(
 async fn get_jitsi_config(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_room_widget_access(&ctx, &auth_user, &room_id).await?;
 
@@ -287,7 +288,7 @@ async fn get_jitsi_config(
 async fn set_widget_permission(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    Path(widget_id): Path<RoomId>,
     Json(body): Json<SetPermissionBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
@@ -301,7 +302,7 @@ async fn set_widget_permission(
 async fn get_widget_permissions(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    Path(widget_id): Path<RoomId>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "read").await?;
     let permissions = ctx.widget_service.get_permissions(&widget_id).await?;
@@ -323,16 +324,20 @@ async fn delete_widget_permission(
 async fn create_widget_session(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    Path(widget_id): Path<RoomId>,
     Json(body): Json<CreateSessionBody>,
 ) -> Result<Json<SessionResponse>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "read").await?;
     if let Some(body_widget_id) = body.widget_id.as_deref() {
-        if body_widget_id != widget_id {
+        if body_widget_id != widget_id.as_str() {
             return Err(ApiError::bad_request("Widget ID in path and body must match".to_string()));
         }
     }
-    let request = CreateSessionRequest { widget_id, device_id: body.device_id, expires_in_ms: body.expires_in_ms };
+    let request = CreateSessionRequest {
+        widget_id: widget_id.to_string(),
+        device_id: body.device_id,
+        expires_in_ms: body.expires_in_ms,
+    };
 
     let session = ctx.widget_service.create_session(&auth_user.user_id, request).await?;
 
@@ -342,7 +347,7 @@ async fn create_widget_session(
 async fn get_widget_session(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(session_id): Path<String>,
+    Path(session_id): Path<RoomId>,
 ) -> Result<Json<SessionResponse>, ApiError> {
     let session = ctx.widget_service.get_session(&session_id).await?.ok_or(ApiError::not_found("Session not found"))?;
     ensure_session_access(&ctx, &auth_user, &session).await?;
@@ -353,7 +358,7 @@ async fn get_widget_session(
 async fn get_widget_sessions(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<String>,
+    Path(widget_id): Path<RoomId>,
 ) -> Result<Json<SessionListResponse>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
     let sessions = ctx.widget_service.get_widget_sessions(&widget_id).await?;
@@ -364,7 +369,7 @@ async fn get_widget_sessions(
 async fn terminate_widget_session(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(session_id): Path<String>,
+    Path(session_id): Path<RoomId>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let session = ctx.widget_service.get_session(&session_id).await?.ok_or(ApiError::not_found("Session not found"))?;
     ensure_session_access(&ctx, &auth_user, &session).await?;

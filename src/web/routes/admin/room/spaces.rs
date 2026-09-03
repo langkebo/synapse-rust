@@ -1,5 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::context::AdminContext;
+use crate::web::routes::extractors::RoomId;
 use crate::web::routes::AdminUser;
 use axum::{
     extract::{Path, State},
@@ -39,7 +40,7 @@ pub async fn get_spaces(_admin: AdminUser, State(ctx): State<AdminContext>) -> R
 pub async fn get_space(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(space_id): Path<String>,
+    Path(space_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let space = ctx.space_service.get_space_by_identifier(&space_id).await?;
 
@@ -60,7 +61,7 @@ pub async fn get_space(
 pub async fn delete_space(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(space_id): Path<String>,
+    Path(space_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&ctx, &space_id).await?;
     let rows_affected = ctx.space_service.delete_space_returning_count(&resolved_space_id).await?;
@@ -76,7 +77,7 @@ pub async fn delete_space(
 pub async fn get_space_users(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(space_id): Path<String>,
+    Path(space_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&ctx, &space_id).await?;
 
@@ -89,7 +90,7 @@ pub async fn get_space_users(
 pub async fn get_space_rooms(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(space_id): Path<String>,
+    Path(space_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&ctx, &space_id).await?;
 
@@ -102,7 +103,7 @@ pub async fn get_space_rooms(
 pub async fn get_space_stats(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(space_id): Path<String>,
+    Path(space_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&ctx, &space_id).await?;
 
@@ -128,7 +129,7 @@ pub async fn get_room_stats(_admin: AdminUser, State(ctx): State<AdminContext>) 
 pub async fn get_single_room_stats(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let stats = ctx.room_service.state().get_single_room_stats(&room_id).await?;
 
@@ -143,7 +144,7 @@ pub async fn get_single_room_stats(
 pub async fn get_room_listings(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let listing = ctx.room_service.state().get_room_listings_status(&room_id).await?;
 
@@ -163,7 +164,7 @@ pub async fn get_room_listings(
 pub async fn set_room_public(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let found = ctx.room_service.state().set_room_public_with_directory(&room_id).await?;
 
@@ -182,7 +183,7 @@ pub async fn set_room_public(
 pub async fn set_room_private(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let found = ctx.room_service.state().set_room_private_with_directory(&room_id).await?;
 

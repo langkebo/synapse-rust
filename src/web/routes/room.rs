@@ -1,6 +1,7 @@
 use crate::common::ApiError;
 use crate::web::routes::context::RoomContext;
 use crate::web::routes::extractors::auth::AuthenticatedUser;
+use crate::web::routes::extractors::RoomId;
 use crate::web::routes::handlers::room::{
     create_private_room, get_room_device, get_room_permissions, get_room_reduced_events, get_room_resolve,
 };
@@ -333,7 +334,7 @@ struct AntiScreenshotPayload {
 async fn get_anti_screenshot(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a room member to get anti-screenshot").await?;
 
@@ -353,7 +354,7 @@ async fn get_anti_screenshot(
 async fn set_anti_screenshot(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(payload): Json<AntiScreenshotPayload>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a room member to set anti-screenshot").await?;
@@ -368,7 +369,7 @@ async fn set_anti_screenshot(
         .create_event(
             synapse_storage::event::CreateEventParams {
                 event_id: event_id.clone(),
-                room_id: room_id.clone(),
+                room_id: room_id.to_string(),
                 user_id: auth_user.user_id.clone(),
                 event_type: "com.hula.privacy".to_string(),
                 content: serde_json::json!({ "action": action }),

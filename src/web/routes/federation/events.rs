@@ -9,10 +9,11 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
 use crate::web::routes::extractors::EventId;
+use crate::web::routes::extractors::RoomId;
 pub(super) async fn get_room_auth(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
 
@@ -48,7 +49,7 @@ pub(super) async fn get_room_auth(
 pub(super) async fn get_missing_events(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
@@ -154,7 +155,7 @@ pub(super) async fn get_room_event(
 pub(super) async fn get_state(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(query): Query<FederationStateAtEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
@@ -173,7 +174,7 @@ pub(super) async fn get_state(
 pub(super) async fn get_state_ids(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(query): Query<FederationStateAtEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
@@ -202,7 +203,7 @@ pub(super) async fn get_state_ids(
 pub(super) async fn room_directory_query(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     let room = ctx.room_service.state().get_room_record(&room_id).await?;
 
@@ -427,7 +428,7 @@ pub(super) async fn query_destination(State(ctx): State<FederationContext>) -> R
 pub(super) async fn timestamp_to_event(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     if !room_id.starts_with('!') || !room_id.contains(':') {
@@ -475,7 +476,7 @@ pub(super) async fn timestamp_to_event(
 pub(super) async fn get_room_hierarchy(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(params): Query<FederationHierarchyQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
     if !room_id.starts_with('!') || !room_id.contains(':') {
@@ -517,7 +518,7 @@ pub(super) async fn get_room_hierarchy(
 pub(super) async fn backfill(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     RawQuery(raw_query): RawQuery,
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;

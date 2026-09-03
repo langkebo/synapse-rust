@@ -4,6 +4,7 @@ use crate::web::routes::{validate_room_id, AuthenticatedUser};
 use axum::extract::{Json, Path, Query, State};
 use serde_json::{json, Value};
 
+use crate::web::routes::extractors::RoomId;
 use std::collections::HashMap;
 
 pub(crate) async fn build_room_hierarchy_response(
@@ -196,7 +197,7 @@ pub(crate) async fn build_room_hierarchy_response(
 pub(crate) async fn get_room_hierarchy(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -220,7 +221,7 @@ pub(crate) async fn get_room_hierarchy(
 pub(crate) async fn get_room_hierarchy_v3(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(50);

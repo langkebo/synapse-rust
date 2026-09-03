@@ -356,14 +356,14 @@ async fn list_visible_threads(
 
 async fn create_thread(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
     Json(body): Json<CreateThreadBody>,
 ) -> Result<Json<ThreadResponse>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, &room_id).await?;
 
     let user_id = auth_user.user_id;
-    let request = CreateThreadRequest { room_id, root_event_id: body.root_event_id };
+    let request = CreateThreadRequest { room_id: room_id.to_string(), root_event_id: body.root_event_id };
 
     let thread = ctx.thread_service.create_thread(&user_id, request).await?;
 
@@ -372,14 +372,14 @@ async fn create_thread(
 
 async fn list_threads(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(query): Query<ListQuery>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<ThreadListResponse>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, &room_id).await?;
 
     let request = ListThreadsRequest {
-        room_id,
+        room_id: room_id.to_string(),
         limit: query.limit,
         from: query.from,
         include_all: query.include_all.unwrap_or(false),
@@ -583,7 +583,7 @@ async fn mark_read(
 
 async fn get_unread_threads(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<UnreadThreadsResponse>, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, &room_id).await?;
@@ -596,7 +596,7 @@ async fn get_unread_threads(
 
 async fn search_threads(
     State(ctx): State<RoomContext>,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(query): Query<SearchQuery>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Vec<synapse_storage::thread::ThreadSummary>>, ApiError> {

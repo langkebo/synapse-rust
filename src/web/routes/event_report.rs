@@ -9,7 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
-use crate::web::routes::extractors::{EventId, UserId};
+use crate::web::routes::extractors::{EventId, RoomId, UserId};
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use synapse_storage::event_report::{
     CreateEventReportRequest, EventReport, EventReportHistory, EventReportStats, UpdateEventReportRequest,
@@ -200,7 +200,7 @@ pub async fn get_reports_by_event(
 pub async fn get_reports_by_room(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
@@ -233,7 +233,7 @@ pub async fn get_reports_by_reporter(
 pub async fn get_reports_by_status(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(status): Path<String>,
+    Path(status): Path<RoomId>,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
@@ -383,7 +383,7 @@ pub async fn get_stats(
 pub async fn count_by_status(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(status): Path<String>,
+    Path(status): Path<RoomId>,
 ) -> Result<impl IntoResponse, ApiError> {
     let count = ctx.event_report_service.count_reports_by_status(&status).await?;
 

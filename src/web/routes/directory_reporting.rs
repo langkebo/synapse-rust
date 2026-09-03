@@ -221,7 +221,7 @@ pub(crate) async fn report_room(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -233,7 +233,7 @@ pub(crate) async fn report_room(
 
     let request = synapse_storage::event_report::CreateEventReportRequest {
         event_id: format!("room_report:{room_id}"),
-        room_id: room_id.clone(),
+        room_id: room_id.clone().to_string(),
         reporter_user_id: auth_user.user_id.clone(),
         reported_user_id: None,
         event_json: None,
@@ -357,7 +357,7 @@ pub(crate) async fn get_scanner_info(
 pub(crate) async fn get_room_aliases(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 

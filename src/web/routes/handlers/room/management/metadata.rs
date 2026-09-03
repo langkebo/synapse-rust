@@ -1,5 +1,6 @@
 use super::super::ensure_room_view_access;
 use crate::common::ApiError;
+use crate::web::routes::extractors::RoomId;
 use crate::web::routes::{validate_room_id, AuthenticatedUser};
 use axum::extract::{Json, Path, Query, State};
 use serde::Deserialize;
@@ -58,7 +59,7 @@ pub(crate) struct RoomSyncQueryDto {
 pub(crate) async fn room_initial_sync(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -127,7 +128,7 @@ pub(crate) async fn room_initial_sync(
 pub(crate) async fn get_room_sync(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(params): Query<RoomSyncQueryDto>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -151,7 +152,7 @@ pub(crate) async fn get_room_sync(
 pub(crate) async fn get_room_capabilities(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -194,7 +195,7 @@ pub(crate) async fn get_room_capabilities(
 pub(crate) async fn get_room_thread_by_id(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, thread_id)): Path<(String, String)>,
+    Path((room_id, thread_id)): Path<(RoomId, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     crate::web::routes::validate_event_id(&thread_id)?;
@@ -206,7 +207,7 @@ pub(crate) async fn get_room_thread_by_id(
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let request = synapse_services::thread_service::GetThreadRequest {
-        room_id: room_id.clone(),
+        room_id: room_id.to_string(),
         thread_id: thread_id.clone(),
         include_replies: true,
         reply_limit: Some(100),
@@ -230,7 +231,7 @@ pub(crate) async fn get_room_thread_by_id(
 pub(crate) async fn get_room_turn_server(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -264,7 +265,7 @@ pub(crate) async fn get_room_turn_server(
 pub(crate) async fn get_room_metadata(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -323,7 +324,7 @@ pub(crate) async fn get_room_metadata(
 pub(crate) async fn get_room_vault_data(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -354,7 +355,7 @@ pub(crate) async fn get_room_vault_data(
 pub(crate) async fn set_room_vault_data(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -376,7 +377,7 @@ pub(crate) async fn set_room_vault_data(
 pub(crate) async fn get_room_rendered(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -424,7 +425,7 @@ pub(crate) async fn get_room_rendered(
 pub(crate) async fn get_room_external_ids(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -447,7 +448,7 @@ pub(crate) async fn get_room_external_ids(
 pub(crate) async fn get_room_service_types(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -521,7 +522,7 @@ pub(crate) async fn get_room_device(
 pub(crate) async fn get_room_resolve(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
@@ -546,7 +547,7 @@ pub(crate) async fn get_room_resolve(
 pub(crate) async fn get_room_spaces(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -600,7 +601,7 @@ pub(crate) async fn get_room_spaces(
 pub(crate) async fn search_room_messages(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -660,7 +661,7 @@ pub(crate) async fn search_room_messages(
 pub(crate) async fn get_retention_policy(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {

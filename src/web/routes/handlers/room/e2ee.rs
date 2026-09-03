@@ -1,6 +1,7 @@
 use crate::common::ApiError;
 use crate::e2ee::backup::models::BackupKeyInfo;
 use crate::web::routes::context::E2eeRoomContext;
+use crate::web::routes::extractors::RoomId;
 use crate::web::routes::{validate_room_id, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
@@ -117,7 +118,7 @@ fn requested_room_key_session_ids(body: &Value, room_id: &str) -> Option<HashSet
 pub(crate) async fn get_room_keys(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -141,7 +142,7 @@ pub(crate) async fn get_room_keys(
 pub(crate) async fn get_room_key_count(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -163,7 +164,7 @@ pub(crate) async fn get_room_key_count(
 pub(crate) async fn claim_room_keys(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -188,7 +189,7 @@ pub(crate) async fn claim_room_keys(
     Ok(Json(json!({
         "failures": {},
         "one_time_keys": {
-            room_id: one_time_keys
+            room_id.to_string(): one_time_keys
         }
     })))
 }
@@ -196,7 +197,7 @@ pub(crate) async fn claim_room_keys(
 pub(crate) async fn get_room_keys_version(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -213,7 +214,7 @@ pub(crate) async fn get_room_keys_version(
 pub(crate) async fn forward_room_keys(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;

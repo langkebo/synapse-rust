@@ -2,7 +2,8 @@ use super::ensure_room_view_access;
 use crate::common::ApiError;
 use crate::web::routes::context::RoomContext;
 use crate::web::routes::{
-    is_member_ctx, is_member_or_creator_ctx, validate_membership, validate_room_id, validate_user_id, AuthenticatedUser,
+    extractors::RoomId, is_member_ctx, is_member_or_creator_ctx, validate_membership, validate_room_id,
+    validate_user_id, AuthenticatedUser,
 };
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
@@ -15,7 +16,7 @@ use synapse_common::current_timestamp_millis;
 pub(crate) async fn join_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -105,7 +106,7 @@ pub(crate) async fn leave_room(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     body: Option<Json<Value>>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -188,7 +189,7 @@ pub(crate) async fn knock_room(
 pub(crate) async fn invite_user(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -225,7 +226,7 @@ pub(crate) async fn invite_user_by_room(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -262,7 +263,7 @@ pub(crate) async fn get_room_members(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -343,7 +344,7 @@ pub(crate) async fn get_room_members(
 pub(crate) async fn get_room_members_recent(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -367,7 +368,7 @@ pub(crate) async fn get_room_members_recent(
 pub(crate) async fn get_joined_members(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -435,7 +436,7 @@ pub(crate) async fn get_room_membership(
 pub(crate) async fn get_membership_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -470,7 +471,7 @@ pub(crate) async fn get_membership_events(
 pub(crate) async fn get_room_invites(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -511,7 +512,7 @@ pub(crate) async fn kick_user(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -556,7 +557,7 @@ pub(crate) async fn ban_user(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -604,7 +605,7 @@ pub(crate) async fn ban_user(
 pub(crate) async fn unban_user(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;

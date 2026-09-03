@@ -2,6 +2,7 @@ use super::route_ledger::{expand_under_prefixes, RouteEntry};
 use super::{AppState, AuthenticatedUser};
 use crate::common::ApiError;
 use crate::web::routes::context::E2eeRoomContext;
+use crate::web::routes::extractors::RoomId;
 use axum::{
     extract::{Path, Query, State},
     http::Method,
@@ -217,7 +218,7 @@ async fn get_all_backup_versions(
 async fn get_backup_version(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<String>,
+    Path(version): Path<RoomId>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     let backup = ctx.e2ee_backup_service.get_backup(&auth_user.user_id, &version).await?;
 
@@ -242,7 +243,7 @@ async fn get_backup_version(
 async fn update_backup_version(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<String>,
+    Path(version): Path<RoomId>,
     Json(body): Json<UpdateBackupVersionBody>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     if let Err(e) = body.validate() {
@@ -262,7 +263,7 @@ async fn update_backup_version(
 async fn delete_backup_version(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<String>,
+    Path(version): Path<RoomId>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     let backup = ctx.e2ee_backup_service.get_backup(&auth_user.user_id, &version).await?;
 
@@ -353,7 +354,7 @@ async fn get_room_keys_all(
 async fn get_room_keys_all_legacy(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<String>,
+    Path(version): Path<RoomId>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     read_all_rooms(&ctx, &auth_user.user_id, &version).await
 }
@@ -383,7 +384,7 @@ async fn read_room(
 async fn get_room_keys_for_room(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(q): Query<VersionQuery>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     read_room(&ctx, &auth_user.user_id, &q.version, &room_id).await
@@ -474,7 +475,7 @@ async fn put_room_keys_all(
 async fn put_room_keys_all_legacy(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<String>,
+    Path(version): Path<RoomId>,
     Json(body): Json<RoomKeysBody>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     write_all_rooms(&ctx, &auth_user.user_id, &version, body).await
@@ -506,7 +507,7 @@ async fn write_room(
 async fn put_room_keys_for_room(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(q): Query<VersionQuery>,
     Json(body): Json<RoomSessionsBody>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
@@ -587,7 +588,7 @@ async fn delete_room_keys_all(
 async fn delete_room_keys_all_legacy(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<String>,
+    Path(version): Path<RoomId>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     delete_all_rooms_impl(&ctx, &auth_user.user_id, &version).await
 }
@@ -607,7 +608,7 @@ async fn delete_room_impl(
 async fn delete_room_keys_for_room(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(q): Query<VersionQuery>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     delete_room_impl(&ctx, &auth_user.user_id, &q.version, &room_id).await
@@ -685,7 +686,7 @@ async fn recover_keys(
 async fn get_recovery_progress(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<String>,
+    Path(version): Path<RoomId>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     let progress = ctx.e2ee_backup_service.get_recovery_progress(&auth_user.user_id, &version).await?;
 
@@ -696,7 +697,7 @@ async fn get_recovery_progress(
 async fn verify_backup(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<String>,
+    Path(version): Path<RoomId>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     let verification = ctx.e2ee_backup_service.verify_backup(&auth_user.user_id, &version).await?;
 
@@ -799,7 +800,7 @@ async fn export_keys(
 async fn export_keys_by_version(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<String>,
+    Path(version): Path<RoomId>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     let backup_keys = ctx.e2ee_backup_service.get_keys_for_version(&auth_user.user_id, &version).await?;
 
@@ -893,7 +894,7 @@ async fn import_keys(
 async fn import_keys_by_version(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(version): Path<String>,
+    Path(version): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     let room_keys = body
@@ -915,7 +916,7 @@ async fn import_keys_by_version(
                 room_id: room_id.to_string(),
                 session_id: session_id.to_string(),
                 session_data: session_data.to_string(),
-                version: version.clone(),
+                version: version.to_string(),
                 is_verified: key_data.get("is_verified").and_then(|v| v.as_bool()).unwrap_or(false),
                 first_message_index: key_data.get("first_message_index").and_then(|v| v.as_i64()).unwrap_or(0),
                 forwarded_count: key_data.get("forwarded_count").and_then(|v| v.as_i64()).unwrap_or(0),

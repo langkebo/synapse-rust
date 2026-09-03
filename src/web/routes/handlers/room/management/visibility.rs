@@ -1,5 +1,6 @@
 use crate::common::ApiError;
 use crate::map_internal;
+use crate::web::routes::extractors::RoomId;
 use crate::web::routes::{ensure_room_member_ctx, AuthenticatedUser, OptionalAuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
@@ -11,7 +12,7 @@ use crate::web::routes::context::RoomContext;
 pub(crate) async fn get_room_visibility(
     State(ctx): State<RoomContext>,
     _auth_user: OptionalAuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -33,7 +34,7 @@ pub(crate) async fn get_room_visibility(
 pub(crate) async fn set_room_visibility(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     if !ctx.room_service.state().room_exists(&room_id).await? {

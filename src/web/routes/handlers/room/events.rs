@@ -2,7 +2,7 @@ use super::{ensure_room_view_access, get_room_event, parse_room_messages_from_to
 use crate::common::{ApiError, ContentSanitizer};
 use crate::map_internal;
 use crate::web::routes::context::RoomContext;
-use crate::web::routes::extractors::{EventId, RoomId};
+use crate::web::routes::extractors::{EventId, RoomId, UserId};
 use crate::web::routes::{validate_event_id, validate_room_id, AuthenticatedUser};
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
@@ -135,7 +135,7 @@ pub(crate) async fn get_room_thread(
 pub(crate) async fn get_room_notifications(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -176,7 +176,7 @@ pub(crate) async fn get_room_notifications(
 pub(crate) async fn get_messages(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -245,7 +245,7 @@ pub(crate) async fn get_messages(
 pub(crate) async fn send_message(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type, txn_id)): Path<(String, String, String)>,
+    Path((room_id, event_type, txn_id)): Path<(RoomId, String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -323,7 +323,7 @@ pub(crate) async fn send_message(
         let device_id = auth_user.device_id.as_deref().unwrap_or("");
 
         let request = synapse_storage::delayed_events::CreateDelayedEventRequest {
-            room_id: room_id.clone(),
+            room_id: room_id.to_string(),
             user_id: auth_user.user_id.clone(),
             device_id: device_id.to_string(),
             event_type: event_type.clone(),
@@ -376,7 +376,7 @@ pub(crate) async fn send_message(
 pub(crate) async fn get_room_message_queue(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -423,7 +423,7 @@ pub(crate) async fn get_room_message_queue(
 pub(crate) async fn get_room_timeline(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -446,7 +446,7 @@ pub(crate) async fn get_room_timeline(
 pub(crate) async fn get_room_unread_count(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -468,7 +468,7 @@ pub(crate) async fn get_room_unread_count(
 pub(crate) async fn get_room_encrypted_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(map_internal!("Failed to check room existence"))? {
@@ -508,7 +508,7 @@ pub(crate) async fn get_room_encrypted_events(
 pub(crate) async fn get_room_event_perspective(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(map_internal!("Failed to check room existence"))? {
@@ -545,7 +545,7 @@ pub(crate) async fn get_room_event_perspective(
 pub(crate) async fn get_room_user_fragments(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, user_id)): Path<(String, String)>,
+    Path((room_id, user_id)): Path<(RoomId, UserId)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     crate::web::routes::validate_user_id(&user_id)?;
@@ -564,7 +564,7 @@ pub(crate) async fn get_room_user_fragments(
 
     let fragments: Vec<Value> = events
         .into_iter()
-        .filter(|event| event.user_id == user_id)
+        .filter(|event| event.user_id == user_id.as_str())
         .map(|event| {
             json!({
                 "event_id": event.event_id,
@@ -586,7 +586,7 @@ pub(crate) async fn get_room_user_fragments(
 pub(crate) async fn get_room_reduced_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await.map_err(map_internal!("Failed to check room existence"))? {

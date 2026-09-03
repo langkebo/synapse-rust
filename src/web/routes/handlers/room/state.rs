@@ -4,6 +4,7 @@ use super::{
 use crate::common::ApiError;
 use crate::map_internal;
 use crate::web::routes::context::RoomContext;
+use crate::web::routes::extractors::RoomId;
 use crate::web::routes::{validate_room_id, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
@@ -15,7 +16,7 @@ use synapse_storage::event::CreateEventParams;
 pub(crate) async fn get_room_state(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -51,7 +52,7 @@ pub(crate) fn filter_state_events_by_type(events: &[Value], event_type: &str) ->
 pub(crate) async fn get_state_by_type(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type)): Path<(String, String)>,
+    Path((room_id, event_type)): Path<(RoomId, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -84,7 +85,7 @@ pub(crate) async fn get_state_by_type(
 pub(crate) async fn get_state_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type, state_key)): Path<(String, String, String)>,
+    Path((room_id, event_type, state_key)): Path<(RoomId, String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -175,7 +176,7 @@ fn beacon_info_content_source(content: &Value) -> &Value {
 pub(crate) async fn send_state_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type)): Path<(String, String)>,
+    Path((room_id, event_type)): Path<(RoomId, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -195,7 +196,7 @@ pub(crate) async fn send_state_event(
     {
         Some(parse_beacon_info_content(
             &content,
-            room_id.clone(),
+            room_id.to_string(),
             new_event_id.clone(),
             auth_user.user_id.clone(),
             auth_user.user_id.clone(),
@@ -231,7 +232,7 @@ pub(crate) async fn send_state_event(
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
-                room_id: room_id.clone(),
+                room_id: room_id.to_string(),
                 user_id: auth_user.user_id.clone(),
                 event_type: final_event_type.clone(),
                 content,
@@ -259,7 +260,7 @@ pub(crate) async fn send_state_event(
 pub(crate) async fn put_state_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type, state_key)): Path<(String, String, String)>,
+    Path((room_id, event_type, state_key)): Path<(RoomId, String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -285,7 +286,7 @@ pub(crate) async fn put_state_event(
     {
         Some(parse_beacon_info_content(
             &body,
-            room_id.clone(),
+            room_id.to_string(),
             new_event_id.clone(),
             state_key.clone(),
             auth_user.user_id.clone(),
@@ -301,7 +302,7 @@ pub(crate) async fn put_state_event(
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
-                room_id: room_id.clone(),
+                room_id: room_id.to_string(),
                 user_id: auth_user.user_id.clone(),
                 event_type: final_event_type.clone(),
                 content: body,
@@ -329,7 +330,7 @@ pub(crate) async fn put_state_event(
 pub(crate) async fn get_state_event_empty_key(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type)): Path<(String, String)>,
+    Path((room_id, event_type)): Path<(RoomId, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -354,7 +355,7 @@ pub(crate) async fn get_state_event_empty_key(
 pub(crate) async fn get_power_levels(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
@@ -381,7 +382,7 @@ pub(crate) async fn get_power_levels(
 pub(crate) async fn put_power_levels(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     // Delegate to put_state_event_empty_key with event_type hardcoded
@@ -392,7 +393,7 @@ pub(crate) async fn put_power_levels(
 pub(crate) async fn put_state_event_empty_key(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type)): Path<(String, String)>,
+    Path((room_id, event_type)): Path<(RoomId, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -409,7 +410,7 @@ pub(crate) async fn put_state_event_empty_key(
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
-                room_id: room_id.clone(),
+                room_id: room_id.to_string(),
                 user_id: auth_user.user_id.clone(),
                 event_type: final_event_type.clone(),
                 content: body,
@@ -432,7 +433,7 @@ pub(crate) async fn put_state_event_empty_key(
 pub(crate) async fn put_state_event_no_key(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_type)): Path<(String, String)>,
+    Path((room_id, event_type)): Path<(RoomId, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -449,7 +450,7 @@ pub(crate) async fn put_state_event_no_key(
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
-                room_id: room_id.clone(),
+                room_id: room_id.to_string(),
                 user_id: auth_user.user_id.clone(),
                 event_type: final_event_type,
                 content: body,
@@ -472,7 +473,7 @@ pub(crate) async fn put_state_event_no_key(
 pub(crate) async fn get_room_permissions(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;

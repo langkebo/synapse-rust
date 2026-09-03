@@ -2,6 +2,7 @@
 // Allows clients to get and set sticky (pinned) event metadata
 
 use crate::web::routes::context::RoomContext;
+use crate::web::routes::extractors::RoomId;
 use crate::web::routes::response_helpers::empty_json;
 use crate::web::routes::{ensure_room_member_ctx, validate_event_id, validate_room_id, ApiError, AuthenticatedUser};
 use axum::{
@@ -37,7 +38,7 @@ pub struct StickyEventQuery {
 pub async fn get_sticky_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Query(query): Query<StickyEventQuery>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -95,7 +96,7 @@ pub async fn get_sticky_events(
 pub async fn set_sticky_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
