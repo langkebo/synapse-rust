@@ -63,6 +63,7 @@ fn create_test_config() -> Config {
             max_size: 10,
             min_idle: Some(2),
             connection_timeout: 30,
+            ..Default::default()
         },
         redis: RedisConfig {
             host: "localhost".to_string(),
