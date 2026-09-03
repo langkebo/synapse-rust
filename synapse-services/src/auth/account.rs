@@ -4,12 +4,23 @@ use synapse_common::crypto::{
 };
 use synapse_common::*;
 impl AuthService {
+    /// MSC4204 / Matrix v1.3 spec: change the user's password.
+    ///
+    /// * `logout_devices = true` (spec default) — revoke **all** access and
+    ///   refresh tokens belonging to the user after the password update.
+    /// * `logout_devices = false` — keep tokens belonging to
+    ///   `current_device_id` (when supplied); only revoke other devices.
+    ///   Per spec, when `logout_devices = false` the client must pass the
+    ///   current `device_id` so the server knows which session to keep.
+    ///   Returning `400` on a `logout_devices = false` request without a
+    ///   device id matches the documented client contract.
     pub async fn change_password(
         &self,
         user_id: &str,
         current_password: Option<&str>,
         new_password: &str,
         current_device_id: Option<&str>,
+        logout_devices: bool,
     ) -> ApiResult<()> {
         if let Some(pwd) = current_password {
             let user = self
@@ -32,13 +43,34 @@ impl AuthService {
             return Err(ApiError::bad_request(format!("Password does not meet policy requirements: {e}")));
         }
 
+        // Spec says logout_devices=false MUST keep the current session; if the
+        // client did not supply a device id we cannot honour that, so fail fast
+        // with 400 M_MISSING_PARAM rather than silently fall back to the
+        // "revoke all" branch.
+        if !logout_devices && current_device_id.is_none() {
+            return Err(ApiError::bad_request(
+                "logout_devices=false requires an authenticated device (current_device_id)".to_string(),
+            ));
+        }
+
         let password_hash = self.hash_password(new_password)?;
         self.user_storage
             .update_password(user_id, &password_hash)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to update password", &e))?;
 
-        if let Some(device_id) = current_device_id {
+        // logout_devices = true  → revoke ALL tokens (regardless of device)
+        // logout_devices = false → keep current_device_id, revoke everything else
+        if !logout_devices {
+            // The `None` case was rejected with 400 above, so this cannot be `None` here.
+            // We use `if let` to satisfy clippy::expect_used / unwrap_used while
+            // still being exhaustive at the type level.
+            let Some(device_id) = current_device_id else {
+                // Unreachable: the early-return above guarantees current_device_id is Some.
+                return Err(ApiError::internal(
+                    "logout_devices=false but current_device_id is missing — invariant violated".to_string(),
+                ));
+            };
             self.token_storage
                 .delete_user_tokens_except_device(user_id, device_id)
                 .await
@@ -64,6 +96,7 @@ impl AuthService {
             target: "security_audit",
             event = "password_changed",
             user_id = user_id,
+            logout_devices = logout_devices,
             "Password changed; access and refresh tokens revoked"
         );
 

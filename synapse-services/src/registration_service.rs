@@ -173,7 +173,8 @@ impl RegistrationService {
         fields(
             user_id = %user_id,
             has_current_password = current_password.is_some(),
-            has_current_device_id = current_device_id.is_some()
+            has_current_device_id = current_device_id.is_some(),
+            logout_devices = logout_devices
         )
     )]
     pub async fn change_password(
@@ -182,8 +183,11 @@ impl RegistrationService {
         current_password: Option<&str>,
         new_password: &str,
         current_device_id: Option<&str>,
+        logout_devices: bool,
     ) -> ApiResult<()> {
-        self.credential_auth.change_password(user_id, current_password, new_password, current_device_id).await?;
+        self.credential_auth
+            .change_password(user_id, current_password, new_password, current_device_id, logout_devices)
+            .await?;
         Ok(())
     }
 

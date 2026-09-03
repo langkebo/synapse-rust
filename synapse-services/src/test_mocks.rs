@@ -161,6 +161,7 @@ impl crate::auth::CredentialAuth for FakeCredentialAuth {
         _current_password: Option<&str>,
         _new_password: &str,
         _current_device_id: Option<&str>,
+        _logout_devices: bool,
     ) -> ApiResult<()> {
         Err(ApiError::unauthorized("mock credential_auth: change_password not configured"))
     }

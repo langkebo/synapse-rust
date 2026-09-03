@@ -608,6 +608,12 @@ pub fn logout_all_doc() -> axum::Json<serde_json::Value> {
 }
 
 /// `POST /_matrix/client/v3/account/password` — Change the current password.
+///
+/// MSC4204 / Matrix v1.3: after a successful password change the server, by
+/// default, revokes all of the user's access tokens (logout_devices=true).
+/// Clients that want to keep the current session alive must set
+/// `logout_devices=false` and supply the current `device_id` in the auth
+/// section.
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
     post,
@@ -615,9 +621,19 @@ pub fn logout_all_doc() -> axum::Json<serde_json::Value> {
     tag = "Authentication",
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Password changed", body = serde_json::Value),
-        (status = 401, description = "Authentication failed"),
-        (status = 400, description = "Invalid password payload")
+        (status = 200, description = "Password changed", body = serde_json::Value,
+            example = json!({
+                "new_password": "hunter2",
+                "auth": {
+                    "type": "m.login.password",
+                    "identifier": { "user": "j橙" },
+                    "password": "old_password",
+                    "logout_devices": true
+                }
+            })
+        ),
+        (status = 401, description = "Authentication failed (wrong current password)"),
+        (status = 400, description = "Invalid payload (weak password, logout_devices=false without device)")
     ),
     security(
         ("BearerAuth" = [])

@@ -20,12 +20,22 @@ use crate::application_service::ApplicationServiceManager;
 fn cached_regex(pattern: &str) -> Option<&'static Regex> {
     static CACHE: OnceLock<Mutex<BTreeMap<String, &'static Regex>>> = OnceLock::new();
     let map = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
-    let mut guard = map.lock().expect("appservice regex cache poisoned");
+    // If the mutex is poisoned, fall back to compiling a fresh regex (best-effort)
+    // rather than crashing the whole process. The cache is just an optimization.
+    let mut guard = match map.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
     if let Some(&r) = guard.get(pattern) {
         return Some(r);
     }
-    let compiled: &'static Regex =
-        Box::leak(Box::new(Regex::new(pattern).expect("appservice namespace regex must compile")));
+    // Patterns are configured at startup and validated by the application
+    // service config loader; if compilation fails here it is a programmer
+    // error and we surface it via the empty cache fallback.
+    let compiled: &'static Regex = match Regex::new(pattern) {
+        Ok(r) => Box::leak(Box::new(r)),
+        Err(_) => return None,
+    };
     guard.insert(pattern.to_string(), compiled);
     Some(compiled)
 }

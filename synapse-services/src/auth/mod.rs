@@ -327,8 +327,10 @@ impl crate::auth::CredentialAuth for AuthService {
         current_password: Option<&str>,
         new_password: &str,
         current_device_id: Option<&str>,
+        logout_devices: bool,
     ) -> ApiResult<()> {
-        self.change_password(user_id, current_password, new_password, current_device_id).await
+        AuthService::change_password(self, user_id, current_password, new_password, current_device_id, logout_devices)
+            .await
     }
 
     async fn deactivate_user(&self, user_id: &str) -> ApiResult<()> {

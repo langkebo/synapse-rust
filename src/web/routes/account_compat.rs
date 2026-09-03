@@ -292,8 +292,21 @@ pub(crate) async fn change_password_uia(
                 return Err(ApiError::forbidden("User mismatch".to_string()));
             }
 
+            // MSC4204 / Matrix v1.3: logout_devices defaults to true (revoke all
+            // sessions). Clients can set it to false to keep the current session.
+            let logout_devices = auth
+                .get("logout_devices")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+
             ctx.registration_service
-                .change_password(authenticated_user_id, Some(password), new_password, auth_user.device_id.as_deref())
+                .change_password(
+                    authenticated_user_id,
+                    Some(password),
+                    new_password,
+                    auth_user.device_id.as_deref(),
+                    logout_devices,
+                )
                 .await?;
 
             Ok(Json(json!({})).into_response())
@@ -346,7 +359,12 @@ pub(crate) async fn change_password_uia(
                 ApiError::bad_request("Verification session is not valid for password reset".to_string())
             })?;
 
-            ctx.registration_service.change_password(&user_id, None, new_password, None).await?;
+            // m.login.email.identity path: no current device context, must
+            // revoke ALL sessions per MSC4204 spec. The "true" argument is
+            // non-negotiable — email-reset clients cannot keep any session.
+            ctx.registration_service
+                .change_password(&user_id, None, new_password, None, true)
+                .await?;
 
             Ok(Json(json!({})).into_response())
         }

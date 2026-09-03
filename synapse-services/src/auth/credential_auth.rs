@@ -31,12 +31,20 @@ pub trait CredentialAuth: Send + Sync {
         initial_device_display_name: Option<&str>,
     ) -> ApiResult<(User, String, String, String)>;
 
+    /// Change the password for a user.
+    ///
+    /// `logout_devices` follows Matrix v1.3 spec semantics: when `true` (the
+    /// default per spec), all access tokens belonging to the user are revoked
+    /// after the password is updated. When `false`, only tokens belonging to
+    /// devices other than `current_device_id` are revoked; the caller MUST
+    /// supply `current_device_id` in that case (a `400` is returned otherwise).
     async fn change_password(
         &self,
         user_id: &str,
         current_password: Option<&str>,
         new_password: &str,
         current_device_id: Option<&str>,
+        logout_devices: bool,
     ) -> ApiResult<()>;
 
     async fn deactivate_user(&self, user_id: &str) -> ApiResult<()>;
