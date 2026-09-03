@@ -142,3 +142,148 @@ pub struct ApiDeleteDevicesRequest {
     /// List of device IDs to delete.
     pub device_ids: Vec<String>,
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P1-2: Profile endpoints  (GET/PUT /v3/profile/{user_id}{,/displayname,/avatar_url})
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Public user profile as returned by `GET /_matrix/client/v3/profile/{user_id}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiProfileResponse {
+    /// The user's display name, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub displayname: Option<String>,
+    /// The user's avatar MXC URI, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+}
+
+/// Response body of `GET /_matrix/client/v3/profile/{user_id}/displayname`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiDisplaynameResponse {
+    /// The user's display name.
+    pub displayname: String,
+}
+
+/// Request body for `PUT /_matrix/client/v3/profile/{user_id}/displayname`.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiSetDisplaynameRequest {
+    pub displayname: String,
+}
+
+/// Response body of `GET /_matrix/client/v3/profile/{user_id}/avatar_url`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAvatarUrlResponse {
+    /// The user's avatar MXC URI.
+    pub avatar_url: String,
+}
+
+/// Request body for `PUT /_matrix/client/v3/profile/{user_id}/avatar_url`.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiSetAvatarUrlRequest {
+    /// The new avatar MXC URI.
+    pub avatar_url: String,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P1-3: Presence endpoints  (GET /v3/presence/{user_id}/status, /v3/presence/list)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// User presence state.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiPresenceState {
+    /// One of: offline, online, unavailable, do_not_disturb.
+    pub presence: String,
+    /// User-defined status message, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_msg: Option<String>,
+    /// Milliseconds since the user was last active.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_active_ago: Option<i64>,
+    /// Whether the user is currently active.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub currently_active: Option<bool>,
+}
+
+/// Response body of `GET /_matrix/client/v3/presence/{user_id}/status`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiPresenceStatusResponse {
+    pub presence: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_msg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_active_ago: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub currently_active: Option<bool>,
+}
+
+/// Individual entry in a presence list.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiPresenceListEntry {
+    pub user_id: String,
+    pub presence: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_msg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_active_ago: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub currently_active: Option<bool>,
+}
+
+/// Response body of `GET /_matrix/client/v3/presence/list` and `/list/{user_id}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiPresenceListResponse {
+    pub presences: Vec<ApiPresenceListEntry>,
+}
+
+/// Dehydrated device status returned by MSC3886.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiDehydratedDeviceStatus {
+    /// The dehydrated device ID.
+    pub device_id: String,
+    /// Device-specific data (serialized JSON object).
+    pub device_data: serde_json::Value,
+}
+
+/// MatrixRTC ice-server transport entry.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiRtcIceServer {
+    /// ICE server URLs (STUN/TURN).
+    pub urls: Vec<String>,
+    /// Optional TURN username.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    /// Optional TURN credential.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credential: Option<String>,
+}
+
+/// MatrixRTC transport entry (MSC4403).
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiRtcTransport {
+    /// Transport type identifier.
+    #[serde(rename = "type")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transport_type: Option<String>,
+    /// List of ICE servers for this transport.
+    pub ice_servers: Vec<ApiRtcIceServer>,
+}
+
+/// Response body of `GET /_matrix/client/unstable/org.matrix.msc4143/rtc/transports`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiRtcTransportsResponse {
+    pub transports: Vec<ApiRtcTransport>,
+}

@@ -491,6 +491,21 @@ pub fn swagger_ui_router(_state: AppState) -> axum::Router<AppState> {
             schemas::ApiUpdateDeviceResponse,
             schemas::ApiDeleteDevicesRequest,
             schemas::ApiEmptyResponse,
+            // P1-2: Profile endpoints
+            schemas::ApiProfileResponse,
+            schemas::ApiDisplaynameResponse,
+            schemas::ApiSetDisplaynameRequest,
+            schemas::ApiAvatarUrlResponse,
+            schemas::ApiSetAvatarUrlRequest,
+            // P1-3: Presence + dehydrated_device + RTC transports
+            schemas::ApiPresenceState,
+            schemas::ApiPresenceStatusResponse,
+            schemas::ApiPresenceListEntry,
+            schemas::ApiPresenceListResponse,
+            schemas::ApiDehydratedDeviceStatus,
+            schemas::ApiRtcIceServer,
+            schemas::ApiRtcTransport,
+            schemas::ApiRtcTransportsResponse,
         )),
     )]
     struct ApiDoc;

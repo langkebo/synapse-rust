@@ -277,7 +277,7 @@ pub fn delete_devices_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "User profile",
-            body = serde_json::Value,
+            body = schemas::ApiProfileResponse,
             example = json!({
                 "displayname": "Alice",
                 "avatar_url": "mxc://example.com/avatar"
@@ -302,7 +302,7 @@ pub fn get_profile_info() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Display name",
-            body = serde_json::Value,
+            body = schemas::ApiDisplaynameResponse,
             example = json!({
                 "displayname": "Alice"
             })
@@ -326,7 +326,7 @@ pub fn get_profile_displayname() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Avatar URL",
-            body = serde_json::Value,
+            body = schemas::ApiAvatarUrlResponse,
             example = json!({
                 "avatar_url": "mxc://example.com/avatar"
             })
@@ -348,9 +348,9 @@ pub fn get_profile_avatar_url() -> axum::Json<serde_json::Value> {
     params(
         ("user_id" = String, Path, description = "The user ID")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiSetAvatarUrlRequest,
     responses(
-        (status = 200, description = "Avatar URL updated", body = serde_json::Value),
+        (status = 200, description = "Avatar URL updated", body = schemas::ApiEmptyResponse),
         (status = 403, description = "Cannot update another user's profile")
     ),
     security(
@@ -372,7 +372,7 @@ pub fn update_avatar_url_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Presence state",
-            body = serde_json::Value,
+            body = schemas::ApiPresenceStatusResponse,
             example = json!({
                 "presence": "online",
                 "status_msg": "Available",
@@ -396,7 +396,7 @@ pub fn get_presence_status() -> axum::Json<serde_json::Value> {
     tag = "Client-Server",
     responses(
         (status = 200, description = "Presence subscription list",
-            body = serde_json::Value,
+            body = schemas::ApiPresenceListResponse,
             example = json!({
                 "presences": [{
                     "user_id": "@alice:example.com",
@@ -424,7 +424,7 @@ pub fn get_presence_list_current_user() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Presence subscription list for the target user",
-            body = serde_json::Value,
+            body = schemas::ApiPresenceListResponse,
             example = json!({
                 "presences": [{
                     "user_id": "@bob:example.com",
@@ -450,7 +450,7 @@ pub fn get_presence_list_for_user() -> axum::Json<serde_json::Value> {
     tag = "Client-Server",
     responses(
         (status = 200, description = "Dehydrated device status",
-            body = serde_json::Value,
+            body = schemas::ApiDehydratedDeviceStatus,
             example = json!({
                 "device_id": "DEHYDRATEDDEVICE",
                 "device_data": {
@@ -473,7 +473,7 @@ pub fn get_dehydrated_device_status_doc() -> axum::Json<serde_json::Value> {
     tag = "Client-Server",
     responses(
         (status = 200, description = "RTC transports",
-            body = serde_json::Value,
+            body = schemas::ApiRtcTransportsResponse,
             example = json!({
                 "transports": [{
                     "type": "org.matrix.msc4403.ice-server-transport",
