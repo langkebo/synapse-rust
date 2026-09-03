@@ -1,6 +1,7 @@
 #![allow(clippy::unused_async)]
 use super::{ensure_room_member_ctx, validate_user_id, AppState, AuthenticatedUser};
 use crate::common::{ApiError, ApiResult};
+use crate::web::routes::extractors::UserId;
 use crate::web::routes::context::RoomContext;
 use axum::{
     extract::{Path, Query, State},
@@ -233,7 +234,7 @@ async fn get_room_voice_stats(
 async fn get_user_voice_stats(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     if auth_user.user_id.as_str() != user_id.as_str() {
@@ -261,7 +262,7 @@ async fn get_room_voice_messages(
 async fn get_user_voice_messages(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     Query(query): Query<VoiceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     if auth_user.user_id.as_str() != user_id.as_str() {

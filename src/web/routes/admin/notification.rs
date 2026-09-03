@@ -21,6 +21,8 @@ use serde_json::{json, Value};
 #[cfg(feature = "server-notifications")]
 use synapse_common::current_timestamp_millis;
 #[cfg(feature = "server-notifications")]
+use synapse_common::types::UserId;
+#[cfg(feature = "server-notifications")]
 use synapse_storage::server_notification::{decode_server_notification_cursor, CreateNotificationRequest};
 
 #[cfg(feature = "server-notifications")]
@@ -421,7 +423,7 @@ pub async fn delete_server_notice(
 pub async fn get_user_notification(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
 
@@ -438,7 +440,7 @@ pub async fn get_user_notification(
 pub async fn update_user_notification(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     Json(body): Json<UserNotificationRequest>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
@@ -453,7 +455,7 @@ pub async fn update_user_notification(
 pub async fn get_user_pushers(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
 

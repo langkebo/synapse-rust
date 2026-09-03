@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::types::DeviceId;
+use synapse_common::types::UserId;
 use synapse_services::admin_user_service::{decode_user_cursor, encode_user_cursor, AdminUserCursor};
 use synapse_storage::user::User as AdminUserRecord;
 use validator::Validate;
@@ -135,9 +136,10 @@ pub fn admin_user_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
 async fn evict_user(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = resolve_user(&ctx, &user_id).await?;
+    let user_id = user_id.as_str();
+    let user = resolve_user(&ctx, user_id).await?;
     let eviction = ctx.admin_user_service.evict_user_from_joined_rooms(&user.user_id).await?;
     let failures: Vec<Value> = eviction
         .failures
@@ -251,7 +253,7 @@ pub async fn get_users(
 async fn get_user(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = ctx.user_service.get_user_by_identifier(&user_id).await?;
 
@@ -274,7 +276,7 @@ async fn get_user(
 async fn delete_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
@@ -330,7 +332,7 @@ async fn delete_user(
 pub async fn set_admin(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -395,7 +397,7 @@ pub async fn set_admin(
 pub async fn deactivate_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
@@ -457,7 +459,7 @@ pub async fn deactivate_user(
 pub async fn reset_user_password(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     Json(body): Json<ResetPasswordBody>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.validator.validate_password(&body.new_password)?;
@@ -485,7 +487,7 @@ pub async fn reset_user_password(
 pub async fn get_user_rooms_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
@@ -508,7 +510,7 @@ pub async fn get_user_rooms_admin(
 pub async fn get_user_devices_admin(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
     let devices = ctx.admin_user_service.get_user_devices(&user.user_id).await?;
@@ -581,7 +583,7 @@ pub async fn delete_user_device_admin_compat(
 pub async fn login_as_user(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = ctx.user_service.get_user_or_not_found(&user_id).await?;
 
@@ -617,7 +619,7 @@ pub async fn login_as_user(
 pub async fn logout_user_devices(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
 
@@ -683,7 +685,7 @@ pub async fn get_users_v2(
 pub async fn get_user_v2(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = ctx.admin_user_service.get_user_v2(&user_id).await?;
 
@@ -724,7 +726,7 @@ pub async fn get_user_v2(
 pub async fn create_or_update_user_v2(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     Json(body): Json<CreateUpdateUserRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if body.admin.is_some() || body.user_type.is_some() {
@@ -765,7 +767,7 @@ pub async fn get_user_stats(_admin: AdminUser, State(ctx): State<AdminContext>) 
 pub async fn get_single_user_stats(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let stats = ctx.admin_user_service.get_single_user_stats(&user_id).await?;
 
@@ -861,7 +863,7 @@ pub async fn batch_deactivate_users(
 pub async fn get_user_sessions(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
 
@@ -892,7 +894,7 @@ pub async fn get_user_sessions(
 pub async fn invalidate_user_sessions(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
     let canonical_user_id = user.user_id;
@@ -911,7 +913,7 @@ pub async fn invalidate_user_sessions(
 pub async fn get_account_details(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
     let canonical_user_id = &user.user_id;
@@ -944,7 +946,7 @@ pub struct UpdateAccountRequest {
 pub async fn update_account(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     headers: HeaderMap,
     Json(body): Json<UpdateAccountRequest>,
 ) -> Result<Json<Value>, ApiError> {

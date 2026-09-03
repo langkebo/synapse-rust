@@ -9,6 +9,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use synapse_common::types::UserId;
 use synapse_storage::registration_token::decode_registration_token_cursor;
 
 pub fn create_token_router() -> Router<crate::web::routes::AppState> {
@@ -188,7 +189,7 @@ pub async fn update_registration_token(
 pub async fn get_user_tokens(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
 
@@ -227,7 +228,7 @@ pub async fn delete_user_token(
 pub async fn get_user_refresh_tokens(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
 

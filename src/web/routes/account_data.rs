@@ -1,5 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::context::AdminContext;
+use crate::web::routes::extractors::{RoomId, UserId};
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Json, Path, State},
@@ -129,13 +130,14 @@ async fn sync_secret_storage_account_data_best_effort(
 async fn list_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
     }
 
-    let account_data = ctx.account_data_service.list_account_data(&user_id).await?;
+    let account_data = ctx.account_data_service.list_account_data(user_id).await?;
 
     Ok(Json(json!({
         "account_data": account_data
@@ -145,15 +147,16 @@ async fn list_account_data(
 async fn set_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, data_type)): Path<(String, String)>,
+    Path((user_id, data_type)): Path<(UserId, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Cannot set account data for other users".to_string()));
     }
 
-    ctx.account_data_service.set_account_data(&user_id, &data_type, &body).await?;
-    sync_secret_storage_account_data_best_effort(&ctx, &user_id, &data_type, &body).await;
+    ctx.account_data_service.set_account_data(user_id, &data_type, &body).await?;
+    sync_secret_storage_account_data_best_effort(&ctx, user_id, &data_type, &body).await;
 
     Ok(Json(json!({})))
 }
@@ -161,13 +164,14 @@ async fn set_account_data(
 async fn get_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, data_type)): Path<(String, String)>,
+    Path((user_id, data_type)): Path<(UserId, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
     }
 
-    let result = ctx.account_data_service.get_account_data(&user_id, &data_type).await?;
+    let result = ctx.account_data_service.get_account_data(user_id, &data_type).await?;
 
     match result {
         Some(content) => Ok(Json(content)),
@@ -216,9 +220,10 @@ async fn get_account_data(
 async fn set_room_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, room_id, data_type)): Path<(String, String, String)>,
+    Path((user_id, room_id, data_type)): Path<(UserId, RoomId, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Cannot set account data for other users".to_string()));
     }
@@ -231,8 +236,9 @@ async fn set_room_account_data(
 async fn get_room_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, room_id, data_type)): Path<(String, String, String)>,
+    Path((user_id, room_id, data_type)): Path<(UserId, RoomId, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
     }
@@ -248,9 +254,10 @@ async fn get_room_account_data(
 async fn create_filter(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Cannot create filter for other users".to_string()));
     }
@@ -265,8 +272,9 @@ async fn create_filter(
 async fn get_filter(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, filter_id)): Path<(String, String)>,
+    Path((user_id, filter_id)): Path<(UserId, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Cannot get filter for other users".to_string()));
     }
@@ -282,8 +290,9 @@ async fn get_filter(
 async fn delete_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, data_type)): Path<(String, String)>,
+    Path((user_id, data_type)): Path<(UserId, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Cannot delete account data for other users".to_string()));
     }
@@ -300,8 +309,9 @@ async fn delete_account_data(
 async fn delete_room_account_data(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, room_id, data_type)): Path<(String, String, String)>,
+    Path((user_id, room_id, data_type)): Path<(UserId, RoomId, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Cannot delete room account data for other users".to_string()));
     }
@@ -318,8 +328,9 @@ async fn delete_room_account_data(
 async fn delete_filter(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path((user_id, filter_id)): Path<(String, String)>,
+    Path((user_id, filter_id)): Path<(UserId, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Cannot delete filter for other users".to_string()));
     }
@@ -336,8 +347,9 @@ async fn delete_filter(
 async fn get_openid_token(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
+    let user_id = user_id.as_str();
     if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Cannot get OpenID token for other users".to_string()));
     }

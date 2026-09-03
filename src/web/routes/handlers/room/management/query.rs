@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::web::routes::extractors::UserId;
 use crate::web::routes::{validate_room_id, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
@@ -89,13 +90,14 @@ pub(crate) async fn get_my_rooms(
 pub(crate) async fn get_user_rooms(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
-    if auth_user.user_id != user_id {
+    let user_id = user_id.as_str();
+    if user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let rooms = ctx.room_service.membership().get_joined_rooms(&user_id).await?;
+    let rooms = ctx.room_service.membership().get_joined_rooms(user_id).await?;
 
     Ok(Json(json!({
         "joined_rooms": rooms

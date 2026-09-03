@@ -7,6 +7,7 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
+use synapse_common::types::UserId;
 use synapse_services::admin_media_service::decode_media_cursor;
 
 pub fn create_media_router() -> Router<crate::web::routes::AppState> {
@@ -122,7 +123,7 @@ pub async fn get_media_quota(_admin: AdminUser, State(ctx): State<AdminContext>)
 pub async fn get_user_media(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let (_canonical_user_id, media) = ctx.admin_media_service.get_user_media(&user_id).await?;
 
@@ -146,7 +147,7 @@ pub async fn get_user_media(
 pub async fn delete_user_media(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let deleted = ctx.admin_media_service.delete_user_media(&user_id).await?;
 

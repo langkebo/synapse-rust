@@ -6,6 +6,7 @@
 
 use crate::web::routes::account_compat;
 use crate::web::routes::context::RoomContext;
+use crate::web::routes::extractors::UserId;
 use crate::web::routes::validators;
 use crate::web::routes::ApiError;
 use crate::web::routes::AuthenticatedUser;
@@ -61,7 +62,7 @@ async fn save_extended_profile_document(
 pub async fn get_extended_profile(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
-    Path(_user_id): Path<String>,
+    Path(_user_id): Path<UserId>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let user_id = _user_id;
     validators::validate_user_id(&user_id)?;

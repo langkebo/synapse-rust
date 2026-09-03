@@ -1,5 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::context::FriendContext;
+use crate::web::routes::extractors::UserId;
 use crate::web::routes::{
     account_compat::can_view_profile_for_requester_batch, validate_user_id, AppState, AuthenticatedUser,
 };
@@ -1014,7 +1015,7 @@ async fn get_friends_in_group(
 async fn get_groups_for_user(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
@@ -1029,7 +1030,7 @@ async fn get_groups_for_user(
 async fn get_friend_dm(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     let room_id: Option<String> = ctx.friend_room_service.get_existing_dm_room_id(&auth_user.user_id, &user_id).await?;
@@ -1043,7 +1044,7 @@ async fn get_friend_dm(
 async fn create_friend_dm(
     State(ctx): State<FriendContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
@@ -1052,7 +1053,7 @@ async fn create_friend_dm(
         room_alias_name: None,
         name: None,
         topic: None,
-        invite_list: Some(vec![user_id.clone()]),
+        invite_list: Some(vec![user_id.to_string()]),
         preset: Some("private_chat".to_string()),
         encryption: None,
         history_visibility: None,

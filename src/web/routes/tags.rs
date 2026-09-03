@@ -7,6 +7,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::common::ApiError;
+use crate::web::routes::extractors::UserId;
 use crate::web::routes::response_helpers::empty_json;
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
@@ -52,13 +53,14 @@ pub fn tags_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
 async fn get_global_tags(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let user_id = user_id.as_str();
     if auth_user.user_id != user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let tags: Vec<synapse_storage::room_tag::RoomTag> = ctx.room_service.state().get_all_tags(&user_id).await?;
+    let tags: Vec<synapse_storage::room_tag::RoomTag> = ctx.room_service.state().get_all_tags(user_id).await?;
 
     let mut rooms_map: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
     for tag in tags {

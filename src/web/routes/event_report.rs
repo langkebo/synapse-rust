@@ -9,6 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
+use crate::web::routes::extractors::UserId;
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use synapse_storage::event_report::{
     CreateEventReportRequest, EventReport, EventReportHistory, EventReportStats, UpdateEventReportRequest,
@@ -214,7 +215,7 @@ pub async fn get_reports_by_room(
 pub async fn get_reports_by_reporter(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(reporter_user_id): Path<String>,
+    Path(reporter_user_id): Path<UserId>,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100);
@@ -333,7 +334,7 @@ pub async fn get_report_history(
 pub async fn check_rate_limit(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<impl IntoResponse, ApiError> {
     let check = ctx.event_report_service.check_rate_limit(&user_id).await?;
 
@@ -347,7 +348,7 @@ pub async fn check_rate_limit(
 pub async fn block_user(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     Json(body): Json<BlockUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.event_report_service.block_user_reports(&user_id, body.blocked_until, &body.reason).await?;
@@ -358,7 +359,7 @@ pub async fn block_user(
 pub async fn unblock_user(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<impl IntoResponse, ApiError> {
     ctx.event_report_service.unblock_user_reports(&user_id).await?;
 

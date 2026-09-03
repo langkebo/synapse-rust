@@ -1,5 +1,6 @@
 use crate::common::error::ApiError;
 use crate::web::routes::context::AdminContext;
+use crate::web::routes::extractors::UserId;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -530,7 +531,7 @@ pub async fn create_account_validity(
 pub async fn get_account_validity(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<impl IntoResponse, ApiError> {
     let validity = ctx
         .account_validity_service
@@ -544,7 +545,7 @@ pub async fn get_account_validity(
 pub async fn renew_account(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     Json(body): Json<RenewAccountBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;

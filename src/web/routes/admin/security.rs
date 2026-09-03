@@ -10,6 +10,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use synapse_common::types::UserId;
 
 pub fn create_security_router() -> Router<crate::web::routes::AppState> {
     Router::new()
@@ -61,7 +62,7 @@ async fn ensure_user_exists(ctx: &AdminContext, user_id: &str) -> Result<(), Api
 pub async fn shadow_ban_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     ctx.admin_security_service.set_shadow_ban(&user_id, true).await?;
@@ -84,7 +85,7 @@ pub async fn shadow_ban_user(
 pub async fn unshadow_ban_user(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     ctx.admin_security_service.set_shadow_ban(&user_id, false).await?;
@@ -107,7 +108,7 @@ pub async fn unshadow_ban_user(
 pub async fn get_user_rate_limit(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
 
@@ -123,7 +124,7 @@ pub async fn get_user_rate_limit(
 pub async fn set_user_rate_limit(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     headers: HeaderMap,
     Json(body): Json<RateLimitRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -158,7 +159,7 @@ pub async fn set_user_rate_limit(
 pub async fn delete_user_rate_limit(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&ctx, &user_id).await?;
@@ -183,7 +184,7 @@ pub async fn delete_user_rate_limit(
 pub async fn get_user_override_rate_limit(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     get_user_rate_limit(admin, State(ctx), Path(user_id)).await
 }
@@ -192,7 +193,7 @@ pub async fn get_user_override_rate_limit(
 pub async fn set_user_override_rate_limit(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     headers: HeaderMap,
     body: Json<RateLimitRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -203,7 +204,7 @@ pub async fn set_user_override_rate_limit(
 pub async fn delete_user_override_rate_limit(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     delete_user_rate_limit(admin, State(ctx), Path(user_id), headers).await

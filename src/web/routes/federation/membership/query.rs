@@ -1,6 +1,7 @@
 use crate::common::*;
 use crate::web::middleware::FederationRequestAuth;
 use crate::web::routes::context::FederationContext;
+use crate::web::routes::extractors::UserId;
 use axum::extract::{Extension, Json, Path, State};
 use serde_json::{json, Value};
 
@@ -73,7 +74,7 @@ pub(crate) async fn get_joined_room_members(
 pub(crate) async fn get_user_devices(
     State(ctx): State<FederationContext>,
     Extension(_auth): Extension<FederationRequestAuth>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     if !super::user_matches_origin(&user_id, &ctx.server_name) {
         return Err(ApiError::not_found("User is not hosted on this server".to_string()));

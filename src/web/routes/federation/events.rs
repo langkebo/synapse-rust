@@ -1,6 +1,7 @@
 use crate::common::*;
 use crate::web::middleware::FederationRequestAuth;
 use crate::web::routes::context::FederationContext;
+use crate::web::routes::extractors::UserId;
 use crate::web::routes::validate_room_alias;
 use axum::extract::{Extension, Json, Path, Query, RawQuery, State};
 use serde::Deserialize;
@@ -256,7 +257,7 @@ pub(super) async fn profile_query(
 pub(super) async fn profile_query_legacy(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     Query(params): Query<FederationProfileFieldQuery>,
 ) -> Result<Json<Value>, ApiError> {
     build_profile_query_response(&ctx, &auth.origin, &user_id, params.field.as_deref()).await

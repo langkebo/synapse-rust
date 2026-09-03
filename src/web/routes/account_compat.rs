@@ -2,6 +2,7 @@ use super::auth_compat::{request_email_verification_with_submit_path, session_cl
 use crate::common::ApiError;
 use crate::web::extractors::{AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser};
 use crate::web::routes::context::AuthContext;
+use crate::web::routes::extractors::UserId;
 use crate::web::routes::validate_user_id;
 use crate::web::utils::auth::bearer_token;
 use crate::web::utils::auth::resolve_request_id;
@@ -86,7 +87,7 @@ pub(crate) async fn enforce_profile_visibility(
 pub(crate) async fn get_profile(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     enforce_profile_visibility(ctx.token_auth.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
@@ -103,7 +104,7 @@ pub(crate) async fn get_profile(
 pub(crate) async fn get_displayname(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     enforce_profile_visibility(ctx.token_auth.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
@@ -127,7 +128,7 @@ pub(crate) async fn get_displayname(
 pub(crate) async fn get_avatar_url(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     enforce_profile_visibility(ctx.token_auth.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
@@ -176,10 +177,11 @@ async fn try_fetch_remote_profile(ctx: &AuthContext, user_id: &str) -> Result<Op
 pub(crate) async fn update_displayname(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
+    let user_id = user_id.as_str();
 
     let displayname = body
         .get("displayname")
@@ -203,10 +205,11 @@ pub(crate) async fn update_displayname(
 pub(crate) async fn update_avatar(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
+    let user_id = user_id.as_str();
 
     let avatar_url = body
         .get("avatar_url")

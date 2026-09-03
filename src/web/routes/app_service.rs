@@ -9,6 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
+use crate::web::routes::extractors::UserId;
 use crate::web::routes::response_helpers::{created_json_from, empty_json, json_from, json_vec_from, require_found};
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use synapse_storage::application_service::{
@@ -430,7 +431,7 @@ pub async fn app_service_transactions(
 
 pub async fn app_service_user_query(
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ApiError> {
     let as_token = extract_as_token(&headers)?;
@@ -565,8 +566,9 @@ pub fn app_service_route_manifest() -> Vec<crate::web::routes::route_ledger::Rou
 async fn get_user_appservice(
     State(_ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    let user_id = user_id.as_str();
     if auth_user.user_id != user_id {
         return Err(ApiError::forbidden("Access denied".to_string()));
     }

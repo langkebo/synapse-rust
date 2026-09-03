@@ -1,6 +1,7 @@
 use crate::common::ApiError;
 use crate::web::extractors::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::web::routes::context::AdminContext;
+use crate::web::routes::extractors::UserId;
 use crate::web::routes::{
     account_compat::{can_view_profile_for_requester_batch, enforce_profile_visibility},
     ensure_room_member_admin, validate_event_id, validate_room_alias, validate_room_id, validate_user_id,
@@ -52,7 +53,7 @@ pub(crate) async fn get_user_directory_profile(
     State(ctx): State<AdminContext>,
     _auth_user: AuthenticatedUser,
     headers: HeaderMap,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     enforce_profile_visibility(ctx.token_auth.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
@@ -277,7 +278,7 @@ pub(crate) async fn report_user(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(reported_user_id): Path<String>,
+    Path(reported_user_id): Path<UserId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);

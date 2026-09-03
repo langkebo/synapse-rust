@@ -8,7 +8,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
-use synapse_common::types::DeviceId;
+use synapse_common::types::{DeviceId, UserId};
 
 pub fn create_server_router(_state: AppState) -> Router<crate::web::routes::AppState> {
     Router::new()
@@ -227,7 +227,7 @@ pub async fn get_status(_admin: AdminUser, State(ctx): State<AdminContext>) -> R
 pub async fn whois(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     let user = ctx
         .account_identity_service

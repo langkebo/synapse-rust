@@ -1,5 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::context::SsoContext;
+use crate::web::routes::extractors::UserId;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, Request, State},
@@ -379,7 +380,7 @@ async fn delete_service(
 async fn set_user_attribute(
     State(ctx): State<SsoContext>,
     _admin: AdminUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     Json(body): Json<SetAttributeBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let attr = ctx.cas_service.set_user_attribute(&user_id, &body.attribute_name, &body.attribute_value).await?;
@@ -394,7 +395,7 @@ async fn set_user_attribute(
 async fn get_user_attributes(
     State(ctx): State<SsoContext>,
     _admin: AdminUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<impl IntoResponse, ApiError> {
     let attrs = ctx.cas_service.get_user_attributes(&user_id).await?;
 

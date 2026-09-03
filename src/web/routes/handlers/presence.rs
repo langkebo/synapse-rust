@@ -1,5 +1,6 @@
 use crate::common::{ApiError, PresenceState, MAX_MESSAGE_LENGTH};
 use crate::web::routes::context::RoomContext;
+use crate::web::routes::extractors::UserId;
 use crate::web::routes::response_helpers::filter_users_with_shared_rooms;
 use crate::web::routes::{validate_user_id, AuthenticatedUser};
 use crate::web::utils::auth::resolve_request_id;
@@ -65,7 +66,7 @@ async fn filter_visible_presence_targets(ctx: &RoomContext, current_user_id: &st
 pub(crate) async fn get_presence(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_presence_enabled(&ctx)?;
     validate_user_id(&user_id)?;
@@ -103,7 +104,7 @@ pub(crate) async fn get_presence(
 pub(crate) async fn set_presence(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_presence_enabled(&ctx)?;
@@ -278,7 +279,7 @@ pub(crate) async fn get_presence_list_no_path(
 pub(crate) async fn get_presence_list(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<UserId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_presence_enabled(&ctx)?;
     validate_user_id(&user_id)?;
