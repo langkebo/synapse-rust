@@ -248,7 +248,9 @@ impl DatabaseInitService {
         Ok("E2EE核心表创建完成".to_string())
     }
 
-    pub(crate) async fn step_ensure_additional_tables(&self) -> Result<String, sqlx::Error> {
+
+    async fn step_ensure_typing_and_search_tables(&self) -> Result<(), sqlx::Error> {
+        // Section 1: extracted from step_ensure_additional_tables (P1-5/6 refactor)
         // Ensure typing table exists
         sqlx::query(
             r#"
@@ -263,7 +265,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure search tables exist
         sqlx::query(
             r#"
@@ -283,7 +285,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_search_index_room ON search_index(room_id)
@@ -291,7 +293,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_search_index_user ON search_index(user_id)
@@ -299,7 +301,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_search_index_type ON search_index(event_type)
@@ -307,7 +309,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure user_directory table exists
         sqlx::query(
             r#"
@@ -324,7 +326,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_user_directory_user ON user_directory(user_id)
@@ -332,7 +334,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_user_directory_visibility ON user_directory(visibility)
@@ -340,12 +342,17 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
+        
+        Ok(())
+    }
 
+    async fn step_ensure_pushers_and_privacy_tables(&self) -> Result<(), sqlx::Error> {
+        // Section 2: extracted from step_ensure_additional_tables (P1-5/6 refactor)
         // Ensure is_guest column exists in users table
         sqlx::query("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN DEFAULT FALSE")
             .execute(&*self.pool)
             .await?;
-
+        
         // Ensure user_privacy_settings table exists
         sqlx::query(
             r#"
@@ -361,7 +368,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure pushers table exists
         sqlx::query(
             r#"
@@ -387,7 +394,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_pushers_user ON pushers(user_id)
@@ -395,7 +402,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_pushers_enabled ON pushers(is_enabled) WHERE is_enabled = TRUE
@@ -403,7 +410,12 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
+        
+        Ok(())
+    }
 
+    async fn step_ensure_account_data_and_backups_tables(&self) -> Result<(), sqlx::Error> {
+        // Section 3: extracted from step_ensure_additional_tables (P1-5/6 refactor)
         // Ensure account_data table exists
         sqlx::query(
             r#"
@@ -420,7 +432,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_account_data_user ON account_data(user_id)
@@ -428,7 +440,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure key_backups table exists with backup_id column
         sqlx::query(
             r#"
@@ -450,7 +462,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_key_backups_user ON key_backups(user_id)
@@ -458,22 +470,27 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure rooms table has guest_access column (for RoomSummary compatibility)
         // Note: rooms table has has_guest_access BOOLEAN, but room_summaries uses guest_access VARCHAR
         sqlx::query("ALTER TABLE rooms ADD COLUMN IF NOT EXISTS guest_access VARCHAR(50) DEFAULT 'forbidden'")
             .execute(&*self.pool)
             .await?;
-
+        
         // Ensure refresh_tokens table has expires_at column
         sqlx::query("ALTER TABLE refresh_tokens ADD COLUMN IF NOT EXISTS expires_at BIGINT")
             .execute(&*self.pool)
             .await?;
-
+        
         sqlx::query("ALTER TABLE device_keys ADD COLUMN IF NOT EXISTS is_fallback BOOLEAN DEFAULT FALSE")
             .execute(&*self.pool)
             .await?;
+        
+        Ok(())
+    }
 
+    async fn step_ensure_room_event_tables(&self) -> Result<(), sqlx::Error> {
+        // Section 4: extracted from step_ensure_additional_tables (P1-5/6 refactor)
         // Ensure room_tags table exists
         sqlx::query(
             r#"
@@ -490,7 +507,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_room_tags_user ON room_tags(user_id)
@@ -498,7 +515,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure room_events table for event retrieval
         sqlx::query(
             r#"
@@ -518,7 +535,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_room_events_room ON room_events(room_id)
@@ -526,7 +543,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_room_events_event ON room_events(event_id)
@@ -534,7 +551,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure to_device_messages table for E2EE to-device messaging
         sqlx::query(
             r#"
@@ -554,7 +571,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_to_device_recipient ON to_device_messages(recipient_user_id, recipient_device_id)
@@ -562,7 +579,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_to_device_stream ON to_device_messages(recipient_user_id, stream_id)
@@ -570,7 +587,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS to_device_transactions (
@@ -585,7 +602,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure device_lists_changes table for tracking device list updates
         sqlx::query(
             r#"
@@ -601,7 +618,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_device_lists_user ON device_lists_changes(user_id)
@@ -609,7 +626,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_device_lists_stream ON device_lists_changes(stream_id)
@@ -617,7 +634,12 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
+        
+        Ok(())
+    }
 
+    async fn step_ensure_sync_ephemeral_tables(&self) -> Result<(), sqlx::Error> {
+        // Section 5: extracted from step_ensure_additional_tables (P1-5/6 refactor)
         // Ensure room_ephemeral table for typing, receipts, etc.
         sqlx::query(
             r#"
@@ -635,7 +657,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_room_ephemeral_room ON room_ephemeral(room_id)
@@ -643,7 +665,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE UNIQUE INDEX IF NOT EXISTS idx_room_ephemeral_room_type_user
@@ -652,7 +674,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure device_lists_stream table for tracking device list stream position
         sqlx::query(
             r#"
@@ -666,7 +688,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_device_lists_stream_user ON device_lists_stream(user_id)
@@ -674,7 +696,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure user_filters table for filter persistence
         sqlx::query(
             r#"
@@ -690,7 +712,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_user_filters_user ON user_filters(user_id)
@@ -698,7 +720,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure room_account_data table for per-room account data
         sqlx::query(
             r#"
@@ -716,7 +738,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_room_account_data_user ON room_account_data(user_id)
@@ -724,7 +746,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_room_account_data_user_room ON room_account_data(user_id, room_id)
@@ -732,7 +754,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure read_markers table for unread counts
         sqlx::query(
             r#"
@@ -751,7 +773,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure columns exist even if table was created by a previous schema version.
         sqlx::query(
             "ALTER TABLE read_markers ADD COLUMN IF NOT EXISTS marker_type TEXT NOT NULL DEFAULT 'm.fully_read'",
@@ -761,7 +783,7 @@ impl DatabaseInitService {
         sqlx::query("ALTER TABLE read_markers ADD COLUMN IF NOT EXISTS origin_server_ts BIGINT")
             .execute(&*self.pool)
             .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_read_markers_user ON read_markers(user_id)
@@ -769,7 +791,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_read_markers_user_room ON read_markers(user_id, room_id)
@@ -777,7 +799,12 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
+        
+        Ok(())
+    }
 
+    async fn step_ensure_key_rotation_tables(&self) -> Result<(), sqlx::Error> {
+        // Section 6: extracted from step_ensure_additional_tables (P1-5/6 refactor)
         // Ensure key_rotation_pending table for E2EE key rotation
         sqlx::query(
             r#"
@@ -793,7 +820,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_key_rotation_pending_user ON key_rotation_pending(user_id)
@@ -801,7 +828,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_key_rotation_pending_unprocessed ON key_rotation_pending(user_id) WHERE processed = FALSE
@@ -809,7 +836,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure key_rotation_state table
         sqlx::query(
             r#"
@@ -826,7 +853,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure key_rotation_config table for persisted rotation parameters
         sqlx::query(
             r#"
@@ -838,7 +865,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure lazy_loaded_members table for sync optimization
         sqlx::query(
             r#"
@@ -855,7 +882,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_lazy_loaded_members_user_room ON lazy_loaded_members(user_id, room_id)
@@ -863,7 +890,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure sync_stream_id sequence table for generating stream IDs
         sqlx::query(
             r#"
@@ -878,7 +905,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Ensure a row exists for generating stream IDs
         sqlx::query(
             r#"
@@ -887,9 +914,14 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
+        
+        Ok(())
+    }
 
+    async fn step_ensure_sliding_sync_tables(&self) -> Result<(), sqlx::Error> {
+        // Section 7: extracted from step_ensure_additional_tables (P1-5/6 refactor)
         sqlx::query("CREATE SEQUENCE IF NOT EXISTS sliding_sync_pos_seq").execute(&*self.pool).await?;
-
+        
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS sliding_sync_lists (
@@ -909,19 +941,19 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_lists_unique ON sliding_sync_lists(user_id, device_id, COALESCE(conn_id, ''), list_key)",
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_sliding_sync_lists_user_device ON sliding_sync_lists(user_id, device_id)",
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS sliding_sync_tokens (
@@ -938,19 +970,19 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_tokens_unique ON sliding_sync_tokens(user_id, device_id, COALESCE(conn_id, ''))",
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_sliding_sync_tokens_user ON sliding_sync_tokens(user_id, device_id)",
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS sliding_sync_rooms (
@@ -977,7 +1009,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Create unique index for sliding_sync_rooms (using COALESCE in index)
         sqlx::query(
             r#"
@@ -986,7 +1018,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_user_device ON sliding_sync_rooms(user_id, device_id)
@@ -994,7 +1026,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_bump_stamp ON sliding_sync_rooms(bump_stamp DESC)
@@ -1002,7 +1034,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_room_id ON sliding_sync_rooms(room_id, updated_ts DESC)
@@ -1010,7 +1042,12 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
+        
+        Ok(())
+    }
 
+    async fn step_ensure_thread_and_space_tables(&self) -> Result<(), sqlx::Error> {
+        // Section 8: extracted from step_ensure_additional_tables (P1-5/6 refactor)
         // Create thread_subscriptions table
         sqlx::query(
             r#"
@@ -1030,7 +1067,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_thread_subscriptions_room_thread ON thread_subscriptions(room_id, thread_id)
@@ -1038,7 +1075,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Create space_children table (with all fields including those added via migration)
         // First ensure the table exists, then add any missing columns
         sqlx::query(
@@ -1057,7 +1094,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Add missing columns if they don't exist (for databases created before this migration)
         sqlx::query(
             r#"
@@ -1075,7 +1112,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             DO $$
@@ -1092,7 +1129,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             DO $$
@@ -1109,7 +1146,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             DO $$
@@ -1126,7 +1163,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_space_children_space ON space_children(space_id)
@@ -1134,7 +1171,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_space_children_room ON space_children(room_id)
@@ -1142,7 +1179,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Create space_hierarchy table
         sqlx::query(
             r#"
@@ -1162,7 +1199,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_space_hierarchy_space ON space_hierarchy(space_id)
@@ -1170,7 +1207,7 @@ impl DatabaseInitService {
         )
         .execute(&*self.pool)
         .await?;
-
+        
         // Seed default captcha templates if not present
         let captcha_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM captcha_template").fetch_one(&*self.pool).await.unwrap_or(0);
@@ -1192,7 +1229,20 @@ impl DatabaseInitService {
                 warn!(error = %e, seeded_templates = 3_u64, "Failed to seed captcha templates");
             }
         }
+        
+        Ok(())
+    }
 
+    pub(crate) async fn step_ensure_additional_tables(&self) -> Result<String, sqlx::Error> {
+        // Dispatcher: 945-line monolith split into 8 sub-methods (P1-5/6 refactor).
+        self.step_ensure_typing_and_search_tables().await?;
+        self.step_ensure_pushers_and_privacy_tables().await?;
+        self.step_ensure_account_data_and_backups_tables().await?;
+        self.step_ensure_room_event_tables().await?;
+        self.step_ensure_sync_ephemeral_tables().await?;
+        self.step_ensure_key_rotation_tables().await?;
+        self.step_ensure_sliding_sync_tables().await?;
+        self.step_ensure_thread_and_space_tables().await?;
         Ok("附加表和列检查完成".to_string())
     }
 }
