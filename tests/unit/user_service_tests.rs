@@ -21,7 +21,7 @@
 // `UserStore` implementation. We extend it with a custom wrapper that can
 // inject errors for the error-path tests.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -274,6 +274,25 @@ impl UserStore for MockUserStore {
     async fn set_deactivation_status(&self, _user_id: &str, _is_deactivated: bool) -> Result<bool, sqlx::Error> {
         self.fail_all_check()?;
         Ok(true)
+    }
+
+    async fn set_deactivation_status_batch(
+        &self,
+        user_ids: &[String],
+        is_deactivated: bool,
+    ) -> Result<HashSet<String>, sqlx::Error> {
+        self.fail_all_check()?;
+        let mut users = self.users.lock().unwrap();
+        let mut changed = HashSet::new();
+        for id in user_ids {
+            if let Some(u) = users.get_mut(id) {
+                if u.is_deactivated != is_deactivated {
+                    u.is_deactivated = is_deactivated;
+                    changed.insert(id.clone());
+                }
+            }
+        }
+        Ok(changed)
     }
 
     async fn set_admin_status(&self, _user_id: &str, _is_admin: bool) -> Result<(), sqlx::Error> {
