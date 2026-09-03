@@ -19,8 +19,10 @@ pub use types::{
 };
 
 use crate::*;
+use lru::LruCache;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -41,7 +43,7 @@ pub struct SyncService {
     pub(crate) device_key_storage: Arc<dyn DeviceKeyStoreApi>,
     pub(crate) key_rotation_storage: KeyRotationStorage,
     pub(crate) to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
-    pub(crate) lazy_loaded_members_cache: Arc<RwLock<HashMap<LazyLoadedMembersCacheKey, HashSet<String>>>>,
+    pub(crate) lazy_loaded_members_cache: Arc<RwLock<LruCache<LazyLoadedMembersCacheKey, HashSet<String>>>>,
     pub(crate) metrics: Arc<MetricsCollector>,
     pub(crate) performance: synapse_common::config::PerformanceConfig,
     pub(crate) cache: Arc<synapse_cache::CacheManager>,
@@ -50,10 +52,12 @@ pub struct SyncService {
 }
 
 /// Maximum number of (user, device, room) entries kept in the in-memory
-/// lazy-loaded members cache before the map is cleared. This prevents
-/// unbounded memory growth in long-running servers with many users/rooms.
-/// The cache is an optimization to avoid repeated DB lookups; clearing it
-/// only causes a temporary increase in database queries.
+/// lazy-loaded members cache before LRU eviction kicks in. When the cache
+/// is full, the least-recently-used entry is evicted; this preserves hot
+/// keys instead of clearing everything (which could cause a thundering-herd
+/// stampede against the database on heavily-shared rooms). The cache is
+/// an optimization to avoid repeated DB lookups; an eviction only causes
+/// a temporary increase in database queries.
 const LAZY_LOADED_MEMBERS_CACHE_MAX_ENTRIES: usize = 50_000;
 
 impl SyncService {
@@ -71,7 +75,10 @@ impl SyncService {
             device_key_storage: deps.device_key_storage,
             key_rotation_storage: deps.key_rotation_storage,
             to_device_storage: deps.to_device_storage,
-            lazy_loaded_members_cache: Arc::new(RwLock::new(HashMap::new())),
+            lazy_loaded_members_cache: Arc::new(RwLock::new(LruCache::new(
+                NonZeroUsize::new(LAZY_LOADED_MEMBERS_CACHE_MAX_ENTRIES)
+                    .expect("LAZY_LOADED_MEMBERS_CACHE_MAX_ENTRIES is a non-zero const"),
+            ))),
             metrics: deps.metrics,
             performance: deps.performance,
             cache: deps.cache,

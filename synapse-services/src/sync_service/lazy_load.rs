@@ -1,5 +1,5 @@
 use super::types::*;
-use super::{SyncService, LAZY_LOADED_MEMBERS_CACHE_MAX_ENTRIES};
+use super::SyncService;
 use crate::*;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -13,8 +13,10 @@ impl SyncService {
     ) -> HashSet<String> {
         let cache_key = LazyLoadedMembersCacheKey::new(user_id, device_id, room_id);
         {
-            let cache = self.lazy_loaded_members_cache.read().await;
+            let mut cache = self.lazy_loaded_members_cache.write().await;
             if let Some(known_members) = cache.get(&cache_key) {
+                // .get() on LruCache refreshes the LRU position (records as recently used),
+                // so hot keys stay cached while cold ones are evicted on overflow.
                 return known_members.clone();
             }
         }
@@ -27,13 +29,7 @@ impl SyncService {
         };
 
         let mut cache = self.lazy_loaded_members_cache.write().await;
-        // Prevent unbounded growth: clear the cache when it exceeds the limit.
-        // This is safe because the cache is an optimization — the database
-        // remains the source of truth for lazy-loaded members.
-        if cache.len() >= LAZY_LOADED_MEMBERS_CACHE_MAX_ENTRIES {
-            cache.clear();
-        }
-        cache.insert(cache_key, known_members.clone());
+        cache.put(cache_key, known_members.clone());
         known_members
     }
 
@@ -85,11 +81,16 @@ impl SyncService {
 
         if !known_now.is_empty() {
             let mut cache = self.lazy_loaded_members_cache.write().await;
-            // Enforce the same capacity limit as the insert path.
-            if cache.len() >= LAZY_LOADED_MEMBERS_CACHE_MAX_ENTRIES {
-                cache.clear();
+            // LruCache naturally evicts the least-recently-used entry when full,
+            // preserving hot keys instead of clearing everything like HashMap did.
+            // Preserve the entry().extend() union semantics so previously-known
+            // members from earlier sync responses aren't dropped when a new
+            // sync contributes additional entries.
+            if let Some(existing) = cache.get_mut(&cache_key) {
+                existing.extend(known_now.iter().cloned());
+            } else {
+                cache.put(cache_key, known_now.iter().cloned().collect());
             }
-            cache.entry(cache_key).or_default().extend(known_now.iter().cloned());
         }
         self.persist_lazy_loaded_members(user_id, device_id, room_id, &known_now).await;
 
