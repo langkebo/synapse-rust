@@ -96,9 +96,24 @@ pub fn validate_room_alias(room_alias: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// Maximum length of a Matrix event_id.
+///
+/// A `$`-prefixed SHA-256 hash in standard Matrix encoding fits comfortably
+/// under 64 chars; 255 is a generous upper bound that still rejects
+/// pathological inputs (e.g. 1 MB event_ids used to cause full-index scans
+/// in earlier Postgres versions).
+pub const MAX_EVENT_ID_LEN: usize = 255;
+
 pub fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
     if event_id.is_empty() {
         return Err(ApiError::invalid_input("event_id is required".to_string()));
+    }
+    if event_id.len() > MAX_EVENT_ID_LEN {
+        return Err(ApiError::invalid_input(format!(
+            "event_id too long: {} bytes (max {})",
+            event_id.len(),
+            MAX_EVENT_ID_LEN
+        )));
     }
     if !event_id.starts_with('$') {
         return Err(ApiError::invalid_input("Invalid event_id format: must start with $".to_string()));
@@ -197,6 +212,9 @@ mod tests {
     fn test_validate_event_id_invalid() {
         assert!(validate_event_id("").is_err());
         assert!(validate_event_id("event123").is_err());
+        // Length limit: 255 chars max
+        assert!(validate_event_id(&format!("${}", "x".repeat(255))).is_err());
+        assert!(validate_event_id(&format!("${}", "x".repeat(254))).is_ok());
     }
 
     #[test]

@@ -26,6 +26,15 @@ impl Config {
                 .to_string());
         }
 
+        // 审查 Ticket #16：csrf_secret 显式配置为空字符串时会绕过 default_fn，
+        // 导致 CSRF token 签名密钥为空，使 CSRF 保护完全失效。强制要求非空。
+        if self.security.csrf_secret.is_empty() {
+            return Err("security.csrf_secret is empty. CSRF protection requires a non-empty secret. \
+                 Either remove the csrf_secret field to auto-generate one, \
+                 or set it to a random string of at least 32 characters."
+                .to_string());
+        }
+
         // 审查 #15：security.secret 是 HS256/JWT 签名密钥，除长度外还必须校验
         // 熵，防止弱熵密钥（如 32 个 'a'）被接受后可被离线爆破伪造。
         // 复用 SecurityValidator::validate_jwt_secret（此前为死代码，仅测试引用）。
@@ -166,5 +175,22 @@ mod tests {
         config.security.secret = "abc".to_string();
         let err = config.validate().unwrap_err();
         assert!(err.contains("3"));
+    }
+
+    // 审查 Ticket #16：csrf_secret 显式配置为空字符串必须被拒绝，
+    // 否则 CSRF token 签名密钥为空使保护完全失效。
+    #[test]
+    fn validate_rejects_empty_csrf_secret() {
+        let mut config = valid_config();
+        config.security.csrf_secret = String::new();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("csrf_secret is empty"), "empty csrf_secret must be rejected: {err}");
+    }
+
+    #[test]
+    fn validate_accepts_non_empty_csrf_secret() {
+        let mut config = valid_config();
+        config.security.csrf_secret = "a-32-byte-random-string-cere-1234".to_string();
+        assert!(config.validate().is_ok());
     }
 }
