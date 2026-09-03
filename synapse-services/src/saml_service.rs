@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use synapse_common::config::SamlConfig;
 use synapse_common::current_timestamp_millis;
@@ -11,6 +11,41 @@ use synapse_common::error::ApiError;
 use synapse_common::xml_parser::{parse_saml_metadata, parse_saml_response};
 use synapse_storage::saml::*;
 use tracing::info;
+
+macro_rules! cached_regex {
+    ($name:ident, $pattern:expr) => {
+        fn $name() -> &'static Regex {
+            static CELL: OnceLock<Regex> = OnceLock::new();
+            CELL.get_or_init(|| Regex::new($pattern).expect("static SAML regex must compile"))
+        }
+    };
+}
+
+cached_regex!(signature_value_re, r#"<(?:\w+:)?SignatureValue>\s*([^<]+?)\s*</(?:\w+:)?SignatureValue>"#);
+cached_regex!(signed_info_re, r#"<(?:\w+:)?SignedInfo>([\s\S]*?)</(?:\w+:)?SignedInfo>"#);
+cached_regex!(digest_value_re, r#"<(?:\w+:)?DigestValue>\s*([^<]+?)\s*</(?:\w+:)?DigestValue>"#);
+cached_regex!(reference_uri_re, r#"<(?:\w+:)?Reference\s+[^>]*?URI="([^"]*)""#);
+cached_regex!(audience_re, r#"<(?:\w+:)?Audience>\s*([^<]+?)\s*</(?:\w+:)?Audience>"#);
+cached_regex!(status_code_re, r#"<(?:\w+:)?StatusCode[^>]*\sValue="([^"]+)""#);
+cached_regex!(response_destination_re, r#"<(?:\w+:)?Response[^>]*\sDestination="([^"]+)""#);
+cached_regex!(subject_confirmation_recipient_re, r#"<(?:\w+:)?SubjectConfirmationData[^>]*\sRecipient="([^"]+)""#);
+
+fn attribute_value_regex(attribute: &str) -> &Regex {
+    // Per-attribute cache. Keyed by attribute name (bounded set in practice:
+    // NotBefore, NotOnOrAfter, etc.). OnceLock requires a static cell per
+    // attribute, so we use a Mutex<HashMap> guarded by `static CACHE` — first
+    // call wins for the compile, subsequent calls reuse.
+    static CACHE: OnceLock<Mutex<HashMap<String, &'static Regex>>> = OnceLock::new();
+    let map = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = map.lock().expect("attribute_value_regex cache poisoned");
+    if let Some(r) = guard.get(attribute) {
+        return r;
+    }
+    let pattern = format!(r#"{attribute}="([^"]+)""#);
+    let boxed: &'static Regex = Box::leak(Box::new(Regex::new(&pattern).expect("attribute_value regex")));
+    guard.insert(attribute.to_string(), boxed);
+    boxed
+}
 
 const SAML_REQUEST_TTL_SECONDS: u64 = 600;
 const SAML_CLOCK_SKEW_SECONDS: i64 = 300;
@@ -657,35 +692,31 @@ impl SamlService {
     }
 
     fn extract_signature_value(xml: &str) -> Option<String> {
-        Regex::new(r#"<(?:\w+:)?SignatureValue>\s*([^<]+?)\s*</(?:\w+:)?SignatureValue>"#)
-            .ok()
-            .and_then(|regex| regex.captures(xml).and_then(|captures| captures.get(1).map(|m| m.as_str().to_string())))
+        signature_value_re().captures(xml).and_then(|captures| captures.get(1).map(|m| m.as_str().to_string()))
     }
 
     fn extract_signed_info(xml: &str) -> Option<String> {
-        Regex::new(r#"<(?:\w+:)?SignedInfo>([\s\S]*?)</(?:\w+:)?SignedInfo>"#)
-            .ok()
-            .and_then(|regex| regex.captures(xml).and_then(|captures| captures.get(1).map(|m| m.as_str().to_string())))
+        signed_info_re().captures(xml).and_then(|captures| captures.get(1).map(|m| m.as_str().to_string()))
     }
 
     fn extract_digest_value(xml: &str) -> Option<String> {
-        Regex::new(r#"<(?:\w+:)?DigestValue>\s*([^<]+?)\s*</(?:\w+:)?DigestValue>"#)
-            .ok()
-            .and_then(|regex| regex.captures(xml).and_then(|captures| captures.get(1).map(|m| m.as_str().to_string())))
+        digest_value_re().captures(xml).and_then(|captures| captures.get(1).map(|m| m.as_str().to_string()))
     }
 
     /// P0-01: 从 SignedInfo 中提取 Reference 元素的 URI 属性.
     /// URI 格式通常为 "#<ID>", 指向被签名的元素 (如 Assertion).
     fn extract_reference_uri(signed_info_xml: &str) -> Option<String> {
-        Regex::new(r#"<(?:\w+:)?Reference\s+[^>]*?URI="([^"]*)""#).ok().and_then(|regex| {
-            regex.captures(signed_info_xml).and_then(|captures| captures.get(1).map(|m| m.as_str().to_string()))
-        })
+        reference_uri_re()
+            .captures(signed_info_xml)
+            .and_then(|captures| captures.get(1).map(|m| m.as_str().to_string()))
     }
 
     /// P0-01: 根据 ID 属性提取 XML 中对应的元素 (含开闭标签).
     /// 用于验证 Reference URI 指向的元素确实存在, 防止 XSW 攻击.
     fn extract_element_by_id(xml: &str, element_id: &str) -> Option<String> {
         // 查找带有 ID="element_id" 属性的元素开始标签.
+        // 注意：pattern 依赖 runtime `element_id`，每次调用都不同，无法缓存；
+        // 这是合理的 — 该函数只在验证 Reference 时调用一次（低频）。
         let id_pattern = format!(r#"<(?:\w+:)?(\w+)\s+[^>]*?ID="{}"[^>]*>"#, regex::escape(element_id));
         let open_regex = Regex::new(&id_pattern).ok()?;
         let open_match = open_regex.find(xml)?;
@@ -904,29 +935,19 @@ impl SamlService {
     }
 
     fn extract_attribute_values(xml: &str, attribute: &str) -> Vec<String> {
-        let pattern = format!(r#"{attribute}="([^"]+)""#);
-        Regex::new(&pattern)
-            .ok()
-            .map(|regex| {
-                regex
-                    .captures_iter(xml)
-                    .filter_map(|captures| captures.get(1).map(|value| value.as_str().to_string()))
-                    .collect()
-            })
-            .unwrap_or_default()
+        let regex = attribute_value_regex(attribute);
+        regex
+            .captures_iter(xml)
+            .filter_map(|captures| captures.get(1).map(|value| value.as_str().to_string()))
+            .collect()
     }
 
     fn extract_audiences(xml: &str) -> Vec<String> {
-        Regex::new(r#"<(?:\w+:)?Audience>\s*([^<]+?)\s*</(?:\w+:)?Audience>"#)
-            .ok()
-            .map(|regex| {
-                regex
-                    .captures_iter(xml)
-                    .filter_map(|captures| captures.get(1).map(|value| value.as_str().trim().to_string()))
-                    .filter(|value| !value.is_empty())
-                    .collect()
-            })
-            .unwrap_or_default()
+        audience_re()
+            .captures_iter(xml)
+            .filter_map(|captures| captures.get(1).map(|value| value.as_str().trim().to_string()))
+            .filter(|value| !value.is_empty())
+            .collect()
     }
 
     fn parse_saml_timestamp(value: &str) -> Result<DateTime<Utc>, ApiError> {
@@ -968,33 +989,23 @@ impl SamlService {
     }
 
     fn extract_status_codes(xml: &str) -> Vec<String> {
-        Regex::new(r#"<(?:\w+:)?StatusCode[^>]*\sValue="([^"]+)""#)
-            .ok()
-            .map(|regex| {
-                regex
-                    .captures_iter(xml)
-                    .filter_map(|captures| captures.get(1).map(|value| value.as_str().to_string()))
-                    .collect()
-            })
-            .unwrap_or_default()
+        status_code_re()
+            .captures_iter(xml)
+            .filter_map(|captures| captures.get(1).map(|value| value.as_str().to_string()))
+            .collect()
     }
 
     fn extract_response_destination(xml: &str) -> Option<String> {
-        Regex::new(r#"<(?:\w+:)?Response[^>]*\sDestination="([^"]+)""#).ok().and_then(|regex| {
-            regex.captures(xml).and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()))
-        })
+        response_destination_re()
+            .captures(xml)
+            .and_then(|captures| captures.get(1).map(|value| value.as_str().to_string()))
     }
 
     fn extract_subject_confirmation_recipients(xml: &str) -> Vec<String> {
-        Regex::new(r#"<(?:\w+:)?SubjectConfirmationData[^>]*\sRecipient="([^"]+)""#)
-            .ok()
-            .map(|regex| {
-                regex
-                    .captures_iter(xml)
-                    .filter_map(|captures| captures.get(1).map(|value| value.as_str().to_string()))
-                    .collect()
-            })
-            .unwrap_or_default()
+        subject_confirmation_recipient_re()
+            .captures_iter(xml)
+            .filter_map(|captures| captures.get(1).map(|value| value.as_str().to_string()))
+            .collect()
     }
 
     fn extract_response_issuers(xml: &str) -> Vec<String> {
