@@ -1,5 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::context::AuthContext;
+use crate::web::routes::extractors::SessionId;
 use crate::web::routes::{AppState, OptionalAuthenticatedUser};
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
@@ -153,7 +154,7 @@ async fn get_session(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
-    Path(session_id): Path<String>,
+    Path(session_id): Path<SessionId>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let session =
@@ -174,7 +175,7 @@ async fn update_session(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
-    Path(session_id): Path<String>,
+    Path(session_id): Path<SessionId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -234,7 +235,7 @@ async fn delete_session(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
-    Path(session_id): Path<String>,
+    Path(session_id): Path<SessionId>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     ensure_rendezvous_session_access(&ctx, &request_id, &headers, &auth_user, &session_id, "delete").await?;
@@ -252,7 +253,7 @@ async fn send_message(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
-    Path(session_id): Path<String>,
+    Path(session_id): Path<SessionId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -285,7 +286,7 @@ async fn get_messages(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
-    Path(session_id): Path<String>,
+    Path(session_id): Path<SessionId>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     ensure_rendezvous_session_access(&ctx, &request_id, &headers, &auth_user, &session_id, "read messages").await?;

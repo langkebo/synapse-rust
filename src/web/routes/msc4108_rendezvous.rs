@@ -12,6 +12,7 @@
 
 use crate::common::ApiError;
 use crate::web::routes::context::AuthContext;
+use crate::web::routes::extractors::SessionId;
 use crate::web::routes::AppState;
 use axum::{
     body::Body,
@@ -90,7 +91,7 @@ async fn create_session(State(ctx): State<AuthContext>, body: String) -> Result<
 /// Returns `text/plain` body + `ETag` header, or 304 if not modified.
 async fn get_session(
     State(ctx): State<AuthContext>,
-    Path(session_id): Path<String>,
+    Path(session_id): Path<SessionId>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let result = ctx
@@ -124,7 +125,7 @@ async fn get_session(
 /// Response: new `ETag` header
 async fn update_session(
     State(ctx): State<AuthContext>,
-    Path(session_id): Path<String>,
+    Path(session_id): Path<SessionId>,
     headers: HeaderMap,
     body: String,
 ) -> Result<Response, ApiError> {
@@ -142,7 +143,10 @@ async fn update_session(
 }
 
 /// DELETE /rendezvous/{session_id} — Close session.
-async fn delete_session(State(ctx): State<AuthContext>, Path(session_id): Path<String>) -> Result<Response, ApiError> {
+async fn delete_session(
+    State(ctx): State<AuthContext>,
+    Path(session_id): Path<SessionId>,
+) -> Result<Response, ApiError> {
     ctx.rendezvous_storage
         .delete_msc4108_session(&session_id)
         .await

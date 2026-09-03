@@ -13,7 +13,7 @@ use crate::common::ApiError;
 // `extractors::RoomId` etc. now get the typed newtypes from synapse-common.
 
 pub use synapse_common::types::{
-    DeviceId, EventId, MediaId, MxcUri, RoomAlias, RoomId, ServerName, TransactionId, UserId,
+    BackupId, DeviceId, EventId, MediaId, MxcUri, RoomAlias, RoomId, ServerName, SessionId, TransactionId, UserId,
 };
 
 /// Extension trait: Axum-aware validators for ID types.

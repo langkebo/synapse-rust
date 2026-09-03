@@ -5,6 +5,7 @@
 use super::devices::{decode_key_request_cursor, encode_key_request_cursor};
 use crate::e2ee::secure_backup::RestoreSecureBackupRequest;
 use crate::web::routes::context::E2eeRoomContext;
+use crate::web::routes::extractors::BackupId;
 use crate::web::routes::response_helpers::empty_json;
 use crate::web::routes::{AuthenticatedUser, MatrixJson};
 use crate::ApiError;
@@ -77,7 +78,7 @@ pub(crate) async fn create_secure_backup(
 pub(crate) async fn get_secure_backup(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(backup_id): Path<String>,
+    Path(backup_id): Path<BackupId>,
 ) -> Result<Json<Value>, ApiError> {
     let response = ctx.secure_backup_service.get_backup_info(&auth_user.user_id, &backup_id).await?;
 
@@ -97,7 +98,7 @@ pub(crate) async fn get_secure_backup(
 pub(crate) async fn store_secure_backup_keys(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(backup_id): Path<String>,
+    Path(backup_id): Path<BackupId>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     // ISSUE-6.3: session_key is client-side ciphertext (no passphrase, no server-side encryption).
@@ -136,7 +137,7 @@ pub(crate) async fn store_secure_backup_keys(
 pub(crate) async fn restore_secure_backup(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(backup_id): Path<String>,
+    Path(backup_id): Path<BackupId>,
     MatrixJson(body): MatrixJson<RestoreSecureBackupRequest>,
 ) -> Result<Json<Value>, ApiError> {
     // ISSUE-6.3: return ciphertext; the client decrypts locally with its recovery key.
@@ -164,7 +165,7 @@ pub(crate) async fn verify_secure_backup_passphrase(
 pub(crate) async fn delete_secure_backup(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
-    Path(backup_id): Path<String>,
+    Path(backup_id): Path<BackupId>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.secure_backup_service.delete_backup(&auth_user.user_id, &backup_id).await?;
 
