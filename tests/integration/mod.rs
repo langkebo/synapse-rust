@@ -112,6 +112,7 @@ mod to_device_sync_tests_migrated;
 mod uia_service_tests_migrated;
 
 // Schema contract tests migrated from tests/unit/
+mod e2ee_audit_service_tests;
 mod db_schema_smoke_tests_migrated;
 mod schema_contract_p0_tests_migrated;
 mod schema_contract_room_summary_queue_driver_tests_migrated;
