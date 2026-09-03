@@ -7,6 +7,8 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::panic::set_hook(Box::new(|panic_info| {
+        // panic hook 在 init_logging 之前就会跑，tracing subscriber 可能尚未初始化，
+        // 用 eprintln! 是合理兜底。init_logging 之后 tracing 接管 stdout/stderr 重定向。
         let location = panic_info
             .location()
             .map_or_else(|| "unknown".to_string(), |l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
@@ -22,6 +24,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }));
 
     // 1. Load configuration
+    //    Config 加载发生在 init_telemetry 之前；tracing subscriber 尚未 setup，
+    //    所以保留 eprintln! 作为用户可见的启动错误兜底。
     let config = match Config::load() {
         Ok(c) => c,
         Err(e) => {

@@ -29,13 +29,17 @@ pub fn init_telemetry(config: &Config) -> TracingGuard {
     let tracer_provider: Option<TracerProvider> = match telemetry_service.initialize() {
         Ok(p) => p,
         Err(e) => {
+            // telemetry 初始化失败不影响主流程（OTLP exporter 可能网络不可达），
+            // 用 eprintln! 确保用户立即看到，tracing::error! 此时可能尚未 setup。
             eprintln!("Failed to initialize telemetry: {e}");
             None
         }
     };
 
     if let Err(e) = crate::common::logging::init_logging(&config.logging, tracer_provider) {
-        eprintln!("Failed to initialize logging: {e}");
+        // init_logging 失败会返回 Err 且 tracing subscriber 可能已部分 setup。
+        // 用 tracing::error! 记录结构化错误，便于日志聚合和排查。
+        tracing::error!("Failed to initialize logging: {e}");
         std::process::exit(1);
     }
 
