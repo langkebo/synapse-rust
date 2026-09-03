@@ -1,6 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::context::MediaContext;
-use crate::web::routes::extractors::ServerName;
+use crate::web::routes::extractors::{MediaId, ServerName};
 use crate::web::{AuthenticatedUser, OptionalAuthenticatedUser};
 use axum::{
     body::Body,
@@ -293,7 +293,7 @@ pub(crate) async fn thumbnail_response_common(
 pub(crate) async fn download_media(
     State(ctx): State<MediaContext>,
     auth_user: OptionalAuthenticatedUser,
-    Path((server_name, media_id)): Path<(ServerName, String)>,
+    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
 ) -> Result<Response, ApiError> {
     let _ = auth_user;
     let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, None).await?;
@@ -303,7 +303,7 @@ pub(crate) async fn download_media(
 pub(crate) async fn download_media_with_filename(
     State(ctx): State<MediaContext>,
     auth_user: OptionalAuthenticatedUser,
-    Path((server_name, media_id, filename)): Path<(ServerName, String, String)>,
+    Path((server_name, media_id, filename)): Path<(ServerName, MediaId, String)>,
 ) -> Result<Response, ApiError> {
     let _ = auth_user;
     let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
@@ -313,7 +313,7 @@ pub(crate) async fn download_media_with_filename(
 /// Signed media download — verifies HMAC signature before serving.
 pub(crate) async fn download_media_signed(
     State(ctx): State<MediaContext>,
-    Path((server_name, media_id)): Path<(ServerName, String)>,
+    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
     Query(params): Query<Value>,
 ) -> Result<Response, ApiError> {
     let signature = params
@@ -334,7 +334,7 @@ pub(crate) async fn download_media_signed(
 /// Signed media download with filename.
 pub(crate) async fn download_media_signed_with_filename(
     State(ctx): State<MediaContext>,
-    Path((server_name, media_id, filename)): Path<(ServerName, String, String)>,
+    Path((server_name, media_id, filename)): Path<(ServerName, MediaId, String)>,
     Query(params): Query<Value>,
 ) -> Result<Response, ApiError> {
     let signature = params
@@ -355,7 +355,7 @@ pub(crate) async fn download_media_signed_with_filename(
 pub(crate) async fn download_media_authenticated(
     State(ctx): State<MediaContext>,
     _auth_user: AuthenticatedUser,
-    Path((server_name, media_id)): Path<(ServerName, String)>,
+    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
 ) -> Result<Response, ApiError> {
     let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, None).await?;
     Ok((status, headers, body).into_response())
@@ -364,7 +364,7 @@ pub(crate) async fn download_media_authenticated(
 pub(crate) async fn download_media_authenticated_with_filename(
     State(ctx): State<MediaContext>,
     _auth_user: AuthenticatedUser,
-    Path((server_name, media_id, filename)): Path<(ServerName, String, String)>,
+    Path((server_name, media_id, filename)): Path<(ServerName, MediaId, String)>,
 ) -> Result<Response, ApiError> {
     let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
     Ok((status, headers, body).into_response())
@@ -372,7 +372,7 @@ pub(crate) async fn download_media_authenticated_with_filename(
 
 pub(crate) async fn download_media_v1(
     State(ctx): State<MediaContext>,
-    Path((server_name, media_id)): Path<(ServerName, String)>,
+    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
 ) -> Response {
     match download_media_stream_common(&ctx, &server_name, &media_id, None).await {
         Ok((status, headers, body)) => (status, headers, body).into_response(),
@@ -385,7 +385,7 @@ pub(crate) async fn download_media_v1(
 
 pub(crate) async fn download_media_v1_with_filename(
     State(ctx): State<MediaContext>,
-    Path((server_name, media_id, filename)): Path<(ServerName, String, String)>,
+    Path((server_name, media_id, filename)): Path<(ServerName, MediaId, String)>,
 ) -> Response {
     match download_media_stream_common(&ctx, &server_name, &media_id, Some(&filename)).await {
         Ok((status, headers, body)) => (status, headers, body).into_response(),
@@ -403,7 +403,7 @@ pub(crate) async fn download_media_v1_with_filename(
 pub(crate) async fn get_thumbnail(
     State(ctx): State<MediaContext>,
     auth_user: OptionalAuthenticatedUser,
-    Path((server_name, media_id)): Path<(ServerName, String)>,
+    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
     let _ = auth_user;
@@ -415,7 +415,7 @@ pub(crate) async fn get_thumbnail(
 pub(crate) async fn get_thumbnail_authenticated(
     State(ctx): State<MediaContext>,
     _auth_user: AuthenticatedUser,
-    Path((server_name, media_id)): Path<(ServerName, String)>,
+    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
     let response = thumbnail_response_common(&ctx, &server_name, &media_id, &params).await?;

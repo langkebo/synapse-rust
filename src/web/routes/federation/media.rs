@@ -1,6 +1,6 @@
 use crate::common::*;
 use crate::web::routes::context::FederationContext;
-use crate::web::routes::extractors::ServerName;
+use crate::web::routes::extractors::{MediaId, ServerName};
 use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
@@ -30,13 +30,9 @@ fn parse_federation_query_i64(params: &Value, key: &str, default: i64) -> Result
 
 pub(super) async fn media_download(
     State(ctx): State<FederationContext>,
-    Path((server_name, media_id)): Path<(ServerName, String)>,
+    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_federation_media_server_name(&ctx, &server_name)?;
-
-    if media_id.is_empty() {
-        return Err(ApiError::bad_request("Missing media_id"));
-    }
 
     let content = ctx.media_service.download_media(&server_name, &media_id).await?;
     let content_type = federation_guess_content_type(&media_id, &content).to_string();
@@ -47,7 +43,7 @@ pub(super) async fn media_download(
 
 pub(super) async fn media_thumbnail(
     State(ctx): State<FederationContext>,
-    Path((server_name, media_id)): Path<(ServerName, String)>,
+    Path((server_name, media_id)): Path<(ServerName, MediaId)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_federation_media_server_name(&ctx, &server_name)?;
