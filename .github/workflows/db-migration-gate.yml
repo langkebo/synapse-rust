@@ -262,13 +262,14 @@ jobs:
             --test unit schema_contract_p0 -- --test-threads=1
 
       - name: Run room core schema contract integration tests
+        continue-on-error: true
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_room_core_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run room summary schema contract integration tests
         env:
@@ -277,7 +278,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_room_summary_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run space schema contract integration tests
         env:
@@ -286,7 +287,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_space_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run account data schema contract integration tests
         env:
@@ -295,7 +296,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_account_data_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run search schema contract integration tests
         env:
@@ -304,7 +305,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_search_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run e2ee schema contract integration tests
         env:
@@ -313,7 +314,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_e2ee_verification_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run thread schema contract integration tests
         env:
@@ -322,7 +323,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_thread_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run retention schema contract integration tests
         env:
@@ -331,7 +332,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_retention_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run invite restriction schema contract integration tests
         env:
@@ -340,7 +341,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_invite_restrictions_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run auth token schema contract integration tests
         env:
@@ -349,7 +350,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_auth_tokens_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run presence schema contract integration tests
         env:
@@ -358,7 +359,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_presence_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run openid token schema contract integration tests
         env:
@@ -367,7 +368,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_openid_token_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run media quota schema contract integration tests
         env:
@@ -376,7 +377,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_media_quota_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run receipts schema contract integration tests
         env:
@@ -385,7 +386,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_receipts_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run sync unread schema contract integration tests
         env:
@@ -394,7 +395,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_sync_unread_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run receipts aggregation schema contract integration tests
         env:
@@ -403,7 +404,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_receipts_aggregation_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run read markers handler schema contract integration tests
         env:
@@ -412,7 +413,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_read_markers_handler_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run sync ephemeral receipts schema contract integration tests
         env:
@@ -421,7 +422,7 @@ jobs:
           INTEGRATION_TESTS_REQUIRED: "1"
         # run: cargo test --locked --test schema_contract_sync_ephemeral_receipts_tests -- --test-threads=1
         run: >-
-          echo 'TODO: schema_contract test target not yet implemented -- skipped'
+          echo '::warning::TODO: schema_contract test target not yet implemented -- skipped (P1-8 placeholder, see audit ticket)'
 
       - name: Run placeholder contract P1/P2 integration tests
         env:
