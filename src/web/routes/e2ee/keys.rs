@@ -204,7 +204,7 @@ async fn upload_keys(
         fallback_keys: body.get("fallback_keys").cloned(),
     };
 
-    let response = ctx.device_keys_service.upload_keys(request, &auth_user.user_id, &device_id.to_string()).await?;
+    let response = ctx.device_keys_service.upload_keys(request, &auth_user.user_id, device_id.as_ref()).await?;
 
     Ok(Json(serde_json::json!({
         "one_time_key_counts": response.one_time_key_counts

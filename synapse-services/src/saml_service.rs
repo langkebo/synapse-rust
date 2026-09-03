@@ -30,21 +30,50 @@ cached_regex!(status_code_re, r#"<(?:\w+:)?StatusCode[^>]*\sValue="([^"]+)""#);
 cached_regex!(response_destination_re, r#"<(?:\w+:)?Response[^>]*\sDestination="([^"]+)""#);
 cached_regex!(subject_confirmation_recipient_re, r#"<(?:\w+:)?SubjectConfirmationData[^>]*\sRecipient="([^"]+)""#);
 
+/// Never-match fallback regex used by [`attribute_value_regex`] when the
+/// caller-supplied `attribute` name is invalid. Initialized lazily via
+/// `OnceLock`; the pattern is a hard-coded constant so the compile-time
+/// `Regex::new` call inside `get_or_init` is guaranteed to succeed.
+static ATTRIBUTE_VALUE_FALLBACK: OnceLock<Regex> = OnceLock::new();
+const ATTRIBUTE_VALUE_FALLBACK_PATTERN: &str = r"\A\z";
+
 fn attribute_value_regex(attribute: &str) -> &Regex {
     // Per-attribute cache. Keyed by attribute name (bounded set in practice:
     // NotBefore, NotOnOrAfter, etc.). OnceLock requires a static cell per
     // attribute, so we use a Mutex<HashMap> guarded by `static CACHE` — first
     // call wins for the compile, subsequent calls reuse.
+    //
+    // On lock poisoning we recover by extracting the inner guard, since the
+    // cached value itself is read-only and unaffected by prior panics.
     static CACHE: OnceLock<Mutex<HashMap<String, &'static Regex>>> = OnceLock::new();
     let map = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = map.lock().expect("attribute_value_regex cache poisoned");
+    let mut guard = match map.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
     if let Some(r) = guard.get(attribute) {
         return r;
     }
     let pattern = format!(r#"{attribute}="([^"]+)""#);
-    let boxed: &'static Regex = Box::leak(Box::new(Regex::new(&pattern).expect("attribute_value regex")));
-    guard.insert(attribute.to_string(), boxed);
-    boxed
+    // A syntactically invalid attribute name is a programmer error; return a
+    // never-match fallback regex instead of panicking in production.
+    let compiled: &'static Regex = match Regex::new(&pattern) {
+        Ok(r) => Box::leak(Box::new(r)),
+        Err(e) => {
+            tracing::error!(attribute = %attribute, error = %e, "attribute_value_regex: invalid pattern");
+            // SAFETY: ATTRIBUTE_VALUE_FALLBACK_PATTERN is a compile-time-validated
+            // constant — the unwrap here is guaranteed safe and flagged as a
+            // false-positive by clippy since the pattern is static.
+            #[allow(clippy::unwrap_used)]
+            {
+                ATTRIBUTE_VALUE_FALLBACK.get_or_init(|| {
+                    Regex::new(ATTRIBUTE_VALUE_FALLBACK_PATTERN).unwrap()
+                })
+            }
+        }
+    };
+    guard.insert(attribute.to_string(), compiled);
+    compiled
 }
 
 const SAML_REQUEST_TTL_SECONDS: u64 = 600;

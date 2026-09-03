@@ -192,7 +192,7 @@ async fn get_account_data(
                 // yet written a `m.secret_storage.default_key` account_data
                 // event, surface the first key as the default so stock
                 // Element/Synapse clients can still discover SSSS.
-                match ctx.ssss_service.get_all_keys(&user_id).await {
+                match ctx.ssss_service.get_all_keys(user_id).await {
                     Ok(keys) if !keys.is_empty() => Ok(Json(json!({ "key_id": keys[0].key_id }))),
                     _ => Err(ApiError::not_found("Account data not found".to_string())),
                 }
@@ -201,7 +201,7 @@ async fn get_account_data(
                 // synthesise a minimal key info payload from the internal
                 // SSSS row so clients can complete bootstrap without us
                 // having to teach Element how to call the internal API.
-                match ctx.ssss_service.get_key(&user_id, key_id).await {
+                match ctx.ssss_service.get_key(user_id, key_id).await {
                     Ok(Some(key)) => Ok(Json(json!({
                         "algorithm": key.algorithm,
                         "auth_data": {
@@ -228,7 +228,7 @@ async fn set_room_account_data(
         return Err(ApiError::forbidden("Cannot set account data for other users".to_string()));
     }
 
-    ctx.account_data_service.set_room_account_data(&user_id, &room_id, &data_type, &body).await?;
+    ctx.account_data_service.set_room_account_data(user_id, &room_id, &data_type, &body).await?;
 
     Ok(Json(json!({})))
 }
@@ -243,7 +243,7 @@ async fn get_room_account_data(
         return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
     }
 
-    let result = ctx.account_data_service.get_room_account_data(&user_id, &room_id, &data_type).await?;
+    let result = ctx.account_data_service.get_room_account_data(user_id, &room_id, &data_type).await?;
 
     match result {
         Some(data) => Ok(Json(data)),
@@ -262,7 +262,7 @@ async fn create_filter(
         return Err(ApiError::forbidden("Cannot create filter for other users".to_string()));
     }
 
-    let filter_id = ctx.account_data_service.create_filter(&user_id, body).await?;
+    let filter_id = ctx.account_data_service.create_filter(user_id, body).await?;
 
     Ok(Json(json!({
         "filter_id": filter_id
@@ -279,7 +279,7 @@ async fn get_filter(
         return Err(ApiError::forbidden("Cannot get filter for other users".to_string()));
     }
 
-    let result = ctx.account_data_service.get_filter(&user_id, &filter_id).await?;
+    let result = ctx.account_data_service.get_filter(user_id, &filter_id).await?;
 
     match result {
         Some(content) => Ok(Json(content)),
@@ -297,7 +297,7 @@ async fn delete_account_data(
         return Err(ApiError::forbidden("Cannot delete account data for other users".to_string()));
     }
 
-    let deleted = ctx.account_data_service.delete_account_data(&user_id, &data_type).await?;
+    let deleted = ctx.account_data_service.delete_account_data(user_id, &data_type).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Account data not found".to_string()));
@@ -316,7 +316,7 @@ async fn delete_room_account_data(
         return Err(ApiError::forbidden("Cannot delete room account data for other users".to_string()));
     }
 
-    let deleted = ctx.account_data_service.delete_room_account_data(&user_id, &room_id, &data_type).await?;
+    let deleted = ctx.account_data_service.delete_room_account_data(user_id, &room_id, &data_type).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Room account data not found".to_string()));
@@ -335,7 +335,7 @@ async fn delete_filter(
         return Err(ApiError::forbidden("Cannot delete filter for other users".to_string()));
     }
 
-    let deleted = ctx.account_data_service.delete_filter(&user_id, &filter_id).await?;
+    let deleted = ctx.account_data_service.delete_filter(user_id, &filter_id).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Filter not found".to_string()));
@@ -354,7 +354,7 @@ async fn get_openid_token(
         return Err(ApiError::forbidden("Cannot get OpenID token for other users".to_string()));
     }
 
-    let (token, expires_in) = ctx.account_data_service.create_openid_token(&user_id, None, 3600).await?;
+    let (token, expires_in) = ctx.account_data_service.create_openid_token(user_id, None, 3600).await?;
 
     Ok(Json(json!({
         "access_token": token,
