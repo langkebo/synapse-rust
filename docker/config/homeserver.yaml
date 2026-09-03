@@ -36,7 +36,30 @@ rate_limit:
   default:
     per_second: 20
     burst_size: 40
-  endpoints: []
+  # Endpoint-specific overrides: more restrictive limits for auth endpoints.
+  # POST /login and POST /register accept a burst of 3 then throttle to 5/s,
+  # preventing credential-stuffing bots from hammering auth infrastructure.
+  endpoints:
+    - path: "/_matrix/client/v3/login"
+      match_type: exact
+      rule:
+        per_second: 5
+        burst_size: 3
+    - path: "/_matrix/client/r0/login"
+      match_type: exact
+      rule:
+        per_second: 5
+        burst_size: 3
+    - path: "/_matrix/client/v3/register"
+      match_type: exact
+      rule:
+        per_second: 5
+        burst_size: 3
+    - path: "/_matrix/client/r0/register"
+      match_type: exact
+      rule:
+        per_second: 5
+        burst_size: 3
   ip_header_priority:
     - "x-forwarded-for"
     - "x-real-ip"
