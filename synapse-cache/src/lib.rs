@@ -1,9 +1,11 @@
 // ROUND2-ISSUE-1: test code may use unwrap/expect/unwrap_err per Rust testing idiom.
 // Production lib code is still held to the strict clippy lint config in [lints.clippy].
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-// B2-TODO: Change to #![warn(missing_docs)] once module docs improve.
-// Currently emits a large volume of missing-docs warnings that drown out real
-// warnings; doc debt is tracked separately in the B2 backlog.
+// B2-TODO: doc-debt ratchet (see scripts/check_missing_docs_ratchet.sh).
+// Currently the crate has ~322 missing-docs warnings. Instead of disabling CI
+// with a long red baseline, we keep the allow here and use a per-PR ratchet
+// script that fails the build when the diff introduces a new pub item without
+// `///` documentation. The static debt can be chipped away in batches.
 #![allow(missing_docs)]
 
 use deadpool_redis::{Config, Pool, PoolConfig, Runtime};
