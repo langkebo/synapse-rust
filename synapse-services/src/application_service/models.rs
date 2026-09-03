@@ -2,12 +2,33 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::BTreeMap;
+use std::sync::{Mutex, OnceLock};
 use synapse_common::ApiError;
 use synapse_storage::application_service::*;
 use url::Url;
 
 use crate::application_service::ApplicationServiceManager;
 
+/// Module-level cache for compiled namespace regexes. Patterns are static
+/// (part of appservice registration YAML), so compiling once and reusing
+/// across calls is safe and eliminates per-call Regex::new overhead.
+///
+/// We use `OnceLock<BTreeMap<&str, &'static Regex>>` and `Box::leak` to give
+/// the cached regex `'static` lifetime so it can outlive any local guard.
+/// The leaked allocation is bounded by the number of distinct namespace
+/// patterns the homeserver has ever registered (typically < 100).
+fn cached_regex(pattern: &str) -> Option<&'static Regex> {
+    static CACHE: OnceLock<Mutex<BTreeMap<String, &'static Regex>>> = OnceLock::new();
+    let map = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
+    let mut guard = map.lock().expect("appservice regex cache poisoned");
+    if let Some(&r) = guard.get(pattern) {
+        return Some(r);
+    }
+    let compiled: &'static Regex =
+        Box::leak(Box::new(Regex::new(pattern).expect("appservice namespace regex must compile")));
+    guard.insert(pattern.to_string(), compiled);
+    Some(compiled)
+}
 #[derive(Debug, Deserialize)]
 pub(super) struct AppServiceConfigFile {
     id: String,
@@ -273,7 +294,7 @@ impl ApplicationServiceManager {
             .flatten()
             .filter(|rule| !exclusive_only || rule.get("exclusive").and_then(|value| value.as_bool()) == Some(true))
             .filter_map(|rule| rule.get("regex").and_then(|value| value.as_str()))
-            .any(|pattern| Regex::new(pattern).is_ok_and(|regex| regex.is_match(candidate)))
+            .any(|pattern| cached_regex(pattern).is_some_and(|regex| regex.is_match(candidate)))
     }
 
     pub(super) async fn validate_namespace_exclusivity(
