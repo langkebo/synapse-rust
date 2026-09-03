@@ -496,6 +496,44 @@ impl SlidingSyncStorage {
         Ok(())
     }
 
+    /// B-1.5: Batch variant of [`delete_room`] for sliding-sync unsubscribe.
+    ///
+    /// Replaces an N+1 `for room_id in rooms { delete_room(...) }` loop with a
+    /// single round-trip.  Returns the number of rows actually deleted (0 is a
+    /// valid no-op result — same as a single-row delete against a missing row).
+    ///
+    /// Empty `room_ids` short-circuits to `Ok(0)` without touching the DB so
+    /// callers don't need to add a separate guard (mirrors the pattern used in
+    /// `get_receipts_for_rooms` and `get_room_account_data` in this file).
+    pub async fn delete_rooms_batch(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_ids: &[String],
+        conn_id: Option<&str>,
+    ) -> Result<u64, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let result = sqlx::query(
+            r"
+            DELETE FROM sliding_sync_rooms
+            WHERE user_id = $1 AND device_id = $2
+              AND room_id = ANY($3::text[])
+              AND (conn_id = $4 OR ($4 IS NULL AND conn_id IS NULL))
+            ",
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(room_ids)
+        .bind(conn_id)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
     pub async fn update_notification_counts(
         &self,
         user_id: &str,

@@ -397,12 +397,13 @@ impl SlidingSyncService {
         }
 
         if let Some(unsubs) = &request.unsubscribe_rooms {
-            for room_id in unsubs {
-                self.storage
-                    .delete_room(user_id, device_id, room_id, conn_id)
-                    .await
-                    .map_err(|e| ApiError::internal_with_context("Failed to unsubscribe room", &e))?;
-            }
+            // B-1.5: Previously each room in `unsubscribe_rooms` triggered an
+            // independent delete_room round-trip.  Replace the loop with a single
+            // batch call.  Empty slice short-circuits without a DB round-trip.
+            self.storage
+                .delete_rooms_batch(user_id, device_id, unsubs, conn_id)
+                .await
+                .map_err(|e| ApiError::internal_with_context("Failed to unsubscribe rooms", &e))?;
         }
 
         if is_initial {

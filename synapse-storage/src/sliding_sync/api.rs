@@ -101,6 +101,30 @@ pub trait SlidingSyncStoreApi: Send + Sync {
         room_id: &str,
         conn_id: Option<&str>,
     ) -> Result<(), sqlx::Error>;
+
+    /// B-1.5: Batch counterpart of [`delete_room`]. Returns the number of
+    /// rows deleted across all room_ids. The default implementation calls
+    /// [`delete_room`] once per id; Postgres-backed stores should override
+    /// with a single `DELETE ... WHERE room_id = ANY($1)` for efficiency.
+    /// Empty `room_ids` returns `Ok(0)` without touching the DB.
+    async fn delete_rooms_batch(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_ids: &[String],
+        conn_id: Option<&str>,
+    ) -> Result<u64, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(0);
+        }
+        let mut affected = 0u64;
+        for room_id in room_ids {
+            self.delete_room(user_id, device_id, room_id, conn_id).await?;
+            affected = affected.saturating_add(1);
+        }
+        Ok(affected)
+    }
+
     async fn update_notification_counts(
         &self,
         user_id: &str,
@@ -276,6 +300,18 @@ impl SlidingSyncStoreApi for SlidingSyncStorage {
         conn_id: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         self.delete_room(user_id, device_id, room_id, conn_id).await
+    }
+    async fn delete_rooms_batch(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_ids: &[String],
+        conn_id: Option<&str>,
+    ) -> Result<u64, sqlx::Error> {
+        // Override the default loop impl with the single-query batch path
+        // (B-1.5). Critical for unsubscribe_rooms latency when clients drop
+        // many subscriptions in one sync.
+        self.delete_rooms_batch(user_id, device_id, room_ids, conn_id).await
     }
     async fn update_notification_counts(
         &self,
