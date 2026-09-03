@@ -4,28 +4,25 @@ pub mod localhost_guard;
 mod pagination;
 
 use crate::common::ApiError;
-use serde::{Deserialize, Serialize};
 
-// ============== RoomId ==============
+// P3-9: re-export typed IDs from synapse-common as the single source of truth.
+// All new Matrix ID types live in synapse-common::types; extractors provides
+// Axum-compatible convenience constructors for route parameter binding.
+//
+// The old tuple-struct definitions are removed; callers that previously imported
+// `extractors::RoomId` etc. now get the typed newtypes from synapse-common.
 
-/// Room ID 提取器
-/// 格式: !room_id:domain
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoomId(pub String);
+pub use synapse_common::types::{DeviceId, EventId, RoomAlias, RoomId, ServerName, UserId};
 
-// ============== UserId ==============
+/// Extension trait: Axum-aware validators for ID types.
+pub trait UserIdParseExt {
+    fn parse_matrix(raw: &str) -> Result<Self, ApiError>
+    where
+        Self: Sized;
+}
 
-/// User ID 提取器
-/// 格式: @user_id:domain
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserId(pub String);
-
-impl UserId {
-    pub fn new(id: String) -> Self {
-        Self(id)
-    }
-
-    pub fn parse(raw: &str) -> Result<Self, ApiError> {
+impl UserIdParseExt for UserId {
+    fn parse_matrix(raw: &str) -> Result<Self, ApiError> {
         if raw.starts_with('@') {
             Ok(Self(raw.to_string()))
         } else {
@@ -40,28 +37,4 @@ impl UserId {
 pub use auth::{AdminUser, AuthenticatedUser, OptionalAuthenticatedUser};
 pub use json::MatrixJson;
 pub use pagination::Pagination;
-
-// ============== DeviceId ==============
-
-/// Device ID 提取器
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeviceId(pub String);
-
-impl DeviceId {
-    pub fn new(id: String) -> Self {
-        Self(id)
-    }
-}
-
-// ============== EventId ==============
-
-/// Event ID 提取器
-/// 格式: $event_id:domain
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EventId(pub String);
-
-impl EventId {
-    pub fn new(id: String) -> Self {
-        Self(id)
-    }
-}
+pub use synapse_common::types as id_types;

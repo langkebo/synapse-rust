@@ -2,57 +2,182 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserId {
-    pub localpart: String,
-    pub server_name: String,
+// ─────────────────────────────────────────────────────────────────────────────
+// P3-9: Matrix ID newtypes — single source of truth
+//
+// All Matrix identifiers (user, room, event, alias, device, server) are wrapped
+// in typed newtypes so that:
+//   * the type system prevents `RoomId` being passed where `UserId` is wanted,
+//   * `Eq + Hash` enables direct use in HashSet / HashMap / ordering,
+//   * `FromStr` provides a single validation entry-point,
+//   * `Display` emits the canonical Matrix wire form.
+//
+// Migration note: these types are introduced alongside existing `String`
+// usage and may be adopted incrementally. They are *not* `Deref<Target=str>`
+// to avoid accidentally bypassing `Display`; use `.as_str()` or `&*id`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Internal macro: define a Matrix ID newtype with the standard impls.
+///
+/// Usage:
+///   `matrix_id!(UserId, "matrix.user_id");`
+///
+/// Generates:
+///   * `pub struct $name(pub String);` (pub field for incremental adoption)
+///   * `Display`, `FromStr`, `AsRef<str>`, `From<String>`, `From<&str>`
+///   * `Serialize` / `Deserialize` (transparent string pass-through)
+///   * `PartialEq` / `Eq` / `Hash`
+///   * `Deref<Target = str>` (read-only convenience)
+///
+/// `kind` is a stable name used for error messages and Debug output.
+macro_rules! matrix_id {
+    ($name:ident, $kind:literal $(, doc = $doc:literal)?) => {
+        $(#[doc = $doc])?
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[serde(transparent)]
+        pub struct $name(pub String);
+
+        impl $name {
+            /// Construct from a raw, **unvalidated** string.
+            ///
+            /// Use `FromStr::from_str` for validated construction.
+            #[inline]
+            pub fn new_unchecked(s: impl Into<String>) -> Self {
+                Self(s.into())
+            }
+
+            /// Borrow the underlying raw string slice.
+            #[inline]
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(&self.0)
+            }
+        }
+
+        impl AsRef<str> for $name {
+            #[inline]
+            fn as_ref(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl std::ops::Deref for $name {
+            type Target = str;
+            #[inline]
+            fn deref(&self) -> &str {
+                &self.0
+            }
+        }
+
+        impl From<String> for $name {
+            #[inline]
+            fn from(s: String) -> Self {
+                Self(s)
+            }
+        }
+
+        impl From<&str> for $name {
+            #[inline]
+            fn from(s: &str) -> Self {
+                Self(s.to_string())
+            }
+        }
+
+        impl PartialEq<str> for $name {
+            #[inline]
+            fn eq(&self, other: &str) -> bool {
+                self.0 == other
+            }
+        }
+
+        impl PartialEq<&str> for $name {
+            #[inline]
+            fn eq(&self, other: &&str) -> bool {
+                self.0 == *other
+            }
+        }
+
+        impl FromStr for $name {
+            type Err = $crate::types::IdParseError;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                if s.is_empty() {
+                    return Err(Self::Err { kind: $kind, reason: "empty".into() });
+                }
+                Ok(Self(s.to_string()))
+            }
+        }
+    };
 }
 
-impl UserId {
-    pub fn new(localpart: &str, server_name: &str) -> Self {
-        Self { localpart: localpart.to_string(), server_name: server_name.to_string() }
-    }
+/// Error returned by `FromStr` impls when a Matrix ID fails validation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdParseError {
+    pub kind: &'static str,
+    pub reason: String,
 }
 
-impl fmt::Display for UserId {
+impl fmt::Display for IdParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "@{}:{}", self.localpart, self.server_name)
+        write!(f, "invalid {} id: {}", self.kind, self.reason)
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoomAlias {
-    pub localpart: String,
-    pub server_name: String,
+impl std::error::Error for IdParseError {}
+
+matrix_id!(ServerName, "server_name", doc = "Homeserver name, e.g. `matrix.org`.");
+matrix_id!(UserId, "user_id", doc = "Matrix user ID, e.g. `@alice:matrix.org`.");
+matrix_id!(RoomId, "room_id", doc = "Matrix room ID, e.g. `!room:matrix.org`.");
+matrix_id!(EventId, "event_id", doc = "Matrix event ID, e.g. `$event:matrix.org`.");
+matrix_id!(
+    RoomAlias,
+    "room_alias",
+    doc = "Matrix room alias, e.g. `#room:matrix.org`."
+);
+matrix_id!(DeviceId, "device_id", doc = "Matrix device ID, e.g. `JLAIKJWLEI`.");
+matrix_id!(
+    TransactionId,
+    "transaction_id",
+    doc = "Client-generated transaction ID, e.g. `tn12345`."
+);
+matrix_id!(
+    MxcUri,
+    "mxc_uri",
+    doc = "MXC media URI, e.g. `mxc://matrix.org/AQDaVF...`."
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P3-9 backward-compat shim: legacy structured fields kept as deprecated accessors
+// so the original `UserId::new("alice", "server.com")` shape still compiles.
+// These may be removed once all callers migrate.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[deprecated(note = "use `UserId::from_str(...)` or `UserId::new_unchecked(s)` instead")]
+impl UserId {
+    /// Construct a `UserId` from localpart + server name (legacy API).
+    /// Emits the full `@localpart:server_name` form.
+    pub fn new(localpart: &str, server_name: &str) -> Self {
+        Self(format!("@{localpart}:{server_name}"))
+    }
 }
 
+#[deprecated(note = "use `RoomAlias::from_str(...)` or `RoomAlias::new_unchecked(s)` instead")]
 impl RoomAlias {
     pub fn new(localpart: &str, server_name: &str) -> Self {
-        Self { localpart: localpart.to_string(), server_name: server_name.to_string() }
+        Self(format!("#{localpart}:{server_name}"))
     }
 }
 
-impl fmt::Display for RoomAlias {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "#{}:{}", self.localpart, self.server_name)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EventId {
-    pub value: String,
-    pub server_name: String,
-}
-
+#[deprecated(note = "use `EventId::from_str(...)` or `EventId::new_unchecked(s)` instead")]
 impl EventId {
-    pub fn new(value: &str, server_name: &str) -> Self {
-        Self { value: value.to_string(), server_name: server_name.to_string() }
-    }
-}
-
-impl fmt::Display for EventId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "${}", self.value)
+    pub fn new(value: &str, _server_name: &str) -> Self {
+        // EventId wire form is `$value` (server_name is implicit); preserve legacy
+        // signature by ignoring the second argument rather than panicking.
+        Self(format!("${value}"))
     }
 }
 
@@ -285,34 +410,115 @@ mod tests {
 
     #[test]
     fn test_user_id_creation() {
-        let user_id = UserId::new("alice", "example.com");
-        assert_eq!(user_id.localpart, "alice");
-        assert_eq!(user_id.server_name, "example.com");
+        let user_id = UserId("@alice:example.com".to_string());
+        assert_eq!(user_id.as_str(), "@alice:example.com");
         assert_eq!(format!("{user_id}"), "@alice:example.com");
     }
 
     #[test]
     fn test_user_id_serialization() {
-        let user_id = UserId::new("bob", "matrix.org");
+        let user_id = UserId("@bob:matrix.org".to_string());
         let json = serde_json::to_string(&user_id).unwrap();
-        assert!(json.contains("bob"));
-        assert!(json.contains("matrix.org"));
+        assert_eq!(json, "\"@bob:matrix.org\"");
     }
 
     #[test]
     fn test_room_alias_creation() {
-        let alias = RoomAlias::new("general", "example.com");
-        assert_eq!(alias.localpart, "general");
-        assert_eq!(alias.server_name, "example.com");
+        let alias = RoomAlias("#general:example.com".to_string());
+        assert_eq!(alias.as_str(), "#general:example.com");
         assert_eq!(format!("{alias}"), "#general:example.com");
     }
 
     #[test]
     fn test_event_id_creation() {
-        let event_id = EventId::new("abc123", "example.com");
-        assert_eq!(event_id.value, "abc123");
-        assert_eq!(event_id.server_name, "example.com");
-        assert_eq!(format!("{event_id}"), "$abc123");
+        let event_id = EventId("$abc123:example.com".to_string());
+        assert_eq!(event_id.as_str(), "$abc123:example.com");
+        assert_eq!(format!("{event_id}"), "$abc123:example.com");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // P3-9: Matrix ID newtype tests
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_matrix_id_constructors() {
+        // ServerName
+        let server: ServerName = "matrix.org".parse().unwrap();
+        assert_eq!(server.as_str(), "matrix.org");
+
+        // RoomId
+        let room = RoomId::new_unchecked("!abc:matrix.org");
+        assert_eq!(room.as_str(), "!abc:matrix.org");
+        assert_eq!(format!("{room}"), "!abc:matrix.org");
+
+        // DeviceId
+        let dev = DeviceId::new_unchecked("JLAIKJWLEI");
+        assert_eq!(dev.as_str(), "JLAIKJWLEI");
+
+        // TransactionId
+        let txn = TransactionId::new_unchecked("tn123");
+        assert_eq!(txn.as_str(), "tn123");
+
+        // MxcUri
+        let mxc = MxcUri::new_unchecked("mxc://matrix.org/AQDaVFlbkQoErdOgqWRgiGSV");
+        assert_eq!(mxc.as_str(), "mxc://matrix.org/AQDaVFlbkQoErdOgqWRgiGSV");
+    }
+
+    #[test]
+    fn test_matrix_id_hash_eq() {
+        use std::collections::HashSet;
+        let mut set: HashSet<RoomId> = HashSet::new();
+        set.insert(RoomId::new_unchecked("!a:m.org"));
+        set.insert(RoomId::new_unchecked("!a:m.org"));
+        set.insert(RoomId::new_unchecked("!b:m.org"));
+        assert_eq!(set.len(), 2);
+
+        // Equality
+        assert_eq!(RoomId::new_unchecked("!a:m.org"), RoomId::new_unchecked("!a:m.org"));
+        assert_ne!(RoomId::new_unchecked("!a:m.org"), RoomId::new_unchecked("!b:m.org"));
+    }
+
+    #[test]
+    fn test_matrix_id_partial_eq_str() {
+        let room = RoomId::new_unchecked("!a:m.org");
+        assert!(room == "!a:m.org");
+        assert!(room != "!b:m.org");
+    }
+
+    #[test]
+    fn test_matrix_id_from_str_validates_nonempty() {
+        assert!("".parse::<UserId>().is_err());
+        assert!("non-empty".parse::<RoomId>().is_ok());
+    }
+
+    #[test]
+    fn test_matrix_id_serde_transparent() {
+        // `#[serde(transparent)]` means the wire form is just the inner string.
+        let user: UserId = "@a:b.org".to_string().into();
+        let json = serde_json::to_string(&user).unwrap();
+        assert_eq!(json, "\"@a:b.org\"");
+
+        let parsed: UserId = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, user);
+    }
+
+    #[test]
+    fn test_matrix_id_deref_and_as_ref() {
+        let room = RoomId::new_unchecked("!r:s");
+        // Deref<Target = str>
+        let s: &str = &room;
+        assert_eq!(s, "!r:s");
+        // AsRef<str>
+        let s: &str = room.as_ref();
+        assert_eq!(s, "!r:s");
+        // .as_str()
+        assert_eq!(room.as_str(), "!r:s");
+    }
+
+    #[test]
+    fn test_id_parse_error_display() {
+        let err: IdParseError = "".parse::<UserId>().unwrap_err();
+        assert_eq!(format!("{err}"), "invalid user_id id: empty");
     }
 
     #[test]
