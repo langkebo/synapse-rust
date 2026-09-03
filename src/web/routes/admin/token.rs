@@ -215,11 +215,11 @@ pub async fn get_user_tokens(
 pub async fn delete_user_token(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((user_id, token_id)): Path<(String, i64)>,
+    Path((user_id, token_id)): Path<(UserId, i64)>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_user_exists(&ctx, &user_id).await?;
+    ensure_user_exists(&ctx, user_id.as_str()).await?;
 
-    ctx.admin_token_service.delete_user_access_token(&user_id, token_id).await?;
+    ctx.admin_token_service.delete_user_access_token(user_id.as_str(), token_id).await?;
 
     Ok(Json(json!({})))
 }
@@ -254,11 +254,11 @@ pub async fn get_user_refresh_tokens(
 pub async fn delete_refresh_token(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((user_id, token_id)): Path<(String, i64)>,
+    Path((user_id, token_id)): Path<(UserId, i64)>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_user_exists(&ctx, &user_id).await?;
+    ensure_user_exists(&ctx, user_id.as_str()).await?;
 
-    ctx.admin_token_service.delete_refresh_token(&user_id, token_id).await?;
+    ctx.admin_token_service.delete_refresh_token(user_id.as_str(), token_id).await?;
 
     Ok(Json(json!({})))
 }
