@@ -483,6 +483,14 @@ pub fn swagger_ui_router(_state: AppState) -> axum::Router<AppState> {
             schemas::ApiHealthStatus,
             schemas::ApiPusher,
             schemas::ApiPushersResponse,
+            // P1-1: Device endpoints
+            schemas::ApiDevice,
+            schemas::ApiDeviceListResponse,
+            schemas::ApiDeviceDetailResponse,
+            schemas::ApiUpdateDeviceRequest,
+            schemas::ApiUpdateDeviceResponse,
+            schemas::ApiDeleteDevicesRequest,
+            schemas::ApiEmptyResponse,
         )),
     )]
     struct ApiDoc;

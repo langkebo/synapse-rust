@@ -1,5 +1,6 @@
 #![cfg(feature = "openapi-docs")]
 
+use super::schemas;
 use super::schemas::*;
 
 /// `GET /_health` — Detailed health check with component statuses.
@@ -146,7 +147,7 @@ pub fn get_push_rule() -> axum::Json<serde_json::Value> {
     tag = "Client-Server",
     responses(
         (status = 200, description = "User devices",
-            body = serde_json::Value,
+            body = schemas::ApiDeviceListResponse,
             example = json!({
                 "devices": [{
                     "device_id": "DEVICEID",
@@ -173,7 +174,7 @@ pub fn get_devices() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Device details",
-            body = serde_json::Value,
+            body = schemas::ApiDeviceDetailResponse,
             example = json!({
                 "device": {
                     "device_id": "DEVICEID",
@@ -201,10 +202,10 @@ pub fn get_device() -> axum::Json<serde_json::Value> {
     params(
         ("device_id" = String, Path, description = "Matrix device ID")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiUpdateDeviceRequest,
     responses(
         (status = 200, description = "Device updated",
-            body = serde_json::Value,
+            body = schemas::ApiUpdateDeviceResponse,
             example = json!({
                 "device_id": "DEVICEID",
                 "display_name": "Updated device name",
@@ -231,9 +232,9 @@ pub fn update_device_doc() -> axum::Json<serde_json::Value> {
     params(
         ("device_id" = String, Path, description = "Matrix device ID")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiDeleteDevicesRequest,
     responses(
-        (status = 200, description = "Device deleted", body = serde_json::Value),
+        (status = 200, description = "Device deleted", body = schemas::ApiEmptyResponse),
         (status = 401, description = "UIA challenge required"),
         (status = 404, description = "Device not found")
     ),
@@ -251,9 +252,9 @@ pub fn delete_device_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v3/delete_devices",
     tag = "Client-Server",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiDeleteDevicesRequest,
     responses(
-        (status = 200, description = "Devices deleted", body = serde_json::Value),
+        (status = 200, description = "Devices deleted", body = schemas::ApiEmptyResponse),
         (status = 401, description = "UIA challenge required"),
         (status = 400, description = "Missing or invalid device_ids")
     ),

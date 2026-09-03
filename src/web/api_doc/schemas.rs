@@ -63,3 +63,82 @@ pub struct ApiPushersResponse {
     /// The list of pushers for the authenticated user/device.
     pub pushers: Vec<ApiPusher>,
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P1-1: Device endpoints  (GET/DELETE /v3/devices, PUT /v3/devices/{device_id},
+//                           POST /v3/delete_devices)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Individual device descriptor returned by `GET /_matrix/client/v3/devices`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiDevice {
+    /// Identifier for this device.
+    pub device_id: String,
+    /// Human-readable display name for the device.
+    pub display_name: Option<String>,
+    /// Unix timestamp (ms) when this device was last seen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_seen_ts: Option<i64>,
+    /// The IP address the device was last seen from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_seen_ip: Option<String>,
+}
+
+/// Response body of `GET /_matrix/client/v3/devices`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiDeviceListResponse {
+    /// The authenticated user's active devices.
+    pub devices: Vec<ApiDevice>,
+}
+
+/// Full device detail returned by `GET /_matrix/client/v3/devices/{device_id}`.
+///
+/// Matrix spec duplicates fields at the top level; we follow the spec shape.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiDeviceDetailResponse {
+    /// Nested device object (present in the spec response).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device: Option<ApiDevice>,
+    /// Device identifier.
+    pub device_id: String,
+    /// Human-readable display name for the device.
+    pub display_name: Option<String>,
+    /// Unix timestamp (ms) when this device was last seen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_seen_ts: Option<i64>,
+}
+
+/// Request body for `PUT /_matrix/client/v3/devices/{device_id}`.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiUpdateDeviceRequest {
+    /// New human-readable display name for the device.
+    pub display_name: Option<String>,
+}
+
+/// Response body of `PUT /_matrix/client/v3/devices/{device_id}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiUpdateDeviceResponse {
+    pub device_id: String,
+    pub display_name: Option<String>,
+    /// Unix timestamp (ms) of the update.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_ts: Option<i64>,
+}
+
+/// Empty JSON object returned on successful DELETE.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiEmptyResponse {}
+
+/// Request body for `POST /_matrix/client/v3/delete_devices`.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiDeleteDevicesRequest {
+    /// List of device IDs to delete.
+    pub device_ids: Vec<String>,
+}
