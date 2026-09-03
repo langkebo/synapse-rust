@@ -187,11 +187,7 @@ impl ToDeviceStorage {
                 .push_bind(now);
         });
 
-        let result = qb
-            .build()
-            .execute(&*self.pool)
-            .await
-            .map_err(map_database!("add_messages_batch"))?;
+        let result = qb.build().execute(&*self.pool).await.map_err(map_database!("add_messages_batch"))?;
 
         Ok(result.rows_affected() as usize)
     }

@@ -190,10 +190,7 @@ impl FriendRoomService {
 
         // Check DB
         if let Ok(Some(room_id)) = self.friend_storage.get_friend_list_room_id(user_id).await {
-            let _ = self
-                .cache
-                .set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS)
-                .await;
+            let _ = self.cache.set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS).await;
             return Ok(room_id);
         }
 
@@ -222,10 +219,7 @@ impl FriendRoomService {
             }
             // Re-check DB (room may have been created by the holder)
             if let Ok(Some(room_id)) = self.friend_storage.get_friend_list_room_id(user_id).await {
-                let _ = self
-                    .cache
-                    .set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS)
-                    .await;
+                let _ = self.cache.set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS).await;
                 return Ok(room_id);
             }
             tracing::warn!(user_id = %user_id,
@@ -236,10 +230,7 @@ impl FriendRoomService {
         // Double-check DB inside lock in case the holder just finished
         if let Ok(Some(room_id)) = self.friend_storage.get_friend_list_room_id(user_id).await {
             let _ = self.cache.release_lock(&lock_key).await;
-            let _ = self
-                .cache
-                .set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS)
-                .await;
+            let _ = self.cache.set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS).await;
             return Ok(room_id);
         }
 
@@ -265,10 +256,7 @@ impl FriendRoomService {
         self.send_state_event(&room_id, user_id, "m.friends.list", "", content).await?;
 
         // Cache the newly created room_id
-        let _ = self
-            .cache
-            .set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS)
-            .await;
+        let _ = self.cache.set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS).await;
 
         // Always release the lock, even on panic (via Drop guard)
         self.cache.release_lock(&lock_key).await;

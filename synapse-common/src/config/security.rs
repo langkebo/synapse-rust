@@ -38,8 +38,10 @@ pub struct SecurityConfig {
     #[serde(default = "default_login_lockout_duration_seconds")]
     pub login_lockout_duration_seconds: u64,
     /// 登录锁定机制在 Redis 不可用时是否放行（fail-open）。
+    ///
     /// - true（默认，向后兼容）：Redis 挂掉时跳过锁定检查，登录照常进行
     /// - false：Redis 挂掉时直接返回 503，拒绝所有登录请求（避免 fail-open 暴力破解窗口）
+    ///
     /// 推荐生产环境设为 false；除非 Redis 与 synapse 同进程内嵌（无外部依赖）。
     #[serde(default = "default_login_lockout_fail_open")]
     pub login_lockout_fail_open_on_redis_error: bool,

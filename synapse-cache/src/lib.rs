@@ -711,8 +711,8 @@ impl RedisCache {
         self.with_circuit_breaker("SETNX", |mut conn| async move {
             let mut cmd = redis::cmd("SET");
             cmd.arg(key).arg(value).arg("NX").arg("EX").arg(ttl_secs);
-            let result: Option<String> = cmd.query_async(&mut conn).await
-                .map_err(|e| CacheError::OperationFailed(e.to_string()))?;
+            let result: Option<String> =
+                cmd.query_async(&mut conn).await.map_err(|e| CacheError::OperationFailed(e.to_string()))?;
             Ok(result.is_some())
         })
         .await

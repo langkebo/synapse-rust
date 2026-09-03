@@ -421,9 +421,7 @@ impl CrossSigningStorage {
         .await
         .map_err(map_database!("Failed to delete device signatures"))?;
 
-        tx.commit()
-            .await
-            .map_err(map_database!("Failed to commit transaction for delete_cross_signing_keys"))?;
+        tx.commit().await.map_err(map_database!("Failed to commit transaction for delete_cross_signing_keys"))?;
 
         Ok(())
     }

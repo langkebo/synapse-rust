@@ -54,11 +54,11 @@ impl ToDeviceService {
 
             // Stage 1a: filter to existing users in one query (if user_storage
             // is configured; otherwise assume all users exist).
-            let existing_users: Option<std::collections::HashSet<String>> = if let Some(user_storage) = &self.user_storage {
-                let existing = user_storage
-                    .filter_existing_users(&all_user_ids)
-                    .await
-                    .map_err(map_database!("send_messages"))?;
+            let existing_users: Option<std::collections::HashSet<String>> = if let Some(user_storage) =
+                &self.user_storage
+            {
+                let existing =
+                    user_storage.filter_existing_users(&all_user_ids).await.map_err(map_database!("send_messages"))?;
                 Some(existing.into_iter().collect())
             } else {
                 None
