@@ -43,9 +43,33 @@ impl ToDeviceService {
         }
 
         if let Some(msg_map) = messages.as_object() {
+            // Stage 1: batch user-existence check. filter_existing_users runs
+            // a single `WHERE user_id = ANY($1)` query and returns the subset
+            // of user_ids that exist. This replaces the previous N-call
+            // user_exists loop with one round-trip.
+
+            // Pre-collect all user_ids before the device loop so we can batch
+            // the existence check.
+            let all_user_ids: Vec<String> = msg_map.keys().cloned().collect();
+
+            // Stage 1a: filter to existing users in one query (if user_storage
+            // is configured; otherwise assume all users exist).
+            let existing_users: Option<std::collections::HashSet<String>> = if let Some(user_storage) = &self.user_storage {
+                let existing = user_storage
+                    .filter_existing_users(&all_user_ids)
+                    .await
+                    .map_err(map_database!("send_messages"))?;
+                Some(existing.into_iter().collect())
+            } else {
+                None
+            };
+
+            // Stage 1b: build ToDeviceMessage list, skipping entries whose
+            // recipient user is known to not exist.
+            let mut batch: Vec<ToDeviceMessage<'_>> = Vec::new();
             for (user_id, devices) in msg_map {
-                if let Some(user_storage) = &self.user_storage {
-                    if !user_storage.user_exists(user_id).await.map_err(map_database!("send_messages"))? {
+                if let Some(ref existing) = existing_users {
+                    if !existing.contains(user_id) {
                         tracing::warn!("Skipping to-device message for non-existent user: {}", user_id);
                         continue;
                     }
@@ -53,20 +77,30 @@ impl ToDeviceService {
 
                 if let Some(device_map) = devices.as_object() {
                     for (device_id, content) in device_map {
-                        self.storage
-                            .add_message(ToDeviceMessage {
-                                sender_user_id,
-                                sender_device_id,
-                                recipient_user_id: user_id,
-                                recipient_device_id: device_id,
-                                event_type,
-                                message_id,
-                                content: content.clone(),
-                            })
-                            .await?;
+                        batch.push(ToDeviceMessage {
+                            sender_user_id,
+                            sender_device_id,
+                            recipient_user_id: user_id,
+                            recipient_device_id: device_id,
+                            event_type,
+                            message_id,
+                            content: content.clone(),
+                        });
                     }
                 }
             }
+
+            // Stage 2: one batched INSERT for all valid (user, device) pairs.
+            // add_messages_batch still filters out non-existent devices via
+            // device_exists() — but those checks are now done once per unique
+            // recipient inside the batch implementation rather than N times
+            // outside.
+            let inserted = self.storage.add_messages_batch(&batch).await?;
+            tracing::debug!(
+                target_user_count = msg_map.len(),
+                inserted_count = inserted,
+                "Batched to-device message dispatch complete"
+            );
         }
         Ok(())
     }

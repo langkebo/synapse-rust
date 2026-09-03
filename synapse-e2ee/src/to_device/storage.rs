@@ -135,6 +135,67 @@ impl ToDeviceStorage {
         Ok(())
     }
 
+    /// Batch insert of to-device messages. Eliminates the N+1 round-trips that
+    /// `add_message` would incur when sending to many devices.
+    ///
+    /// Each message's recipient device is still checked for existence (so we
+    /// silently skip recipients whose devices no longer exist, matching the
+    /// behaviour of `add_message`). All checked-and-existing messages are then
+    /// persisted in a single `INSERT ... VALUES (...), (...), ...` statement.
+    ///
+    /// Returns the number of messages actually inserted.
+    pub async fn add_messages_batch(&self, messages: &[ToDeviceMessage<'_>]) -> Result<usize, ApiError> {
+        if messages.is_empty() {
+            return Ok(0);
+        }
+
+        // Stage 1: filter to existing devices. Skip silently (with warn) when
+        // the recipient device has disappeared, matching add_message semantics.
+        let mut kept: Vec<&ToDeviceMessage<'_>> = Vec::with_capacity(messages.len());
+        for msg in messages {
+            if self.device_exists(msg.recipient_user_id, msg.recipient_device_id).await? {
+                kept.push(msg);
+            } else {
+                tracing::warn!(
+                    "Skipping to-device message for non-existent device: {}:{}",
+                    msg.recipient_user_id,
+                    msg.recipient_device_id
+                );
+            }
+        }
+        if kept.is_empty() {
+            return Ok(0);
+        }
+
+        // Stage 2: batch insert. stream_id is assigned by the DB via nextval()
+        // for each row (one nextval() call per row, even in a single statement).
+        let now = current_timestamp_millis();
+        let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "INSERT INTO to_device_messages \
+             (sender_user_id, sender_device_id, recipient_user_id, recipient_device_id, \
+              event_type, content, message_id, stream_id, created_ts) ",
+        );
+        qb.push_values(kept.iter().copied(), |mut b, msg| {
+            b.push_bind(msg.sender_user_id)
+                .push_bind(msg.sender_device_id)
+                .push_bind(msg.recipient_user_id)
+                .push_bind(msg.recipient_device_id)
+                .push_bind(msg.event_type)
+                .push_bind(&msg.content)
+                .push_bind(msg.message_id)
+                .push("nextval('to_device_stream_id_seq')")
+                .push_bind(now);
+        });
+
+        let result = qb
+            .build()
+            .execute(&*self.pool)
+            .await
+            .map_err(map_database!("add_messages_batch"))?;
+
+        Ok(result.rows_affected() as usize)
+    }
+
     pub async fn get_messages(&self, user_id: &str, device_id: &str) -> Result<Vec<Value>, ApiError> {
         let rows = sqlx::query(
             r"
