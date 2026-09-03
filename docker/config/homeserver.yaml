@@ -57,6 +57,14 @@ database:
   max_size: 50
   min_idle: 10
   connection_timeout: 60
+  # Pool lifetime / idle timeout (seconds). Defaults shown.
+  max_lifetime_secs: 1800
+  idle_timeout_secs: 600
+  min_idle_floor: 5
+  # PG session-level timeouts (seconds). 0 disables.
+  statement_timeout_secs: 30
+  lock_timeout_secs: 10
+  idle_in_transaction_timeout_secs: 60
 
 redis:
   host: "redis"

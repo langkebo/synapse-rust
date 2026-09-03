@@ -4,8 +4,46 @@ use serde::Deserialize;
 // SECTION: Database Configuration
 // ============================================================================
 
+/// 默认连接最长生命周期（秒）：30 分钟。
+///
+/// 与旧版 Synapse 默认一致，避免长连接被 PG `idle_session_timeout` 提前关闭。
+fn default_database_max_lifetime_secs() -> u64 {
+    1800
+}
+
+/// 默认连接空闲超时（秒）：10 分钟。
+///
+/// 用于释放长时间未使用的连接。
+fn default_database_idle_timeout_secs() -> u64 {
+    600
+}
+
+/// 当 `min_idle` 未显式设置时使用的最小空闲连接数。
+fn default_database_min_idle_floor() -> u32 {
+    5
+}
+
+/// PG `statement_timeout`（秒）：单个 SQL 语句的最长执行时间。
+///
+/// 生产建议 30s；批量/报表场景需要拉到 5-10 分钟时应通过 Config 调高，
+/// 不应继续走硬编码。
+fn default_database_statement_timeout_secs() -> u64 {
+    30
+}
+
+/// PG `lock_timeout`（秒）：等待锁的最长时间。
+fn default_database_lock_timeout_secs() -> u64 {
+    10
+}
+
+/// PG `idle_in_transaction_session_timeout`（秒）：
+/// 事务开启但长时间空闲时的最长时间，防止连接被独占。
+fn default_database_idle_in_transaction_timeout_secs() -> u64 {
+    60
+}
+
 /// 数据库连接配置。
-#[derive(Clone, Deserialize, Default, derivative::Derivative)]
+#[derive(Clone, Deserialize, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct DatabaseConfig {
     /// 数据库主机地址
@@ -31,6 +69,48 @@ pub struct DatabaseConfig {
     pub min_idle: Option<u32>,
     /// 连接超时时间（秒）
     pub connection_timeout: u64,
+    /// 连接最长生命周期（秒）。默认 1800s（30 分钟）。
+    #[serde(default = "default_database_max_lifetime_secs")]
+    pub max_lifetime_secs: u64,
+    /// 连接空闲超时（秒）。默认 600s（10 分钟）。
+    #[serde(default = "default_database_idle_timeout_secs")]
+    pub idle_timeout_secs: u64,
+    /// 当 [`min_idle`](Self::min_idle) 未设置时使用的下限。
+    ///
+    /// 仅在旧配置缺省 `min_idle` 时生效，避免连接池频繁扩张/收缩。
+    #[serde(default = "default_database_min_idle_floor")]
+    pub min_idle_floor: u32,
+    /// PG `statement_timeout`（秒）。每个新连接初始化时通过 `SET statement_timeout` 生效。
+    #[serde(default = "default_database_statement_timeout_secs")]
+    pub statement_timeout_secs: u64,
+    /// PG `lock_timeout`（秒）。
+    #[serde(default = "default_database_lock_timeout_secs")]
+    pub lock_timeout_secs: u64,
+    /// PG `idle_in_transaction_session_timeout`（秒）。
+    #[serde(default = "default_database_idle_in_transaction_timeout_secs")]
+    pub idle_in_transaction_timeout_secs: u64,
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            host: String::new(),
+            port: 5432,
+            username: String::new(),
+            password: String::new(),
+            name: String::new(),
+            pool_size: 0,
+            max_size: 50,
+            min_idle: None,
+            connection_timeout: 60,
+            max_lifetime_secs: default_database_max_lifetime_secs(),
+            idle_timeout_secs: default_database_idle_timeout_secs(),
+            min_idle_floor: default_database_min_idle_floor(),
+            statement_timeout_secs: default_database_statement_timeout_secs(),
+            lock_timeout_secs: default_database_lock_timeout_secs(),
+            idle_in_transaction_timeout_secs: default_database_idle_in_transaction_timeout_secs(),
+        }
+    }
 }
 
 /// Redis 缓存配置。
@@ -174,6 +254,7 @@ mod tests {
             max_size: 20,
             min_idle: None,
             connection_timeout: 30,
+            ..Default::default()
         };
         let dbg = format!("{db:?}");
         assert!(!dbg.contains("db-s3cr3t"), "DatabaseConfig Debug 泄露密码: {dbg}");

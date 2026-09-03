@@ -7,39 +7,59 @@ use crate::common::config::Config;
 use synapse_services::database_initializer::DatabaseInitService;
 use synapse_storage::schema_health_check::run_schema_health_check;
 
-const DEFAULT_MAX_LIFETIME: Duration = Duration::from_secs(1800);
-const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
-
-/// Minimum idle database connections maintained in the connection pool.
-const DB_MIN_IDLE_CONNECTIONS: u32 = 5;
-
-/// Database session timeout SQL queries.
-const DB_SET_STATEMENT_TIMEOUT: &str = "SET statement_timeout = '30s'";
-const DB_SET_LOCK_TIMEOUT: &str = "SET lock_timeout = '10s'";
-const DB_SET_IDLE_TIMEOUT: &str = "SET idle_in_transaction_session_timeout = '60s'";
+/// 格式化 PG 超时语句，统一输出 PG 接受的 `'30s'` 形式。
+///
+/// PG 接受 `SET ... = <int>ms` 或 `'<int>{ms|s|min}'`；本项目所有超时都按秒配置，
+/// 显式带单位避免歧义（`'0'` 会被解析为毫秒）。
+fn format_pg_timeout(seconds: u64) -> String {
+    format!("'{seconds}s'")
+}
 
 pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std::error::Error>> {
+    let db_cfg = &config.database;
+    let statement_timeout_sql = format!("SET statement_timeout = {}", format_pg_timeout(db_cfg.statement_timeout_secs));
+    let lock_timeout_sql = format!("SET lock_timeout = {}", format_pg_timeout(db_cfg.lock_timeout_secs));
+    let idle_in_tx_timeout_sql = format!(
+        "SET idle_in_transaction_session_timeout = {}",
+        format_pg_timeout(db_cfg.idle_in_transaction_timeout_secs)
+    );
+
+    let min_idle = db_cfg.min_idle.unwrap_or(db_cfg.min_idle_floor);
+    let max_lifetime = Duration::from_secs(db_cfg.max_lifetime_secs);
+    let idle_timeout = Duration::from_secs(db_cfg.idle_timeout_secs);
+
     let pool_options = PgPoolOptions::new()
-        .max_connections(config.database.max_size)
-        .min_connections(config.database.min_idle.unwrap_or(DB_MIN_IDLE_CONNECTIONS))
-        .acquire_timeout(Duration::from_secs(config.database.connection_timeout))
-        .max_lifetime(DEFAULT_MAX_LIFETIME)
-        .idle_timeout(DEFAULT_IDLE_TIMEOUT)
-        .after_connect(|conn, _meta| {
+        .max_connections(db_cfg.max_size)
+        .min_connections(min_idle)
+        .acquire_timeout(Duration::from_secs(db_cfg.connection_timeout))
+        .max_lifetime(max_lifetime)
+        .idle_timeout(idle_timeout)
+        .after_connect(move |conn, _meta| {
+            let statement_timeout_sql = statement_timeout_sql.clone();
+            let lock_timeout_sql = lock_timeout_sql.clone();
+            let idle_in_tx_timeout_sql = idle_in_tx_timeout_sql.clone();
             Box::pin(async move {
-                sqlx::query(DB_SET_STATEMENT_TIMEOUT).execute(&mut *conn).await?;
-                sqlx::query(DB_SET_LOCK_TIMEOUT).execute(&mut *conn).await?;
-                sqlx::query(DB_SET_IDLE_TIMEOUT).execute(&mut *conn).await?;
+                sqlx::query(&statement_timeout_sql).execute(&mut *conn).await?;
+                sqlx::query(&lock_timeout_sql).execute(&mut *conn).await?;
+                sqlx::query(&idle_in_tx_timeout_sql).execute(&mut *conn).await?;
                 Ok(())
             })
         })
         .test_before_acquire(false);
 
     ::tracing::info!(
-        "[启动阶段 1/4] 连接数据库 (pool: max={}, min_idle={:?}, timeout={}s)",
-        config.database.max_size,
-        config.database.min_idle,
-        config.database.connection_timeout
+        "[启动阶段 1/4] 连接数据库 (pool: max={}, min_idle={}, timeout={}s, max_lifetime={}s, idle_timeout={}s)",
+        db_cfg.max_size,
+        min_idle,
+        db_cfg.connection_timeout,
+        db_cfg.max_lifetime_secs,
+        db_cfg.idle_timeout_secs
+    );
+    ::tracing::info!(
+        "[启动阶段 1/4] PG session 超时: statement_timeout={}s, lock_timeout={}s, idle_in_transaction={}s",
+        db_cfg.statement_timeout_secs,
+        db_cfg.lock_timeout_secs,
+        db_cfg.idle_in_transaction_timeout_secs
     );
 
     let database_url = config.database_url();

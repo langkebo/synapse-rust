@@ -58,6 +58,7 @@ mod tests {
                 max_size: 20,
                 min_idle: Some(5),
                 connection_timeout: 30,
+                ..Default::default()
             },
             redis: RedisConfig {
                 host: "localhost".to_string(),
@@ -218,6 +219,7 @@ mod tests {
                 max_size: 20,
                 min_idle: Some(5),
                 connection_timeout: 30,
+                ..Default::default()
             },
             redis: RedisConfig {
                 host: "redis.example.com".to_string(),
@@ -388,6 +390,7 @@ mod tests {
             max_size: 20,
             min_idle: None,
             connection_timeout: 60,
+            ..Default::default()
         };
 
         assert_eq!(config.host, "db.example.com");
@@ -489,6 +492,7 @@ mod tests {
                 max_size: 20,
                 min_idle: Some(5),
                 connection_timeout: 30,
+                ..Default::default()
             },
             redis: RedisConfig {
                 host: "localhost".to_string(),

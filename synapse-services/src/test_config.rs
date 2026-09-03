@@ -104,6 +104,7 @@ pub fn build_test_config() -> Config {
             max_size: test_pool_max_connections,
             min_idle: Some(test_pool_min_connections),
             connection_timeout: crate::test_utils::configured_test_pool_acquire_timeout().as_secs(),
+            ..Default::default()
         },
         redis: RedisConfig {
             host: "localhost".to_string(),
