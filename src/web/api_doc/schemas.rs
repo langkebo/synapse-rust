@@ -1410,6 +1410,29 @@ pub struct ApiAdminGenericRequest {
     pub fields: serde_json::Value,
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// P3-Client: Generic client schemas for remaining push_rules / server_version /
+//            turnserver endpoints
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Generic client JSON response (push rules, server version, etc.).
+#[derive(utoipa::ToSchema, serde::Serialize, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiClientGenericJson {
+    #[serde(flatten)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra: Option<serde_json::Value>,
+}
+
+/// Generic client JSON request body.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiClientGenericRequest {
+    #[serde(flatten)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra: Option<serde_json::Value>,
+}
+
 /// Generic JSON response body used across multiple admin endpoints.
 #[derive(utoipa::ToSchema, serde::Serialize)]
 #[allow(dead_code)]

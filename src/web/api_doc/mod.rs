@@ -610,6 +610,8 @@ pub fn swagger_ui_router(_state: AppState) -> axum::Router<AppState> {
             schemas::ApiAdminRoomStatsOverview,
             schemas::ApiAdminGenericRequest,
             schemas::ApiAdminGenericJson,
+            schemas::ApiClientGenericJson,
+            schemas::ApiClientGenericRequest,
         )),
     )]
     struct ApiDoc;
