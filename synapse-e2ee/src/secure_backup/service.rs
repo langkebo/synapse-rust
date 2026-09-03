@@ -236,11 +236,17 @@ impl SecureBackupService {
 
     /// Delete backup
     pub async fn delete_backup(&self, user_id: &str, backup_id: &str) -> Result<(), ApiError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(map_database!("Failed to begin transaction for delete_backup"))?;
+
         // Delete session keys first
         sqlx::query("DELETE FROM secure_backup_session_keys WHERE user_id = $1 AND backup_id = $2")
             .bind(user_id)
             .bind(backup_id)
-            .execute(&*self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(map_database!("delete_backup"))?;
 
@@ -248,9 +254,13 @@ impl SecureBackupService {
         sqlx::query("DELETE FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2")
             .bind(user_id)
             .bind(backup_id)
-            .execute(&*self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(map_database!("delete_backup"))?;
+
+        tx.commit()
+            .await
+            .map_err(map_database!("Failed to commit transaction for delete_backup"))?;
 
         Ok(())
     }

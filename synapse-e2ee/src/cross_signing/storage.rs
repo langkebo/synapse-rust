@@ -395,13 +395,19 @@ impl CrossSigningStorage {
     }
 
     pub async fn delete_cross_signing_keys(&self, user_id: &str) -> Result<(), ApiError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(map_database!("Failed to begin transaction for delete_cross_signing_keys"))?;
+
         sqlx::query(
             r"
             DELETE FROM cross_signing_keys WHERE user_id = $1
             ",
         )
         .bind(user_id)
-        .execute(&*self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_database!("Failed to delete cross signing keys"))?;
 
@@ -411,9 +417,13 @@ impl CrossSigningStorage {
             ",
         )
         .bind(user_id)
-        .execute(&*self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_database!("Failed to delete device signatures"))?;
+
+        tx.commit()
+            .await
+            .map_err(map_database!("Failed to commit transaction for delete_cross_signing_keys"))?;
 
         Ok(())
     }
