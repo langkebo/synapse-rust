@@ -12,8 +12,6 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-const TXN_DEDUP_TTL_SECS: u64 = 86400;
-
 pub(super) async fn send_transaction(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -656,14 +654,17 @@ pub(super) async fn send_transaction(
 
     {
         let dedup_key = format!("federation_txn:{origin}:{txn_id}");
-        if let Err(e) = ctx.cache.set(&dedup_key, true, TXN_DEDUP_TTL_SECS).await {
-            ::tracing::warn!(
-                request_id = %request_id,
-                txn_id = %txn_id,
-                origin = %origin,
-                error = %e,
-                "Failed to set transaction dedup cache"
-            );
+        let dedup_ttl = ctx.config.federation.txn_dedup_ttl_secs;
+        if dedup_ttl > 0 {
+            if let Err(e) = ctx.cache.set(&dedup_key, true, dedup_ttl).await {
+                ::tracing::warn!(
+                    request_id = %request_id,
+                    txn_id = %txn_id,
+                    origin = %origin,
+                    error = %e,
+                    "Failed to set transaction dedup cache"
+                );
+            }
         }
     }
 

@@ -163,6 +163,7 @@ pub fn build_test_config() -> Config {
             signing_ts_tolerance_ms: 86_400_000,
             replay_protection_enabled: true,
             rate_limit: FederationRateLimitConfig::default(),
+            ..Default::default()
         },
         security: SecurityConfig {
             secret: "test_secret".to_string(),

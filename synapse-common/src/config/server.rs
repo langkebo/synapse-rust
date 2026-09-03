@@ -337,6 +337,21 @@ pub struct ServerConfig {
     /// 维护任务启动后有 5 分钟预热期避免与冷启动流量冲突。
     #[serde(default = "default_maintenance_interval_secs")]
     pub maintenance_interval_secs: u64,
+
+    /// 单次 `PUT /_matrix/client/v3/sendToDevice` 允许的最大收件人数（用户×设备组合）。
+    ///
+    /// 跨所有用户的 device 数量合计。超过会返回 400。
+    /// 灵感来自 Synapse v1.155 (#19617) 对 to-device EDU 大小的限制。
+    /// 默认 5000。
+    #[serde(default = "default_to_device_max_recipients")]
+    pub to_device_max_recipients: usize,
+
+    /// 单个 to-device 消息体的最大字节数（序列化后）。
+    ///
+    /// 超过会返回 400。保护下游存储和联邦队列不被巨型消息塞满。
+    /// 默认 64 KiB（65536 bytes）。
+    #[serde(default = "default_to_device_max_payload_bytes")]
+    pub to_device_max_payload_bytes: usize,
 }
 
 fn default_suppress_key_server_warning() -> bool {
@@ -417,6 +432,14 @@ fn default_integrity_check_interval_secs() -> u64 {
 
 fn default_maintenance_interval_secs() -> u64 {
     86400 // 24 hours
+}
+
+fn default_to_device_max_recipients() -> usize {
+    5000
+}
+
+fn default_to_device_max_payload_bytes() -> usize {
+    64 * 1024
 }
 
 impl ServerConfig {

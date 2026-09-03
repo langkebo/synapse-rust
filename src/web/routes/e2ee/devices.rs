@@ -123,24 +123,25 @@ pub(crate) async fn send_to_device(
     // Enforce to-device message limits to prevent oversized payloads from
     // blocking the to-device queue and federation transaction dispatch.
     // Inspired by Synapse v1.155 (#19617) which limits to-device EDU size.
-    const MAX_TO_DEVICE_RECIPIENTS: usize = 5000; // per request, across all users+devices
-    const MAX_TO_DEVICE_PAYLOAD_BYTES: usize = 64 * 1024; // 64 KiB per request body
+    // Defaults live in synapse_common::config::ServerConfig.
+    let max_recipients = ctx.config.server.to_device_max_recipients;
+    let max_payload_bytes = ctx.config.server.to_device_max_payload_bytes;
     let mut recipient_count: usize = 0;
     if let Some(msg_obj) = messages.as_object() {
         for (_user_id, user_devices) in msg_obj {
             if let Some(devices) = user_devices.as_object() {
                 recipient_count += devices.len();
-                if recipient_count > MAX_TO_DEVICE_RECIPIENTS {
+                if recipient_count > max_recipients {
                     return Err(ApiError::bad_request(format!(
-                        "Too many to-device recipients: {recipient_count} exceeds limit of {MAX_TO_DEVICE_RECIPIENTS}"
+                        "Too many to-device recipients: {recipient_count} exceeds limit of {max_recipients}"
                     )));
                 }
                 for (_device_id, device_msg) in devices {
-                    // Reject individual messages larger than 64 KiB to protect
-                    // downstream storage and federation queues.
-                    if serde_json::to_string(device_msg).map(|s| s.len()).unwrap_or(0) > MAX_TO_DEVICE_PAYLOAD_BYTES {
+                    // Reject individual messages larger than the configured limit
+                    // to protect downstream storage and federation queues.
+                    if serde_json::to_string(device_msg).map(|s| s.len()).unwrap_or(0) > max_payload_bytes {
                         return Err(ApiError::bad_request(format!(
-                            "Individual to-device message exceeds {MAX_TO_DEVICE_PAYLOAD_BYTES} byte limit"
+                            "Individual to-device message exceeds {max_payload_bytes} byte limit"
                         )));
                     }
                 }

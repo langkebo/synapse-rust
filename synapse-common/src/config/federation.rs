@@ -118,6 +118,13 @@ pub struct FederationConfig {
     #[serde(default)]
     pub admission_mode: bool,
 
+    /// 联邦事务去重 TTL（秒）。
+    ///
+    /// 已成功处理过的入站事务 ID 会被缓存，防止 origin 重试同一事务导致重复处理。
+    /// 默认 24 小时。设为 0 表示禁用去重（仅建议在测试环境使用）。
+    #[serde(default = "default_federation_txn_dedup_ttl_secs")]
+    pub txn_dedup_ttl_secs: u64,
+
     /// Master key for encrypting federation signing keys at rest.
     ///
     /// When configured, signing keys stored in the database will be encrypted
@@ -288,6 +295,10 @@ fn default_federation_inbound_edu_acquire_timeout_ms() -> u64 {
 
 fn default_federation_inbound_edu_per_origin_max_concurrency() -> usize {
     2
+}
+
+fn default_federation_txn_dedup_ttl_secs() -> u64 {
+    86400 // 24 hours
 }
 
 fn default_federation_inbound_presence_backoff_ms() -> u64 {
