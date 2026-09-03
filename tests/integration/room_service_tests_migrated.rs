@@ -1017,6 +1017,78 @@ async fn test_upgrade_room_success() {
     assert_eq!(create_event.content["predecessor"]["event_id"].as_str(), Some(tombstone.event_id.as_str()));
 }
 
+/// Regression test for B-1.3: `upgrade_room` must invite former local members
+/// to the replacement room concurrently. With N=50 former members the upgrade
+/// must complete and produce an `m.room.member` invite event for each one.
+///
+/// Pre-fix: serial `for invitee_id in &members_to_invite { invite_user() }` loop
+/// meant a large room's upgrade wall-clock time grew linearly with member count.
+/// Post-fix: `futures::future::join_all` over local invitees + `buffer_unordered`
+/// over remote invitees. The wall-clock invariant here is correctness — every
+/// former member must end up invited — not raw throughput (timing tests are
+/// flaky in CI).
+#[tokio::test]
+async fn test_upgrade_room_invites_all_former_local_members() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    let alice_name = format!("alice_{id}");
+    create_test_user(&pool, &alice_id, &alice_name).await;
+
+    // Create the old room and have Alice join it.
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = create_room_service(&pool, cache.clone());
+
+    let config = CreateRoomConfig { room_version: Some("9".to_string()), ..Default::default() };
+    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
+    let old_room_id = room_val["room_id"].as_str().unwrap().to_string();
+
+    // Create N former local members and have each join the old room directly
+    // (bypassing the join-rules check by inserting the membership rows).
+    let mut former_member_ids: Vec<String> = Vec::new();
+    for i in 0..50 {
+        let uid = format!("@former_{i}_{id}:localhost");
+        let uname = format!("former_{i}_{id}");
+        create_test_user(&pool, &uid, &uname).await;
+        // Insert a join membership row directly so the old room's joined
+        // member set includes these users when upgrade_room reads them.
+        sqlx::query(
+            r#"
+            INSERT INTO room_memberships (room_id, user_id, membership, event_id)
+            VALUES ($1, $2, 'join', $3)
+            ON CONFLICT (room_id, user_id) DO NOTHING
+            "#,
+        )
+        .bind(&old_room_id)
+        .bind(&uid)
+        .bind(format!("$fake-join-{i}-{id}"))
+        .execute(pool.as_ref())
+        .await
+        .expect("Failed to seed former-member join row");
+        former_member_ids.push(uid);
+    }
+
+    // Upgrade the room. With the concurrent path, the upgrade completes
+    // and all former local members end up invited to the replacement room.
+    let new_room_id =
+        room_service.upgrade_room(&old_room_id, "10", &alice_id).await.expect("upgrade_room should succeed");
+
+    let pool_arc = Arc::clone(&pool);
+    let member_storage = RoomMemberStorage::new(&pool_arc, "localhost");
+    for former in &former_member_ids {
+        let memberships = member_storage
+            .get_room_members(&new_room_id, "invite")
+            .await
+            .expect("get_room_members(invite) should succeed");
+        assert!(
+            memberships.iter().any(|m| m.user_id == *former),
+            "former member {former} should be invited to replacement room {new_room_id}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn test_upgrade_room_enqueues_tombstone_and_replacement_create_events() {
     let pool = crate::require_test_pool().await;

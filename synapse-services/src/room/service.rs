@@ -1,6 +1,8 @@
 use crate::auth::RoomAuth;
 use crate::common::error::{ApiError, ApiResult};
 use crate::*;
+use futures::stream;
+use futures::StreamExt;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -496,21 +498,85 @@ impl RoomService {
             );
         }
 
-        // Invite all former joined members of the old room to the new room.
-        // Local users go through the local invite path; remote users go
-        // through the federation invite path (handled transparently by
-        // `invite_user`).
-        for invitee_id in &members_to_invite {
-            if let Err(e) = self.membership.invite_user(&new_room_id, user_id, invitee_id).await {
-                ::tracing::warn!(
-                    old_room_id = %old_room_id,
-                    new_room_id = %new_room_id,
-                    invitee_id = %invitee_id,
-                    error = %e,
-                    "Failed to invite old room member to replacement room"
-                );
+        // Phase 1: Partition members into local vs remote.
+        // `is_remote_user` is a cheap synchronous check (string parsing).
+        let mut locals = Vec::with_capacity(members_to_invite.len());
+        let mut remotes = Vec::with_capacity(members_to_invite.len());
+        for uid in &members_to_invite {
+            if self.membership.is_remote_user(uid) {
+                remotes.push(uid.clone());
+            } else {
+                locals.push(uid.clone());
             }
         }
+
+        // Phase 2: Invite local users concurrently.
+        // MembershipService is Arc-based (Clone), so cloning is cheap and safe for
+        // use inside concurrent futures — no shared mutable state.
+        let membership = self.membership.clone();
+        let new_room_id = new_room_id.clone();
+        let inviter_id = user_id.to_string();
+        let old_room_id_owned = old_room_id.to_string();
+
+        let local_futures: Vec<_> = locals
+            .iter()
+            .map(|invitee_id| {
+                let membership = membership.clone();
+                let new_room_id = new_room_id.clone();
+                let inviter_id = inviter_id.clone();
+                let old_room_id = old_room_id_owned.clone();
+                let invitee_id = invitee_id.clone();
+                async move {
+                    if let Err(e) = membership.invite_user(&new_room_id, &inviter_id, &invitee_id).await {
+                        ::tracing::warn!(
+                            old_room_id = %old_room_id,
+                            new_room_id = %new_room_id,
+                            invitee_id = %invitee_id,
+                            error = %e,
+                            "Failed to invite former member to replacement room (local path)"
+                        );
+                    }
+                }
+            })
+            .collect();
+        // Local invites: gather all results. Per-invite failures are warn-only
+        // (logged inside the closure) and do not fail the upgrade — matches
+        // Synapse behavior where a single invitee failure does not abort the
+        // whole room upgrade.
+        let _: Vec<()> = futures::future::join_all(local_futures).await;
+
+        // Phase 3: Invite remote users via federation concurrently, with bounded
+        // concurrency.  Remote servers may be slow or unreachable; we limit
+        // in-flight requests to avoid overwhelming them (matches Synapse's default
+        // `join_max_concurrency = 16`).  Failures are logged but do not block
+        // the upgrade — the room is functional even if some former members were
+        // not re-invited automatically.
+        const FEDERATION_INVITE_CONCURRENCY: usize = 16;
+        let remote_futures: Vec<_> = remotes
+            .iter()
+            .map(|invitee_id| {
+                let membership = membership.clone();
+                let new_room_id = new_room_id.clone();
+                let inviter_id = inviter_id.clone();
+                let old_room_id = old_room_id_owned.clone();
+                let invitee_id = invitee_id.clone();
+                async move {
+                    if let Err(e) = membership.invite_user(&new_room_id, &inviter_id, &invitee_id).await {
+                        ::tracing::warn!(
+                            old_room_id = %old_room_id,
+                            new_room_id = %new_room_id,
+                            invitee_id = %invitee_id,
+                            error = %e,
+                            "Failed to invite former member to replacement room (federation path)"
+                        );
+                    }
+                }
+            })
+            .collect();
+        // Federation invites: always collect all results so a slow remote server
+        // cannot block other invites.  Individual failures are warn-only (logged
+        // inside the closure above).
+        let _: Vec<()> = stream::iter(remote_futures).buffer_unordered(FEDERATION_INVITE_CONCURRENCY).collect().await;
 
         // Copy state events (power levels, join_rules, canonical_alias, etc.)
         // from the old room to the new room.  This is best-effort: failures
