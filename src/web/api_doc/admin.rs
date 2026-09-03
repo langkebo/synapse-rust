@@ -1,5 +1,7 @@
 #![cfg(feature = "openapi-docs")]
 
+use super::schemas;
+
 /// `GET /_synapse/admin/v1/users` — List registered users (Admin only).
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
@@ -13,7 +15,7 @@
     ),
     responses(
         (status = 200, description = "List of users",
-            body = serde_json::Value,
+            body = schemas::ApiAdminUserListResponse,
             example = json!({
                 "users": [
                     {
@@ -51,7 +53,7 @@ pub fn list_users_admin_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "List of rooms",
-            body = serde_json::Value,
+            body = schemas::ApiAdminRoomListResponse,
             example = json!({
                 "rooms": [
                     {
@@ -87,7 +89,7 @@ pub fn list_rooms_admin_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "User deleted",
-            body = serde_json::Value,
+            body = schemas::ApiAdminUserDeleteResponse,
             example = json!({
                 "user_id": "@alice:example.com",
                 "deleted": true
@@ -114,7 +116,7 @@ pub fn admin_delete_user_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "User evicted from joined rooms",
-            body = serde_json::Value,
+            body = schemas::ApiAdminUserEvictResponse,
             example = json!({
                 "user_id": "@alice:example.com",
                 "rooms_evicted": 2,
@@ -141,9 +143,9 @@ pub fn admin_evict_user_doc() -> axum::Json<serde_json::Value> {
     params(
         ("user_id" = String, Path, description = "Matrix user ID")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminSetAdminRequest,
     responses(
-        (status = 200, description = "Admin flag updated", body = serde_json::Value, example = json!({"success": true})),
+        (status = 200, description = "Admin flag updated", body = schemas::ApiAdminSuccess, example = json!({"success": true})),
         (status = 400, description = "Missing admin field"),
         (status = 403, description = "Only super_admin can change privileges"),
         (status = 404, description = "User not found")
@@ -167,7 +169,7 @@ pub fn admin_set_user_admin_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "User deactivated",
-            body = serde_json::Value,
+            body = schemas::ApiAdminDeactivateResponse,
             example = json!({"id_server_unbind_result": "success"})
         ),
         (status = 404, description = "User not found")
@@ -189,9 +191,9 @@ pub fn admin_deactivate_user_doc() -> axum::Json<serde_json::Value> {
     params(
         ("user_id" = String, Path, description = "Matrix user ID")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminResetPasswordRequest,
     responses(
-        (status = 200, description = "Password reset completed", body = serde_json::Value),
+        (status = 200, description = "Password reset completed", body = schemas::ApiAdminSuccess),
         (status = 400, description = "Password does not satisfy validation requirements"),
         (status = 404, description = "User not found")
     ),
@@ -214,7 +216,7 @@ pub fn admin_reset_user_password_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Detailed user information",
-            body = serde_json::Value,
+            body = schemas::ApiAdminUserDetail,
             example = json!({
                 "name": "@alice:example.com",
                 "user_id": "@alice:example.com",
@@ -253,9 +255,9 @@ pub fn admin_user_v2_doc() -> axum::Json<serde_json::Value> {
     params(
         ("user_id" = String, Path, description = "Matrix user ID")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminUpsertUserRequest,
     responses(
-        (status = 200, description = "User created or updated", body = serde_json::Value),
+        (status = 200, description = "User created or updated", body = schemas::ApiAdminSuccess),
         (status = 403, description = "Only super_admin can change admin or user_type")
     ),
     security(
@@ -279,7 +281,7 @@ pub fn admin_upsert_user_v2_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Rooms joined by the user",
-            body = serde_json::Value,
+            body = schemas::ApiAdminUserRoomsResponse,
             example = json!({
                 "joined_rooms": ["!room:example.com", "!other:example.com"],
                 "total": 2,
@@ -307,7 +309,7 @@ pub fn admin_user_rooms_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "User devices",
-            body = serde_json::Value,
+            body = schemas::ApiAdminUserDevicesResponse,
             example = json!({
                 "devices": [{
                     "device_id": "DEVICEID",
@@ -339,7 +341,7 @@ pub fn admin_user_devices_doc() -> axum::Json<serde_json::Value> {
         ("device_id" = String, Path, description = "Matrix device ID")
     ),
     responses(
-        (status = 200, description = "Device revoked", body = serde_json::Value),
+        (status = 200, description = "Device revoked", body = schemas::ApiAdminSuccess),
         (status = 404, description = "User or device not found")
     ),
     security(
@@ -361,7 +363,7 @@ pub fn admin_delete_user_device_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Impersonation token issued",
-            body = serde_json::Value,
+            body = schemas::ApiAdminLoginAsUserResponse,
             example = json!({
                 "access_token": "access_token_value",
                 "device_id": "ABCDEFGHIJ",
@@ -390,7 +392,7 @@ pub fn admin_login_as_user_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "All user sessions invalidated",
-            body = serde_json::Value,
+            body = schemas::ApiAdminLogoutUserDevicesResponse,
             example = json!({"devices_deleted": 3})
         ),
         (status = 404, description = "User not found")
@@ -411,7 +413,7 @@ pub fn admin_logout_user_devices_doc() -> axum::Json<serde_json::Value> {
     tag = "Admin",
     responses(
         (status = 200, description = "Aggregate user statistics",
-            body = serde_json::Value,
+            body = schemas::ApiAdminUserStats,
             example = json!({
                 "total_users": 120,
                 "active_users": 80,
@@ -442,7 +444,7 @@ pub fn admin_user_stats_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Per-user statistics dashboard",
-            body = serde_json::Value,
+            body = schemas::ApiAdminSingleUserStats,
             example = json!({
                 "user_id": "@alice:example.com",
                 "rooms_joined": 12,
@@ -476,7 +478,7 @@ pub fn admin_single_user_stats_doc() -> axum::Json<serde_json::Value> {
     request_body = serde_json::Value,
     responses(
         (status = 200, description = "Batch user creation result",
-            body = serde_json::Value,
+            body = schemas::ApiAdminBatchUserResponse,
             example = json!({
                 "created": 3,
                 "failed": 0,
@@ -502,7 +504,7 @@ pub fn admin_batch_create_users_doc() -> axum::Json<serde_json::Value> {
     request_body = serde_json::Value,
     responses(
         (status = 200, description = "Batch deactivation result",
-            body = serde_json::Value,
+            body = schemas::ApiAdminBatchUserResponse,
             example = json!({
                 "deactivated": 3,
                 "failed": 0,
