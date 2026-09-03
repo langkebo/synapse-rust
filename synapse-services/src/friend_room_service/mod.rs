@@ -10,17 +10,16 @@ pub use models::{
     EnsureDirectRoomResult, FriendListCursor, FriendListEntry, FriendListPage, FriendListRequest, FriendListSortCache,
     FriendRoomCreateRoomConfig, FriendRoomService,
 };
-use synapse_common::current_timestamp_millis;
-
-use serde_json::{json, Map, Value};
+use synapse_common::{current_timestamp_millis, generate_event_id, ApiError, ApiResult};
 
 use crate::UserService;
+use futures::future::try_join_all;
+use serde_json::{json, Map, Value};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::traits::FriendRoomProvider;
-use synapse_common::{generate_event_id, ApiError, ApiResult};
 use synapse_federation::friend::FriendFederationClient;
 use synapse_federation::KeyRotationManager;
 use synapse_storage::{CreateEventParams, UserStore};
@@ -1205,7 +1204,17 @@ impl FriendRoomService {
         }
 
         let now = current_timestamp_millis();
-        let mut updated_lists = 0usize;
+
+        // B-1.4: Phase 1 — sequentially fan out DB reads and in-memory shard
+        // processing so we hold only `&self` at any point (no concurrent mutable
+        // borrow of `self`).
+        //
+        // Phase 2 — fire ALL state-event writes concurrently. Each
+        // `send_state_event_inner` clones the room_service Arc so the borrow
+        // checker is satisfied. Before: each `link × shard` pair was written
+        // serially (O(N×M) async steps). After: a single `try_join_all` fans
+        // out all writes (total wall time ≈ max latency of the slowest write).
+        let mut all_writes: Vec<(String, String, String, Value)> = Vec::new();
 
         for link in links {
             // W5 sharding：find_friend_lists_by_dm_room_id 内部 SQL 写死 state_key=''，
@@ -1221,8 +1230,8 @@ impl FriendRoomService {
             // 找出 dm_room_id 命中的 friend 所在 shard。
             // 同一个 dm_room_id 可能在不同 shard 各被一个 friend 引用（不常见但可能），
             // 因此需逐 shard 检查。
-            let mut updated_shards: Vec<(String, Value)> = Vec::new();
-            for (state_key, mut shard_content) in shards {
+            for (state_key, shard_content) in shards {
+                let mut shard_content = shard_content;
                 let mut touched = false;
                 if let Some(friends) = shard_content.get_mut("friends").and_then(|value| value.as_array_mut()) {
                     for friend in friends.iter_mut() {
@@ -1249,18 +1258,92 @@ impl FriendRoomService {
                     if let Some(version) = shard_content.get("version").and_then(|value| value.as_i64()) {
                         shard_content["version"] = json!(version + 1);
                     }
-                    updated_shards.push((state_key, shard_content));
+                    all_writes.push((
+                        link.friend_room_id.clone(),
+                        link.owner_user_id.clone(),
+                        state_key,
+                        shard_content,
+                    ));
                 }
-            }
-
-            for (state_key, content) in updated_shards {
-                self.send_state_event(&link.friend_room_id, &link.owner_user_id, "m.friends.list", &state_key, content)
-                    .await?;
-                updated_lists += 1;
             }
         }
 
-        Ok(updated_lists)
+        // Phase 2: concurrent state writes
+        let room_service = Arc::clone(&self.room_service);
+        let server_name = self.server_name.clone();
+
+        let write_futures: Vec<_> = all_writes
+            .into_iter()
+            .map(|(room_id, user_id, state_key, content)| {
+                let room_service = Arc::clone(&room_service);
+                let server_name = &server_name;
+                #[allow(clippy::needless_borrow)]
+                async move {
+                    Self::send_state_event_inner(
+                        &*room_service,
+                        &server_name,
+                        &room_id,
+                        &user_id,
+                        "m.friends.list",
+                        &state_key,
+                        content,
+                    )
+                    .await
+                }
+            })
+            .collect();
+
+        let write_count = write_futures.len();
+
+        try_join_all(write_futures).await?;
+
+        Ok(write_count)
+    }
+
+    /// Stateless helper that sends a state event, accepting an explicit `Arc` so
+    /// callers can clone the reference for concurrent execution.
+    #[allow(clippy::needless_borrow)]
+    async fn send_state_event_inner(
+        room_service: &(dyn crate::room::RoomServiceApi + '_),
+        server_name: &str,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+        state_key: &str,
+        content: Value,
+    ) -> ApiResult<()> {
+        let now = current_timestamp_millis();
+        room_service
+            .messaging()
+            .create_event(
+                CreateEventParams {
+                    event_id: generate_event_id(server_name),
+                    room_id: room_id.to_string(),
+                    user_id: user_id.to_string(),
+                    event_type: event_type.to_string(),
+                    content,
+                    state_key: Some(state_key.to_string()),
+                    origin_server_ts: now,
+                    redacts: None,
+                },
+                None,
+            )
+            .await
+            .map(|_room_event| ())
+            .map_err(|e| {
+                let error_msg = e.to_string();
+                if error_msg.contains("foreign key") {
+                    if error_msg.contains("room_id") {
+                        ApiError::not_found("Room not found")
+                    } else if error_msg.contains("sender") || error_msg.contains("user_id") {
+                        ApiError::not_found("User not found")
+                    } else {
+                        ApiError::database(error_msg)
+                    }
+                } else {
+                    ApiError::database(error_msg)
+                }
+            })
     }
 
     /// 处理收到的好友请求 (Federation)
@@ -1300,38 +1383,16 @@ impl FriendRoomService {
         state_key: &str,
         content: serde_json::Value,
     ) -> ApiResult<()> {
-        let now = current_timestamp_millis();
-        self.room_service
-            .messaging()
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.to_string(),
-                    user_id: user_id.to_string(),
-                    event_type: event_type.to_string(),
-                    content,
-                    state_key: Some(state_key.to_string()),
-                    origin_server_ts: now,
-                    redacts: None,
-                },
-                None,
-            )
-            .await
-            .map_err(|e| {
-                let error_msg = e.to_string();
-                if error_msg.contains("foreign key") {
-                    if error_msg.contains("room_id") {
-                        ApiError::not_found("Room not found")
-                    } else if error_msg.contains("sender") || error_msg.contains("user_id") {
-                        ApiError::not_found("User not found")
-                    } else {
-                        ApiError::database(error_msg)
-                    }
-                } else {
-                    ApiError::database(error_msg)
-                }
-            })?;
-        Ok(())
+        Self::send_state_event_inner(
+            &*self.room_service,
+            &self.server_name,
+            room_id,
+            user_id,
+            event_type,
+            state_key,
+            content,
+        )
+        .await
     }
 
     async fn update_friend_list(
