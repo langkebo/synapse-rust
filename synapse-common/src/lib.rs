@@ -32,6 +32,7 @@ pub mod membership_transition;
 pub mod metrics;
 pub mod nonce_cache;
 pub mod password_hash_pool;
+pub mod push_rules;
 pub mod rate_limit_config;
 pub mod redaction;
 pub mod regex_cache;
