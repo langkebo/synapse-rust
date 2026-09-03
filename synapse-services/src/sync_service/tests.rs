@@ -2089,3 +2089,133 @@ async fn s6d_wait_falls_back_to_polling_without_notifier() {
         elapsed
     );
 }
+
+// ===========================================================================
+// MSC3967 — incremental per-room state tokens
+// https://github.com/matrix-org/matrix-spec-proposals/pull/3967
+//
+// The per-room `build_room_sync` path was incorrectly:
+//  1. Passing `None` for `since_stream_ordering` (fixed in response.rs:365)
+//  2. Clearing the already-computed state delta to `Vec::new()` when incremental
+//     (fixed in response.rs:395, now a comment)
+//
+// Both bugs caused incremental sync responses to return empty `state` arrays
+// instead of the state-change events that occurred since the given token.
+// This test verifies the fix using the InMemoryEventStore mock, which correctly
+// implements `get_state_events_since_batch` with stream_ordering filtering.
+// ===========================================================================
+
+/// MSC3967: incremental per-room sync must return state delta, not empty array.
+///
+/// When `is_incremental=true` and a valid `since_token` (stream_ordering-based)
+/// is provided, `build_room_sync` must include state events that changed since
+/// that token — not an empty `state` array.
+#[tokio::test]
+async fn incremental_room_sync_returns_state_delta_not_empty() {
+    // Wire up an in-memory event store so we can seed state events with
+    // precise stream_ordering values.  The mock's `get_state_events_since_batch`
+    // correctly filters on `stream_ordering > since`.
+    let event_store = std::sync::Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
+    let service = sync_service_for_notifier_test(event_store.clone(), None, 100);
+
+    let room_id = "!msc3967:example.com";
+    let user_id = "@alice:example.com";
+
+    // ── Seed one state event at stream_ordering=5 ─────────────────────────
+    // This event sits before the since-token, so it must NOT appear in the
+    // incremental delta.
+    let _old = event_store
+        .create_event(synapse_storage::event::CreateEventParams {
+            event_id: "$old_state:example.com".into(),
+            room_id: room_id.into(),
+            user_id: user_id.into(),
+            event_type: "m.room.name".into(),
+            content: json!({ "name": "Old Name" }),
+            state_key: Some("".into()),
+            origin_server_ts: 1_777_000_000_000,
+            redacts: None,
+        })
+        .await
+        .unwrap();
+    event_store.set_stream_ordering("$old_state:example.com", 5).await;
+
+    // ── Seed a newer state event at stream_ordering=10 ────────────────────
+    // This event comes after the since-token, so it MUST appear in the delta.
+    let _new_state = event_store
+        .create_event(synapse_storage::event::CreateEventParams {
+            event_id: "$new_state:example.com".into(),
+            room_id: room_id.into(),
+            user_id: user_id.into(),
+            event_type: "m.room.name".into(),
+            content: json!({ "name": "New Room Name" }),
+            state_key: Some("".into()),
+            origin_server_ts: 1_777_000_000_500,
+            redacts: None,
+        })
+        .await
+        .unwrap();
+    event_store.set_stream_ordering("$new_state:example.com", 10).await;
+
+    // ── Call build_room_sync with since_token at stream_ordering=5 ─────────
+    // stream_id=5 is below TIMESTAMP_TOKEN_MIN (1_000_000_000_000), so it is
+    // correctly recognised as a stream_ordering-based token (not a timestamp).
+    let since_token = SyncToken {
+        stream_id: 5, // recognised as stream_ordering=5
+        room_id: None,
+        event_type: None,
+        to_device_stream_id: None,
+        device_list_stream_id: None,
+    };
+
+    let result = service
+        .build_room_sync(BuildRoomSyncRequest {
+            room_id,
+            user_id,
+            device_id: None,
+            events: Vec::new(),
+            since_token: Some(&since_token),
+            is_incremental: true,
+            room_filter: None, // default: lazy_load_members=false
+        })
+        .await
+        .expect("build_room_sync must not fail");
+
+    // ── Assertions ────────────────────────────────────────────────────────
+    let state_events = result["state"]["events"]
+        .as_array()
+        .expect("state.events must be an array");
+
+    // CRITICAL: the state array must NOT be empty (was Vec::new() before fix)
+    assert!(
+        !state_events.is_empty(),
+        "MSC3967: incremental sync returned empty state; \
+         expected exactly 1 state-delta event (stream_ordering=10) \
+         but got []"
+    );
+
+    // Must contain exactly the newer state event
+    assert_eq!(
+        state_events.len(),
+        1,
+        "MSC3967: expected exactly 1 delta state event, got {}: {state_events:?}",
+        state_events.len()
+    );
+
+    // Verify it's the "$new_state" event (stream_ordering=10)
+    let delta = &state_events[0];
+    assert_eq!(
+        delta["event_id"], "$new_state:example.com",
+        "MSC3967: delta event_id mismatch; got {event_id}",
+        event_id = delta["event_id"]
+    );
+    assert_eq!(
+        delta["type"], "m.room.name",
+        "MSC3967: expected m.room.name, got {t}",
+        t = delta["type"]
+    );
+    assert_eq!(
+        delta["content"]["name"], "New Room Name",
+        "MSC3967: expected 'New Room Name', got {name}",
+        name = delta["content"]["name"]
+    );
+}
