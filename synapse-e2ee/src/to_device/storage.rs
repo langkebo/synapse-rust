@@ -1,5 +1,6 @@
 use serde_json::Value;
 use sqlx::{Pool, Postgres, Row};
+use std::collections::HashSet;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::map_database;
@@ -143,17 +144,33 @@ impl ToDeviceStorage {
     /// behaviour of `add_message`). All checked-and-existing messages are then
     /// persisted in a single `INSERT ... VALUES (...), (...), ...` statement.
     ///
+    /// The existence check is done once for all distinct (user_id, device_id)
+    /// pairs via a single query (`device_exists_batch`), replacing the
+    /// per-message round-trip pattern.
+    ///
     /// Returns the number of messages actually inserted.
     pub async fn add_messages_batch(&self, messages: &[ToDeviceMessage<'_>]) -> Result<usize, ApiError> {
         if messages.is_empty() {
             return Ok(0);
         }
 
-        // Stage 1: filter to existing devices. Skip silently (with warn) when
-        // the recipient device has disappeared, matching add_message semantics.
+        // Stage 1: collect distinct (user_id, device_id) pairs and filter to
+        // those that exist in a single round-trip.
+        let mut distinct: Vec<(String, String)> = Vec::with_capacity(messages.len());
+        let mut seen: HashSet<(String, String)> = HashSet::new();
+        for msg in messages {
+            let key = (msg.recipient_user_id.to_string(), msg.recipient_device_id.to_string());
+            if seen.insert(key.clone()) {
+                distinct.push(key);
+            }
+        }
+        let existing = self.device_exists_batch(&distinct).await?;
+
+        // Stage 2: keep only messages whose (user, device) exists, with warn
+        // for skipped recipients to match add_message semantics.
         let mut kept: Vec<&ToDeviceMessage<'_>> = Vec::with_capacity(messages.len());
         for msg in messages {
-            if self.device_exists(msg.recipient_user_id, msg.recipient_device_id).await? {
+            if existing.contains(&(msg.recipient_user_id.to_string(), msg.recipient_device_id.to_string())) {
                 kept.push(msg);
             } else {
                 tracing::warn!(
@@ -167,7 +184,7 @@ impl ToDeviceStorage {
             return Ok(0);
         }
 
-        // Stage 2: batch insert. stream_id is assigned by the DB via nextval()
+        // Stage 3: batch insert. stream_id is assigned by the DB via nextval()
         // for each row (one nextval() call per row, even in a single statement).
         let now = current_timestamp_millis();
         let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new(
@@ -190,6 +207,50 @@ impl ToDeviceStorage {
         let result = qb.build().execute(&*self.pool).await.map_err(map_database!("add_messages_batch"))?;
 
         Ok(result.rows_affected() as usize)
+    }
+
+    /// Batch check whether (user_id, device_id) pairs exist in either
+    /// `devices` or (non-expired) `dehydrated_devices` (MSC3814).
+    ///
+    /// Single round-trip using `unnest($1::text[], $2::text[])` to expand the
+    /// pairs and `UNION` to fold both tables. Returns the set of pairs that
+    /// have at least one match.
+    pub async fn device_exists_batch(&self, pairs: &[(String, String)]) -> Result<HashSet<(String, String)>, ApiError> {
+        if pairs.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let user_ids: Vec<String> = pairs.iter().map(|(u, _)| u.clone()).collect();
+        let device_ids: Vec<String> = pairs.iter().map(|(_, d)| d.clone()).collect();
+        let now = current_timestamp_millis();
+
+        let rows = sqlx::query(
+            r"
+            SELECT user_id, device_id FROM devices
+                WHERE (user_id, device_id) IN (
+                    SELECT * FROM unnest($1::text[], $2::text[]) AS t(user_id, device_id)
+                )
+            UNION
+            SELECT user_id, device_id FROM dehydrated_devices
+                WHERE (user_id, device_id) IN (
+                    SELECT * FROM unnest($1::text[], $2::text[]) AS t(user_id, device_id)
+                )
+                  AND (expires_at IS NULL OR expires_at > $3)
+            ",
+        )
+        .bind(&user_ids)
+        .bind(&device_ids)
+        .bind(now)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(map_database!("device_exists_batch"))?;
+
+        let mut out = HashSet::with_capacity(rows.len());
+        for row in rows {
+            let user_id: String = row.get("user_id");
+            let device_id: String = row.get("device_id");
+            out.insert((user_id, device_id));
+        }
+        Ok(out)
     }
 
     pub async fn get_messages(&self, user_id: &str, device_id: &str) -> Result<Vec<Value>, ApiError> {
