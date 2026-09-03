@@ -331,10 +331,36 @@ fn extract_login_client_ip(headers: &HeaderMap) -> String {
 }
 
 /// Check if the user is locked out due to too many failed login attempts.
-/// Fail-open: if Redis is unavailable, login proceeds normally.
-async fn check_login_lockout(cache: &crate::cache::CacheManager, ip: &str, username: &str) -> Result<(), ApiError> {
+///
+/// Failure behavior when Redis is unavailable depends on
+/// `config.security.login_lockout_fail_open_on_redis_error`:
+/// - `true` (default, backward compatible): skip the lockout check, login proceeds
+/// - `false` (recommended for production): return 503 Service Unavailable to
+///   block all login attempts while Redis is down. This closes the brute-force
+///   window that would otherwise be open during a Redis outage.
+async fn check_login_lockout(
+    cache: &crate::cache::CacheManager,
+    config: &synapse_common::config::Config,
+    ip: &str,
+    username: &str,
+) -> Result<(), ApiError> {
     if !cache.is_redis_enabled() {
-        return Ok(());
+        if config.security.login_lockout_fail_open_on_redis_error {
+            tracing::warn!(
+                ip = %ip,
+                username = %username,
+                "Login lockout check skipped: Redis unavailable (fail_open_on_redis_error=true)"
+            );
+            return Ok(());
+        }
+        tracing::error!(
+            ip = %ip,
+            username = %username,
+            "Login refused: Redis unavailable and fail_open_on_redis_error=false"
+        );
+        return Err(ApiError::service_unavailable(
+            "Login temporarily unavailable: account lockout backend offline".to_string(),
+        ));
     }
     let key = format!("login_fail:{ip}:{username}");
     match cache.get::<u32>(&key).await {
@@ -346,9 +372,23 @@ async fn check_login_lockout(cache: &crate::cache::CacheManager, ip: &str, usern
     }
 }
 
-/// Record a failed login attempt. Fail-open on Redis errors.
-async fn record_login_failure(cache: &crate::cache::CacheManager, ip: &str, username: &str) {
+/// Record a failed login attempt. Fail-open on Redis errors when
+/// `config.security.login_lockout_fail_open_on_redis_error` is true (default);
+/// otherwise silently drop (counter is gone anyway since Redis is down).
+async fn record_login_failure(
+    cache: &crate::cache::CacheManager,
+    config: &synapse_common::config::Config,
+    ip: &str,
+    username: &str,
+) {
     if !cache.is_redis_enabled() {
+        if !config.security.login_lockout_fail_open_on_redis_error {
+            tracing::error!(
+                ip = %ip,
+                username = %username,
+                "Cannot record login failure: Redis unavailable and fail_open_on_redis_error=false"
+            );
+        }
         return;
     }
     let key = format!("login_fail:{ip}:{username}");
@@ -442,7 +482,7 @@ pub(crate) async fn login(
 
     // D8: Check login lockout before attempting authentication.
     let client_ip = extract_login_client_ip(&headers);
-    check_login_lockout(&ctx.cache, &client_ip, username).await?;
+    check_login_lockout(&ctx.cache, &ctx.config, &client_ip, username).await?;
 
     enforce_admin_login_mfa_svc(&ctx.config.security, ctx.user_service.as_ref(), username, mfa_code).await?;
 
@@ -460,7 +500,7 @@ pub(crate) async fn login(
             )))
         }
         Err(e) => {
-            record_login_failure(&ctx.cache, &client_ip, username).await;
+            record_login_failure(&ctx.cache, &ctx.config, &client_ip, username).await;
             Err(e)
         }
     }

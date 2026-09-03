@@ -48,6 +48,8 @@ pub enum ApiErrorKind {
     NotImplemented,
     /// 504 — request timed out
     Timeout,
+    /// 503 — service temporarily unavailable (e.g. required dependency offline)
+    ServiceUnavailable,
 }
 
 impl ApiErrorKind {
@@ -64,6 +66,7 @@ impl ApiErrorKind {
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             Self::NotImplemented => StatusCode::NOT_IMPLEMENTED,
             Self::Timeout => StatusCode::GATEWAY_TIMEOUT,
+            Self::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 }
@@ -214,6 +217,20 @@ impl ApiError {
 
     pub fn internal(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
+    }
+
+    /// 503 Service Unavailable — required dependency (Redis, etc.) offline.
+    /// Use this when the server cannot fulfill a request due to a downstream
+    /// dependency being unavailable. The Matrix error code is M_UNKNOWN since
+    /// 5xx responses typically don't carry a specific Matrix error code in the
+    /// body, but having a stable code helps client retry logic.
+    pub fn service_unavailable(message: impl Into<String>) -> Self {
+        Self {
+            kind: ApiErrorKind::ServiceUnavailable,
+            code: MatrixErrorCode::Unknown,
+            message: message.into(),
+            cause: None,
+        }
     }
 
     /// Log a database error and return an Internal error whose message carries the
