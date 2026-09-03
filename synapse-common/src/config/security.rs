@@ -37,6 +37,12 @@ pub struct SecurityConfig {
     /// 锁定持续时间（秒）
     #[serde(default = "default_login_lockout_duration_seconds")]
     pub login_lockout_duration_seconds: u64,
+    /// 登录锁定机制在 Redis 不可用时是否放行（fail-open）。
+    /// - true（默认，向后兼容）：Redis 挂掉时跳过锁定检查，登录照常进行
+    /// - false：Redis 挂掉时直接返回 503，拒绝所有登录请求（避免 fail-open 暴力破解窗口）
+    /// 推荐生产环境设为 false；除非 Redis 与 synapse 同进程内嵌（无外部依赖）。
+    #[serde(default = "default_login_lockout_fail_open")]
+    pub login_lockout_fail_open_on_redis_error: bool,
     /// 是否强制管理员登录必须通过 MFA
     #[serde(default)]
     pub admin_mfa_required: bool,
@@ -68,6 +74,11 @@ fn default_login_failure_lockout_threshold() -> u32 {
 
 fn default_login_lockout_duration_seconds() -> u64 {
     900
+}
+
+fn default_login_lockout_fail_open() -> bool {
+    // 默认 true：与改前行为完全一致，确保向后兼容
+    true
 }
 
 pub fn default_admin_mfa_allowed_drift_steps() -> u32 {
@@ -118,6 +129,7 @@ impl Default for SecurityConfig {
             allow_legacy_hashes: default_allow_legacy_hashes(),
             login_failure_lockout_threshold: default_login_failure_lockout_threshold(),
             login_lockout_duration_seconds: default_login_lockout_duration_seconds(),
+            login_lockout_fail_open_on_redis_error: default_login_lockout_fail_open(),
             admin_mfa_required: false,
             admin_mfa_shared_secret: String::new(),
             admin_mfa_allowed_drift_steps: default_admin_mfa_allowed_drift_steps(),

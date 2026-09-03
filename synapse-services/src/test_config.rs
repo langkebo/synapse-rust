@@ -175,6 +175,7 @@ pub fn build_test_config() -> Config {
             allow_legacy_hashes: false,
             login_failure_lockout_threshold: 5,
             login_lockout_duration_seconds: 900,
+            login_lockout_fail_open_on_redis_error: true,
             admin_mfa_required: false,
             admin_mfa_shared_secret: String::new(),
             admin_mfa_allowed_drift_steps: 1,
