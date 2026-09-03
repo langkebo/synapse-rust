@@ -282,12 +282,17 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
         &self,
         user_id: &str,
         limit: Option<i32>,
+        from: Option<String>,
     ) -> Result<Vec<crate::thread::ThreadSubscription>, sqlx::Error> {
         let limit = limit.unwrap_or(50) as usize;
         let subs = self.subscriptions.read().await;
         let mut filtered: Vec<&crate::thread::ThreadSubscription> =
             subs.values().filter(|s| s.user_id == user_id).collect();
-        filtered.sort_by(|a, b| b.subscribed_ts.cmp(&a.subscribed_ts));
+        // `from` is a `thread_id` keyset cursor (lexicographic, ASC).
+        if let Some(from) = from {
+            filtered.retain(|s| s.thread_id > from);
+        }
+        filtered.sort_by(|a, b| a.thread_id.cmp(&b.thread_id));
         Ok(filtered.into_iter().take(limit).cloned().collect())
     }
 

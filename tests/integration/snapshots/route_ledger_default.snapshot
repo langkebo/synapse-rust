@@ -1,5 +1,5 @@
 # route-ledger snapshot: default
-count: 1345
+count: 1347
 
 DELETE /_matrix/admin/v1/external_services/{as_id} [external_service]
 DELETE /_matrix/client/r0/devices/{device_id} [device]
@@ -251,6 +251,8 @@ GET /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device [assembly::
 GET /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status [assembly::create_router]
 GET /_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id} [msc4108_rendezvous]
 GET /_matrix/client/unstable/org.matrix.msc4143/rtc/transports [assembly::create_router]
+GET /_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads [thread]
+GET /_matrix/client/unstable/org.matrix.msc4156/threads/subscribed [thread]
 GET /_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id} [assembly::create_router]
 GET /_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name} [assembly::create_router]
 GET /_matrix/client/v1/account/3pid [assembly::account_compat]

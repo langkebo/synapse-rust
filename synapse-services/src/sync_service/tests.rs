@@ -2181,9 +2181,7 @@ async fn incremental_room_sync_returns_state_delta_not_empty() {
         .expect("build_room_sync must not fail");
 
     // ── Assertions ────────────────────────────────────────────────────────
-    let state_events = result["state"]["events"]
-        .as_array()
-        .expect("state.events must be an array");
+    let state_events = result["state"]["events"].as_array().expect("state.events must be an array");
 
     // CRITICAL: the state array must NOT be empty (was Vec::new() before fix)
     assert!(
@@ -2204,17 +2202,15 @@ async fn incremental_room_sync_returns_state_delta_not_empty() {
     // Verify it's the "$new_state" event (stream_ordering=10)
     let delta = &state_events[0];
     assert_eq!(
-        delta["event_id"], "$new_state:example.com",
+        delta["event_id"],
+        "$new_state:example.com",
         "MSC3967: delta event_id mismatch; got {event_id}",
         event_id = delta["event_id"]
     );
+    assert_eq!(delta["type"], "m.room.name", "MSC3967: expected m.room.name, got {t}", t = delta["type"]);
     assert_eq!(
-        delta["type"], "m.room.name",
-        "MSC3967: expected m.room.name, got {t}",
-        t = delta["type"]
-    );
-    assert_eq!(
-        delta["content"]["name"], "New Room Name",
+        delta["content"]["name"],
+        "New Room Name",
         "MSC3967: expected 'New Room Name', got {name}",
         name = delta["content"]["name"]
     );

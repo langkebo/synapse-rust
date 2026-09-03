@@ -79,8 +79,7 @@ impl SyncService {
                 // `NonZeroUsize::new` returns `None` only for zero. Our const is
                 // 50_000 — always non-zero. We use `new()` + `unwrap_or(NON_ZERO_MIN)`
                 // so clippy sees a safe fallback; in practice the fallback never fires.
-                NonZeroUsize::new(LAZY_LOADED_MEMBERS_CACHE_MAX_ENTRIES)
-                    .unwrap_or(NonZeroUsize::MIN),
+                NonZeroUsize::new(LAZY_LOADED_MEMBERS_CACHE_MAX_ENTRIES).unwrap_or(NonZeroUsize::MIN),
             ))),
             metrics: deps.metrics,
             performance: deps.performance,

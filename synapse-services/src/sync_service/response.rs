@@ -362,7 +362,7 @@ impl SyncService {
                         SyncEventFormat::Client,
                         StateEventsBatchParams {
                             since_ts,
-                            since_stream_ordering: None,
+                            since_stream_ordering: Some(since_stream_ord),
                             is_incremental,
                             lazy_load_members,
                             user_id,
@@ -392,7 +392,10 @@ impl SyncService {
                 enabled: lazy_load_members,
             })
             .await;
-        let state_list = if is_incremental { Vec::new() } else { state_list };
+        // state_list already contains the delta computed by
+        // get_state_events_for_sync_batch above; pass it through unchanged.
+        // (Previously this line cleared the list for incremental syncs, which
+        // broke MSC3967 incremental-state semantics on the per-room code path.)
         let ephemeral_events =
             Self::apply_sync_filter_to_values(ephemeral_events, room_filter.and_then(|f| f.ephemeral.as_ref()));
         let account_data_events =

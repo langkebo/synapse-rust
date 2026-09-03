@@ -297,7 +297,8 @@ impl MembershipService {
         // combine because the federation hop is its own transaction.
         if self.is_remote_room(room_id) {
             return Err(ApiError::bad_request(
-                "MSC4267 leave+forget is only valid for local rooms. Leave the remote room first, then call /forget.".to_string(),
+                "MSC4267 leave+forget is only valid for local rooms. Leave the remote room first, then call /forget."
+                    .to_string(),
             ));
         }
 
@@ -308,9 +309,8 @@ impl MembershipService {
             .get_room_member(room_id, user_id)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to check membership before leave+forget", &e))?;
-        let current_state = existing_member
-            .as_ref()
-            .and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
+        let current_state =
+            existing_member.as_ref().and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
         if let Err(msg) = super::transition::is_legal(
             current_state,
             super::transition::MembershipState::Leave,
@@ -345,10 +345,7 @@ impl MembershipService {
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to leave room (in transaction)", &e))?;
 
-        if existing_member
-            .as_ref()
-            .is_some_and(|member| member.membership == "join")
-        {
+        if existing_member.as_ref().is_some_and(|member| member.membership == "join") {
             self.room_storage
                 .decrement_member_count(room_id)
                 .await

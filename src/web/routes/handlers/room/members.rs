@@ -115,17 +115,10 @@ pub(crate) async fn leave_room(
     // and defaults to `false`, so Element Web's plain leave requests are
     // unaffected. When `true`, the server runs leave + forget in a single
     // transaction so a subsequent explicit /forget cannot race in between.
-    let forget = body
-        .as_ref()
-        .and_then(|Json(v)| v.get("forget"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let forget = body.as_ref().and_then(|Json(v)| v.get("forget")).and_then(|v| v.as_bool()).unwrap_or(false);
 
     if forget {
-        ctx.room_service
-            .membership()
-            .leave_and_forget(&room_id, &auth_user.user_id)
-            .await?;
+        ctx.room_service.membership().leave_and_forget(&room_id, &auth_user.user_id).await?;
     } else {
         ctx.room_service.membership().leave_room(&room_id, &auth_user.user_id).await?;
     }

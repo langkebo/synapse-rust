@@ -85,6 +85,9 @@ pub struct UnreadThreadsResponse {
 pub struct SubscribedThreadsResponse {
     pub threads: Vec<ThreadSummary>,
     pub subscribed: Vec<ThreadSubscription>,
+    /// `thread_id` keyset cursor for the next page; `None` when the page is
+    /// the last one. Matches the cursor contract used by `list_threads`.
+    pub next_batch: Option<String>,
 }
 
 #[derive(Clone)]
@@ -484,15 +487,31 @@ impl ThreadService {
         &self,
         user_id: &str,
         limit: Option<i32>,
+        from: Option<String>,
     ) -> Result<SubscribedThreadsResponse, ApiError> {
+        // Over-fetch by 1 to detect whether more pages exist. The extra row
+        // is dropped before returning so callers always see a `limit`-sized
+        // page (except for the final page which may be shorter).
+        let fetch_limit = limit.unwrap_or(50) + 1;
         let subscriptions = self
             .storage
-            .get_user_thread_subscriptions(user_id, limit)
+            .get_user_thread_subscriptions(user_id, Some(fetch_limit), from)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to get subscriptions", &e))?;
 
+        let (page, has_more) = if subscriptions.len() as i32 > fetch_limit - 1 {
+            let mut page = subscriptions;
+            let extra = page.pop();
+            debug_assert!(extra.is_some(), "over-fetch sentinel must exist when has_more is true");
+            (page, true)
+        } else {
+            (subscriptions, false)
+        };
+
+        let next_batch = if has_more { page.last().map(|s| s.thread_id.clone()) } else { None };
+
         let mut threads = Vec::new();
-        for subscription in &subscriptions {
+        for subscription in &page {
             if let Some(summary) = self
                 .storage
                 .get_thread_summary(&subscription.room_id, &subscription.thread_id)
@@ -503,7 +522,7 @@ impl ThreadService {
             }
         }
 
-        Ok(SubscribedThreadsResponse { threads, subscribed: subscriptions })
+        Ok(SubscribedThreadsResponse { threads, subscribed: page, next_batch })
     }
 
     pub async fn delete_thread(&self, room_id: &str, thread_id: &str) -> Result<(), ApiError> {
@@ -844,5 +863,103 @@ mod tests {
             }))
             .expect("subscribe must succeed after unfreeze");
         assert_eq!(sub.notification_level, "all");
+    }
+
+    // -- MSC4155/MSC4156: get_subscribed_threads pagination --
+
+    fn make_paginated_service() -> (super::ThreadService, Arc<synapse_storage::test_mocks::InMemoryThreadStore>) {
+        let store = Arc::new(synapse_storage::test_mocks::InMemoryThreadStore::new());
+        let storage: Arc<dyn synapse_storage::thread::ThreadStoreApi> = store.clone();
+        let service = super::ThreadService::new(storage);
+        (service, store)
+    }
+
+    /// Seed `count` subscriptions directly into the mock store.
+    /// Thread IDs are predictable: `"$t00"`, `"$t01"`, ... `"$t{count-1:02}"`.
+    /// The mock's `create_thread_root` also seeds the thread summary automatically.
+    async fn seed_subscriptions(store: &synapse_storage::test_mocks::InMemoryThreadStore, count: usize) {
+        use synapse_storage::ThreadStoreApi;
+        for i in 0..count {
+            let tid = format!("$t{i:02}");
+            let root = synapse_storage::thread::CreateThreadRootParams {
+                room_id: "!room:example.com".to_string(),
+                root_event_id: format!("{tid}:root"),
+                sender: "@alice:example.com".to_string(),
+                thread_id: Some(tid.clone()),
+            };
+            store.create_thread_root(root).await.expect("create thread root");
+            store.subscribe_to_thread("!room:example.com", &tid, "@alice:example.com", "all").await.expect("subscribe");
+        }
+    }
+
+    #[tokio::test]
+    async fn get_subscribed_threads_pagination_emits_next_batch_when_more_pages() {
+        let (service, store) = make_paginated_service();
+        seed_subscriptions(&store, 5).await; // $t00, $t01, $t02, $t03, $t04
+
+        let page1 = service.get_subscribed_threads("@alice:example.com", Some(2), None).await.expect("page 1");
+        assert_eq!(page1.subscribed.len(), 2);
+        assert_eq!(page1.subscribed[0].thread_id, "$t00");
+        assert_eq!(page1.subscribed[1].thread_id, "$t01");
+        assert_eq!(page1.next_batch.as_deref(), Some("$t01"));
+
+        let page2 = service
+            .get_subscribed_threads("@alice:example.com", Some(2), Some("$t01".to_string()))
+            .await
+            .expect("page 2");
+        assert_eq!(page2.subscribed.len(), 2);
+        assert_eq!(page2.subscribed[0].thread_id, "$t02");
+        assert_eq!(page2.subscribed[1].thread_id, "$t03");
+        assert_eq!(page2.next_batch.as_deref(), Some("$t03"));
+    }
+
+    #[tokio::test]
+    async fn get_subscribed_threads_pagination_no_next_batch_on_last_page() {
+        let (service, store) = make_paginated_service();
+        seed_subscriptions(&store, 3).await;
+
+        let page1 = service.get_subscribed_threads("@alice:example.com", Some(2), None).await.expect("page 1");
+        assert_eq!(page1.subscribed.len(), 2);
+        assert_eq!(page1.next_batch.as_deref(), Some("$t01"));
+
+        let page2 = service
+            .get_subscribed_threads("@alice:example.com", Some(2), Some("$t01".to_string()))
+            .await
+            .expect("page 2");
+        assert_eq!(page2.subscribed.len(), 1);
+        assert_eq!(page2.subscribed[0].thread_id, "$t02");
+        assert!(page2.next_batch.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_subscribed_threads_pagination_respects_from_cursor() {
+        let (service, store) = make_paginated_service();
+        seed_subscriptions(&store, 4).await; // $t00..$t03
+
+        let page = service
+            .get_subscribed_threads("@alice:example.com", Some(10), Some("$t00".to_string()))
+            .await
+            .expect("page");
+        assert_eq!(page.subscribed.len(), 3, "from=$t00 must skip $t00");
+        assert_eq!(page.subscribed[0].thread_id, "$t01");
+        assert_eq!(page.subscribed[1].thread_id, "$t02");
+        assert_eq!(page.subscribed[2].thread_id, "$t03");
+        assert!(page.next_batch.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_subscribed_threads_default_limit_when_omitted() {
+        let (service, store) = make_paginated_service();
+        seed_subscriptions(&store, 55).await;
+
+        let page = service.get_subscribed_threads("@alice:example.com", None, None).await.expect("page");
+        assert_eq!(page.subscribed.len(), 50, "default limit is 50");
+        assert!(page.next_batch.is_some());
+
+        let last_id = page.subscribed.last().expect("non-empty").thread_id.clone();
+        let page2 =
+            service.get_subscribed_threads("@alice:example.com", Some(50), Some(last_id)).await.expect("page 2");
+        assert_eq!(page2.subscribed.len(), 5);
+        assert!(page2.next_batch.is_none());
     }
 }

@@ -543,22 +543,46 @@ impl ThreadStorage {
         &self,
         user_id: &str,
         limit: Option<i32>,
+        from: Option<String>,
     ) -> Result<Vec<ThreadSubscription>, sqlx::Error> {
         let limit = limit.unwrap_or(50);
-
-        sqlx::query_as::<_, ThreadSubscription>(
-            r"
-            SELECT id, room_id, thread_id, user_id, notification_level, is_muted, is_pinned, subscribed_ts, updated_ts
-            FROM thread_subscriptions
-            WHERE user_id = $1
-            ORDER BY updated_ts DESC
-            LIMIT $2
-            ",
-        )
-        .bind(user_id)
-        .bind(limit)
-        .fetch_all(&*self.pool)
-        .await
+        // `from` is interpreted as a `thread_id` keyset cursor (consistent
+        // with `list_threads` / `get_thread_replies`). Pagination uses
+        // `thread_id` lexicographic ordering so the cursor is self-consistent
+        // even when multiple subscriptions share the same `updated_ts`.
+        // NOTE: this differs from the previous `ORDER BY updated_ts DESC` —
+        // callers that need newest-first should sort the returned Vec in
+        // memory (the in-memory list is bounded by `limit`).
+        if let Some(from) = from {
+            sqlx::query_as::<_, ThreadSubscription>(
+                r"
+                SELECT id, room_id, thread_id, user_id, notification_level, is_muted, is_pinned, subscribed_ts, updated_ts
+                FROM thread_subscriptions
+                WHERE user_id = $1 AND thread_id > $2
+                ORDER BY thread_id ASC
+                LIMIT $3
+                ",
+            )
+            .bind(user_id)
+            .bind(from)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        } else {
+            sqlx::query_as::<_, ThreadSubscription>(
+                r"
+                SELECT id, room_id, thread_id, user_id, notification_level, is_muted, is_pinned, subscribed_ts, updated_ts
+                FROM thread_subscriptions
+                WHERE user_id = $1
+                ORDER BY thread_id ASC
+                LIMIT $2
+                ",
+            )
+            .bind(user_id)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        }
     }
 
     pub async fn update_read_receipt(
@@ -1769,7 +1793,8 @@ mod db_tests {
             storage.subscribe_to_thread(&room_id, tid, &user_id, "all").await.expect("should subscribe");
         }
 
-        let subs = storage.get_user_thread_subscriptions(&user_id, Some(10)).await.expect("should get subscriptions");
+        let subs =
+            storage.get_user_thread_subscriptions(&user_id, Some(10), None).await.expect("should get subscriptions");
 
         assert!(subs.len() >= 2, "expected at least 2 subscriptions, got {}", subs.len());
 
@@ -2827,6 +2852,7 @@ pub trait ThreadStoreApi: Send + Sync {
         &self,
         user_id: &str,
         limit: Option<i32>,
+        from: Option<String>,
     ) -> Result<Vec<ThreadSubscription>, sqlx::Error>;
     async fn update_read_receipt(
         &self,
@@ -2964,8 +2990,9 @@ impl ThreadStoreApi for ThreadStorage {
         &self,
         user_id: &str,
         limit: Option<i32>,
+        from: Option<String>,
     ) -> Result<Vec<ThreadSubscription>, sqlx::Error> {
-        self.get_user_thread_subscriptions(user_id, limit).await
+        self.get_user_thread_subscriptions(user_id, limit, from).await
     }
 
     async fn update_read_receipt(

@@ -294,10 +294,7 @@ pub(crate) async fn change_password_uia(
 
             // MSC4204 / Matrix v1.3: logout_devices defaults to true (revoke all
             // sessions). Clients can set it to false to keep the current session.
-            let logout_devices = auth
-                .get("logout_devices")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true);
+            let logout_devices = auth.get("logout_devices").and_then(|v| v.as_bool()).unwrap_or(true);
 
             ctx.registration_service
                 .change_password(
@@ -362,9 +359,7 @@ pub(crate) async fn change_password_uia(
             // m.login.email.identity path: no current device context, must
             // revoke ALL sessions per MSC4204 spec. The "true" argument is
             // non-negotiable — email-reset clients cannot keep any session.
-            ctx.registration_service
-                .change_password(&user_id, None, new_password, None, true)
-                .await?;
+            ctx.registration_service.change_password(&user_id, None, new_password, None, true).await?;
 
             Ok(Json(json!({})).into_response())
         }

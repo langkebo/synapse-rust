@@ -147,6 +147,15 @@ pub fn create_thread_routes(state: AppState) -> Router<AppState> {
             "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads",
             get(list_threads_legacy_search),
         )
+        // MSC4155 / MSC4156 unstable compat stubs (same handlers as v1)
+        .route(
+            "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads",
+            get(list_threads),
+        )
+        .route(
+            "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed",
+            get(get_subscribed_threads),
+        )
         // Room-level threads (v1)
         .route(
             "/_matrix/client/v1/rooms/{room_id}/threads",
@@ -225,6 +234,9 @@ pub fn thread_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
         (Method::GET, "/_matrix/client/v1/threads/subscribed"),
         (Method::GET, "/_matrix/client/v1/threads/unread"),
         (Method::GET, "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/threads"),
+        // MSC4155 / MSC4156 unstable compat stubs (same handlers as v1)
+        (Method::GET, "/_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads"),
+        (Method::GET, "/_matrix/client/unstable/org.matrix.msc4156/threads/subscribed"),
         (Method::POST, "/_matrix/client/v1/rooms/{room_id}/threads"),
         (Method::GET, "/_matrix/client/v1/rooms/{room_id}/threads"),
         (Method::GET, "/_matrix/client/v1/rooms/{room_id}/threads/search"),
@@ -645,9 +657,10 @@ async fn create_thread_global(
 
 async fn get_subscribed_threads(
     State(ctx): State<RoomContext>,
+    Query(query): Query<ListQuery>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<SubscribedThreadsResponse>, ApiError> {
-    let response = ctx.thread_service.get_subscribed_threads(&auth_user.user_id, Some(50)).await?;
+    let response = ctx.thread_service.get_subscribed_threads(&auth_user.user_id, query.limit, query.from).await?;
     Ok(Json(response))
 }
 

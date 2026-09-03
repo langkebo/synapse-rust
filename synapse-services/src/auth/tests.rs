@@ -818,11 +818,7 @@ async fn test_change_password_weak_new_password_returns_bad_request() {
     h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
 
     // 弱密码（不满足默认密码策略）应被 400 拒绝。
-    let err = h
-        .service
-        .change_password("@alice:test", Some("old-password"), "short", None, true)
-        .await
-        .unwrap_err();
+    let err = h.service.change_password("@alice:test", Some("old-password"), "short", None, true).await.unwrap_err();
     assert_eq!(err.kind, synapse_common::ApiErrorKind::BadRequest);
 }
 

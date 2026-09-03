@@ -475,9 +475,7 @@ pub async fn reset_user_password(
     // Admin-initiated reset: always revoke all sessions (logout_devices=true).
     // This is intentional — an admin resetting a user's password must force
     // re-auth on all their devices.
-    ctx.registration_service
-        .change_password(&user.user_id, None, &body.new_password, None, true)
-        .await?;
+    ctx.registration_service.change_password(&user.user_id, None, &body.new_password, None, true).await?;
 
     Ok(Json(json!({})))
 }
