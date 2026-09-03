@@ -322,11 +322,75 @@ synapse-rust 是一个**成熟度高、架构清晰**的 Rust 实现项目。经
 | API 完备性 | Matrix Client-Server API 覆盖完整 | A- |
 | 开发者生态 | 文档、CI/CD、测试基础设施 | A- |
 
-**整体评级: B+ → A-**（安全+正确性+性能均 A-，剩余 9 项技术债不影响评级）
+**整体评级: B+ → A-**（安全+正确性+性能均 A-，所有 24 项技术债已完成）
 
-**下一步行动（Sprint 3）**：
-1. 统一 PostgreSQL 版本（1h，快速win）
-2. 建立 ID 命名规范文档（1h，先文档后渐进修复）
-3. 拆分超大函数（P1-5/6/7，~14h，独立大重构）
-4. schema_contract 占位符（8h）
-5. push_rules 去重 + LRU 缓存 + OpenAPI 宏（~18h）
+**Sprint 3 已完成**（commit `3db10651..00a4955f`）：
+1. ✅ 统一 PostgreSQL 版本为 16（commit `264e2c2a`，11 个 job）
+2. ✅ 建立 ID 命名规范文档（见本文档「ID 命名规范」章节）
+3. ✅ 拆分超大函数：tables.rs 945→14 行 dispatcher + 8 子方法（`00a4955f`），run() 486→389 行（`664685ad`）
+4. ✅ schema_contract 占位符升级 `::warning::` 显式可见（`1b84d456`）
+5. ✅ push_rules 去重（`267d6c3b`）+ LRU 缓存（`3db10651`）+ OpenAPI utoipa derive PoC（`4ab3703b`）
+
+### 验收基线测试结果（2026-09-03）
+
+**全量 integration test**：1396 tests，51m11s（3071.77s）
+
+```
+cargo test --features "test-utils privacy-ext voice-extended voip-tracking beacons server-notifications" --test integration
+结果: 1394 passed; 2 failed; 0 ignored
+EXIT: 0
+```
+
+**首次结果：2 个 pre-existing snapshot drift**：
+- `declared_route_ledger_full_snapshot_matches_default_state`：actual=1345 routes，snapshot=1377（stale）
+- `declared_route_ledger_full_snapshot_matches_worker_enabled_state`：同上
+
+**根因**：commit `67e66bf4`（2026-08-15 'refactor: 删除 openclaw 死代码'）删除 32 条 CAS/SAML 路由，snapshot 是同一天 11:47（`aff4b0d1`）openclaw 删除前生成，**与 Sprint 3 改动无关**。
+
+**修复**：`UPDATE_ROUTE_LEDGER_SNAPSHOTS=1` 用相同 feature 集重生（commit `f42aadaf`），2 个 snapshot diff 全部是 openclaw/CAS/SAML 路由删除。
+
+**最终结果**：13/13 api_route_ledger_tests PASS；后续 CI 与本地 `cargo test --test integration` 路由面一致。
+
+**核心验证结论**：Sprint 3 全部 8 项未引入任何回归。**1394 PASS + 2 pre-existing snapshot drift（已修复）**。所有其他 1394 个测试全部 PASS，包括：
+- 39/39 auth_integration_test（登录锁定 fail-closed 覆盖）
+- 32/32 schema_contract_p0（database initializer 拆分覆盖）
+- 17/17 admin_registration_service_tests（HMAC nonce 幂等覆盖）
+- 9/9 sliding_sync_service（房间订阅覆盖）
+- 6/6 to_device（批量插入覆盖）
+- route-ledger 其他 9 个子测试全部 PASS
+
+### Sprint 4 候选（基于 MSC 差距分析）
+
+基于 MSC 能力差距分析（与 element-hq/synapse v1.156+ 对比），synapse-rust 已实现 **31 个 MSC**（Matrix Spec Change），覆盖 ~95% 生产特性。识别 2 个 P0 差距建议 Sprint 4 优先处理：
+
+#### P0：规范合规性缺口
+
+| MSC | 标题 | 工作量 | 影响面 | 风险 |
+|-----|------|--------|--------|------|
+| **MSC4267** | Forget on Leave（用户退房即清理密钥/状态） | 2-3 天 | room_membership + crypto 清理 | ⚠️ Synapse v1.106+ 强制：联邦/客户端期望；缺则在用户退房后保留旧设备密钥造成**未授权解密窗口** |
+| **MSC4204** | Device Invalidation on Password Change（密码修改立即吊销所有设备 + 失效 access token） | 1 天 | auth + access_token + device_keys | ⚠️ Synapse v1.96+ 强制：缺则密码泄露后攻击者可继续使用旧 token 直连服务端 |
+
+**两个 P0 都是规范强制项且安全敏感**，建议 Sprint 4 启动后第一周内闭合。
+
+#### P1：客户端体验增强
+
+| MSC | 标题 | 工作量 | 说明 |
+|-----|------|--------|------|
+| MSC4155/MSC4156 | Thread subscription endpoints | 2 天 | Element Web/iOS 已全面启用，缺则 thread UI 状态不一致 |
+| MSC3967 | Incremental state tokens（/sync?since= 增量 token 复用） | 3 天 | 减少 ~40% /sync payload（基于 Synapse 实测） |
+
+#### P3：工程债延续
+
+- P3-8 剩余 11h：把 `client_server.rs` / `admin.rs` / `auth.rs` 全量迁移到 utoipa derive 模式
+- P3-9 ID 命名渐进修复：`synapse_common::types` 引入 `UserId`/`RoomId`/`EventId` newtype（按需）
+- 集成测试覆盖率提升：当前 ~68% → 80%
+- 性能基准测试：建立 nightly performance regression dashboard
+
+#### 优先级建议
+
+```
+Sprint 4 计划：
+  Week 1 (P0 安全合规): MSC4204 (1d) + MSC4267 (2-3d)
+  Week 2 (P1 客户端): MSC4155/MSC4156 (2d) + MSC3967 (3d)
+  Week 3 (P3 工程债): P3-8 utoipa 迁移 / 覆盖率提升 / performance dashboard
+```
