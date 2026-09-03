@@ -7,10 +7,11 @@ use synapse_services::search_service::TimestampDirection;
 
 use std::collections::HashMap;
 
+use crate::web::routes::extractors::{EventId, RoomId};
 pub(crate) async fn get_event_context(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
+    Path((room_id, event_id)): Path<(RoomId, EventId)>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let room_id = room_id.replace("%21", "!").replace("%3A", ":");

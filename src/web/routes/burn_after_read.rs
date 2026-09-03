@@ -188,7 +188,7 @@ pub async fn get_burn_settings(
 pub async fn mark_burn_read(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
+    Path((room_id, event_id)): Path<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     validators::validate_room_id(&room_id)?;
     let room_exists: bool = ctx
@@ -287,7 +287,7 @@ pub async fn get_pending_burns(
 pub async fn cancel_burn(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
+    Path((room_id, event_id)): Path<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     validators::validate_room_id(&room_id)?;
     let room_exists: bool = ctx
@@ -351,3 +351,5 @@ pub async fn get_burn_stats(
         "rooms_with_burn_enabled": stats.rooms_enabled,
     })))
 }
+
+use crate::web::routes::extractors::{EventId, RoomId};

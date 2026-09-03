@@ -137,7 +137,7 @@ async fn get_relations_by_event(
 async fn get_relations(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id, rel_type)): Path<(String, String, String)>,
+    Path((room_id, event_id, rel_type)): Path<(RoomId, EventId, String)>,
     Query(query): Query<RelationsQuery>,
 ) -> Result<Json<RelationsResponse>, ApiError> {
     // Validate input
@@ -294,7 +294,7 @@ async fn send_relation(
 async fn get_aggregations(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id, rel_type)): Path<(String, String, String)>,
+    Path((room_id, event_id, rel_type)): Path<(RoomId, EventId, String)>,
 ) -> Result<Json<synapse_services::relations_service::AggregationResponse>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
@@ -353,3 +353,5 @@ mod tests {
         assert!(supported_versions.iter().any(|path| path.starts_with("/_matrix/client/v3/")));
     }
 }
+
+use crate::web::routes::extractors::{EventId, RoomId};

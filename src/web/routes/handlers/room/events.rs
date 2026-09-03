@@ -1,3 +1,4 @@
+use crate::web::routes::extractors::{EventId, RoomId};
 use super::{ensure_room_view_access, get_room_event, parse_room_messages_from_token};
 use crate::common::{ApiError, ContentSanitizer};
 use crate::map_internal;
@@ -16,7 +17,7 @@ use synapse_storage::event::CreateEventParams;
 pub(crate) async fn get_single_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
+    Path((room_id, event_id)): Path<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
@@ -35,7 +36,7 @@ pub(crate) async fn get_single_event(
 pub(crate) async fn get_event_keys(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
+    Path((room_id, event_id)): Path<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     let room_id = room_id.replace("%21", "!").replace("%3A", ":");
     let event_id = event_id.replace("%24", "$");
@@ -57,7 +58,7 @@ pub(crate) async fn get_event_keys(
 pub(crate) async fn get_room_thread(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
+    Path((room_id, event_id)): Path<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     let room_id = room_id.replace("%21", "!").replace("%3A", ":");
     let event_id = event_id.replace("%24", "$");
@@ -627,7 +628,7 @@ pub(crate) async fn get_room_reduced_events(
 pub(crate) async fn get_room_event_url(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
+    Path((room_id, event_id)): Path<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
@@ -645,7 +646,7 @@ pub(crate) async fn get_room_event_url(
         .map_err(map_internal!("Failed to get event"))?
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
-    if event.room_id != room_id {
+    if event.room_id != room_id.as_ref() {
         return Err(ApiError::bad_request("Event does not belong to this room".to_string()));
     }
 
@@ -681,7 +682,7 @@ pub(crate) async fn get_room_event_url(
 pub(crate) async fn sign_room_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
+    Path((room_id, event_id)): Path<(RoomId, EventId)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -731,7 +732,7 @@ pub(crate) async fn sign_room_event(
 pub(crate) async fn verify_room_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
+    Path((room_id, event_id)): Path<(RoomId, EventId)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -780,7 +781,7 @@ pub(crate) async fn translate_room_event(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
+    Path((room_id, event_id)): Path<(RoomId, EventId)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -875,7 +876,7 @@ pub(crate) async fn translate_text(
 pub(crate) async fn convert_room_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id)): Path<(String, String)>,
+    Path((room_id, event_id)): Path<(RoomId, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
@@ -899,7 +900,7 @@ pub(crate) async fn redact_event(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path((room_id, event_id, _txn_id)): Path<(String, String, String)>,
+    Path((room_id, event_id, _txn_id)): Path<(RoomId, EventId, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -923,7 +924,7 @@ pub(crate) async fn redact_event(
         .map_err(map_internal!("Failed to get event"))?
         .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
 
-    if original_event.room_id != room_id {
+    if original_event.room_id != room_id.as_ref() {
         return Err(ApiError::bad_request("Event does not belong to this room".to_string()));
     }
 
@@ -951,13 +952,13 @@ pub(crate) async fn redact_event(
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
-                room_id: room_id.clone(),
+                room_id: room_id.to_string(),
                 user_id: auth_user.user_id,
                 event_type: "m.room.redaction".to_string(),
                 content,
                 state_key: None,
                 origin_server_ts: now,
-                redacts: Some(event_id.clone()),
+                redacts: Some(event_id.to_string()),
             },
             None,
         )

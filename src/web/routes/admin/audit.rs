@@ -121,7 +121,7 @@ pub async fn list_audit_events(
 pub async fn get_audit_event(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(event_id): Path<String>,
+    Path(event_id): Path<EventId>,
 ) -> Result<Json<Value>, ApiError> {
     let event = ctx
         .admin_audit_service
@@ -168,3 +168,5 @@ pub(crate) async fn record_audit_event(
 
     Ok(())
 }
+
+use crate::web::routes::extractors::{EventId};

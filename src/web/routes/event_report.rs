@@ -9,7 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
-use crate::web::routes::extractors::UserId;
+use crate::web::routes::extractors::{EventId, UserId};
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use synapse_storage::event_report::{
     CreateEventReportRequest, EventReport, EventReportHistory, EventReportStats, UpdateEventReportRequest,
@@ -188,7 +188,7 @@ pub async fn get_report(
 pub async fn get_reports_by_event(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(event_id): Path<String>,
+    Path(event_id): Path<EventId>,
 ) -> Result<impl IntoResponse, ApiError> {
     let reports = ctx.event_report_service.get_reports_by_event(&event_id).await?;
 

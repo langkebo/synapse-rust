@@ -12,7 +12,7 @@ use synapse_common::current_timestamp_millis;
 pub(crate) async fn send_receipt(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, receipt_type, event_id)): Path<(String, String, String)>,
+    Path((room_id, receipt_type, event_id)): Path<(RoomId, String, EventId)>,
     body: String,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
@@ -27,7 +27,7 @@ pub(crate) async fn send_receipt(
     // therefore treat "event not found" as a compatibility no-op while still
     // rejecting receipts that explicitly target an event from another room.
     if let Some(event) = ctx.room_service.messaging().get_event_record(&event_id).await? {
-        if event.room_id != room_id {
+        if event.room_id != room_id.as_ref() {
             return Err(ApiError::not_found("Event not found".to_string()));
         }
     } else {
@@ -54,7 +54,7 @@ pub(crate) async fn send_receipt(
 pub(crate) async fn get_receipts(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, receipt_type, event_id)): Path<(String, String, String)>,
+    Path((room_id, receipt_type, event_id)): Path<(RoomId, String, EventId)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_receipt_type(&receipt_type)?;
@@ -96,3 +96,5 @@ pub(crate) async fn set_read_markers(
         "updated_ts": current_timestamp_millis()
     })))
 }
+
+use crate::web::routes::extractors::{EventId, RoomId};

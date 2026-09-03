@@ -621,7 +621,7 @@ async fn get_stats(
 
 async fn redact_reply(
     State(ctx): State<RoomContext>,
-    Path((room_id, event_id)): Path<(String, String)>,
+    Path((room_id, event_id)): Path<(RoomId, EventId)>,
     auth_user: AuthenticatedUser,
 ) -> Result<StatusCode, ApiError> {
     ensure_thread_room_access(&ctx, &auth_user, &room_id).await?;
@@ -715,3 +715,5 @@ mod tests {
         assert!(route.ends_with("/threads"));
     }
 }
+
+use crate::web::routes::extractors::{EventId, RoomId};

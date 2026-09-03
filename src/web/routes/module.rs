@@ -1,6 +1,6 @@
 use crate::common::error::ApiError;
 use crate::web::routes::context::AdminContext;
-use crate::web::routes::extractors::UserId;
+use crate::web::routes::extractors::{EventId, UserId};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -458,7 +458,7 @@ pub async fn check_third_party_rule(
 pub async fn get_spam_check_result(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(event_id): Path<String>,
+    Path(event_id): Path<EventId>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = ctx
         .module_service
@@ -487,7 +487,7 @@ pub async fn get_spam_check_results_by_sender(
 pub async fn get_third_party_rule_results(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
-    Path(event_id): Path<String>,
+    Path(event_id): Path<EventId>,
 ) -> Result<impl IntoResponse, ApiError> {
     let results = ctx.module_service.get_third_party_rule_results(&event_id).await?;
 

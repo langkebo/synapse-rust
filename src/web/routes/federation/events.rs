@@ -8,6 +8,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
+use crate::web::routes::extractors::{EventId};
 pub(super) async fn get_room_auth(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -117,7 +118,7 @@ pub(super) async fn get_event_auth(
 pub(super) async fn get_event(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
-    Path(event_id): Path<String>,
+    Path(event_id): Path<EventId>,
 ) -> Result<Json<Value>, ApiError> {
     let event = ctx.room_service.messaging().get_event_record(&event_id).await?;
 
