@@ -170,3 +170,324 @@ impl ContentScanner {
         self.scan(ScanRequest { content_id: content_id.to_string(), content_type: media_type, data }).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for [`ContentScanner`].
+    //!
+    //! Strategy: exercise the business logic without external dependencies.
+    //! - ClamAV path (`scan_with_clamav`) requires a live ClamAV socket at
+    //!   `/var/run/clamav/clamd.sock` — the no-socket path returns a
+    //!   connection error which we assert on.
+    //! - Webhook path uses a real HTTP client. With `block_on_failure=true`
+    //!   and an unreachable URL, the call errors out. With
+    //!   `block_on_failure=false`, the error is swallowed and a safe
+    //!   pass-through is returned (the fail-open policy).
+
+    use super::super::models::*;
+    use super::ContentScanner;
+
+    fn make_disabled_scanner() -> ContentScanner {
+        ContentScanner::new(ContentScannerConfig {
+            enabled: false,
+            scanner_type: ScannerType::Disabled,
+            block_on_scan_failure: false,
+            ..Default::default()
+        })
+    }
+
+    fn make_enabled_disabled_type_scanner() -> ContentScanner {
+        ContentScanner::new(ContentScannerConfig {
+            enabled: true,
+            scanner_type: ScannerType::Disabled,
+            block_on_scan_failure: true,
+            ..Default::default()
+        })
+    }
+
+    fn make_clamav_scanner() -> ContentScanner {
+        ContentScanner::new(ContentScannerConfig {
+            enabled: true,
+            scanner_type: ScannerType::ClamAv,
+            clamav_socket_path: Some("/nonexistent/clamd.sock".to_string()),
+            block_on_scan_failure: true,
+            scan_timeout_ms: 1000,
+            ..Default::default()
+        })
+    }
+
+    fn make_webhook_scanner(block_on_failure: bool, url: Option<String>) -> ContentScanner {
+        ContentScanner::new(ContentScannerConfig {
+            enabled: true,
+            scanner_type: ScannerType::Webhook,
+            webhook_url: url,
+            webhook_secret: Some("test-secret".to_string()),
+            block_on_scan_failure: block_on_failure,
+            scan_timeout_ms: 5000,
+            ..Default::default()
+        })
+    }
+
+    // ── is_enabled ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn is_enabled_disabled_config() {
+        // enabled=false → false
+        let scanner = make_disabled_scanner();
+        assert!(!scanner.is_enabled());
+    }
+
+    #[test]
+    fn is_enabled_true_but_type_disabled() {
+        // enabled=true but scanner_type=Disabled → false
+        let scanner = make_enabled_disabled_type_scanner();
+        assert!(!scanner.is_enabled());
+    }
+
+    #[test]
+    fn is_enabled_clamav() {
+        // enabled=true + ClamAv type → true
+        let scanner = make_clamav_scanner();
+        assert!(scanner.is_enabled());
+    }
+
+    #[test]
+    fn is_enabled_webhook() {
+        // enabled=true + Webhook type → true
+        let scanner = make_webhook_scanner(true, Some("http://localhost:9999".to_string()));
+        assert!(scanner.is_enabled());
+    }
+
+    // ── scan (disabled path) ───────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn scan_disabled_returns_safe() {
+        let scanner = make_disabled_scanner();
+        let result = scanner
+            .scan(ScanRequest {
+                content_id: "test-1".to_string(),
+                content_type: ContentType::MessageText,
+                data: b"hello world".to_vec(),
+            })
+            .await
+            .expect("scan should not fail");
+
+        assert!(result.safe, "disabled scanner must return safe=true");
+        assert!(result.threat_type.is_none());
+        assert!(result.threat_message.is_none());
+        assert!(result.scan_timestamp > 0);
+    }
+
+    #[tokio::test]
+    async fn scan_enabled_but_type_disabled_returns_safe() {
+        let scanner = make_enabled_disabled_type_scanner();
+        let result = scanner
+            .scan(ScanRequest {
+                content_id: "test-2".to_string(),
+                content_type: ContentType::MediaImage,
+                data: b"\x00\x01\x02".to_vec(),
+            })
+            .await
+            .expect("scan should not fail");
+
+        assert!(result.safe);
+        assert!(result.threat_type.is_none());
+    }
+
+    #[tokio::test]
+    async fn scan_disabled_with_large_data() {
+        let scanner = make_disabled_scanner();
+        let large_data: Vec<u8> = (0..100_000).map(|i| (i % 256) as u8).collect();
+
+        let result = scanner
+            .scan(ScanRequest {
+                content_id: "test-large".to_string(),
+                content_type: ContentType::FileAttachment,
+                data: large_data,
+            })
+            .await
+            .expect("large data scan should not fail");
+
+        assert!(result.safe);
+    }
+
+    // ── scan_text helper ───────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn scan_text_disabled_returns_safe() {
+        let scanner = make_disabled_scanner();
+        let result = scanner.scan_text("msg-1", "Hello, world!").await.expect("scan_text should not fail");
+        assert!(result.safe);
+    }
+
+    #[tokio::test]
+    async fn scan_text_disabled_with_empty_string() {
+        let scanner = make_disabled_scanner();
+        let result = scanner.scan_text("msg-empty", "").await.expect("empty text scan should not fail");
+        assert!(result.safe);
+    }
+
+    #[tokio::test]
+    async fn scan_text_disabled_with_unicode() {
+        let scanner = make_disabled_scanner();
+        let result = scanner.scan_text("msg-unicode", "你好世界 🌍 مرحبا").await.expect("unicode scan should not fail");
+        assert!(result.safe);
+    }
+
+    // ── scan_media helper ──────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn scan_media_disabled_image() {
+        let scanner = make_disabled_scanner();
+        let result = scanner
+            .scan_media("media-1", vec![0xFF, 0xD8, 0xFF], ContentType::MediaImage)
+            .await
+            .expect("media scan should not fail");
+        assert!(result.safe);
+    }
+
+    #[tokio::test]
+    async fn scan_media_disabled_video() {
+        let scanner = make_disabled_scanner();
+        let result = scanner
+            .scan_media("media-video-1", vec![0x00, 0x00, 0x00], ContentType::MediaVideo)
+            .await
+            .expect("video scan should not fail");
+        assert!(result.safe);
+    }
+
+    #[tokio::test]
+    async fn scan_media_disabled_audio() {
+        let scanner = make_disabled_scanner();
+        let result = scanner
+            .scan_media("media-audio-1", vec![0x49, 0x44, 0x33], ContentType::MediaAudio)
+            .await
+            .expect("audio scan should not fail");
+        assert!(result.safe);
+    }
+
+    #[tokio::test]
+    async fn scan_media_disabled_file() {
+        let scanner = make_disabled_scanner();
+        let result = scanner
+            .scan_media("file-1", b"PK\x03\x04".to_vec(), ContentType::FileAttachment)
+            .await
+            .expect("file scan should not fail");
+        assert!(result.safe);
+    }
+
+    // ── scan (ClamAV path — no socket → error) ──────────────────────────────
+
+    #[tokio::test]
+    async fn scan_clamav_no_socket_returns_error() {
+        let scanner = make_clamav_scanner();
+        let result = scanner
+            .scan(ScanRequest {
+                content_id: "test-clamav".to_string(),
+                content_type: ContentType::MediaFile,
+                data: b"test data".to_vec(),
+            })
+            .await;
+
+        // ClamAV socket doesn't exist → connection error
+        assert!(result.is_err(), "should error when ClamAV socket is unavailable");
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Failed to connect to ClamAV") || err.to_string().contains("connect"));
+    }
+
+    // ── scan (Webhook path — no URL → error) ───────────────────────────────
+
+    #[tokio::test]
+    async fn scan_webhook_no_url_returns_error() {
+        let scanner = make_webhook_scanner(true, None);
+        let result = scanner
+            .scan(ScanRequest {
+                content_id: "test-webhook".to_string(),
+                content_type: ContentType::MessageText,
+                data: b"hello".to_vec(),
+            })
+            .await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Webhook URL not configured"));
+    }
+
+    // ── scan (Webhook path — block_on_failure=true, server unreachable) ─────
+
+    #[tokio::test]
+    async fn scan_webhook_block_on_failure_unreachable_returns_error() {
+        let scanner = make_webhook_scanner(true, Some("http://localhost:9999/unreachable".to_string()));
+        let result = scanner
+            .scan(ScanRequest {
+                content_id: "test-webhook-block".to_string(),
+                content_type: ContentType::MediaImage,
+                data: b"fake image".to_vec(),
+            })
+            .await;
+
+        // Connection refused (no server on 9999) + block_on_failure=true → error
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        // reqwest can surface a connection-refused either as
+        // "Webhook request failed" (network error) or as a non-2xx
+        // response (the request *did* go out but got a refusal). With
+        // block_on_failure=true both must surface as a hard error.
+        let msg = err.to_string();
+        assert!(
+            msg.contains("Webhook request") || msg.contains("connect") || msg.contains("Webhook scan failed"),
+            "unexpected err: {msg}"
+        );
+    }
+
+    // ── scan (Webhook path — fail-open policy) ──────────────────────────────
+
+    #[tokio::test]
+    async fn scan_webhook_fail_open_passes_through() {
+        let scanner = make_webhook_scanner(false, Some("http://localhost:9999/unreachable".to_string()));
+        let result = scanner
+            .scan(ScanRequest {
+                content_id: "test-webhook-fail-open".to_string(),
+                content_type: ContentType::MessageText,
+                data: b"hello".to_vec(),
+            })
+            .await
+            .expect("fail-open path should not return error");
+
+        // block_on_failure=false → error is swallowed, returns safe=true with warning
+        assert!(result.safe, "fail-open should return safe=true even on webhook failure");
+        assert!(result.threat_type.is_none());
+        assert_eq!(
+            result.threat_message.as_deref(),
+            Some("Scan service unavailable"),
+            "should contain unavailable message"
+        );
+    }
+
+    // ── scan all ContentTypes through disabled scanner ─────────────────────
+
+    #[tokio::test]
+    async fn scan_all_content_types_disabled() {
+        let scanner = make_disabled_scanner();
+        let types = [
+            ContentType::MediaImage,
+            ContentType::MediaVideo,
+            ContentType::MediaAudio,
+            ContentType::MediaFile,
+            ContentType::MessageText,
+            ContentType::FileAttachment,
+        ];
+
+        for ct in &types {
+            let result = scanner
+                .scan(ScanRequest {
+                    content_id: format!("id-{:?}", ct),
+                    content_type: *ct,
+                    data: vec![1, 2, 3],
+                })
+                .await
+                .expect("scan should not fail");
+            assert!(result.safe, "all content types should be safe when scanner is disabled: {:?}", ct);
+        }
+    }
+}
