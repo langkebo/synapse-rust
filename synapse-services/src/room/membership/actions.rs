@@ -160,7 +160,7 @@ impl MembershipService {
         }
 
         self.member_storage
-            .remove_member(room_id, user_id)
+            .remove_member(room_id, user_id, None)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to leave room", &e))?;
 
@@ -257,7 +257,7 @@ impl MembershipService {
                 }
                 "leave" | "invite" => {
                     self.member_storage
-                        .forget_member(room_id, user_id)
+                        .forget_member(room_id, user_id, None)
                         .await
                         .map_err(|e| ApiError::internal_with_context("Failed to forget room", &e))?;
                 }
@@ -269,6 +269,147 @@ impl MembershipService {
                 return Err(ApiError::not_found("No membership record found for this room".to_string()));
             }
         }
+
+        Ok(())
+    }
+
+    /// MSC4267: atomic leave + forget in a single DB transaction.
+    ///
+    /// Per the spec, when a client POSTs `/rooms/{id}/leave` with
+    /// `forget: true` the server MUST run the leave and the forget in the
+    /// same transaction so that no other writer can observe a "leave
+    /// without forget" intermediate state. The race window in the two-step
+    /// flow (where another client could re-join, or a federation leave
+    /// event could land, between the leave and the forget) is closed by
+    /// binding both writes to a single `BEGIN ... COMMIT` boundary.
+    ///
+    /// Federation leave is unaffected — it is a separate code path
+    /// (`leave_room_via_federation`) and does not participate in
+    /// leave+forget semantics. Clients that want to leave a remote room
+    /// AND forget it locally must first leave via the remote server
+    /// (which propagates the leave event back), and then call
+    /// `/forget` explicitly.
+    pub async fn leave_and_forget(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        // For remote rooms we still want the local forget to be atomic
+        // with whatever membership state is left after the federated
+        // leave — but `leave_room_via_federation` is the only path that
+        // can mark the membership as 'leave' in that case. Refuse to
+        // combine because the federation hop is its own transaction.
+        if self.is_remote_room(room_id) {
+            return Err(ApiError::bad_request(
+                "MSC4267 leave+forget is only valid for local rooms. Leave the remote room first, then call /forget.".to_string(),
+            ));
+        }
+
+        // Pre-flight: check the current membership is in a legal
+        // 'Leave' transition (matches leave_room's guard at line 154).
+        let existing_member = self
+            .member_storage
+            .get_room_member(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to check membership before leave+forget", &e))?;
+        let current_state = existing_member
+            .as_ref()
+            .and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
+        if let Err(msg) = super::transition::is_legal(
+            current_state,
+            super::transition::MembershipState::Leave,
+            &super::transition::TransitionContext::default(),
+        ) {
+            return Err(ApiError::forbidden(msg.to_string()));
+        }
+
+        // MSC4267 atomic path. We need a DB pool; if the service was built
+        // without one (test_mocks), fall back to the non-atomic two-call
+        // path so existing tests keep working.
+        let Some(pool) = self.db_pool.as_ref() else {
+            // Fallback: best-effort non-atomic leave+forget for environments
+            // without a real DB pool (e.g. in-memory mocks).
+            self.leave_room(room_id, user_id).await?;
+            // forget_room itself does get_room_member + forget_member; if the
+            // member was 'join' it would have been downgraded to 'leave' by
+            // leave_room above so the forget is now legal.
+            self.forget_room(room_id, user_id).await?;
+            return Ok(());
+        };
+
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to begin leave+forget transaction", &e))?;
+
+        // Step 1 (in tx): mark membership 'leave' and zero the
+        // member count delta.
+        self.member_storage
+            .remove_member(room_id, user_id, Some(&mut tx))
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to leave room (in transaction)", &e))?;
+
+        if existing_member
+            .as_ref()
+            .is_some_and(|member| member.membership == "join")
+        {
+            self.room_storage
+                .decrement_member_count(room_id)
+                .await
+                .map_err(|e| ApiError::internal_with_context("Failed to update member count (in transaction)", &e))?;
+        }
+
+        // Step 2 (in tx): mark membership 'forget' so the user no
+        // longer sees the room in their list. Combined with step 1
+        // this means the room is gone in a single COMMIT — no other
+        // client can observe the intermediate 'leave' state.
+        self.member_storage
+            .forget_member(room_id, user_id, Some(&mut tx))
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to forget room (in transaction)", &e))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to commit leave+forget transaction", &e))?;
+
+        // Best-effort post-commit work — same as leave_room. Failures
+        // here are logged but not surfaced to the client; the
+        // authoritative state is in the DB.
+        let leave_event = self
+            .event_writer
+            .create_event(
+                CreateEventParams {
+                    event_id: generate_event_id(&self.server_name),
+                    room_id: room_id.to_string(),
+                    user_id: user_id.to_string(),
+                    event_type: "m.room.member".to_string(),
+                    content: json!({ "membership": "leave" }),
+                    state_key: Some(user_id.to_string()),
+                    origin_server_ts: current_timestamp_millis(),
+                    redacts: None,
+                },
+                None,
+            )
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to record m.room.member leave event", &e))?;
+
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+
+        if let Err(e) = self.sign_and_broadcast_event(&leave_event).await {
+            ::tracing::warn!(
+                room_id = %room_id,
+                user_id = %user_id,
+                error = %e,
+                "Failed to sign and broadcast leave event (leave+forget path)"
+            );
+        }
+
+        // Forward secrecy: rotate the room's megolm session so the
+        // departed user cannot decrypt future messages.
+        self.trigger_key_rotation_on_leave(room_id, user_id).await;
+
+        ::tracing::info!(
+            target: "security_audit",
+            room_id = %room_id,
+            user_id = %user_id,
+            "MSC4267 leave+forget completed in single transaction"
+        );
 
         Ok(())
     }

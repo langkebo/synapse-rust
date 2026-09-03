@@ -192,7 +192,12 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
         Ok(result)
     }
 
-    async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
+    async fn remove_member(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        _tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error> {
         let mut members = self.members.write().await;
         if let Some(member) = members.get_mut(&(room_id.to_string(), user_id.to_string())) {
             member.membership = "leave".to_string();
@@ -440,7 +445,12 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
         Ok(())
     }
 
-    async fn forget_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
+    async fn forget_member(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        _tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error> {
         let mut members = self.members.write().await;
         if let Some(member) = members.get_mut(&(room_id.to_string(), user_id.to_string())) {
             member.membership = "forget".to_string();

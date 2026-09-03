@@ -328,7 +328,7 @@ impl MembershipService {
             })?;
 
         self.member_storage
-            .remove_member(room_id, user_id)
+            .remove_member(room_id, user_id, None)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to leave federated room", &e))?;
 

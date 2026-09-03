@@ -221,9 +221,18 @@ impl RoomMemberStorage {
         }
     }
 
-    pub async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
+    /// Remove (leave) a member. When `tx` is provided the UPDATE runs in the
+    /// caller's transaction (used by MSC4267 leave+forget to bundle the
+    /// leave+forget mutations atomically). When `tx` is `None` the existing
+    /// pool-backed path is used.
+    pub async fn remove_member(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
-        sqlx::query(
+        let query = sqlx::query(
             r"
             UPDATE room_memberships
             SET membership = 'leave',
@@ -235,15 +244,25 @@ impl RoomMemberStorage {
         )
         .bind(room_id)
         .bind(user_id)
-        .bind(now)
-        .execute(&*self.pool)
-        .await?;
+        .bind(now);
+        if let Some(tx) = tx {
+            query.execute(&mut **tx).await?;
+        } else {
+            query.execute(&*self.pool).await?;
+        }
         Ok(())
     }
 
-    pub async fn forget_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
+    /// Mark a membership as 'forget'. When `tx` is provided the UPDATE runs
+    /// in the caller's transaction (used by MSC4267 leave+forget).
+    pub async fn forget_member(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
-        sqlx::query(
+        let query = sqlx::query(
             r"
             UPDATE room_memberships
             SET membership = 'forget',
@@ -254,9 +273,12 @@ impl RoomMemberStorage {
         )
         .bind(room_id)
         .bind(user_id)
-        .bind(now)
-        .execute(&*self.pool)
-        .await?;
+        .bind(now);
+        if let Some(tx) = tx {
+            query.execute(&mut **tx).await?;
+        } else {
+            query.execute(&*self.pool).await?;
+        }
         Ok(())
     }
 
@@ -1310,7 +1332,7 @@ mod db_tests {
         storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
         assert!(storage.is_member(&room_id, &user_id).await.unwrap());
 
-        storage.remove_member(&room_id, &user_id).await.unwrap();
+        storage.remove_member(&room_id, &user_id, None).await.unwrap();
 
         // Should no longer be a member
         assert!(!storage.is_member(&room_id, &user_id).await.unwrap());
@@ -1335,7 +1357,7 @@ mod db_tests {
 
         storage.add_member(&room_id, &user_id, "leave", None, None, None, None).await.unwrap();
         // Removing an already-left member should not panic/error
-        let result = storage.remove_member(&room_id, &user_id).await;
+        let result = storage.remove_member(&room_id, &user_id, None).await;
         assert!(result.is_ok());
 
         cleanup_membership_data(&pool, &suffix).await;
@@ -1357,9 +1379,9 @@ mod db_tests {
 
         // Join then leave, then forget
         storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
-        storage.remove_member(&room_id, &user_id).await.unwrap();
+        storage.remove_member(&room_id, &user_id, None).await.unwrap();
 
-        storage.forget_member(&room_id, &user_id).await.unwrap();
+        storage.forget_member(&room_id, &user_id, None).await.unwrap();
 
         assert!(storage.is_forgotten(&room_id, &user_id).await.unwrap());
 
@@ -1586,7 +1608,7 @@ mod db_tests {
         storage.add_member(&room_1, &user_id, "join", None, None, None, None).await.unwrap();
         storage.add_member(&room_2, &user_id, "join", None, None, None, None).await.unwrap();
         // Leave room_2
-        storage.remove_member(&room_2, &user_id).await.unwrap();
+        storage.remove_member(&room_2, &user_id, None).await.unwrap();
 
         // Without leave
         let rooms = storage.get_sync_rooms(&user_id, false).await.unwrap();
@@ -1627,7 +1649,7 @@ mod db_tests {
         assert_eq!(state.as_deref(), Some("join"));
 
         // Leave
-        storage.remove_member(&room_id, &user_id).await.unwrap();
+        storage.remove_member(&room_id, &user_id, None).await.unwrap();
         let state = storage.get_membership_state(&room_id, &user_id).await.unwrap();
         assert_eq!(state.as_deref(), Some("leave"));
 
@@ -1685,7 +1707,7 @@ mod db_tests {
         assert!(storage.is_member(&room_id, &user_id).await.unwrap());
 
         // Leave
-        storage.remove_member(&room_id, &user_id).await.unwrap();
+        storage.remove_member(&room_id, &user_id, None).await.unwrap();
         assert!(!storage.is_member(&room_id, &user_id).await.unwrap());
 
         cleanup_membership_data(&pool, &suffix).await;
@@ -1768,7 +1790,7 @@ mod db_tests {
         assert_eq!(m.unwrap().membership, "join");
 
         // Leave the room
-        storage.remove_member(&room_id, &user_id).await.unwrap();
+        storage.remove_member(&room_id, &user_id, None).await.unwrap();
 
         // Not found for leave
         let m = storage.get_joined_member(&room_id, &user_id).await.unwrap();

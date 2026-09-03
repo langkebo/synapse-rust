@@ -42,7 +42,16 @@ pub trait MemberStoreApi: Send + Sync {
 
     async fn get_sync_rooms(&self, user_id: &str, include_leave: bool) -> Result<Vec<UserRoomMembership>, sqlx::Error>;
 
-    async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error>;
+    /// Remove (leave) a member from a room. When `tx` is supplied the
+    /// mutation is part of a caller-managed transaction (used by MSC4267
+    /// leave+forget to atomically mark the membership as 'leave' and 'forget'
+    /// in the same transaction).
+    async fn remove_member(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error>;
 
     async fn is_member(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
 
@@ -135,7 +144,16 @@ pub trait MemberStoreApi: Send + Sync {
 
     // ── Additional membership queries (added for state-service migration) ──
 
-    async fn forget_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error>;
+    /// Mark a room membership as 'forget' so the user no longer sees it in
+    /// their room list. When `tx` is supplied the mutation is part of a
+    /// caller-managed transaction (used by MSC4267 leave+forget to atomically
+    /// apply leave + forget in a single DB transaction).
+    async fn forget_member(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error>;
 
     async fn remove_all_members(&self, room_id: &str) -> Result<(), sqlx::Error>;
 
@@ -182,8 +200,13 @@ impl MemberStoreApi for super::RoomMemberStorage {
         self.get_sync_rooms(user_id, include_leave).await
     }
 
-    async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
-        self.remove_member(room_id, user_id).await
+    async fn remove_member(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error> {
+        self.remove_member(room_id, user_id, tx).await
     }
 
     async fn is_member(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
@@ -299,8 +322,13 @@ impl MemberStoreApi for super::RoomMemberStorage {
         self.force_leave_membership(room_id, user_id, now).await
     }
 
-    async fn forget_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
-        self.forget_member(room_id, user_id).await
+    async fn forget_member(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error> {
+        self.forget_member(room_id, user_id, tx).await
     }
 
     async fn remove_all_members(&self, room_id: &str) -> Result<(), sqlx::Error> {

@@ -175,7 +175,7 @@ impl MembershipService {
 
     pub async fn remove_member_record(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         self.member_storage
-            .remove_member(room_id, user_id)
+            .remove_member(room_id, user_id, None)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to remove room member", &e))
     }

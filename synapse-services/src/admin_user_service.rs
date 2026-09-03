@@ -232,7 +232,7 @@ impl AdminUserService {
         let mut failures = Vec::new();
         let mut removed: Vec<String> = Vec::new();
         for room_id in &joined_rooms {
-            match self.member_storage.remove_member(room_id, user_id).await {
+            match self.member_storage.remove_member(room_id, user_id, None).await {
                 Ok(()) => removed.push(room_id.clone()),
                 Err(e) => failures.push(AdminEvictionFailure { room_id: room_id.clone(), error: e.to_string() }),
             }

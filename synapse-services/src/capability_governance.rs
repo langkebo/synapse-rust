@@ -484,9 +484,12 @@ impl CapabilityGovernance {
         // `uk.tcpip.msc4133` namespace; declare stable capability so
         // clients can discover profile field support.
         self.insert_enabled_capability(&mut capabilities, "m.profile_fields", true);
-        // MSC4267: Auto-forget rooms on leave. Not implemented — declare
-        // as disabled so clients know they must call /forget explicitly.
-        self.insert_enabled_capability(&mut capabilities, "m.forget_forced_upon_leave", false);
+        // MSC4267: Auto-forget rooms on leave. When a user leaves a room with
+        // `forget: true`, the server atomically marks the membership as 'forget'
+        // in the same transaction as the leave event, preventing a race window
+        // where a subsequent explicit /forget call could be reordered.
+        // Enabled so clients know they can use the combined leave+forget flow.
+        self.insert_enabled_capability(&mut capabilities, "m.forget_forced_upon_leave", true);
         // Sliding sync is declared via the standard `org.matrix.msc3886.sliding_sync`
         // unstable feature in `/versions` and `/capabilities.unstable_features`.
         // The private `io.hula.sliding_sync` capability is intentionally omitted

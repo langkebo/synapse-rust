@@ -373,7 +373,7 @@ impl MembershipService {
         }
 
         self.member_storage
-            .remove_member(room_id, target_user_id)
+            .remove_member(room_id, target_user_id, None)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to kick user", &e))?;
 

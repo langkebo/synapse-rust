@@ -564,7 +564,7 @@ async fn test_remove_member_join() {
     insert_room(&pool, &room_id).await;
     storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
 
-    storage.remove_member(&room_id, &user_id).await.unwrap();
+    storage.remove_member(&room_id, &user_id, None).await.unwrap();
 
     let member = storage.get_member(&room_id, &user_id).await.unwrap();
     assert!(member.is_some());
@@ -585,7 +585,7 @@ async fn test_remove_member_banned() {
     storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
     storage.ban_member(&room_id, &user_id, "@admin:localhost").await.unwrap();
 
-    storage.remove_member(&room_id, &user_id).await.unwrap();
+    storage.remove_member(&room_id, &user_id, None).await.unwrap();
 
     let member = storage.get_member(&room_id, &user_id).await.unwrap();
     assert!(member.is_some());
@@ -605,7 +605,7 @@ async fn test_remove_member_already_left() {
     insert_room(&pool, &room_id).await;
     insert_membership(&pool, &room_id, &user_id, "leave").await;
 
-    storage.remove_member(&room_id, &user_id).await.unwrap();
+    storage.remove_member(&room_id, &user_id, None).await.unwrap();
 
     let member = storage.get_member(&room_id, &user_id).await.unwrap();
     assert!(member.is_some());
@@ -625,7 +625,7 @@ async fn test_forget_member_leave() {
     insert_room(&pool, &room_id).await;
     insert_membership(&pool, &room_id, &user_id, "leave").await;
 
-    storage.forget_member(&room_id, &user_id).await.unwrap();
+    storage.forget_member(&room_id, &user_id, None).await.unwrap();
 
     let member = storage.get_member(&room_id, &user_id).await.unwrap();
     assert!(member.is_some());
@@ -645,7 +645,7 @@ async fn test_forget_member_invite() {
     insert_room(&pool, &room_id).await;
     insert_membership(&pool, &room_id, &user_id, "invite").await;
 
-    storage.forget_member(&room_id, &user_id).await.unwrap();
+    storage.forget_member(&room_id, &user_id, None).await.unwrap();
 
     let member = storage.get_member(&room_id, &user_id).await.unwrap();
     assert!(member.is_some());
@@ -665,7 +665,7 @@ async fn test_forget_member_joined_no_effect() {
     insert_room(&pool, &room_id).await;
     storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
 
-    storage.forget_member(&room_id, &user_id).await.unwrap();
+    storage.forget_member(&room_id, &user_id, None).await.unwrap();
 
     let member = storage.get_member(&room_id, &user_id).await.unwrap();
     assert!(member.is_some());
@@ -684,7 +684,7 @@ async fn test_is_forgotten_true() {
     insert_user(&pool, &user_id, &format!("isforgotten_{suffix}")).await;
     insert_room(&pool, &room_id).await;
     insert_membership(&pool, &room_id, &user_id, "leave").await;
-    storage.forget_member(&room_id, &user_id).await.unwrap();
+    storage.forget_member(&room_id, &user_id, None).await.unwrap();
 
     let forgotten = storage.is_forgotten(&room_id, &user_id).await.unwrap();
     assert!(forgotten);
@@ -1565,11 +1565,11 @@ async fn test_full_membership_lifecycle() {
     storage.add_member(&room_id, &user_id, "join", Some("LifecycleUser"), None, None, None).await.unwrap();
     assert!(storage.is_member(&room_id, &user_id).await.unwrap());
 
-    storage.remove_member(&room_id, &user_id).await.unwrap();
+    storage.remove_member(&room_id, &user_id, None).await.unwrap();
     assert!(!storage.is_member(&room_id, &user_id).await.unwrap());
     assert_eq!(storage.get_membership_state(&room_id, &user_id).await.unwrap().as_deref(), Some("leave"));
 
-    storage.forget_member(&room_id, &user_id).await.unwrap();
+    storage.forget_member(&room_id, &user_id, None).await.unwrap();
     assert!(storage.is_forgotten(&room_id, &user_id).await.unwrap());
     assert_eq!(storage.get_membership_state(&room_id, &user_id).await.unwrap().as_deref(), Some("forget"));
 }

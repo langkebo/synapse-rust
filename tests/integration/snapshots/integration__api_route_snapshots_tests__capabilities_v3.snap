@@ -14,7 +14,7 @@ expression: body
       "enabled": true
     },
     "m.forget_forced_upon_leave": {
-      "enabled": false
+      "enabled": true
     },
     "m.profile_fields": {
       "enabled": true
