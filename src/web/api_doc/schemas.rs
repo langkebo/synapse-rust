@@ -287,3 +287,277 @@ pub struct ApiRtcTransport {
 pub struct ApiRtcTransportsResponse {
     pub transports: Vec<ApiRtcTransport>,
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P2-Media: /v3/media/config
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Media configuration returned by `GET /_matrix/client/v3/media/config`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiMediaConfig {
+    /// `m.upload.size` — maximum upload size in bytes.
+    #[serde(rename = "m.upload.size")]
+    pub m_upload_size: i64,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P2-Room core: list/joined/create/join/leave/forget/invite/send
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Response body of `GET /_matrix/client/v3/joined_rooms`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiJoinedRoomsResponse {
+    pub joined_rooms: Vec<String>,
+}
+
+/// Public room directory entry returned by `GET /v3/publicRooms`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiPublicRoomsChunkEntry {
+    pub room_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canonical_alias: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_joined_members: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub world_readable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guest_can_join: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+}
+
+/// Response body of `GET /v3/publicRooms`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiPublicRoomsResponse {
+    pub chunk: Vec<ApiPublicRoomsChunkEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_batch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prev_batch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_room_count_estimate: Option<i32>,
+}
+
+/// Request body for `POST /v3/createRoom`.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiCreateRoomRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub room_alias_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invite: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub power_level_content_override: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initial_state: Option<Vec<serde_json::Value>>,
+}
+
+/// Response body of `POST /v3/createRoom`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiCreateRoomResponse {
+    pub room_id: String,
+}
+
+/// Response body of `PUT /v3/rooms/{room_id}/send/{event_type}/{txn_id}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiSendEventResponse {
+    pub event_id: String,
+}
+
+/// Response body of `POST /v3/rooms/{room_id}/join` and `/leave` and `/forget`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiRoomIdResponse {
+    pub room_id: String,
+}
+
+/// Response body of `POST /v3/rooms/{room_id}/forget`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiForgetRoomResponse {
+    pub room_id: String,
+    pub is_forgotten: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_ts: Option<i64>,
+}
+
+/// Response body of `POST /v3/rooms/{room_id}/invite`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiInviteResponse {
+    pub room_id: String,
+    pub invited_user_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invited_ts: Option<i64>,
+}
+
+/// Response body of `GET /v3/rooms/{room_id}/joined_members`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiJoinedMembersResponse {
+    pub joined: serde_json::Value,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P2-User directory
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Response body of `GET /v3/user_directory/profiles/{user_id}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiUserDirectoryProfileResponse {
+    pub user_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub displayname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+}
+
+/// Response body of `POST /v3/user_directory/search`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiUserDirectorySearchResponse {
+    pub limited: bool,
+    pub results: Vec<ApiUserDirectoryProfileResponse>,
+}
+
+/// Response body of `GET/PUT /v3/directory/list/room/{room_id}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiRoomVisibilityResponse {
+    pub visibility: String,
+}
+
+/// Response body of `PUT /v3/directory/list/room/{room_id}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiRoomVisibilityUpdateResponse {
+    pub room_id: String,
+    pub visibility: String,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P2-Room alias + sync/events/my_rooms + relations + search
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Response body of `PUT /v3/directory/room/{room_alias}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiRoomAliasCreatedResponse {
+    pub room_id: String,
+    pub alias: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_ts: Option<i64>,
+}
+
+/// Response body of `DELETE /v3/directory/room/{room_alias}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiRoomAliasRemovedResponse {
+    pub removed: bool,
+    pub alias: String,
+}
+
+/// Response body of `GET /r0/directory/room/{room_id}/alias`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiRoomAliasesResponse {
+    pub aliases: Vec<String>,
+}
+
+/// Response body of `POST /v3/publicRooms` (alias of GET).
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiQueryPublicRoomsResponse {
+    pub chunk: Vec<ApiPublicRoomsChunkEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_batch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_room_count_estimate: Option<i32>,
+}
+
+/// Per-room summary returned by `GET /v3/my_rooms`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiMyRoomEntry {
+    pub room_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub join_state: Option<String>,
+}
+
+/// Response body of `GET /v3/my_rooms`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiMyRoomsResponse {
+    pub rooms: Vec<ApiMyRoomEntry>,
+    pub total: i32,
+}
+
+/// Request body for `GET /v3/search` (POST with body).
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiSearchRequest {
+    pub search_categories: serde_json::Value,
+}
+
+/// Response body of `POST /v3/search`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiSearchResponse {
+    pub search_categories: serde_json::Value,
+}
+
+/// Request body for `POST /v3/rooms/{room_id}/report`.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiRoomReportRequest {
+    pub reason: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<i32>,
+}
+
+/// Response body of `POST /v3/rooms/{room_id}/report`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiReportAcceptedResponse {
+    pub accepted: bool,
+}
+
+/// Request body for `POST /v3/rooms/{room_id}/send/{event_type}/{txn_id}`-style state event.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiStateEventRequest {
+    #[serde(flatten)]
+    pub content: serde_json::Value,
+}
+
+/// Response body of `PUT /v3/rooms/{room_id}/state/{event_type}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiStateEventPutResponse {
+    pub event_id: String,
+}

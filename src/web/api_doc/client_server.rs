@@ -501,7 +501,7 @@ pub fn get_rtc_transports_doc() -> axum::Json<serde_json::Value> {
     tag = "Client-Server",
     responses(
         (status = 200, description = "Media configuration",
-            body = serde_json::Value,
+            body = schemas::ApiMediaConfig,
             example = json!({
                 "m.upload.size": 52428800
             })
@@ -520,7 +520,7 @@ pub fn get_media_config() -> axum::Json<serde_json::Value> {
     tag = "Client-Server",
     responses(
         (status = 200, description = "List of joined rooms",
-            body = serde_json::Value,
+            body = schemas::ApiJoinedRoomsResponse,
             example = json!({
                 "joined_rooms": ["!room1:example.com", "!room2:example.com"]
             })
@@ -546,7 +546,7 @@ pub fn get_joined_rooms_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Public room directory",
-            body = serde_json::Value,
+            body = schemas::ApiPublicRoomsResponse,
             example = json!({
                 "chunk": [
                     {
@@ -573,10 +573,10 @@ pub fn get_public_rooms_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v3/createRoom",
     tag = "Client-Server",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiCreateRoomRequest,
     responses(
         (status = 200, description = "Room created",
-            body = serde_json::Value,
+            body = schemas::ApiCreateRoomResponse,
             example = json!({
                 "room_id": "!abc:example.com"
             })
@@ -605,7 +605,7 @@ pub fn create_room_doc() -> axum::Json<serde_json::Value> {
     request_body = serde_json::Value,
     responses(
         (status = 200, description = "Event sent",
-            body = serde_json::Value,
+            body = schemas::ApiSendEventResponse,
             example = json!({
                 "event_id": "$event:example.com"
             })
@@ -630,10 +630,10 @@ pub fn send_message_doc() -> axum::Json<serde_json::Value> {
     params(
         ("room_id" = String, Path, description = "The room ID or alias")
     ),
-    request_body = Option<serde_json::Value>,
+    request_body = serde_json::Value,
     responses(
         (status = 200, description = "Joined successfully",
-            body = serde_json::Value,
+            body = schemas::ApiRoomIdResponse,
             example = json!({
                 "room_id": "!room:example.com"
             })
@@ -659,7 +659,7 @@ pub fn join_room_doc() -> axum::Json<serde_json::Value> {
         ("room_id" = String, Path, description = "The room ID")
     ),
     responses(
-        (status = 200, description = "Left room", body = serde_json::Value),
+        (status = 200, description = "Left room", body = schemas::ApiRoomIdResponse),
         (status = 404, description = "Room not found")
     ),
     security(
@@ -681,7 +681,7 @@ pub fn leave_room_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Room forgotten",
-            body = serde_json::Value,
+            body = schemas::ApiForgetRoomResponse,
             example = json!({
                 "room_id": "!room:example.com",
                 "is_forgotten": true,
@@ -710,7 +710,7 @@ pub fn forget_room_doc() -> axum::Json<serde_json::Value> {
     request_body = serde_json::Value,
     responses(
         (status = 200, description = "User invited",
-            body = serde_json::Value,
+            body = schemas::ApiInviteResponse,
             example = json!({
                 "room_id": "!room:example.com",
                 "invited_user_id": "@bob:example.com",
@@ -739,7 +739,7 @@ pub fn invite_user_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Joined members",
-            body = serde_json::Value,
+            body = schemas::ApiJoinedMembersResponse,
             example = json!({
                 "joined": {
                     "@alice:example.com": {
@@ -772,9 +772,9 @@ pub fn get_joined_members_doc() -> axum::Json<serde_json::Value> {
     params(
         ("user_id" = String, Path, description = "The user ID")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiSetDisplaynameRequest,
     responses(
-        (status = 200, description = "Display name updated", body = serde_json::Value)
+        (status = 200, description = "Display name updated", body = schemas::ApiEmptyResponse)
     ),
     security(
         ("BearerAuth" = [])
@@ -795,7 +795,7 @@ pub fn update_displayname_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "User directory profile",
-            body = serde_json::Value,
+            body = schemas::ApiUserDirectoryProfileResponse,
             example = json!({
                 "user_id": "@alice:example.com",
                 "displayname": "Alice",
@@ -821,13 +821,13 @@ pub fn get_user_directory_profile_doc() -> axum::Json<serde_json::Value> {
     request_body = serde_json::Value,
     responses(
         (status = 200, description = "Search results",
-            body = serde_json::Value,
+            body = schemas::ApiUserDirectorySearchResponse,
             example = json!({
                 "limited": false,
                 "results": [
                     {
                         "user_id": "@alice:example.com",
-                        "display_name": "Alice",
+                        "displayname": "Alice",
                         "avatar_url": "mxc://example.com/alice"
                     }
                 ]
@@ -853,7 +853,7 @@ pub fn search_user_directory_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Visibility value",
-            body = serde_json::Value,
+            body = schemas::ApiRoomVisibilityResponse,
             example = json!({
                 "visibility": "public"
             })
@@ -877,7 +877,7 @@ pub fn get_room_visibility_doc() -> axum::Json<serde_json::Value> {
     request_body = serde_json::Value,
     responses(
         (status = 200, description = "Visibility updated",
-            body = serde_json::Value,
+            body = schemas::ApiRoomVisibilityUpdateResponse,
             example = json!({
                 "room_id": "!room:example.com",
                 "visibility": "private"
@@ -1263,7 +1263,7 @@ pub fn get_room_hierarchy_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Closest event",
-            body = serde_json::Value,
+            body = schemas::ApiEmptyResponse,
             example = json!({
                 "event_id": "$event:example.com",
                 "origin_server_ts": 1718000000000_i64
@@ -1291,7 +1291,7 @@ pub fn timestamp_to_event_doc() -> axum::Json<serde_json::Value> {
     request_body(content = String, content_type = "application/octet-stream", description = "Raw media bytes"),
     responses(
         (status = 200, description = "Media uploaded",
-            body = serde_json::Value,
+            body = schemas::ApiEmptyResponse,
             example = json!({
                 "content_uri": "mxc://example.com/abcdef"
             })
@@ -1444,7 +1444,8 @@ pub fn update_report_score_doc() -> axum::Json<serde_json::Value> {
         ("dir" = Option<String>, Query, description = "Direction")
     ),
     responses(
-        (status = 200, description = "Relations response", body = serde_json::Value)
+        (status = 200, description = "Relations response", body = schemas::ApiEmptyResponse),
+        (status = 404, description = "Event not found")
     ),
     security(
         ("BearerAuth" = [])
@@ -1469,7 +1470,7 @@ pub fn get_relations_by_event_doc() -> axum::Json<serde_json::Value> {
         ("dir" = Option<String>, Query, description = "Direction")
     ),
     responses(
-        (status = 200, description = "Relations response", body = serde_json::Value)
+        (status = 200, description = "Relations response", body = schemas::ApiEmptyResponse)
     ),
     security(
         ("BearerAuth" = [])
