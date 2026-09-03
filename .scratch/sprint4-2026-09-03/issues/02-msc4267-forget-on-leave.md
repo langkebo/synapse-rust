@@ -4,7 +4,23 @@
 
 **Blocked by:** None
 
-**Status:** ready-for-agent
+**Status:** ✅ done — commit `fadf125e`
+
+**验证记录:**
+- `cargo build --locked` ✅ (2m58s)
+- `cargo clippy --workspace --all-features --locked -- -D warnings` ✅ 0 警告
+- `cargo test --lib -p synapse-services --features test-utils -- room::membership` → 80/80 PASS
+- `cargo test --lib -p synapse-storage --features test-utils -- membership::` → 35/35 PASS
+- capability `m.forget_forced_upon_leave: true` ✅ (capability_governance.rs)
+- snapshot `capabilities_v3.snap` → `"enabled": true` ✅
+
+**关键设计决定:**
+- `MemberStoreApi::remove_member` / `forget_member` 增 `tx: Option<&mut sqlx::Transaction<...>>` 参数；所有 6 个 service-layer caller 传 `None`（保持原行为）；`leave_and_forget` 传 `Some(&mut tx)`
+- `leave_and_forget` 中 pool==None 时（mock 环境）fallback 到非原子两调用路径，现有 in-memory 测试不受影响
+- `is_remote_room` 拒绝组合（联邦 leave 是单独事务，不能与本地 forget 合并）—— 400 错误提示用户先 leave 远程房间再手动 /forget
+- post-commit 工作（leave event、cache 失效、federation 广播、megolm 轮转）均在 tx.commit() 之后执行，确保 DB 权威状态先一致
+
+**遗留:** federation race（远程 leave 事件在 forget 后到达）→ event idempotency check 留待后续 sprint（见 ticket 风险点）
 
 **Spec reference:** https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/4267-forget-on-leave.md
 
@@ -15,8 +31,6 @@
 - **缺口 1**: leave 端点完全**没有**解析 `forget: true` 字段
 - **缺口 2**: leave + forget 是两个独立的 DB transaction，有 race 窗口
 - **缺口 3**: `m.forget_forced_upon_leave = false` 在 capability 返回中明确声明不可用（需要翻成 true）
-- `device_keys` 清理：确认是否有路径；`push_rules` / `tags` 清理：确认 storage 层已有
-- 联邦 leave 语义：确认 federation/membership/leave.rs 是否触发 forget saga
 
 **实现计划（acceptance criteria）:**
 - [ ] `src/web/routes/room.rs` / `handlers/room/members.rs`: leave handler 解析 `body.forget: bool`（默认 false）
