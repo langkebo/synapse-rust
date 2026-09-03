@@ -275,6 +275,15 @@ jobs:
         if: matrix.features-args == '--all-features'
         run: cargo clippy -p synapse-services --all-features --tests --locked -- -D warnings
 
+      # ── B3: missing_docs 棘轮 ──
+      # 7 个 crate 都开了 crate 级 `#![allow(missing_docs)]`，存量几百个 warning
+      # 不能直接打开。ratchet 只卡增量：新增 pub 项必须带 `///` doc，debt
+      # 数字通过 scripts/.missing-docs-baseline 锁住。详见脚本头注释。
+      - name: Check missing_docs ratchet
+        run: ./scripts/check_missing_docs_ratchet.sh
+        env:
+          SQLX_OFFLINE: "true"
+
       # Upload test logs on failure. The default GH-Actions log storage has a
       # narrow retention window (often cleaned up by the time maintainers look
       # at the failed run). Persisting via artifacts keeps logs available for
