@@ -5,6 +5,7 @@ use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
 
 use super::upload::ensure_local_media_server_name;
+use crate::web::routes::extractors::ServerName;
 
 pub(crate) async fn check_quota(
     State(ctx): State<MediaContext>,
@@ -70,7 +71,7 @@ pub(crate) async fn quota_alerts(
 pub(crate) async fn delete_media(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Path((server_name, media_id)): Path<(String, String)>,
+    Path((server_name, media_id)): Path<(ServerName, String)>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_local_media_server_name(&ctx, &server_name)?;
 

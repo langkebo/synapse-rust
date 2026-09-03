@@ -2,6 +2,7 @@ use crate::common::*;
 use crate::federation::EduDispatcher;
 use crate::web::middleware::FederationRequestAuth;
 use crate::web::routes::context::FederationContext;
+use crate::web::routes::extractors::TransactionId;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Extension, Json, Path, State},
@@ -16,7 +17,7 @@ pub(super) async fn send_transaction(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
-    Path(txn_id): Path<String>,
+    Path(txn_id): Path<TransactionId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     super::increment_counter(&ctx, "federation_inbound_txn_total");

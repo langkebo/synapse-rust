@@ -1,5 +1,6 @@
 use crate::common::*;
 use crate::web::routes::context::FederationContext;
+use crate::web::routes::extractors::ServerName;
 use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
@@ -29,7 +30,7 @@ fn parse_federation_query_i64(params: &Value, key: &str, default: i64) -> Result
 
 pub(super) async fn media_download(
     State(ctx): State<FederationContext>,
-    Path((server_name, media_id)): Path<(String, String)>,
+    Path((server_name, media_id)): Path<(ServerName, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_federation_media_server_name(&ctx, &server_name)?;
 
@@ -46,7 +47,7 @@ pub(super) async fn media_download(
 
 pub(super) async fn media_thumbnail(
     State(ctx): State<FederationContext>,
-    Path((server_name, media_id)): Path<(String, String)>,
+    Path((server_name, media_id)): Path<(ServerName, String)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_federation_media_server_name(&ctx, &server_name)?;

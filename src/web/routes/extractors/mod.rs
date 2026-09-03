@@ -12,7 +12,7 @@ use crate::common::ApiError;
 // The old tuple-struct definitions are removed; callers that previously imported
 // `extractors::RoomId` etc. now get the typed newtypes from synapse-common.
 
-pub use synapse_common::types::{DeviceId, EventId, RoomAlias, RoomId, ServerName, UserId};
+pub use synapse_common::types::{DeviceId, EventId, RoomAlias, RoomId, ServerName, TransactionId, UserId};
 
 /// Extension trait: Axum-aware validators for ID types.
 pub trait UserIdParseExt {

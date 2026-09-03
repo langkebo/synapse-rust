@@ -2,6 +2,7 @@ use crate::common::ApiError;
 use crate::common::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::web::routes::context::AdminContext;
 use crate::web::routes::AdminUser;
+use crate::web::routes::extractors::ServerName;
 use axum::{
     extract::{Path, Query, State},
     routing::{delete, get, post},
@@ -328,7 +329,7 @@ pub async fn get_blacklist(
 pub async fn add_to_blacklist(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(server_name): Path<String>,
+    Path(server_name): Path<ServerName>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.admin_federation_service.add_to_blacklist(&server_name, &admin.user_id).await?;
     Ok(Json(json!({})))
@@ -338,7 +339,7 @@ pub async fn add_to_blacklist(
 pub async fn remove_from_blacklist(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(server_name): Path<String>,
+    Path(server_name): Path<ServerName>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.admin_federation_service.remove_from_blacklist(&server_name, &admin.user_id).await?;
     Ok(Json(json!({})))

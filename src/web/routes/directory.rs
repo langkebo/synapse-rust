@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 use crate::web::routes::context::RoomContext;
+use crate::web::routes::extractors::RoomAlias;
 use crate::web::routes::{ensure_room_member_ctx, validate_room_alias, ApiError, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
@@ -80,7 +81,7 @@ pub struct PublicRoom {
 
 pub async fn get_directory_room(
     State(ctx): State<RoomContext>,
-    Path(room_alias): Path<String>,
+    Path(room_alias): Path<RoomAlias>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_alias(&room_alias)?;
 
@@ -138,7 +139,7 @@ fn extract_remote_server_from_alias(alias: &str, local_server: &str) -> Option<S
 pub async fn set_room_alias_handler(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_alias): Path<String>,
+    Path(room_alias): Path<RoomAlias>,
     Json(body): Json<SetRoomAliasBody>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_alias(&room_alias)?;
@@ -162,7 +163,7 @@ pub async fn set_room_alias_handler(
 pub async fn remove_room_alias(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(room_alias): Path<String>,
+    Path(room_alias): Path<RoomAlias>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_alias(&room_alias)?;
 
@@ -189,7 +190,7 @@ pub async fn remove_room_alias(
 
 pub async fn get_alias_servers(
     State(ctx): State<RoomContext>,
-    Path(room_alias): Path<String>,
+    Path(room_alias): Path<RoomAlias>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_alias(&room_alias)?;
 

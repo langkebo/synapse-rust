@@ -1,6 +1,7 @@
 use crate::common::ApiError;
 use crate::web::routes::context::MediaContext;
 use crate::web::AuthenticatedUser;
+use crate::web::routes::extractors::ServerName;
 use axum::{
     body::Bytes,
     extract::{Json, Path, Query, State},
@@ -135,7 +136,7 @@ pub(crate) async fn upload_media_v1(
 pub(crate) async fn upload_media_with_id(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
-    Path((server_name, media_id)): Path<(String, String)>,
+    Path((server_name, media_id)): Path<(ServerName, String)>,
     Query(params): Query<Value>,
     headers: HeaderMap,
     body: Bytes,

@@ -1,7 +1,7 @@
 use crate::common::ApiError;
 use crate::web::extractors::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::web::routes::context::AdminContext;
-use crate::web::routes::extractors::UserId;
+use crate::web::routes::extractors::{RoomAlias, RoomId, UserId};
 use crate::web::routes::{
     account_compat::{can_view_profile_for_requester_batch, enforce_profile_visibility},
     ensure_room_member_admin, validate_event_id, validate_room_alias, validate_room_id, validate_user_id,
@@ -375,7 +375,7 @@ pub(crate) async fn set_room_alias(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path((room_id, room_alias)): Path<(String, String)>,
+    Path((room_id, room_alias)): Path<(RoomId, RoomAlias)>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_alias(&room_alias)?;
@@ -409,7 +409,7 @@ pub(crate) async fn delete_room_alias(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path((room_id, _room_alias)): Path<(String, String)>,
+    Path((room_id, _room_alias)): Path<(RoomId, RoomAlias)>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     ensure_room_alias_write_allowed(&ctx, &auth_user, &room_id).await?;
@@ -421,7 +421,7 @@ pub(crate) async fn delete_room_alias(
 pub(crate) async fn get_room_by_alias(
     State(ctx): State<AdminContext>,
     _auth_user: OptionalAuthenticatedUser,
-    Path(room_alias): Path<String>,
+    Path(room_alias): Path<RoomAlias>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_alias(&room_alias)?;
     let room_id = ctx.room_service.state().get_room_by_alias(&room_alias).await?;
@@ -436,7 +436,7 @@ pub(crate) async fn set_room_alias_direct(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(room_alias): Path<String>,
+    Path(room_alias): Path<RoomAlias>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
@@ -476,7 +476,7 @@ pub(crate) async fn delete_room_alias_direct(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
-    Path(room_alias): Path<String>,
+    Path(room_alias): Path<RoomAlias>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_alias(&room_alias)?;

@@ -5,6 +5,7 @@ use crate::web::routes::context::FederationContext;
 use crate::web::utils::encoding::decode_base64_32;
 use axum::extract::{Extension, Json, Path, State};
 use base64::Engine;
+use crate::web::routes::extractors::ServerName;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
@@ -21,13 +22,13 @@ pub(super) async fn server_key(State(ctx): State<FederationContext>) -> Result<J
 
 pub(super) async fn key_query(
     State(ctx): State<FederationContext>,
-    Path((server_name, key_id)): Path<(String, String)>,
+    Path((server_name, key_id)): Path<(ServerName, String)>,
 ) -> Result<Json<Value>, ApiError> {
     // P2-16: Spec-compliant notary query returns { "server_keys": [Server Keys] }
     // wrapped in an array. This is required for interoperability with
     // Synapse/Dendrite which expect the wrapped format from all notary
     // endpoints (including the Synapse-extension {keyId} path).
-    let server_key = if server_name == ctx.server_name || server_name == ctx.config.federation.server_name {
+    let server_key = if server_name == ctx.server_name.as_str() || server_name == ctx.config.federation.server_name.as_str() {
         resolve_server_keys(&ctx).await?
     } else {
         let response = fetch_remote_server_keys_response(&ctx, &server_name, &key_id).await?;
@@ -59,10 +60,10 @@ pub(super) async fn key_query(
 /// fetches from the origin server (or serves from cache).
 pub(super) async fn key_query_all(
     State(ctx): State<FederationContext>,
-    Path(server_name): Path<String>,
+    Path(server_name): Path<ServerName>,
 ) -> Result<Json<Value>, ApiError> {
     // Local server: return own keys.
-    if server_name == ctx.server_name || server_name == ctx.config.federation.server_name {
+    if server_name == ctx.server_name.as_str() || server_name == ctx.config.federation.server_name.as_str() {
         let server_key = resolve_server_keys(&ctx).await?;
         return Ok(Json(json!({ "server_keys": [server_key] })));
     }
