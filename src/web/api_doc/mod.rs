@@ -478,6 +478,12 @@ pub fn swagger_ui_router(_state: AppState) -> axum::Router<AppState> {
             federation::key_query_federation_doc,
             federation::key_query_v2_federation_doc,
         ),
+        components(schemas(
+            schemas::ApiHealthCheckResult,
+            schemas::ApiHealthStatus,
+            schemas::ApiPusher,
+            schemas::ApiPushersResponse,
+        )),
     )]
     struct ApiDoc;
 

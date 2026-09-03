@@ -47,18 +47,25 @@ pub fn get_server_version() -> axum::Json<serde_json::Value> {
     tag = "Client-Server",
     responses(
         (status = 200, description = "Pushers",
-            body = serde_json::Value,
+            body = ApiPushersResponse,
             example = json!({
                 "pushers": [{
                     "pushkey": "push-key",
                     "kind": "http",
-                    "app_id": "com.example.app"
+                    "app_id": "com.example.app",
+                    "app_display_name": "Example App",
+                    "device_display_name": "Chrome",
+                    "profile_tag": "v1_testsuite",
+                    "lang": "en-US",
+                    "data": {
+                        "url": "https://example.com/_matrix/push/v1/notify"
+                    }
                 }]
             })
         ),
     ),
 )]
-pub fn get_pushers() -> axum::Json<serde_json::Value> {
+pub fn get_pushers() -> axum::Json<ApiPushersResponse> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
 
