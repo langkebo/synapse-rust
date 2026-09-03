@@ -822,3 +822,598 @@ pub struct ApiAdminUpsertUserRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_type: Option<String>,
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P3-Admin batch 2: session / account / room / spaces endpoints
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Per-session entry in admin user session listings.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminSessionEntry {
+    pub device_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_seen_ts: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_seen_ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/user_sessions/{user_id}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminUserSessionsResponse {
+    pub user_id: String,
+    pub sessions: Vec<ApiAdminSessionEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
+}
+
+/// Response body of `POST /_synapse/admin/v1/user_sessions/{user_id}/invalidate`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminSessionsInvalidated {
+    pub invalidated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sessions_removed: Option<i64>,
+}
+
+/// Request body for `POST /_synapse/admin/v1/account/{user_id}` (generic JSON).
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiAdminAccountUpdateRequest {
+    #[serde(flatten)]
+    pub fields: serde_json::Value,
+}
+
+/// Response body of `GET /_synapse/admin/v1/account/{user_id}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminAccountDetails {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub user_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub displayname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admin: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deactivated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub creation_ts: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub room_count: Option<i64>,
+}
+
+/// Response body of `POST /_synapse/admin/v1/account/{user_id}` update.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminAccountUpdated {
+    pub user_id: String,
+    pub updated: bool,
+}
+
+/// Response body of `GET /_synapse/admin/v1/rooms/{room_id}` (admin view).
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminRoomDetail {
+    pub room_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub creator: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub member_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub room_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encryption: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_public: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub join_rule: Option<String>,
+}
+
+/// Member entry in admin room member listings.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminRoomMemberEntry {
+    pub user_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub displayname: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+    pub membership: String,
+}
+
+/// Response body of `GET /_synapse/admin/v1/rooms/{room_id}/members`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminRoomMembersResponse {
+    pub members: Vec<ApiAdminRoomMemberEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_batch: Option<String>,
+}
+
+/// State event entry in admin room state listings.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminStateEventEntry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "type")]
+    pub event_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_id: Option<String>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/rooms/{room_id}/state`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminRoomStateResponse {
+    pub state: Vec<ApiAdminStateEventEntry>,
+}
+
+/// Space entry in admin space listings.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminSpaceEntry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub space_id: Option<String>,
+    pub room_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub creator: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_ts: Option<i64>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/spaces`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminSpacesResponse {
+    pub spaces: Vec<ApiAdminSpaceEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/spaces/{space_id}/users`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminSpaceUsersResponse {
+    pub users: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/spaces/{space_id}/rooms`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminSpaceRoomsResponse {
+    pub rooms: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/spaces/{space_id}/stats`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminSpaceStats {
+    pub space_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub member_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub child_room_count: Option<i64>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/rooms/{room_id}/listings`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminRoomListingStatus {
+    pub room_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub in_directory: Option<bool>,
+}
+
+/// Response body of `PUT /DELETE /_synapse/admin/v1/rooms/{room_id}/listings/public`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminRoomVisibilityUpdated {
+    pub room_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public: Option<bool>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/rooms/{room_id}/block`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminRoomBlockStatus {
+    pub block: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked_at: Option<i64>,
+}
+
+/// Request body for `POST /_synapse/admin/v1/rooms/{room_id}/block`.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiAdminBlockRoomRequest {
+    pub block: bool,
+}
+
+/// Response body of `POST /_synapse/admin/v1/rooms/{room_id}/block` and `/unblock`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminRoomBlockUpdated {
+    pub block: bool,
+}
+
+/// Request body for `POST /_synapse/admin/v1/rooms/{room_id}/make_admin`.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiAdminMakeRoomAdminRequest {
+    pub user_id: String,
+}
+
+/// Request body for `POST /_synapse/admin/v1/purge_history`.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiAdminPurgeHistoryRequest {
+    pub room_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_ts: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delete_local_events: Option<bool>,
+}
+
+/// Response body of `POST /_synapse/admin/v1/purge_history`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminPurgeHistoryResponse {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deleted_events: Option<i64>,
+}
+
+/// Request body for `POST /_synapse/admin/v1/purge_room`.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiAdminPurgeRoomRequest {
+    pub room_id: String,
+}
+
+/// Response body of `POST /_synapse/admin/v1/purge_room`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminPurgeRoomResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purge_id: Option<String>,
+    pub success: bool,
+}
+
+/// Response body of `PUT /_synapse/admin/v1/rooms/{room_id}/members/{user_id}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminMembershipUpdated {
+    pub user_id: String,
+    pub room_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub membership: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub removed: Option<bool>,
+}
+
+/// Request body for `POST /_synapse/admin/v1/rooms/cleanup`.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiAdminCleanupRoomsRequest {
+    #[serde(flatten)]
+    pub options: serde_json::Value,
+}
+
+/// Response body of `GET /_synapse/admin/v1/server_version`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminServerVersion {
+    pub server_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub python_version: Option<String>,
+    pub server_name: String,
+}
+
+/// Response body of `GET /_synapse/admin/info`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminServerInfo {
+    pub server_name: String,
+    pub server_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub implementation: Option<String>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/whoami`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminWhoAmI {
+    pub user_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_admin: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/statistics`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminStatistics {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_users: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_rooms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub daily_active_users: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub monthly_active_users: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r30_users: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r30v2_users: Option<i64>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/status`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminStatus {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub db_ok: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub server_ok: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub up: Option<bool>,
+}
+
+/// Device last-seen entry in whois responses.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminWhoisDeviceEntry {
+    pub device_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_seen: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ip: Option<String>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/whois/{user_id}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminWhoisResponse {
+    pub user_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub devices: Option<Vec<ApiAdminWhoisDeviceEntry>>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/whois/{user_id}/{device_id}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminWhoisDeviceResponse {
+    pub user_id: String,
+    pub device_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_seen: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ip: Option<String>,
+}
+
+/// Response body of `POST /_synapse/admin/v1/purge_media_cache`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminPurgeMediaCacheResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deleted: Option<i64>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/config`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminConfigResponse {
+    pub server_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_baseurl: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub registration_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_upload_size: Option<i64>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/jitsi/config`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminJitsiConfig {
+    pub domain: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_id: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jwt_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jwt_asap_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jwt_auth_type: Option<String>,
+    pub server_name: String,
+}
+
+/// Response body of `GET /_synapse/admin/v1/invite/blocklist`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminInviteBlocklist {
+    pub blocklist: Vec<String>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/invite/allowlist`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminInviteAllowlist {
+    pub allowlist: Vec<String>,
+}
+
+/// Federation destination entry.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminFederationDestinationEntry {
+    pub destination: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_last_ts: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_interval: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_ts: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_successful_stream_ordering: Option<i64>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/federation/destinations`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminFederationDestinationsResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destinations: Option<Vec<ApiAdminFederationDestinationEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_batch: Option<String>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/federation/destinations/{destination}/rooms`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminFederationDestinationRoomsResponse {
+    pub rooms: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
+}
+
+/// Report entry in admin moderation listings.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminReportEntry {
+    pub id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub room_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reported_user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub received_ts: Option<i64>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/reports`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminReportsResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reports: Option<Vec<ApiAdminReportEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<i64>,
+}
+
+/// Response body of `GET /_synapse/admin/v1/retention/policy`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminRetentionPolicy {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_lifetime: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_lifetime: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_expire_on_clients: Option<bool>,
+}
+
+/// Request body for `POST /_synapse/admin/v1/retention/policy`.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiAdminSetRetentionPolicyRequest {
+    #[serde(flatten)]
+    pub fields: serde_json::Value,
+}
+
+/// Response body of `GET /_synapse/admin/v1/retention/policy/{room_id}`.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminRoomRetentionPolicy {
+    pub room_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_lifetime: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_lifetime: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_expire_on_clients: Option<bool>,
+}
+
+/// Request body for `POST /_synapse/admin/v1/purge_media_cache`.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiAdminPurgeMediaCacheRequest {
+    pub before_ts: i64,
+}
+
+/// Response body of `GET /_synapse/admin/v1/room_stats` (generic stats).
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminRoomStatsOverview {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_rooms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_rooms: Option<i64>,
+}
+
+/// Generic request body used across multiple admin endpoints.
+#[derive(utoipa::ToSchema, serde::Deserialize)]
+#[allow(dead_code)]
+pub struct ApiAdminGenericRequest {
+    #[serde(flatten)]
+    pub fields: serde_json::Value,
+}
+
+/// Generic JSON response body used across multiple admin endpoints.
+#[derive(utoipa::ToSchema, serde::Serialize)]
+#[allow(dead_code)]
+pub struct ApiAdminGenericJson {
+    #[serde(flatten)]
+    pub fields: serde_json::Value,
+}

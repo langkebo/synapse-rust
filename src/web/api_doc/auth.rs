@@ -1,5 +1,7 @@
 #![cfg(feature = "openapi-docs")]
 
+use super::schemas;
+
 /// `GET /_matrix/client/v3/user/{user_id}/account_data/` — List account data for the authenticated user.
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
@@ -11,7 +13,7 @@
     ),
     responses(
         (status = 200, description = "Account data map",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "account_data": {
                     "m.push_rules": {
@@ -39,7 +41,7 @@ pub fn list_account_data() -> axum::Json<serde_json::Value> {
         ("type" = String, Path, description = "Account data event type")
     ),
     responses(
-        (status = 200, description = "Account data content", body = serde_json::Value),
+        (status = 200, description = "Account data content", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "Account data not found")
     ),
 )]
@@ -57,9 +59,9 @@ pub fn get_account_data() -> axum::Json<serde_json::Value> {
         ("user_id" = String, Path, description = "Authenticated Matrix user ID"),
         ("type" = String, Path, description = "Account data event type")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
-        (status = 200, description = "Account data updated", body = serde_json::Value),
+        (status = 200, description = "Account data updated", body = schemas::ApiAdminGenericJson),
         (status = 403, description = "Cannot modify account data for another user")
     ),
     security(
@@ -81,7 +83,7 @@ pub fn set_account_data_doc() -> axum::Json<serde_json::Value> {
         ("type" = String, Path, description = "Account data event type")
     ),
     responses(
-        (status = 200, description = "Account data deleted", body = serde_json::Value),
+        (status = 200, description = "Account data deleted", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "Account data not found")
     ),
     security(
@@ -104,7 +106,7 @@ pub fn delete_account_data_doc() -> axum::Json<serde_json::Value> {
         ("type" = String, Path, description = "Room account data event type")
     ),
     responses(
-        (status = 200, description = "Room account data content", body = serde_json::Value),
+        (status = 200, description = "Room account data content", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "Room account data not found")
     ),
 )]
@@ -123,9 +125,9 @@ pub fn get_room_account_data() -> axum::Json<serde_json::Value> {
         ("room_id" = String, Path, description = "Matrix room ID"),
         ("type" = String, Path, description = "Room account data event type")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
-        (status = 200, description = "Room account data updated", body = serde_json::Value),
+        (status = 200, description = "Room account data updated", body = schemas::ApiAdminGenericJson),
         (status = 403, description = "Cannot modify room account data for another user")
     ),
     security(
@@ -148,7 +150,7 @@ pub fn set_room_account_data_doc() -> axum::Json<serde_json::Value> {
         ("type" = String, Path, description = "Room account data event type")
     ),
     responses(
-        (status = 200, description = "Room account data deleted", body = serde_json::Value),
+        (status = 200, description = "Room account data deleted", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "Room account data not found")
     ),
     security(
@@ -168,10 +170,10 @@ pub fn delete_room_account_data_doc() -> axum::Json<serde_json::Value> {
     params(
         ("user_id" = String, Path, description = "Authenticated Matrix user ID")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "Filter created",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "filter_id": "12345"
             })
@@ -197,7 +199,7 @@ pub fn create_filter_doc() -> axum::Json<serde_json::Value> {
         ("filter_id" = String, Path, description = "Filter ID")
     ),
     responses(
-        (status = 200, description = "Saved filter document", body = serde_json::Value),
+        (status = 200, description = "Saved filter document", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "Filter not found")
     ),
 )]
@@ -216,7 +218,7 @@ pub fn get_filter() -> axum::Json<serde_json::Value> {
         ("filter_id" = String, Path, description = "Filter ID")
     ),
     responses(
-        (status = 200, description = "Filter deleted", body = serde_json::Value),
+        (status = 200, description = "Filter deleted", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "Filter not found")
     ),
     security(
@@ -238,7 +240,7 @@ pub fn delete_filter_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "OpenID token issued",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "access_token": "openid_access_token",
                 "token_type": "Bearer",
@@ -267,7 +269,7 @@ pub fn get_openid_token_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "All room tags for the user",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "tags": {
                     "!room:example.com": {
@@ -297,7 +299,7 @@ pub fn get_global_tags() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Room tags",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "tags": {
                     "m.favourite": {
@@ -327,9 +329,9 @@ pub fn get_room_tags() -> axum::Json<serde_json::Value> {
         ("room_id" = String, Path, description = "Matrix room ID"),
         ("tag" = String, Path, description = "Tag name")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
-        (status = 200, description = "Room tag updated", body = serde_json::Value),
+        (status = 200, description = "Room tag updated", body = schemas::ApiAdminGenericJson),
         (status = 403, description = "Access denied")
     ),
     security(
@@ -352,7 +354,7 @@ pub fn put_room_tag_doc() -> axum::Json<serde_json::Value> {
         ("tag" = String, Path, description = "Tag name")
     ),
     responses(
-        (status = 200, description = "Room tag deleted", body = serde_json::Value),
+        (status = 200, description = "Room tag deleted", body = schemas::ApiAdminGenericJson),
         (status = 403, description = "Access denied")
     ),
     security(
@@ -371,7 +373,7 @@ pub fn delete_room_tag_doc() -> axum::Json<serde_json::Value> {
     tag = "Client-Server",
     responses(
         (status = 200, description = "Authenticated Matrix principal",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "user_id": "@alice:example.com",
                 "device_id": "DEVICEID",
@@ -392,7 +394,7 @@ pub fn get_whoami() -> axum::Json<serde_json::Value> {
     tag = "Client-Server",
     responses(
         (status = 200, description = "Bound third-party identifiers",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "threepids": [{
                     "medium": "email",
@@ -419,7 +421,7 @@ pub fn get_threepids() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "QR login transaction status",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "transaction_id": "qr_1234",
                 "user_id": "@alice:example.com",
@@ -439,10 +441,10 @@ pub fn get_qr_status() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v3/register",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "Registration successful",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "user_id": "@alice:example.com",
                 "access_token": "access_token_value",
@@ -463,10 +465,10 @@ pub fn register_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v3/login",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "Login successful",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "user_id": "@alice:example.com",
                 "access_token": "access_token_value",
@@ -488,7 +490,7 @@ pub fn login_doc() -> axum::Json<serde_json::Value> {
     path = "/_matrix/client/v3/logout",
     tag = "Authentication",
     responses(
-        (status = 200, description = "Logout successful", body = serde_json::Value)
+        (status = 200, description = "Logout successful", body = schemas::ApiAdminGenericJson)
     ),
     security(
         ("BearerAuth" = [])
@@ -504,10 +506,10 @@ pub fn logout_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v3/refresh",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "Token refreshed",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "access_token": "new_access_token",
                 "refresh_token": "new_refresh_token",
@@ -529,7 +531,7 @@ pub fn refresh_token_doc() -> axum::Json<serde_json::Value> {
     tag = "Authentication",
     responses(
         (status = 200, description = "Supported registration stages",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "flows": [
                     {"type": "m.login.dummy"},
@@ -555,7 +557,7 @@ pub fn get_register_flows_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Availability result",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "available": true,
                 "username": "alice"
@@ -576,7 +578,7 @@ pub fn check_username_availability_doc() -> axum::Json<serde_json::Value> {
     tag = "Authentication",
     responses(
         (status = 200, description = "Supported login flows",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "flows": [
                     {"type": "m.login.password"},
@@ -597,7 +599,7 @@ pub fn get_login_flows_doc() -> axum::Json<serde_json::Value> {
     path = "/_matrix/client/v3/logout/all",
     tag = "Authentication",
     responses(
-        (status = 200, description = "All sessions revoked", body = serde_json::Value)
+        (status = 200, description = "All sessions revoked", body = schemas::ApiAdminGenericJson)
     ),
     security(
         ("BearerAuth" = [])
@@ -619,9 +621,9 @@ pub fn logout_all_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v3/account/password",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
-        (status = 200, description = "Password changed", body = serde_json::Value,
+        (status = 200, description = "Password changed", body = schemas::ApiAdminGenericJson,
             example = json!({
                 "new_password": "hunter2",
                 "auth": {
@@ -649,10 +651,10 @@ pub fn change_password_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v3/account/deactivate",
     tag = "Authentication",
-    request_body = Option<serde_json::Value>,
+    request_body = Option<schemas::ApiAdminGenericRequest>,
     responses(
         (status = 200, description = "Account deactivated",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "id_server_unbind_result": "no-support"
             })
@@ -673,9 +675,9 @@ pub fn deactivate_account_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v3/account/3pid",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
-        (status = 200, description = "Third-party identifier added", body = serde_json::Value),
+        (status = 200, description = "Third-party identifier added", body = schemas::ApiAdminGenericJson),
         (status = 400, description = "Invalid 3PID payload")
     ),
     security(
@@ -692,10 +694,10 @@ pub fn add_threepid_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v3/account/3pid/delete",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "Third-party identifier removed",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "id_server_unbind_result": "success"
             })
@@ -716,10 +718,10 @@ pub fn delete_threepid_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v3/account/3pid/unbind",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "Third-party identifier unbound",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "id_server_unbind_result": "success"
             })
@@ -742,7 +744,7 @@ pub fn unbind_threepid_doc() -> axum::Json<serde_json::Value> {
     tag = "Authentication",
     responses(
         (status = 200, description = "Guest registration successful",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "access_token": "guest_access_token",
                 "device_id": "GUESTDEVICE",
@@ -765,7 +767,7 @@ pub fn register_guest_doc() -> axum::Json<serde_json::Value> {
     tag = "Authentication",
     responses(
         (status = 200, description = "QR login challenge",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "transaction_id": "qr_xxx",
                 "mode": "login",
@@ -788,10 +790,10 @@ pub fn get_qr_code_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v1/login/qr/confirm",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "QR login confirmed",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "transaction_id": "qr_xxx",
                 "status": "confirmed"
@@ -813,10 +815,10 @@ pub fn confirm_qr_login_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v1/login/qr/start",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "QR login started",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "transaction_id": "qr_xxx",
                 "user_id": "@alice:example.com",
@@ -843,7 +845,7 @@ pub fn start_qr_login_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "QR login status",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "transaction_id": "qr_xxx",
                 "user_id": "@alice:example.com",
@@ -863,10 +865,10 @@ pub fn get_qr_status_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v1/login/qr/invalidate",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "QR login invalidated",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "transaction_id": "qr_xxx",
                 "status": "invalidated"
@@ -888,7 +890,7 @@ pub fn invalidate_qr_login_doc() -> axum::Json<serde_json::Value> {
     path = "/_matrix/client/v1/login/qrcode/new",
     tag = "Authentication",
     responses(
-        (status = 200, description = "QR login challenge", body = serde_json::Value)
+        (status = 200, description = "QR login challenge", body = schemas::ApiAdminGenericJson)
     ),
     security(
         ("BearerAuth" = [])
@@ -908,7 +910,7 @@ pub fn get_qrcode_new_doc() -> axum::Json<serde_json::Value> {
         ("session_id" = String, Path, description = "QR login session ID")
     ),
     responses(
-        (status = 200, description = "QR login status", body = serde_json::Value)
+        (status = 200, description = "QR login status", body = schemas::ApiAdminGenericJson)
     )
 )]
 pub fn get_qrcode_status_alias_doc() -> axum::Json<serde_json::Value> {
@@ -929,7 +931,7 @@ pub fn get_qrcode_status_alias_doc() -> axum::Json<serde_json::Value> {
         ("server" = Option<String>, Query, description = "Third-party server")
     ),
     responses(
-        (status = 200, description = "User search result", body = serde_json::Value),
+        (status = 200, description = "User search result", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "No bridge configured")
     ),
     security(
@@ -946,10 +948,10 @@ pub fn get_thirdparty_user_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v3/register/captcha/send",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "Captcha issued",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "captcha_id": "captcha-123",
                 "expires_in": 300,
@@ -968,10 +970,10 @@ pub fn send_captcha_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v3/register/captcha/verify",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "Captcha verification result",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "verified": true
             })
@@ -992,7 +994,7 @@ pub fn verify_captcha_doc() -> axum::Json<serde_json::Value> {
         ("captcha_id" = String, Query, description = "Captcha identifier")
     ),
     responses(
-        (status = 200, description = "Captcha status", body = serde_json::Value),
+        (status = 200, description = "Captcha status", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "Captcha not found")
     )
 )]
@@ -1006,10 +1008,10 @@ pub fn get_captcha_status_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/r0/register/captcha/send",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "Captcha issued",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "captcha_id": "captcha-123",
                 "expires_in": 300,
@@ -1028,10 +1030,10 @@ pub fn send_captcha_r0_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/r0/register/captcha/verify",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "Captcha verification result",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "verified": true
             })
@@ -1052,7 +1054,7 @@ pub fn verify_captcha_r0_doc() -> axum::Json<serde_json::Value> {
         ("captcha_id" = String, Query, description = "Captcha identifier")
     ),
     responses(
-        (status = 200, description = "Captcha status", body = serde_json::Value),
+        (status = 200, description = "Captcha status", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "Captcha not found")
     )
 )]
@@ -1106,7 +1108,7 @@ pub fn login_sso_redirect_r0_doc() -> String {
     tag = "Authentication",
     responses(
         (status = 200, description = "OIDC-compatible userinfo",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "sub": "@alice:example.com",
                 "name": "Alice",
@@ -1131,7 +1133,7 @@ pub fn login_sso_userinfo_v3_doc() -> axum::Json<serde_json::Value> {
     tag = "Authentication",
     responses(
         (status = 200, description = "OIDC-compatible userinfo",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "sub": "@alice:example.com",
                 "name": "Alice",
@@ -1226,10 +1228,10 @@ pub fn login_sso_redirect_saml_r0_get_doc() -> String {
     post,
     path = "/_matrix/client/r0/login/sso/redirect/saml",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "SAML redirect URL",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "redirect_url": "https://idp.example.com/sso?SAMLRequest=..."
             })
@@ -1254,7 +1256,7 @@ pub fn login_sso_redirect_saml_r0_post_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Completed SAML login",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "user_id": "@alice:example.com",
                 "access_token": "syt_abcdef",
@@ -1276,10 +1278,10 @@ pub fn login_saml_callback_v3_get_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v3/login/saml/callback",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "Completed SAML login",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "user_id": "@alice:example.com",
                 "access_token": "syt_abcdef",
@@ -1308,7 +1310,7 @@ pub fn login_saml_callback_v3_post_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Completed SAML login",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "user_id": "@alice:example.com",
                 "access_token": "syt_abcdef",
@@ -1330,10 +1332,10 @@ pub fn login_saml_callback_r0_get_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/r0/login/saml/callback",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "Completed SAML login",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "user_id": "@alice:example.com",
                 "access_token": "syt_abcdef",
@@ -1357,7 +1359,7 @@ pub fn login_saml_callback_r0_post_doc() -> axum::Json<serde_json::Value> {
     tag = "Authentication",
     responses(
         (status = 200, description = "SAML logout status",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "redirect_url": "https://idp.example.com/slo?SAMLRequest=..."
             })
@@ -1384,7 +1386,7 @@ pub fn logout_saml_r0_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Logout completed",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "message": "Logout successful"
             })
@@ -1402,10 +1404,10 @@ pub fn logout_saml_callback_r0_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v3/oidc/logout",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "OIDC logout completed",
-            body = serde_json::Value,
+            body = schemas::ApiAdminSuccess,
             example = json!({
                 "success": true
             })
@@ -1425,10 +1427,10 @@ pub fn oidc_logout_v3_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/r0/oidc/logout",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "OIDC logout completed",
-            body = serde_json::Value,
+            body = schemas::ApiAdminSuccess,
             example = json!({
                 "success": true
             })
@@ -1448,10 +1450,10 @@ pub fn oidc_logout_r0_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_matrix/client/v3/oidc/login",
     tag = "Authentication",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
         (status = 200, description = "Authorization code issued by the built-in OIDC provider",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "code": "oidc-auth-code"
             })
@@ -1471,7 +1473,7 @@ pub fn oidc_login_v3_doc() -> axum::Json<serde_json::Value> {
     path = "/_matrix/client/v3/register/captcha/clean",
     tag = "Authentication",
     responses(
-        (status = 200, description = "Expired captchas cleaned", body = serde_json::Value)
+        (status = 200, description = "Expired captchas cleaned", body = schemas::ApiAdminGenericJson)
     ),
     security(
         ("BearerAuth" = [])
@@ -1505,7 +1507,7 @@ pub fn login_fallback_page_doc() -> String {
         ("user_id" = String, Path, description = "The ID of the user"),
     ),
     responses(
-        (status = 200, description = "User voice stats", body = serde_json::Value),
+        (status = 200, description = "User voice stats", body = schemas::ApiAdminGenericJson),
     ),
     security(
         ("BearerAuth" = [])
@@ -1527,7 +1529,7 @@ pub fn get_user_voice_stats_doc() -> axum::Json<serde_json::Value> {
         ("from" = Option<i64>, Query, description = "Pagination offset"),
     ),
     responses(
-        (status = 200, description = "Voice messages", body = serde_json::Value),
+        (status = 200, description = "Voice messages", body = schemas::ApiAdminGenericJson),
     ),
     security(
         ("BearerAuth" = [])
@@ -1543,9 +1545,9 @@ pub fn get_user_voice_messages_doc() -> axum::Json<serde_json::Value> {
     put,
     path = "/_matrix/client/v1/user/burn/config",
     tag = "Private Extension - Burn",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericJson,
     responses(
-        (status = 200, description = "Updated", body = serde_json::Value),
+        (status = 200, description = "Updated", body = schemas::ApiAdminGenericJson),
     ),
     security(
         ("BearerAuth" = [])
@@ -1562,7 +1564,7 @@ pub fn set_global_burn_config_doc() -> axum::Json<serde_json::Value> {
     path = "/_matrix/client/v1/user/burn/stats",
     tag = "Private Extension - Burn",
     responses(
-        (status = 200, description = "Burn stats", body = serde_json::Value),
+        (status = 200, description = "Burn stats", body = schemas::ApiAdminGenericJson),
     ),
     security(
         ("BearerAuth" = [])

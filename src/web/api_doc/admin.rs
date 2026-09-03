@@ -475,7 +475,7 @@ pub fn admin_single_user_stats_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_synapse/admin/v1/users/batch",
     tag = "Admin",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericRequest,
     responses(
         (status = 200, description = "Batch user creation result",
             body = schemas::ApiAdminBatchUserResponse,
@@ -501,7 +501,7 @@ pub fn admin_batch_create_users_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_synapse/admin/v1/users/batch_deactivate",
     tag = "Admin",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericRequest,
     responses(
         (status = 200, description = "Batch deactivation result",
             body = schemas::ApiAdminBatchUserResponse,
@@ -532,7 +532,7 @@ pub fn admin_batch_deactivate_users_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "User session listing",
-            body = serde_json::Value,
+            body = schemas::ApiAdminUserSessionsResponse,
             example = json!({
                 "user_id": "@alice:example.com",
                 "sessions": [{
@@ -566,7 +566,7 @@ pub fn admin_user_sessions_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "User sessions invalidated",
-            body = serde_json::Value,
+            body = schemas::ApiAdminSessionsInvalidated,
             example = json!({
                 "invalidated": true,
                 "sessions_removed": 3
@@ -593,7 +593,7 @@ pub fn admin_invalidate_user_sessions_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Admin-facing account details",
-            body = serde_json::Value,
+            body = schemas::ApiAdminAccountDetails,
             example = json!({
                 "name": "alice",
                 "user_id": "@alice:example.com",
@@ -624,10 +624,10 @@ pub fn admin_account_details_doc() -> axum::Json<serde_json::Value> {
     params(
         ("user_id" = String, Path, description = "Matrix user ID")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminAccountUpdateRequest,
     responses(
         (status = 200, description = "Account updated",
-            body = serde_json::Value,
+            body = schemas::ApiAdminAccountUpdated,
             example = json!({
                 "user_id": "@alice:example.com",
                 "updated": true
@@ -655,7 +655,7 @@ pub fn admin_update_account_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Room details",
-            body = serde_json::Value,
+            body = schemas::ApiAdminRoomDetail,
             example = json!({
                 "room_id": "!room:example.com",
                 "name": "General",
@@ -691,7 +691,7 @@ pub fn admin_room_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Room members",
-            body = serde_json::Value,
+            body = schemas::ApiAdminRoomMembersResponse,
             example = json!({
                 "members": [{
                     "user_id": "@alice:example.com",
@@ -724,7 +724,7 @@ pub fn admin_room_members_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Room state events",
-            body = serde_json::Value,
+            body = schemas::ApiAdminRoomStateResponse,
             example = json!({
                 "state": [{
                     "type": "m.room.name",
@@ -753,7 +753,7 @@ pub fn admin_room_state_doc() -> axum::Json<serde_json::Value> {
     tag = "Admin",
     responses(
         (status = 200, description = "Spaces",
-            body = serde_json::Value,
+            body = schemas::ApiAdminSpacesResponse,
             example = json!({
                 "spaces": [{
                     "space_id": "!space:example.com",
@@ -786,7 +786,7 @@ pub fn admin_spaces_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Space details",
-            body = serde_json::Value,
+            body = schemas::ApiAdminSpacesResponse,
             example = json!({
                 "space_id": "!space:example.com",
                 "room_id": "!space:example.com",
@@ -817,7 +817,7 @@ pub fn admin_space_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Space deleted",
-            body = serde_json::Value,
+            body = schemas::ApiAdminSuccess,
             example = json!({
                 "deleted": true
             })
@@ -843,7 +843,7 @@ pub fn admin_delete_space_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Space users",
-            body = serde_json::Value,
+            body = schemas::ApiAdminSpaceUsersResponse,
             example = json!({
                 "users": ["@alice:example.com", "@bob:example.com"],
                 "total": 2
@@ -870,7 +870,7 @@ pub fn admin_space_users_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Space rooms",
-            body = serde_json::Value,
+            body = schemas::ApiAdminSpaceRoomsResponse,
             example = json!({
                 "rooms": ["!room:example.com", "!other:example.com"],
                 "total": 2
@@ -897,7 +897,7 @@ pub fn admin_space_rooms_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Space statistics",
-            body = serde_json::Value,
+            body = schemas::ApiAdminSpaceStats,
             example = json!({
                 "space_id": "!space:example.com",
                 "member_count": 12,
@@ -921,7 +921,7 @@ pub fn admin_space_stats_doc() -> axum::Json<serde_json::Value> {
     path = "/_synapse/admin/v1/room_stats",
     tag = "Admin",
     responses(
-        (status = 200, description = "Global room statistics overview", body = serde_json::Value)
+        (status = 200, description = "Global room statistics overview", body = schemas::ApiAdminRoomStatsOverview)
     ),
     security(
         ("BearerAuth" = [])
@@ -941,7 +941,7 @@ pub fn admin_room_stats_doc() -> axum::Json<serde_json::Value> {
         ("room_id" = String, Path, description = "Matrix room ID")
     ),
     responses(
-        (status = 200, description = "Room statistics", body = serde_json::Value),
+        (status = 200, description = "Room statistics", body = schemas::ApiAdminRoomStatsOverview),
         (status = 404, description = "Room not found")
     ),
     security(
@@ -963,7 +963,7 @@ pub fn admin_single_room_stats_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Room listing status",
-            body = serde_json::Value,
+            body = schemas::ApiAdminRoomListingStatus,
             example = json!({
                 "room_id": "!room:example.com",
                 "public": true,
@@ -991,7 +991,7 @@ pub fn admin_room_listings_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Room visibility updated",
-            body = serde_json::Value,
+            body = schemas::ApiAdminRoomVisibilityUpdated,
             example = json!({
                 "room_id": "!room:example.com",
                 "public": true
@@ -1018,7 +1018,7 @@ pub fn admin_set_room_public_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Room visibility updated",
-            body = serde_json::Value,
+            body = schemas::ApiAdminRoomVisibilityUpdated,
             example = json!({
                 "room_id": "!room:example.com",
                 "public": false
@@ -1045,7 +1045,7 @@ pub fn admin_set_room_private_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Room block status",
-            body = serde_json::Value,
+            body = schemas::ApiAdminRoomBlockStatus,
             example = json!({
                 "block": true,
                 "blocked_at": 1718000000000_i64
@@ -1070,10 +1070,10 @@ pub fn admin_room_block_status_doc() -> axum::Json<serde_json::Value> {
     params(
         ("room_id" = String, Path, description = "Matrix room ID")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminBlockRoomRequest,
     responses(
         (status = 200, description = "Room block state updated",
-            body = serde_json::Value,
+            body = schemas::ApiAdminRoomBlockUpdated,
             example = json!({
                 "block": true
             })
@@ -1099,7 +1099,7 @@ pub fn admin_block_room_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Room block state updated",
-            body = serde_json::Value,
+            body = schemas::ApiAdminRoomBlockUpdated,
             example = json!({
                 "block": false
             })
@@ -1123,9 +1123,9 @@ pub fn admin_unblock_room_doc() -> axum::Json<serde_json::Value> {
     params(
         ("room_id" = String, Path, description = "Matrix room ID")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminMakeRoomAdminRequest,
     responses(
-        (status = 200, description = "Power levels updated", body = serde_json::Value),
+        (status = 200, description = "Power levels updated", body = schemas::ApiAdminSuccess),
         (status = 404, description = "Room or user not found")
     ),
     security(
@@ -1142,10 +1142,10 @@ pub fn admin_make_room_admin_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_synapse/admin/v1/purge_history",
     tag = "Admin",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminPurgeHistoryRequest,
     responses(
         (status = 200, description = "History purged",
-            body = serde_json::Value,
+            body = schemas::ApiAdminPurgeHistoryResponse,
             example = json!({
                 "success": true,
                 "deleted_events": 123
@@ -1168,10 +1168,10 @@ pub fn admin_purge_history_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_synapse/admin/v1/purge_room",
     tag = "Admin",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminPurgeRoomRequest,
     responses(
         (status = 200, description = "Room purged",
-            body = serde_json::Value,
+            body = schemas::ApiAdminPurgeRoomResponse,
             example = json!({
                 "purge_id": "550e8400-e29b-41d4-a716-446655440000",
                 "success": true
@@ -1200,7 +1200,7 @@ pub fn admin_purge_room_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Membership updated",
-            body = serde_json::Value,
+            body = schemas::ApiAdminMembershipUpdated,
             example = json!({
                 "user_id": "@alice:example.com",
                 "room_id": "!room:example.com",
@@ -1229,7 +1229,7 @@ pub fn admin_join_room_member_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Membership updated",
-            body = serde_json::Value,
+            body = schemas::ApiAdminMembershipUpdated,
             example = json!({
                 "user_id": "@alice:example.com",
                 "room_id": "!room:example.com",
@@ -1252,9 +1252,9 @@ pub fn admin_remove_room_member_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_synapse/admin/v1/rooms/cleanup",
     tag = "Admin",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminCleanupRoomsRequest,
     responses(
-        (status = 200, description = "Cleanup results", body = serde_json::Value)
+        (status = 200, description = "Cleanup results", body = schemas::ApiAdminSuccess)
     ),
     security(
         ("BearerAuth" = [])
@@ -1272,7 +1272,7 @@ pub fn admin_cleanup_abnormal_rooms_doc() -> axum::Json<serde_json::Value> {
     tag = "Admin",
     responses(
         (status = 200, description = "Admin server version metadata",
-            body = serde_json::Value,
+            body = schemas::ApiAdminServerVersion,
             example = json!({
                 "server_version": "6.0.4",
                 "python_version": "Rust",
@@ -1297,7 +1297,7 @@ pub fn admin_server_version_doc() -> axum::Json<serde_json::Value> {
     tag = "Admin",
     responses(
         (status = 200, description = "Privileged homeserver metadata",
-            body = serde_json::Value,
+            body = schemas::ApiAdminServerInfo,
             example = json!({
                 "server_name": "example.com",
                 "server_version": "6.0.4",
@@ -1322,7 +1322,7 @@ pub fn admin_info_doc() -> axum::Json<serde_json::Value> {
     tag = "Admin",
     responses(
         (status = 200, description = "Authenticated admin principal",
-            body = serde_json::Value,
+            body = schemas::ApiAdminWhoAmI,
             example = json!({
                 "user_id": "@admin:example.com",
                 "name": "@admin:example.com",
@@ -1348,7 +1348,7 @@ pub fn admin_whoami_doc() -> axum::Json<serde_json::Value> {
     tag = "Admin",
     responses(
         (status = 200, description = "Aggregate server statistics",
-            body = serde_json::Value,
+            body = schemas::ApiAdminStatistics,
             example = json!({
                 "total_users": 120,
                 "total_rooms": 45,
@@ -1376,7 +1376,7 @@ pub fn admin_statistics_doc() -> axum::Json<serde_json::Value> {
     tag = "Admin",
     responses(
         (status = 200, description = "Admin health status",
-            body = serde_json::Value,
+            body = schemas::ApiAdminStatus,
             example = json!({
                 "db_ok": true,
                 "server_ok": true,
@@ -1404,7 +1404,7 @@ pub fn admin_status_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "User connection summary",
-            body = serde_json::Value,
+            body = schemas::ApiAdminWhoisResponse,
             example = json!({
                 "user_id": "@alice:example.com",
                 "devices": [{
@@ -1437,7 +1437,7 @@ pub fn admin_whois_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Device connection summary",
-            body = serde_json::Value,
+            body = schemas::ApiAdminWhoisDeviceResponse,
             example = json!({
                 "user_id": "@alice:example.com",
                 "device_id": "DEVICEID",
@@ -1462,10 +1462,10 @@ pub fn admin_whois_device_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_synapse/admin/v1/purge_media_cache",
     tag = "Admin",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminPurgeMediaCacheRequest,
     responses(
         (status = 200, description = "Media cache purge summary",
-            body = serde_json::Value,
+            body = schemas::ApiAdminPurgeMediaCacheResponse,
             example = json!({
                 "deleted": 42
             })
@@ -1487,7 +1487,7 @@ pub fn admin_purge_media_cache_doc() -> axum::Json<serde_json::Value> {
     tag = "Admin",
     responses(
         (status = 200, description = "Selected homeserver configuration",
-            body = serde_json::Value,
+            body = schemas::ApiAdminConfigResponse,
             example = json!({
                 "server_name": "example.com",
                 "public_baseurl": "https://matrix.example.com",
@@ -1512,7 +1512,7 @@ pub fn admin_config_doc() -> axum::Json<serde_json::Value> {
     tag = "Admin",
     responses(
         (status = 200, description = "Jitsi integration configuration",
-            body = serde_json::Value,
+            body = schemas::ApiAdminJitsiConfig,
             example = json!({
                 "domain": "meet.jit.si",
                 "app_id": null,
@@ -1539,7 +1539,7 @@ pub fn admin_jitsi_config_doc() -> axum::Json<serde_json::Value> {
     tag = "Admin",
     responses(
         (status = 200, description = "Global invite blocklist",
-            body = serde_json::Value,
+            body = schemas::ApiAdminInviteBlocklist,
             example = json!({
                 "blocklist": ["bad.example.com", "spam.example.net"]
             })
@@ -1561,7 +1561,7 @@ pub fn admin_invite_blocklist_doc() -> axum::Json<serde_json::Value> {
     tag = "Admin",
     responses(
         (status = 200, description = "Global invite allowlist",
-            body = serde_json::Value,
+            body = schemas::ApiAdminInviteAllowlist,
             example = json!({
                 "allowlist": ["trusted.example.com"]
             })
@@ -1587,7 +1587,7 @@ pub fn admin_invite_allowlist_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Federation destination list",
-            body = serde_json::Value,
+            body = schemas::ApiAdminFederationDestinationsResponse,
             example = json!({
                 "destinations": [{
                     "destination": "matrix.org",
@@ -1622,7 +1622,7 @@ pub fn admin_federation_destinations_doc() -> axum::Json<serde_json::Value> {
         ("destination" = String, Path, description = "Remote server name")
     ),
     responses(
-        (status = 200, description = "Federation destination details", body = serde_json::Value),
+        (status = 200, description = "Federation destination details", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "Destination not found")
     ),
     security(
@@ -1644,7 +1644,7 @@ pub fn admin_federation_destination_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Destination room list",
-            body = serde_json::Value,
+            body = schemas::ApiAdminFederationDestinationRoomsResponse,
             example = json!({
                 "rooms": ["!room:example.com"],
                 "total": 1
@@ -1674,7 +1674,7 @@ pub fn admin_federation_destination_rooms_doc() -> axum::Json<serde_json::Value>
     ),
     responses(
         (status = 200, description = "Moderation reports",
-            body = serde_json::Value,
+            body = schemas::ApiAdminReportsResponse,
             example = json!({
                 "reports": [{
                     "id": 1,
@@ -1711,7 +1711,7 @@ pub fn admin_reports_doc() -> axum::Json<serde_json::Value> {
         ("report_id" = i64, Path, description = "Moderation report ID")
     ),
     responses(
-        (status = 200, description = "Moderation report details", body = serde_json::Value),
+        (status = 200, description = "Moderation report details", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "Report not found")
     ),
     security(
@@ -1730,7 +1730,7 @@ pub fn admin_report_doc() -> axum::Json<serde_json::Value> {
     tag = "Admin",
     responses(
         (status = 200, description = "Server retention policy",
-            body = serde_json::Value,
+            body = schemas::ApiAdminRetentionPolicy,
             example = json!({
                 "max_lifetime": 7776000000_i64,
                 "min_lifetime": 86400000_i64,
@@ -1752,9 +1752,9 @@ pub fn admin_retention_policy_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_synapse/admin/v1/retention/policy",
     tag = "Admin",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminSetRetentionPolicyRequest,
     responses(
-        (status = 200, description = "Server retention policy updated", body = serde_json::Value)
+        (status = 200, description = "Server retention policy updated", body = schemas::ApiAdminSuccess)
     ),
     security(
         ("BearerAuth" = [])
@@ -1775,7 +1775,7 @@ pub fn admin_set_retention_policy_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Room retention policy",
-            body = serde_json::Value,
+            body = schemas::ApiAdminRoomRetentionPolicy,
             example = json!({
                 "room_id": "!room:example.com",
                 "max_lifetime": 2592000000_i64,
@@ -1801,7 +1801,7 @@ pub fn admin_room_retention_policy_doc() -> axum::Json<serde_json::Value> {
     tag = "Admin",
     responses(
         (status = 200, description = "Retention subsystem status",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "server_policy_enabled": true,
                 "rooms_with_custom_policy": 5,
@@ -1844,7 +1844,7 @@ pub fn admin_retention_status_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Registration token listing",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "registration_tokens": [{
                     "token": "invite-token",
@@ -1873,10 +1873,10 @@ pub fn admin_registration_tokens_doc() -> axum::Json<serde_json::Value> {
     post,
     path = "/_synapse/admin/v1/registration_tokens",
     tag = "Admin",
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericRequest,
     responses(
         (status = 200, description = "Registration token created",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "token": "invite-token",
                 "uses_allowed": 10,
@@ -1905,7 +1905,7 @@ pub fn admin_create_registration_token_doc() -> axum::Json<serde_json::Value> {
         ("token" = String, Path, description = "Registration token string")
     ),
     responses(
-        (status = 200, description = "Registration token details", body = serde_json::Value),
+        (status = 200, description = "Registration token details", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "Token not found")
     ),
     security(
@@ -1926,7 +1926,7 @@ pub fn admin_registration_token_doc() -> axum::Json<serde_json::Value> {
         ("token" = String, Path, description = "Registration token string")
     ),
     responses(
-        (status = 200, description = "Registration token deleted", body = serde_json::Value),
+        (status = 200, description = "Registration token deleted", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "Token not found")
     ),
     security(
@@ -1946,9 +1946,9 @@ pub fn admin_delete_registration_token_doc() -> axum::Json<serde_json::Value> {
     params(
         ("token" = String, Path, description = "Registration token string")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericRequest,
     responses(
-        (status = 200, description = "Registration token updated", body = serde_json::Value),
+        (status = 200, description = "Registration token updated", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "Token not found")
     ),
     security(
@@ -1970,7 +1970,7 @@ pub fn admin_update_registration_token_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Access token listing",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "tokens": [{
                     "id": 1,
@@ -2003,7 +2003,7 @@ pub fn admin_user_tokens_doc() -> axum::Json<serde_json::Value> {
         ("token_id" = i64, Path, description = "Access token ID")
     ),
     responses(
-        (status = 200, description = "Access token deleted", body = serde_json::Value),
+        (status = 200, description = "Access token deleted", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "User or token not found")
     ),
     security(
@@ -2025,7 +2025,7 @@ pub fn admin_delete_user_token_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Refresh token listing",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "refresh_tokens": [{
                     "id": 1,
@@ -2058,7 +2058,7 @@ pub fn admin_user_refresh_tokens_doc() -> axum::Json<serde_json::Value> {
         ("token_id" = i64, Path, description = "Refresh token ID")
     ),
     responses(
-        (status = 200, description = "Refresh token deleted", body = serde_json::Value),
+        (status = 200, description = "Refresh token deleted", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "User or token not found")
     ),
     security(
@@ -2081,7 +2081,7 @@ pub fn admin_delete_refresh_token_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Media listing",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "media": [{
                     "media_id": "abcdef",
@@ -2116,7 +2116,7 @@ pub fn admin_media_list_doc() -> axum::Json<serde_json::Value> {
         ("media_id" = String, Path, description = "Media identifier")
     ),
     responses(
-        (status = 200, description = "Media metadata", body = serde_json::Value),
+        (status = 200, description = "Media metadata", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "Media not found")
     ),
     security(
@@ -2137,7 +2137,7 @@ pub fn admin_media_info_doc() -> axum::Json<serde_json::Value> {
         ("media_id" = String, Path, description = "Media identifier")
     ),
     responses(
-        (status = 200, description = "Media deleted", body = serde_json::Value),
+        (status = 200, description = "Media deleted", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "Media not found")
     ),
     security(
@@ -2156,7 +2156,7 @@ pub fn admin_delete_media_doc() -> axum::Json<serde_json::Value> {
     tag = "Admin",
     responses(
         (status = 200, description = "Media quota summary",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "total_size": 1048576,
                 "total_count": 120,
@@ -2184,7 +2184,7 @@ pub fn admin_media_quota_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "User media listing",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "media": [{
                     "media_id": "abcdef",
@@ -2217,7 +2217,7 @@ pub fn admin_user_media_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "User media deleted",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "deleted": 3
             })
@@ -2242,7 +2242,7 @@ pub fn admin_delete_user_media_doc() -> axum::Json<serde_json::Value> {
         ("user_id" = String, Path, description = "Matrix user ID")
     ),
     responses(
-        (status = 200, description = "Shadow-ban enabled", body = serde_json::Value),
+        (status = 200, description = "Shadow-ban enabled", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "User not found")
     ),
     security(
@@ -2263,7 +2263,7 @@ pub fn admin_shadow_ban_user_doc() -> axum::Json<serde_json::Value> {
         ("user_id" = String, Path, description = "Matrix user ID")
     ),
     responses(
-        (status = 200, description = "Shadow-ban disabled", body = serde_json::Value),
+        (status = 200, description = "Shadow-ban disabled", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "User not found")
     ),
     security(
@@ -2285,7 +2285,7 @@ pub fn admin_unshadow_ban_user_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Per-user rate limit",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "messages_per_second": 5.0,
                 "burst_count": 10
@@ -2310,9 +2310,9 @@ pub fn admin_user_rate_limit_doc() -> axum::Json<serde_json::Value> {
     params(
         ("user_id" = String, Path, description = "Matrix user ID")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericRequest,
     responses(
-        (status = 200, description = "Per-user rate limit updated", body = serde_json::Value),
+        (status = 200, description = "Per-user rate limit updated", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "User not found")
     ),
     security(
@@ -2333,7 +2333,7 @@ pub fn admin_set_user_rate_limit_doc() -> axum::Json<serde_json::Value> {
         ("user_id" = String, Path, description = "Matrix user ID")
     ),
     responses(
-        (status = 200, description = "Per-user rate limit deleted", body = serde_json::Value),
+        (status = 200, description = "Per-user rate limit deleted", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "User not found")
     ),
     security(
@@ -2355,7 +2355,7 @@ pub fn admin_delete_user_rate_limit_doc() -> axum::Json<serde_json::Value> {
     ),
     responses(
         (status = 200, description = "Override rate-limit view",
-            body = serde_json::Value,
+            body = schemas::ApiAdminGenericJson,
             example = json!({
                 "messages_per_second": 5.0,
                 "burst_count": 10
@@ -2380,9 +2380,9 @@ pub fn admin_override_rate_limit_doc() -> axum::Json<serde_json::Value> {
     params(
         ("user_id" = String, Path, description = "Matrix user ID")
     ),
-    request_body = serde_json::Value,
+    request_body = schemas::ApiAdminGenericRequest,
     responses(
-        (status = 200, description = "Override rate-limit updated", body = serde_json::Value),
+        (status = 200, description = "Override rate-limit updated", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "User not found")
     ),
     security(
@@ -2403,7 +2403,7 @@ pub fn admin_set_override_rate_limit_doc() -> axum::Json<serde_json::Value> {
         ("user_id" = String, Path, description = "Matrix user ID")
     ),
     responses(
-        (status = 200, description = "Override rate-limit deleted", body = serde_json::Value),
+        (status = 200, description = "Override rate-limit deleted", body = schemas::ApiAdminGenericJson),
         (status = 404, description = "User not found")
     ),
     security(
