@@ -55,6 +55,15 @@ pub trait RoomStoreApi: Send + Sync {
 
     async fn decrement_member_count(&self, room_id: &str) -> Result<(), sqlx::Error>;
 
+    /// Batch counterpart of `decrement_member_count`. Touches the `updated_ts`
+    /// of each affected `room_summaries` row in a single UPDATE.
+    ///
+    /// Note: actual member-count columns are maintained by a database trigger
+    /// on `room_memberships` (see v11 schema), so this method only refreshes
+    /// the summary's `updated_ts`. Use after batch `remove_member` calls to
+    /// avoid N round-trips.
+    async fn decrement_member_counts_batch(&self, room_ids: &[String]) -> Result<u64, sqlx::Error>;
+
     async fn update_room_name(&self, room_id: &str, name: &str) -> Result<(), sqlx::Error>;
 
     async fn update_room_name_in_tx(
@@ -268,6 +277,10 @@ impl RoomStoreApi for super::RoomStorage {
 
     async fn decrement_member_count(&self, room_id: &str) -> Result<(), sqlx::Error> {
         self.decrement_member_count(room_id).await
+    }
+
+    async fn decrement_member_counts_batch(&self, room_ids: &[String]) -> Result<u64, sqlx::Error> {
+        self.decrement_member_counts_batch(room_ids).await
     }
 
     async fn update_room_name(&self, room_id: &str, name: &str) -> Result<(), sqlx::Error> {

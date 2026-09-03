@@ -225,13 +225,20 @@ impl AdminUserService {
             .await
             .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
 
+        // B-1.1 fix: collect room_ids with successful `remove_member`, then issue
+        // a single batch UPDATE to refresh `room_summaries.updated_ts` for all of
+        // them. Member-count columns themselves are maintained by a v11 DB trigger
+        // on `room_memberships`, so we only batch the timestamp touch.
         let mut failures = Vec::new();
+        let mut removed: Vec<String> = Vec::new();
         for room_id in &joined_rooms {
-            if let Err(e) = self.member_storage.remove_member(room_id, user_id).await {
-                failures.push(AdminEvictionFailure { room_id: room_id.clone(), error: e.to_string() });
-            } else {
-                let _ = self.room_storage.decrement_member_count(room_id).await;
+            match self.member_storage.remove_member(room_id, user_id).await {
+                Ok(()) => removed.push(room_id.clone()),
+                Err(e) => failures.push(AdminEvictionFailure { room_id: room_id.clone(), error: e.to_string() }),
             }
+        }
+        if !removed.is_empty() {
+            let _ = self.room_storage.decrement_member_counts_batch(&removed).await;
         }
 
         Ok(AdminUserEvictionResult { joined_rooms, failures })
@@ -492,18 +499,39 @@ impl AdminUserService {
 
     #[instrument(skip(self))]
     pub async fn batch_deactivate_users(&self, user_ids: &[String]) -> Result<BatchUsersResult, ApiError> {
-        let mut succeeded = Vec::new();
-        let mut failed = Vec::new();
-
+        // B-1.2: Previously each user_id triggered an independent
+        // `set_deactivation_status` round-trip. Now we partition the input into
+        // valid (`@local:server`) and syntactically invalid ids, then issue a
+        // single `UPDATE ... WHERE user_id = ANY($1) RETURNING user_id` to mark
+        // every valid id as deactivated in one shot. "Failed" = invalid OR
+        // valid-but-missing-from-DB.
+        let mut valid: Vec<String> = Vec::with_capacity(user_ids.len());
+        let mut failed: Vec<String> = Vec::new();
         for user_id in user_ids {
-            if !user_id.starts_with('@') || !user_id.contains(':') {
+            if user_id.starts_with('@') && user_id.contains(':') {
+                valid.push(user_id.clone());
+            } else {
                 failed.push(user_id.clone());
-                continue;
             }
+        }
 
-            match self.user_storage.set_deactivation_status(user_id, true).await {
-                Ok(true) => succeeded.push(user_id.clone()),
-                _ => failed.push(user_id.clone()),
+        let succeeded: Vec<String> = if valid.is_empty() {
+            Vec::new()
+        } else {
+            self.user_storage
+                .set_deactivation_status_batch(&valid, true)
+                .await
+                .map_err(|e| ApiError::internal_with_context("Failed to batch-deactivate users", &e))?
+                .into_iter()
+                .collect()
+        };
+
+        // Anything valid that didn't come back from the batch UPDATE is a
+        // missing user; bucket into failed.
+        let succeeded_set: std::collections::HashSet<&String> = succeeded.iter().collect();
+        for user_id in &valid {
+            if !succeeded_set.contains(user_id) {
+                failed.push(user_id.clone());
             }
         }
 

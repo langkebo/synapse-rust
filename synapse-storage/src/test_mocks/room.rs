@@ -219,6 +219,18 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         Ok(())
     }
 
+    async fn decrement_member_counts_batch(&self, room_ids: &[String]) -> Result<u64, sqlx::Error> {
+        let mut affected = 0u64;
+        let mut guard = self.rooms.write().await;
+        for room_id in room_ids {
+            if let Some(room) = guard.get_mut(room_id) {
+                room.member_count = room.member_count.saturating_sub(1);
+                affected += 1;
+            }
+        }
+        Ok(affected)
+    }
+
     async fn update_room_name(&self, room_id: &str, name: &str) -> Result<(), sqlx::Error> {
         if let Some(room) = self.rooms.write().await.get_mut(room_id) {
             room.name = Some(name.to_string());
