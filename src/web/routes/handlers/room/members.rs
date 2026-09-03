@@ -2,7 +2,7 @@ use super::ensure_room_view_access;
 use crate::common::ApiError;
 use crate::web::routes::context::RoomContext;
 use crate::web::routes::{
-    extractors::RoomId, is_member_ctx, is_member_or_creator_ctx, validate_membership, validate_room_id,
+    extractors::{RoomId, UserId}, is_member_ctx, is_member_or_creator_ctx, validate_membership, validate_room_id,
     validate_user_id, AuthenticatedUser,
 };
 use crate::web::utils::auth::resolve_request_id;
@@ -410,10 +410,10 @@ pub(crate) async fn get_joined_members(
 pub(crate) async fn get_room_membership(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, target_user_id)): Path<(String, String)>,
+    Path((room_id, target_user_id)): Path<(RoomId, UserId)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    validate_user_id(&target_user_id)?;
+    validate_user_id(target_user_id.as_str())?;
 
     if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -424,7 +424,7 @@ pub(crate) async fn get_room_membership(
     let membership = ctx
         .room_service
         .membership()
-        .get_room_member_record(&room_id, &target_user_id)
+        .get_room_member_record(&room_id, target_user_id.as_str())
         .await?
         .map_or_else(|| "leave".to_string(), |m| m.membership);
 

@@ -7,7 +7,7 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
-use synapse_common::types::UserId;
+use synapse_common::types::{MediaId, UserId};
 use synapse_services::admin_media_service::decode_media_cursor;
 
 pub fn create_media_router() -> Router<crate::web::routes::AppState> {
@@ -77,7 +77,7 @@ pub async fn get_all_media(
 pub async fn get_media_info(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(media_id): Path<String>,
+    Path(media_id): Path<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
     let media = ctx.admin_media_service.get_media_info(&media_id).await?;
 
@@ -100,7 +100,7 @@ pub async fn get_media_info(
 pub async fn delete_media(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(media_id): Path<String>,
+    Path(media_id): Path<MediaId>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.admin_media_service.delete_media(&media_id).await?;
 
@@ -158,7 +158,7 @@ pub async fn delete_user_media(
 pub async fn get_media_quarantine_changes(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(media_id): Path<String>,
+    Path(media_id): Path<MediaId>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let since = params.get("since").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0);

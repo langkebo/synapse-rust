@@ -201,7 +201,7 @@ async fn create_widget(
 async fn get_widget(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<RoomId>,
+    Path(widget_id): Path<String>,
 ) -> Result<Json<WidgetApiResponse>, ApiError> {
     let widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "read").await?;
 
@@ -211,7 +211,7 @@ async fn get_widget(
 async fn update_widget(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<RoomId>,
+    Path(widget_id): Path<String>,
     Json(body): Json<UpdateWidgetBody>,
 ) -> Result<Json<WidgetApiResponse>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
@@ -229,7 +229,7 @@ async fn update_widget(
 async fn delete_widget(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<RoomId>,
+    Path(widget_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
     let deleted = ctx.widget_service.delete_widget(&widget_id).await?;
@@ -255,7 +255,7 @@ async fn get_room_widgets(
 async fn get_widget_config(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<RoomId>,
+    Path(widget_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "read").await?;
 
@@ -288,7 +288,7 @@ async fn get_jitsi_config(
 async fn set_widget_permission(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<RoomId>,
+    Path(widget_id): Path<String>,
     Json(body): Json<SetPermissionBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
@@ -302,7 +302,7 @@ async fn set_widget_permission(
 async fn get_widget_permissions(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<RoomId>,
+    Path(widget_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "read").await?;
     let permissions = ctx.widget_service.get_permissions(&widget_id).await?;
@@ -324,7 +324,7 @@ async fn delete_widget_permission(
 async fn create_widget_session(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<RoomId>,
+    Path(widget_id): Path<String>,
     Json(body): Json<CreateSessionBody>,
 ) -> Result<Json<SessionResponse>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "read").await?;
@@ -347,7 +347,7 @@ async fn create_widget_session(
 async fn get_widget_session(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(session_id): Path<RoomId>,
+    Path(session_id): Path<String>,
 ) -> Result<Json<SessionResponse>, ApiError> {
     let session = ctx.widget_service.get_session(&session_id).await?.ok_or(ApiError::not_found("Session not found"))?;
     ensure_session_access(&ctx, &auth_user, &session).await?;
@@ -358,7 +358,7 @@ async fn get_widget_session(
 async fn get_widget_sessions(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(widget_id): Path<RoomId>,
+    Path(widget_id): Path<String>,
 ) -> Result<Json<SessionListResponse>, ApiError> {
     let _widget = get_widget_with_access(&ctx, &auth_user, &widget_id, "write").await?;
     let sessions = ctx.widget_service.get_widget_sessions(&widget_id).await?;
@@ -369,7 +369,7 @@ async fn get_widget_sessions(
 async fn terminate_widget_session(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(session_id): Path<RoomId>,
+    Path(session_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let session = ctx.widget_service.get_session(&session_id).await?.ok_or(ApiError::not_found("Session not found"))?;
     ensure_session_access(&ctx, &auth_user, &session).await?;

@@ -2,6 +2,7 @@
 // Allows room admins to control who can be invited to a room
 
 use crate::web::routes::context::AdminContext;
+use crate::web::routes::extractors::RoomId;
 use crate::web::routes::{ensure_room_member_strict_admin, ApiError, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -51,7 +52,7 @@ async fn ensure_invite_list_manage_access(
 pub async fn get_invite_blocklist(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_invite_list_view_access(&ctx, &auth_user, &room_id).await?;
 
@@ -72,7 +73,7 @@ pub async fn get_invite_blocklist(
 pub async fn set_invite_blocklist(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_invite_list_manage_access(&ctx, &auth_user, &room_id).await?;
@@ -89,7 +90,7 @@ pub async fn set_invite_blocklist(
         .map_err(|e| ApiError::internal_with_context("Failed to set blocklist", &e))?;
 
     Ok(Json(json!({
-        "room_id": room_id,
+        "room_id": room_id.to_string(),
         "blocklist": user_ids.clone(),
         "blocked_users": user_ids,
         "updated_ts": current_timestamp_millis()
@@ -101,7 +102,7 @@ pub async fn set_invite_blocklist(
 pub async fn get_invite_allowlist(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_invite_list_view_access(&ctx, &auth_user, &room_id).await?;
 
@@ -122,7 +123,7 @@ pub async fn get_invite_allowlist(
 pub async fn set_invite_allowlist(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(room_id): Path<String>,
+    Path(room_id): Path<RoomId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_invite_list_manage_access(&ctx, &auth_user, &room_id).await?;
@@ -139,7 +140,7 @@ pub async fn set_invite_allowlist(
         .map_err(|e| ApiError::internal_with_context("Failed to set allowlist", &e))?;
 
     Ok(Json(json!({
-        "room_id": room_id,
+        "room_id": room_id.to_string(),
         "allowlist": user_ids.clone(),
         "allowed_users": user_ids,
         "updated_ts": current_timestamp_millis()
