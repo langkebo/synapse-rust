@@ -196,9 +196,9 @@ pub(crate) async fn update_displayname(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    ctx.account_identity_service.ensure_active_user_exists(&user_id).await?;
+    ctx.account_identity_service.ensure_active_user_exists(user_id).await?;
 
-    ctx.registration_service.update_user_profile(&user_id, Some(displayname), None).await?;
+    ctx.registration_service.update_user_profile(user_id, Some(displayname), None).await?;
     Ok(Json(json!({})))
 }
 
@@ -224,9 +224,9 @@ pub(crate) async fn update_avatar(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    ctx.account_identity_service.ensure_active_user_exists(&user_id).await?;
+    ctx.account_identity_service.ensure_active_user_exists(user_id).await?;
 
-    ctx.registration_service.update_user_profile(&user_id, None, Some(avatar_url)).await?;
+    ctx.registration_service.update_user_profile(user_id, None, Some(avatar_url)).await?;
     Ok(Json(json!({})))
 }
 

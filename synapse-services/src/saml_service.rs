@@ -66,9 +66,7 @@ fn attribute_value_regex(attribute: &str) -> &Regex {
             // false-positive by clippy since the pattern is static.
             #[allow(clippy::unwrap_used)]
             {
-                ATTRIBUTE_VALUE_FALLBACK.get_or_init(|| {
-                    Regex::new(ATTRIBUTE_VALUE_FALLBACK_PATTERN).unwrap()
-                })
+                ATTRIBUTE_VALUE_FALLBACK.get_or_init(|| Regex::new(ATTRIBUTE_VALUE_FALLBACK_PATTERN).unwrap())
             }
         }
     };

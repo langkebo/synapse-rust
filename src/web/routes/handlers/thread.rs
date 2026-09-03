@@ -527,7 +527,12 @@ async fn subscribe_thread(
 
     let user_id = auth_user.user_id;
 
-    let request = SubscribeRequest { room_id: room_id.to_string(), thread_id, user_id, notification_level: body.notification_level };
+    let request = SubscribeRequest {
+        room_id: room_id.to_string(),
+        thread_id,
+        user_id,
+        notification_level: body.notification_level,
+    };
 
     let subscription: synapse_storage::thread::ThreadSubscription = ctx.thread_service.subscribe(request).await?;
     Ok(Json(subscription))
@@ -716,5 +721,3 @@ mod tests {
         assert!(route.ends_with("/threads"));
     }
 }
-
-
