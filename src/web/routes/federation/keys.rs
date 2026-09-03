@@ -2,10 +2,10 @@ use crate::common::check_url_and_resolve;
 use crate::common::*;
 use crate::web::middleware::FederationRequestAuth;
 use crate::web::routes::context::FederationContext;
+use crate::web::routes::extractors::ServerName;
 use crate::web::utils::encoding::decode_base64_32;
 use axum::extract::{Extension, Json, Path, State};
 use base64::Engine;
-use crate::web::routes::extractors::ServerName;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
@@ -28,25 +28,26 @@ pub(super) async fn key_query(
     // wrapped in an array. This is required for interoperability with
     // Synapse/Dendrite which expect the wrapped format from all notary
     // endpoints (including the Synapse-extension {keyId} path).
-    let server_key = if server_name == ctx.server_name.as_str() || server_name == ctx.config.federation.server_name.as_str() {
-        resolve_server_keys(&ctx).await?
-    } else {
-        let response = fetch_remote_server_keys_response(&ctx, &server_name, &key_id).await?;
+    let server_key =
+        if server_name == ctx.server_name.as_str() || server_name == ctx.config.federation.server_name.as_str() {
+            resolve_server_keys(&ctx).await?
+        } else {
+            let response = fetch_remote_server_keys_response(&ctx, &server_name, &key_id).await?;
 
-        // P2-15: Defensive validation of the response before returning it to the
-        // client. Invalid responses are never cached (see
-        // `fetch_remote_server_keys_response`); this check only logs a warning so
-        // we can observe stale/malformed keys slipping through (e.g. an expired
-        // cached entry). We still return the response rather than erroring.
-        if validate_server_key_response(&response, &server_name).is_none() {
-            ::tracing::warn!(
-                server_name = %server_name,
-                key_id = %key_id,
-                "Federation key query response failed validation; returning without caching"
-            );
-        }
-        response
-    };
+            // P2-15: Defensive validation of the response before returning it to the
+            // client. Invalid responses are never cached (see
+            // `fetch_remote_server_keys_response`); this check only logs a warning so
+            // we can observe stale/malformed keys slipping through (e.g. an expired
+            // cached entry). We still return the response rather than erroring.
+            if validate_server_key_response(&response, &server_name).is_none() {
+                ::tracing::warn!(
+                    server_name = %server_name,
+                    key_id = %key_id,
+                    "Federation key query response failed validation; returning without caching"
+                );
+            }
+            response
+        };
 
     // Wrap in the spec-compliant { "server_keys": [...] } format.
     Ok(Json(json!({ "server_keys": [server_key] })))

@@ -1,7 +1,7 @@
 use crate::common::ApiError;
 use crate::web::routes::context::MediaContext;
-use crate::web::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::web::routes::extractors::ServerName;
+use crate::web::{AuthenticatedUser, OptionalAuthenticatedUser};
 use axum::{
     body::Body,
     extract::{Path, Query, State},

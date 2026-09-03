@@ -169,4 +169,4 @@ pub(crate) async fn record_audit_event(
     Ok(())
 }
 
-use crate::web::routes::extractors::{EventId};
+use crate::web::routes::extractors::EventId;

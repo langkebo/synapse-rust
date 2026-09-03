@@ -1,7 +1,7 @@
 use crate::common::ApiError;
 use crate::web::routes::context::MediaContext;
-use crate::web::AuthenticatedUser;
 use crate::web::routes::extractors::ServerName;
+use crate::web::AuthenticatedUser;
 use axum::{
     body::Bytes,
     extract::{Json, Path, Query, State},

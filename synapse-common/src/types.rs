@@ -133,22 +133,10 @@ matrix_id!(ServerName, "server_name", doc = "Homeserver name, e.g. `matrix.org`.
 matrix_id!(UserId, "user_id", doc = "Matrix user ID, e.g. `@alice:matrix.org`.");
 matrix_id!(RoomId, "room_id", doc = "Matrix room ID, e.g. `!room:matrix.org`.");
 matrix_id!(EventId, "event_id", doc = "Matrix event ID, e.g. `$event:matrix.org`.");
-matrix_id!(
-    RoomAlias,
-    "room_alias",
-    doc = "Matrix room alias, e.g. `#room:matrix.org`."
-);
+matrix_id!(RoomAlias, "room_alias", doc = "Matrix room alias, e.g. `#room:matrix.org`.");
 matrix_id!(DeviceId, "device_id", doc = "Matrix device ID, e.g. `JLAIKJWLEI`.");
-matrix_id!(
-    TransactionId,
-    "transaction_id",
-    doc = "Client-generated transaction ID, e.g. `tn12345`."
-);
-matrix_id!(
-    MxcUri,
-    "mxc_uri",
-    doc = "MXC media URI, e.g. `mxc://matrix.org/AQDaVF...`."
-);
+matrix_id!(TransactionId, "transaction_id", doc = "Client-generated transaction ID, e.g. `tn12345`.");
+matrix_id!(MxcUri, "mxc_uri", doc = "MXC media URI, e.g. `mxc://matrix.org/AQDaVF...`.");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // P3-9 backward-compat shim: legacy structured fields kept as deprecated accessors

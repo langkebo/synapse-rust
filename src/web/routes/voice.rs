@@ -1,8 +1,8 @@
 #![allow(clippy::unused_async)]
 use super::{ensure_room_member_ctx, validate_user_id, AppState, AuthenticatedUser};
 use crate::common::{ApiError, ApiResult};
-use crate::web::routes::extractors::UserId;
 use crate::web::routes::context::RoomContext;
+use crate::web::routes::extractors::UserId;
 use axum::{
     extract::{Path, Query, State},
     routing::{get, post},

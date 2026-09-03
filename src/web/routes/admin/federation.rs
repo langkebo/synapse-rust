@@ -1,8 +1,8 @@
 use crate::common::ApiError;
 use crate::common::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::web::routes::context::AdminContext;
-use crate::web::routes::AdminUser;
 use crate::web::routes::extractors::ServerName;
+use crate::web::routes::AdminUser;
 use axum::{
     extract::{Path, Query, State},
     routing::{delete, get, post},

@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
-use crate::web::routes::extractors::{EventId};
+use crate::web::routes::extractors::EventId;
 pub(super) async fn get_room_auth(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,

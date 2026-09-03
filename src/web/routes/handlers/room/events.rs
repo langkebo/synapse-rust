@@ -1,8 +1,8 @@
-use crate::web::routes::extractors::{EventId, RoomId};
 use super::{ensure_room_view_access, get_room_event, parse_room_messages_from_token};
 use crate::common::{ApiError, ContentSanitizer};
 use crate::map_internal;
 use crate::web::routes::context::RoomContext;
+use crate::web::routes::extractors::{EventId, RoomId};
 use crate::web::routes::{validate_event_id, validate_room_id, AuthenticatedUser};
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
