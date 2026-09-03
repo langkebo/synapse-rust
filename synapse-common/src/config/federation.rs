@@ -9,7 +9,12 @@ use std::path::PathBuf;
 /// 联邦配置。
 ///
 /// 配置与其他 Matrix 服务器的联邦通信参数。
-#[derive(Clone, Deserialize, Default, derivative::Derivative)]
+///
+/// `Default` impl 是手写的——`#[derive(Default)]` 会把 `port=0`、
+/// `enabled=false` 这类语义不合理的零值当成默认值。手工实现把所有
+/// `default_xxx()` 助手函数集中成一份"开箱即用的合理生产默认配置"，新加字段
+/// 时只需在 impl 内补一行 + 上面加一个助手函数即可。
+#[derive(Clone, Deserialize, derivative::Derivative)]
 #[derivative(Debug)]
 pub struct FederationConfig {
     /// 是否启用联邦功能
@@ -179,6 +184,51 @@ pub struct FederationConfig {
     /// is rate-limited independently based on its authenticated `origin`.
     #[serde(default)]
     pub rate_limit: FederationRateLimitConfig,
+}
+
+impl Default for FederationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allow_ingress: false,
+            server_name: String::new(),
+            federation_port: 8448,
+            connection_pool_size: 10,
+            max_transaction_payload: 50_000,
+            ca_file: None,
+            client_ca_file: None,
+            signing_key: None,
+            key_id: None,
+            trusted_key_servers: default_trusted_key_servers(),
+            key_refresh_interval: default_key_refresh_interval(),
+            suppress_key_server_warning: false,
+            signature_cache_ttl: default_signature_cache_ttl(),
+            key_cache_ttl: default_key_cache_ttl(),
+            key_rotation_grace_period_ms: default_key_rotation_grace_period_ms(),
+            key_fetch_max_concurrency: default_federation_key_fetch_max_concurrency(),
+            key_fetch_timeout_ms: default_federation_key_fetch_timeout_ms(),
+            allow_http_key_fetch: false,
+            skip_ssrf_check: false,
+            process_inbound_edus: false,
+            inbound_edus_max_per_txn: default_federation_inbound_edus_max_per_txn(),
+            inbound_edu_max_concurrency: default_federation_inbound_edu_max_concurrency(),
+            inbound_edu_acquire_timeout_ms: default_federation_inbound_edu_acquire_timeout_ms(),
+            inbound_edu_per_origin_max_concurrency: default_federation_inbound_edu_per_origin_max_concurrency(),
+            process_inbound_presence_edus: false,
+            inbound_presence_updates_max_per_txn: default_federation_inbound_presence_updates_max_per_txn(),
+            inbound_presence_backoff_ms: default_federation_inbound_presence_backoff_ms(),
+            join_max_concurrency: default_federation_join_max_concurrency(),
+            join_acquire_timeout_ms: default_federation_join_acquire_timeout_ms(),
+            admission_mode: false,
+            txn_dedup_ttl_secs: default_federation_txn_dedup_ttl_secs(),
+            signing_key_master_key: None,
+            allow_plaintext_signing_keys: false,
+            event_broadcast_batch_size: default_event_broadcast_batch_size(),
+            signing_ts_tolerance_ms: default_signing_ts_tolerance_ms(),
+            replay_protection_enabled: default_replay_protection_enabled(),
+            rate_limit: FederationRateLimitConfig::default(),
+        }
+    }
 }
 
 fn default_signing_ts_tolerance_ms() -> i64 {
