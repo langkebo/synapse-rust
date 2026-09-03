@@ -258,19 +258,7 @@ impl SynapseServer {
     }
 
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
-        ::tracing::info!("[启动阶段 4/4] 正在启动 Synapse Rust Matrix Server...");
-        ::tracing::info!("[启动阶段 4/4] Server name: {}", self.app_state.services.core.server_name);
-        ::tracing::info!("[启动阶段 4/4] Listening on (Client API): {}", self.address);
-        ::tracing::info!("[启动阶段 4/4] Listening on (Federation): {}", self.federation_address);
-        if self.app_state.services.core.config.prometheus.enabled {
-            ::tracing::info!(
-                "[启动阶段 4/4] Listening on (Prometheus): {}:{}{}",
-                self.app_state.services.core.config.server.host,
-                self.app_state.services.core.config.prometheus.port,
-                self.app_state.services.core.config.prometheus.path
-            );
-        }
-        ::tracing::info!("[启动阶段 4/4] Media storage: {}", self.media_path.display());
+        self.log_startup_banner();
 
         if let Err(e) = self.warmup().await {
             ::tracing::warn!("Warmup encountered minor errors: {}", e);
@@ -666,32 +654,7 @@ impl SynapseServer {
         let shutdown_token = self.app_state.services.shutdown_token.clone();
         let worker_instance = std::env::var("WORKER_INSTANCE_NAME").unwrap_or_else(|_| "master".to_string());
         let start_ts = current_timestamp_millis();
-        tokio::spawn(async move {
-            let sig = tokio::select! {
-                _ = signal::ctrl_c() => "SIGINT",
-                sig = async {
-                    #[cfg(unix)]
-                    {
-                        use tokio::signal::unix::{signal, SignalKind};
-                        let mut sigterm = signal(SignalKind::terminate()).ok()?;
-                        sigterm.recv().await?;
-                        Some("SIGTERM")
-                    }
-                    #[cfg(not(unix))]
-                    None::<&str>
-                } => sig.unwrap_or("SIGTERM"),
-            };
-            let uptime_secs = (current_timestamp_millis() - start_ts) / 1000;
-            ::tracing::warn!(
-                target: "shutdown",
-                signal = %sig,
-                worker_instance = %worker_instance,
-                uptime_secs = %uptime_secs,
-                "Shutdown signal received — draining listeners"
-            );
-            let _ = shutdown_tx_signal.send(());
-            shutdown_token.cancel();
-        });
+        tokio::spawn(spawn_shutdown_signal_handler(shutdown_tx.clone(), shutdown_token, worker_instance, start_ts));
 
         // Wait for a shutdown signal before entering the drain phase.
         // Without this gate, the drain timeout fires immediately and kills
@@ -702,21 +665,7 @@ impl SynapseServer {
         // long-polling endpoints (e.g. /sync with 90s+ timeout) from blocking
         // rolling updates indefinitely.
         let configured_drain_secs = self.app_state.services.core.config.server.drain_timeout_secs;
-        let drain_secs = if configured_drain_secs > 0 { configured_drain_secs } else { DRAIN_TIMEOUT_SECS };
-        let drain_timeout = Duration::from_secs(drain_secs);
-        let drain_result = tokio::time::timeout(drain_timeout, async {
-            client_rx.await.ok();
-            fed_rx.await.ok();
-            prom_rx.await.ok();
-        })
-        .await;
-        if drain_result.is_err() {
-            ::tracing::warn!(
-                target: "shutdown",
-                "Graceful drain timed out after {drain_timeout:?} — forcing exit with in-flight requests"
-            );
-        }
-
+        Self::await_listeners_drained(client_rx, fed_rx, prom_rx, configured_drain_secs).await;
         ::tracing::info!("Servers shutdown complete");
 
         // Pre-exit logging for key worker types: capture queue state, restart count, and exit reason.
@@ -767,9 +716,92 @@ impl SynapseServer {
         Ok(())
     }
 
+    /// Emit the structured "[启动阶段 4/4]" startup banner describing the
+    /// active listeners and the media storage path. Extracted from `run()` so
+    /// that the boot sequence body stays focused on sequencing.
+    fn log_startup_banner(&self) {
+        ::tracing::info!("[启动阶段 4/4] 正在启动 Synapse Rust Matrix Server...");
+        ::tracing::info!("[启动阶段 4/4] Server name: {}", self.app_state.services.core.server_name);
+        ::tracing::info!("[启动阶段 4/4] Listening on (Client API): {}", self.address);
+        ::tracing::info!("[启动阶段 4/4] Listening on (Federation): {}", self.federation_address);
+        if self.app_state.services.core.config.prometheus.enabled {
+            ::tracing::info!(
+                "[启动阶段 4/4] Listening on (Prometheus): {}:{}{}",
+                self.app_state.services.core.config.server.host,
+                self.app_state.services.core.config.prometheus.port,
+                self.app_state.services.core.config.prometheus.path
+            );
+        }
+        ::tracing::info!("[启动阶段 4/4] Media storage: {}", self.media_path.display());
+    }
+
+    /// Wait for the client, federation, and prometheus listeners to report
+    /// graceful drain completion, with a hard timeout cap. Extracted from
+    /// `run()` so the drain logic is independently testable and reviewable.
+    ///
+    /// `configured_drain_secs == 0` falls back to the default `DRAIN_TIMEOUT_SECS`.
+    /// Long-polling endpoints (e.g. /sync with 90s+ timeout) must not be allowed
+    /// to block rolling updates indefinitely; the cap is the safety net.
+    async fn await_listeners_drained(
+        client_rx: tokio::sync::oneshot::Receiver<()>,
+        fed_rx: tokio::sync::oneshot::Receiver<()>,
+        prom_rx: tokio::sync::oneshot::Receiver<()>,
+        configured_drain_secs: u64,
+    ) {
+        let drain_secs = if configured_drain_secs > 0 { configured_drain_secs } else { DRAIN_TIMEOUT_SECS };
+        let drain_timeout = Duration::from_secs(drain_secs);
+        let drain_result = tokio::time::timeout(drain_timeout, async {
+            client_rx.await.ok();
+            fed_rx.await.ok();
+            prom_rx.await.ok();
+        })
+        .await;
+        if drain_result.is_err() {
+            ::tracing::warn!(
+                target: "shutdown",
+                "Graceful drain timed out after {drain_timeout:?} — forcing exit with in-flight requests"
+            );
+        }
+    }
+
     pub fn metrics_collector(&self) -> &Arc<TaskMetricsCollector> {
         &self.metrics_collector
     }
+}
+
+/// Handle SIGINT / SIGTERM / Ctrl+C by notifying the shutdown channel and
+/// cancelling the GracefulShutdownToken. Extracted from `run()` so the signal
+/// logic is independently testable and audit-friendly.
+async fn spawn_shutdown_signal_handler(
+    shutdown_tx_signal: tokio::sync::broadcast::Sender<()>,
+    shutdown_token: tokio_util::sync::CancellationToken,
+    worker_instance: String,
+    start_ts: i64,
+) {
+    let sig = tokio::select! {
+        _ = signal::ctrl_c() => "SIGINT",
+        sig = async {
+            #[cfg(unix)]
+            {
+                use tokio::signal::unix::{signal, SignalKind};
+                let mut sigterm = signal(SignalKind::terminate()).ok()?;
+                sigterm.recv().await?;
+                Some("SIGTERM")
+            }
+            #[cfg(not(unix))]
+            None::<&str>
+        } => sig.unwrap_or("SIGTERM"),
+    };
+    let uptime_secs = (current_timestamp_millis() - start_ts) / 1000;
+    ::tracing::warn!(
+        target: "shutdown",
+        signal = %sig,
+        worker_instance = %worker_instance,
+        uptime_secs = %uptime_secs,
+        "Shutdown signal received — draining listeners"
+    );
+    let _ = shutdown_tx_signal.send(());
+    shutdown_token.cancel();
 }
 
 async fn render_prometheus_metrics(
