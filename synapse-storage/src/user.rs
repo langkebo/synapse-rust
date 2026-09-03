@@ -742,13 +742,12 @@ impl UserStorage {
             return Ok(HashSet::new());
         }
         tracing::info!(count = user_ids.len(), is_deactivated, "Batch updating user deactivation status");
-        let rows: Vec<(String,)> = sqlx::query_as(
-            r"UPDATE users SET is_deactivated = $1 WHERE user_id = ANY($2) RETURNING user_id",
-        )
-        .bind(is_deactivated)
-        .bind(user_ids)
-        .fetch_all(&*self.pool)
-        .await?;
+        let rows: Vec<(String,)> =
+            sqlx::query_as(r"UPDATE users SET is_deactivated = $1 WHERE user_id = ANY($2) RETURNING user_id")
+                .bind(is_deactivated)
+                .bind(user_ids)
+                .fetch_all(&*self.pool)
+                .await?;
         Ok(rows.into_iter().map(|(uid,)| uid).collect())
     }
 
