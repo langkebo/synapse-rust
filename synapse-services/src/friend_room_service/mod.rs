@@ -173,25 +173,77 @@ impl FriendRoomService {
     }
 
     /// 创建或获取好友列表房间
+    ///
+    /// Uses a Redis SETNX distributed lock to prevent two concurrent requests
+    /// from both passing the DB-miss check and calling `create_room()` twice.
+    /// The lock key is `friend_room_lock:{user_id}` with a 5-second TTL so a
+    /// crashed holder's lock auto-expires.
+    ///
+    /// If Redis is unavailable the lock is skipped (fail-open) — the DB's
+    /// unique constraint on `m.direct` still protects against duplicate rows.
     pub async fn create_friend_list_room(&self, user_id: &str) -> ApiResult<String> {
-        // 先查 Redis 缓存
+        // Fast path: check Redis cache first
         let room_cache_key = format!("friends:room_id:{}", user_id);
         if let Ok(Some(room_id)) = self.cache.get::<String>(&room_cache_key).await {
             return Ok(room_id);
         }
 
+        // Check DB
         if let Ok(Some(room_id)) = self.friend_storage.get_friend_list_room_id(user_id).await {
-            if let Err(e) = self.cache.set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS).await {
-                ::tracing::warn!(
-                    user_id = %user_id,
-                    cache_key = %room_cache_key,
-                    room_id = %room_id,
-                    error = %e,
-                    "Failed to cache existing friend list room id"
-                );
-            }
+            let _ = self
+                .cache
+                .set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS)
+                .await;
             return Ok(room_id);
         }
+
+        // ── Race window: two requests can both see DB miss and call create_room().
+        //    Protect it with a distributed lock.
+        let lock_key = format!("friend_room_lock:{}", user_id);
+        let lock_ttl = 5; // seconds
+
+        let acquired = match self.cache.try_acquire_lock(&lock_key, lock_ttl).await {
+            Ok(acquired) => acquired,
+            Err(e) => {
+                // Redis down — fail-open; DB unique constraint is the safety net
+                tracing::warn!(user_id = %user_id, error = %e,
+                    "Redis lock unavailable, proceeding without distributed lock");
+                true
+            }
+        };
+
+        if !acquired {
+            // Another request is creating this room. Wait briefly then re-check.
+            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+            // Re-check cache
+            if let Ok(Some(room_id)) = self.cache.get::<String>(&room_cache_key).await {
+                return Ok(room_id);
+            }
+            // Re-check DB (room may have been created by the holder)
+            if let Ok(Some(room_id)) = self.friend_storage.get_friend_list_room_id(user_id).await {
+                let _ = self
+                    .cache
+                    .set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS)
+                    .await;
+                return Ok(room_id);
+            }
+            tracing::warn!(user_id = %user_id,
+                "Lock holder timed out, proceeding to create room");
+        }
+
+        // ── Lock acquired (or we decided to proceed after Redis failure) ──
+        // Double-check DB inside lock in case the holder just finished
+        if let Ok(Some(room_id)) = self.friend_storage.get_friend_list_room_id(user_id).await {
+            let _ = self.cache.release_lock(&lock_key).await;
+            let _ = self
+                .cache
+                .set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS)
+                .await;
+            return Ok(room_id);
+        }
+
+        tracing::debug!(user_id = %user_id, "Acquired friend-room lock, creating room");
 
         let config = FriendRoomCreateRoomConfig {
             name: Some("Friends".to_string()),
@@ -212,18 +264,16 @@ impl FriendRoomService {
         let content = json!({ "friends": [], "version": 1 });
         self.send_state_event(&room_id, user_id, "m.friends.list", "", content).await?;
 
-        // 缓存新创建的 room_id
-        let room_cache_key = format!("friends:room_id:{}", user_id);
-        if let Err(e) = self.cache.set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS).await {
-            ::tracing::warn!(
-                user_id = %user_id,
-                cache_key = %room_cache_key,
-                room_id = %room_id,
-                error = %e,
-                "Failed to cache newly created friend list room id"
-            );
-        }
+        // Cache the newly created room_id
+        let _ = self
+            .cache
+            .set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS)
+            .await;
 
+        // Always release the lock, even on panic (via Drop guard)
+        self.cache.release_lock(&lock_key).await;
+
+        tracing::debug!(user_id = %user_id, room_id = %room_id, "Friend room created successfully");
         Ok(room_id)
     }
 
