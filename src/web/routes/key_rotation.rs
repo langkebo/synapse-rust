@@ -7,6 +7,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
+use synapse_common::types::DeviceId;
 
 pub async fn get_key_rotation_status(
     State(ctx): State<DeviceContext>,
@@ -60,14 +61,14 @@ pub async fn rotate_keys(
 pub async fn get_rotation_history(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Path(device_id): Path<String>,
+    Path(device_id): Path<DeviceId>,
 ) -> Result<Json<Value>, ApiError> {
     if !auth_user.is_admin {
         return Err(ApiError::forbidden("Key rotation management requires server admin privileges".to_string()));
     }
 
     let history_rows =
-        ctx.key_rotation_service.get_rotation_history(&auth_user.user_id, &device_id).await.map_err(|e| {
+        ctx.key_rotation_service.get_rotation_history(&auth_user.user_id, device_id.as_str()).await.map_err(|e| {
             tracing::error!("Failed to get rotation history: {e}");
             ApiError::internal("Internal server error".to_string())
         })?;
@@ -83,7 +84,7 @@ pub async fn get_rotation_history(
         .collect();
 
     Ok(Json(json!({
-        "device_id": device_id,
+        "device_id": device_id.as_str(),
         "rotations": history,
     })))
 }

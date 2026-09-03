@@ -12,6 +12,7 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use synapse_common::types::DeviceId;
 
 #[axum::debug_handler]
 pub(crate) async fn device_list_update(
@@ -522,9 +523,9 @@ pub(crate) async fn get_device_trust_list(
 pub(crate) async fn get_device_trust(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Path(device_id): Path<String>,
+    Path(device_id): Path<DeviceId>,
 ) -> Result<Json<Value>, ApiError> {
-    let status = ctx.device_trust_service.get_device_trust_status(&auth_user.user_id, &device_id).await?;
+    let status = ctx.device_trust_service.get_device_trust_status(&auth_user.user_id, device_id.as_str()).await?;
 
     match status {
         Some(s) => Ok(Json(serde_json::json!({

@@ -10,6 +10,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
+use synapse_common::types::DeviceId;
 
 async fn require_password_uia(
     ctx: &DeviceContext,
@@ -269,9 +270,9 @@ pub async fn get_devices(
 pub async fn get_device(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Path(device_id): Path<String>,
+    Path(device_id): Path<DeviceId>,
 ) -> Result<Json<Value>, ApiError> {
-    let device = ctx.account_device_list_service.get_device(&device_id).await?;
+    let device = ctx.account_device_list_service.get_device(device_id.as_str()).await?;
 
     match device {
         Some(d) if d.user_id == auth_user.user_id => Ok(Json(json!({
@@ -292,7 +293,7 @@ pub async fn get_device(
 pub async fn update_device(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Path(device_id): Path<String>,
+    Path(device_id): Path<DeviceId>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     if let Some(display_name) = body.get("display_name").and_then(|v| v.as_str()) {
@@ -301,7 +302,7 @@ pub async fn update_device(
         }
         let rows_affected: u64 = ctx
             .account_device_list_service
-            .update_user_device_display_name(&auth_user.user_id, &device_id, display_name)
+            .update_user_device_display_name(&auth_user.user_id, device_id.as_str(), display_name)
             .await?;
 
         if rows_affected == 0 {
@@ -311,11 +312,11 @@ pub async fn update_device(
 
     let device = ctx
         .account_device_list_service
-        .get_device(&device_id)
+        .get_device(device_id.as_str())
         .await?
         .ok_or_else(|| ApiError::not_found("Device not found after update".to_string()))?;
 
-    broadcast_device_list_update(&ctx, &auth_user.user_id, &device_id).await;
+    broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str()).await;
 
     Ok(Json(json!({
         "device_id": device.device_id,
@@ -327,20 +328,20 @@ pub async fn update_device(
 pub async fn delete_device(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    Path(device_id): Path<String>,
+    Path(device_id): Path<DeviceId>,
     Json(body): Json<Value>,
 ) -> Result<Response, ApiError> {
     if let Err(challenge) = require_password_uia(&ctx, &auth_user, &body).await {
         return Ok(challenge);
     }
 
-    let rows: u64 = ctx.token_auth.revoke_device(&auth_user.user_id, &device_id).await?;
+    let rows: u64 = ctx.token_auth.revoke_device(&auth_user.user_id, device_id.as_str()).await?;
 
     if rows == 0 {
         return Err(ApiError::not_found("Device not found".to_string()));
     }
 
-    broadcast_device_list_update(&ctx, &auth_user.user_id, &device_id).await;
+    broadcast_device_list_update(&ctx, &auth_user.user_id, device_id.as_str()).await;
 
     Ok(Json(json!({})).into_response())
 }

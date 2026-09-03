@@ -12,6 +12,7 @@ use axum::{
     Json,
 };
 use serde_json::json;
+use synapse_common::types::DeviceId;
 
 /// Return `true` when the user has at least one well-known SSSS account_data
 /// event present: `m.secret_storage.default_key` (which names the default
@@ -110,13 +111,13 @@ pub async fn delete_dehydrated_device(
 pub async fn post_dehydrated_device_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path(device_id): Path<String>,
+    Path(device_id): Path<DeviceId>,
     Query(query): Query<serde_json::Value>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let next_batch = body.get("next_batch").and_then(|v| v.as_str());
     let limit = query.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
     let response =
-        ctx.dehydrated_device_service.claim_events(&auth_user.user_id, &device_id, next_batch, limit).await?;
+        ctx.dehydrated_device_service.claim_events(&auth_user.user_id, device_id.as_str(), next_batch, limit).await?;
     Ok(Json(response))
 }

@@ -8,6 +8,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
+use synapse_common::types::DeviceId;
 
 pub fn create_server_router(_state: AppState) -> Router<crate::web::routes::AppState> {
     Router::new()
@@ -258,7 +259,7 @@ pub async fn whois(
 pub async fn whois_device(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((user_id, device_id)): Path<(String, String)>,
+    Path((user_id, device_id)): Path<(String, DeviceId)>,
 ) -> Result<Json<Value>, ApiError> {
     let user = ctx
         .account_identity_service
@@ -266,7 +267,7 @@ pub async fn whois_device(
         .await?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
-    let device = ctx.account_device_list_service.get_device(&device_id).await?.filter(|d| d.user_id == user.user_id);
+    let device = ctx.account_device_list_service.get_device(device_id.as_str()).await?.filter(|d| d.user_id == user.user_id);
 
     match device {
         Some(d) => Ok(Json(json!({

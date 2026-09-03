@@ -8,6 +8,7 @@ use axum::{
     Json, Router,
 };
 use serde_json::Value;
+use synapse_common::types::DeviceId;
 
 use super::backup::*;
 use super::devices::*;
@@ -127,12 +128,12 @@ pub fn e2ee_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
 async fn upload_keys(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
-    path_device_id: Option<Path<String>>,
+    path_device_id: Option<Path<DeviceId>>,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let device_id = path_device_id
+    let device_id: DeviceId = path_device_id
         .map(|Path(id)| id)
-        .or(auth_user.device_id.clone())
+        .or(auth_user.device_id.as_ref().map(DeviceId::new_unchecked))
         .ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
 
     // Validate: reject completely empty uploads (no device_keys, no one_time_keys,
@@ -187,7 +188,7 @@ async fn upload_keys(
         device_keys: if has_device_keys || has_one_time_keys {
             Some(crate::e2ee::device_keys::DeviceKeys {
                 user_id: auth_user.user_id.clone(),
-                device_id: device_id.clone(),
+                device_id: device_id.to_string(),
                 algorithms: inner_device_keys.get("algorithms").and_then(|v| v.as_array()).map_or_else(
                     || vec!["m.olm.v1.curve25519-aes-sha2".to_string(), "m.megolm.v1.aes-sha2".to_string()],
                     |arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect(),
@@ -203,7 +204,7 @@ async fn upload_keys(
         fallback_keys: body.get("fallback_keys").cloned(),
     };
 
-    let response = ctx.device_keys_service.upload_keys(request, &auth_user.user_id, &device_id).await?;
+    let response = ctx.device_keys_service.upload_keys(request, &auth_user.user_id, &device_id.to_string()).await?;
 
     Ok(Json(serde_json::json!({
         "one_time_key_counts": response.one_time_key_counts

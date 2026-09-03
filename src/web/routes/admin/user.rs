@@ -12,6 +12,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
+use synapse_common::types::DeviceId;
 use synapse_services::admin_user_service::{decode_user_cursor, encode_user_cursor, AdminUserCursor};
 use synapse_storage::user::User as AdminUserRecord;
 use validator::Validate;
@@ -534,11 +535,11 @@ pub async fn get_user_devices_admin(
 pub async fn delete_user_device_admin(
     admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path((user_id, device_id)): Path<(String, String)>,
+    Path((user_id, device_id)): Path<(String, DeviceId)>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
-    let rows = ctx.token_auth.revoke_device(&user.user_id, &device_id).await?;
+    let rows = ctx.token_auth.revoke_device(&user.user_id, device_id.as_str()).await?;
 
     if rows == 0 {
         return Err(ApiError::not_found("Device not found".to_string()));
@@ -550,12 +551,12 @@ pub async fn delete_user_device_admin(
         &admin.user_id,
         "admin.user.delete_device",
         "device",
-        &device_id,
+        device_id.as_str(),
         request_id,
         json!({
             "admin_role": admin.role,
             "target_user": user.user_id,
-            "device_id": device_id,
+            "device_id": device_id.as_str(),
         }),
     )
     .await
@@ -570,7 +571,7 @@ pub async fn delete_user_device_admin(
 pub async fn delete_user_device_admin_compat(
     admin: AdminUser,
     state: State<AdminContext>,
-    path: Path<(String, String)>,
+    path: Path<(String, DeviceId)>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     delete_user_device_admin(admin, state, path, headers).await

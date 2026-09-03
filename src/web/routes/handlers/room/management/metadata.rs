@@ -5,6 +5,7 @@ use axum::extract::{Json, Path, Query, State};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
+use synapse_common::types::DeviceId;
 
 use crate::web::routes::context::RoomContext;
 
@@ -479,7 +480,7 @@ pub(crate) async fn get_room_service_types(
 pub(crate) async fn get_room_device(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
-    Path((room_id, device_id)): Path<(String, String)>,
+    Path((room_id, device_id)): Path<(String, DeviceId)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !ctx.room_service.state().room_exists(&room_id).await? {
@@ -489,7 +490,7 @@ pub(crate) async fn get_room_device(
 
     let device = ctx
         .account_device_list_service
-        .get_device(&device_id)
+        .get_device(device_id.as_str())
         .await?
         .ok_or_else(|| ApiError::not_found("Device not found".to_string()))?;
 

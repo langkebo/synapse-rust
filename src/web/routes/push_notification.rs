@@ -7,6 +7,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use synapse_common::types::DeviceId;
 use synapse_services::push_notification_service::SendNotificationRequest;
 use synapse_storage::push_notification::{CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest};
 
@@ -138,9 +139,9 @@ pub async fn register_device(
 pub async fn unregister_device(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
-    Path(device_id): Path<String>,
+    Path(device_id): Path<DeviceId>,
 ) -> Result<impl IntoResponse, ApiError> {
-    ctx.push_notification_service.unregister_device(&auth_user.user_id, &device_id).await?;
+    ctx.push_notification_service.unregister_device(&auth_user.user_id, device_id.as_str()).await?;
 
     Ok(Json(serde_json::json!({
         "message": "Device unregistered"
