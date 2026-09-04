@@ -38,3 +38,9 @@ sticky_event.rs:132
 sticky_event.rs:150
 tags.rs:121
 tags.rs:135
+
+# Regression: audit fallout added 3 new Ok(empty_json()) in app_service.rs (2026-09-04)
+# after MSC4204/4267 branch merge caused line offsets to shift
+app_service.rs:442
+app_service.rs:460
+app_service.rs:478
