@@ -1160,6 +1160,82 @@ mod tests {
         assert!(!refresh_map.contains_key(&refresh_token));
     }
 
+    /// ES256 sign+verify round-trip: explicitly produce an ES256-signed JWT
+    /// using the provider's EC private key, then verify_access_token must accept it.
+    #[test]
+    fn test_issue_and_verify_es256_access_token() {
+        use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+
+        let provider = create_provider();
+        // Encode a JWT manually using the provider's EC private key (via PEM form).
+        let ec_pem = provider
+            .ec_signing_key
+            .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
+            .expect("EC PEM serialize");
+        let ec_encoding = EncodingKey::from_ec_pem(ec_pem.as_bytes()).expect("EC encoding key");
+
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("clock").as_secs() as i64;
+        let claims = AccessTokenClaims {
+            iss: provider.config.issuer.clone(),
+            sub: "@alice:synapse.test".to_string(),
+            aud: vec![provider.config.issuer.clone()],
+            exp: now + OIDC_TOKEN_EXPIRY_SECS,
+            iat: now,
+            jti: Uuid::new_v4().to_string(),
+            scope: "openid".to_string(),
+        };
+
+        let mut header = Header::new(Algorithm::ES256);
+        header.kid = Some(provider.ec_key_id.clone());
+        let token = encode(&header, &claims, &ec_encoding).expect("ES256 encode");
+
+        let parsed = provider.verify_access_token(&token).expect("ES256 verify must accept");
+        assert_eq!(parsed.sub, "@alice:synapse.test");
+        assert_eq!(parsed.scope, "openid");
+    }
+
+    /// ES256 discovery advertises both algorithms and JWKS exposes both keys.
+    #[test]
+    fn test_discovery_and_jwks_advertise_both_rs256_and_es256() {
+        let provider = create_provider();
+
+        // Discovery document advertises both
+        let discovery = provider.get_discovery_document();
+        assert!(discovery.id_token_signing_alg_values_supported.contains(&"RS256".to_string()));
+        assert!(discovery.id_token_signing_alg_values_supported.contains(&"ES256".to_string()));
+
+        // JWKS contains both keys with distinct kids
+        let jwks = provider.get_jwks().expect("JWKS");
+        assert_eq!(jwks.keys.len(), 2);
+        let rsa_jwk = jwks.keys.iter().find(|k| k.alg == "RS256").expect("RS256 in JWKS");
+        let ec_jwk = jwks.keys.iter().find(|k| k.alg == "ES256").expect("ES256 in JWKS");
+        assert_eq!(rsa_jwk.kty, "RSA");
+        assert_eq!(ec_jwk.kty, "EC");
+        assert_ne!(rsa_jwk.kid, ec_jwk.kid);
+    }
+
+    /// EC key PEM persistence round-trip: serialize, parse via load_or_generate_ec_key path,
+    /// and verify the resulting x coordinate matches.
+    #[test]
+    fn test_ec_key_pem_persistence_round_trip() {
+        use p256::pkcs8::DecodePrivateKey;
+
+        let provider = create_provider();
+        let pem = provider
+            .ec_signing_key
+            .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
+            .expect("EC PEM serialize");
+
+        let reloaded = SecretKey::from_pkcs8_pem(&pem).expect("EC PEM reload");
+        let original_pub = provider.ec_signing_key.public_key();
+        let reloaded_pub = reloaded.public_key();
+        assert_eq!(
+            original_pub.to_sec1_point(false).x().map(|a| a.as_slice()),
+            reloaded_pub.to_sec1_point(false).x().map(|a| a.as_slice()),
+            "EC x must round-trip"
+        );
+    }
+
     #[test]
     fn test_oidc_discovery_document_serialization() {
         let doc = OidcDiscoveryDocument {
