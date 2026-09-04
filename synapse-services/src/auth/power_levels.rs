@@ -649,7 +649,6 @@ mod tests {
             processed_ts: 1_700_000_000_000,
             not_before: 0,
             status: None,
-            reference_image: None,
             origin: "test.server".to_string(),
             stream_ordering: None,
             redacts: None,

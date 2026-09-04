@@ -146,7 +146,6 @@ mod tests {
             processed_ts: 0,
             not_before: 0,
             status: None,
-            reference_image: None,
             origin: String::new(),
             stream_ordering: None,
             redacts: None,

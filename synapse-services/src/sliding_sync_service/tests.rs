@@ -531,7 +531,6 @@ fn make_state_event(event_type: Option<&str>, state_key: Option<&str>) -> synaps
         processed_ts: None,
         not_before: None,
         status: None,
-        reference_image: None,
         origin: Some("ex.com".to_string()),
         user_id: Some("@sender:ex.com".to_string()),
         stream_ordering: Some(1),

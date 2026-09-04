@@ -73,7 +73,6 @@ mod tests {
             processed_ts: 1700000001000,
             not_before: 0,
             status: None,
-            reference_image: None,
             origin: "ex.com".into(),
             stream_ordering,
             redacts: None,
