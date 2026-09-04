@@ -324,10 +324,16 @@ impl DeviceKeyService {
                                 }
                             }
                         } else {
-                            tracing::warn!(
-                                "No ed25519 device key found for user {} device {}; storing OTK without signature verification",
-                                user_id, device_id
-                            );
+                            // E-01: A `signed_curve25519` one-time key MUST be
+                            // signature-verified against the device's
+                            // `ed25519` key. If the device has no ed25519
+                            // key we cannot establish the trust chain, so
+                            // refuse the upload rather than persisting an
+                            // unverifiable OTK that a MITM could later
+                            // substitute.
+                            return Err(ApiError::bad_request(format!(
+                                "Cannot store signed_curve25519 one-time key for device {user_id}/{device_id} without ed25519 device key"
+                            )));
                         }
                     }
 
@@ -421,10 +427,13 @@ impl DeviceKeyService {
                                     }
                                 }
                             } else {
-                                tracing::warn!(
-                                    "No ed25519 device key found for user {} device {}; storing fallback key without signature verification",
-                                    user_id, device_id
-                                );
+                                // E-01: same rule as one-time keys — a
+                                // `signed_curve25519` fallback key without
+                                // an ed25519 device key is unverifiable and
+                                // must be refused, not silently stored.
+                                return Err(ApiError::bad_request(format!(
+                                    "Cannot store signed_curve25519 fallback key for device {user_id}/{device_id} without ed25519 device key"
+                                )));
                             }
                         }
 
