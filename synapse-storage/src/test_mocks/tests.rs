@@ -147,7 +147,6 @@ fn make_stream_event(event_id: &str, room_id: &str, stream_ordering: i64) -> cra
         processed_ts: 1_700_000_000_000 + stream_ordering,
         not_before: 0,
         status: None,
-        reference_image: None,
         origin: "self".into(),
         stream_ordering: Some(stream_ordering),
         redacts: None,

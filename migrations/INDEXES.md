@@ -1,8 +1,15 @@
 # 索引治理文档
 
-> 版本: v1.0.0
-> 更新日期: 2026-06-07
-> 数据源: `migrations/00000000_unified_schema_v10.sql` 及 `src/services/database_initializer/tables.rs`
+> 版本: v1.1.0
+> 更新日期: 2026-09-04
+> 数据源: `migrations/00000000_unified_schema_v11.sql`（v11.0.0, 2026-08-31）+
+>   P1/P2/P3 审计迁移（`2026090401*_schema_p*.sql`）
+
+> **覆盖率说明**：v11 baseline 共有 368 个索引（含主键索引），
+> 本文档精选 103 个有代表性的 partial / composite / 覆盖 / GIN 索引作重点记录，
+> 覆盖核心查询路径。完整索引清单请直接查看 `00000000_unified_schema_v11.sql`
+> 中的 `CREATE INDEX` 语句，或在数据库中执行 `SELECT indexname FROM pg_indexes
+> WHERE schemaname = 'public'`。
 
 ---
 
@@ -15,7 +22,8 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | users | idx_users_must_change_password | must_change_password | must_change_password = TRUE | 查找需要修改密码的用户 |
 | users | idx_users_password_expires | password_expires_at | password_expires_at IS NOT NULL | 查找密码即将过期的用户 |
 | users | idx_users_locked | locked_until | locked_until IS NOT NULL | 查找被锁定的用户 |
-| users | idx_users_name_trgm | name (GIN) | EXISTS (SELECT 1 FROM information_schema.columns WHERE ...) | 条件创建的 trigram 搜索索引 |
+| users | idx_users_displayname_trgm | displayname (GIN) | — | displayname 模糊搜索（trigram，v11 替换原 v10 的 name 字段） |
+| users | ~~idx_users_name_trgm~~ | ~~name (GIN)~~ | ~~v10 era~~ | **已废弃**：v11 中 `users.name` 字段已移除，改用 `displayname` |
 | access_tokens | idx_access_tokens_valid | is_revoked | is_revoked = FALSE | 查找有效的 access token |
 | access_tokens | idx_access_tokens_user_revoked | user_id, is_revoked | is_revoked = FALSE | 按用户查找有效 token |
 | access_tokens | idx_access_tokens_device_id | device_id | device_id IS NOT NULL | 按设备查找 token（排除空设备） |
@@ -57,8 +65,9 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | federation_blacklist_config | idx_federation_blacklist_config_enabled | is_enabled | is_enabled = TRUE | 查找启用的联邦黑名单配置 |
 | federation_blacklist_rule | idx_federation_blacklist_rule_enabled | is_enabled | is_enabled = TRUE | 查找启用的联邦黑名单规则 |
 | federation_queue | idx_federation_queue_pending | destination, created_ts | status = 'pending' | 查找待发送的联邦消息 |
+| federation_queue | idx_federation_queue_retry | destination, next_retry_ts | next_retry_ts IS NOT NULL AND status = 'retry' | 查找需重试的联邦消息（P3 审计新增，`20260904030000`） |
 | threepid_validation_session | idx_threepid_session_expires | expires_at | is_validated = FALSE | 查找未验证且有过期时间的会话 |
-| threepid_validation_session | idx_threepid_session_expires_v8 | expires_at | is_validated = FALSE | 同上（v8 兼容） |
+| threepid_validation_session | idx_threepid_session_expires_v8 | expires_at | is_validated = FALSE | **已废弃**：v8 兼容字段已被新 extension 吸收，仅在旧实例遗留 |
 | background_updates | idx_background_updates_running | is_running | is_running = TRUE | 查找正在运行的后台更新 |
 | background_updates | idx_background_updates_running_job | job_name, started_ts | status = 'running' | 查找运行中的后台任务 |
 | background_updates | idx_background_updates_pending | status, job_type, created_ts | status IN ('pending', 'scheduled') | 查找待处理的后台更新 |
@@ -113,6 +122,8 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | events | idx_events_room_stream_ordering_not_redacted | room_id, stream_ordering DESC | 否 | 未删除事件流序号查询（Partial） |
 | events | idx_events_friend_room | sender, room_id, origin_server_ts DESC | 否 | 好友房间事件查询（Partial） |
 | events | idx_events_friend_list | room_id, origin_server_ts DESC | 否 | 好友列表事件查询（Partial） |
+| events | idx_events_prev_event_id | prev_event_id | 否 | 按前驱事件查找事件边（P1 审计新增，`20260904010000`） |
+| event_edges | idx_event_edges_prev_room | prev_event_id, event_id | 否 | 按前驱事件+事件查找房间路径（P1 审计新增，`20260904010000`） |
 | event_relations | idx_event_relations_unique | event_id, relation_type, sender | UNIQUE | 事件关系唯一约束 |
 | event_relations | idx_event_relations_room_event | room_id, relates_to_event_id, relation_type | 否 | 按房间和关联事件查询关系 |
 | event_relations | idx_event_relations_sender | sender, relation_type | 否 | 按发送者和关系类型查询 |
@@ -126,11 +137,12 @@ Partial Index（部分索引）通过 `WHERE` 子句仅索引满足条件的行�
 | room_invite_allowlist | idx_room_invite_allowlist_room_user | room_id, user_id | 否 | 按房间和用户查询邀请白名单 |
 | room_sticky_events | idx_room_sticky_events_user_sticky | user_id, is_sticky, room_id | 否 | 按用户和置顶状态查询事件 |
 | device_keys | idx_device_keys_user_device | user_id, device_id | 否 | 按用户和设备查找密钥 |
+| device_signatures | idx_device_signatures_user_device | user_id, device_id | 否 | 设备签名按用户+设备查（P1 审计新增） |
+| device_signatures | idx_device_signatures_target | target_user_id, target_device_id | 否 | 设备签名按目标用户+设备查（P1 审计新增） |
 | device_trust_status | idx_device_trust_status_user_level | user_id, trust_level | 否 | 按用户和信任级别查询 |
 | cross_signing_trust | idx_cross_signing_trust_user_trusted | user_id, is_trusted | 否 | 按用户和信任状态查询 |
 | key_signatures | idx_key_signatures_target | target_user_id, target_key_id | 否 | 按目标用户和密钥 ID 查询签名 |
 | key_rotation_log | idx_key_rotation_log_user_rotated | user_id, rotated_at DESC | 否 | 按用户和轮换时间查询日志 |
-| e2ee_security_events | idx_e2ee_security_events_user_created | user_id, created_ts DESC | 否 | 按用户和时间查询安全事件 |
 | verification_requests | idx_verification_requests_to_user_state | to_user, state, updated_ts DESC | 否 | 按目标用户和状态查询验证请求 |
 | olm_sessions | idx_olm_sessions_user_device | user_id, device_id | 否 | 按用户和设备查找 Olm 会话 |
 | device_verification_request | idx_device_verification_request_user_device_pending | user_id, new_device_id | 否 | 按用户和设备查找待处理验证（Partial） |

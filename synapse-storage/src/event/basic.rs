@@ -14,7 +14,7 @@ impl EventStorage {
             r"
             SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
                    COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering, redacts
+                   COALESCE(not_before, 0) as not_before, status, COALESCE(origin, 'self') as origin, stream_ordering, redacts
             FROM events WHERE event_id = $1
             ",
         )

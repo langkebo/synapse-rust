@@ -7,13 +7,13 @@ const STATE_EVENT_OUTER_COLS: &str =
      COALESCE(unsigned, '{}'::jsonb) as unsigned, \
      COALESCE(is_redacted, false) as is_redacted, \
      COALESCE(origin_server_ts, 0) as origin_server_ts, \
-     depth, NULL::BIGINT as processed_at, not_before, status, reference_image, origin, user_id, stream_ordering";
+     depth, NULL::BIGINT as processed_at, not_before, status, origin, user_id, stream_ordering";
 
 /// Shared column list for StateEvent inner DISTINCT ON subqueries.
 /// Raw columns (no COALESCE) — the outer query wraps them.
 const STATE_EVENT_INNER_COLS: &str =
     "event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key, \
-     unsigned, is_redacted, origin_server_ts, depth, not_before, status, reference_image, origin, user_id, stream_ordering";
+     unsigned, is_redacted, origin_server_ts, depth, not_before, status, origin, user_id, stream_ordering";
 
 impl EventStorage {
     pub async fn get_state_event(
@@ -318,7 +318,6 @@ mod tests {
             processed_ts: None,
             not_before: None,
             status: None,
-            reference_image: None,
             origin: Some("self".into()),
             user_id: Some("@alice:ex.com".into()),
             stream_ordering: Some(1),

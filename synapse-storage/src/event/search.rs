@@ -246,7 +246,7 @@ impl EventStorage {
             r"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
                    COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering, redacts
+                   COALESCE(not_before, 0) as not_before, status, COALESCE(origin, 'self') as origin, stream_ordering, redacts
             FROM events
             WHERE room_id = $1
               AND event_type = 'm.room.message'

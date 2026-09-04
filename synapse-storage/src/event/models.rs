@@ -37,7 +37,6 @@ pub struct RoomEvent {
     pub processed_ts: i64,
     pub not_before: i64,
     pub status: Option<String>,
-    pub reference_image: Option<String>,
     pub origin: String,
     pub stream_ordering: Option<i64>,
     /// Target event_id for `m.room.redaction` events (P0-05).  `None` for
@@ -61,7 +60,6 @@ pub struct StateEvent {
     pub processed_ts: Option<i64>,
     pub not_before: Option<i64>,
     pub status: Option<String>,
-    pub reference_image: Option<String>,
     pub origin: Option<String>,
     pub user_id: Option<String>,
     pub stream_ordering: Option<i64>,

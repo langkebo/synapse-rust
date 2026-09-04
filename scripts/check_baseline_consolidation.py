@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""检查 v10 consolidated baseline 是否吸收所有增量迁移（防止漏追加）。
+"""检查 latest consolidated baseline 是否吸收所有增量迁移（防止漏追加）。
 
 背景：build_sqlx_migration_source.py 的 forward-only source 只选 baseline +
 extension + V*，依赖「baseline 完整吸收所有增量迁移」的假设。但 baseline 是
 手动 consolidate，历史上曾漏吸收 8 个迁移（federation_dead_letter_queue 等），
 导致 CI 的 DB 与生产不一致。
 
-本脚本提取时间戳增量迁移里「新增的表/索引/列」，检查它们是否已在 v10 baseline
-中，漏了则报错（退出码 1）。
+本脚本提取时间戳增量迁移里「新增的表/索引/列」，检查它们是否已在当前
+latest baseline 中，漏了则报错（退出码 1）。
 
 用法：
     python3 scripts/check_baseline_consolidation.py

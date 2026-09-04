@@ -14,7 +14,7 @@ impl EventStorage {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9)
             RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
                       COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                      0::BIGINT as not_before, 'pending' as status, null as reference_image,
+                      0::BIGINT as not_before, 'pending' as status,
                       'self' as origin, stream_ordering, redacts
             ";
 
@@ -71,7 +71,7 @@ impl EventStorage {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12)
             RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
                       COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                      0::BIGINT as not_before, 'pending' as status, null as reference_image,
+                      0::BIGINT as not_before, 'pending' as status,
                       'self' as origin, stream_ordering, redacts
             ";
 
@@ -177,7 +177,7 @@ impl EventStorage {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12, $13)
             RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
                       COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                      0::BIGINT as not_before, 'pending' as status, null as reference_image,
+                      0::BIGINT as not_before, 'pending' as status,
                       'self' as origin, stream_ordering, redacts
             ";
 
@@ -311,7 +311,7 @@ impl EventStorage {
             r"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
                    COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering, redacts
+                   COALESCE(not_before, 0) as not_before, status, COALESCE(origin, 'self') as origin, stream_ordering, redacts
             FROM events
             WHERE room_id = $1 AND event_type = 'm.room.create'
             ORDER BY origin_server_ts ASC

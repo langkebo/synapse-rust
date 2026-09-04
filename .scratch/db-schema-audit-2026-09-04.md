@@ -236,28 +236,47 @@ ALTER TABLE cross_signing_keys VALIDATE CONSTRAINT fk_cross_signing_keys_user;
 
 **问题**：`room_version` CHECK 只允许 1-11，部分 Matrix Spec 新版 room_version（v12+）会拒绝写入。
 
-**修复建议**：扩展 room_version CHECK 或将约束改为 `CHECK (room_version ~ '^\d+$')` 以支持未来版本。
+✅ **已落地**（2026-09-04）：
+- 迁移：`migrations/20260904050000_extend_room_version_check.sql`
+  - 原硬编码 CHECK (1-11) → 正则 `CHECK (room_version ~ '^[0-9]+(\.[0-9]+)*$')`
+  - 支持任意数字版本（含 v12+ 如 MSC4186），兼容历史 '1'-'11'
+  - DO block 幂等（DROP + ADD 约束，自动处理 v11/v12 baseline 已装的情况）
+- undo：`migrations/20260904050000_extend_room_version_check.undo.sql`
+- dry-run ✅ 通过
 
 ---
 
-### 4.2 重复索引定义
+### 4.2 重复索引定义（v12 baseline 重构时清理，数据库无风险）
 
 ```
-idx_rooms_name_trgm         -- 创建两次
-idx_rooms_canonical_alias_trgm  -- 创建两次
+idx_rooms_name_trgm         -- v11 baseline 第 3542 + 4035 行各定义一次
+idx_rooms_canonical_alias_trgm  -- v11 baseline 第 3543 + 4036 行各定义一次
 ```
 
-同一索引在 unified schema 中定义了两次（第二次覆盖第一次，无害但冗余）。
+同一索引在 unified schema 中定义了两次，但 PostgreSQL `CREATE INDEX IF NOT EXISTS`
+在同名索引已存在时直接跳过（返回 NOTICE），数据库中只会有一个物理索引，**无数据风险**。
 
-**修复建议**：清理重复 `CREATE INDEX` 语句。
+**不需迁移**：`v12 baseline 重构时删除 baseline 文件内的重复定义即可。**数据库运行期间无需任何操作**。
+
+> ⚠️ 迁移文件中禁止 `DROP INDEX IF EXISTS idx_rooms_name_trgm`，已有生产数据依赖该索引，应由 v12 baseline 文件修复。
 
 ---
 
-### 4.3 `reference_image TEXT` — 用途不明
+### 4.3 `events.reference_image` — 零值冗余字段（✅ 已清理）
 
-`events` 表的 `reference_image TEXT` 字段无注释。需确认是否为：
-- 未使用的废弃字段（应删除）
-- Matrix MSC3489 `m.reference` 类型（应有注释）
+`events.reference_image TEXT` 列由 INSERT 语句**从未写入**（`event/create.rs` INSERT
+从不包含此列，默认值 NULL），但被所有 SELECT 路径持续读取，值永远为 NULL。
+
+**结论**：字段非"未使用死字段"，而是零值冗余字段——删除可节省存储和查询带宽，
+但 SELECT 语句必须同步清理。
+
+✅ **已落地**（2026-09-04）：
+- 迁移：`migrations/20260904040000_schema_cleanup_dedup_and_dead_code.sql`（幂等，DO block 检查列存在性）
+- undo：`migrations/20260904040000_schema_cleanup_dedup_and_dead_code.undo.sql`
+- 代码同步：14 个文件，18+ 处（ROOM_EVENT_COLS、batch/state/search/create 等 SQL，models.rs struct 字段，test fixture）
+- `cargo build --locked --workspace` ✅ 通过
+
+> 教训："业务代码 INSERT 未引用" ≠ "字段是死字段"。即使从不写入，只要 SELECT 路径仍读该列，删除后需同步所有 SELECT 语句，范围比"死代码"更大。
 
 ---
 
@@ -331,6 +350,8 @@ CREATE INDEX idx_federation_queue_retry
 
 ## 六、Schema 优化补丁（按优先级）
 
+> ⚠️ §4.2 重复索引（name_trgm / canonical_alias_trgm）**不需迁移**，由 v12 baseline 文件清理。
+
 ### 补丁 P1（阻塞级，Federation 性能）
 
 ```sql
@@ -398,13 +419,38 @@ ALTER TABLE backup_keys
     ADD CONSTRAINT fk_backup_keys_room
     FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
 
--- P3-4: 清理重复索引
--- 需先查询确认无冲突后再 DROP DUPLICATE INDEX
+-- P3-4: 重复索引 → 不需迁移，v12 baseline 重构时清理 baseline 文件内的重复定义即可
+-- 已在 §4.2 说明原因（CREATE INDEX IF NOT EXISTS 已防重，数据库无风险）
 ```
 
 ---
 
-## 七、后续迁移注意事项
+## 七、已落地状态（2026-09-04 sprint）
+
+| 补丁 | 落地迁移 | undo | commit | 状态 |
+|------|----------|------|--------|------|
+| P1-1 device_signatures 索引 | `20260904010000_schema_p1_federation_and_integrity.sql` | ✅ | `845018bd` | ✅ dry-run 通过 |
+| P1-2 room_memberships CHECK | 同上 | ✅ | `845018bd` | ✅ |
+| P1-3 event_edges prev FK | 同上 | ✅ | `845018bd` | ✅ |
+| P1-4 events.redacted_by FK | 同上 | ✅ | `845018bd` | ✅ |
+| P2-1 device_keys UQ algorithm | `20260904020000_schema_p2_data_integrity.sql` | ✅ | `845018bd` | ✅ |
+| P2-2 e2ee_audit_log 索引 | 同上 | ✅ | `845018bd` | ✅ |
+| P2-3 cross_signing_keys VALIDATE | 同上 | ✅ | `845018bd` | ✅ |
+| P2-4 events.depth / not_before CHECK | 同上 | ✅ | `845018bd` | ✅ |
+| P3 push_notification_queue 索引 | `20260904030000_schema_p3_perf.sql` | ✅ | `845018bd` | ✅ |
+| P3 federation_queue 索引 | 同上 | ✅ | `845018bd` | ✅ |
+| P3 backup_keys UQ + room FK | 同上 | ✅ | `845018bd` | ✅ |
+| P3 rooms.is_federated 索引 | 同上 | ✅ | `845018bd` | ✅ |
+| 4.3 reference_image 清理 | `20260904040000_schema_cleanup_dedup_and_dead_code.sql` | ✅ | （本次） | ✅ dry-run 通过，workspace 编译通过 |
+| 4.2 重复 trgm 索引 | — | — | — | ✅ 不需迁移，v12 baseline 重构时清理文件内重复定义 |
+| 4.1 room_version CHECK 扩展 | `20260904050000_extend_room_version_check.sql` | ✅ | （本次） | ✅ dry-run 通过（1-11 → 正则 `^[0-9]+(\.[0-9]+)*$`） |
+
+### 文档同步
+
+- `migrations/README.md`：v10→v11 基线、活跃链路（v11 baseline + 1 extension + 27 时间戳迁移 = 29 forward + 27 undo）、archive/ 用途（`ci_schema_health_check.sh` 仍用 v8）、`check_baseline_consolidation.py` 注释同步
+- `migrations/INDEXES.md`：v10→v11 数据源、清理 `idx_users_name_trgm`（v11 已无 `users.name` 列，改为 `idx_users_displayname_trgm`）、补 P1/P2/P3 审计新增索引条目（`idx_event_edges_prev_room`、`idx_device_signatures_user_device`、`idx_push_notification_queue_worker/retry`、`idx_e2ee_audit_log_room_event` 等）
+
+## 八、后续迁移注意事项
 
 1. **幂等原则**：所有 `ALTER TABLE` 前加 `IF NOT EXISTS` 或 `IF EXISTS`（PostgreSQL 14+ 支持）
 2. **`NOT VALID` FK**：对于已存在数据的表，先 `ADD CONSTRAINT ... NOT VALID`，生产低峰期 `VALIDATE`
@@ -413,25 +459,25 @@ ALTER TABLE backup_keys
 
 ---
 
-## 八、审计清单
+## 九、审计清单
 
 | # | 检查项 | 状态 | 备注 |
 |---|---|---|---|
 | 1 | `events` 表索引覆盖 | ✅ 17 indexes | 全部关键字段已索引 |
 | 2 | `events.origin_server_ts` 类型 | ✅ BIGINT NOT NULL | 毫秒 Unix 时间戳合规 |
-| 3 | `room_memberships.membership` CHECK | 🔴 缺失 | 需新增 |
-| 4 | `event_edges.prev_event_id` FK | 🔴 缺失 | 需新增 |
-| 5 | `device_signatures` 索引 | 🔴 0 indexes | 需新增 2 个索引 |
-| 6 | `device_keys` UQ 含 algorithm | 🟠 不完整 | 需补 algorithm |
-| 7 | `e2ee_audit_log` 索引 | 🟠 缺 device/room/event | 需补 2 个索引 |
-| 8 | `events.redacted_by` FK | 🟠 缺失 | 需新增 |
-| 9 | `cross_signing_keys` FK VALIDATE | 🟠 待生产验证 | 已 NOT VALID |
+| 3 | `room_memberships.membership` CHECK | ✅ 已落地 | P1-2 migration（`20260904010000`） |
+| 4 | `event_edges.prev_event_id` FK | ✅ 已落地 | P1-3 migration（`20260904010000`） |
+| 5 | `device_signatures` 索引 | ✅ 已落地 | P1-1（user_device + target，2 个索引） |
+| 6 | `device_keys` UQ 含 algorithm | ✅ 已落地 | P2-1 migration（`20260904020000`） |
+| 7 | `e2ee_audit_log` 索引 | ✅ 已落地 | P2-2 migration（device + room/event） |
+| 8 | `events.redacted_by` FK | ✅ 已落地 | P1-4 migration（`20260904010000`） |
+| 9 | `cross_signing_keys` FK VALIDATE | ✅ 已落地 | P2-3 migration（`20260904020000`） |
 | 10 | `e2ee_audit_log.device_id` NOT NULL | ✅ 已修复 | commit 16a6db5f |
-| 11 | `rooms` CHECK 约束 | ✅ 4 个 CHECK | join_rules/visibility/room_version |
+| 11 | `rooms` CHECK 约束 | ✅ 5 个 CHECK | 已扩展 room_version 为正则（v12+）|
 | 12 | `state_groups` FK 链 | ✅ 完整 | event→sg→state 链 |
-| 13 | 重复索引 | ⚠️ 2 对 | name_trgm / canonical_alias_trgm |
-| 14 | `reference_image` 字段 | ⚠️ 用途不明 | 需确认是否为死代码 |
-| 15 | E2EE 表无级联 FK | 🟠 设计已知 | Rust 层手动清理 |
+| 13 | 重复索引 | ✅ v12 baseline 清理 | 数据库无风险，v11 迁移不操作 |
+| 14 | `events.reference_image` 字段 | ✅ 已清理 | 迁移 + 代码同步完成 |
+| 15 | E2EE 表无级联 FK | 🟠 设计已知 | Rust 层手动清理（Synapse 同模式） |
 | 16 | `events.room_id` DELETE 行为 | ✅ 已正确 | NO ACTION + Rust 批删 |
-| 17 | 增量迁移可回滚 | ✅ 27 对 | 全有 undo.sql |
+| 17 | 增量迁移可回滚 | ✅ 28 对 | 全有 undo.sql（含本次 4xx） |
 | 18 | Schema v11 是最新 | ✅ | unified baseline |

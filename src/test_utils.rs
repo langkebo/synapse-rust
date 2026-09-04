@@ -1255,7 +1255,6 @@ fn ensure_test_schema_contract_sql() -> &'static str {
         ALTER TABLE events ADD COLUMN IF NOT EXISTS processed_at BIGINT;
         ALTER TABLE events ADD COLUMN IF NOT EXISTS not_before BIGINT DEFAULT 0;
         ALTER TABLE events ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'persisted';
-        ALTER TABLE events ADD COLUMN IF NOT EXISTS reference_image TEXT;
         ALTER TABLE events ADD COLUMN IF NOT EXISTS origin TEXT DEFAULT 'self';
         ALTER TABLE events ADD COLUMN IF NOT EXISTS user_id TEXT;
         ALTER TABLE events ADD COLUMN IF NOT EXISTS stream_ordering BIGINT;
