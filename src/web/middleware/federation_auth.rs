@@ -3,6 +3,7 @@ use crate::common::ApiError;
 use crate::web::routes::context::{CoreContext, FederationContext};
 use crate::web::utils::encoding::decode_base64_32;
 use axum::extract::State;
+use synapse_common::current_timestamp_millis;
 use axum::http::Request;
 use axum::response::IntoResponse;
 use axum::{body::Body, middleware::Next, response::Response};
@@ -12,6 +13,32 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
+
+/// F-01: Mirror the 7-day server-key validity cap from Matrix SS API spec §1.2.
+/// We use this when deciding the cache TTL for keys fetched from peers.
+/// "Servers MUST publish a `valid_until_ts` no more than 7 days in the future."
+const MAX_SERVER_KEY_VALIDITY_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// Default TTL for caching federation verify keys (1 hour).
+const FEDERATION_KEY_CACHE_TTL_SECS: u64 = 3600;
+
+/// Effective cache TTL for a federation verify key (F-01).
+///
+/// The TTL is the minimum of:
+///   - [`FEDERATION_KEY_CACHE_TTL_SECS`] (1 hour, our refresh budget)
+///   - `valid_until_ts - now` clipped to [`MAX_SERVER_KEY_VALIDITY_SECS`] (spec §1.2)
+///
+/// When `valid_until_ts` is `None` (malformed peer response or local key
+/// without an expiry), we fall back to the default 1-hour budget so the
+/// caller still gets a finite, conservative TTL.
+fn compute_key_cache_ttl_secs(valid_until_ts: Option<i64>) -> u64 {
+    let now_ms = current_timestamp_millis();
+    let peer_secs_remaining = valid_until_ts
+        .map(|ts| ((ts - now_ms) / 1000).max(0) as u64)
+        .unwrap_or(u64::MAX);
+    let spec_capped = peer_secs_remaining.min(MAX_SERVER_KEY_VALIDITY_SECS);
+    FEDERATION_KEY_CACHE_TTL_SECS.min(spec_capped)
+}
 
 #[derive(Clone, Debug)]
 pub struct FederationRequestAuth {
@@ -412,7 +439,7 @@ async fn get_federation_verify_key(
     if origin == ctx.server_name || origin == ctx.config.federation.server_name {
         if let Some(key) = get_local_verify_key(ctx, key_id).await {
             let key_str = base64::engine::general_purpose::STANDARD_NO_PAD.encode(key);
-            let ttl = 3600u64;
+            let ttl = FEDERATION_KEY_CACHE_TTL_SECS;
             if let Err(e) = ctx.cache.set(&cache_key, &key_str, ttl).await {
                 tracing::warn!(origin = %origin, key_id = %key_id, "Failed to cache local federation verify key: {e}");
             }
@@ -420,8 +447,8 @@ async fn get_federation_verify_key(
         }
     }
 
-    let fetched = fetch_federation_verify_key(ctx, origin, key_id, key_fetch_priority).await?;
-    let ttl = 3600u64;
+    let (fetched, valid_until_ts) = fetch_federation_verify_key(ctx, origin, key_id, key_fetch_priority).await?;
+    let ttl = compute_key_cache_ttl_secs(valid_until_ts);
     if let Err(e) = ctx.cache.set(&cache_key, &fetched, ttl).await {
         tracing::warn!(origin = %origin, key_id = %key_id, "Failed to cache fetched federation verify key: {e}");
     }
@@ -503,7 +530,7 @@ async fn fetch_federation_verify_key(
     origin: &str,
     key_id: &str,
     key_fetch_priority: bool,
-) -> Result<String, ApiError> {
+) -> Result<(String, Option<i64>), ApiError> {
     let backoff_key = format!("federation:key_fetch_backoff:{origin}:{key_id}");
     if let Ok(Some(true)) = ctx.cache.get::<bool>(&backoff_key).await {
         return Err(ApiError::unauthorized("Public key not found".to_string()));
@@ -585,9 +612,9 @@ async fn fetch_federation_verify_key(
             Ok(v) => v,
             Err(_) => continue,
         };
-        if let Some(key) = extract_verify_key_from_server_keys(&json, origin, key_id) {
+        if let Some((key, valid_until_ts)) = extract_verify_key_from_server_keys(&json, origin, key_id) {
             if verify_server_keys_signature(&json, origin, key_id, &key) {
-                return Ok(key);
+                return Ok((key, valid_until_ts));
             }
             tracing::warn!("Server keys signature verification failed for {} key_id={}", origin, key_id);
         }
@@ -599,9 +626,9 @@ async fn fetch_federation_verify_key(
     Err(ApiError::unauthorized("Public key not found".to_string()))
 }
 
-fn extract_verify_key_from_server_keys(body: &Value, origin: &str, key_id: &str) -> Option<String> {
-    if let Some(key) = extract_verify_key_from_server_keys_object(body, key_id) {
-        return Some(key);
+fn extract_verify_key_from_server_keys(body: &Value, origin: &str, key_id: &str) -> Option<(String, Option<i64>)> {
+    if let Some(result) = extract_verify_key_from_server_keys_object(body, key_id) {
+        return Some(result);
     }
 
     let server_keys = body.get("server_keys")?.as_array()?;
@@ -610,22 +637,22 @@ fn extract_verify_key_from_server_keys(body: &Value, origin: &str, key_id: &str)
             continue;
         }
 
-        if let Some(key) = extract_verify_key_from_server_keys_object(entry, key_id) {
-            return Some(key);
+        if let Some(result) = extract_verify_key_from_server_keys_object(entry, key_id) {
+            return Some(result);
         }
     }
 
     None
 }
 
-fn extract_verify_key_from_server_keys_object(body: &Value, key_id: &str) -> Option<String> {
+fn extract_verify_key_from_server_keys_object(body: &Value, key_id: &str) -> Option<(String, Option<i64>)> {
     let verify_keys = body.get("verify_keys")?.as_object()?;
-    if let Some(entry) = verify_keys.get(key_id) {
-        if let Some(key) = entry.get("key").and_then(|v| v.as_str()) {
-            return Some(key.to_string());
-        }
-    }
-    None
+    let entry = verify_keys.get(key_id)?;
+    let key = entry.get("key").and_then(|v| v.as_str())?.to_string();
+    // F-01: also extract valid_until_ts so the caller can compute a TTL that
+    // respects the server-key validity window (spec §1.2, capped at 7 days).
+    let valid_until_ts = body.get("valid_until_ts").and_then(|v| v.as_i64());
+    Some((key, valid_until_ts))
 }
 
 fn verify_server_keys_signature(body: &Value, origin: &str, key_id: &str, verify_key: &str) -> bool {
@@ -730,7 +757,7 @@ mod tests {
         });
 
         let key = extract_verify_key_from_server_keys(&body, "example.org", "ed25519:abc");
-        assert_eq!(key, Some("SGVsbG9Xb3JsZA".to_string()));
+        assert_eq!(key, Some(("SGVsbG9Xb3JsZA".to_string(), None)));
     }
 
     #[test]
@@ -747,7 +774,7 @@ mod tests {
         });
 
         let key = extract_verify_key_from_server_keys(&body, "example.org", "ed25519:abc");
-        assert_eq!(key, Some("SGVsbG9Xb3JsZA".to_string()));
+        assert_eq!(key, Some(("SGVsbG9Xb3JsZA".to_string(), None)));
     }
 
     #[test]
@@ -905,5 +932,53 @@ mod tests {
 
         assert_eq!(hash.len(), 43);
         assert!(hash.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '='));
+    }
+
+    // ------------------------------------------------------------------
+    // F-01: compute_key_cache_ttl_secs MUST cap at 7 days per Matrix spec §1.2
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn compute_ttl_caps_at_7_days_when_valid_until_is_1_year() {
+        // F-01: a peer advertising valid_until_ts one year in the future
+        // must NOT cause us to cache for a full year. The spec caps server
+        // key validity at 7 days. Hard invariant: ttl ≤ 7d always.
+        let one_year_ms: i64 = 365 * 24 * 60 * 60 * 1000;
+        let ttl = compute_key_cache_ttl_secs(Some(current_timestamp_millis() + one_year_ms));
+        assert!(
+            ttl <= MAX_SERVER_KEY_VALIDITY_SECS,
+            "F-01 violation: TTL must cap at 7 days ({}) but got {}",
+            MAX_SERVER_KEY_VALIDITY_SECS, ttl
+        );
+        // Current default (1h) is tighter than the 7d cap, so the 1h wins.
+        assert_eq!(ttl, FEDERATION_KEY_CACHE_TTL_SECS, "current default 1h is the tightest bound for 1y peer validity");
+    }
+
+    #[test]
+    fn compute_ttl_uses_min_of_default_and_peer_validity() {
+        // Peer validity between 1h and 7d → TTL = FEDERATION_KEY_CACHE_TTL_SECS (1h)
+        let five_hours_ms: i64 = 5 * 60 * 60 * 1000;
+        let ttl = compute_key_cache_ttl_secs(Some(current_timestamp_millis() + five_hours_ms));
+        assert_eq!(ttl, FEDERATION_KEY_CACHE_TTL_SECS, "1h default must cap mid-range peer TTL");
+
+        // Peer validity < 1h → TTL = peer remaining validity
+        let five_minutes_ms: i64 = 5 * 60 * 1000;
+        let ttl_short = compute_key_cache_ttl_secs(Some(current_timestamp_millis() + five_minutes_ms));
+        assert_eq!(ttl_short, 5 * 60, "short peer validity must win");
+    }
+
+    #[test]
+    fn compute_ttl_falls_back_to_default_when_valid_until_is_none() {
+        // Malformed / missing valid_until_ts → use default 1h
+        let ttl = compute_key_cache_ttl_secs(None);
+        assert_eq!(ttl, FEDERATION_KEY_CACHE_TTL_SECS, "None valid_until_ts must use default TTL");
+    }
+
+    #[test]
+    fn compute_ttl_zero_when_valid_until_is_in_past() {
+        // Defensive: already-expired keys must yield TTL=0 so the caller
+        // re-fetches immediately rather than serving a stale key.
+        let ttl = compute_key_cache_ttl_secs(Some(current_timestamp_millis() - 60_000));
+        assert_eq!(ttl, 0, "expired valid_until_ts must yield TTL=0");
     }
 }
