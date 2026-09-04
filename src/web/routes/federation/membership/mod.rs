@@ -174,6 +174,75 @@ pub(crate) async fn get_effective_room_join_rule(ctx: &FederationContext, room_i
 }
 
 // ---------------------------------------------------------------------------
+// F-03: Local re-sign helper for federation-derived events
+// ---------------------------------------------------------------------------
+//
+// Used by `invite`, `join`, and `leave` route handlers after `create_event`
+// to add the local server's ed25519 signature to the persisted PDU.
+// Without this, third-party origins in `verify_pdu_sender_signature` would
+// reject the event because only the remote sender's signature is present.
+
+/// Sign the given PDU JSON with the local server's current signing key and
+/// persist `signatures` + `hashes` back into the events row.
+///
+/// Best-effort: on any failure logs a warning rather than failing the inbound
+/// federation request. The event is already accepted (invite/join/leave);
+/// re-signing is a downstream concern.
+pub(crate) async fn re_sign_pdu_locally(
+    ctx: &FederationContext,
+    event_id: &str,
+    pdu: &mut Value,
+) {
+    let local_server = &ctx.server_name;
+    let key = match ctx.key_rotation_manager.get_current_key().await {
+        Ok(Some(k)) => k,
+        Ok(None) => {
+            ::tracing::warn!(
+                event_id = %event_id,
+                server_name = %local_server,
+                "F-03: no signing key available — federation event will lack local signature"
+            );
+            return;
+        }
+        Err(e) => {
+            ::tracing::warn!(
+                event_id = %event_id,
+                server_name = %local_server,
+                error = %e,
+                "F-03: failed to fetch signing key — federation event will lack local signature"
+            );
+            return;
+        }
+    };
+
+    if let Err(e) = synapse_federation::signing::sign_and_hash_event(local_server, &key.key_id, &key.secret_key, pdu) {
+        ::tracing::warn!(
+            event_id = %event_id,
+            server_name = %local_server,
+            error = %e,
+            "F-03: sign_and_hash_event failed — federation event will lack local signature"
+        );
+        return;
+    }
+
+    let signatures = pdu.get("signatures").cloned().unwrap_or(Value::Null);
+    let hashes = pdu.get("hashes").cloned().unwrap_or(Value::Null);
+    if let Err(e) = ctx
+        .room_service
+        .messaging()
+        .update_event_signatures_and_hashes(event_id, &signatures, &hashes)
+        .await
+    {
+        ::tracing::warn!(
+            event_id = %event_id,
+            server_name = %local_server,
+            error = %e,
+            "F-03: failed to persist local signatures/hashes — event will be missing signatures in subsequent federation"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Router assembly
 // ---------------------------------------------------------------------------
 

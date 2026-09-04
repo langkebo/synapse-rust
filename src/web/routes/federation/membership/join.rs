@@ -10,8 +10,8 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
 use super::{
-    dispatch_federation_member_event_to_appservice, federatable_room_version, validate_federation_member_event,
-    validate_federation_user_origin,
+    dispatch_federation_member_event_to_appservice, federatable_room_version, re_sign_pdu_locally,
+    validate_federation_member_event, validate_federation_user_origin,
 };
 
 /// Build a join event template (pure, testable).
@@ -146,6 +146,20 @@ pub(crate) async fn send_join(
             .create_event(params, None)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to persist join event", &e))?;
+
+        // F-03: Add the local server's signature to the persisted join PDU so
+        // that third-party origins can verify it via verify_pdu_sender_signature.
+        let mut pdu = json!({
+            "event_id": event_id,
+            "room_id": room_id,
+            "sender": user_id,
+            "type": "m.room.member",
+            "state_key": user_id,
+            "origin_server_ts": body.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
+            "content": content,
+        });
+        re_sign_pdu_locally(&ctx, &event_id, &mut pdu).await;
+
         dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, user_id, &content, Some(user_id))
             .await;
 
@@ -245,6 +259,19 @@ pub(crate) async fn send_join_v2(
             .create_event(params, None)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to persist join event", &e))?;
+
+        // F-03: re-sign locally for third-party verification.
+        let mut pdu = json!({
+            "event_id": event_id,
+            "room_id": room_id,
+            "sender": sender,
+            "type": "m.room.member",
+            "state_key": sender,
+            "origin_server_ts": body.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis),
+            "content": content,
+        });
+        re_sign_pdu_locally(&ctx, &event_id, &mut pdu).await;
+
         dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, sender, &content, Some(sender)).await;
 
         ctx.room_service
