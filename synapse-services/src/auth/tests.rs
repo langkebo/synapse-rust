@@ -1021,11 +1021,7 @@ async fn test_login_rejects_overlong_device_display_name() {
 
     // initial_display_name > 100 字符必须 400 拒绝（拒绝 PII / 恶意长字符串）。
     let long_name = "x".repeat(101);
-    let err = h
-        .service
-        .login("@alice:test", password, None, Some(&long_name))
-        .await
-        .unwrap_err();
+    let err = h.service.login("@alice:test", password, None, Some(&long_name)).await.unwrap_err();
     assert_eq!(err.kind, synapse_common::ApiErrorKind::BadRequest, "overlong display name must be 400");
 }
 
@@ -1066,6 +1062,9 @@ async fn test_login_recovers_from_expired_account_lockout() {
     let _ = h.cache.set(&key, &expired_ts.to_string(), 600).await;
 
     // 登录应该成功：过期的 lockout 被清理（行 131-132），不阻断合法用户。
-    let (_user, _access, _refresh, _device) =
-        h.service.login("@alice:test", password, None, None).await.expect("expired lockout should not block valid login");
+    let (_user, _access, _refresh, _device) = h
+        .service
+        .login("@alice:test", password, None, None)
+        .await
+        .expect("expired lockout should not block valid login");
 }

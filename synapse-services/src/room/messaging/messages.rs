@@ -522,7 +522,9 @@ mod tests {
     #[tokio::test]
     async fn send_message_with_txn_rejects_non_member() {
         let svc = make_service().await;
-        let result = svc.send_message_with_txn("!room:ex.com", "@alice:ex.com", "m.room.message", &json!({"body": "hi"}), "txn1").await;
+        let result = svc
+            .send_message_with_txn("!room:ex.com", "@alice:ex.com", "m.room.message", &json!({"body": "hi"}), "txn1")
+            .await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().to_lowercase().contains("not a member"), "expected forbidden error, got: {err}");
@@ -556,7 +558,8 @@ mod tests {
     #[tokio::test]
     async fn set_typing_ephemeral_event_succeeds() {
         let svc = make_service().await;
-        let result = svc.set_typing_ephemeral_event("!room:ex.com", "@alice:ex.com", &["@alice:ex.com".to_string()], 5000).await;
+        let result =
+            svc.set_typing_ephemeral_event("!room:ex.com", "@alice:ex.com", &["@alice:ex.com".to_string()], 5000).await;
         assert!(result.is_ok(), "set_typing should not fail: {:?}", result);
     }
 

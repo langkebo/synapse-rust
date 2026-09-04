@@ -480,11 +480,7 @@ mod tests {
 
         for ct in &types {
             let result = scanner
-                .scan(ScanRequest {
-                    content_id: format!("id-{:?}", ct),
-                    content_type: *ct,
-                    data: vec![1, 2, 3],
-                })
+                .scan(ScanRequest { content_id: format!("id-{:?}", ct), content_type: *ct, data: vec![1, 2, 3] })
                 .await
                 .expect("scan should not fail");
             assert!(result.safe, "all content types should be safe when scanner is disabled: {:?}", ct);

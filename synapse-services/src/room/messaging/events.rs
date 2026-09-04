@@ -580,7 +580,13 @@ mod tests {
         })
     }
 
-    fn make_event(event_id: &str, room_id: &str, user_id: &str, event_type: &str, content: serde_json::Value) -> RoomEvent {
+    fn make_event(
+        event_id: &str,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+        content: serde_json::Value,
+    ) -> RoomEvent {
         RoomEvent {
             event_id: event_id.to_string(),
             room_id: room_id.to_string(),
@@ -613,7 +619,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_event_record_returns_some_when_event_exists() {
-        let event = make_event("$e1:ex.com", "!room:ex.com", "@alice:ex.com", "m.room.message", json!({"body": "hello"}));
+        let event =
+            make_event("$e1:ex.com", "!room:ex.com", "@alice:ex.com", "m.room.message", json!({"body": "hello"}));
         let svc = make_service_with_events(vec![event]).await;
         let result = svc.get_event_record("$e1:ex.com").await.unwrap();
         assert!(result.is_some());
@@ -641,7 +648,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_event_record_in_room_returns_event_when_room_matches() {
-        let event = make_event("$e3:ex.com", "!room:ex.com", "@alice:ex.com", "m.room.message", json!({"body": "hello"}));
+        let event =
+            make_event("$e3:ex.com", "!room:ex.com", "@alice:ex.com", "m.room.message", json!({"body": "hello"}));
         let svc = make_service_with_events(vec![event]).await;
         let result = svc.get_event_record_in_room("!room:ex.com", "$e3:ex.com").await;
         assert!(result.is_ok());
@@ -789,7 +797,8 @@ mod tests {
 
     #[tokio::test]
     async fn redact_event_content_succeeds_when_event_exists() {
-        let event = make_event("$e6:ex.com", "!room:ex.com", "@alice:ex.com", "m.room.message", json!({"body": "hello"}));
+        let event =
+            make_event("$e6:ex.com", "!room:ex.com", "@alice:ex.com", "m.room.message", json!({"body": "hello"}));
         let svc = make_service_with_events(vec![event]).await;
         // Should not panic — redact succeeds even with no-op mock.
         svc.redact_event_content("$e6:ex.com", Some("$admin:ex.com")).await.unwrap();

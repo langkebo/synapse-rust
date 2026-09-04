@@ -442,11 +442,7 @@ mod tests {
         // InMemoryEventStore::update_event_signatures_and_hashes is a no-op,
         // so this must succeed without panic.
         writer
-            .update_event_signatures_and_hashes(
-                "$event:example.com",
-                &serde_json::json!({}),
-                &serde_json::json!({}),
-            )
+            .update_event_signatures_and_hashes("$event:example.com", &serde_json::json!({}), &serde_json::json!({}))
             .await
             .unwrap();
     }
@@ -457,10 +453,7 @@ mod tests {
     async fn report_event_is_passed_to_inner() {
         let (writer, _notifier) = build();
 
-        writer
-            .report_event("$event:example.com", ROOM, "@bad:example.com", SENDER, Some("spam"), -100)
-            .await
-            .unwrap();
+        writer.report_event("$event:example.com", ROOM, "@bad:example.com", SENDER, Some("spam"), -100).await.unwrap();
     }
 
     /// `record_event_txn` deduplicates /records a sent-txn-id → event-id mapping.
@@ -469,10 +462,7 @@ mod tests {
     async fn record_event_txn_is_passed_to_inner() {
         let (writer, _notifier) = build();
 
-        writer
-            .record_event_txn(SENDER, ROOM, "txn-abc123", "$event:example.com")
-            .await
-            .unwrap();
+        writer.record_event_txn(SENDER, ROOM, "txn-abc123", "$event:example.com").await.unwrap();
     }
 
     /// `delete_event_by_id` is a hard-delete path; no notification expected.

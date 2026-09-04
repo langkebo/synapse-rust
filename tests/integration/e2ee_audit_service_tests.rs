@@ -132,18 +132,13 @@ async fn audit_service_get_key_history_paginated_walks_pages() {
     assert_eq!(page1.len(), 2);
 
     let last = page1.last().expect("non-empty page1");
-    let page2 = svc
-        .get_key_history_paginated(&user_id, 2, Some(last.created_ts), Some(last.id))
-        .await
-        .expect("page2");
+    let page2 = svc.get_key_history_paginated(&user_id, 2, Some(last.created_ts), Some(last.id)).await.expect("page2");
     assert_eq!(page2.len(), 2);
     assert_ne!(page1[0].id, page2[0].id, "pages must not overlap");
 
     let last2 = page2.last().expect("non-empty page2");
-    let page3 = svc
-        .get_key_history_paginated(&user_id, 2, Some(last2.created_ts), Some(last2.id))
-        .await
-        .expect("page3");
+    let page3 =
+        svc.get_key_history_paginated(&user_id, 2, Some(last2.created_ts), Some(last2.id)).await.expect("page3");
     assert_eq!(page3.len(), 1, "page 3 should have the remaining 1 entry");
 }
 
@@ -270,10 +265,7 @@ async fn cross_signing_verify_user_devices_unverified_when_no_cross_signing_key(
     let user_id = unique_user_id("nodevices");
     let device_storage = DeviceStorage::new(&pool);
     ensure_user_row(&pool, &user_id).await;
-    device_storage
-        .create_device("UNVERIFIED_DEV", &user_id, Some("My Phone"))
-        .await
-        .expect("create device");
+    device_storage.create_device("UNVERIFIED_DEV", &user_id, Some("My Phone")).await.expect("create device");
 
     let report = svc.verify_user_devices(&user_id).await.expect("verify_user_devices");
 
@@ -307,10 +299,7 @@ async fn cross_signing_verify_user_devices_marks_verified_when_signature_present
     let device_id = "SIGNED_DEV";
     let device_storage = DeviceStorage::new(&pool);
     ensure_user_row(&pool, &user_id).await;
-    device_storage
-        .create_device(device_id, &user_id, Some("Signed Device"))
-        .await
-        .expect("create device");
+    device_storage.create_device(device_id, &user_id, Some("Signed Device")).await.expect("create device");
 
     let now = current_timestamp_millis();
     sqlx::query(
@@ -427,14 +416,9 @@ async fn cross_signing_mark_device_verified_writes_audit_log_and_trust_row() {
     let user_id = unique_user_id("markver");
     let device_storage = DeviceStorage::new(&pool);
     ensure_user_row(&pool, &user_id).await;
-    device_storage
-        .create_device("TO_VERIFY", &user_id, Some("To Be Verified"))
-        .await
-        .expect("create device");
+    device_storage.create_device("TO_VERIFY", &user_id, Some("To Be Verified")).await.expect("create device");
 
-    svc.mark_device_verified(&user_id, "TO_VERIFY", "qr_code_scan")
-        .await
-        .expect("mark_device_verified");
+    svc.mark_device_verified(&user_id, "TO_VERIFY", "qr_code_scan").await.expect("mark_device_verified");
 
     // Verify trust row was written.
     let trust_count: i64 = sqlx::query_scalar(
@@ -466,14 +450,9 @@ async fn cross_signing_mark_device_unverified_writes_audit_log_and_trust_row() {
     let user_id = unique_user_id("markunver");
     let device_storage = DeviceStorage::new(&pool);
     ensure_user_row(&pool, &user_id).await;
-    device_storage
-        .create_device("TO_UNVERIFY", &user_id, Some("To Be Unverified"))
-        .await
-        .expect("create device");
+    device_storage.create_device("TO_UNVERIFY", &user_id, Some("To Be Unverified")).await.expect("create device");
 
-    svc.mark_device_unverified(&user_id, "TO_UNVERIFY", "user_revoked")
-        .await
-        .expect("mark_device_unverified");
+    svc.mark_device_unverified(&user_id, "TO_UNVERIFY", "user_revoked").await.expect("mark_device_unverified");
 
     let trust_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM device_trust_status WHERE user_id = $1 AND device_id = $2 AND trust_level = 'unverified'",
@@ -503,27 +482,19 @@ async fn cross_signing_mark_verified_then_unverified_updates_trust_level() {
     let user_id = unique_user_id("transition");
     let device_storage = DeviceStorage::new(&pool);
     ensure_user_row(&pool, &user_id).await;
-    device_storage
-        .create_device("TRANSITION_DEV", &user_id, Some("Transition Device"))
-        .await
-        .expect("create device");
+    device_storage.create_device("TRANSITION_DEV", &user_id, Some("Transition Device")).await.expect("create device");
 
-    svc.mark_device_verified(&user_id, "TRANSITION_DEV", "emoji_verify")
-        .await
-        .expect("first verify");
-    svc.mark_device_unverified(&user_id, "TRANSITION_DEV", "key_reset")
-        .await
-        .expect("then unverify");
+    svc.mark_device_verified(&user_id, "TRANSITION_DEV", "emoji_verify").await.expect("first verify");
+    svc.mark_device_unverified(&user_id, "TRANSITION_DEV", "key_reset").await.expect("then unverify");
 
     // Latest trust_level must be 'unverified'.
-    let trust_level: String = sqlx::query_scalar(
-        "SELECT trust_level FROM device_trust_status WHERE user_id = $1 AND device_id = $2",
-    )
-    .bind(&user_id)
-    .bind("TRANSITION_DEV")
-    .fetch_one(&*pool)
-    .await
-    .expect("query trust level");
+    let trust_level: String =
+        sqlx::query_scalar("SELECT trust_level FROM device_trust_status WHERE user_id = $1 AND device_id = $2")
+            .bind(&user_id)
+            .bind("TRANSITION_DEV")
+            .fetch_one(&*pool)
+            .await
+            .expect("query trust level");
     assert_eq!(trust_level, "unverified", "trust level must reflect latest action");
 
     // Both audit events should be present in the log.

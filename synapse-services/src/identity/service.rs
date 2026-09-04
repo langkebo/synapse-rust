@@ -443,11 +443,7 @@ mod tests {
     async fn validate_id_server_trusted_list_rejects_non_member() {
         let svc = make_service(vec!["id.example.com".to_string()]);
         let err = svc.validate_id_server("id.attacker.org").unwrap_err();
-        assert!(
-            err.message.contains("not in the trusted servers list"),
-            "msg: {}",
-            err.message
-        );
+        assert!(err.message.contains("not in the trusted servers list"), "msg: {}", err.message);
     }
 
     #[tokio::test]
