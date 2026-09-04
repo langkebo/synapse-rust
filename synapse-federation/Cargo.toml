@@ -45,6 +45,8 @@ uuid = { workspace = true, features = ["v4", "serde"] }
 moka = { workspace = true, features = ["future", "sync"] }
 parking_lot = { workspace = true }
 
+futures = { workspace = true }
+
 tracing = { workspace = true, features = ["attributes"] }
 
 [dev-dependencies]

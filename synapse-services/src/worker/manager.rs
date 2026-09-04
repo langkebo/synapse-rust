@@ -146,6 +146,9 @@ impl WorkerManager {
         self
     }
 
+    // TODO(v2): wire up in admin.rs — connect() is never called in production,
+    // WorkerManager.bus is always None, so broadcast_command in register() is
+    // a dead branch. Multi-instance cluster replication is not wired yet.
     pub fn enable_bus(&mut self, config: RedisBusConfig, instance_name: String) {
         self.bus = Some(Arc::new(WorkerBus::new(config, self.server_name.clone(), instance_name)));
     }

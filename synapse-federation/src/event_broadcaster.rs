@@ -1,12 +1,14 @@
 use crate::client::FederationTransaction;
 use crate::client_api::FederationClientApi;
+use futures::FutureExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_storage::membership::MemberStoreApi;
 use tokio::sync::{mpsc, RwLock};
-use tracing::info_span;
+use tracing::{info_span, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FederationEvent {
@@ -175,17 +177,37 @@ impl EventBroadcaster {
                                     destination = %dest,
                                 );
                                 tokio::spawn(async move {
-                                    let _enter = span.enter();
-                                    let mut local_batches: HashMap<String, TransactionBatch> = HashMap::new();
-                                    local_batches.insert(dest.clone(), batch);
-                                    send_batch(
-                                        &c,
-                                        &retry_q,
-                                        &pool,
-                                        &backoff_list,
-                                        &local_batches,
-                                        &dest,
-                                    ).await;
+                                    // W-06: catch_unwind ensures panics in the
+                                    // per-destination send_batch task are logged
+                                    // instead of silently swallowed when the
+                                    // JoinHandle is dropped. The federation
+                                    // send_batch body holds &c / &retry_q / &pool
+                                    // / &backoff_list — all safe across unwind
+                                    // boundaries, hence AssertUnwindSafe.
+                                    let dest_for_panic = dest.clone();
+                                    let result = AssertUnwindSafe(async move {
+                                        let _enter = span.enter();
+                                        let mut local_batches: HashMap<String, TransactionBatch> = HashMap::new();
+                                        local_batches.insert(dest.clone(), batch);
+                                        send_batch(
+                                            &c,
+                                            &retry_q,
+                                            &pool,
+                                            &backoff_list,
+                                            &local_batches,
+                                            &dest,
+                                        ).await;
+                                    })
+                                    .catch_unwind()
+                                    .await;
+
+                                    if let Err(panic_payload) = result {
+                                        warn!(
+                                            panic = ?panic_payload,
+                                            destination = %dest_for_panic,
+                                            "W-06: EventBroadcaster.send_batch_fire_and_forget task panicked — panic was caught and logged"
+                                        );
+                                    }
                                 });
                             }
                         }

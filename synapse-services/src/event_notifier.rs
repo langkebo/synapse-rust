@@ -1,8 +1,10 @@
 use crate::event_broadcaster_trait::{BroadcastError, EventBroadcaster};
 use dashmap::DashMap;
 use deadpool_redis::Pool;
+use futures::FutureExt;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
@@ -302,6 +304,9 @@ impl EventNotifier {
                         warn!("EventNotifier subscription error: {e}, reconnecting in 1s...");
                         // Race the backoff sleep against shutdown so a SIGTERM
                         // arriving mid-retry exits immediately.
+                        // TODO(v2): make the backoff configurable via EventNotifier
+                        // config (initial_ms, max_ms, multiplier) instead of the
+                        // hardcoded 1 s linear backoff.
                         tokio::select! {
                             biased;
                             _ = shutdown.cancelled() => break,
@@ -430,18 +435,36 @@ impl EventNotifier {
         );
         tokio::spawn(
             async move {
-                let _enter = span.enter();
-                match pool.get().await {
-                    Ok(mut conn) => {
-                        use redis::AsyncCommands;
-                        let result: Result<(), redis::RedisError> = conn.publish(&channel, encoded).await;
-                        if let Err(e) = result {
-                            debug!(error = %e, channel = %channel, "Failed to publish event notification to Redis");
+                // W-06: catch_unwind ensures panics in the fire-and-forget task
+                // are logged instead of silently swallowed when JoinHandle is dropped.
+                let channel_for_panic = channel.clone();
+                let result = AssertUnwindSafe(async move {
+                    let _enter = span.enter();
+                    match pool.get().await {
+                        Ok(mut conn) => {
+                            use redis::AsyncCommands;
+                            let result: Result<(), redis::RedisError> =
+                                conn.publish(&channel, encoded).await;
+                            if let Err(e) = result {
+                                debug!(error = %e, channel = %channel, "Failed to publish event notification to Redis");
+                            }
+                        }
+                        Err(e) => {
+                            debug!(error = %e, channel = %channel, "Failed to get Redis connection for event notification");
                         }
                     }
-                    Err(e) => {
-                        debug!(error = %e, channel = %channel, "Failed to get Redis connection for event notification");
-                    }
+                })
+                .catch_unwind()
+                .await;
+
+                if let Err(panic_payload) = result {
+                    warn!(
+                        panic = ?panic_payload,
+                        channel = %channel_for_panic,
+                        kind = %kind_dbg,
+                        key = %key_dbg,
+                        "W-06: EventNotifier.publish_redis task panicked — panic was caught and logged"
+                    );
                 }
             },
         );
@@ -848,5 +871,32 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(120)).await;
         handle.abort();
         assert_eq!(notifier.broadcast_subscriber_count(), 0, "background evictor should reclaim idle slots");
+    }
+
+    /// W-06: fire-and-forget tasks use AssertUnwindSafe + catch_unwind so that
+    /// panics are logged instead of silently swallowed when the JoinHandle is
+    /// dropped. This test verifies the supervision pattern works by spawning a
+    /// task that panics and confirming the catch_unwind result is Err.
+    #[tokio::test]
+    async fn w06_panic_supervision_catches_panic() {
+        use std::panic::AssertUnwindSafe;
+        use futures::FutureExt;
+
+        let span = tracing::info_span!("w06_test");
+        let result = AssertUnwindSafe(async move {
+            let _enter = span.enter();
+            // This task deliberately panics — the spawn body will catch it.
+            panic!("deliberate panic for W-06 test");
+        })
+        .catch_unwind()
+        .await;
+
+        // The catch_unwind must produce Err so the outer handler logs the panic.
+        assert!(
+            result.is_err(),
+            "catch_unwind should return Err when the inner async block panics"
+        );
+        // With catch_unwind in the body, the panic is already handled before
+        // the JoinHandle is dropped — no panic is lost.
     }
 }

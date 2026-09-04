@@ -80,6 +80,7 @@ impl ExtensionServices {
             media_service,
             media_domain_service,
             ui_auth_session_timeout,
+            #[allow(unused_variables)]
             user_service,
         } = deps;
 

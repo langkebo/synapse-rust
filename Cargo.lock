@@ -4863,6 +4863,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "ed25519-dalek",
+ "futures",
  "moka",
  "parking_lot",
  "rand 0.9.5",

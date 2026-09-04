@@ -1,6 +1,8 @@
 use crate::worker::protocol::ReplicationCommand;
+use futures::FutureExt;
 use redis::Client;
 use serde::{Deserialize, Serialize};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
@@ -390,7 +392,16 @@ impl WorkerBus {
             );
             tokio::spawn(
                 async move {
-                    let _enter = span.enter();
+                    // W-06: catch_unwind ensures panics in the fire-and-forget
+                    // task are logged instead of silently swallowed when the
+                    // JoinHandle is dropped. The retry-with-DLQ body is wrapped
+                    // in AssertUnwindSafe because the inner closure captures
+                    // &pool, &full_channel, &encoded — all safe to access
+                    // across unwind boundaries.
+                    let full_channel_for_panic = full_channel.clone();
+                    let encoded_for_panic = encoded.clone();
+                    let body = AssertUnwindSafe(async move {
+                        let _enter = span.enter();
                     // WORK-05: 跨实例消息静默丢弃会表现为「另一台实例收不到事件」
                 // 的诡异故障。先按指数退避重试（100ms → 200ms → 400ms），
                 // 全部失败后存入内存 DLQ 环形缓冲，不再静默丢弃。
@@ -415,7 +426,11 @@ impl WorkerBus {
                             );
                             last_err = Some(e);
                             if attempt < MAX_ATTEMPTS {
-                                tokio::time::sleep(std::time::Duration::from_millis(100 * (1 << (attempt - 1)))).await;
+                                                    // TODO(v2): extract to RedisBusConfig as `backoff_ms: Vec<u64>`
+                    // to make initial-delay and max-attempts configurable without
+                    // code changes. The hardcoded exponential back-off
+                    // (100ms → 200ms → 400ms) is adequate for now.
+                    tokio::time::sleep(std::time::Duration::from_millis(100 * (1 << (attempt - 1)))).await;
                             }
                         }
                     }
@@ -441,6 +456,18 @@ impl WorkerBus {
                     attempts = MAX_ATTEMPTS,
                     "WORK-05: Failed to publish to Redis after retries — message stored in DLQ for replay"
                 );
+                    })
+                    .catch_unwind()
+                    .await;
+
+                    if let Err(panic_payload) = body {
+                        warn!(
+                            panic = ?panic_payload,
+                            channel = %full_channel_for_panic,
+                            payload_bytes = encoded_for_panic.len(),
+                            "W-06: WorkerBus.redis_publish_fire_and_forget task panicked — panic was caught and logged"
+                        );
+                    }
             }, );
         }
 
