@@ -6,6 +6,7 @@ use axum::middleware::Next;
 use axum::response::IntoResponse;
 use axum::response::Response;
 use std::time::Instant;
+use tracing::Instrument;
 
 pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
     let start = Instant::now();
@@ -27,7 +28,9 @@ pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::
     // are stripped by recording path-only. If query-level diagnostics are needed,
     // enable them explicitly at TRACE level with a redaction filter.
     let log_path = uri.path();
+    let log_request_id = resolve_request_id(&headers);
     tracing::info!(
+        request_id = %log_request_id,
         "Request: {} {} {} {} {:?} {}ms",
         if authenticated { "authenticated" } else { "anonymous" },
         method,
@@ -190,7 +193,12 @@ pub async fn request_id_middleware(mut request: Request<Body>, next: Next) -> Re
         request.headers_mut().insert("x-request-id", v);
     }
 
-    let mut response = next.run(request).await;
+    // D1 (P0, OBS-D1): Create a root span with request_id as a field.
+    // RequestIdPropagationLayer reads this field in on_new_span and stores it
+    // in the span's extensions for propagation to all children.
+    let span = tracing::info_span!("http_request", request_id = %request_id);
+
+    let mut response = next.run(request).instrument(span).await;
 
     if let Ok(v) = HeaderValue::from_str(&request_id) {
         response.headers_mut().insert("x-request-id", v);
