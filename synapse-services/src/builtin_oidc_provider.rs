@@ -242,12 +242,12 @@ impl BuiltinOidcProvider {
         // Derive x/y for JWK and DecodingKey::from_ec_components
         let ec_pub: P256PublicKey = ec_signing_key.public_key();
         let ec_affine_point = ec_pub.to_sec1_point(false);
-        let x_bytes = ec_affine_point.x().ok_or_else(|| {
-            ApiError::internal_with_context("OIDC EC point", &"P-256 affine x coordinate missing")
-        })?;
-        let y_bytes = ec_affine_point.y().ok_or_else(|| {
-            ApiError::internal_with_context("OIDC EC point", &"P-256 affine y coordinate missing")
-        })?;
+        let x_bytes = ec_affine_point
+            .x()
+            .ok_or_else(|| ApiError::internal_with_context("OIDC EC point", &"P-256 affine x coordinate missing"))?;
+        let y_bytes = ec_affine_point
+            .y()
+            .ok_or_else(|| ApiError::internal_with_context("OIDC EC point", &"P-256 affine y coordinate missing"))?;
         let x_b64 = URL_SAFE_NO_PAD.encode(x_bytes);
         let y_b64 = URL_SAFE_NO_PAD.encode(y_bytes);
         let ec_decoding_key = DecodingKey::from_ec_components(&x_b64, &y_b64)
@@ -323,8 +323,8 @@ impl BuiltinOidcProvider {
     fn load_or_generate_ec_key(path: Option<&Path>) -> Result<SecretKey, ApiError> {
         if let Some(p) = path {
             if p.exists() {
-                let pem = std::fs::read_to_string(p)
-                    .map_err(|e| ApiError::internal_with_context("OIDC EC key read", &e))?;
+                let pem =
+                    std::fs::read_to_string(p).map_err(|e| ApiError::internal_with_context("OIDC EC key read", &e))?;
                 return SecretKey::from_pkcs8_pem(&pem)
                     .map_err(|e| ApiError::internal_with_context("OIDC EC key parse", &e));
             }
@@ -381,12 +381,8 @@ impl BuiltinOidcProvider {
         // EC P-256 ES256 entry
         let ec_pub: P256PublicKey = self.ec_signing_key.public_key();
         let ec_affine_point = ec_pub.to_sec1_point(false);
-        let x_bytes = ec_affine_point
-        .x()
-        .ok_or_else(|| ApiError::internal("P-256 affine x coordinate missing"))?;
-        let y_bytes = ec_affine_point
-        .y()
-        .ok_or_else(|| ApiError::internal("P-256 affine y coordinate missing"))?;
+        let x_bytes = ec_affine_point.x().ok_or_else(|| ApiError::internal("P-256 affine x coordinate missing"))?;
+        let y_bytes = ec_affine_point.y().ok_or_else(|| ApiError::internal("P-256 affine y coordinate missing"))?;
         let x = URL_SAFE_NO_PAD.encode(x_bytes);
         let y = URL_SAFE_NO_PAD.encode(y_bytes);
 
@@ -773,8 +769,9 @@ impl BuiltinOidcProvider {
     /// 从 JWT header 解析 `alg` 字段。
     fn peek_jwt_algorithm(token: &str) -> Result<Algorithm, ApiError> {
         let header_b64 = token.split('.').next().unwrap_or("");
-        let header_bytes =
-            URL_SAFE_NO_PAD.decode(header_b64).map_err(|e| ApiError::unauthorized(format!("Invalid JWT header: {e}")))?;
+        let header_bytes = URL_SAFE_NO_PAD
+            .decode(header_b64)
+            .map_err(|e| ApiError::unauthorized(format!("Invalid JWT header: {e}")))?;
         let header: serde_json::Value = serde_json::from_slice(&header_bytes)
             .map_err(|e| ApiError::unauthorized(format!("Invalid JWT header JSON: {e}")))?;
         let alg_str = header.get("alg").and_then(|v| v.as_str()).unwrap_or("");
@@ -1168,10 +1165,7 @@ mod tests {
 
         let provider = create_provider();
         // Encode a JWT manually using the provider's EC private key (via PEM form).
-        let ec_pem = provider
-            .ec_signing_key
-            .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
-            .expect("EC PEM serialize");
+        let ec_pem = provider.ec_signing_key.to_pkcs8_pem(rsa::pkcs8::LineEnding::LF).expect("EC PEM serialize");
         let ec_encoding = EncodingKey::from_ec_pem(ec_pem.as_bytes()).expect("EC encoding key");
 
         let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("clock").as_secs() as i64;
@@ -1221,10 +1215,7 @@ mod tests {
         use p256::pkcs8::DecodePrivateKey;
 
         let provider = create_provider();
-        let pem = provider
-            .ec_signing_key
-            .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
-            .expect("EC PEM serialize");
+        let pem = provider.ec_signing_key.to_pkcs8_pem(rsa::pkcs8::LineEnding::LF).expect("EC PEM serialize");
 
         let reloaded = SecretKey::from_pkcs8_pem(&pem).expect("EC PEM reload");
         let original_pub = provider.ec_signing_key.public_key();
