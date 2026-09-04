@@ -177,18 +177,21 @@ pub(super) async fn send_transaction(
 
     let mut results = Vec::new();
 
-    const MAX_PDUS_PER_TRANSACTION: usize = 100;
-    if pdus.len() > MAX_PDUS_PER_TRANSACTION {
+    // F-02: PDU count cap is now a config-driven value (default 50, Matrix
+    // spec §4.1). Hard-coded 100 was generous but could be exploited for
+    // CPU exhaustion on large txns — now bounded by configuration.
+    let max_pdus = ctx.config.federation.inbound_max_pdus_per_txn.max(1);
+    if pdus.len() > max_pdus {
         ::tracing::warn!(
             target: "security_audit",
             event = "federation_pdu_count_exceeded",
             origin = origin,
             pdu_count = pdus.len(),
-            max = MAX_PDUS_PER_TRANSACTION,
+            max = max_pdus,
             "Transaction contains too many PDUs - truncating"
         );
     }
-    let pdus_to_process = &pdus[..pdus.len().min(MAX_PDUS_PER_TRANSACTION)];
+    let pdus_to_process = &pdus[..pdus.len().min(max_pdus)];
 
     for pdu in pdus_to_process {
         let event_id = pdu

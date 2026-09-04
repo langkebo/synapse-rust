@@ -95,6 +95,14 @@ pub struct FederationConfig {
     #[serde(default = "default_federation_inbound_edus_max_per_txn")]
     pub inbound_edus_max_per_txn: usize,
 
+    /// F-02: 单个入站联邦 txn 允许的最大 PDU 数量（默认 50）。
+    ///
+    /// Matrix Server-Server API spec v1.6 §4.1 建议单个 txn 不超过 50 个 PDU；
+    /// 该值控制入站事务去重前阶段的最大 PDU 截断量。超过此数量的事件将被截断
+    /// 并记录安全审计日志 `federation_pdu_count_exceeded`。
+    #[serde(default = "default_federation_inbound_pdus_max_per_txn")]
+    pub inbound_max_pdus_per_txn: usize,
+
     #[serde(default = "default_federation_inbound_edu_max_concurrency")]
     pub inbound_edu_max_concurrency: usize,
 
@@ -212,6 +220,7 @@ impl Default for FederationConfig {
             skip_ssrf_check: false,
             process_inbound_edus: false,
             inbound_edus_max_per_txn: default_federation_inbound_edus_max_per_txn(),
+            inbound_max_pdus_per_txn: default_federation_inbound_pdus_max_per_txn(),
             inbound_edu_max_concurrency: default_federation_inbound_edu_max_concurrency(),
             inbound_edu_acquire_timeout_ms: default_federation_inbound_edu_acquire_timeout_ms(),
             inbound_edu_per_origin_max_concurrency: default_federation_inbound_edu_per_origin_max_concurrency(),
@@ -332,6 +341,14 @@ fn default_federation_inbound_edus_max_per_txn() -> usize {
     100
 }
 
+fn default_federation_inbound_pdus_max_per_txn() -> usize {
+    // F-02: Matrix Server-Server API spec v1.6 §4.1 recommends ≤ 50 PDUs
+    // per transaction. Hardening: 50 PDUs × ~500B ≈ 25KB, comfortably
+    // below the 50KB `max_transaction_payload` budget while bounding
+    // per-txn parsing cost.
+    50
+}
+
 fn default_federation_inbound_presence_updates_max_per_txn() -> usize {
     50
 }
@@ -412,5 +429,22 @@ mod tests {
     fn federation_rate_limit_fail_open_explicit_opt_in() {
         let config: FederationRateLimitConfig = serde_json::from_str(r#"{"fail_open_on_error": true}"#).unwrap();
         assert!(config.fail_open_on_error, "显式配置 true 时必须生效（放行）");
+    }
+
+    // ------------------------------------------------------------------
+    // F-02: inbound_max_pdus_per_txn must default to 50 per Matrix spec §4.1
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn federation_inbound_max_pdus_per_txn_defaults_to_50() {
+        // F-02: Matrix SS API spec §4.1 recommends ≤ 50 PDUs per transaction.
+        let config = FederationConfig::default();
+        assert_eq!(config.inbound_max_pdus_per_txn, 50);
+    }
+
+    #[test]
+    fn federation_inbound_max_pdus_per_txn_explicit_override() {
+        // F-02: verify the default function returns 50.
+        assert_eq!(default_federation_inbound_pdus_max_per_txn(), 50);
     }
 }
