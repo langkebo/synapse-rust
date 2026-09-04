@@ -183,6 +183,18 @@ async fn set_pusher(
         body.kind.unwrap_or_else(|| if body.data.is_some() { "http".to_string() } else { "null".to_string() });
 
     if kind != "null" {
+        // PUSH-01: When user registers an http-kind pusher, the `data.url` is
+        // the gateway our server will POST notifications to. Validate it
+        // for SSRF before persisting: reject IP literals, localhost, private
+        // ranges, and non-https schemes. Mirrors the runtime check inside
+        // `PushGateway::send_notification` (defense in depth — protects even
+        // if a future code path bypasses the gateway helper).
+        if kind == "http" {
+            if let Some(url) = body.data.as_ref().and_then(|d| d.get("url")).and_then(|u| u.as_str()) {
+                synapse_services::push::gateway::validate_push_gateway_url(url)?;
+            }
+        }
+
         let created_ts: i64 = ctx
             .client_push_service
             .upsert_pusher(synapse_services::client_push_service::UpsertPusherRequest {
