@@ -307,3 +307,168 @@ impl IdentityService {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for [`IdentityService`] — focus on the pure validation
+    //! path (`validate_id_server`) and the trusted-server accessors that
+    //! have no HTTP/DB dependency.
+    //!
+    //! `validate_id_server` is security-critical (SSRF prevention + allow-list
+    //! enforcement) and has many branches. Coverage is prioritized here.
+    //!
+    //! HTTP-backed methods (`bind_three_pid`, `unbind_three_pid`,
+    //! `request_3pid_verification`, `check_3pid_validity`, `invite_3pid`)
+    //! require a mock identity server and are exercised by the integration
+    //! tests under `tests/integration/`.
+
+    use super::*;
+    // IdentityService fields are pub(crate), so tests in the same module can
+    // access them directly. We bypass `new()` to avoid `default_client()` which
+    // requires a Tokio runtime. The pool is `connect_lazy` so no real connection
+    // is opened; storage is never queried by these pure-function tests.
+    fn make_service(trusted: Vec<String>) -> IdentityService {
+        let pool = std::sync::Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .connect_lazy("postgresql://x:x@127.0.0.1:1/__test__")
+                .expect("connect_lazy should not fail at construction"),
+        );
+        IdentityService {
+            storage: IdentityStorage::new(&pool),
+            // Client::new() is fine here — we never send HTTP requests in these tests.
+            http_client: reqwest::Client::new(),
+            trusted_servers: trusted,
+        }
+    }
+
+    // --- validate_id_server: basic format checks ---
+
+    #[tokio::test]
+    async fn validate_id_server_accepts_valid_hostname() {
+        let svc = make_service(vec![]);
+        assert!(svc.validate_id_server("identity.example.com").is_ok());
+        assert!(svc.validate_id_server("id.matrix.org").is_ok());
+    }
+
+    #[tokio::test]
+    async fn validate_id_server_accepts_hostname_with_port() {
+        let svc = make_service(vec![]);
+        // SSRF rule: host (before ':') must be a public hostname; port is fine.
+        assert!(svc.validate_id_server("identity.example.com:8443").is_ok());
+    }
+
+    #[tokio::test]
+    async fn validate_id_server_rejects_empty() {
+        let svc = make_service(vec![]);
+        let err = svc.validate_id_server("").unwrap_err();
+        assert!(err.message.contains("cannot be empty"), "msg: {}", err.message);
+    }
+
+    #[tokio::test]
+    async fn validate_id_server_rejects_path_traversal() {
+        let svc = make_service(vec![]);
+        assert!(svc.validate_id_server("example.com/foo").is_err());
+        assert!(svc.validate_id_server("example.com\\bar").is_err());
+    }
+
+    #[tokio::test]
+    async fn validate_id_server_rejects_leading_or_trailing_dot() {
+        let svc = make_service(vec![]);
+        assert!(svc.validate_id_server(".example.com").is_err());
+        assert!(svc.validate_id_server("example.com.").is_err());
+    }
+
+    // --- SSRF / private address rejection ---
+
+    #[tokio::test]
+    async fn validate_id_server_rejects_localhost() {
+        let svc = make_service(vec![]);
+        let err = svc.validate_id_server("localhost").unwrap_err();
+        assert!(err.message.contains("private/local"), "msg: {}", err.message);
+    }
+
+    #[tokio::test]
+    async fn validate_id_server_rejects_loopback() {
+        let svc = make_service(vec![]);
+        assert!(svc.validate_id_server("127.0.0.1").is_err());
+        assert!(svc.validate_id_server("127.0.0.1:8443").is_err());
+        assert!(svc.validate_id_server("127.255.255.254").is_err());
+    }
+
+    #[tokio::test]
+    async fn validate_id_server_rejects_private_10_dot() {
+        let svc = make_service(vec![]);
+        assert!(svc.validate_id_server("10.0.0.1").is_err());
+        assert!(svc.validate_id_server("10.255.255.255").is_err());
+    }
+
+    #[tokio::test]
+    async fn validate_id_server_rejects_private_192_168() {
+        let svc = make_service(vec![]);
+        assert!(svc.validate_id_server("192.168.1.1").is_err());
+    }
+
+    #[tokio::test]
+    async fn validate_id_server_rejects_link_local_169_254() {
+        let svc = make_service(vec![]);
+        // AWS / cloud link-local — must not be reachable as an identity server.
+        assert!(svc.validate_id_server("169.254.169.254").is_err());
+    }
+
+    #[tokio::test]
+    async fn validate_id_server_rejects_broadcast() {
+        let svc = make_service(vec![]);
+        assert!(svc.validate_id_server("0.0.0.0").is_err());
+        assert!(svc.validate_id_server("0.1.2.3").is_err());
+    }
+
+    // --- trusted-server allow-list ---
+
+    #[tokio::test]
+    async fn validate_id_server_trusted_empty_list_allows_any_public() {
+        // Empty trusted_servers → no allow-list enforcement (back-compat).
+        let svc = make_service(vec![]);
+        assert!(svc.validate_id_server("any-id-server.example.org").is_ok());
+    }
+
+    #[tokio::test]
+    async fn validate_id_server_trusted_list_accepts_member() {
+        let svc = make_service(vec!["id.example.com".to_string(), "id.matrix.org".to_string()]);
+        assert!(svc.validate_id_server("id.example.com").is_ok());
+        assert!(svc.validate_id_server("id.matrix.org").is_ok());
+    }
+
+    #[tokio::test]
+    async fn validate_id_server_trusted_list_rejects_non_member() {
+        let svc = make_service(vec!["id.example.com".to_string()]);
+        let err = svc.validate_id_server("id.attacker.org").unwrap_err();
+        assert!(
+            err.message.contains("not in the trusted servers list"),
+            "msg: {}",
+            err.message
+        );
+    }
+
+    #[tokio::test]
+    async fn validate_id_server_trusted_list_ignores_private_even_if_listed() {
+        // Private/local rejection fires before trusted-list check, so listing
+        // "localhost" as trusted does not bypass SSRF protection.
+        let svc = make_service(vec!["localhost".to_string()]);
+        assert!(svc.validate_id_server("localhost").is_err());
+    }
+
+    // --- trusted_servers accessor ---
+
+    #[tokio::test]
+    async fn get_trusted_servers_returns_configured_list() {
+        let svc = make_service(vec!["a.example.com".to_string(), "b.example.com".to_string()]);
+        assert_eq!(svc.get_trusted_servers(), &["a.example.com", "b.example.com"]);
+    }
+
+    #[tokio::test]
+    async fn get_trusted_servers_returns_empty_when_unset() {
+        let svc = make_service(vec![]);
+        assert!(svc.get_trusted_servers().is_empty());
+    }
+}
