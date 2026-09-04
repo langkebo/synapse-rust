@@ -514,3 +514,365 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Failed to walk event DAG for missing events", &e))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::room::messaging::service::{MessagingService, MessagingServiceConfig};
+    use crate::room::summary::RoomSummaryService;
+    use std::sync::Arc;
+    use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_storage::event::RoomEvent;
+    use synapse_storage::test_mocks::{
+        InMemoryEventStore, InMemoryMemberStore, InMemoryRelationsStore, InMemoryRoomStore, InMemoryRoomSummaryStore,
+    };
+
+    /// Build a minimal MessagingService backed by in-memory stores.
+    async fn make_service() -> MessagingService {
+        let event_store = Arc::new(InMemoryEventStore::new());
+        let room_summary_service = Arc::new(RoomSummaryService {
+            storage: Arc::new(InMemoryRoomSummaryStore::new()),
+            event_reader: event_store.clone(),
+            member_storage: Some(Arc::new(InMemoryMemberStore::new())),
+        });
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        MessagingService::new(MessagingServiceConfig {
+            event_reader: event_store.clone(),
+            event_writer: event_store,
+            room_storage: Arc::new(InMemoryRoomStore::new()),
+            member_storage: Arc::new(InMemoryMemberStore::new()),
+            server_name: "test.example.com".to_string(),
+            beacon_service: None,
+            task_queue: None,
+            relations_storage: Arc::new(InMemoryRelationsStore::new()),
+            event_broadcaster: None,
+            app_service_manager: None,
+            key_rotation_manager: None,
+            room_summary_service,
+            cache,
+        })
+    }
+
+    /// Seeded service variant — populates the in-memory event store before construction.
+    async fn make_service_with_events(events: Vec<RoomEvent>) -> MessagingService {
+        let event_store = Arc::new(InMemoryEventStore::new());
+        event_store.seed_events(events).await;
+        let room_summary_service = Arc::new(RoomSummaryService {
+            storage: Arc::new(InMemoryRoomSummaryStore::new()),
+            event_reader: event_store.clone(),
+            member_storage: Some(Arc::new(InMemoryMemberStore::new())),
+        });
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        MessagingService::new(MessagingServiceConfig {
+            event_reader: event_store.clone(),
+            event_writer: event_store,
+            room_storage: Arc::new(InMemoryRoomStore::new()),
+            member_storage: Arc::new(InMemoryMemberStore::new()),
+            server_name: "test.example.com".to_string(),
+            beacon_service: None,
+            task_queue: None,
+            relations_storage: Arc::new(InMemoryRelationsStore::new()),
+            event_broadcaster: None,
+            app_service_manager: None,
+            key_rotation_manager: None,
+            room_summary_service,
+            cache,
+        })
+    }
+
+    fn make_event(event_id: &str, room_id: &str, user_id: &str, event_type: &str, content: serde_json::Value) -> RoomEvent {
+        RoomEvent {
+            event_id: event_id.to_string(),
+            room_id: room_id.to_string(),
+            user_id: user_id.to_string(),
+            event_type: event_type.to_string(),
+            content,
+            state_key: None,
+            depth: 0,
+            origin_server_ts: 0,
+            processed_ts: 0,
+            not_before: 0,
+            status: None,
+            reference_image: None,
+            origin: String::new(),
+            stream_ordering: None,
+            redacts: None,
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // get_event_record / get_event_record_in_room
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_event_record_returns_none_when_event_not_found() {
+        let svc = make_service().await;
+        let result = svc.get_event_record("$nonexistent:ex.com").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_event_record_returns_some_when_event_exists() {
+        let event = make_event("$e1:ex.com", "!room:ex.com", "@alice:ex.com", "m.room.message", json!({"body": "hello"}));
+        let svc = make_service_with_events(vec![event]).await;
+        let result = svc.get_event_record("$e1:ex.com").await.unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().event_id, "$e1:ex.com");
+    }
+
+    #[tokio::test]
+    async fn get_event_record_in_room_returns_error_when_event_not_found() {
+        let svc = make_service().await;
+        let result = svc.get_event_record_in_room("!room:ex.com", "$nonexistent:ex.com").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("not found"), "expected not_found error, got: {err}");
+    }
+
+    #[tokio::test]
+    async fn get_event_record_in_room_returns_error_when_event_in_different_room() {
+        let event = make_event("$e2:ex.com", "!other:ex.com", "@alice:ex.com", "m.room.message", json!({"body": "hi"}));
+        let svc = make_service_with_events(vec![event]).await;
+        let result = svc.get_event_record_in_room("!room:ex.com", "$e2:ex.com").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("room"), "expected room mismatch error, got: {err}");
+    }
+
+    #[tokio::test]
+    async fn get_event_record_in_room_returns_event_when_room_matches() {
+        let event = make_event("$e3:ex.com", "!room:ex.com", "@alice:ex.com", "m.room.message", json!({"body": "hello"}));
+        let svc = make_service_with_events(vec![event]).await;
+        let result = svc.get_event_record_in_room("!room:ex.com", "$e3:ex.com").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().event_id, "$e3:ex.com");
+    }
+
+    // -------------------------------------------------------------------------
+    // find_event_by_timestamp
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn find_event_by_timestamp_returns_none_when_no_event_exists() {
+        let svc = make_service().await;
+        let result = svc.find_event_by_timestamp("!room:ex.com", 1000, true).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // get_state_events / get_state_events_by_type / get_state_event_records
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_state_events_returns_empty_when_room_has_no_state() {
+        let svc = make_service().await;
+        let result = svc.get_state_events("!room:ex.com").await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_state_events_by_type_returns_empty_for_unknown_type() {
+        let svc = make_service().await;
+        let result = svc.get_state_events_by_type("!room:ex.com", "m.room.does_not_exist").await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_state_events_at_or_before_returns_empty_when_no_events_before() {
+        let svc = make_service().await;
+        let result = svc.get_state_events_at_or_before("!room:ex.com", 0).await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // get_event / get_room_events variants
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_event_returns_error_when_not_found() {
+        let svc = make_service().await;
+        let result = svc.get_event("!room:ex.com", "$nonexistent:ex.com").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("not found"), "expected not_found error, got: {err}");
+    }
+
+    #[tokio::test]
+    async fn get_event_returns_error_when_event_in_different_room() {
+        let event = make_event("$e4:ex.com", "!other:ex.com", "@alice:ex.com", "m.room.message", json!({"body": "hi"}));
+        let svc = make_service_with_events(vec![event]).await;
+        let result = svc.get_event("!room:ex.com", "$e4:ex.com").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn get_room_events_returns_empty_when_no_events() {
+        let svc = make_service().await;
+        let result = svc.get_room_events("!room:ex.com", 20).await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_room_events_by_type_returns_empty_when_no_matches() {
+        let svc = make_service().await;
+        let result = svc.get_room_events_by_type("!room:ex.com", "m.room.unknown", 10).await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_pending_events_returns_empty_when_no_pending() {
+        let svc = make_service().await;
+        let result = svc.get_pending_events("!room:ex.com", 10).await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // get_room_events_paginated_admin / get_event_context_admin
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_room_events_paginated_admin_returns_empty_when_no_events() {
+        let svc = make_service().await;
+        let result = svc.get_room_events_paginated_admin("!room:ex.com", None, 10, "b").await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_event_context_admin_returns_error_when_event_not_found() {
+        let svc = make_service().await;
+        let result = svc.get_event_context_admin("!room:ex.com", "$nonexistent:ex.com", 5).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("not found"), "expected not_found error, got: {err}");
+    }
+
+    #[tokio::test]
+    async fn get_event_context_admin_returns_error_when_event_in_different_room() {
+        let event = make_event("$e5:ex.com", "!other:ex.com", "@alice:ex.com", "m.room.message", json!({"body": "hi"}));
+        let svc = make_service_with_events(vec![event]).await;
+        let result = svc.get_event_context_admin("!room:ex.com", "$e5:ex.com", 5).await;
+        assert!(result.is_err());
+    }
+
+    // -------------------------------------------------------------------------
+    // search_room_messages_admin
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn search_room_messages_admin_returns_empty_when_no_matches() {
+        let svc = make_service().await;
+        let result = svc.search_room_messages_admin("!room:ex.com", "nonexistent_pattern", 10).await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // get_forward_extremities_count / count_events_by_status
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_forward_extremities_count_returns_zero_when_no_events() {
+        let svc = make_service().await;
+        let result = svc.get_forward_extremities_count("!room:ex.com").await.unwrap();
+        assert_eq!(result, 0);
+    }
+
+    #[tokio::test]
+    async fn count_events_by_status_returns_zero_when_no_events() {
+        let svc = make_service().await;
+        let result = svc.count_events_by_status("!room:ex.com", "some_status").await;
+        assert_eq!(result, 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // redact_event_content
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn redact_event_content_succeeds_when_event_exists() {
+        let event = make_event("$e6:ex.com", "!room:ex.com", "@alice:ex.com", "m.room.message", json!({"body": "hello"}));
+        let svc = make_service_with_events(vec![event]).await;
+        // Should not panic — redact succeeds even with no-op mock.
+        svc.redact_event_content("$e6:ex.com", Some("$admin:ex.com")).await.unwrap();
+    }
+
+    // -------------------------------------------------------------------------
+    // get_event_signatures / find_missing_event_ids / get_missing_events_between
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_event_signatures_returns_empty_when_no_signatures() {
+        let svc = make_service().await;
+        let result = svc.get_event_signatures("$e1:ex.com").await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn find_missing_event_ids_returns_empty_when_all_exist() {
+        let event = make_event("$e7:ex.com", "!room:ex.com", "@alice:ex.com", "m.room.message", json!({"body": "hi"}));
+        let svc = make_service_with_events(vec![event]).await;
+        let result = svc.find_missing_event_ids(&["$e7:ex.com".to_string()]).await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn find_missing_event_ids_returns_missing_ids() {
+        let svc = make_service().await;
+        let result = svc.find_missing_event_ids(&["$missing:ex.com".to_string()]).await.unwrap();
+        assert_eq!(result, vec!["$missing:ex.com"]);
+    }
+
+    #[tokio::test]
+    async fn get_missing_events_between_returns_empty_when_no_missing() {
+        let svc = make_service().await;
+        let result = svc.get_missing_events_between("!room:ex.com", &[], &[], 10).await.unwrap();
+        // InMemoryEventStore returns empty vec for this path.
+        assert!(result.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // get_daily_message_count
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_daily_message_count_returns_zero_when_no_messages() {
+        let svc = make_service().await;
+        let result = svc.get_daily_message_count().await.unwrap();
+        assert_eq!(result, 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // get_pinned_event_ids / set_pinned_event_ids
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_pinned_event_ids_returns_empty_when_no_pinned_events() {
+        let svc = make_service().await;
+        let result = svc.get_pinned_event_ids("!room:ex.com").await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn set_pinned_event_ids_succeeds_with_empty_list() {
+        let svc = make_service().await;
+        // Should not panic — InMemoryEventStore::create_event is a no-op.
+        svc.set_pinned_event_ids("!room:ex.com", "@alice:ex.com", &[]).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn set_pinned_event_ids_succeeds_with_non_empty_list() {
+        let svc = make_service().await;
+        svc.set_pinned_event_ids("!room:ex.com", "@alice:ex.com", &["$pinned:ex.com".to_string()]).await.unwrap();
+    }
+
+    // -------------------------------------------------------------------------
+    // report_event (thin wrapper around event_writer::report_event)
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn report_event_succeeds_for_nonexistent_event() {
+        let svc = make_service().await;
+        // InMemoryEventStore::report_event is a no-op returning Ok(1).
+        let result = svc.report_event("$missing:ex.com", "!room:ex.com", "@alice:ex.com", Some("spam"), -100).await;
+        assert!(result.is_ok(), "report_event should not fail for missing event: {:?}", result);
+    }
+}
