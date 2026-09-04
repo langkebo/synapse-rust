@@ -48,7 +48,7 @@ sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "chrono", "j
 redis = { workspace = true, features = ["tokio-rustls-comp"] }
 deadpool-redis = { workspace = true }
 moka = { workspace = true, features = ["future", "sync"] }
-lru = "0.12"
+lru = "0.18.2"  # ≥0.18.2 修复 RUSTSEC-2026-0253 (pop() UAF) + RUSTSEC-2026-0002 (IterMut Stacked Borrows)
 
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
