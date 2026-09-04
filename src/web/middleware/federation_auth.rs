@@ -34,8 +34,7 @@ const FEDERATION_KEY_CACHE_TTL_SECS: u64 = 3600;
 fn compute_key_cache_ttl_secs(valid_until_ts: Option<i64>) -> u64 {
     let now_ms = current_timestamp_millis();
     let peer_secs_remaining = valid_until_ts
-        .map(|ts| ((ts - now_ms) / 1000).max(0) as u64)
-        .unwrap_or(u64::MAX);
+        .map_or(u64::MAX, |ts| ((ts - now_ms) / 1000).max(0) as u64);
     let spec_capped = peer_secs_remaining.min(MAX_SERVER_KEY_VALIDITY_SECS);
     FEDERATION_KEY_CACHE_TTL_SECS.min(spec_capped)
 }
