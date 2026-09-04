@@ -353,4 +353,162 @@ mod tests {
 
         assert!(woke(room_waiter).await, "a stale typing indicator should clear without waiting for the timeout");
     }
+
+    // ── 覆盖剩余 impl EventWriter 方法 ─────────────────────────────────────
+
+    /// `create_event_with_graph` is the federation backfill path; it must also
+    /// wake room waiters on autocommit so that federated events are visible
+    /// in sliding-sync immediately.
+    #[tokio::test]
+    async fn create_event_with_graph_wakes_room_waiters() {
+        let (writer, notifier) = build();
+        let slots = notifier.slots_for(STRANGER, &[ROOM.to_string()]);
+        let room_waiter = arm(&slots[1]);
+
+        let event = writer
+            .create_event_with_graph(
+                params("m.room.message", None),
+                &["$prev:example.com".to_string()],
+                &["$auth:example.com".to_string()],
+                10,
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert!(woke(room_waiter).await, "federation backfill events must release room waiters");
+        assert_eq!(event.room_id, ROOM);
+    }
+
+    /// `upsert_ephemeral_event` is used for ephemeral events that expire
+    /// (e.g. typing with a TTL). It must still notify so clients do not miss
+    /// the typing start while it is still valid.
+    #[tokio::test]
+    async fn upsert_ephemeral_event_wakes_room_waiters() {
+        let (writer, notifier) = build();
+        let slots = notifier.slots_for(STRANGER, &[ROOM.to_string()]);
+        let room_waiter = arm(&slots[1]);
+
+        // expires_at = now + 30s: typing indicator that auto-expires.
+        let expires_at = chrono::Utc::now().timestamp_millis() + 30_000;
+        writer
+            .upsert_ephemeral_event(
+                ROOM,
+                SENDER,
+                "m.typing",
+                &serde_json::json!({ "typing": true }),
+                2,
+                expires_at,
+                Some(expires_at),
+            )
+            .await
+            .unwrap();
+
+        assert!(woke(room_waiter).await, "ephemeral events with TTL must also release room waiters");
+    }
+
+    /// `upsert_power_levels_event` is a room-administration path: admin changes
+    /// user power levels. Clients must see this immediately in sliding-sync.
+    #[tokio::test]
+    async fn upsert_power_levels_event_wakes_room_waiters() {
+        let (writer, notifier) = build();
+        let slots = notifier.slots_for(STRANGER, &[ROOM.to_string()]);
+        let room_waiter = arm(&slots[1]);
+
+        let params = params("m.room.power_levels", Some(""));
+        writer
+            .upsert_power_levels_event(
+                &params.event_id,
+                ROOM,
+                SENDER,
+                serde_json::json!({
+                    "users": { "@alice:example.com": 50 }
+                }),
+                0,
+                SENDER,
+            )
+            .await
+            .unwrap();
+
+        assert!(woke(room_waiter).await, "power level changes must release room waiters");
+    }
+
+    /// `update_event_signatures_and_hashes` is a pure delegation to inner
+    /// storage. Coverage confirms the delegation does not panic.
+    #[tokio::test]
+    async fn update_event_signatures_and_hashes_is_passed_to_inner() {
+        let (writer, _notifier) = build();
+
+        // InMemoryEventStore::update_event_signatures_and_hashes is a no-op,
+        // so this must succeed without panic.
+        writer
+            .update_event_signatures_and_hashes(
+                "$event:example.com",
+                &serde_json::json!({}),
+                &serde_json::json!({}),
+            )
+            .await
+            .unwrap();
+    }
+
+    /// `report_event` is a moderation path with no timeline event; it must not
+    /// wake any waiters (confirmed by delegation to inner only).
+    #[tokio::test]
+    async fn report_event_is_passed_to_inner() {
+        let (writer, _notifier) = build();
+
+        writer
+            .report_event("$event:example.com", ROOM, "@bad:example.com", SENDER, Some("spam"), -100)
+            .await
+            .unwrap();
+    }
+
+    /// `record_event_txn` deduplicates /records a sent-txn-id → event-id mapping.
+    /// No notification expected; covered to confirm delegation.
+    #[tokio::test]
+    async fn record_event_txn_is_passed_to_inner() {
+        let (writer, _notifier) = build();
+
+        writer
+            .record_event_txn(SENDER, ROOM, "txn-abc123", "$event:example.com")
+            .await
+            .unwrap();
+    }
+
+    /// `delete_event_by_id` is a hard-delete path; no notification expected.
+    #[tokio::test]
+    async fn delete_event_by_id_is_passed_to_inner() {
+        let (writer, _notifier) = build();
+
+        writer.delete_event_by_id("$event:example.com").await.unwrap();
+    }
+
+    /// `delete_events_before` is a retention purge path — deliberately silent
+    /// per module docs. Covered to confirm it passes through without panic.
+    #[tokio::test]
+    async fn delete_events_before_is_passed_to_inner() {
+        let (writer, _notifier) = build();
+
+        writer.delete_events_before(ROOM, 1_700_000_000_000, false).await.unwrap();
+    }
+
+    /// `save_event_signature` stores a device key signature; no room timeline
+    /// event so no notification. Covered to confirm delegation.
+    #[tokio::test]
+    async fn save_event_signature_is_passed_to_inner() {
+        let (writer, _notifier) = build();
+
+        writer
+            .save_event_signature(
+                "$event:example.com",
+                SENDER,
+                "DEVICE0",
+                "sig",
+                "ed25519:0",
+                "ed25519",
+                1_700_000_000_000,
+            )
+            .await
+            .unwrap();
+    }
 }

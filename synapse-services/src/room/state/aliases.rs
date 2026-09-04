@@ -97,7 +97,6 @@ impl RoomStateService {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::room::state::service::{RoomStateService, RoomStateServiceConfig};
     use crate::UserService;
     use std::sync::Arc;

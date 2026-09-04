@@ -942,3 +942,130 @@ async fn test_register_guest_account_success() {
     assert!(device_id.starts_with("guest_device_"));
     assert!(!access_token.is_empty());
 }
+
+// ============================================================================
+// verify_user_credentials (login.rs:258) — UIA password 校验，0 覆盖
+//
+// 与 login() 的核心区别：verify_user_credentials 不创建 session / device /
+// token，仅做密码校验返回 Ok/Err。MSC3861 / UIA 流程依赖此函数。
+// ============================================================================
+
+#[tokio::test]
+async fn test_verify_user_credentials_success() {
+    let h = super::test_harness::build_test_auth_service();
+    let password = "correct-horse-battery-staple";
+    let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    // UIA 验证：合法凭据返回 Ok(()).
+    h.service.verify_user_credentials("@alice:test", password).await.expect("valid password should verify");
+}
+
+#[tokio::test]
+async fn test_verify_user_credentials_wrong_password_returns_unauthorized() {
+    let h = super::test_harness::build_test_auth_service();
+    let hash = hash_password_with_params("right-password", 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    let err = h.service.verify_user_credentials("@alice:test", "wrong-password").await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Unauthorized, "wrong password must be 401");
+    assert_eq!(err.code, synapse_common::MatrixErrorCode::Forbidden, "P-007 errcode: M_FORBIDDEN");
+}
+
+#[tokio::test]
+async fn test_verify_user_credentials_unknown_user_returns_unauthorized() {
+    let h = super::test_harness::build_test_auth_service();
+
+    // UIA 流程不应通过 401 区分「用户不存在」与「密码错误」（防用户枚举）。
+    let err = h.service.verify_user_credentials("@nobody:test", "whatever").await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Unauthorized);
+    assert_eq!(err.code, synapse_common::MatrixErrorCode::Forbidden);
+}
+
+#[tokio::test]
+async fn test_verify_user_credentials_deactivated_user_returns_unauthorized() {
+    let h = super::test_harness::build_test_auth_service();
+    let hash = hash_password_with_params("pw", 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, true)).await;
+
+    // 已停用账户的密码校验：UIA 步骤必须失败，否则可绕过停用继续操作。
+    let err = h.service.verify_user_credentials("@alice:test", "pw").await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Unauthorized);
+    assert_eq!(err.code, synapse_common::MatrixErrorCode::Forbidden);
+}
+
+#[tokio::test]
+async fn test_verify_user_credentials_no_password_hash_returns_unauthorized() {
+    let h = super::test_harness::build_test_auth_service();
+    // 仅 appservice 登录的账户无密码 hash，UIA 流程必须拒绝密码验证。
+    h.user_store.seed_user(make_test_user("@alice:test", None, false, false)).await;
+
+    let err = h.service.verify_user_credentials("@alice:test", "anything").await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Unauthorized);
+    assert_eq!(err.code, synapse_common::MatrixErrorCode::Forbidden);
+}
+
+// ============================================================================
+// get_or_create_device_id (login.rs:208) — device ID 创建/复用，0 覆盖
+//
+// 关键安全检查：device_id 复用时必须验证归属（同 user 才放行），否则攻击者
+// 可指定他人 device_id 接管其 device 流。
+// ============================================================================
+
+#[tokio::test]
+async fn test_login_rejects_overlong_device_display_name() {
+    let h = super::test_harness::build_test_auth_service();
+    let password = "pw";
+    let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    // initial_display_name > 100 字符必须 400 拒绝（拒绝 PII / 恶意长字符串）。
+    let long_name = "x".repeat(101);
+    let err = h
+        .service
+        .login("@alice:test", password, None, Some(&long_name))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::BadRequest, "overlong display name must be 400");
+}
+
+#[tokio::test]
+async fn test_login_rejects_device_id_owned_by_different_user() {
+    let h = super::test_harness::build_test_auth_service();
+
+    // 先用 bob 的身份登录一次创建 device。
+    let bob_hash = hash_password_with_params("bob-pw", 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@bob:test", Some(&bob_hash), false, false)).await;
+    h.service.login("@bob:test", "bob-pw", Some("BOBDEV"), None).await.expect("bob login should succeed");
+
+    // 然后 alice 试图用同一 device_id 登录 — 必须被拒（防 device 接管）。
+    let alice_hash = hash_password_with_params("alice-pw", 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&alice_hash), false, false)).await;
+    let err = h.service.login("@alice:test", "alice-pw", Some("BOBDEV"), None).await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Forbidden, "cross-user device_id must be 403");
+}
+
+// ============================================================================
+// is_account_locked (login.rs:124) — 过期 lockout key 清理路径，0 覆盖
+//
+// 触发行 131-132：lockout key 存在但 timestamp < now → 主动清理并返回 false，
+// 让用户能正常登录。这是 lockout 自动恢复的正常路径，必须覆盖。
+// ============================================================================
+
+#[tokio::test]
+async fn test_login_recovers_from_expired_account_lockout() {
+    use chrono::Duration;
+    let h = super::test_harness::build_test_auth_service();
+    let password = "right";
+    let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    // seed 一个 1 小时前过期的 lockout key（timestamp < now → 过期）。
+    let expired_ts = (Utc::now() - Duration::hours(1)).timestamp();
+    let key = format!("auth:lockout:@alice:test");
+    let _ = h.cache.set(&key, &expired_ts.to_string(), 600).await;
+
+    // 登录应该成功：过期的 lockout 被清理（行 131-132），不阻断合法用户。
+    let (_user, _access, _refresh, _device) =
+        h.service.login("@alice:test", password, None, None).await.expect("expired lockout should not block valid login");
+}
