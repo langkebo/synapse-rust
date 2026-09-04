@@ -212,7 +212,11 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         Ok(())
     }
 
-    async fn decrement_member_count(&self, room_id: &str) -> Result<(), sqlx::Error> {
+    async fn decrement_member_count(
+        &self,
+        room_id: &str,
+        _tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error> {
         if let Some(room) = self.rooms.write().await.get_mut(room_id) {
             room.member_count = room.member_count.saturating_sub(1);
         }

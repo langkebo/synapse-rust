@@ -230,7 +230,7 @@ impl MembershipService {
 
     pub async fn decrement_member_count(&self, room_id: &str) -> ApiResult<()> {
         self.room_storage
-            .decrement_member_count(room_id)
+            .decrement_member_count(room_id, None)
             .await
             .map(|_| ())
             .map_err(|e| ApiError::internal_with_context("Failed to update member count", &e))

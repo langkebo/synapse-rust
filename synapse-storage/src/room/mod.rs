@@ -678,9 +678,16 @@ impl RoomStorage {
         Ok(())
     }
 
-    pub async fn decrement_member_count(&self, room_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn decrement_member_count(
+        &self,
+        room_id: &str,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error> {
         // v11: see `increment_member_count` for the trigger-based design.
-        sqlx::query(
+        // When `tx` is provided the UPDATE runs in the caller's transaction
+        // (used by MSC4267 leave+forget so the count decrement stays atomic
+        // with the remove_member + forget_member writes).
+        let query = sqlx::query(
             r"
             UPDATE room_summaries
             SET updated_ts = $2
@@ -688,9 +695,12 @@ impl RoomStorage {
             ",
         )
         .bind(room_id)
-        .bind(current_timestamp_millis())
-        .execute(&*self.pool)
-        .await?;
+        .bind(current_timestamp_millis());
+        if let Some(tx) = tx {
+            query.execute(&mut **tx).await?;
+        } else {
+            query.execute(&*self.pool).await?;
+        }
         Ok(())
     }
 

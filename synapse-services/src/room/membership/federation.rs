@@ -333,7 +333,7 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to leave federated room", &e))?;
 
         if existing_member.as_ref().is_some_and(|member| member.membership == "join") {
-            self.room_storage.decrement_member_count(room_id).await.map_err(|e| {
+            self.room_storage.decrement_member_count(room_id, None).await.map_err(|e| {
                 ApiError::internal_with_context("Failed to update member count after federation leave", &e)
             })?;
         }

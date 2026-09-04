@@ -166,7 +166,7 @@ impl MembershipService {
 
         if existing_member.as_ref().is_some_and(|member| member.membership == "join") {
             self.room_storage
-                .decrement_member_count(room_id)
+                .decrement_member_count(room_id, None)
                 .await
                 .map_err(|e| ApiError::internal_with_context("Failed to update member count", &e))?;
         }
@@ -347,7 +347,7 @@ impl MembershipService {
 
         if existing_member.as_ref().is_some_and(|member| member.membership == "join") {
             self.room_storage
-                .decrement_member_count(room_id)
+                .decrement_member_count(room_id, Some(&mut tx))
                 .await
                 .map_err(|e| ApiError::internal_with_context("Failed to update member count (in transaction)", &e))?;
         }

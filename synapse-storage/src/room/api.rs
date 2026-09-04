@@ -53,7 +53,11 @@ pub trait RoomStoreApi: Send + Sync {
         join_rule: &str,
     ) -> Result<(), sqlx::Error>;
 
-    async fn decrement_member_count(&self, room_id: &str) -> Result<(), sqlx::Error>;
+    async fn decrement_member_count(
+        &self,
+        room_id: &str,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error>;
 
     /// Batch counterpart of `decrement_member_count`. Touches the `updated_ts`
     /// of each affected `room_summaries` row in a single UPDATE.
@@ -275,8 +279,12 @@ impl RoomStoreApi for super::RoomStorage {
         self.update_join_rule_in_tx(tx, room_id, join_rule).await
     }
 
-    async fn decrement_member_count(&self, room_id: &str) -> Result<(), sqlx::Error> {
-        self.decrement_member_count(room_id).await
+    async fn decrement_member_count(
+        &self,
+        room_id: &str,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<(), sqlx::Error> {
+        self.decrement_member_count(room_id, tx).await
     }
 
     async fn decrement_member_counts_batch(&self, room_ids: &[String]) -> Result<u64, sqlx::Error> {
