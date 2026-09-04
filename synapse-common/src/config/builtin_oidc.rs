@@ -24,6 +24,12 @@ pub struct BuiltinOidcConfig {
     /// If empty, a temporary key is generated in-process; old tokens become invalid after process restart.
     #[serde(default)]
     pub signing_key_path: Option<std::path::PathBuf>,
+    /// Persistence path for the built-in OIDC Provider's P-256 EC signing key (PKCS#8 PEM)
+    /// used to sign ES256 tokens (RFC 7518 §3.4).
+    /// If empty, an ephemeral EC key is generated in-process (default for dev/test).
+    /// Note: EC and RSA keys are independent — both are exposed in the JWKS endpoint.
+    #[serde(default)]
+    pub signing_key_ec_path: Option<std::path::PathBuf>,
 }
 
 fn default_builtin_oidc_client_id() -> String {
@@ -58,6 +64,7 @@ impl Default for BuiltinOidcConfig {
             users: vec![],
             allow_plaintext_passwords: false,
             signing_key_path: None,
+            signing_key_ec_path: None,
         }
     }
 }
@@ -82,6 +89,7 @@ mod tests {
         assert!(config.allow_client_ids.is_empty());
         assert!(config.users.is_empty());
         assert!(config.signing_key_path.is_none());
+        assert!(config.signing_key_ec_path.is_none());
     }
 
     #[test]

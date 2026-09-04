@@ -64,6 +64,10 @@ argon2 = "0.5"
 aes-gcm = "0.10"
 jsonwebtoken = "9"
 rsa = { version = "0.9", features = ["pem", "sha2"] }
+# P-256 (NIST secp256r1) ECDSA for OIDC ES256 signing (RFC 7518 §3.4).
+# - `arithmetic` feature: PublicKey::public_key() + to_sec1_point() for x/y export
+# - `getrandom` feature: SecretKey::generate() via system CSPRNG (no rand_core needed)
+p256 = { version = "0.14", features = ["arithmetic", "getrandom"] }
 
 image = "0.25"
 infer = "0.19.0"

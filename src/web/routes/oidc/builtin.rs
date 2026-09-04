@@ -75,7 +75,7 @@ pub(crate) async fn builtin_oidc_login(
 #[cfg(feature = "builtin-oidc")]
 pub(crate) async fn jwks(State(ctx): State<SsoContext>) -> Result<Json<serde_json::Value>, ApiError> {
     if let Some(provider) = &ctx.builtin_oidc_provider {
-        let jwks = provider.get_jwks();
+        let jwks = provider.get_jwks()?;
         return Ok(Json(
             serde_json::to_value(jwks).map_err(|e| ApiError::internal_with_context("Failed to serialize JWKS", &e))?,
         ));

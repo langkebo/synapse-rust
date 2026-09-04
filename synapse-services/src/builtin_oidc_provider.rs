@@ -22,9 +22,14 @@
 use argon2::{password_hash::PasswordHash, Argon2, PasswordVerifier};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use p256::elliptic_curve::sec1::ToSec1Point;
+use p256::elliptic_curve::Generate;
+use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey};
+use p256::{PublicKey as P256PublicKey, SecretKey};
 use rsa::pkcs1::EncodeRsaPrivateKey;
 use rsa::pkcs1v15::SigningKey;
-use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
+use rsa::pkcs8::DecodePrivateKey as RsaDecodePrivateKey;
+use rsa::pkcs8::EncodePublicKey;
 use rsa::traits::PublicKeyParts;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
@@ -104,8 +109,19 @@ pub struct Jwk {
     pub use_: String,
     pub kid: String,
     pub alg: String,
-    pub n: String,
-    pub e: String,
+    // RSA components — present when kty == "RSA"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub n: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub e: Option<String>,
+    // EC components — present when kty == "EC"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "crv")]
+    pub crv: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y: Option<String>,
 }
 
 // ============ JWT Claims ============
@@ -160,6 +176,12 @@ pub struct BuiltinOidcProvider {
     encoding_key: EncodingKey,
     decoding_key: DecodingKey,
     key_id: String,
+    /// P-256 EC private key for ES256 signing (RFC 7518 §3.4).
+    /// The EC and RSA keys are independent — both are advertised in the JWKS endpoint.
+    ec_signing_key: SecretKey,
+    ec_encoding_key: EncodingKey,
+    ec_decoding_key: DecodingKey,
+    ec_key_id: String,
     auth_sessions: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, AuthSession>>>,
     refresh_tokens: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, RefreshToken>>>,
 }
@@ -208,12 +230,46 @@ impl BuiltinOidcProvider {
         let digest = hasher.finalize();
         let key_id = URL_SAFE_NO_PAD.encode(&digest[..12]);
 
+        // P-256 EC signing key (parallel to RSA path).
+        let ec_signing_key = Self::load_or_generate_ec_key(config.signing_key_ec_path.as_deref())?;
+        // PEM for EncodingKey::from_ec_pem (PKCS#8 form required)
+        let ec_pem = ec_signing_key
+            .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
+            .map_err(|e| ApiError::internal_with_context("OIDC EC pem serialize", &e))?;
+        let ec_encoding_key = EncodingKey::from_ec_pem(ec_pem.as_bytes())
+            .map_err(|e| ApiError::internal_with_context("OIDC EC encoding key", &e))?;
+
+        // Derive x/y for JWK and DecodingKey::from_ec_components
+        let ec_pub: P256PublicKey = ec_signing_key.public_key();
+        let ec_affine_point = ec_pub.to_sec1_point(false);
+        let x_bytes = ec_affine_point.x().ok_or_else(|| {
+            ApiError::internal_with_context("OIDC EC point", &"P-256 affine x coordinate missing")
+        })?;
+        let y_bytes = ec_affine_point.y().ok_or_else(|| {
+            ApiError::internal_with_context("OIDC EC point", &"P-256 affine y coordinate missing")
+        })?;
+        let x_b64 = URL_SAFE_NO_PAD.encode(x_bytes);
+        let y_b64 = URL_SAFE_NO_PAD.encode(y_bytes);
+        let ec_decoding_key = DecodingKey::from_ec_components(&x_b64, &y_b64)
+            .map_err(|e| ApiError::internal_with_context("OIDC EC decoding key", &e))?;
+
+        // Stable kid for EC key: SHA256(x || y) first 12 bytes base64url.
+        let mut ec_hasher = Sha256::new();
+        ec_hasher.update(x_bytes);
+        ec_hasher.update(y_bytes);
+        let ec_digest = ec_hasher.finalize();
+        let ec_key_id = URL_SAFE_NO_PAD.encode(&ec_digest[..12]);
+
         Ok(Self {
             config,
             signing_key,
             encoding_key,
             decoding_key,
             key_id,
+            ec_signing_key,
+            ec_encoding_key,
+            ec_decoding_key,
+            ec_key_id,
             auth_sessions: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
             refresh_tokens: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
         })
@@ -262,6 +318,22 @@ impl BuiltinOidcProvider {
         Ok(key)
     }
 
+    /// Loads a P-256 EC key from a PEM file, or generates a new ephemeral key in-process.
+    /// Generated keys are NOT persisted by default — configure `signing_key_ec_path` to persist.
+    fn load_or_generate_ec_key(path: Option<&Path>) -> Result<SecretKey, ApiError> {
+        if let Some(p) = path {
+            if p.exists() {
+                let pem = std::fs::read_to_string(p)
+                    .map_err(|e| ApiError::internal_with_context("OIDC EC key read", &e))?;
+                return SecretKey::from_pkcs8_pem(&pem)
+                    .map_err(|e| ApiError::internal_with_context("OIDC EC key parse", &e));
+            }
+        }
+        info!(key_algorithm = %"P-256", "Generating new EC signing key (ephemeral, not persisted by default)");
+        // p256 0.14: use Generate trait with the getrandom CSPRNG (default feature).
+        Ok(SecretKey::generate())
+    }
+
     /// 获取 OIDC 发现文档
     pub fn get_discovery_document(&self) -> OidcDiscoveryDocument {
         let issuer = &self.config.issuer;
@@ -276,7 +348,7 @@ impl BuiltinOidcProvider {
             end_session_endpoint: Some(format!("{}/_matrix/client/v3/oidc/logout", issuer)),
             response_types_supported: vec!["code".to_string()],
             subject_types_supported: vec!["public".to_string()],
-            id_token_signing_alg_values_supported: vec!["RS256".to_string()],
+            id_token_signing_alg_values_supported: vec!["RS256".to_string(), "ES256".to_string()],
             scopes_supported: vec!["openid".to_string(), "profile".to_string(), "email".to_string()],
             token_endpoint_auth_methods_supported: vec![
                 "client_secret_basic".to_string(),
@@ -298,22 +370,52 @@ impl BuiltinOidcProvider {
         }
     }
 
-    /// 获取 JWKS (从真实 RSA 公钥导出 n/e)
-    pub fn get_jwks(&self) -> Jwks {
-        let public: RsaPublicKey = self.signing_key.to_public_key();
-        let n = URL_SAFE_NO_PAD.encode(public.n().to_bytes_be());
-        let e = URL_SAFE_NO_PAD.encode(public.e().to_bytes_be());
+    /// 获取 JWKS（同时暴露 RSA-2048 (RS256) 和 P-256 (ES256) 公钥）。
+    /// 客户端按 `alg` 协商选择验签密钥；RSA kid 保持兼容现有部署，EC kid 独立命名空间。
+    pub fn get_jwks(&self) -> Result<Jwks, ApiError> {
+        // RSA RS256 entry
+        let rsa_pub: RsaPublicKey = self.signing_key.to_public_key();
+        let n = URL_SAFE_NO_PAD.encode(rsa_pub.n().to_bytes_be());
+        let e = URL_SAFE_NO_PAD.encode(rsa_pub.e().to_bytes_be());
 
-        Jwks {
-            keys: vec![Jwk {
-                kty: "RSA".to_string(),
-                use_: "sig".to_string(),
-                kid: self.key_id.clone(),
-                alg: "RS256".to_string(),
-                n,
-                e,
-            }],
-        }
+        // EC P-256 ES256 entry
+        let ec_pub: P256PublicKey = self.ec_signing_key.public_key();
+        let ec_affine_point = ec_pub.to_sec1_point(false);
+        let x_bytes = ec_affine_point
+        .x()
+        .ok_or_else(|| ApiError::internal("P-256 affine x coordinate missing"))?;
+        let y_bytes = ec_affine_point
+        .y()
+        .ok_or_else(|| ApiError::internal("P-256 affine y coordinate missing"))?;
+        let x = URL_SAFE_NO_PAD.encode(x_bytes);
+        let y = URL_SAFE_NO_PAD.encode(y_bytes);
+
+        Ok(Jwks {
+            keys: vec![
+                Jwk {
+                    kty: "RSA".to_string(),
+                    use_: "sig".to_string(),
+                    kid: self.key_id.clone(),
+                    alg: "RS256".to_string(),
+                    n: Some(n),
+                    e: Some(e),
+                    crv: None,
+                    x: None,
+                    y: None,
+                },
+                Jwk {
+                    kty: "EC".to_string(),
+                    use_: "sig".to_string(),
+                    kid: self.ec_key_id.clone(),
+                    alg: "ES256".to_string(),
+                    n: None,
+                    e: None,
+                    crv: Some("P-256".to_string()),
+                    x: Some(x),
+                    y: Some(y),
+                },
+            ],
+        })
     }
 
     /// 处理授权请求
@@ -541,7 +643,8 @@ impl BuiltinOidcProvider {
         Err(ApiError::unauthorized("Invalid username or password".to_string()))
     }
 
-    /// 计算 at_hash: BASE64URL( left-128-bit( SHA256(access_token) ) ) for RS256
+    /// 计算 at_hash: BASE64URL( left-128-bit( SHA256(access_token) ) ).
+    /// 算法无关 (RS256 与 ES256 同样按 RFC 7518 §3.1/§3.4 取 left-128-bit(SHA256(input)))。
     fn compute_at_hash(access_token: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(access_token.as_bytes());
@@ -549,7 +652,13 @@ impl BuiltinOidcProvider {
         URL_SAFE_NO_PAD.encode(&digest[..16])
     }
 
-    /// 生成 ID Token (RS256)
+    /// ID Token / Access Token 签名算法选择。当前双轨期统一 RS256（向后兼容）；
+    /// 未来切换 ES256-only 时改这里即可（不影响 JWKS / discovery）。
+    fn default_signing_algorithm() -> Algorithm {
+        Algorithm::RS256
+    }
+
+    /// 生成 ID Token（默认 RS256，可按算法切换）
     fn generate_id_token(
         &self,
         user: &BuiltinOidcUser,
@@ -576,13 +685,15 @@ impl BuiltinOidcProvider {
             picture: None,
         };
 
-        let mut header = Header::new(Algorithm::RS256);
-        header.kid = Some(self.key_id.clone());
-        encode(&header, &claims, &self.encoding_key)
+        let alg = Self::default_signing_algorithm();
+        let (encoding_key_ref, kid) = self.select_encoding_key(alg)?;
+        let mut header = Header::new(alg);
+        header.kid = Some(kid.to_string());
+        encode(&header, &claims, encoding_key_ref)
             .map_err(|e| ApiError::internal_with_context("Failed to generate ID token", &e))
     }
 
-    /// 生成 Access Token (RS256, 与 id_token 算法一致, 防止 alg 混淆)
+    /// 生成 Access Token（默认 RS256，与 ID Token 算法一致防止 alg 混淆）
     fn generate_access_token(&self, user: &BuiltinOidcUser, scope: &str) -> Result<String, ApiError> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -599,9 +710,11 @@ impl BuiltinOidcProvider {
             scope: scope.to_string(),
         };
 
-        let mut header = Header::new(Algorithm::RS256);
-        header.kid = Some(self.key_id.clone());
-        encode(&header, &claims, &self.encoding_key)
+        let alg = Self::default_signing_algorithm();
+        let (encoding_key_ref, kid) = self.select_encoding_key(alg)?;
+        let mut header = Header::new(alg);
+        header.kid = Some(kid.to_string());
+        encode(&header, &claims, encoding_key_ref)
             .map_err(|e| ApiError::internal_with_context("Failed to generate access token", &e))
     }
 
@@ -621,16 +734,55 @@ impl BuiltinOidcProvider {
         Ok(token)
     }
 
-    /// 验证 Access Token (RS256)
+    /// 选择 signing key (encoding + kid) 按算法。返回 `(&EncodingKey, &str)`。
+    /// 双轨期内 RS256 + ES256 双开；其他算法拒绝。
+    fn select_encoding_key(&self, alg: Algorithm) -> Result<(&EncodingKey, &str), ApiError> {
+        match alg {
+            Algorithm::RS256 => Ok((&self.encoding_key, &self.key_id)),
+            Algorithm::ES256 => Ok((&self.ec_encoding_key, &self.ec_key_id)),
+            other => Err(ApiError::internal_with_context("OIDC unsupported signing alg", &format!("{other:?}"))),
+        }
+    }
+
+    /// 选择 decoding key (DecodingKey + kid) 按算法。
+    fn select_decoding_key(&self, alg: Algorithm) -> Result<(&DecodingKey, &str), ApiError> {
+        match alg {
+            Algorithm::RS256 => Ok((&self.decoding_key, &self.key_id)),
+            Algorithm::ES256 => Ok((&self.ec_decoding_key, &self.ec_key_id)),
+            other => Err(ApiError::internal_with_context("OIDC unsupported verify alg", &format!("{other:?}"))),
+        }
+    }
+
+    /// 验证 Access Token（按 JWT header.alg 自动选 RSA / EC decoding key）。
+    /// 同时支持 RS256（默认签发）与 ES256（双轨期外部签发）。
     fn verify_access_token(&self, token: &str) -> Result<AccessTokenClaims, ApiError> {
-        let mut validation = Validation::new(Algorithm::RS256);
+        // 解析 header.alg 用于选 decoding key
+        let alg = Self::peek_jwt_algorithm(token)?;
+        let (decoding_key_ref, _kid) = self.select_decoding_key(alg)?;
+
+        let mut validation = Validation::new(alg);
         validation.set_audience(&[&self.config.issuer]);
         validation.set_issuer(&[&self.config.issuer]);
-        let claims = decode::<AccessTokenClaims>(token, &self.decoding_key, &validation)
+        let claims = decode::<AccessTokenClaims>(token, decoding_key_ref, &validation)
             .map_err(|e| ApiError::unauthorized(format!("Invalid token: {}", e)))?
             .claims;
 
         Ok(claims)
+    }
+
+    /// 从 JWT header 解析 `alg` 字段。
+    fn peek_jwt_algorithm(token: &str) -> Result<Algorithm, ApiError> {
+        let header_b64 = token.split('.').next().unwrap_or("");
+        let header_bytes =
+            URL_SAFE_NO_PAD.decode(header_b64).map_err(|e| ApiError::unauthorized(format!("Invalid JWT header: {e}")))?;
+        let header: serde_json::Value = serde_json::from_slice(&header_bytes)
+            .map_err(|e| ApiError::unauthorized(format!("Invalid JWT header JSON: {e}")))?;
+        let alg_str = header.get("alg").and_then(|v| v.as_str()).unwrap_or("");
+        match alg_str {
+            "RS256" => Ok(Algorithm::RS256),
+            "ES256" => Ok(Algorithm::ES256),
+            other => Err(ApiError::unauthorized(format!("Unsupported JWT alg: {other}"))),
+        }
     }
 
     /// 登出: 仅撤销给定 refresh_token 关联用户的所有 refresh, 不动其他用户.
@@ -688,6 +840,7 @@ mod tests {
             }],
             allow_plaintext_passwords: true,
             signing_key_path: None,
+            signing_key_ec_path: None,
         })
     }
 
@@ -728,22 +881,46 @@ mod tests {
         assert!(doc.jwks_uri.contains("/.well-known/jwks.json"));
         assert!(doc.response_types_supported.contains(&"code".to_string()));
         assert!(doc.id_token_signing_alg_values_supported.contains(&"RS256".to_string()));
+        assert!(doc.id_token_signing_alg_values_supported.contains(&"ES256".to_string()));
         assert!(doc.code_challenge_methods_supported.contains(&"S256".to_string()));
     }
 
     #[test]
     fn test_get_jwks() {
         let provider = create_provider();
-        let jwks = provider.get_jwks();
+        let jwks = provider.get_jwks().expect("ES256 key derivation failed");
 
-        assert_eq!(jwks.keys.len(), 1);
-        let jwk = &jwks.keys[0];
-        assert_eq!(jwk.kty, "RSA");
-        assert_eq!(jwk.use_, "sig");
-        assert_eq!(jwk.alg, "RS256");
-        assert!(!jwk.kid.is_empty());
-        assert!(!jwk.n.is_empty());
-        assert!(!jwk.e.is_empty());
+        // Dual key JWKS: RSA RS256 + EC P-256 ES256 (RFC 7518 §3.4).
+        assert_eq!(jwks.keys.len(), 2);
+
+        let rsa_jwk = &jwks.keys[0];
+        assert_eq!(rsa_jwk.kty, "RSA");
+        assert_eq!(rsa_jwk.use_, "sig");
+        assert_eq!(rsa_jwk.alg, "RS256");
+        assert!(!rsa_jwk.kid.is_empty());
+        let rsa_n = rsa_jwk.n.as_ref().expect("RSA jwk must have n");
+        let rsa_e = rsa_jwk.e.as_ref().expect("RSA jwk must have e");
+        assert!(!rsa_n.is_empty(), "RSA n must be present");
+        assert!(!rsa_e.is_empty(), "RSA e must be present");
+        assert!(rsa_jwk.crv.is_none(), "RSA jwk must not have EC crv");
+        assert!(rsa_jwk.x.is_none(), "RSA jwk must not have EC x");
+        assert!(rsa_jwk.y.is_none(), "RSA jwk must not have EC y");
+
+        let ec_jwk = &jwks.keys[1];
+        assert_eq!(ec_jwk.kty, "EC");
+        assert_eq!(ec_jwk.use_, "sig");
+        assert_eq!(ec_jwk.alg, "ES256");
+        assert!(!ec_jwk.kid.is_empty());
+        assert_ne!(rsa_jwk.kid, ec_jwk.kid, "RSA and EC kids must differ");
+        let crv = ec_jwk.crv.as_ref().expect("EC jwk must have crv");
+        let x = ec_jwk.x.as_ref().expect("EC jwk must have x");
+        let y = ec_jwk.y.as_ref().expect("EC jwk must have y");
+        assert_eq!(crv, "P-256");
+        // P-256 affine coordinates are 32 bytes each = 43 base64url chars (no padding).
+        assert_eq!(x.len(), 43, "P-256 x must be 32 bytes base64url-encoded");
+        assert_eq!(y.len(), 43, "P-256 y must be 32 bytes base64url-encoded");
+        assert!(ec_jwk.n.is_none(), "EC jwk must not have RSA n");
+        assert!(ec_jwk.e.is_none(), "EC jwk must not have RSA e");
     }
 
     #[tokio::test]
