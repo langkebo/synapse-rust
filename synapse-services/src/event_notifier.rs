@@ -5,6 +5,7 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 const EVENT_NOTIFY_CHANNEL: &str = "synapse:events:notify";
@@ -146,8 +147,18 @@ impl EventNotifier {
     ///
     /// Without this, the notifier maps grow by one entry per distinct
     /// user/room ever waited on and never shrink. The container wires this
-    /// once at startup; the returned `JoinHandle` can be aborted on shutdown.
-    pub fn start_idle_slot_evictor(&self, interval: std::time::Duration) -> tokio::task::JoinHandle<()> {
+    /// once at startup; the loop exits cleanly when `shutdown` is cancelled
+    /// (the server's `shutdown_token` propagates here via `services`).
+    ///
+    /// Without the shutdown hook, the returned `JoinHandle` could only be
+    /// hard-aborted on SIGTERM — the in-flight `retain` would still finish
+    /// (cheap, lock-free), but the next tick would never fire, leaving the
+    /// caller with no clean exit signal during graceful shutdown.
+    pub fn start_idle_slot_evictor(
+        &self,
+        interval: std::time::Duration,
+        shutdown: CancellationToken,
+    ) -> tokio::task::JoinHandle<()> {
         let room_notifiers = self.room_notifiers.clone();
         let user_notifiers = self.user_notifiers.clone();
         tokio::spawn(async move {
@@ -155,13 +166,21 @@ impl EventNotifier {
             // Skip the immediate first tick; there is nothing to evict at startup.
             ticker.tick().await;
             loop {
-                ticker.tick().await;
-                let before = room_notifiers.len() + user_notifiers.len();
-                room_notifiers.retain(|_, notify| Arc::strong_count(notify) > 1);
-                user_notifiers.retain(|_, notify| Arc::strong_count(notify) > 1);
-                let evicted = before - (room_notifiers.len() + user_notifiers.len());
-                if evicted > 0 {
-                    debug!(evicted, "EventNotifier: evicted idle notify slots");
+                tokio::select! {
+                    biased;
+                    _ = shutdown.cancelled() => {
+                        debug!("EventNotifier idle slot evictor exiting on shutdown");
+                        break;
+                    }
+                    _ = ticker.tick() => {
+                        let before = room_notifiers.len() + user_notifiers.len();
+                        room_notifiers.retain(|_, notify| Arc::strong_count(notify) > 1);
+                        user_notifiers.retain(|_, notify| Arc::strong_count(notify) > 1);
+                        let evicted = before - (room_notifiers.len() + user_notifiers.len());
+                        if evicted > 0 {
+                            debug!(evicted, "EventNotifier: evicted idle notify slots");
+                        }
+                    }
                 }
             }
         })
@@ -234,7 +253,13 @@ impl EventNotifier {
     /// # Reconnection
     ///
     /// If the Redis connection drops, the subscriber retries after 1 second.
-    pub fn start_redis_subscriber(&self) -> Result<(), String> {
+    ///
+    /// # Shutdown
+    ///
+    /// The reconnect loop and the inner pubsub `while let` both race
+    /// against `shutdown.cancelled()` so SIGTERM exits cleanly without
+    /// leaving a dangling subscriber task behind.
+    pub fn start_redis_subscriber(&self, shutdown: CancellationToken) -> Result<(), String> {
         let Some(redis_url) = &self.redis_url else {
             debug!("EventNotifier: Redis not configured, skipping subscriber startup");
             return Ok(());
@@ -256,15 +281,32 @@ impl EventNotifier {
 
         tokio::spawn(async move {
             loop {
-                match Self::subscribe_and_listen(&client, &channel, &instance_id, &room_notifiers, &user_notifiers)
-                    .await
+                if shutdown.is_cancelled() {
+                    debug!("EventNotifier Redis subscriber exiting on shutdown");
+                    break;
+                }
+                match Self::subscribe_and_listen(
+                    &client,
+                    &channel,
+                    &instance_id,
+                    &room_notifiers,
+                    &user_notifiers,
+                    shutdown.clone(),
+                )
+                .await
                 {
                     Ok(_) => {
                         debug!("EventNotifier subscription ended normally, reconnecting...");
                     }
                     Err(e) => {
                         warn!("EventNotifier subscription error: {e}, reconnecting in 1s...");
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        // Race the backoff sleep against shutdown so a SIGTERM
+                        // arriving mid-retry exits immediately.
+                        tokio::select! {
+                            biased;
+                            _ = shutdown.cancelled() => break,
+                            _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {}
+                        }
                     }
                 }
             }
@@ -276,14 +318,15 @@ impl EventNotifier {
     /// Inner subscribe-and-listen loop for the Redis subscriber.
     ///
     /// Connects, subscribes to the channel, and processes messages until the
-    /// connection drops. Returns `Ok(())` on normal disconnect, `Err` on
-    /// connection failure.
+    /// connection drops or `shutdown` is cancelled. Returns `Ok(())` on
+    /// normal disconnect or shutdown, `Err` on connection failure.
     async fn subscribe_and_listen(
         client: &redis::Client,
         channel: &str,
         instance_id: &str,
         room_notifiers: &Arc<DashMap<String, Arc<Notify>>>,
         user_notifiers: &Arc<DashMap<String, Arc<Notify>>>,
+        shutdown: CancellationToken,
     ) -> Result<(), String> {
         let mut pubsub = client.get_async_pubsub().await.map_err(|e| format!("Failed to get async pubsub: {e}"))?;
 
@@ -293,44 +336,55 @@ impl EventNotifier {
 
         let mut message_stream = pubsub.on_message();
 
-        while let Some(msg) = message_stream.next().await {
-            let payload: Vec<u8> = match msg.get_payload() {
-                Ok(p) => p,
-                Err(e) => {
-                    warn!("Failed to get pub/sub message payload: {e}");
-                    continue;
+        loop {
+            tokio::select! {
+                biased;
+                _ = shutdown.cancelled() => {
+                    debug!("EventNotifier pubsub loop exiting on shutdown");
+                    break Ok(());
                 }
-            };
+                msg = message_stream.next() => {
+                    let Some(msg) = msg else {
+                        // Stream ended normally (connection dropped).
+                        break Ok(());
+                    };
+                    let payload: Vec<u8> = match msg.get_payload() {
+                        Ok(p) => p,
+                        Err(e) => {
+                            warn!("Failed to get pub/sub message payload: {e}");
+                            continue;
+                        }
+                    };
 
-            let notify_msg: EventNotifyMessage = match serde_json::from_slice(&payload) {
-                Ok(m) => m,
-                Err(e) => {
-                    warn!("Failed to decode EventNotifyMessage: {e}");
-                    continue;
-                }
-            };
+                    let notify_msg: EventNotifyMessage = match serde_json::from_slice(&payload) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            warn!("Failed to decode EventNotifyMessage: {e}");
+                            continue;
+                        }
+                    };
 
-            // Skip self-echo
-            if notify_msg.sender_instance == instance_id {
-                continue;
-            }
-
-            // Wake local waiters
-            match notify_msg.kind {
-                EventNotifyKind::Room => {
-                    if let Some(notify) = room_notifiers.get(&notify_msg.key) {
-                        notify.notify_waiters();
+                    // Skip self-echo
+                    if notify_msg.sender_instance == instance_id {
+                        continue;
                     }
-                }
-                EventNotifyKind::User => {
-                    if let Some(notify) = user_notifiers.get(&notify_msg.key) {
-                        notify.notify_waiters();
+
+                    // Wake local waiters
+                    match notify_msg.kind {
+                        EventNotifyKind::Room => {
+                            if let Some(notify) = room_notifiers.get(&notify_msg.key) {
+                                notify.notify_waiters();
+                            }
+                        }
+                        EventNotifyKind::User => {
+                            if let Some(notify) = user_notifiers.get(&notify_msg.key) {
+                                notify.notify_waiters();
+                            }
+                        }
                     }
                 }
             }
         }
-
-        Ok(())
     }
 
     fn get_or_create_room_notify(&self, room_id: &str) -> Arc<Notify> {
@@ -729,7 +783,7 @@ mod tests {
     #[test]
     fn s8_start_redis_subscriber_noop_without_redis() {
         let notifier = EventNotifier::new();
-        let result = notifier.start_redis_subscriber();
+        let result = notifier.start_redis_subscriber(tokio_util::sync::CancellationToken::new());
         assert!(result.is_ok(), "start_redis_subscriber without Redis must return Ok(())");
     }
 
@@ -777,7 +831,7 @@ mod tests {
         {
             let _slots = notifier.slots_for("@dave:example.com", &["!bg:example.com".to_string()]);
         }
-        let handle = notifier.start_idle_slot_evictor(std::time::Duration::from_millis(20));
+        let handle = notifier.start_idle_slot_evictor(std::time::Duration::from_millis(20), tokio_util::sync::CancellationToken::new());
         tokio::time::sleep(std::time::Duration::from_millis(120)).await;
         handle.abort();
         assert_eq!(notifier.broadcast_subscriber_count(), 0, "background evictor should reclaim idle slots");
