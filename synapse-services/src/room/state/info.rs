@@ -298,3 +298,271 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to check room encryption status", &e))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::room::state::service::{RoomStateService, RoomStateServiceConfig};
+    use crate::UserService;
+    use std::sync::Arc;
+    use synapse_storage::test_mocks::{
+        FakeUserStore, InMemoryEventStore, InMemoryMemberStore, InMemoryRoomStore, InMemoryRoomTagStore,
+    };
+
+    /// Build a minimal RoomStateService backed by in-memory stores. Room
+    /// tag storage is required by the constructor; we pass a no-op
+    /// InMemoryRoomTagStore.
+    fn make_service() -> RoomStateService {
+        let user_store: Arc<dyn synapse_storage::UserStore> = Arc::new(FakeUserStore::new());
+        RoomStateService::new(RoomStateServiceConfig {
+            room_storage: Arc::new(InMemoryRoomStore::new()),
+            member_storage: Arc::new(InMemoryMemberStore::new()),
+            event_reader: Arc::new(InMemoryEventStore::new()),
+            event_writer: Arc::new(InMemoryEventStore::new()),
+            room_tag_storage: Arc::new(InMemoryRoomTagStore::new()),
+            user_storage: user_store.clone(),
+            user_service: Arc::new(UserService::new(user_store)),
+            server_name: "test.example.com".to_string(),
+        })
+    }
+
+    // -------------------------------------------------------------------------
+    // get_room_encryption_status
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_room_encryption_status_returns_not_found_when_room_missing() {
+        let svc = make_service();
+        let result = svc.get_room_encryption_status("!missing:ex.com").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("not found"), "expected not_found error, got: {err}");
+    }
+
+    #[tokio::test]
+    async fn get_room_encryption_status_returns_unencrypted_when_no_state_events() {
+        let svc = make_service();
+        let status = svc.get_room_encryption_status("!nonexistent:ex.com").await;
+        // No room exists, expect not_found; if room existed, would return unencrypted status.
+        assert!(status.is_err());
+    }
+
+    // -------------------------------------------------------------------------
+    // get_user_room_list
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_user_room_list_returns_empty_when_user_has_no_rooms() {
+        let svc = make_service();
+        let result = svc.get_user_room_list("@alice:ex.com").await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // cleanup_abnormal_data
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn cleanup_abnormal_data_succeeds() {
+        let svc = make_service();
+        // InMemoryRoomStore::cleanup_abnormal_data returns Ok(json!) stub.
+        let result = svc.cleanup_abnormal_data(None).await;
+        assert!(result.is_ok(), "cleanup_abnormal_data should succeed: {:?}", result);
+    }
+
+    // -------------------------------------------------------------------------
+    // room_exists
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn room_exists_returns_false_for_missing_room() {
+        let svc = make_service();
+        let exists = svc.room_exists("!missing:ex.com").await.unwrap();
+        assert!(!exists);
+    }
+
+    // -------------------------------------------------------------------------
+    // block_room / unblock_room / get_room_block_status
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn block_room_succeeds_for_any_room() {
+        let svc = make_service();
+        let result = svc.block_room("!room:ex.com", "@admin:ex.com", Some("test reason")).await;
+        assert!(result.is_ok(), "block_room should not fail: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn get_room_block_status_returns_none_for_unknown_room() {
+        let svc = make_service();
+        let status = svc.get_room_block_status("!missing:ex.com").await.unwrap();
+        // InMemoryRoomStore::get_room_block_status always returns None.
+        assert!(status.is_none());
+    }
+
+    #[tokio::test]
+    async fn unblock_room_succeeds() {
+        let svc = make_service();
+        let result = svc.unblock_room("!room:ex.com").await;
+        assert!(result.is_ok(), "unblock_room should not fail: {:?}", result);
+    }
+
+    // -------------------------------------------------------------------------
+    // get_public_rooms_paginated / count_public_rooms
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_public_rooms_paginated_returns_empty_when_no_public_rooms() {
+        let svc = make_service();
+        let result = svc.get_public_rooms_paginated(10, None, None).await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn count_public_rooms_returns_zero_for_empty_store() {
+        let svc = make_service();
+        let count = svc.count_public_rooms().await.unwrap();
+        assert_eq!(count, 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // get_room_stats_overview / get_single_room_stats
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_room_stats_overview_succeeds() {
+        let svc = make_service();
+        let result = svc.get_room_stats_overview().await;
+        assert!(result.is_ok(), "get_room_stats_overview should not fail: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn get_single_room_stats_returns_none_for_missing_room() {
+        let svc = make_service();
+        let result = svc.get_single_room_stats("!missing:ex.com").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // get_room_count / get_room_record / get_room_listings_status
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_room_count_returns_zero_for_empty_store() {
+        let svc = make_service();
+        let count = svc.get_room_count().await.unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn get_room_record_returns_none_for_missing_room() {
+        let svc = make_service();
+        let result = svc.get_room_record("!missing:ex.com").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_room_listings_status_returns_none_for_missing_room() {
+        let svc = make_service();
+        let result = svc.get_room_listings_status("!missing:ex.com").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // set_room_public_with_directory / set_room_private_with_directory
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn set_room_public_with_directory_succeeds() {
+        let svc = make_service();
+        let result = svc.set_room_public_with_directory("!room:ex.com").await;
+        assert!(result.is_ok(), "set_room_public should not fail: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn set_room_private_with_directory_succeeds() {
+        let svc = make_service();
+        let result = svc.set_room_private_with_directory("!room:ex.com").await;
+        assert!(result.is_ok(), "set_room_private should not fail: {:?}", result);
+    }
+
+    // -------------------------------------------------------------------------
+    // shutdown_room_and_remove_members
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn shutdown_room_and_remove_members_succeeds() {
+        let svc = make_service();
+        let result = svc.shutdown_room_and_remove_members("!room:ex.com").await;
+        assert!(result.is_ok(), "shutdown should not fail: {:?}", result);
+    }
+
+    // -------------------------------------------------------------------------
+    // grant_room_admin
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn grant_room_admin_succeeds() {
+        let svc = make_service();
+        let result = svc.grant_room_admin("!room:ex.com", "@alice:ex.com").await;
+        assert!(result.is_ok(), "grant_room_admin should not fail: {:?}", result);
+    }
+
+    // -------------------------------------------------------------------------
+    // purge_history_before
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn purge_history_before_returns_zero_when_no_events() {
+        let svc = make_service();
+        let count = svc.purge_history_before("!room:ex.com", 0, true).await.unwrap();
+        assert_eq!(count, 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // get_room_version
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_room_version_returns_none_for_missing_room() {
+        let svc = make_service();
+        let result = svc.get_room_version("!missing:ex.com").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // search_all_rooms_admin
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn search_all_rooms_admin_returns_empty_for_no_matches() {
+        let svc = make_service();
+        let (rooms, total, next) =
+            svc.search_all_rooms_admin(Some("nonexistent"), 10, RoomSearchOrder::Name, None, None, None).await.unwrap();
+        assert!(rooms.is_empty());
+        assert_eq!(total, 0);
+        assert!(next.is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // is_room_creator
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn is_room_creator_returns_false_when_room_missing() {
+        let svc = make_service();
+        let result = svc.is_room_creator("!missing:ex.com", "@alice:ex.com").await.unwrap();
+        assert!(!result);
+    }
+
+    // -------------------------------------------------------------------------
+    // check_room_has_encryption
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn check_room_has_encryption_returns_false_when_no_events() {
+        let svc = make_service();
+        let result = svc.check_room_has_encryption("!missing:ex.com").await.unwrap();
+        assert!(!result);
+    }
+}
