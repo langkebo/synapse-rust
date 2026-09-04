@@ -581,9 +581,10 @@ pub async fn delete_user_device_admin_compat(
 
 #[axum::debug_handler]
 pub async fn login_as_user(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
+    headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let user = ctx.user_service.get_user_or_not_found(&user_id).await?;
 
@@ -607,6 +608,37 @@ pub async fn login_as_user(
         .generate_access_token(&user.user_id, &device_id, is_admin)
         .await
         .map_err(|e| ApiError::internal_with_context("Failed to generate token", &e))?;
+
+    // A1 (API 路由审计 2026-09-04): 显式记录 admin 互登录事件。
+    // `admin_auth_middleware` 会在 HTTP 层面记一次 (POST .../login)，
+    // 但 actor_id 来自最终生效的 token（即 target user），无法溯源到发起 admin。
+    // 这里用发起 admin 的 user_id 记一条独立 action，便于合规审计。
+    // `record_audit_event` 内部已 warn-兜底，不会因审计失败阻塞 API 响应。
+    let request_id = resolve_request_id(&headers);
+    if let Err(e) = record_audit_event(
+        &ctx,
+        &admin.user_id,
+        "admin.login_as_user",
+        "user",
+        &user.user_id,
+        request_id,
+        json!({
+            "admin_role": admin.role,
+            "target_user": user.user_id,
+            "target_is_admin": is_admin,
+            "device_id": &device_id,
+        }),
+    )
+    .await
+    {
+        tracing::warn!(
+            target: "admin_audit",
+            admin_user = %admin.user_id,
+            target_user = %user.user_id,
+            error = %e,
+            "Failed to record login_as_user audit event"
+        );
+    }
 
     Ok(Json(json!({
         "access_token": token,

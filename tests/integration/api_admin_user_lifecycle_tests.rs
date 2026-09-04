@@ -410,3 +410,88 @@ async fn test_admin_user_list_pagination_and_limits() {
     // 应该被限制在合理范围内（例如最多 1000）
     assert!(users.len() <= 1000, "Large limit should be capped");
 }
+
+/// A1 (API 路由审计 2026-09-04): `admin.login_as_user` 必须在 audit_events 表
+/// 留下独立 action 记录，actor_id 为发起 admin（非 target user）。
+#[tokio::test]
+async fn test_admin_login_as_user_writes_audit_event() {
+    let _guard = test_mutex().lock().await;
+    let Some((app, pool, cache)) = setup_test_context().await else {
+        return;
+    };
+    let admin_token = get_super_admin_token(&app, &pool, &cache).await;
+
+    // 1. 创建一个普通 target 用户
+    let username = format!("loginas_{}", rand::random::<u32>());
+    let user_id = format!("@{}:localhost", username);
+
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "Password123!",
+                "auth": { "type": "m.login.dummy" }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), register_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "target user registration should succeed");
+
+    // 记录 audit_events 起始行数（避免并发测试污染）
+    let baseline: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE action = 'admin.login_as_user'")
+            .fetch_one(pool.as_ref())
+            .await
+            .expect("count audit_events");
+
+    // 2. admin 调用 /_synapse/admin/v1/users/{user_id}/login
+    let encoded_user_id = user_id.replace('@', "%40").replace(':', "%3A");
+    let login_as_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/users/{}/login", encoded_user_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), login_as_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "admin login_as_user should return 200");
+
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["access_token"].as_str().is_some(), "response should include access_token");
+    assert_eq!(json["user_id"], user_id);
+
+    // 3. 验证 audit_events 表有 admin.login_as_user 记录，actor_id 是发起 admin
+    let new_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE action = 'admin.login_as_user'")
+            .fetch_one(pool.as_ref())
+            .await
+            .expect("count audit_events after login_as_user");
+    assert!(
+        new_count > baseline,
+        "login_as_user must write a new audit_events row (baseline={}, new={})",
+        baseline,
+        new_count
+    );
+
+    let row: (String, String, String, String) = sqlx::query_as(
+        "SELECT actor_id, action, resource_type, resource_id FROM audit_events \
+         WHERE action = 'admin.login_as_user' \
+         ORDER BY created_ts DESC LIMIT 1",
+    )
+    .fetch_one(pool.as_ref())
+    .await
+    .expect("query latest audit_events row");
+
+    // A1 核心断言：actor_id 必须是发起 admin，而非 target user。
+    // 若 audit_events 缺少独立的 admin.login_as_user 事件（只靠 middleware 记录），
+    // 则 actor_id 会是 target user_id（因为 middleware 用生效 token 溯源）。
+    assert_ne!(row.0, user_id, "actor_id must be the admin who called login_as_user, not the target user");
+    assert_eq!(row.1, "admin.login_as_user");
+    assert_eq!(row.2, "user");
+    assert_eq!(row.3, user_id, "resource_id must be the target user_id");
+}
