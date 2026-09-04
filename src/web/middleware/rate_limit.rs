@@ -109,7 +109,21 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
         Ok(d) => d,
         Err(e) => {
             if fail_open {
-                tracing::warn!("Rate limiter error, allowing request: {}", e);
+                // A4: 加攻击特征字段（client_ip + path + endpoint + retry_after）。
+                // rate_limit middleware 早于 auth middleware 执行，无法在此处
+                // 解析 user_id；用 is_authenticated（Authorization header 存在性）
+                // 替代，运维可在 production 日志里定位"未认证刷量"vs"已认证刷量"。
+                let is_authenticated = request.headers().contains_key(axum::http::header::AUTHORIZATION);
+                tracing::warn!(
+                    target: "rate_limit",
+                    event = "rate_limit_fail_open",
+                    client_ip = %ip,
+                    request_path = %request.uri().path(),
+                    endpoint = %endpoint_id,
+                    is_authenticated,
+                    error = %e,
+                    "Rate limiter error, allowing request"
+                );
                 rl_metrics.fail_open_total.inc();
                 return next.run(request).await;
             }
@@ -123,15 +137,23 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
         // 前者是限流在正常工作，后者是限流后端自身故障。混在一起会让
         // 「限流生效了」和「限流挂了」看起来一样。
         rl_metrics.rejected_total.inc();
-        // Rate limiting rejecting a request is expected behaviour under load,
-        // not an operational error — log at debug to avoid diluting warn-level
-        // alerts (审查 #29). Enable via `RUST_LOG=rate_limit=debug`.
-        tracing::debug!(
+        // A4: 升级到 warn + 攻击特征字段。429 在 attack 场景（登录爆破、CC）
+        // 是真实安全事件，运维需要能在默认 RUST_LOG=info 下看到。生产
+        // 高峰正常限流可用 `RUST_LOG=rate_limit=info` 关闭此告警。
+        //
+        // user_id 不可用：auth middleware 在 rate_limit 之后执行。改用
+        // is_authenticated（Authorization header 存在性）嗅探未认证/已认证
+        // 两种攻击模式。
+        let is_authenticated = request.headers().contains_key(axum::http::header::AUTHORIZATION);
+        tracing::warn!(
             target: "rate_limit",
-            ip = %ip,
+            event = "rate_limit_rejected",
+            client_ip = %ip,
+            request_path = %request.uri().path(),
             endpoint = %endpoint_id,
-            per_second = per_second,
-            burst_size = burst_size,
+            is_authenticated,
+            per_second,
+            burst_size,
             retry_after_seconds = decision.retry_after_seconds,
             "rate limit rejected request"
         );
