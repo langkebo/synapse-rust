@@ -23,8 +23,16 @@ impl InMemoryEventStore {
         // only constructed so service code that calls event_writer.pool() can
         // get a valid handle for `begin()`-style transactions (which our
         // mocked writers bypass internally).
+        //
+        // min_connections(0) prevents `connect_lazy` from spawning maintenance
+        // tasks (heartbeat/idle-timeout) that require a Tokio runtime.  This
+        // lets these mocks be used from both `#[test]` and `#[tokio::test]`
+        // without panicking.
         let pool = sqlx::postgres::PgPoolOptions::new()
+            .min_connections(0)
             .max_connections(1)
+            .max_lifetime(None)
+            .idle_timeout(None)
             .connect_lazy("postgresql://x:x@127.0.0.1:1/__inmem__")
             .expect("connect_lazy should not fail at construction");
         Self {
