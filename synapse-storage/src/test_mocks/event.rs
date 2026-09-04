@@ -1,17 +1,37 @@
 use super::*;
+use sqlx::PgPool;
 use synapse_common::current_timestamp_millis;
 
 /// In-memory event store mirroring [`crate::event::EventStorage`].
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct InMemoryEventStore {
     events: Arc<RwLock<HashMap<String, crate::event::RoomEvent>>>, // event_id → event
     #[allow(clippy::type_complexity)]
     txn_dedup: Arc<RwLock<HashMap<(String, String, String), String>>>, // (user, room, txn) → event_id
+    pool: Arc<PgPool>, // lazy pool for trait compat (never connected)
+}
+
+impl Default for InMemoryEventStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InMemoryEventStore {
     pub fn new() -> Self {
-        Self { events: Arc::new(RwLock::new(HashMap::new())), txn_dedup: Arc::new(RwLock::new(HashMap::new())) }
+        // Lazily-built pool pointed at a non-routable address. Never used —
+        // only constructed so service code that calls event_writer.pool() can
+        // get a valid handle for `begin()`-style transactions (which our
+        // mocked writers bypass internally).
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_lazy("postgresql://x:x@127.0.0.1:1/__inmem__")
+            .expect("connect_lazy should not fail at construction");
+        Self {
+            events: Arc::new(RwLock::new(HashMap::new())),
+            txn_dedup: Arc::new(RwLock::new(HashMap::new())),
+            pool: Arc::new(pool),
+        }
     }
 
     pub async fn create_event(
@@ -241,7 +261,7 @@ impl InMemoryEventStore {
 #[async_trait::async_trait]
 impl crate::event::reader::EventReader for InMemoryEventStore {
     fn pool(&self) -> &Arc<sqlx::PgPool> {
-        unimplemented!("InMemoryEventStore has no database pool")
+        &self.pool
     }
 
     async fn get_event(&self, event_id: &str) -> Result<Option<crate::event::RoomEvent>, sqlx::Error> {
@@ -917,7 +937,7 @@ impl crate::event::reader::EventReader for InMemoryEventStore {
 #[async_trait::async_trait]
 impl crate::event::writer::EventWriter for InMemoryEventStore {
     fn pool(&self) -> &Arc<sqlx::PgPool> {
-        unimplemented!("InMemoryEventStore has no database pool")
+        &self.pool
     }
 
     async fn create_event(

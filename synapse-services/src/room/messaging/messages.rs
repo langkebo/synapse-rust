@@ -462,3 +462,108 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Failed to clear typing ephemeral event", &e))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::room::messaging::service::{MessagingService, MessagingServiceConfig};
+    use crate::room::summary::RoomSummaryService;
+    use std::sync::Arc;
+    use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_storage::test_mocks::{
+        InMemoryEventStore, InMemoryMemberStore, InMemoryRelationsStore, InMemoryRoomStore, InMemoryRoomSummaryStore,
+    };
+
+    /// Build a minimal MessagingService backed by in-memory stores.
+    async fn make_service() -> MessagingService {
+        let event_store = Arc::new(InMemoryEventStore::new());
+        let room_summary_service = Arc::new(RoomSummaryService {
+            storage: Arc::new(InMemoryRoomSummaryStore::new()),
+            event_reader: event_store.clone(),
+            member_storage: Some(Arc::new(InMemoryMemberStore::new())),
+        });
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        MessagingService::new(MessagingServiceConfig {
+            event_reader: event_store.clone(),
+            event_writer: event_store,
+            room_storage: Arc::new(InMemoryRoomStore::new()),
+            member_storage: Arc::new(InMemoryMemberStore::new()),
+            server_name: "test.example.com".to_string(),
+            beacon_service: None,
+            task_queue: None,
+            relations_storage: Arc::new(InMemoryRelationsStore::new()),
+            event_broadcaster: None,
+            app_service_manager: None,
+            key_rotation_manager: None,
+            room_summary_service,
+            cache,
+        })
+    }
+
+    // -------------------------------------------------------------------------
+    // send_message — requires real DB pool (begin() → live connection).
+    // Covered by integration tests. Here we verify the membership guard path.
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn send_message_rejects_non_member() {
+        let svc = make_service().await;
+        let result = svc.send_message("!room:ex.com", "@alice:ex.com", "m.room.message", &json!({"body": "hi"})).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("not a member"), "expected forbidden error, got: {err}");
+    }
+
+    // -------------------------------------------------------------------------
+    // send_message_with_txn — requires real DB pool (begin() → live connection).
+    // Covered by integration tests. Here we verify the membership guard path.
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn send_message_with_txn_rejects_non_member() {
+        let svc = make_service().await;
+        let result = svc.send_message_with_txn("!room:ex.com", "@alice:ex.com", "m.room.message", &json!({"body": "hi"}), "txn1").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("not a member"), "expected forbidden error, got: {err}");
+    }
+
+    // -------------------------------------------------------------------------
+    // get_room_messages — requires real DB pool for get_max_origin_server_ts_for_room.
+    // Covered by integration tests. Here we verify the membership guard path.
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_room_messages_rejects_non_member_of_private_room() {
+        let svc = make_service().await;
+        let result = svc.get_room_messages("!room:ex.com", "@alice:ex.com", None, 20, "b").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("not a member"), "expected forbidden error, got: {err}");
+    }
+
+    // -------------------------------------------------------------------------
+    // ephemeral events
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn get_ephemeral_events_for_client_returns_empty_for_no_ephemeral() {
+        let svc = make_service().await;
+        let result = svc.get_ephemeral_events_for_client("!room:ex.com", 10).await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn set_typing_ephemeral_event_succeeds() {
+        let svc = make_service().await;
+        let result = svc.set_typing_ephemeral_event("!room:ex.com", "@alice:ex.com", &["@alice:ex.com".to_string()], 5000).await;
+        assert!(result.is_ok(), "set_typing should not fail: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn clear_typing_ephemeral_event_succeeds() {
+        let svc = make_service().await;
+        let result = svc.clear_typing_ephemeral_event("!room:ex.com", "@alice:ex.com").await;
+        assert!(result.is_ok(), "clear_typing should not fail: {:?}", result);
+    }
+}
