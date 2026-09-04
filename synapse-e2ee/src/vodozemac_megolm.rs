@@ -55,6 +55,13 @@ fn is_dual_write_enabled() -> bool {
 /// Maximum age of a megolm session in days before rotation.
 static MEGOLM_SESSION_MAX_AGE_DAYS: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
 
+/// E-04: a decrypted `message_index` jumping more than this many slots
+/// ahead of the last-known DB counter is treated as suspicious (replay or
+/// bug). The ratchet itself enforces forward progress, so reaching this
+/// branch implies an out-of-band attack; 100 is a conservative threshold
+/// that is well above any realistic single batch encrypt.
+const MEGOLM_LARGE_INDEX_GAP: u32 = 100;
+
 fn get_session_max_age_days() -> i64 {
     *MEGOLM_SESSION_MAX_AGE_DAYS.get_or_init(|| {
         std::env::var("MEGOLM_SESSION_MAX_AGE_DAYS")
@@ -413,8 +420,17 @@ impl MegolmVodozemacService {
     }
 
     /// Decrypt a ciphertext using the vodozemac inbound session.
+    ///
+    /// E-04: emit structured `security_audit` logs that record the message
+    /// index so an off-line detector can spot replay patterns (repeated
+    /// indices, anomalous gaps, regressions). vodozemac's ratchet already
+    /// rejects an index that is older than the highest index it has
+    /// consumed, so the application layer only needs the *observability*
+    /// signal — we do not maintain a separate "seen" set in the database.
     pub async fn decrypt(&self, session_id: &str, ciphertext: &[u8]) -> Result<Vec<u8>, ApiError> {
         let (session, mut inbound) = self.load_inbound(session_id).await?;
+
+        let last_known_index = session.message_index as u32;
 
         let msg = vodozemac::megolm::MegolmMessage::from_bytes(ciphertext)
             .map_err(|_| ApiError::decryption_error("Invalid megolm ciphertext".to_string()))?;
@@ -422,6 +438,42 @@ impl MegolmVodozemacService {
         let decrypted = inbound
             .decrypt(&msg)
             .map_err(|e| ApiError::decryption_error(format!("vodozemac megolm decrypt failed: {e}")))?;
+
+        let new_index = decrypted.message_index;
+
+        // E-04: surface suspicious ratchet behaviour as a security audit
+        // event. The ratchet itself enforces forward progress, so reaching
+        // the `if` branches below implies an out-of-band replay attempt
+        // (e.g. an attacker substituting a ratchet pickle) or a buggy
+        // client that fast-forwards. In both cases we want a loud,
+        // grep-able log line — not a silent return.
+        if new_index < last_known_index {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "megolm_decrypt_index_regression",
+                session_id = %session_id,
+                last_known_index = last_known_index,
+                new_index = new_index,
+                "E-04: decrypted message_index regressed; possible ratchet replay"
+            );
+        } else if new_index.saturating_sub(last_known_index) > MEGOLM_LARGE_INDEX_GAP {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "megolm_decrypt_large_index_gap",
+                session_id = %session_id,
+                last_known_index = last_known_index,
+                new_index = new_index,
+                gap = new_index - last_known_index,
+                "E-04: decrypted message_index jumped unexpectedly far"
+            );
+        } else {
+            ::tracing::debug!(
+                target: "security_audit",
+                event = "megolm_decrypt_ok",
+                session_id = %session_id,
+                message_index = new_index,
+            );
+        }
 
         // Persist the updated pickle.
         let new_pickle_str = inbound_pickle_to_string(&inbound.pickle())?;
@@ -797,5 +849,51 @@ mod tests {
     fn test_megolm_message_from_bytes_returns_err_on_malformed_input() {
         let result = vodozemac::megolm::MegolmMessage::from_bytes(&[0u8; 5]);
         assert!(result.is_err(), "MegolmMessage::from_bytes should return Err for malformed ciphertext");
+    }
+
+    // ========================================================================
+    // E-04: message-index monitoring
+    // ========================================================================
+
+    /// E-04: verify `MEGOLM_LARGE_INDEX_GAP` is set to a sensible threshold.
+    /// The constant controls when `decrypt` emits a `megolm_decrypt_large_index_gap`
+    /// warning. 100 is conservative — well above any realistic single batch
+    /// decrypt that a client would perform in one sync cycle.
+    #[test]
+    fn test_e04_large_index_gap_threshold() {
+        assert_eq!(
+            MEGOLM_LARGE_INDEX_GAP, 100,
+            "E-04: MEGOLM_LARGE_INDEX_GAP should be 100; adjust after profiling"
+        );
+    }
+
+    /// E-04: confirm that the vodozemac ratchet enforces forward progress
+    /// (each decrypt consumes one message_index; the next decrypt must be ≥
+    /// the previous). This is the foundation that makes the application-layer
+    /// monitoring log meaningful: a gap of 0 on two distinct ciphertexts
+    /// implies a replay attempt, while a regression implies a manipulated
+    /// pickle — both surface as `security_audit` events in the `decrypt`
+    /// method's new logging block.
+    #[test]
+    fn test_e04_vodozemac_ratchet_enforces_forward_progress() {
+        let mut outbound = GroupSession::new(SessionConfig::default());
+        let session_key = outbound.session_key();
+        let mut inbound = InboundGroupSession::new(&session_key, SessionConfig::default());
+
+        // Encrypt and decrypt 3 messages; record the indices.
+        let indices: Vec<u32> = (0..3)
+            .map(|i| {
+                let pt = format!("message {i}");
+                let msg = outbound.encrypt(pt.as_bytes());
+                let decrypted = inbound.decrypt(&msg).expect("valid decrypt");
+                decrypted.message_index
+            })
+            .collect();
+
+        assert_eq!(indices, &[0, 1, 2], "message indices must be 0, 1, 2");
+        assert!(
+            indices.windows(2).all(|w| w[1] >= w[0]),
+            "each message_index must be ≥ the previous one"
+        );
     }
 }

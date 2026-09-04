@@ -81,8 +81,11 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
     // in-memory bucket (which would defeat the purpose of the "redis" setting).
     if matches!(backend, RateLimitBackend::Redis) && !redis_available {
         tracing::error!(
-            "Rate limit backend is set to 'redis' but Redis is not available. \
-             Rejecting request to avoid inconsistent multi-worker rate limiting."
+            target: "rate_limit",
+            backend = "redis",
+            redis_available = false,
+            fail_open = fail_open,
+            "Rate limit backend is set to 'redis' but Redis is not available"
         );
         if fail_open {
             // W7+: 放行 = 限流此刻形同虚设，单独计数（应告警）
@@ -91,6 +94,14 @@ pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Requ
         }
         // W7+: 硬拒绝 = Redis 一挂全站 429，单独计数（应告警）
         rl_metrics.fail_closed_total.inc();
+        // OBS-05 (P2): fail_closed 仅 inc counter 不够，必须留痕 error 日志，
+        // 否则运维侧无法在告警系统未配置 metrics scraping 时感知 Redis 故障。
+        tracing::error!(
+            target: "rate_limit",
+            event = "rate_limit_fail_closed",
+            backend = "redis",
+            "Rejecting request because rate limit Redis backend is unavailable"
+        );
         return ApiError::rate_limited("").into_response();
     }
 

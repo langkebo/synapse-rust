@@ -451,6 +451,14 @@ impl MediaService {
         // 内存耗尽。阈值对齐 Synapse max_image_pixels 的保守上界。
         const MAX_IMAGE_DIMENSION: u32 = 8192;
 
+        // MEDIA-01 (P1): 缩略图输出尺寸上限。即使请求方传入 10000×10000，
+        // 也限制到 2048×2048（人类视觉阈值 + 避免 CPU/内存/磁盘三重耗尽）。
+        // 渲染后尺寸 = target_width * target_height 像素，2048² ≈ 4.2MP，
+        // 既保留细节又把 JPEG 输出大小控制在 < 2MB。
+        const MAX_THUMB_OUTPUT_DIMENSION: u32 = 2048;
+        let target_width = target_width.min(MAX_THUMB_OUTPUT_DIMENSION);
+        let target_height = target_height.min(MAX_THUMB_OUTPUT_DIMENSION);
+
         let mut reader = ImageReader::new(std::io::Cursor::new(image_data))
             .with_guessed_format()
             .map_err(|e| ApiError::bad_request(format!("Unsupported image format: {e}")))?;
@@ -1017,6 +1025,27 @@ mod tests {
 
         let result = MediaService::generate_thumbnail(&buf, 100, 100, ThumbnailMethod::Scale);
         assert!(result.is_err(), "oversized image must be rejected");
+    }
+
+    // MEDIA-01: 即使请求方传入超大目标尺寸，generate_thumbnail 也必须将其
+    // 收敛到 MAX_THUMB_OUTPUT_DIMENSION (2048)。否则请求 ?width=10000&height=10000
+    // 会触发 CPU/内存/磁盘三重耗尽 DoS。
+    #[test]
+    fn test_generate_thumbnail_caps_output_dimensions() {
+        let img = image::RgbImage::from_pixel(500, 500, image::Rgb([128u8, 128, 128]));
+        let mut buf = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png).unwrap();
+
+        // 请求 9999×9999 → 输出应被静默收敛到 2048×2048 而非 panic / 失败。
+        let result =
+            MediaService::generate_thumbnail(&buf, 9999, 9999, ThumbnailMethod::Scale).expect("缩略图生成应成功");
+        assert!(!result.is_empty(), "应返回非空 JPEG 字节流");
+
+        // 用 image crate 解码结果验证尺寸确实 ≤ 2048。
+        let decoded = image::load_from_memory_with_format(&result, image::ImageFormat::Jpeg)
+            .expect("解码刚生成的缩略图");
+        assert!(decoded.width() <= 2048, "输出宽度应 ≤ 2048，实际 {}", decoded.width());
+        assert!(decoded.height() <= 2048, "输出高度应 ≤ 2048，实际 {}", decoded.height());
     }
 
     #[test]

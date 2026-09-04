@@ -58,8 +58,11 @@ pub(crate) async fn authorize_admin_from_services(
     let rbac_enabled = security.admin_rbac_enabled;
     let rbac_allowed = !rbac_enabled || allowed;
 
+    // OBS-04 (P2): RBAC 日志需携带 request_id，便于与 audit 落库和 span 链路串联。
+    let request_id = resolve_request_id(headers);
     ::tracing::info!(
         target: "security_audit",
+        request_id = %request_id,
         role = %role,
         method = %method,
         path = %normalized_path,
@@ -68,8 +71,6 @@ pub(crate) async fn authorize_admin_from_services(
         rbac_allowed = %rbac_allowed,
         "RBAC check result"
     );
-
-    let request_id = resolve_request_id(headers);
 
     if let Some(audit_svc) = admin_audit_service {
         let audit_request = CreateAuditEventRequest {
@@ -141,8 +142,11 @@ pub(crate) async fn authorize_admin_request(
     let rbac_enabled = state.services.core.config.security.admin_rbac_enabled;
     let rbac_allowed = !rbac_enabled || allowed;
 
+    // OBS-04 (P2): RBAC 日志携带 request_id，便于与 audit 落库和 span 链路串联。
+    let request_id = resolve_request_id(headers);
     ::tracing::info!(
         target: "security_audit",
+        request_id = %request_id,
         role = %role,
         method = %method,
         path = %normalized_path,
@@ -153,7 +157,6 @@ pub(crate) async fn authorize_admin_request(
     );
 
     // 记录审计日志
-    let request_id = resolve_request_id(headers);
 
     let audit_request = CreateAuditEventRequest {
         actor_id: user_id.clone(),

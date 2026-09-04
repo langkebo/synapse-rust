@@ -30,7 +30,17 @@ pub async fn auth_middleware(
         return err.into_response();
     }
 
-    next.run(request).await
+    // OBS-03 (P2): 客户端主路由（CS API）也必须在响应头中返回 `x-request-id`，
+    // 否则 4xx/5xx 时客户端拿到的错无法与服务器日志串联。在 next.run 前
+    // 解析出 request_id，因为 response.headers() 不包含 incoming header。
+    let request_id = crate::web::routes::admin::audit::resolve_request_id(request.headers());
+    let mut response = next.run(request).await;
+    if !response.headers().contains_key("x-request-id") {
+        if let Ok(value) = axum::http::HeaderValue::from_str(&request_id) {
+            response.headers_mut().insert("x-request-id", value);
+        }
+    }
+    response
 }
 
 pub async fn shadow_ban_middleware(

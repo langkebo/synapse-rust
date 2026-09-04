@@ -84,6 +84,18 @@ impl ClientPushService {
             )
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to save pusher", &e))?;
+        // OBS-01 (P1): Pusher 订阅是用户可控的安全敏感通道（攻击者可通过 pushkey
+        // 关联获得推送送达能力）。成功路径必须留痕：包含 user_id、device_id、
+        // kind、app_id，但**不**打印 pushkey/data（data 可能含 gateway URL 等配置）。
+        ::tracing::info!(
+            target: "security_audit",
+            event = "pusher_upserted",
+            user_id = %request.user_id,
+            device_id = %request.device_id,
+            kind = %request.kind,
+            app_id = %request.app_id,
+            "Pusher subscription upserted"
+        );
         Ok(now)
     }
 
@@ -92,6 +104,16 @@ impl ClientPushService {
             .delete_pusher(user_id, device_id, pushkey)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to delete pusher", &e))?;
+        // OBS-01 (P1): 删除 pusher 同样留痕。注意 pushkey 已通过路径参数获得，
+        // 仅记录其存在与长度，不打印值（pushkey 可能是 APNs device token 等敏感字段）。
+        ::tracing::info!(
+            target: "security_audit",
+            event = "pusher_deleted",
+            user_id = %user_id,
+            device_id = %device_id,
+            pushkey_len = pushkey.len(),
+            "Pusher subscription deleted"
+        );
         Ok(())
     }
 
@@ -140,6 +162,18 @@ impl ClientPushService {
             )
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to save push rule", &e))?;
+        // OBS-01 (P1): Push rule 控制通知过滤策略（房间/关键词/事件类型），是
+        // 用户可控制的通知行为边界。记录操作类型和规则 ID；不记录 pattern/conditions
+        // 内容（可能含关键词等用户数据）。
+        ::tracing::info!(
+            target: "security_audit",
+            event = "push_rule_upserted",
+            user_id = %request.user_id,
+            scope = %request.scope,
+            kind = %request.kind,
+            rule_id = %request.rule_id,
+            "Push rule upserted"
+        );
         Ok(now)
     }
 
@@ -155,6 +189,18 @@ impl ClientPushService {
             .delete_push_rule(user_id, scope, kind, rule_id)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to delete push rule", &e))?;
+        // OBS-01 (P1): 删除 push rule 留痕。
+        if rows > 0 {
+            ::tracing::info!(
+                target: "security_audit",
+                event = "push_rule_deleted",
+                user_id = %user_id,
+                scope = %scope,
+                kind = %kind,
+                rule_id = %rule_id,
+                "Push rule deleted"
+            );
+        }
         Ok(rows > 0)
     }
 
@@ -170,6 +216,16 @@ impl ClientPushService {
             .update_push_rule_actions(user_id, scope, kind, rule_id, actions)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to update push rule actions", &e))?;
+        // OBS-01 (P1): Push rule actions 控制通知行为（notify / don't_notify / coalesce）。
+        ::tracing::info!(
+            target: "security_audit",
+            event = "push_rule_actions_updated",
+            user_id = %user_id,
+            scope = %scope,
+            kind = %kind,
+            rule_id = %rule_id,
+            "Push rule actions updated"
+        );
         Ok(())
     }
 
@@ -198,6 +254,17 @@ impl ClientPushService {
             .set_push_rule_enabled(user_id, scope, kind, rule_id, enabled)
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to update push rule enabled", &e))?;
+        // OBS-01 (P1): 启用/禁用 push rule 是通知行为开关，留痕。
+        ::tracing::info!(
+            target: "security_audit",
+            event = if enabled { "push_rule_enabled" } else { "push_rule_disabled" },
+            user_id = %user_id,
+            scope = %scope,
+            kind = %kind,
+            rule_id = %rule_id,
+            enabled = enabled,
+            "Push rule enabled/disabled toggled"
+        );
         Ok(())
     }
 
@@ -229,6 +296,17 @@ impl ClientPushService {
             .ack_notification(notification_id, user_id, current_timestamp_millis())
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to ack notification", &e))?;
-        Ok(result.is_some())
+        let success = result.is_some();
+        // OBS-01 (P1): 通知 ack 留痕（仅当成功时记录，避免失败噪声日志）。
+        if success {
+            ::tracing::info!(
+                target: "security_audit",
+                event = "notification_acked",
+                user_id = %user_id,
+                notification_id = notification_id,
+                "Notification acknowledged"
+            );
+        }
+        Ok(success)
     }
 }
