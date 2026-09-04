@@ -1,5 +1,6 @@
 use base64::Engine;
 use rand::RngCore;
+use educe::Educe;
 use serde::Deserialize;
 
 // ============================================================================
@@ -9,11 +10,11 @@ use serde::Deserialize;
 /// 安全配置。
 ///
 /// 配置认证、加密和密码哈希参数。
-#[derive(Clone, Deserialize, derivative::Derivative)]
-#[derivative(Debug)]
+#[derive(Clone, Deserialize, Educe)]
+#[educe(Debug)]
 pub struct SecurityConfig {
     /// 密钥字符串
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub secret: String,
     /// 令牌过期时间
     pub expiry_time: i64,
@@ -50,7 +51,7 @@ pub struct SecurityConfig {
     pub admin_mfa_required: bool,
     /// 管理员 TOTP 共享密钥，支持 Base32；解析失败时回退为原始字节
     #[serde(default)]
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub admin_mfa_shared_secret: String,
     /// 允许的时间漂移窗口（30 秒步长）
     #[serde(default = "default_admin_mfa_allowed_drift_steps")]
@@ -66,7 +67,7 @@ pub struct SecurityConfig {
     /// This secret is ephemeral (not persisted), so CSRF tokens from
     /// previous server runs will be invalid after restart.
     #[serde(default = "default_csrf_secret")]
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub csrf_secret: String,
 }
 
@@ -196,13 +197,13 @@ pub fn default_cors_max_age() -> u64 {
     86400
 }
 
-#[derive(Clone, Deserialize, derivative::Derivative)]
-#[derivative(Debug)]
+#[derive(Clone, Deserialize, Educe)]
+#[educe(Debug)]
 pub struct AdminRegistrationConfig {
     #[serde(default = "default_admin_registration_enabled")]
     pub enabled: bool,
     #[serde(default = "default_admin_registration_shared_secret")]
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub shared_secret: String,
     #[serde(default = "default_admin_registration_nonce_timeout")]
     pub nonce_timeout_seconds: u64,

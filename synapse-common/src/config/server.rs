@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use educe::Educe;
 
 // ============================================================================
 // SECTION: Server Configuration
@@ -10,8 +11,8 @@ use serde::Deserialize;
 ///
 /// 官方 Synapse 对应配置: `server_name`, `public_baseurl`, `signing_key_path` 等
 /// 文档: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#server
-#[derive(Clone, Deserialize, Default, derivative::Derivative)]
-#[derivative(Debug)]
+#[derive(Clone, Deserialize, Default, Educe)]
+#[educe(Debug)]
 pub struct ServerConfig {
     /// 服务器名称（域名）
     /// Matrix 规范要求的唯一标识符，格式如 "example.com"
@@ -67,7 +68,7 @@ pub struct ServerConfig {
     /// - 签名访问令牌
     /// - 验证令牌完整性
     #[serde(default)]
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub macaroon_secret_key: Option<String>,
 
     /// 表单密钥
@@ -80,7 +81,7 @@ pub struct ServerConfig {
     /// - UIAA 会话签名
     /// - 防止表单伪造
     #[serde(default)]
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub form_secret: Option<String>,
 
     /// 服务器名称（与 name 字段相同）
@@ -135,7 +136,7 @@ pub struct ServerConfig {
 
     // ===== 原有字段 =====
     /// 注册共享密钥（用于管理员注册）
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub registration_shared_secret: Option<String>,
 
     /// 管理员联系邮箱

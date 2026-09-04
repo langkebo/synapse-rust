@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use educe::Educe;
 
 // ============================================================================
 // SECTION: Database Configuration
@@ -43,8 +44,8 @@ fn default_database_idle_in_transaction_timeout_secs() -> u64 {
 }
 
 /// 数据库连接配置。
-#[derive(Clone, Deserialize, derivative::Derivative)]
-#[derivative(Debug)]
+#[derive(Clone, Deserialize, Educe)]
+#[educe(Debug)]
 pub struct DatabaseConfig {
     /// 数据库主机地址
     pub host: String,
@@ -53,7 +54,7 @@ pub struct DatabaseConfig {
     /// 数据库用户名
     pub username: String,
     /// 数据库密码
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub password: String,
     /// 数据库名称
     pub name: String,
@@ -114,15 +115,15 @@ impl Default for DatabaseConfig {
 }
 
 /// Redis 缓存配置。
-#[derive(Clone, Deserialize, Default, derivative::Derivative)]
-#[derivative(Debug)]
+#[derive(Clone, Deserialize, Default, Educe)]
+#[educe(Debug)]
 pub struct RedisConfig {
     /// Redis 主机地址
     pub host: String,
     /// Redis 端口
     pub port: u16,
     /// Redis 密码（可选）
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub password: Option<String>,
     /// 缓存键前缀
     pub key_prefix: String,
@@ -243,7 +244,7 @@ mod tests {
 
     #[test]
     fn debug_output_redacts_passwords() {
-        // 审查 #25：密钥字段 derive Debug 时必须脱敏（derivative Debug="ignore"）。
+        // 审查 #25：密钥字段 Debug 派生时必须脱敏（#[educe(Debug(ignore))]）。
         let db = DatabaseConfig {
             host: "localhost".into(),
             port: 5432,

@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use educe::Educe;
 
 // ============================================================================
 // SECTION: Translation Configuration
@@ -31,8 +32,8 @@ fn default_translate_max_text_length() -> usize {
 ///
 /// When `enabled` is `false`, the translate endpoint returns the original text
 /// (passthrough/stub behavior).
-#[derive(Clone, Deserialize, derivative::Derivative)]
-#[derivative(Debug)]
+#[derive(Clone, Deserialize, Educe)]
+#[educe(Debug)]
 pub struct TranslateConfig {
     /// Whether the translation service is enabled.
     /// When disabled, the translate endpoint returns the original text.
@@ -48,7 +49,7 @@ pub struct TranslateConfig {
     /// For DeepL: the DeepL API key.
     /// For LibreTranslate: optional (if the instance requires one).
     #[serde(default)]
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub api_key: String,
 
     /// Base URL for the translation API.

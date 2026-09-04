@@ -243,7 +243,11 @@ tracing-subscriber = { version = "0.3" }
 moka = { version = "0.12" }
 parking_lot = "0.12"
 zeroize = "1"
-derivative = "2.2"
+# Educe 0.7 replaces derivative 2.2: identical Debug derive API, removes RUSTSEC-2024-0401.
+# Minimum Rust 1.89, project MSRV 1.93 ✓
+# Migration: #[derive(... derivative::Derivative)] #[derivative(Debug)] → #[derive(... educe::Educe)] #[educe(Debug)]
+#           #[derivative(Debug = "ignore")] → #[educe(Debug(ignore))]
+educe = "0.7"
 
 [[test]]
 name = "integration"

@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use std::collections::HashMap;
+use educe::Educe;
 
 // ============================================================================
 // SECTION: Worker & Replication Configuration
@@ -123,13 +124,13 @@ pub struct ReplicationConfig {
     pub http: ReplicationHttpConfig,
 }
 
-#[derive(Clone, Deserialize, Default, derivative::Derivative)]
-#[derivative(Debug)]
+#[derive(Clone, Deserialize, Default, Educe)]
+#[educe(Debug)]
 pub struct ReplicationHttpConfig {
     pub enabled: bool,
     pub host: String,
     pub port: u16,
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub secret: Option<String>,
     pub secret_path: Option<String>,
 }

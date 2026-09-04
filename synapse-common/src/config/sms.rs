@@ -1,11 +1,12 @@
 use serde::Deserialize;
+use educe::Educe;
 
 /// SMS provider configuration.
 ///
 /// Supports multiple SMS provider backends (aliyun, twilio, etc.)
 /// with provider-specific credentials.
-#[derive(Clone, Deserialize, Default, derivative::Derivative)]
-#[derivative(Debug)]
+#[derive(Clone, Deserialize, Default, Educe)]
+#[educe(Debug)]
 pub struct SmsConfig {
     /// Whether SMS captcha delivery is enabled
     #[serde(default = "default_sms_enabled")]
@@ -15,11 +16,11 @@ pub struct SmsConfig {
     pub provider: String,
     /// Provider-specific API key / AccessKey ID
     #[serde(default)]
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub api_key: String,
     /// Provider-specific API secret / AccessKey Secret
     #[serde(default)]
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub api_secret: String,
     /// Provider-specific endpoint URL (e.g. SMS API endpoint)
     #[serde(default)]

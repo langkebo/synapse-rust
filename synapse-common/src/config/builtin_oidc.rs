@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use educe::Educe;
 
 /// 服务器配置结构。
 ///
@@ -36,18 +37,18 @@ fn default_builtin_oidc_client_id() -> String {
     "builtin-oidc-client".to_string()
 }
 
-#[derive(Clone, Deserialize, derivative::Derivative)]
-#[derivative(Debug)]
+#[derive(Clone, Deserialize, Educe)]
+#[educe(Debug)]
 pub struct BuiltinOidcUser {
     pub id: String,
     pub username: String,
     /// Plaintext password (development/testing only). Use password_hash in production.
     #[serde(default)]
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub password: Option<String>,
     /// Argon2 PHC string. Takes priority over password.
     #[serde(default)]
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub password_hash: Option<String>,
     pub email: String,
     pub displayname: Option<String>,

@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use educe::Educe;
 
 // ============================================================================
 // SECTION: Federation Configuration
@@ -10,12 +11,12 @@ use std::path::PathBuf;
 ///
 /// 配置与其他 Matrix 服务器的联邦通信参数。
 ///
-/// `Default` impl 是手写的——`#[derive(Default)]` 会把 `port=0`、
+/// `Default` impl 是手写的——`#[derive(Default` 会把 `port=0`、
 /// `enabled=false` 这类语义不合理的零值当成默认值。手工实现把所有
 /// `default_xxx()` 助手函数集中成一份"开箱即用的合理生产默认配置"，新加字段
 /// 时只需在 impl 内补一行 + 上面加一个助手函数即可。
-#[derive(Clone, Deserialize, derivative::Derivative)]
-#[derivative(Debug)]
+#[derive(Clone, Deserialize, Educe)]
+#[educe(Debug)]
 pub struct FederationConfig {
     /// 是否启用联邦功能
     pub enabled: bool,
@@ -34,7 +35,7 @@ pub struct FederationConfig {
     /// 客户端 CA 证书文件
     pub client_ca_file: Option<PathBuf>,
     /// 签名密钥
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub signing_key: Option<String>,
     /// 密钥 ID
     pub key_id: Option<String>,
@@ -142,7 +143,7 @@ pub struct FederationConfig {
     ///
     /// Generate with: `openssl rand -hex 32`
     #[serde(default)]
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub signing_key_master_key: Option<String>,
 
     /// Explicitly allow storing federation signing keys in plaintext when no

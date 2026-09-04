@@ -54,7 +54,7 @@ sha2 = { workspace = true, features = ["oid"] }
 hmac = { workspace = true }
 hkdf = "0.12"
 base64 = { workspace = true }
-derivative = { workspace = true }
+educe = { workspace = true }
 
 argon2 = "0.5"
 aes-gcm = "0.10"
