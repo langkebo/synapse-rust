@@ -400,6 +400,16 @@ pub async fn deactivate_user(
     Path(user_id): Path<UserId>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
+    // A4 (API 路由审计 2026-09-04): 拒绝 admin 停用自己。
+    // 单 admin 部署中，admin 停用自己会失去所有管理能力且无回退；
+    // 多 admin 部署中应要求另一个 admin 来执行。返回 400 而不是 403，
+    // 因为这是业务约束而非权限不足。
+    if admin.user_id == user_id.as_str() {
+        return Err(ApiError::bad_request(
+            "Cannot deactivate your own admin account; ask another admin to perform this action".to_string(),
+        ));
+    }
+
     let user = resolve_user(&ctx, &user_id).await?;
 
     // P2 #33: 审计日志 - deactivate_user 操作

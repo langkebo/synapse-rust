@@ -153,6 +153,49 @@ pub fn validate_membership(membership: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// Validate a Matrix homeserver name (e.g. `matrix.org`).
+///
+/// This is the lightweight counterpart of `Path<ServerName>`: the typed ID
+/// extractor covers the axum-bound case (route parameters), while this
+/// function is for hand-built server names (configs, body fields, query
+/// strings) that need the same defense-in-depth structural checks.
+///
+/// Matrix spec §1.5 only requires non-empty + bounded length for server
+/// names (full DNS / IP / port grammar lives in the spec). We additionally
+/// reject path-traversal and NUL bytes to prevent `../` or NUL injection
+/// into downstream filesystem / SQL / log paths.
+pub fn validate_server_name(server_name: &str) -> Result<(), ApiError> {
+    if server_name.is_empty() {
+        return Err(ApiError::invalid_input("server_name is required".to_string()));
+    }
+    if server_name.len() > 255 {
+        return Err(ApiError::invalid_input(format!(
+            "server_name too long: {} bytes (max 255)",
+            server_name.len()
+        )));
+    }
+    if server_name.contains('/') || server_name.contains('\\') || server_name.contains('\0') {
+        return Err(ApiError::invalid_input("Invalid server_name: must not contain /, \\, or NUL".to_string()));
+    }
+    Ok(())
+}
+
+/// Validate an Application Service ID (opaque token, Matrix spec §13.9).
+///
+/// AS IDs are application-specific strings with no Matrix-mandated format,
+/// so the only structural checks are non-empty + bounded length. Used by
+/// `_synapse/admin/v1/appservices/{as_id}/*` and `/_matrix/app/v1/{as_id}`
+/// route handlers as defense-in-depth alongside `app_service_auth_middleware`.
+pub fn validate_as_id(as_id: &str) -> Result<(), ApiError> {
+    if as_id.is_empty() {
+        return Err(ApiError::invalid_input("as_id is required".to_string()));
+    }
+    if as_id.len() > 255 {
+        return Err(ApiError::invalid_input(format!("as_id too long: {} bytes (max 255)", as_id.len())));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,5 +292,37 @@ mod tests {
         assert!(validate_membership("banned").is_err());
         assert!(validate_membership("").is_err());
         assert!(validate_membership("pending").is_err());
+    }
+
+    #[test]
+    fn test_validate_server_name_valid() {
+        assert!(validate_server_name("matrix.org").is_ok());
+        assert!(validate_server_name("localhost").is_ok());
+        assert!(validate_server_name("192.168.1.1").is_ok());
+        assert!(validate_server_name("example.com:8448").is_ok());
+        assert!(validate_server_name(&"a".repeat(255)).is_ok());
+    }
+
+    #[test]
+    fn test_validate_server_name_invalid() {
+        assert!(validate_server_name("").is_err());
+        assert!(validate_server_name(&"x".repeat(256)).is_err());
+        assert!(validate_server_name("matrix.org/..").is_err());
+        assert!(validate_server_name("evil\\server").is_err());
+        assert!(validate_server_name("bad\0server").is_err());
+    }
+
+    #[test]
+    fn test_validate_as_id_valid() {
+        assert!(validate_as_id("my_appservice").is_ok());
+        assert!(validate_as_id("tjg_bridge").is_ok());
+        assert!(validate_as_id("APISERVICE123").is_ok());
+        assert!(validate_as_id(&"a".repeat(255)).is_ok());
+    }
+
+    #[test]
+    fn test_validate_as_id_invalid() {
+        assert!(validate_as_id("").is_err());
+        assert!(validate_as_id(&"x".repeat(256)).is_err());
     }
 }

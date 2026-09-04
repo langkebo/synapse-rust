@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::common::ApiError;
 use crate::web::routes::extractors::UserId;
 use crate::web::routes::response_helpers::{created_json_from, empty_json, json_from, json_vec_from, require_found};
+use crate::web::routes::validators::validate_as_id;
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use synapse_storage::application_service::{
     ApplicationService, ApplicationServiceState, ApplicationServiceUser, RegisterApplicationServiceRequest,
@@ -212,6 +213,7 @@ pub async fn get_app_service(
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
+    validate_as_id(&as_id)?;
     let service = ctx.app_service_manager.get(&as_id).await?;
 
     Ok(json_from::<_, AppServiceResponse>(require_found(service, "Application service not found")?))
@@ -232,6 +234,7 @@ pub async fn update_app_service(
     _admin: AdminUser,
     Json(body): Json<UpdateAppServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    validate_as_id(&as_id)?;
     let request = body.into_request();
 
     let service = ctx.app_service_manager.update(&as_id, request).await?;
@@ -244,6 +247,7 @@ pub async fn delete_app_service(
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
+    validate_as_id(&as_id)?;
     ctx.app_service_manager.unregister(&as_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
@@ -254,6 +258,7 @@ pub async fn ping_app_service(
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
+    validate_as_id(&as_id)?;
     let is_alive = ctx.app_service_manager.ping(&as_id).await?;
 
     Ok(Json(serde_json::json!({
@@ -268,6 +273,7 @@ pub async fn set_app_service_state(
     _admin: AdminUser,
     Json(body): Json<SetStateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    validate_as_id(&as_id)?;
     let state_entry = ctx.app_service_manager.set_state(&as_id, &body.state_key, &body.state_value).await?;
 
     Ok(app_service_state_json(&state_entry))
@@ -278,6 +284,7 @@ pub async fn get_app_service_state(
     Path((as_id, state_key)): Path<(String, String)>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
+    validate_as_id(&as_id)?;
     let state_entry = ctx.app_service_manager.get_state(&as_id, &state_key).await?;
 
     Ok(app_service_state_json(&require_found(state_entry, "State not found")?))
@@ -288,6 +295,7 @@ pub async fn get_app_service_states(
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
+    validate_as_id(&as_id)?;
     let states = ctx.app_service_manager.get_all_states(&as_id).await?;
 
     Ok(Json(states))
@@ -299,6 +307,7 @@ pub async fn register_virtual_user(
     _admin: AdminUser,
     Json(body): Json<RegisterVirtualUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    validate_as_id(&as_id)?;
     let user = ctx
         .app_service_manager
         .register_virtual_user(&as_id, &body.user_id, body.displayname.as_deref(), body.avatar_url.as_deref())
@@ -312,6 +321,7 @@ pub async fn get_virtual_users(
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
+    validate_as_id(&as_id)?;
     let users = ctx.app_service_manager.get_virtual_users(&as_id).await?;
 
     Ok(json_vec_from::<_, VirtualUserResponse>(users))
@@ -322,6 +332,7 @@ pub async fn get_namespaces(
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
+    validate_as_id(&as_id)?;
     let namespaces = ctx.app_service_manager.get_namespaces(&as_id).await?;
 
     Ok(Json(namespaces))
@@ -333,6 +344,7 @@ pub async fn get_pending_events(
     _admin: AdminUser,
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
+    validate_as_id(&as_id)?;
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
     let events = ctx.app_service_manager.get_pending_events(&as_id, limit).await?;
 
@@ -345,6 +357,7 @@ pub async fn push_event(
     _admin: AdminUser,
     Json(body): Json<PushEventBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    validate_as_id(&as_id)?;
     let event = ctx
         .app_service_manager
         .push_event(&as_id, &body.room_id, &body.event_type, &body.sender, body.content, body.state_key.as_deref())
@@ -469,6 +482,7 @@ pub async fn app_service_query(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    validate_as_id(&as_id)?;
     let service = ctx.app_service_manager.get(&as_id).await?;
 
     let service = require_found(service, "Application service not found")?;

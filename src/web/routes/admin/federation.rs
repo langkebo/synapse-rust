@@ -165,7 +165,7 @@ pub async fn get_destinations(
 pub async fn get_destination(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(destination): Path<String>,
+    Path(destination): Path<ServerName>,
 ) -> Result<Json<Value>, ApiError> {
     match ctx.admin_federation_service.get_destination(&destination).await? {
         Some(row) => Ok(Json(json!(row))),
@@ -177,7 +177,7 @@ pub async fn get_destination(
 pub async fn reset_connection(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(destination): Path<String>,
+    Path(destination): Path<ServerName>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.admin_federation_service.reset_connection(&destination).await?;
     Ok(Json(json!({})))
@@ -187,7 +187,7 @@ pub async fn reset_connection(
 pub async fn delete_destination(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(destination): Path<String>,
+    Path(destination): Path<ServerName>,
 ) -> Result<Json<Value>, ApiError> {
     ctx.admin_federation_service.delete_destination(&destination).await?;
     Ok(Json(json!({})))
@@ -197,7 +197,7 @@ pub async fn delete_destination(
 pub async fn get_destination_rooms(
     _admin: AdminUser,
     State(ctx): State<AdminContext>,
-    Path(destination): Path<String>,
+    Path(destination): Path<ServerName>,
 ) -> Result<Json<Value>, ApiError> {
     let room_list = ctx.admin_federation_service.get_destination_rooms(&destination).await?;
 
