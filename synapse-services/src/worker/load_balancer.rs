@@ -354,4 +354,82 @@ mod tests {
         let capacity = balancer.get_total_capacity().await;
         assert_eq!(capacity, 180);
     }
+
+    // ── Coverage for uncovered methods ────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_update_worker_load_returns_silently_for_unknown_worker() {
+        let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
+        // No workers yet — update_worker_load should be a no-op (no panic).
+        balancer
+            .update_worker_load(
+                "nonexistent",
+                WorkerLoadStats {
+                    worker_id: "nonexistent".to_string(),
+                    active_connections: 5,
+                    pending_tasks: 1,
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert_eq!(balancer.get_worker_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_worker_stats_returns_none_for_unknown_worker() {
+        let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
+        let stats = balancer.get_worker_stats("unknown").await;
+        assert!(stats.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_worker_stats_returns_some_for_known_worker() {
+        let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
+        balancer.register_worker(create_test_worker("worker1", "frontend")).await;
+        let stats = balancer.get_worker_stats("worker1").await;
+        assert!(stats.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_get_all_stats_returns_empty_when_no_workers() {
+        let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
+        let all_stats = balancer.get_all_stats().await;
+        assert!(all_stats.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_active_worker_count_counts_running_workers() {
+        let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
+        balancer.register_worker(create_test_worker("worker1", "frontend")).await;
+        balancer.register_worker(create_test_worker("worker2", "frontend")).await;
+        // Both are registered with status="running" by default.
+        let active = balancer.get_active_worker_count().await;
+        assert_eq!(active, 2);
+    }
+
+    #[tokio::test]
+    async fn test_set_strategy_changes_load_balance_strategy() {
+        let mut balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
+        balancer.set_strategy(LoadBalanceStrategy::LeastConnections);
+        // Round-trip: just verify the call setter accepts the new value without panicking.
+        // (Internal strategy field is private; observable only via select_worker behavior.)
+        balancer.register_worker(create_test_worker("worker1", "frontend")).await;
+        let _ = balancer.select_worker("http").await;
+    }
+
+    #[tokio::test]
+    async fn test_select_worker_weighted_round_robin_picks_a_worker() {
+        let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::WeightedRoundRobin);
+        balancer.register_worker(create_test_worker("worker1", "frontend")).await;
+        let selected = balancer.select_worker("http").await;
+        assert!(selected.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_select_worker_random_picks_a_worker() {
+        let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::Random);
+        balancer.register_worker(create_test_worker("worker1", "frontend")).await;
+        let selected = balancer.select_worker("http").await;
+        assert!(selected.is_some());
+    }
 }
