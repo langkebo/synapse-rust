@@ -260,6 +260,8 @@ pub enum FederationClientError {
     InvalidResponse(String),
     #[error("Rate limited, retry after {0}ms")]
     RateLimited(u64),
+    #[error("Server blocked (possible SSRF): {0}")]
+    ServerBlocked(String),
     #[error("Timeout")]
     Timeout,
 }
@@ -268,6 +270,57 @@ impl From<FederationClientError> for ApiError {
     fn from(e: FederationClientError) -> Self {
         Self::internal(format!("Federation error: {e}"))
     }
+}
+
+// ---------------------------------------------------------------------------
+// F-04: SSRF prevention for federation destinations
+// ---------------------------------------------------------------------------
+
+/// F-04: Reject IP literals as federation destinations to prevent SSRF.
+///
+/// Matrix federation is name-based — server_name must be a DNS name, not an IP
+/// address.  This function rejects ALL IPs (private, loopback, multicast, and
+/// public) because:
+///  - Private/loopback: obvious internal-resource attack (port scanning, internal
+///    service access, database queries, etc.).
+///  - Public IPs: if an attacker can set `server_name` to a public IP, they can
+///    hijack federation traffic regardless of what DNS says. Federation must go
+///    through DNS so that TLS certificate validation secures transport.
+pub(crate) fn validate_federation_host_not_ssrf(host: &str) -> Result<(), String> {
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        let kind = match ip {
+            std::net::IpAddr::V4(v4) => {
+                if v4.is_loopback() {
+                    "loopback IPv4"
+                } else if v4.is_private() {
+                    "private IPv4"
+                } else if v4.is_link_local() {
+                    "link-local IPv4"
+                } else if v4.is_multicast() {
+                    "multicast IPv4"
+                } else if v4.is_unspecified() {
+                    "unspecified IPv4"
+                } else {
+                    "public IPv4"
+                }
+            }
+            std::net::IpAddr::V6(v6) => {
+                if v6.is_loopback() {
+                    "loopback IPv6"
+                } else if v6.is_multicast() {
+                    "multicast IPv6"
+                } else if v6.is_unspecified() {
+                    "unspecified IPv6"
+                } else {
+                    "public IPv6"
+                }
+            }
+        };
+        return Err(format!(
+            "F-04: IP literal not allowed as federation destination ({kind} {ip})"
+        ));
+    }
+    Ok(())
 }
 
 pub struct FederationClient {
@@ -403,6 +456,19 @@ impl FederationClient {
                 port: DEFAULT_FEDERATION_PORT,
             })
         };
+
+        // F-04: After resolving the server_name via well-known / fallback, the
+        // resulting host may still be an IP literal (e.g. `server_name =
+        // "192.168.1.1:8448"` or a delegated `m.server` of `10.0.0.1:443`).
+        // Both must be rejected as potential SSRF targets — Matrix federation
+        // is expected to use DNS-resolved hostnames, not IP literals, as
+        // destination servers.
+        if let Err(reason) = validate_federation_host_not_ssrf(&resolved.host) {
+            return Err(FederationClientError::ServerBlocked(format!(
+                "{} (host={})",
+                reason, resolved.host
+            )));
+        }
 
         self.server_resolution_cache.write().await.insert(
             server_name.to_string(),
@@ -1403,5 +1469,60 @@ mod tests {
         let now_ms: i64 = 1_700_000_000_000;
         let keys_expired = make_keys_for_ttl_test(now_ms - 1000);
         assert_eq!(effective_cache_ttl_secs(&keys_expired, now_ms), 0);
+    }
+
+    // ----------------------------------------------------------------------
+    // F-04: IP literals must be rejected as federation destinations (SSRF)
+    // ----------------------------------------------------------------------
+
+    #[test]
+    fn ssrf_rejects_loopback_ipv4() {
+        // F-04: 127.0.0.1 must be rejected even when attacker bypasses DNS.
+        let err = validate_federation_host_not_ssrf("127.0.0.1").unwrap_err();
+        assert!(err.contains("F-04"), "error must reference F-04: got {err}");
+        assert!(err.contains("127.0.0.1"), "error must include blocked IP");
+    }
+
+    #[test]
+    fn ssrf_rejects_private_ipv4() {
+        // F-04: 10.0.0.1 must be rejected (RFC 1918 private network).
+        let err = validate_federation_host_not_ssrf("10.0.0.1").unwrap_err();
+        assert!(err.contains("F-04"), "error must reference F-04: got {err}");
+    }
+
+    #[test]
+    fn ssrf_rejects_public_ipv4() {
+        // F-04: even a public IPv4 (8.8.8.8) is rejected — federation must
+        // use DNS so that TLS hostname validation secures transport.
+        let err = validate_federation_host_not_ssrf("8.8.8.8").unwrap_err();
+        assert!(err.contains("F-04"), "error must reference F-04: got {err}");
+        assert!(err.contains("8.8.8.8"), "error must include blocked IP");
+    }
+
+    #[test]
+    fn ssrf_rejects_ipv6_literal() {
+        // F-04: [::1] (loopback IPv6) must be rejected.
+        let err = validate_federation_host_not_ssrf("::1").unwrap_err();
+        assert!(err.contains("F-04"), "error must reference F-04: got {err}");
+    }
+
+    #[test]
+    fn ssrf_accepts_normal_dns_host() {
+        // F-04: regular DNS hostnames must pass through validation.
+        assert!(validate_federation_host_not_ssrf("matrix.org").is_ok());
+        assert!(validate_federation_host_not_ssrf("sub.example.com").is_ok());
+        assert!(validate_federation_host_not_ssrf("x.com").is_ok());
+    }
+
+    #[test]
+    fn ssrf_accepts_hostname_with_hyphens_and_numbers() {
+        // F-04: DNS labels can contain digits and hyphens. None of these
+        // parse as IpAddr, so they must all pass.
+        assert!(validate_federation_host_not_ssrf("s1.example.com").is_ok());
+        assert!(validate_federation_host_not_ssrf("a-b.example.com").is_ok());
+        // 5 octets: does NOT parse as IPv4 — must pass.
+        assert!(validate_federation_host_not_ssrf("1.2.3.4.5").is_ok());
+        // Out-of-range octet: also does NOT parse as IPv4 — must pass.
+        assert!(validate_federation_host_not_ssrf("999.999.999.999").is_ok());
     }
 }
