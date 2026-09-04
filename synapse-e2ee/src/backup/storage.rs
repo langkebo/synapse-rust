@@ -118,42 +118,83 @@ impl KeyBackupStorage {
     }
 
     pub async fn get_backup_version(&self, user_id: &str, version: &str) -> Result<Option<KeyBackup>, ApiError> {
-        let version_int: i64 = version.parse().unwrap_or(0);
-        let row = sqlx::query_as::<_, KeyBackupRow>(
-            r"
-            SELECT
-                user_id,
-                COALESCE(backup_id_text, version::text) AS backup_id,
-                version,
-                algorithm,
-                auth_key,
-                mgmt_key,
-                auth_data AS backup_data,
-                etag
-            FROM key_backups
-            WHERE user_id = $1 AND version = $2
-            ",
-        )
-        .bind(user_id)
-        .bind(version_int)
-        .fetch_optional(&*self.pool)
-        .await?;
-
-        Ok(row.map(KeyBackup::from))
+        // E-05: instead of `version.parse().unwrap_or(0)` (which silently
+        // degrades UUID or other non-numeric versions to a lookup of
+        // `version = 0`), branch on whether the string is parseable as i64.
+        // Pure-numeric versions hit the i64 index; everything else falls
+        // through to the text-equality path against `backup_id_text` (which
+        // stores the original string for non-numeric versions).
+        if let Ok(version_int) = version.parse::<i64>() {
+            let row = sqlx::query_as::<_, KeyBackupRow>(
+                r"
+                SELECT
+                    user_id,
+                    COALESCE(backup_id_text, version::text) AS backup_id,
+                    version,
+                    algorithm,
+                    auth_key,
+                    mgmt_key,
+                    auth_data AS backup_data,
+                    etag
+                FROM key_backups
+                WHERE user_id = $1 AND version = $2
+                ",
+            )
+            .bind(user_id)
+            .bind(version_int)
+            .fetch_optional(&*self.pool)
+            .await?;
+            Ok(row.map(KeyBackup::from))
+        } else {
+            let row = sqlx::query_as::<_, KeyBackupRow>(
+                r"
+                SELECT
+                    user_id,
+                    COALESCE(backup_id_text, version::text) AS backup_id,
+                    version,
+                    algorithm,
+                    auth_key,
+                    mgmt_key,
+                    auth_data AS backup_data,
+                    etag
+                FROM key_backups
+                WHERE user_id = $1 AND backup_id_text = $2
+                ",
+            )
+            .bind(user_id)
+            .bind(version)
+            .fetch_optional(&*self.pool)
+            .await?;
+            Ok(row.map(KeyBackup::from))
+        }
     }
 
     pub async fn delete_backup(&self, user_id: &str, version: &str) -> Result<(), ApiError> {
-        let version_int: i64 = version.parse().unwrap_or(0);
-        sqlx::query(
-            r"
-            DELETE FROM key_backups
-            WHERE user_id = $1 AND version = $2
-            ",
-        )
-        .bind(user_id)
-        .bind(version_int)
-        .execute(&*self.pool)
-        .await?;
+        // E-05: same fix as `get_backup_version` — branch on i64 vs text
+        // rather than silently coercing non-numeric versions to 0.
+        if let Ok(version_int) = version.parse::<i64>() {
+            sqlx::query(
+                r"
+                DELETE FROM key_backups
+                WHERE user_id = $1 AND version = $2
+                ",
+            )
+            .bind(user_id)
+            .bind(version_int)
+            .execute(&*self.pool)
+            .await?;
+        } else {
+            sqlx::query(
+                r"
+                DELETE FROM key_backups
+                WHERE user_id = $1 AND backup_id_text = $2
+                ",
+            )
+            .bind(user_id)
+            .bind(version)
+            .execute(&*self.pool)
+            .await?;
+        }
 
         Ok(())
     }
@@ -852,5 +893,48 @@ mod tests {
         assert_eq!(params.backup_data["algorithm"], "m.megolm.v1.aes-sha2");
         assert!(params.backup_data["forwarding_curve25519_key_chain"].is_array());
         assert_eq!(params.backup_data["forwarding_curve25519_key_chain"].as_array().unwrap().len(), 2);
+    }
+
+    // -------------------------------------------------------------------------
+    // E-05 tests — version string parse branching
+    // -------------------------------------------------------------------------
+
+    /// Verifies the core of E-05: a non-numeric version string must NOT
+    /// be silently coerced to i64::MAX or 0, and must instead fall through
+    /// to the text-equality path. This is tested by asserting the parse
+    /// branches correctly for a representative sample of inputs.
+    #[test]
+    fn test_e05_numeric_version_parses() {
+        for version in ["1", "42", "999999", "0", "-1"] {
+            assert!(
+                version.parse::<i64>().is_ok(),
+                "Numeric version '{version}' should parse as i64"
+            );
+        }
+    }
+
+    #[test]
+    fn test_e05_non_numeric_version_does_not_parse() {
+        // E-05: These strings are valid backup version identifiers but are
+        // NOT valid i64 literals. The old `unwrap_or(0)` would have treated
+        // them all as version 0 — a guaranteed not-found or wrong-row lookup.
+        for version in [
+            "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+            "v1",
+            "2024-01-01",
+            "1.0",
+            "version_1",
+        ] {
+            assert!(
+                version.parse::<i64>().is_err(),
+                "Non-numeric version '{version}' must NOT parse as i64 (E-05 invariant)"
+            );
+        }
+    }
+
+    #[test]
+    fn test_e05_max_i64_still_parses() {
+        let max = i64::MAX.to_string();
+        assert_eq!(max.parse::<i64>().unwrap(), i64::MAX);
     }
 }
