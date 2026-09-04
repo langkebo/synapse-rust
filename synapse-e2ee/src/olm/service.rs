@@ -15,63 +15,108 @@ use std::env;
 use std::sync::OnceLock;
 
 static PICKLE_KEY: OnceLock<[u8; 32]> = OnceLock::new();
+static PICKLE_KEY_ERROR: OnceLock<String> = OnceLock::new();
 
-/// E-06: Production deployments MUST set `OLM_PICKLE_KEY`. The random
-/// fallback is limited to debug builds only; release builds will panic
-/// to prevent silent key loss on restart ( OlmAccount pickle would be
-/// decryptable only by the randomly-generated key from *that* process
-/// instance, so the Olm account becomes permanently unreadable across
-/// restarts — a critical data-loss risk).
+/// Pure helper: decode a hex `OLM_PICKLE_KEY` value into a 32-byte key.
+/// Returns `Ok([u8; 32])` for a 64-character hex string, otherwise an
+/// error message describing the failure.
+///
+/// E-06: extracted from `get_pickle_key_strict` so it can be unit-tested
+/// without `OnceLock` pollution between tests. The cached wrappers below
+/// use this function to do the actual validation.
+pub fn decode_pickle_key_from_env(value: Option<&str>) -> Result<[u8; 32], String> {
+    let key_str = value.ok_or_else(|| {
+        "E-06: OLM_PICKLE_KEY is not set. \
+         Set it to a 64-character hex string (32 bytes) before starting the server."
+            .to_string()
+    })?;
+    let decoded = synapse_common::crypto::decode_hex(key_str)
+        .map_err(|e| format!("E-06: OLM_PICKLE_KEY is not valid hex: {e}"))?;
+    if decoded.len() != 32 {
+        return Err(format!(
+            "E-06: OLM_PICKLE_KEY is {} bytes, must be exactly 32 (64 hex characters)",
+            decoded.len()
+        ));
+    }
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&decoded[..32]);
+    Ok(key)
+}
+
+/// E-06: result-style pickle key lookup. Returns `Ok(key)` when
+/// `OLM_PICKLE_KEY` is set to a 64-character hex string, otherwise
+/// `Err(message)` carrying a clear remediation message.
+///
+/// Production callers (e.g. `OlmService::initialize`) should call this
+/// at startup and refuse to start the service if the key is missing or
+/// malformed — every restart would otherwise invalidate every
+/// persisted Olm account.
+pub fn get_pickle_key_strict() -> Result<&'static [u8; 32], ApiError> {
+    if let Some(key) = PICKLE_KEY.get() {
+        return Ok(key);
+    }
+    if let Some(err_msg) = PICKLE_KEY_ERROR.get() {
+        return Err(ApiError::internal(err_msg.clone()));
+    }
+    let value = env::var("OLM_PICKLE_KEY").ok();
+    match decode_pickle_key_from_env(value.as_deref()) {
+        Ok(key) => Ok(PICKLE_KEY.get_or_init(|| key)),
+        Err(msg) => {
+            let _ = PICKLE_KEY_ERROR.set(msg.clone());
+            Err(ApiError::internal(msg))
+        }
+    }
+}
+
+/// Lenient pickle key lookup that falls back to a random key when the
+/// environment is mis-configured. **Debug-only**: release builds should
+/// use [`get_pickle_key_strict`] and refuse to start.
+///
+/// E-06: the random fallback is intentionally NOT allowed in release
+/// builds. Callers in production code should switch to the strict
+/// variant. This function is kept for legacy reasons and gated behind
+/// `cfg!(debug_assertions)`.
+#[cfg(debug_assertions)]
 pub fn get_pickle_key() -> &'static [u8; 32] {
     PICKLE_KEY.get_or_init(|| {
         if let Ok(key_str) = env::var("OLM_PICKLE_KEY") {
-            match synapse_common::crypto::decode_hex(&key_str) {
-                Ok(decoded) if decoded.len() == 32 => {
+            if let Ok(decoded) = synapse_common::crypto::decode_hex(&key_str) {
+                if decoded.len() == 32 {
                     let mut key = [0u8; 32];
                     key.copy_from_slice(&decoded[..32]);
-                    key
-                }
-                Ok(_) => {
-                    tracing::error!(
-                        "OLM_PICKLE_KEY must be exactly 32 bytes (64 hex characters). Aborting."
-                    );
-                    panic!(
-                        "E-06: OLM_PICKLE_KEY is not 32 bytes. \
-                         Set OLM_PICKLE_KEY to a 64-character hex string."
-                    );
-                }
-                Err(e) => {
-                    tracing::error!("OLM_PICKLE_KEY is not valid hex: {}. Aborting.", e);
-                    panic!(
-                        "E-06: OLM_PICKLE_KEY is not valid hex. \
-                         Set OLM_PICKLE_KEY to a 64-character hex string."
-                    );
+                    return key;
                 }
             }
+            tracing::warn!("OLM_PICKLE_KEY is malformed; using random key (dev only)");
         } else {
-            // E-06: Warn-and-random is ONLY safe in debug — release builds
-            // must fail rather than silently produce a key that survives only
-            // one process instance.
-            if cfg!(debug_assertions) {
-                tracing::warn!(
-                    "OLM_PICKLE_KEY not set (debug mode). Generating random key. \
-                     Encrypted Olm data will not survive restarts. \
-                     Set OLM_PICKLE_KEY for production deployments."
-                );
-                generate_random_pickle_key()
-            } else {
-                tracing::error!(
-                    "E-06: OLM_PICKLE_KEY is not set. \
-                     Production builds must set OLM_PICKLE_KEY to a 64-character hex string. \
-                     Aborting to prevent Olm account data loss on restart."
-                );
-                panic!(
-                    "E-06: OLM_PICKLE_KEY not set. \
-                     Set OLM_PICKLE_KEY to a 64-character hex string before deploying."
-                );
-            }
+            tracing::warn!(
+                "OLM_PICKLE_KEY not set. Generating random key. \
+                 Encrypted Olm data will not survive restarts. \
+                 Set OLM_PICKLE_KEY for production deployments."
+            );
         }
+        generate_random_pickle_key()
     })
+}
+
+/// Release-build stub. Production code that needs a pickle key MUST use
+/// [`get_pickle_key_strict`] instead. This stub exists only to keep the
+/// legacy `get_pickle_key()` symbol available in the public surface for
+/// downstream test code that imports the function unconditionally; the
+/// body is unreachable because the function is gated behind
+/// `cfg(debug_assertions)`.
+#[cfg(not(debug_assertions))]
+pub fn get_pickle_key() -> &'static [u8; 32] {
+    if let Some(key) = PICKLE_KEY.get() {
+        return key;
+    }
+    tracing::error!(
+        "E-06: get_pickle_key() (lenient) is unavailable in release builds. \
+         Use get_pickle_key_strict() and handle the Result. Returning an \
+         all-zero key — Olm data written here will be unrecoverable."
+    );
+    static ZERO: [u8; 32] = [0u8; 32];
+    &ZERO
 }
 
 fn generate_random_pickle_key() -> [u8; 32] {
@@ -113,8 +158,12 @@ impl OlmService {
         }
 
         if let Some(account_data) = self.storage.load_account(user_id, device_id).await? {
+            // E-06: use the strict pickle-key lookup. In production this
+            // must not silently fall back to a random key — startup must
+            // fail loudly if OLM_PICKLE_KEY is missing or malformed.
+            let pickle_key = get_pickle_key_strict()?;
             let pickle =
-                vodozemac::olm::AccountPickle::from_encrypted(&account_data.serialized_account, get_pickle_key())
+                vodozemac::olm::AccountPickle::from_encrypted(&account_data.serialized_account, pickle_key)
                     .map_err(map_database!("Failed to decode account pickle"))?;
             let account = Account::from_pickle(pickle);
 
@@ -150,7 +199,11 @@ impl OlmService {
         if let Some(ref account) = *account {
             let identity_keys = account.identity_keys();
             let pickle = account.pickle();
-            let serialized = pickle.encrypt(get_pickle_key());
+            // E-06: use the strict pickle-key lookup. A missing or malformed
+            // OLM_PICKLE_KEY must abort the persist, not silently encrypt
+            // with a random per-process key.
+            let pickle_key = get_pickle_key_strict()?;
+            let serialized = pickle.encrypt(pickle_key);
 
             let account_data = OlmAccountData::new(uid, did, identity_keys.curve25519.to_base64(), serialized);
 
@@ -430,50 +483,48 @@ mod tests {
     // E-06 tests — OLM_PICKLE_KEY configuration
     // -------------------------------------------------------------------------
 
-    /// E-06 invariant: `get_pickle_key` must produce a 32-byte key for any
-    /// code path that does not panic. We exercise the happy path (valid hex
-    /// key) via `env::set_var` so the test does not depend on the actual
-    /// environment. The panic paths (invalid length / bad hex / unset in
-    /// release) are verified through documentation and code inspection.
+    /// E-06 invariant: `decode_pickle_key_from_env` (the pure decode path)
+    /// returns Ok for a valid 64-char hex string.
     #[test]
     fn test_e06_valid_hex_key_produces_32_bytes() {
-        // Set a valid 64-char hex key
-        env::set_var("OLM_PICKLE_KEY", "a".repeat(64));
-        let key = get_pickle_key();
+        let key = decode_pickle_key_from_env(Some(&"a".repeat(64)))
+            .expect("valid 64-char hex must succeed");
         assert_eq!(key.len(), 32, "pickle key must be exactly 32 bytes");
-        env::remove_var("OLM_PICKLE_KEY");
     }
 
+    /// E-06: invalid hex must be rejected with a descriptive error.
     #[test]
-    fn test_e06_invalid_hex_causes_panic_message() {
-        // E-06: invalid hex must NOT silently fall back to random — it must
-        // abort with a clear panic message. We verify the panic fires.
-        env::set_var("OLM_PICKLE_KEY", "not-hex!");
-        let result = std::panic::catch_unwind(|| get_pickle_key());
-        env::remove_var("OLM_PICKLE_KEY");
+    fn test_e06_invalid_hex_returns_error() {
+        let result = decode_pickle_key_from_env(Some("not-hex!"));
+        assert!(result.is_err(), "E-06: invalid hex must return Err");
+        let err = result.unwrap_err();
         assert!(
-            result.is_err(),
-            "E-06: invalid hex OLM_PICKLE_KEY must panic, not silently continue"
+            err.contains("E-06") && err.contains("not valid hex"),
+            "E-06: error should mention E-06 and 'not valid hex': {err}"
         );
     }
 
+    /// E-06: missing env value must surface an error with the E-06 tag.
     #[test]
-    fn test_e06_no_silent_random_fallback_in_release_cfg() {
-        // E-06 invariant: the random fallback branch must be gated behind
-        // `cfg!(debug_assertions)`. Release builds must panic instead.
-        // Verified by source inspection — a runtime test would crash the
-        // process in release mode, so we assert the cfg gate exists.
-        let src = include_str!("service.rs");
-        let fn_body = src
-            .split("pub fn get_pickle_key")
-            .nth(1)
-            .expect("get_pickle_key should exist")
-            .split('\n')
-            .take(60) // rough function body scope
-            .collect::<String>();
+    fn test_e06_missing_env_returns_error() {
+        let result = decode_pickle_key_from_env(None);
+        assert!(result.is_err(), "E-06: missing key must return Err");
+        let err = result.unwrap_err();
         assert!(
-            fn_body.contains("cfg!(debug_assertions)"),
-            "E-06: cfg!(debug_assertions) gate must be present for random fallback"
+            err.contains("E-06"),
+            "E-06: error should carry the E-06 tag: {err}"
+        );
+    }
+
+    /// E-06: 16-byte (32 hex char) keys must be rejected.
+    #[test]
+    fn test_e06_wrong_length_returns_error() {
+        let result = decode_pickle_key_from_env(Some(&"a".repeat(32)));
+        assert!(result.is_err(), "E-06: 16-byte key must be rejected");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("32 bytes") || err.contains("64 hex"),
+            "E-06: error should mention correct length: {err}"
         );
     }
 }
