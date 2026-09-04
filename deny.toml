@@ -123,10 +123,15 @@ unused-allowed-license = "allow"
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-# 注：.cargo/config.toml 将 crates.io 的下载层重定向到 rsproxy.cn 镜像以加速
-# （Cargo.lock 仍记录规范 crates.io 源，checksum 强制校验，镜像无法替换内容）。
-# 此处将镜像 URL 显式列入白名单，使来源策略与实际行为一致；
-# 如对镜像信任有顾虑，可移除 .cargo/config.toml 的 source 替换直连 crates.io。
+# 来源策略分两层:
+#   1) 逻辑源 (lockfile 记录): `source = "registry+https://github.com/rust-lang/crates.io-index"`
+#      表示 crate 来自 crates.io 官方索引（与镜像无关，checksum 强制校验）
+#   2) 物理下载: `.cargo/config.toml` 将 crates-io 重定向到 `rsproxy-sparse`
+#      (sparse+https://rsproxy.cn/index/) 以加速中国大陆下载。
+#      rsproxy 仅是下载代理，不参与 lockfile 记录，绕过 rsproxy 不会改变依赖图。
+# 此处 rsproxy URL 列入白名单是为了与下载配置一致；如对镜像信任有顾虑，
+# 可移除 .cargo/config.toml 的 `[source.crates-io] replace-with` 段直连 crates.io，
+# 锁文件内容保持不变。
 allow-registry = [
     "https://github.com/rust-lang/crates.io-index",
     "https://rsproxy.cn/index/",
