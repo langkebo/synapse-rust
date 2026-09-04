@@ -383,8 +383,15 @@ impl WorkerBus {
             let encoded = encoded.clone();
             // WORK-05: Clone the DLQ Arc so the spawned task can store failed messages
             let failed_publishes = Arc::clone(&self.failed_publishes);
-            tokio::spawn(async move {
-                // WORK-05: 跨实例消息静默丢弃会表现为「另一台实例收不到事件」
+            let span = tracing::info_span!(
+                "WorkerBus.redis_publish_fire_and_forget",
+                channel = %full_channel,
+                payload_bytes = encoded.len(),
+            );
+            tokio::spawn(
+                async move {
+                    let _enter = span.enter();
+                    // WORK-05: 跨实例消息静默丢弃会表现为「另一台实例收不到事件」
                 // 的诡异故障。先按指数退避重试（100ms → 200ms → 400ms），
                 // 全部失败后存入内存 DLQ 环形缓冲，不再静默丢弃。
                 const MAX_ATTEMPTS: u32 = 3;
@@ -434,7 +441,7 @@ impl WorkerBus {
                     attempts = MAX_ATTEMPTS,
                     "WORK-05: Failed to publish to Redis after retries — message stored in DLQ for replay"
                 );
-            });
+            }, );
         }
 
         // Also deliver to local in-memory subscribers

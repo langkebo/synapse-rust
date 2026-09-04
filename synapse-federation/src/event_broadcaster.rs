@@ -6,6 +6,7 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_storage::membership::MemberStoreApi;
 use tokio::sync::{mpsc, RwLock};
+use tracing::info_span;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FederationEvent {
@@ -169,7 +170,12 @@ impl EventBroadcaster {
                                 let retry_q = retry_queue.clone();
                                 let pool = pool_opt.clone();
                                 let backoff_list = backoff.clone();
+                                let span = info_span!(
+                                    "EventBroadcaster.send_batch_fire_and_forget",
+                                    destination = %dest,
+                                );
                                 tokio::spawn(async move {
+                                    let _enter = span.enter();
                                     let mut local_batches: HashMap<String, TransactionBatch> = HashMap::new();
                                     local_batches.insert(dest.clone(), batch);
                                     send_batch(

@@ -418,20 +418,33 @@ impl EventNotifier {
 
         let pool = pool.clone();
         let channel = EVENT_NOTIFY_CHANNEL.to_string();
-        tokio::spawn(async move {
-            match pool.get().await {
-                Ok(mut conn) => {
-                    use redis::AsyncCommands;
-                    let result: Result<(), redis::RedisError> = conn.publish(&channel, encoded).await;
-                    if let Err(e) = result {
-                        debug!(error = %e, channel = %channel, "Failed to publish event notification to Redis");
+        let kind_dbg = format!("{:?}", kind);
+        let key_dbg = key.to_string();
+        // W-05: tag the fire-and-forget task with a span so production
+        // logs can trace it without polluting the caller's context.
+        let span = tracing::info_span!(
+            "EventNotifier.publish_redis",
+            kind = %kind_dbg,
+            key = %key_dbg,
+            sender_instance = %self.instance_id,
+        );
+        tokio::spawn(
+            async move {
+                let _enter = span.enter();
+                match pool.get().await {
+                    Ok(mut conn) => {
+                        use redis::AsyncCommands;
+                        let result: Result<(), redis::RedisError> = conn.publish(&channel, encoded).await;
+                        if let Err(e) = result {
+                            debug!(error = %e, channel = %channel, "Failed to publish event notification to Redis");
+                        }
+                    }
+                    Err(e) => {
+                        debug!(error = %e, channel = %channel, "Failed to get Redis connection for event notification");
                     }
                 }
-                Err(e) => {
-                    debug!(error = %e, channel = %channel, "Failed to get Redis connection for event notification");
-                }
-            }
-        });
+            },
+        );
     }
 }
 
