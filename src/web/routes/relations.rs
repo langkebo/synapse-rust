@@ -6,6 +6,7 @@
 
 use crate::common::error::ApiError;
 use crate::web::routes::context::RoomContext;
+use crate::web::routes::extractors::{EventId, RoomId};
 use crate::web::routes::room_access::ensure_room_member_ctx;
 use crate::web::routes::validators::{validate_event_id, validate_room_id};
 use crate::web::routes::{AppState, AuthenticatedUser};
@@ -353,5 +354,3 @@ mod tests {
         assert!(supported_versions.iter().any(|path| path.starts_with("/_matrix/client/v3/")));
     }
 }
-
-use crate::web::routes::extractors::{EventId, RoomId};

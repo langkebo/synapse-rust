@@ -218,7 +218,7 @@ async fn audit_service_cleanup_old_logs_removes_old_entries() {
     let day_ms: i64 = 24 * 60 * 60 * 1000;
 
     seed_audit_log(&storage, &user_id, "old", "OLD_DEV", now - 40 * day_ms).await;
-    seed_audit_log(&storage, &user_id, "recent", "NEW_DEV", now - 1 * day_ms).await;
+    seed_audit_log(&storage, &user_id, "recent", "NEW_DEV", now - day_ms).await;
 
     let deleted = svc.cleanup_old_logs(7).await.expect("cleanup");
     assert!(deleted >= 1, "should have deleted at least the old entry");

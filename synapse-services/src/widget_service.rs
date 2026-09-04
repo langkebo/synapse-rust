@@ -401,6 +401,7 @@ mod tests {
     use async_trait::async_trait;
 
     #[derive(Clone)]
+    #[allow(clippy::type_complexity)]
     struct MockWidgetStore {
         create_widget: Arc<std::sync::Mutex<Option<Result<Widget, sqlx::Error>>>>,
         get_widget: Arc<std::sync::Mutex<Option<Result<Option<Widget>, sqlx::Error>>>>,
@@ -491,7 +492,9 @@ mod tests {
             *self.cleanup_expired.lock().unwrap() = Some(r);
         }
 
+        #[allow(clippy::type_complexity)]
         async fn pop_field<T>(field: &Arc<std::sync::Mutex<Option<Result<T, sqlx::Error>>>>) -> Result<T, sqlx::Error> {
+            #[allow(clippy::unwrap_used)]
             let r = field.lock().unwrap().take().unwrap_or(Err(sqlx::Error::RowNotFound));
             r
         }

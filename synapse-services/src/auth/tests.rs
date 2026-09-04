@@ -1058,8 +1058,8 @@ async fn test_login_recovers_from_expired_account_lockout() {
 
     // seed 一个 1 小时前过期的 lockout key（timestamp < now → 过期）。
     let expired_ts = (Utc::now() - Duration::hours(1)).timestamp();
-    let key = format!("auth:lockout:@alice:test");
-    let _ = h.cache.set(&key, &expired_ts.to_string(), 600).await;
+    let key = "auth:lockout:@alice:test";
+    let _ = h.cache.set(key, &expired_ts.to_string(), 600).await;
 
     // 登录应该成功：过期的 lockout 被清理（行 131-132），不阻断合法用户。
     let (_user, _access, _refresh, _device) = h

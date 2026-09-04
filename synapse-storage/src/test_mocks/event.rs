@@ -28,6 +28,11 @@ impl InMemoryEventStore {
         // tasks (heartbeat/idle-timeout) that require a Tokio runtime.  This
         // lets these mocks be used from both `#[test]` and `#[tokio::test]`
         // without panicking.
+        // connect_lazy only errors on URL parse failure; the literal above is
+        // guaranteed-valid, so unwrap is safe here. Allow both expect and
+        // unwrap_used because the rest of the file also uses `unreachable!`
+        // for similarly-contrived unreachable branches.
+        #[allow(clippy::expect_used, clippy::unwrap_used)]
         let pool = sqlx::postgres::PgPoolOptions::new()
             .min_connections(0)
             .max_connections(1)
