@@ -33,6 +33,7 @@ openapi-docs = ["dep:utoipa"]
 
 [dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
+tokio-util = { workspace = true }
 async-trait = { workspace = true }
 
 axum = { workspace = true, optional = true, features = ["macros"] }

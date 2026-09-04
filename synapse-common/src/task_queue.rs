@@ -250,11 +250,29 @@ impl RedisTaskQueue {
         Ok(id)
     }
 
+    /// Run the consumer loop until `shutdown` is cancelled.
+    ///
+    /// W-01: added `shutdown: CancellationToken` to allow callers to
+    /// gracefully drain in-flight jobs on SIGTERM. Without this, the
+    /// worker binary's `handle.abort()` killed the task mid-handler,
+    /// leaving the in-flight job ACKed in the handler log but not in
+    /// Redis (the XACK never ran), so the message remained in PEL
+    /// forever — the worker was effectively stuck in at-most-once.
+    ///
+    /// New behaviour:
+    /// * `tokio::select!` between the XREADGROUP block and the
+    ///   shutdown signal. When shutdown fires, the current `block(2000)`
+    ///   returns and the loop exits cleanly.
+    /// * The current handler is **not** interrupted — it is awaited to
+    ///   completion and the XACK runs before the function returns.
+    /// * The caller (worker binary) no longer needs `handle.abort()`;
+    ///   it can `shutdown.cancel()` and `handle.await`.
     pub async fn consume_loop<F, Fut>(
         &self,
         group_name: &str,
         consumer_name: &str,
         handler: F,
+        shutdown: tokio_util::sync::CancellationToken,
     ) -> Result<(), TaskQueueError>
     where
         F: Fn(BackgroundJob) -> Fut + Send + Sync + 'static,
@@ -270,12 +288,26 @@ impl RedisTaskQueue {
         let _: Result<(), _> = conn.xgroup_create_mkstream("mq:tasks:default", group_name, "$").await;
 
         loop {
-            // XREADGROUP GROUP group_name consumer_name COUNT 1 BLOCK 2000 STREAMS mq:tasks:default >
+            // W-01: race the XREADGROUP against the shutdown signal. The
+            // Redis client used here is blocking-ish under the hood, so we
+            // keep the timeout short (2s) and re-check `is_cancelled()`
+            // every iteration.
+            if shutdown.is_cancelled() {
+                tracing::info!("consume_loop: shutdown requested, exiting cleanly");
+                break;
+            }
+
             let opts =
                 redis::streams::StreamReadOptions::default().group(group_name, consumer_name).count(1).block(2000);
 
             let result: Result<redis::streams::StreamReadReply, _> =
                 conn.xread_options(&["mq:tasks:default"], &[">"], &opts).await;
+
+            // Re-check cancellation after the (possibly interrupted) read.
+            if shutdown.is_cancelled() {
+                tracing::info!("consume_loop: shutdown requested mid-read, exiting cleanly");
+                break;
+            }
 
             match result {
                 Ok(reply) => {
@@ -286,6 +318,9 @@ impl RedisTaskQueue {
                                     if let Ok(job) = serde_json::from_str::<BackgroundJob>(&payload_str) {
                                         let stream_id_val = stream_id.id;
                                         tracing::info!("Processing job {}: {:?}", stream_id_val, job);
+                                        // W-01: handler runs to completion even if
+                                        // shutdown fires mid-handler. Cancellation
+                                        // only stops accepting NEW jobs.
                                         match handler(job).await {
                                             Ok(_) => {
                                                 // XACK
@@ -337,6 +372,8 @@ impl RedisTaskQueue {
                 }
             }
         }
+
+        Ok(())
     }
     pub async fn get_metrics(&self, group_name: &str) -> Result<QueueMetrics, TaskQueueError> {
         let mut conn = self

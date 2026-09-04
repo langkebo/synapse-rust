@@ -10,6 +10,7 @@ use synapse_rust::common::BackgroundJob;
 use synapse_rust::common::RedisTaskQueue;
 use synapse_rust::storage::event::EventStorage;
 use tokio::signal;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
 struct MetricsState {
@@ -134,8 +135,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let queue_clone = queue.clone();
     let group_name_clone = group_name.to_string();
+    // W-01: use a CancellationToken so the consume loop can drain the
+    // current in-flight job before returning. Previously the worker
+    // binary called `handle.abort()` which killed the task mid-handler,
+    // leaving the in-flight message ACKed in the log but not in Redis
+    // (the XACK never ran) — so the message was stuck in PEL forever
+    // (effectively at-most-once).
+    let consume_shutdown = CancellationToken::new();
+    let consume_shutdown_signal = consume_shutdown.clone();
     let handle = tokio::spawn(async move {
-        if let Err(e) = queue_clone.consume_loop(&group_name_clone, &consumer_name, job_handler).await {
+        if let Err(e) = queue_clone
+            .consume_loop(&group_name_clone, &consumer_name, job_handler, consume_shutdown_signal)
+            .await
+        {
             tracing::error!("Worker loop terminated with error: {}", e);
         }
     });
@@ -174,21 +186,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let monitor_queue = queue.clone();
     let monitor_queue_for_exit = queue.clone();
+    let monitor_shutdown = CancellationToken::new();
+    let monitor_shutdown_signal = monitor_shutdown.clone();
     let monitor_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(15));
         loop {
-            interval.tick().await;
-            match monitor_queue.get_metrics("synapse_workers").await {
-                Ok(metrics) => {
-                    if metrics.queue_length > 1000 {
-                        tracing::warn!("High Queue Depth: {} tasks pending!", metrics.queue_length);
-                    }
-                    if metrics.consumer_lag > 500 {
-                        tracing::warn!("High Consumer Lag: {} unacknowledged tasks!", metrics.consumer_lag);
-                    }
+            tokio::select! {
+                _ = monitor_shutdown_signal.cancelled() => {
+                    tracing::info!("monitor loop exiting on shutdown");
+                    break;
                 }
-                Err(e) => {
-                    tracing::error!("Failed to fetch metrics for monitoring: {}", e);
+                _ = interval.tick() => {
+                    match monitor_queue.get_metrics("synapse_workers").await {
+                        Ok(metrics) => {
+                            if metrics.queue_length > 1000 {
+                                tracing::warn!("High Queue Depth: {} tasks pending!", metrics.queue_length);
+                            }
+                            if metrics.consumer_lag > 500 {
+                                tracing::warn!("High Consumer Lag: {} unacknowledged tasks!", metrics.consumer_lag);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to fetch metrics for monitoring: {}", e);
+                        }
+                    }
                 }
             }
         }
@@ -231,7 +252,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    handle.abort();
+    // W-01: graceful shutdown — cancel the consume loop, await it, and
+    // only fall back to `abort()` if it fails to exit within a deadline.
+    // The previous `handle.abort()` killed the task mid-handler, leaving
+    // in-flight jobs ACKed in the log but not in Redis (the XACK never
+    // ran) — those messages were stuck in PEL forever. Now: the loop
+    // completes the current job, runs the XACK, then exits cleanly.
+    let drain_timeout = std::time::Duration::from_secs(30);
+    consume_shutdown.cancel();
+    monitor_shutdown.cancel();
+    match tokio::time::timeout(drain_timeout, handle).await {
+        Ok(Ok(())) => {
+            tracing::info!("consume loop exited cleanly within drain window");
+        }
+        Ok(Err(join_err)) if join_err.is_cancelled() => {
+            tracing::warn!("consume loop was cancelled (already exited)");
+        }
+        Ok(Err(join_err)) => {
+            tracing::error!("consume loop panicked: {join_err}");
+        }
+        Err(_timeout) => {
+            tracing::error!(
+                "consume loop did not exit within {:?}; this is unexpected, will exit anyway",
+                drain_timeout
+            );
+        }
+    }
     if let Some(h) = metrics_handle {
         h.abort();
     }
