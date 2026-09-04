@@ -188,11 +188,7 @@ pub(crate) async fn get_effective_room_join_rule(ctx: &FederationContext, room_i
 /// Best-effort: on any failure logs a warning rather than failing the inbound
 /// federation request. The event is already accepted (invite/join/leave);
 /// re-signing is a downstream concern.
-pub(crate) async fn re_sign_pdu_locally(
-    ctx: &FederationContext,
-    event_id: &str,
-    pdu: &mut Value,
-) {
+pub(crate) async fn re_sign_pdu_locally(ctx: &FederationContext, event_id: &str, pdu: &mut Value) {
     let local_server = &ctx.server_name;
     let key = match ctx.key_rotation_manager.get_current_key().await {
         Ok(Some(k)) => k,
@@ -227,11 +223,8 @@ pub(crate) async fn re_sign_pdu_locally(
 
     let signatures = pdu.get("signatures").cloned().unwrap_or(Value::Null);
     let hashes = pdu.get("hashes").cloned().unwrap_or(Value::Null);
-    if let Err(e) = ctx
-        .room_service
-        .messaging()
-        .update_event_signatures_and_hashes(event_id, &signatures, &hashes)
-        .await
+    if let Err(e) =
+        ctx.room_service.messaging().update_event_signatures_and_hashes(event_id, &signatures, &hashes).await
     {
         ::tracing::warn!(
             event_id = %event_id,

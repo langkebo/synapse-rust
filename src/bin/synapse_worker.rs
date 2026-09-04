@@ -144,9 +144,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let consume_shutdown = CancellationToken::new();
     let consume_shutdown_signal = consume_shutdown.clone();
     let handle = tokio::spawn(async move {
-        if let Err(e) = queue_clone
-            .consume_loop(&group_name_clone, &consumer_name, job_handler, consume_shutdown_signal)
-            .await
+        if let Err(e) =
+            queue_clone.consume_loop(&group_name_clone, &consumer_name, job_handler, consume_shutdown_signal).await
         {
             tracing::error!("Worker loop terminated with error: {}", e);
         }

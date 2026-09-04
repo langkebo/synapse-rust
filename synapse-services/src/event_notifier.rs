@@ -433,41 +433,38 @@ impl EventNotifier {
             key = %key_dbg,
             sender_instance = %self.instance_id,
         );
-        tokio::spawn(
-            async move {
-                // W-06: catch_unwind ensures panics in the fire-and-forget task
-                // are logged instead of silently swallowed when JoinHandle is dropped.
-                let channel_for_panic = channel.clone();
-                let result = AssertUnwindSafe(async move {
-                    let _enter = span.enter();
-                    match pool.get().await {
-                        Ok(mut conn) => {
-                            use redis::AsyncCommands;
-                            let result: Result<(), redis::RedisError> =
-                                conn.publish(&channel, encoded).await;
-                            if let Err(e) = result {
-                                debug!(error = %e, channel = %channel, "Failed to publish event notification to Redis");
-                            }
-                        }
-                        Err(e) => {
-                            debug!(error = %e, channel = %channel, "Failed to get Redis connection for event notification");
+        tokio::spawn(async move {
+            // W-06: catch_unwind ensures panics in the fire-and-forget task
+            // are logged instead of silently swallowed when JoinHandle is dropped.
+            let channel_for_panic = channel.clone();
+            let result = AssertUnwindSafe(async move {
+                let _enter = span.enter();
+                match pool.get().await {
+                    Ok(mut conn) => {
+                        use redis::AsyncCommands;
+                        let result: Result<(), redis::RedisError> = conn.publish(&channel, encoded).await;
+                        if let Err(e) = result {
+                            debug!(error = %e, channel = %channel, "Failed to publish event notification to Redis");
                         }
                     }
-                })
-                .catch_unwind()
-                .await;
-
-                if let Err(panic_payload) = result {
-                    warn!(
-                        panic = ?panic_payload,
-                        channel = %channel_for_panic,
-                        kind = %kind_dbg,
-                        key = %key_dbg,
-                        "W-06: EventNotifier.publish_redis task panicked — panic was caught and logged"
-                    );
+                    Err(e) => {
+                        debug!(error = %e, channel = %channel, "Failed to get Redis connection for event notification");
+                    }
                 }
-            },
-        );
+            })
+            .catch_unwind()
+            .await;
+
+            if let Err(panic_payload) = result {
+                warn!(
+                    panic = ?panic_payload,
+                    channel = %channel_for_panic,
+                    kind = %kind_dbg,
+                    key = %key_dbg,
+                    "W-06: EventNotifier.publish_redis task panicked — panic was caught and logged"
+                );
+            }
+        });
     }
 }
 
@@ -867,7 +864,8 @@ mod tests {
         {
             let _slots = notifier.slots_for("@dave:example.com", &["!bg:example.com".to_string()]);
         }
-        let handle = notifier.start_idle_slot_evictor(std::time::Duration::from_millis(20), tokio_util::sync::CancellationToken::new());
+        let handle = notifier
+            .start_idle_slot_evictor(std::time::Duration::from_millis(20), tokio_util::sync::CancellationToken::new());
         tokio::time::sleep(std::time::Duration::from_millis(120)).await;
         handle.abort();
         assert_eq!(notifier.broadcast_subscriber_count(), 0, "background evictor should reclaim idle slots");
@@ -879,8 +877,8 @@ mod tests {
     /// task that panics and confirming the catch_unwind result is Err.
     #[tokio::test]
     async fn w06_panic_supervision_catches_panic() {
-        use std::panic::AssertUnwindSafe;
         use futures::FutureExt;
+        use std::panic::AssertUnwindSafe;
 
         let span = tracing::info_span!("w06_test");
         let result = AssertUnwindSafe(async move {
@@ -892,10 +890,7 @@ mod tests {
         .await;
 
         // The catch_unwind must produce Err so the outer handler logs the panic.
-        assert!(
-            result.is_err(),
-            "catch_unwind should return Err when the inner async block panics"
-        );
+        assert!(result.is_err(), "catch_unwind should return Err when the inner async block panics");
         // With catch_unwind in the body, the panic is already handled before
         // the JoinHandle is dropped — no panic is lost.
     }

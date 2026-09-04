@@ -1,6 +1,6 @@
+use educe::Educe;
 use serde::Deserialize;
 use std::collections::HashMap;
-use educe::Educe;
 
 // ============================================================================
 // SECTION: Worker & Replication Configuration

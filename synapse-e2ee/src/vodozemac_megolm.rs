@@ -861,10 +861,7 @@ mod tests {
     /// decrypt that a client would perform in one sync cycle.
     #[test]
     fn test_e04_large_index_gap_threshold() {
-        assert_eq!(
-            MEGOLM_LARGE_INDEX_GAP, 100,
-            "E-04: MEGOLM_LARGE_INDEX_GAP should be 100; adjust after profiling"
-        );
+        assert_eq!(MEGOLM_LARGE_INDEX_GAP, 100, "E-04: MEGOLM_LARGE_INDEX_GAP should be 100; adjust after profiling");
     }
 
     /// E-04: confirm that the vodozemac ratchet enforces forward progress
@@ -891,9 +888,6 @@ mod tests {
             .collect();
 
         assert_eq!(indices, &[0, 1, 2], "message indices must be 0, 1, 2");
-        assert!(
-            indices.windows(2).all(|w| w[1] >= w[0]),
-            "each message_index must be ≥ the previous one"
-        );
+        assert!(indices.windows(2).all(|w| w[1] >= w[0]), "each message_index must be ≥ the previous one");
     }
 }

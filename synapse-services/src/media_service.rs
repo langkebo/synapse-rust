@@ -1042,8 +1042,8 @@ mod tests {
         assert!(!result.is_empty(), "应返回非空 JPEG 字节流");
 
         // 用 image crate 解码结果验证尺寸确实 ≤ 2048。
-        let decoded = image::load_from_memory_with_format(&result, image::ImageFormat::Jpeg)
-            .expect("解码刚生成的缩略图");
+        let decoded =
+            image::load_from_memory_with_format(&result, image::ImageFormat::Jpeg).expect("解码刚生成的缩略图");
         assert!(decoded.width() <= 2048, "输出宽度应 ≤ 2048，实际 {}", decoded.width());
         assert!(decoded.height() <= 2048, "输出高度应 ≤ 2048，实际 {}", decoded.height());
     }

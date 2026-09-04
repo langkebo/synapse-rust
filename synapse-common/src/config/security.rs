@@ -1,6 +1,6 @@
 use base64::Engine;
-use rand::RngCore;
 use educe::Educe;
+use rand::RngCore;
 use serde::Deserialize;
 
 // ============================================================================

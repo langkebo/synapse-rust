@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use educe::Educe;
+use serde::Deserialize;
 
 /// 服务器配置结构。
 ///

@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use educe::Educe;
+use serde::Deserialize;
 
 // ============================================================================
 // SECTION: Authentication (OIDC, SAML)

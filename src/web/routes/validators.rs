@@ -169,10 +169,7 @@ pub fn validate_server_name(server_name: &str) -> Result<(), ApiError> {
         return Err(ApiError::invalid_input("server_name is required".to_string()));
     }
     if server_name.len() > 255 {
-        return Err(ApiError::invalid_input(format!(
-            "server_name too long: {} bytes (max 255)",
-            server_name.len()
-        )));
+        return Err(ApiError::invalid_input(format!("server_name too long: {} bytes (max 255)", server_name.len())));
     }
     if server_name.contains('/') || server_name.contains('\\') || server_name.contains('\0') {
         return Err(ApiError::invalid_input("Invalid server_name: must not contain /, \\, or NUL".to_string()));

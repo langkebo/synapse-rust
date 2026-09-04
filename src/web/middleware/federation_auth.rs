@@ -3,7 +3,6 @@ use crate::common::ApiError;
 use crate::web::routes::context::{CoreContext, FederationContext};
 use crate::web::utils::encoding::decode_base64_32;
 use axum::extract::State;
-use synapse_common::current_timestamp_millis;
 use axum::http::Request;
 use axum::response::IntoResponse;
 use axum::{body::Body, middleware::Next, response::Response};
@@ -12,6 +11,7 @@ use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use synapse_common::current_timestamp_millis;
 use tokio::sync::Semaphore;
 
 /// F-01: Mirror the 7-day server-key validity cap from Matrix SS API spec §1.2.
@@ -33,8 +33,7 @@ const FEDERATION_KEY_CACHE_TTL_SECS: u64 = 3600;
 /// caller still gets a finite, conservative TTL.
 fn compute_key_cache_ttl_secs(valid_until_ts: Option<i64>) -> u64 {
     let now_ms = current_timestamp_millis();
-    let peer_secs_remaining = valid_until_ts
-        .map_or(u64::MAX, |ts| ((ts - now_ms) / 1000).max(0) as u64);
+    let peer_secs_remaining = valid_until_ts.map_or(u64::MAX, |ts| ((ts - now_ms) / 1000).max(0) as u64);
     let spec_capped = peer_secs_remaining.min(MAX_SERVER_KEY_VALIDITY_SECS);
     FEDERATION_KEY_CACHE_TTL_SECS.min(spec_capped)
 }
@@ -947,7 +946,8 @@ mod tests {
         assert!(
             ttl <= MAX_SERVER_KEY_VALIDITY_SECS,
             "F-01 violation: TTL must cap at 7 days ({}) but got {}",
-            MAX_SERVER_KEY_VALIDITY_SECS, ttl
+            MAX_SERVER_KEY_VALIDITY_SECS,
+            ttl
         );
         // Current default (1h) is tighter than the 7d cap, so the 1h wins.
         assert_eq!(ttl, FEDERATION_KEY_CACHE_TTL_SECS, "current default 1h is the tightest bound for 1y peer validity");

@@ -390,85 +390,85 @@ impl WorkerBus {
                 channel = %full_channel,
                 payload_bytes = encoded.len(),
             );
-            tokio::spawn(
-                async move {
-                    // W-06: catch_unwind ensures panics in the fire-and-forget
-                    // task are logged instead of silently swallowed when the
-                    // JoinHandle is dropped. The retry-with-DLQ body is wrapped
-                    // in AssertUnwindSafe because the inner closure captures
-                    // &pool, &full_channel, &encoded — all safe to access
-                    // across unwind boundaries.
-                    let full_channel_for_panic = full_channel.clone();
-                    let encoded_for_panic = encoded.clone();
-                    let body = AssertUnwindSafe(async move {
-                        let _enter = span.enter();
+            tokio::spawn(async move {
+                // W-06: catch_unwind ensures panics in the fire-and-forget
+                // task are logged instead of silently swallowed when the
+                // JoinHandle is dropped. The retry-with-DLQ body is wrapped
+                // in AssertUnwindSafe because the inner closure captures
+                // &pool, &full_channel, &encoded — all safe to access
+                // across unwind boundaries.
+                let full_channel_for_panic = full_channel.clone();
+                let encoded_for_panic = encoded.clone();
+                let body = AssertUnwindSafe(async move {
+                    let _enter = span.enter();
                     // WORK-05: 跨实例消息静默丢弃会表现为「另一台实例收不到事件」
-                // 的诡异故障。先按指数退避重试（100ms → 200ms → 400ms），
-                // 全部失败后存入内存 DLQ 环形缓冲，不再静默丢弃。
-                const MAX_ATTEMPTS: u32 = 3;
-                let mut last_err: Option<String> = None;
-                for attempt in 1..=MAX_ATTEMPTS {
-                    let attempt_result: Result<(), String> = async {
-                        let mut conn = pool.get().await.map_err(|e| format!("get connection: {e}"))?;
-                        use redis::AsyncCommands;
-                        conn.publish::<_, _, ()>(&full_channel, &encoded).await.map_err(|e| format!("publish: {e}"))
-                    }
-                    .await;
+                    // 的诡异故障。先按指数退避重试（100ms → 200ms → 400ms），
+                    // 全部失败后存入内存 DLQ 环形缓冲，不再静默丢弃。
+                    const MAX_ATTEMPTS: u32 = 3;
+                    let mut last_err: Option<String> = None;
+                    for attempt in 1..=MAX_ATTEMPTS {
+                        let attempt_result: Result<(), String> = async {
+                            let mut conn = pool.get().await.map_err(|e| format!("get connection: {e}"))?;
+                            use redis::AsyncCommands;
+                            conn.publish::<_, _, ()>(&full_channel, &encoded).await.map_err(|e| format!("publish: {e}"))
+                        }
+                        .await;
 
-                    match attempt_result {
-                        Ok(()) => return,
-                        Err(e) => {
-                            debug!(
-                                error = %e,
-                                channel = %full_channel,
-                                attempt = attempt,
-                                "Redis publish attempt failed, retrying"
-                            );
-                            last_err = Some(e);
-                            if attempt < MAX_ATTEMPTS {
-                                                    // TODO(v2): extract to RedisBusConfig as `backoff_ms: Vec<u64>`
-                    // to make initial-delay and max-attempts configurable without
-                    // code changes. The hardcoded exponential back-off
-                    // (100ms → 200ms → 400ms) is adequate for now.
-                    tokio::time::sleep(std::time::Duration::from_millis(100 * (1 << (attempt - 1)))).await;
+                        match attempt_result {
+                            Ok(()) => return,
+                            Err(e) => {
+                                debug!(
+                                    error = %e,
+                                    channel = %full_channel,
+                                    attempt = attempt,
+                                    "Redis publish attempt failed, retrying"
+                                );
+                                last_err = Some(e);
+                                if attempt < MAX_ATTEMPTS {
+                                    // TODO(v2): extract to RedisBusConfig as `backoff_ms: Vec<u64>`
+                                    // to make initial-delay and max-attempts configurable without
+                                    // code changes. The hardcoded exponential back-off
+                                    // (100ms → 200ms → 400ms) is adequate for now.
+                                    tokio::time::sleep(std::time::Duration::from_millis(100 * (1 << (attempt - 1))))
+                                        .await;
+                                }
                             }
                         }
                     }
-                }
-                // WORK-05: All retries exhausted — store in DLQ for inspection and replay
-                let failed = FailedPublish {
-                    channel: full_channel.clone(),
-                    payload: encoded.clone(),
-                    error: last_err.clone().unwrap_or_else(|| "unknown".to_string()),
-                    failed_at: current_timestamp_millis(),
-                };
-                {
-                    let mut dlq = failed_publishes.write().await;
-                    if dlq.len() >= FAILED_PUBLISH_RING_SIZE {
-                        dlq.pop_front();
+                    // WORK-05: All retries exhausted — store in DLQ for inspection and replay
+                    let failed = FailedPublish {
+                        channel: full_channel.clone(),
+                        payload: encoded.clone(),
+                        error: last_err.clone().unwrap_or_else(|| "unknown".to_string()),
+                        failed_at: current_timestamp_millis(),
+                    };
+                    {
+                        let mut dlq = failed_publishes.write().await;
+                        if dlq.len() >= FAILED_PUBLISH_RING_SIZE {
+                            dlq.pop_front();
+                        }
+                        dlq.push_back(failed);
                     }
-                    dlq.push_back(failed);
-                }
-                warn!(
-                    error = last_err.as_deref().unwrap_or("unknown"),
-                    channel = %full_channel,
-                    payload_bytes = encoded.len(),
-                    attempts = MAX_ATTEMPTS,
-                    "WORK-05: Failed to publish to Redis after retries — message stored in DLQ for replay"
-                );
-                    })
-                    .catch_unwind()
-                    .await;
+                    warn!(
+                        error = last_err.as_deref().unwrap_or("unknown"),
+                        channel = %full_channel,
+                        payload_bytes = encoded.len(),
+                        attempts = MAX_ATTEMPTS,
+                        "WORK-05: Failed to publish to Redis after retries — message stored in DLQ for replay"
+                    );
+                })
+                .catch_unwind()
+                .await;
 
-                    if let Err(panic_payload) = body {
-                        warn!(
-                            panic = ?panic_payload,
-                            channel = %full_channel_for_panic,
-                            payload_bytes = encoded_for_panic.len(),
-                            "W-06: WorkerBus.redis_publish_fire_and_forget task panicked — panic was caught and logged"
-                        );
-                    }
-            }, );
+                if let Err(panic_payload) = body {
+                    warn!(
+                        panic = ?panic_payload,
+                        channel = %full_channel_for_panic,
+                        payload_bytes = encoded_for_panic.len(),
+                        "W-06: WorkerBus.redis_publish_fire_and_forget task panicked — panic was caught and logged"
+                    );
+                }
+            });
         }
 
         // Also deliver to local in-memory subscribers

@@ -9,9 +9,7 @@ use axum::{
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
-use super::{
-    dispatch_federation_member_event_to_appservice, federatable_room_version, re_sign_pdu_locally,
-};
+use super::{dispatch_federation_member_event_to_appservice, federatable_room_version, re_sign_pdu_locally};
 use crate::web::routes::extractors::RoomId;
 
 pub(crate) async fn thirdparty_invite(

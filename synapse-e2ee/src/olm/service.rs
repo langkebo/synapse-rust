@@ -33,10 +33,7 @@ pub fn decode_pickle_key_from_env(value: Option<&str>) -> Result<[u8; 32], Strin
     let decoded = synapse_common::crypto::decode_hex(key_str)
         .map_err(|e| format!("E-06: OLM_PICKLE_KEY is not valid hex: {e}"))?;
     if decoded.len() != 32 {
-        return Err(format!(
-            "E-06: OLM_PICKLE_KEY is {} bytes, must be exactly 32 (64 hex characters)",
-            decoded.len()
-        ));
+        return Err(format!("E-06: OLM_PICKLE_KEY is {} bytes, must be exactly 32 (64 hex characters)", decoded.len()));
     }
     let mut key = [0u8; 32];
     key.copy_from_slice(&decoded[..32]);
@@ -162,9 +159,8 @@ impl OlmService {
             // must not silently fall back to a random key — startup must
             // fail loudly if OLM_PICKLE_KEY is missing or malformed.
             let pickle_key = get_pickle_key_strict()?;
-            let pickle =
-                vodozemac::olm::AccountPickle::from_encrypted(&account_data.serialized_account, pickle_key)
-                    .map_err(map_database!("Failed to decode account pickle"))?;
+            let pickle = vodozemac::olm::AccountPickle::from_encrypted(&account_data.serialized_account, pickle_key)
+                .map_err(map_database!("Failed to decode account pickle"))?;
             let account = Account::from_pickle(pickle);
 
             {
@@ -487,8 +483,7 @@ mod tests {
     /// returns Ok for a valid 64-char hex string.
     #[test]
     fn test_e06_valid_hex_key_produces_32_bytes() {
-        let key = decode_pickle_key_from_env(Some(&"a".repeat(64)))
-            .expect("valid 64-char hex must succeed");
+        let key = decode_pickle_key_from_env(Some(&"a".repeat(64))).expect("valid 64-char hex must succeed");
         assert_eq!(key.len(), 32, "pickle key must be exactly 32 bytes");
     }
 
@@ -510,10 +505,7 @@ mod tests {
         let result = decode_pickle_key_from_env(None);
         assert!(result.is_err(), "E-06: missing key must return Err");
         let err = result.unwrap_err();
-        assert!(
-            err.contains("E-06"),
-            "E-06: error should carry the E-06 tag: {err}"
-        );
+        assert!(err.contains("E-06"), "E-06: error should carry the E-06 tag: {err}");
     }
 
     /// E-06: 16-byte (32 hex char) keys must be rejected.
@@ -522,9 +514,6 @@ mod tests {
         let result = decode_pickle_key_from_env(Some(&"a".repeat(32)));
         assert!(result.is_err(), "E-06: 16-byte key must be rejected");
         let err = result.unwrap_err();
-        assert!(
-            err.contains("32 bytes") || err.contains("64 hex"),
-            "E-06: error should mention correct length: {err}"
-        );
+        assert!(err.contains("32 bytes") || err.contains("64 hex"), "E-06: error should mention correct length: {err}");
     }
 }

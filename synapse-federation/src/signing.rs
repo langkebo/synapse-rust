@@ -769,7 +769,8 @@ mod tests {
             "origin": "remote.test",
         });
 
-        sign_and_hash_event("local.test", "ed25519:1", &secret_b64, &mut pdu).expect("sign_and_hash_event must succeed");
+        sign_and_hash_event("local.test", "ed25519:1", &secret_b64, &mut pdu)
+            .expect("sign_and_hash_event must succeed");
 
         let sigs = pdu.get("signatures").expect("signatures must be present after signing");
         let local_sigs = sigs.get("local.test").expect("local.test must have signatures");

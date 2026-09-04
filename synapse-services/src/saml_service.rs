@@ -571,9 +571,9 @@ impl SamlService {
         // via the uid SAML attribute or the NameID, which could otherwise be
         // used to forge Matrix user IDs or bypass collision checks.
         // Matrix localpart: [a-z0-9._=-]+  (1-255 chars)
-        if !localpart.chars().all(|c| c.is_ascii_lowercase()
-            || c.is_ascii_digit()
-            || matches!(c, '.' | '_' | '=' | '-'))
+        if !localpart
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '=' | '-'))
             || localpart.len() > 255
         {
             ::tracing::warn!(

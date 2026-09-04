@@ -9,8 +9,8 @@
 //! default), the homeserver uses its built-in HS256 token validation and
 //! no MAS REST API calls are made.
 
-use serde::Deserialize;
 use educe::Educe;
+use serde::Deserialize;
 
 /// MSC3861: Matrix Authentication Service (MAS) configuration.
 ///

@@ -906,10 +906,7 @@ mod tests {
     #[test]
     fn test_e05_numeric_version_parses() {
         for version in ["1", "42", "999999", "0", "-1"] {
-            assert!(
-                version.parse::<i64>().is_ok(),
-                "Numeric version '{version}' should parse as i64"
-            );
+            assert!(version.parse::<i64>().is_ok(), "Numeric version '{version}' should parse as i64");
         }
     }
 
@@ -918,13 +915,7 @@ mod tests {
         // E-05: These strings are valid backup version identifiers but are
         // NOT valid i64 literals. The old `unwrap_or(0)` would have treated
         // them all as version 0 — a guaranteed not-found or wrong-row lookup.
-        for version in [
-            "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-            "v1",
-            "2024-01-01",
-            "1.0",
-            "version_1",
-        ] {
+        for version in ["a1b2c3d4-e5f6-7890-abcd-ef1234567890", "v1", "2024-01-01", "1.0", "version_1"] {
             assert!(
                 version.parse::<i64>().is_err(),
                 "Non-numeric version '{version}' must NOT parse as i64 (E-05 invariant)"

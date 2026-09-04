@@ -55,15 +55,9 @@ impl KeyBackupService {
         // irrecoverable — refuse to create it. This also closes a confused
         // deputy where a caller could later PUT a public_key they
         // themselves control via `update_backup_auth_data` (E-02).
-        let public_key = auth_data
-            .as_ref()
-            .and_then(|v| v.get("public_key"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let public_key = auth_data.as_ref().and_then(|v| v.get("public_key")).and_then(|v| v.as_str()).unwrap_or("");
         if public_key.is_empty() {
-            return Err(ApiError::invalid_param(
-                "Backup auth_data must contain a public_key",
-            ));
+            return Err(ApiError::invalid_param("Backup auth_data must contain a public_key"));
         }
 
         let backup = KeyBackup {
@@ -144,9 +138,7 @@ impl KeyBackupService {
                             }
                         }
                         if !signature_valid {
-                            return Err(ApiError::invalid_param(
-                                "Backup auth_data signatures failed verification",
-                            ));
+                            return Err(ApiError::invalid_param("Backup auth_data signatures failed verification"));
                         }
                     } else {
                         // No device_key_storage — refuse to accept the update
@@ -177,9 +169,7 @@ impl KeyBackupService {
         // The new auth_data must contain a non-empty public_key.
         let new_public_key = new_auth_data.get("public_key").and_then(|v| v.as_str());
         if new_public_key.is_none() || new_public_key.map(str::is_empty).unwrap_or(true) {
-            return Err(ApiError::invalid_param(
-                "Backup auth_data must contain a non-empty public_key",
-            ));
+            return Err(ApiError::invalid_param("Backup auth_data must contain a non-empty public_key"));
         }
 
         // The management key is meant to be stable for a given version —
@@ -187,9 +177,7 @@ impl KeyBackupService {
         // session_data. Reject any change.
         let new_mgmt_key = new_auth_data.get("mgmt_key").and_then(|v| v.as_str()).unwrap_or("");
         if !current.mgmt_key.is_empty() && new_mgmt_key != current.mgmt_key {
-            return Err(ApiError::invalid_param(
-                "Backup management key cannot be changed via update",
-            ));
+            return Err(ApiError::invalid_param("Backup management key cannot be changed via update"));
         }
 
         Ok(())
@@ -1068,11 +1056,7 @@ mod tests {
         let result = KeyBackupService::validate_auth_data_update(&current, &new_auth_data);
         assert!(result.is_err(), "Update with missing public_key must be rejected");
         let err = result.unwrap_err();
-        assert!(
-            err.message.contains("public_key"),
-            "Error should mention public_key: {}",
-            err.message
-        );
+        assert!(err.message.contains("public_key"), "Error should mention public_key: {}", err.message);
     }
 
     #[test]
@@ -1100,11 +1084,7 @@ mod tests {
         let result = KeyBackupService::validate_auth_data_update(&current, &new_auth_data);
         assert!(result.is_err(), "Update that changes mgmt_key must be rejected");
         let err = result.unwrap_err();
-        assert!(
-            err.message.contains("management key"),
-            "Error should mention mgmt_key: {}",
-            err.message
-        );
+        assert!(err.message.contains("management key"), "Error should mention mgmt_key: {}", err.message);
     }
 
     #[test]
@@ -1175,8 +1155,7 @@ mod tests {
             }
         });
 
-        let valid =
-            KeyBackupService::compute_signature_validity_without_device_keys(&forged_signatures);
+        let valid = KeyBackupService::compute_signature_validity_without_device_keys(&forged_signatures);
         assert!(!valid, "E-03: forged signatures must be rejected without device_key_storage");
     }
 

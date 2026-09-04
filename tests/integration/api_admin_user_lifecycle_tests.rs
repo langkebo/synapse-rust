@@ -442,11 +442,10 @@ async fn test_admin_login_as_user_writes_audit_event() {
     assert_eq!(response.status(), StatusCode::OK, "target user registration should succeed");
 
     // 记录 audit_events 起始行数（避免并发测试污染）
-    let baseline: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE action = 'admin.login_as_user'")
-            .fetch_one(pool.as_ref())
-            .await
-            .expect("count audit_events");
+    let baseline: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE action = 'admin.login_as_user'")
+        .fetch_one(pool.as_ref())
+        .await
+        .expect("count audit_events");
 
     // 2. admin 调用 /_synapse/admin/v1/users/{user_id}/login
     let encoded_user_id = user_id.replace('@', "%40").replace(':', "%3A");
@@ -466,11 +465,10 @@ async fn test_admin_login_as_user_writes_audit_event() {
     assert_eq!(json["user_id"], user_id);
 
     // 3. 验证 audit_events 表有 admin.login_as_user 记录，actor_id 是发起 admin
-    let new_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE action = 'admin.login_as_user'")
-            .fetch_one(pool.as_ref())
-            .await
-            .expect("count audit_events after login_as_user");
+    let new_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE action = 'admin.login_as_user'")
+        .fetch_one(pool.as_ref())
+        .await
+        .expect("count audit_events after login_as_user");
     assert!(
         new_count > baseline,
         "login_as_user must write a new audit_events row (baseline={}, new={})",

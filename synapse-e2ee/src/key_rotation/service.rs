@@ -807,14 +807,9 @@ mod tests {
         // we look for the exact substring that makes the check
         // session-scoped.
         let src = include_str!("service.rs");
-        let helper_section = src
-            .split("pub async fn key_share_exists")
-            .nth(1)
-            .expect("key_share_exists should be defined");
-        let body = helper_section
-            .split("}\n    }")
-            .next()
-            .expect("helper should have a body");
+        let helper_section =
+            src.split("pub async fn key_share_exists").nth(1).expect("key_share_exists should be defined");
+        let body = helper_section.split("}\n    }").next().expect("helper should have a body");
         assert!(body.contains("room_id = $1"));
         assert!(body.contains("session_id = $2"));
     }
@@ -834,10 +829,7 @@ mod tests {
         let dedup_pos = body.find("key_share_exists").expect("should call key_share_exists");
         let share_pos = body.find("share_session(").expect("should call share_session");
 
-        assert!(
-            dedup_pos < share_pos,
-            "E-07 invariant: key_share_exists (dedup) must run before share_session"
-        );
+        assert!(dedup_pos < share_pos, "E-07 invariant: key_share_exists (dedup) must run before share_session");
 
         let continue_pos = body.find("continue;").expect("dedup branch should skip with continue");
         assert!(continue_pos > dedup_pos && continue_pos < share_pos, "continue should sit between dedup and share");

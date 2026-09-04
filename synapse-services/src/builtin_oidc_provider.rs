@@ -745,8 +745,7 @@ impl BuiltinOidcProvider {
         let token = Uuid::new_v4().to_string();
         let expires_at = Instant::now()
             + Duration::from_secs(
-                (synapse_common::DEFAULT_REFRESH_TOKEN_EXPIRY_SECS as u64)
-                    .max(86400), // at least 1 day
+                (synapse_common::DEFAULT_REFRESH_TOKEN_EXPIRY_SECS as u64).max(86400), // at least 1 day
             );
 
         let refresh_token = RefreshToken {

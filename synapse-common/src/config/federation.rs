@@ -1,7 +1,7 @@
+use educe::Educe;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use educe::Educe;
 
 // ============================================================================
 // SECTION: Federation Configuration
