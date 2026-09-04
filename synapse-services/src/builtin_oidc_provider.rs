@@ -192,6 +192,12 @@ pub struct RefreshToken {
     pub client_id: String,
     pub scope: String,
     pub created_at: Instant,
+    /// SSO-AUDIT: refresh token expiry. The default 30 days is set to match
+    /// the local Matrix refresh-token expiry in synapse-common::config; the
+    /// builtin OIDC provider's RefreshToken struct previously had no expiry
+    /// field at all, which meant an in-memory entry could outlive the
+    /// intended lifetime of the user's session and accumulate forever.
+    pub expires_at: Instant,
 }
 
 #[derive(Debug, Deserialize)]
@@ -534,6 +540,16 @@ impl BuiltinOidcProvider {
         let refresh_token =
             request.refresh_token.as_ref().ok_or(ApiError::bad_request("Missing refresh_token".to_string()))?;
 
+        // Lazy cleanup: on each grant, evict a batch of expired entries so the
+        // in-memory HashMap does not grow unbounded. We do this here rather than
+        // a background task because BuiltinOidcProvider is intentionally kept
+        // stateless (no wiring dependency on infra shutdown token), making a
+        // background task disproportionate for a development-only component.
+        let now = Instant::now();
+        let mut write = self.refresh_tokens.write().await;
+        write.retain(|_token, rt| rt.expires_at > now);
+        drop(write);
+
         // 查找 refresh token
         let token_data = self
             .refresh_tokens
@@ -542,6 +558,16 @@ impl BuiltinOidcProvider {
             .get(refresh_token)
             .cloned()
             .ok_or(ApiError::unauthorized("Invalid refresh_token".to_string()))?;
+
+        // SSO-AUDIT: enforce expiry. The RefreshToken struct previously had
+        // no expires_at field, so a token issued in 2024 would still be
+        // accepted in 2026 if the in-memory map survived. Now that we set
+        // expires_at on creation, this guard rejects expired tokens and
+        // prevents zombie tokens from accumulating.
+        if token_data.expires_at < now {
+            self.refresh_tokens.write().await.remove(refresh_token);
+            return Err(ApiError::unauthorized("Refresh token expired".to_string()));
+        }
 
         // 获取用户
         let user = self
@@ -717,12 +743,18 @@ impl BuiltinOidcProvider {
     /// 生成 Refresh Token
     async fn generate_refresh_token(&self, user: &BuiltinOidcUser, scope: &str) -> Result<String, ApiError> {
         let token = Uuid::new_v4().to_string();
+        let expires_at = Instant::now()
+            + Duration::from_secs(
+                (synapse_common::DEFAULT_REFRESH_TOKEN_EXPIRY_SECS as u64)
+                    .max(86400), // at least 1 day
+            );
 
         let refresh_token = RefreshToken {
             user_id: user.id.clone(),
             client_id: self.config.client_id.clone(),
             scope: scope.to_string(),
             created_at: Instant::now(),
+            expires_at,
         };
 
         self.refresh_tokens.write().await.insert(token.clone(), refresh_token);
@@ -1250,5 +1282,79 @@ mod tests {
         let json = serde_json::to_string(&doc).unwrap();
         assert!(json.contains("issuer"));
         assert!(json.contains("authorization_endpoint"));
+    }
+
+    /// SSO-AUDIT: refresh tokens now have an `expires_at` field. A token
+    /// with `expires_at` in the past must be rejected outright and removed
+    /// from the in-memory map. The lazy cleanup in handle_refresh_token_grant
+    /// also evicts other expired entries on every grant.
+    #[tokio::test]
+    async fn test_refresh_token_expires_at_is_enforced() {
+        let provider = create_provider();
+        let now = Instant::now();
+        let valid_user_id = "@testuser:synapse.test";
+
+        // Insert a long-expired entry directly (bypassing the public API)
+        // so we can exercise the expiry guard deterministically.
+        let stale = RefreshToken {
+            user_id: valid_user_id.to_string(),
+            client_id: "test-client".to_string(),
+            scope: "openid".to_string(),
+            created_at: now - Duration::from_secs(1_000_000),
+            expires_at: now - Duration::from_secs(60),
+        };
+        provider.refresh_tokens.write().await.insert("stale-token".to_string(), stale);
+
+        // Insert a fresh entry that has not yet expired.
+        let fresh = RefreshToken {
+            user_id: valid_user_id.to_string(),
+            client_id: "test-client".to_string(),
+            scope: "openid".to_string(),
+            created_at: now,
+            expires_at: now + Duration::from_secs(86_400),
+        };
+        provider.refresh_tokens.write().await.insert("fresh-token".to_string(), fresh);
+
+        // First refresh call evicts the stale entry via retain().
+        let request = OidcTokenRequest {
+            grant_type: "refresh_token".to_string(),
+            code: None,
+            redirect_uri: None,
+            client_id: None,
+            code_verifier: None,
+            refresh_token: Some("fresh-token".to_string()),
+            scope: None,
+        };
+        let _ = provider.token(request).await.expect("fresh token must succeed");
+
+        // Stale entry should be gone after the lazy cleanup.
+        let map = provider.refresh_tokens.read().await;
+        assert!(!map.contains_key("stale-token"), "stale token must be evicted by lazy cleanup");
+        assert!(map.contains_key("fresh-token"), "fresh token must remain in the map");
+        drop(map);
+
+        // Direct expiry check: a refresh call with an expired token returns
+        // an error AND removes it from the map.
+        let stale_again = RefreshToken {
+            user_id: valid_user_id.to_string(),
+            client_id: "test-client".to_string(),
+            scope: "openid".to_string(),
+            created_at: now - Duration::from_secs(1_000_000),
+            expires_at: now - Duration::from_secs(60),
+        };
+        provider.refresh_tokens.write().await.insert("stale-token-2".to_string(), stale_again);
+        let stale_request = OidcTokenRequest {
+            grant_type: "refresh_token".to_string(),
+            code: None,
+            redirect_uri: None,
+            client_id: None,
+            code_verifier: None,
+            refresh_token: Some("stale-token-2".to_string()),
+            scope: None,
+        };
+        let result = provider.token(stale_request).await;
+        assert!(result.is_err(), "stale token refresh must fail");
+        let map = provider.refresh_tokens.read().await;
+        assert!(!map.contains_key("stale-token-2"), "stale token must be removed on expiry check");
     }
 }

@@ -444,10 +444,22 @@ impl OidcService {
             "RS512" => Algorithm::RS512,
             "ES256" => Algorithm::ES256,
             "ES384" => Algorithm::ES384,
-            "HS256" => Algorithm::HS256,
-            "HS384" => Algorithm::HS384,
-            "HS512" => Algorithm::HS512,
             "EdDSA" => Algorithm::EdDSA,
+            // SSO-AUDIT: Reject symmetric algorithms outright to prevent
+            // public-key-confusion attacks (CVE-2015-9235 / CVE-2018-0114).
+            // If an IdP presented a token signed with HS256, an attacker who
+            // knows the homeserver's JWKS public key could forge id_tokens
+            // using that public key as the HMAC secret. OIDC core spec
+            // §3.1.3.7 requires `alg` to be an asymmetric algorithm for
+            // id_tokens in code-flow responses; symmetric `alg` values are
+            // only valid for private-use JWTs exchanged in non-standard
+            // client-side contexts.
+            "HS256" | "HS384" | "HS512" => {
+                return Err(format!(
+                    "Symmetric algorithm '{}' is not permitted for id_token validation (rejected to prevent public-key-confusion attack)",
+                    alg_str
+                ));
+            }
             _ => return Err(format!("Unsupported ID token algorithm: {alg_str}")),
         };
 
@@ -794,6 +806,57 @@ mod tests {
 
         let result = service.validate_id_token(&forged, None).await;
         assert!(result.is_err(), "unknown kid must be rejected, not claim-only accepted; got {result:?}");
+    }
+
+    /// SSO-AUDIT: HS256/HS384/HS512 must be rejected outright for id_token
+    /// validation regardless of JWKS availability, to prevent the
+    /// public-key-confusion attack (CVE-2015-9235). An attacker who knows
+    /// the homeserver's JWKS RSA public key could otherwise forge id_tokens
+    /// by signing with HS256 using the public key as the HMAC secret.
+    #[tokio::test]
+    async fn hs256_id_token_must_be_rejected_even_with_valid_jwks() {
+        use base64::Engine as _;
+
+        let service = create_test_service();
+
+        // Seed JWKS with a dummy RSA key (so the algorithm-matching step
+        // would otherwise succeed if HS256 were permitted).
+        *service.jwks.write().await = Some(OidcJwks {
+            keys: vec![OidcJwk {
+                kty: "RSA".to_string(),
+                kid: Some("rsa-1".to_string()),
+                alg: Some("RS256".to_string()),
+                use_: Some("sig".to_string()),
+                n: Some("0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx".to_string()),
+                e: Some("AQAB".to_string()),
+                crv: None,
+                x: None,
+                y: None,
+            }],
+        });
+
+        // Forge an id_token with `alg: HS256`. Without the reject-HS256
+        // check, the homeserver would fall into the RSA JWKS path (since
+        // the alg_str default-unwrap means HS256 is treated as a valid
+        // algorithm) and could be tricked into verifying with the public
+        // key as HMAC secret.
+        let header = serde_json::json!({ "alg": "HS256", "kid": "rsa-1" });
+        let exp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 3600;
+        let payload = serde_json::json!({
+            "iss": service.config.issuer,
+            "aud": service.config.client_id,
+            "exp": exp,
+        });
+        let header_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header).unwrap());
+        let payload_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap());
+        let forged = format!("{header_b64}.{payload_b64}.signature");
+
+        let result = service.validate_id_token(&forged, None).await;
+        let err = result.expect_err("HS256 id_token must be rejected outright");
+        assert!(
+            err.contains("Symmetric algorithm") && err.contains("not permitted"),
+            "rejection error must explicitly mention symmetric algorithm + public-key confusion, got: {err}"
+        );
     }
 
     #[test]

@@ -565,6 +565,28 @@ impl SamlService {
             name_id.to_string()
         };
 
+        // SSO-AUDIT: Validate the derived localpart against the Matrix username
+        // character set before it reaches the registration or binding logic.
+        // A malicious IdP could inject newlines, colons, or other characters
+        // via the uid SAML attribute or the NameID, which could otherwise be
+        // used to forge Matrix user IDs or bypass collision checks.
+        // Matrix localpart: [a-z0-9._=-]+  (1-255 chars)
+        if !localpart.chars().all(|c| c.is_ascii_lowercase()
+            || c.is_ascii_digit()
+            || matches!(c, '.' | '_' | '=' | '-'))
+            || localpart.len() > 255
+        {
+            ::tracing::warn!(
+                target: "security_audit",
+                event = "saml_localpart_rejected_invalid_chars",
+                localpart_chars = localpart.bytes().take(64).collect::<Vec<_>>(),
+                "SAML-derived localpart contains characters outside Matrix's [a-z0-9._=-] set — rejecting",
+            );
+            return Err(synapse_common::error::ApiError::bad_request(
+                "SAML username attribute produces an invalid Matrix localpart".to_string(),
+            ));
+        }
+
         let displayname = mapping
             .displayname
             .as_ref()
