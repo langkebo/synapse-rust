@@ -316,9 +316,7 @@ pub(crate) fn validate_federation_host_not_ssrf(host: &str) -> Result<(), String
                 }
             }
         };
-        return Err(format!(
-            "F-04: IP literal not allowed as federation destination ({kind} {ip})"
-        ));
+        return Err(format!("F-04: IP literal not allowed as federation destination ({kind} {ip})"));
     }
     Ok(())
 }
@@ -464,10 +462,7 @@ impl FederationClient {
         // is expected to use DNS-resolved hostnames, not IP literals, as
         // destination servers.
         if let Err(reason) = validate_federation_host_not_ssrf(&resolved.host) {
-            return Err(FederationClientError::ServerBlocked(format!(
-                "{} (host={})",
-                reason, resolved.host
-            )));
+            return Err(FederationClientError::ServerBlocked(format!("{} (host={})", reason, resolved.host)));
         }
 
         self.server_resolution_cache.write().await.insert(
@@ -1111,10 +1106,18 @@ mod tests {
 
     #[test]
     fn test_resolved_server_ip_literal() {
+        // F-04: `resolve_server` must reject IP literals (loopback, private,
+        // link-local) to prevent SSRF. The fix lives in commit 32299587 —
+        // this test pins the rejection contract.
         let (rt, client) = create_test_client();
-        let resolved = rt.block_on(client.resolve_server("[::1]:8448")).unwrap();
-        assert_eq!(resolved.host, "::1");
-        assert_eq!(resolved.port, 8448);
+        let err = rt
+            .block_on(client.resolve_server("[::1]:8448"))
+            .expect_err("F-04: IP literal (IPv6 loopback) must be rejected");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("F-04") || msg.contains("IP literal") || msg.contains("not allowed"),
+            "F-04 error should mention policy: {msg}"
+        );
     }
 
     #[test]
@@ -1431,7 +1434,10 @@ mod tests {
         // (3) Peer validity > 7d → TTL bounded by 1h default (7d spec cap is safety ceiling)
         let keys_long = make_keys_for_ttl_test(now_ms + 30 * 24 * 60 * 60 * 1000_i64);
         let ttl_long = effective_cache_ttl_secs(&keys_long, now_ms);
-        assert_eq!(ttl_long, KEY_CACHE_TTL_SECS, "long peer validity must not exceed default; spec 7d cap is the safety ceiling");
+        assert_eq!(
+            ttl_long, KEY_CACHE_TTL_SECS,
+            "long peer validity must not exceed default; spec 7d cap is the safety ceiling"
+        );
     }
 
     #[test]
@@ -1452,8 +1458,7 @@ mod tests {
         let remaining_secs = ((keys.valid_until_ts - now_ms) / 1000).max(0) as u64;
         let max_validity_secs = (MAX_SERVER_KEY_VALIDITY_MS / 1000) as u64;
         let hypothetical_default_secs: u64 = 30 * 24 * 60 * 60;
-        let ttl_with_hypothetical_default =
-            hypothetical_default_secs.min(remaining_secs).min(max_validity_secs);
+        let ttl_with_hypothetical_default = hypothetical_default_secs.min(remaining_secs).min(max_validity_secs);
 
         let seven_days_secs: u64 = 7 * 24 * 60 * 60;
         assert_eq!(
