@@ -268,3 +268,33 @@ required-features = ["test-utils"]
 name = "performance_manual"
 path = "tests/performance/mod.rs"
 required-features = ["performance-tests", "test-utils"]
+
+# T-PASTE-PATCH: replace unmaintained paste (RUSTSEC-2024-0436) with the
+# actively-maintained pastey fork (RUSTSEC-recommended replacement).
+#
+# Cargo's [patch.crates-io] requires the patch source crate's name to match
+# the patched crate's name.  pastey is published as `pastey`, so we cannot
+# patch `paste` directly.  We fork pastey 0.2.3 into `vendor/pastey/` with
+# the package name changed to `paste`, allowing the redirect.
+#
+# Source files in `vendor/pastey/src/` are an exact copy of pastey 0.2.3
+# (MIT/Apache-2.0 dual licence, https://github.com/as1100k/pastey) with
+# only the `name` field in Cargo.toml changed from `pastey` to `paste`.
+# All Rust source is byte-for-byte identical to upstream.
+#
+# Dependency chain being de-unmaintained:
+#   synapse-rust (image 0.25)
+#     └── exr 1.74.2
+#         └── pulp 0.22.3
+#             └── paste 1.0.15   ← unmaintained (RUSTSEC-2024-0436)
+#                        ↓ (replaced by)
+#             vendor/pastey v1.0.16   ← pastey 0.2.3 fork, name = "paste"
+#
+# The version number is bumped to 1.0.16 to avoid lockfile collisions with
+# the unmaintained upstream 1.0.15; this makes the patch trivially visible
+# in `cargo tree` and any rollback unambiguous.
+#
+# Source code in the workspace continues to use `use paste::paste;` exactly
+# as before — zero code changes required.
+[patch.crates-io]
+paste = { path = "vendor/pastey" }
