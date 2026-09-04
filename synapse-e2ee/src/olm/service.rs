@@ -16,6 +16,12 @@ use std::sync::OnceLock;
 
 static PICKLE_KEY: OnceLock<[u8; 32]> = OnceLock::new();
 
+/// E-06: Production deployments MUST set `OLM_PICKLE_KEY`. The random
+/// fallback is limited to debug builds only; release builds will panic
+/// to prevent silent key loss on restart ( OlmAccount pickle would be
+/// decryptable only by the randomly-generated key from *that* process
+/// instance, so the Olm account becomes permanently unreadable across
+/// restarts — a critical data-loss risk).
 pub fn get_pickle_key() -> &'static [u8; 32] {
     PICKLE_KEY.get_or_init(|| {
         if let Ok(key_str) = env::var("OLM_PICKLE_KEY") {
@@ -27,22 +33,43 @@ pub fn get_pickle_key() -> &'static [u8; 32] {
                 }
                 Ok(_) => {
                     tracing::error!(
-                        "OLM_PICKLE_KEY must be exactly 32 bytes (64 hex characters). Generating random key."
+                        "OLM_PICKLE_KEY must be exactly 32 bytes (64 hex characters). Aborting."
                     );
-                    generate_random_pickle_key()
+                    panic!(
+                        "E-06: OLM_PICKLE_KEY is not 32 bytes. \
+                         Set OLM_PICKLE_KEY to a 64-character hex string."
+                    );
                 }
                 Err(e) => {
-                    tracing::error!("OLM_PICKLE_KEY is not valid hex: {}. Generating random key.", e);
-                    generate_random_pickle_key()
+                    tracing::error!("OLM_PICKLE_KEY is not valid hex: {}. Aborting.", e);
+                    panic!(
+                        "E-06: OLM_PICKLE_KEY is not valid hex. \
+                         Set OLM_PICKLE_KEY to a 64-character hex string."
+                    );
                 }
             }
         } else {
-            tracing::warn!(
-                "OLM_PICKLE_KEY not set. Generating random key. \
-                 Encrypted Olm data will not survive restarts. \
-                 Set OLM_PICKLE_KEY for production deployments."
-            );
-            generate_random_pickle_key()
+            // E-06: Warn-and-random is ONLY safe in debug — release builds
+            // must fail rather than silently produce a key that survives only
+            // one process instance.
+            if cfg!(debug_assertions) {
+                tracing::warn!(
+                    "OLM_PICKLE_KEY not set (debug mode). Generating random key. \
+                     Encrypted Olm data will not survive restarts. \
+                     Set OLM_PICKLE_KEY for production deployments."
+                );
+                generate_random_pickle_key()
+            } else {
+                tracing::error!(
+                    "E-06: OLM_PICKLE_KEY is not set. \
+                     Production builds must set OLM_PICKLE_KEY to a 64-character hex string. \
+                     Aborting to prevent Olm account data loss on restart."
+                );
+                panic!(
+                    "E-06: OLM_PICKLE_KEY not set. \
+                     Set OLM_PICKLE_KEY to a 64-character hex string before deploying."
+                );
+            }
         }
     })
 }
@@ -397,5 +424,56 @@ mod tests {
 
         assert_eq!(key.key_id, "key_123");
         assert_eq!(key.public_key, "public_key_data");
+    }
+
+    // -------------------------------------------------------------------------
+    // E-06 tests — OLM_PICKLE_KEY configuration
+    // -------------------------------------------------------------------------
+
+    /// E-06 invariant: `get_pickle_key` must produce a 32-byte key for any
+    /// code path that does not panic. We exercise the happy path (valid hex
+    /// key) via `env::set_var` so the test does not depend on the actual
+    /// environment. The panic paths (invalid length / bad hex / unset in
+    /// release) are verified through documentation and code inspection.
+    #[test]
+    fn test_e06_valid_hex_key_produces_32_bytes() {
+        // Set a valid 64-char hex key
+        env::set_var("OLM_PICKLE_KEY", "a".repeat(64));
+        let key = get_pickle_key();
+        assert_eq!(key.len(), 32, "pickle key must be exactly 32 bytes");
+        env::remove_var("OLM_PICKLE_KEY");
+    }
+
+    #[test]
+    fn test_e06_invalid_hex_causes_panic_message() {
+        // E-06: invalid hex must NOT silently fall back to random — it must
+        // abort with a clear panic message. We verify the panic fires.
+        env::set_var("OLM_PICKLE_KEY", "not-hex!");
+        let result = std::panic::catch_unwind(|| get_pickle_key());
+        env::remove_var("OLM_PICKLE_KEY");
+        assert!(
+            result.is_err(),
+            "E-06: invalid hex OLM_PICKLE_KEY must panic, not silently continue"
+        );
+    }
+
+    #[test]
+    fn test_e06_no_silent_random_fallback_in_release_cfg() {
+        // E-06 invariant: the random fallback branch must be gated behind
+        // `cfg!(debug_assertions)`. Release builds must panic instead.
+        // Verified by source inspection — a runtime test would crash the
+        // process in release mode, so we assert the cfg gate exists.
+        let src = include_str!("service.rs");
+        let fn_body = src
+            .split("pub fn get_pickle_key")
+            .nth(1)
+            .expect("get_pickle_key should exist")
+            .split('\n')
+            .take(60) // rough function body scope
+            .collect::<String>();
+        assert!(
+            fn_body.contains("cfg!(debug_assertions)"),
+            "E-06: cfg!(debug_assertions) gate must be present for random fallback"
+        );
     }
 }
