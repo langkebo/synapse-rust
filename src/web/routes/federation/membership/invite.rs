@@ -8,9 +8,79 @@ use axum::{
 };
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
+use synapse_federation::signing::sign_and_hash_event;
 
 use super::{dispatch_federation_member_event_to_appservice, federatable_room_version};
 use crate::web::routes::extractors::RoomId;
+
+// ---------------------------------------------------------------------------
+// F-03: After persisting a federation-derived event we MUST add the local
+// server's signature so that other origins can verify the event in their
+// `verify_pdu_sender_signature` step. Without this, an invite/join/leave
+// accepted by our server would be missing `signatures.<local_server>` and
+// third-party origins would reject it.
+// ---------------------------------------------------------------------------
+
+/// Sign the given PDU JSON with the local server's current signing key and
+/// persist `signatures` + `hashes` back into the events row.
+///
+/// On any signing/persistence failure, logs a warning rather than failing the
+/// inbound federation request — the event is already accepted (invite/join/
+/// leave), and re-signing is best-effort. The caller MUST log a warning if
+/// re-signing fails so that operators see signature drift.
+async fn re_sign_pdu_locally(
+    ctx: &FederationContext,
+    event_id: &str,
+    pdu: &mut Value,
+) {
+    let local_server = &ctx.server_name;
+    let key = match ctx.key_rotation_manager.get_current_key().await {
+        Ok(Some(k)) => k,
+        Ok(None) => {
+            ::tracing::warn!(
+                event_id = %event_id,
+                server_name = %local_server,
+                "F-03: no signing key available — invite event will lack local signature"
+            );
+            return;
+        }
+        Err(e) => {
+            ::tracing::warn!(
+                event_id = %event_id,
+                server_name = %local_server,
+                error = %e,
+                "F-03: failed to fetch signing key — invite event will lack local signature"
+            );
+            return;
+        }
+    };
+
+    if let Err(e) = sign_and_hash_event(local_server, &key.key_id, &key.secret_key, pdu) {
+        ::tracing::warn!(
+            event_id = %event_id,
+            server_name = %local_server,
+            error = %e,
+            "F-03: sign_and_hash_event failed — invite event will lack local signature"
+        );
+        return;
+    }
+
+    let signatures = pdu.get("signatures").cloned().unwrap_or(Value::Null);
+    let hashes = pdu.get("hashes").cloned().unwrap_or(Value::Null);
+    if let Err(e) = ctx
+        .room_service
+        .messaging()
+        .update_event_signatures_and_hashes(event_id, &signatures, &hashes)
+        .await
+    {
+        ::tracing::warn!(
+            event_id = %event_id,
+            server_name = %local_server,
+            error = %e,
+            "F-03: failed to persist local signatures/hashes — event will be missing signatures in subsequent federation"
+        );
+    }
+}
 
 pub(crate) async fn thirdparty_invite(
     State(ctx): State<FederationContext>,
@@ -65,6 +135,19 @@ pub(crate) async fn thirdparty_invite(
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_context("Failed to create invite event", &e))?;
+    // F-03: add local server signature so other origins can verify the
+    // invite. We build a minimal PDU from the persisted fields.
+    let mut pdu = json!({
+        "event_id": event_id,
+        "room_id": room_id,
+        "sender": sender,
+        "type": "m.room.member",
+        "state_key": invitee,
+        "content": content,
+        "origin_server_ts": current_timestamp_millis(),
+        "origin": auth.origin,
+    });
+    re_sign_pdu_locally(&ctx, &event_id, &mut pdu).await;
     dispatch_federation_member_event_to_appservice(&ctx, &event_id, room_id, sender, &content, Some(invitee)).await;
 
     Ok(Json(json!({
@@ -109,6 +192,21 @@ pub(crate) async fn invite_v2(
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_context("Failed to create invite event", &e))?;
+
+    // F-03: add local server signature so other origins can verify the
+    // invite. We reconstruct the minimal PDU that was persisted.
+    let mut pdu = json!({
+        "event_id": event_id,
+        "room_id": room_id,
+        "sender": sender,
+        "type": "m.room.member",
+        "state_key": state_key,
+        "content": content_for_as,
+        "origin_server_ts": body.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(current_timestamp_millis()),
+        "origin": auth.origin,
+    });
+    re_sign_pdu_locally(&ctx, &event_id, &mut pdu).await;
+
     dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, sender, &content_for_as, Some(state_key))
         .await;
 

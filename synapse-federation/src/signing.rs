@@ -746,4 +746,82 @@ mod tests {
         let result = verify_pdu_signature_with_client(&mock, &pdu).await;
         assert!(result.is_err(), "PDU signed with different key should fail");
     }
+
+    // ------------------------------------------------------------------
+    // F-03: sign_and_hash_event must add server signature to invite PDU
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_sign_and_hash_event_invite_pdu() {
+        // F-03: after re-signing an invite PDU locally, the resulting JSON
+        // must contain `signatures.<local_server>.<key_id>` so third-party
+        // origins can verify the invite in their `verify_pdu_sender_signature`
+        // step.
+        let (secret_b64, signing_key) = generate_test_key();
+        let mut pdu = serde_json::json!({
+            "event_id": "$invite:local.test",
+            "room_id": "!room:local.test",
+            "sender": "@remote:remote.test",
+            "type": "m.room.member",
+            "state_key": "@invitee:remote.test",
+            "content": {"membership": "invite"},
+            "origin_server_ts": 1_700_000_000_000_i64,
+            "origin": "remote.test",
+        });
+
+        sign_and_hash_event("local.test", "ed25519:1", &secret_b64, &mut pdu).expect("sign_and_hash_event must succeed");
+
+        let sigs = pdu.get("signatures").expect("signatures must be present after signing");
+        let local_sigs = sigs.get("local.test").expect("local.test must have signatures");
+        let sig_value = local_sigs.get("ed25519:1").expect("ed25519:1 key id must be present");
+        assert!(sig_value.as_str().is_some_and(|s| !s.is_empty()), "signature must be a non-empty string");
+
+        // Also verify the signature is actually a valid ed25519 signature over the
+        // canonical JSON (without `signatures`/`unsigned`). This guarantees the
+        // signature in `signatures.local.test.ed25519:1` is cryptographically valid.
+        let mut copy = pdu.clone();
+        copy.as_object_mut().unwrap().remove("signatures");
+        copy.as_object_mut().unwrap().remove("unsigned");
+        let canonical = canonical_json(&copy).unwrap();
+        let verifying_key: VerifyingKey = signing_key.verifying_key();
+        let sig_bytes = base64::engine::general_purpose::STANDARD_NO_PAD.decode(sig_value.as_str().unwrap()).unwrap();
+        let sig = ed25519_dalek::Signature::from_bytes(&sig_bytes.try_into().unwrap());
+        verifying_key.verify(canonical.as_bytes(), &sig).expect("signature must verify against canonical PDU");
+    }
+
+    #[test]
+    fn test_sign_and_hash_event_invite_preserves_remote_signature() {
+        // F-03: re-signing locally must NOT overwrite any existing remote
+        // signatures on the PDU. Both must coexist so third-party verifiers
+        // see the remote signature and the local server's acceptance signature.
+        let (secret_b64, _signing_key) = generate_test_key();
+        let mut pdu = serde_json::json!({
+            "event_id": "$invite:local.test",
+            "room_id": "!room:local.test",
+            "sender": "@remote:remote.test",
+            "type": "m.room.member",
+            "state_key": "@invitee:remote.test",
+            "content": {"membership": "invite"},
+            "origin_server_ts": 1_700_000_000_000_i64,
+            "origin": "remote.test",
+            "signatures": {
+                "remote.test": {
+                    "ed25519:abc": "remote_sig_value"
+                }
+            }
+        });
+
+        sign_and_hash_event("local.test", "ed25519:1", &secret_b64, &mut pdu).expect("re-sign must succeed");
+
+        let sigs = pdu.get("signatures").unwrap();
+        assert_eq!(
+            sigs.get("remote.test").and_then(|r| r.get("ed25519:abc")).and_then(|v| v.as_str()),
+            Some("remote_sig_value"),
+            "F-03: remote signature must be preserved after local re-sign"
+        );
+        assert!(
+            sigs.get("local.test").and_then(|r| r.get("ed25519:1")).is_some(),
+            "F-03: local.test signature must be added"
+        );
+    }
 }

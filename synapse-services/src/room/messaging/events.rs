@@ -460,6 +460,22 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Failed to redact event content", &e))
     }
 
+    /// F-03: After a federation-derived event is persisted (invite / join / leave),
+    /// the local server signs it and writes `signatures`/`hashes` back to the row.
+    /// This method exposes that capability to the federation route handlers in
+    /// the synapse-rust crate via `ctx.room_service.messaging().`.
+    pub async fn update_event_signatures_and_hashes(
+        &self,
+        event_id: &str,
+        signatures: &serde_json::Value,
+        hashes: &serde_json::Value,
+    ) -> ApiResult<()> {
+        self.event_writer
+            .update_event_signatures_and_hashes(event_id, signatures, hashes)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to update event signatures and hashes", &e))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn save_event_signature(
         &self,
