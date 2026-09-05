@@ -62,6 +62,7 @@ pub(crate) fn build_test_auth_service() -> TestAuthHarness {
         login_failure_lockout_threshold: 5,
         login_lockout_duration_seconds: 300,
         mas_validator: None,
+        audit_storage: None,
     };
 
     TestAuthHarness { service, user_store, token_store, member_store, event_store, cache }

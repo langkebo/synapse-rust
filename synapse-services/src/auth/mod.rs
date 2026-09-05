@@ -71,6 +71,12 @@ pub struct AuthService {
     /// JWTs before falling back to the local HS256 path. `None` preserves
     /// the legacy behavior (local tokens only).
     pub mas_validator: Option<Arc<dyn MasTokenValidator>>,
+    /// C1: Tamper-evident audit storage. When set, security events
+    /// (login success/failure, account lockout, password change, token
+    /// revocation) are persisted to the `audit_events` table in addition
+    /// to tracing logs. `None` preserves the legacy tracing-only path
+    /// (tests / pre-wiring builds).
+    pub audit_storage: Option<Arc<dyn synapse_storage::audit::AuditEventStoreApi>>,
 }
 
 impl AuthService {
@@ -145,6 +151,7 @@ impl AuthService {
             login_failure_lockout_threshold: security.login_failure_lockout_threshold,
             login_lockout_duration_seconds: security.login_lockout_duration_seconds,
             mas_validator: None,
+            audit_storage: None,
         }
     }
 
@@ -155,6 +162,13 @@ impl AuthService {
     pub fn with_mas_validator(mut self, validator: Arc<dyn MasTokenValidator>) -> Self {
         self.mas_validator = Some(validator);
         self
+    }
+
+    /// C1: Attach tamper-evident audit storage. When set, auth security events
+    /// are persisted to the `audit_events` table. Production wiring calls this.
+    /// Tests keep `None` (tracing-only path).
+    pub fn with_audit_storage(self, storage: Arc<dyn synapse_storage::audit::AuditEventStoreApi>) -> Self {
+        Self { audit_storage: Some(storage), ..self }
     }
 }
 

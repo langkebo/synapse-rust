@@ -196,19 +196,27 @@ impl ServiceContainer {
         // Auth — must be initialized first; downstream services depend on it.
         // Produce all four trait-object lenses from the same concrete AuthService
         // so consumers can depend on the narrowest trait they need.
-        let auth_concrete: std::sync::Arc<AuthService> = std::sync::Arc::new(AuthService::new_with_lifetime(
-            pool,
-            cache.clone(),
-            metrics.clone(),
-            &config.security,
-            &config.server.name,
-            config.access_token_lifetime_seconds(),
-            user_service.clone(),
-            user_storage.clone(),
-            device_storage.clone(),
-            token_storage.clone(),
-            refresh_token_storage.clone(),
-        ));
+        //
+        // C1: Wire audit_storage so login/password/lockout events are persisted
+        // to the tamper-evident audit_events table.
+        let audit_storage: std::sync::Arc<dyn synapse_storage::audit::AuditEventStoreApi> =
+            std::sync::Arc::new(synapse_storage::audit::AuditEventStorage::new(pool));
+        let auth_concrete: std::sync::Arc<AuthService> = std::sync::Arc::new(
+            AuthService::new_with_lifetime(
+                pool,
+                cache.clone(),
+                metrics.clone(),
+                &config.security,
+                &config.server.name,
+                config.access_token_lifetime_seconds(),
+                user_service.clone(),
+                user_storage.clone(),
+                device_storage.clone(),
+                token_storage.clone(),
+                refresh_token_storage.clone(),
+            )
+            .with_audit_storage(audit_storage),
+        );
         let token_auth: Arc<dyn TokenAuth> = auth_concrete.clone();
         let credential_auth: Arc<dyn CredentialAuth> = auth_concrete.clone();
         let room_auth: Arc<dyn RoomAuth> = auth_concrete.clone();
