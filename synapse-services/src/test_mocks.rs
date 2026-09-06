@@ -10,10 +10,11 @@
 //! `.trae/documents/TDD落地执行清单.md` Phase 3 for the extension plan.
 
 pub use synapse_storage::test_mocks::{
-    seed_locked_users, shared_fake_user_store, FakeUserStore, InMemoryAccessTokenStore, InMemoryAdminMediaStore,
-    InMemoryBackgroundUpdateStore, InMemoryDeviceListStore, InMemoryEventStore, InMemoryMemberStore,
-    InMemoryOidcUserMappingStore, InMemoryRateLimitStore, InMemoryRefreshTokenStore, InMemoryRelationsStore,
-    InMemoryRoomStore, InMemoryRoomTagStore, InMemoryThreepidStore, SharedFakeUserStore,
+    seed_locked_users, shared_fake_user_store, FakeUserStore, InMemoryAccessTokenStore, InMemoryAccountDataStore,
+    InMemoryAdminMediaStore, InMemoryBackgroundUpdateStore, InMemoryDeviceListStore, InMemoryEventStore,
+    InMemoryMemberStore, InMemoryOidcUserMappingStore, InMemoryPushStore, InMemoryRateLimitStore,
+    InMemoryRefreshTokenStore, InMemoryRelationsStore, InMemoryRoomStore, InMemoryRoomTagStore, InMemoryThreepidStore,
+    SharedFakeUserStore,
 };
 
 use std::collections::HashMap;

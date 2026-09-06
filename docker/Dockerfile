@@ -54,6 +54,7 @@ COPY synapse-storage/Cargo.toml     ./synapse-storage/Cargo.toml
 COPY synapse-e2ee/Cargo.toml        ./synapse-e2ee/Cargo.toml
 COPY synapse-federation/Cargo.toml  ./synapse-federation/Cargo.toml
 COPY synapse-services/Cargo.toml    ./synapse-services/Cargo.toml
+COPY vendor/                       ./vendor/
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \

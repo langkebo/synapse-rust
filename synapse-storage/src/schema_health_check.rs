@@ -187,7 +187,7 @@ const REQUIRED_INDEXES: &[RequiredIndex] = &[
         display_name: "idx_access_tokens_user_id",
         acceptable_names: &["idx_access_tokens_user_id", "idx_access_tokens_user"],
     },
-    RequiredIndex { display_name: "idx_access_tokens_token_hash", acceptable_names: &["idx_access_tokens_token_hash"] },
+    RequiredIndex { display_name: "idx_access_tokens_token_hash", acceptable_names: &["idx_access_tokens_token_hash", "uq_access_tokens_token_hash"] },
     RequiredIndex {
         display_name: "idx_refresh_tokens_user_id",
         acceptable_names: &["idx_refresh_tokens_user_id", "idx_refresh_tokens_user"],

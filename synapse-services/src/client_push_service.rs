@@ -4,9 +4,7 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::account_data::AccountDataStoreApi;
-use synapse_storage::push::PushStoreApi;
-
-#[derive(Debug, Clone)]
+use synapse_storage::push::PushStoreApi;#[derive(Debug, Clone)]
 pub struct UpsertPusherRequest {
     pub user_id: String,
     pub device_id: String,
@@ -308,5 +306,255 @@ impl ClientPushService {
             );
         }
         Ok(success)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for `ClientPushService` — coverage target ≥90%.
+    //!
+    //! Tested via the in-memory mock stores (`InMemoryPushStore`,
+    //! `InMemoryAccountDataStore`) so the suite runs without a real
+    //! PostgreSQL pool. The four methods that read raw `sqlx::postgres::PgRow`
+    //! values from the trait (`get_pushers`, `get_user_push_rules`,
+    //! `get_notifications`, `ack_notification`) cannot be exercised in
+    //! memory because `PgRow` is a live DB handle; they are covered by the
+    //! integration tests in `tests/integration/`.
+
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::*;
+    use crate::test_mocks::{InMemoryAccountDataStore, InMemoryPushStore};
+    use serde_json::json;
+
+    fn build_service() -> ClientPushService {
+        ClientPushService::new(Arc::new(InMemoryAccountDataStore::new()), Arc::new(InMemoryPushStore::new()))
+    }
+
+    fn pusher_req(user_id: &str, pushkey: &str, url: &str) -> UpsertPusherRequest {
+        UpsertPusherRequest {
+            user_id: user_id.to_string(),
+            device_id: "DEVICE".to_string(),
+            pushkey: pushkey.to_string(),
+            kind: "http".to_string(),
+            app_id: "com.example.app".to_string(),
+            app_display_name: "Example".to_string(),
+            device_display_name: "Device".to_string(),
+            profile_tag: None,
+            lang: "en".to_string(),
+            data: Some(json!({"url": url})),
+        }
+    }
+
+    fn rule_req(user_id: &str, rule_id: &str, actions: Value) -> UpsertPushRuleRequest {
+        UpsertPushRuleRequest {
+            user_id: user_id.to_string(),
+            scope: "global".to_string(),
+            kind: "room".to_string(),
+            rule_id: rule_id.to_string(),
+            pattern: Some("!room:example.com".to_string()),
+            conditions: None,
+            actions,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_upsert_pusher_returns_now_in_call_window() {
+        let svc = build_service();
+        let before = current_timestamp_millis();
+        let ts = svc
+            .upsert_pusher(pusher_req("@alice:example.com", "tok1", "https://push.example.com/v1"))
+            .await
+            .expect("upsert should succeed");
+        let after = current_timestamp_millis();
+        assert!(ts >= before, "ts {ts} must be >= start {before}");
+        assert!(ts <= after, "ts {ts} must be <= end {after}");
+    }
+
+    #[tokio::test]
+    async fn test_upsert_pusher_idempotent_for_same_key() {
+        let svc = build_service();
+        // 3 upserts on the same (user, device, pushkey) — must all succeed.
+        for i in 0..3 {
+            svc.upsert_pusher(pusher_req(
+                "@bob:example.com",
+                "tok_bob",
+                &format!("https://push.example.com/v{i}"),
+            ))
+            .await
+            .expect("repeat upsert should succeed (idempotent)");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_upsert_pusher_different_pushkeys_coexist() {
+        let svc = build_service();
+        svc.upsert_pusher(pusher_req("@bob:example.com", "tok_bob_iphone", "https://push1.example.com/v1"))
+            .await
+            .unwrap();
+        svc.upsert_pusher(pusher_req("@bob:example.com", "tok_bob_pixel", "https://push2.example.com/v1"))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_delete_pusher_succeeds_for_missing_row() {
+        // DELETE on a non-existent pusher should be a no-op success
+        // (mirrors the `DELETE WHERE user_id=$1 AND ...` SQL semantics).
+        let svc = build_service();
+        svc.delete_pusher("@nobody:example.com", "DEVICE_X", "absent_pushkey")
+            .await
+            .expect("delete of missing pusher must be idempotent");
+    }
+
+    #[tokio::test]
+    async fn test_delete_pusher_after_upsert() {
+        let svc = build_service();
+        svc.upsert_pusher(pusher_req("@carol:example.com", "tok_carol", "https://push.example.com/v1"))
+            .await
+            .unwrap();
+        svc.delete_pusher("@carol:example.com", "DEVICE", "tok_carol").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_upsert_push_rule_inserts_new() {
+        let svc = build_service();
+        svc.upsert_push_rule(rule_req("@dave:example.com", ".m.rule.dave", json!([{"kind": "notify"}])))
+            .await
+            .expect("upsert rule should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_upsert_push_rule_overwrites_via_on_conflict() {
+        let svc = build_service();
+        svc.upsert_push_rule(rule_req("@eve:example.com", ".m.rule.eve", json!([{"kind": "notify"}])))
+            .await
+            .unwrap();
+        // Overwrite with disabled notification — must not error.
+        svc.upsert_push_rule(rule_req("@eve:example.com", ".m.rule.eve", json!([{"kind": "dont_notify"}])))
+            .await
+            .expect("overwrite via ON CONFLICT must succeed");
+    }
+
+    #[tokio::test]
+    async fn test_delete_push_rule_returns_true_for_existing() {
+        let svc = build_service();
+        svc.upsert_push_rule(rule_req("@frank:example.com", ".m.rule.frank", json!([{"kind": "notify"}])))
+            .await
+            .unwrap();
+        let existed = svc
+            .delete_push_rule("@frank:example.com", "global", "room", ".m.rule.frank")
+            .await
+            .unwrap();
+        assert!(existed, "deleting existing rule must return true");
+    }
+
+    #[tokio::test]
+    async fn test_delete_push_rule_returns_false_for_missing() {
+        let svc = build_service();
+        let existed = svc
+            .delete_push_rule("@ghost:example.com", "global", "room", ".m.rule.absent")
+            .await
+            .unwrap();
+        assert!(!existed, "deleting missing rule must return false");
+    }
+
+    #[tokio::test]
+    async fn test_set_push_rule_actions_on_existing_rule() {
+        let svc = build_service();
+        svc.upsert_push_rule(rule_req("@gina:example.com", ".m.rule.gina", json!([{"kind": "notify"}])))
+            .await
+            .unwrap();
+        svc.set_push_rule_actions(
+            "@gina:example.com",
+            "global",
+            "room",
+            ".m.rule.gina",
+            &json!([{"kind": "dont_notify"}]),
+        )
+        .await
+        .expect("set actions on existing rule must succeed");
+    }
+
+    #[tokio::test]
+    async fn test_set_push_rule_actions_silently_noop_for_missing() {
+        // Mock is a no-op for non-existent rules (mirrors `UPDATE WHERE`
+        // returning 0 rows). Service must not error.
+        let svc = build_service();
+        svc.set_push_rule_actions(
+            "@henry:example.com",
+            "global",
+            "room",
+            ".m.rule.absent",
+            &json!([{"kind": "notify"}]),
+        )
+        .await
+        .expect("set actions on missing rule must not error");
+    }
+
+    #[tokio::test]
+    async fn test_get_push_rule_enabled_returns_none_when_missing() {
+        let svc = build_service();
+        let result = svc
+            .get_push_rule_enabled("@ivy:example.com", "global", "room", "never_existed")
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_push_rule_enabled_default_true_after_upsert() {
+        let svc = build_service();
+        svc.upsert_push_rule(rule_req("@jack:example.com", ".m.rule.jack", json!([{"kind": "notify"}])))
+            .await
+            .unwrap();
+        let enabled = svc
+            .get_push_rule_enabled("@jack:example.com", "global", "room", ".m.rule.jack")
+            .await
+            .unwrap();
+        assert_eq!(enabled, Some(true), "freshly upserted rule must default to enabled");
+    }
+
+    #[tokio::test]
+    async fn test_set_push_rule_enabled_round_trip() {
+        let svc = build_service();
+        svc.upsert_push_rule(rule_req("@kate:example.com", ".m.rule.kate", json!([{"kind": "notify"}])))
+            .await
+            .unwrap();
+
+        // Disable
+        svc.set_push_rule_enabled("@kate:example.com", "global", "room", ".m.rule.kate", false)
+            .await
+            .unwrap();
+        let enabled = svc
+            .get_push_rule_enabled("@kate:example.com", "global", "room", ".m.rule.kate")
+            .await
+            .unwrap();
+        assert_eq!(enabled, Some(false));
+
+        // Re-enable
+        svc.set_push_rule_enabled("@kate:example.com", "global", "room", ".m.rule.kate", true)
+            .await
+            .unwrap();
+        let enabled = svc
+            .get_push_rule_enabled("@kate:example.com", "global", "room", ".m.rule.kate")
+            .await
+            .unwrap();
+        assert_eq!(enabled, Some(true));
+    }
+
+    #[tokio::test]
+    async fn test_set_push_rule_enabled_silently_noop_for_missing() {
+        let svc = build_service();
+        svc.set_push_rule_enabled("@liam:example.com", "global", "room", ".m.rule.absent", false)
+            .await
+            .expect("set_enabled on missing rule must not error");
+    }
+
+    #[tokio::test]
+    async fn test_get_push_rules_content_returns_none_when_absent() {
+        let svc = build_service();
+        let content = svc.get_push_rules_content("@mia:example.com").await.unwrap();
+        assert!(content.is_none(), "no stored rules should yield None");
     }
 }

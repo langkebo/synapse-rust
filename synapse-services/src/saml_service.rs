@@ -579,7 +579,7 @@ impl SamlService {
             ::tracing::warn!(
                 target: "security_audit",
                 event = "saml_localpart_rejected_invalid_chars",
-                localpart_chars = localpart.bytes().take(64).collect::<Vec<_>>(),
+                localpart_chars = format!("{}", localpart.escape_debug()),
                 "SAML-derived localpart contains characters outside Matrix's [a-z0-9._=-] set — rejecting",
             );
             return Err(synapse_common::error::ApiError::bad_request(
