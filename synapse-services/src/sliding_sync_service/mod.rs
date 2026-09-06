@@ -488,7 +488,22 @@ impl SlidingSyncService {
         // polled.
         let notify_slots = match self.event_notifier.as_ref() {
             Some(notifier) if !is_initial => {
-                let room_ids = self.member_storage.get_joined_rooms(user_id).await.unwrap_or_default();
+                // B-10 fix (Phase 7 — surface DB errors instead of silently
+                // subscribing to an empty slot set): previously
+                // `get_joined_rooms(...).await.unwrap_or_default()` swallowed
+                // transient DB failures and made notifier.slots_for receive an
+                // empty Vec, causing sliding-sync to stall until the long-poll
+                // timeout. Propagate the error so the route layer returns 500
+                // M_UNKNOWN and the client retries via its backoff loop.
+                let room_ids = self.member_storage.get_joined_rooms(user_id).await.map_err(|e| {
+                    tracing::error!(
+                        user_id = %user_id,
+                        device_id = %device_id,
+                        error = %e,
+                        "B-10: failed to load joined rooms for long-poll subscription; aborting sync"
+                    );
+                    ApiError::internal_with_context("Failed to load joined rooms", &e)
+                })?;
                 notifier.slots_for(user_id, &room_ids)
             }
             // An initial sync always returns data, so it never parks.
