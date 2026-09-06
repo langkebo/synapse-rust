@@ -158,8 +158,16 @@ impl UserId {
 
 #[deprecated(note = "use `RoomAlias::from_str(...)` or `RoomAlias::new_unchecked(s)` instead")]
 impl RoomAlias {
+    /// Construct a room alias from `localpart` and `server_name`.
+    ///
+    /// B-7: The Matrix spec (v1.11 § 4.3) requires that the `server_name`
+    /// part of a room alias is **case-insensitive** and is always lowercased
+    /// before processing. The `localpart` is left untouched (spec-mandated
+    /// case-sensitive). This matches the element-hq/synapse reference
+    /// (`synapse/types.py` `RoomAlias.create`, which calls `domain.lower()`).
     pub fn new(localpart: &str, server_name: &str) -> Self {
-        Self(format!("#{localpart}:{server_name}"))
+        let server_lower = server_name.to_ascii_lowercase();
+        Self(format!("#{localpart}:{server_lower}"))
     }
 }
 

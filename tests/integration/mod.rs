@@ -82,6 +82,7 @@ mod presence_storage_tests_migrated;
 mod receipt_storage_tests_migrated;
 mod refresh_token_storage_tests_migrated;
 mod retention_storage_tests_migrated;
+mod room_alias_storage_tests_migrated;
 mod room_summary_storage_tests_migrated;
 mod room_tag_storage_tests_migrated;
 mod sliding_sync_storage_tests_migrated;

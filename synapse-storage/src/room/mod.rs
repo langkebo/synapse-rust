@@ -56,6 +56,22 @@ impl RoomStorage {
         }
     }
 
+    /// B-7: Normalize a room alias by lowercasing the server_name portion.
+    ///
+    /// Per Matrix spec v1.11 § 4.3, the `server_name` part of a room alias is
+    /// case-insensitive and is always lowercased before processing. The
+    /// `localpart` is left as-is (spec-mandated case-sensitive).
+    ///
+    /// Example: `#Foo:Example.com` → `#Foo:example.com`
+    pub(crate) fn normalize_alias_server(alias: &str) -> String {
+        if let Some((local, server)) = alias.rsplit_once(':') {
+            format!("{}:{}", local, server.to_ascii_lowercase())
+        } else {
+            // No `:` found; treat the whole string as localpart (edge case).
+            alias.to_string()
+        }
+    }
+
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
     }
@@ -739,11 +755,16 @@ impl RoomStorage {
 
     pub async fn set_room_alias(&self, room_id: &str, alias: &str, _created_by: &str) -> Result<(), sqlx::Error> {
         let creation_ts = current_timestamp_millis();
-        let server_name = alias
+        // B-7: Lowercase the server_name portion of the alias so that
+        // `#Foo:Example.com` and `#foo:example.com` collide on the same row.
+        // Matches Matrix spec v1.11 § 4.3 and element-hq/synapse's
+        // `RoomAlias.create` behavior. The `localpart` is left untouched.
+        let normalized_alias = Self::normalize_alias_server(alias);
+        let server_name: String = normalized_alias
             .rsplit_once(':')
-            .map(|(_, server_name)| server_name)
-            .filter(|server_name| !server_name.is_empty())
-            .unwrap_or("localhost");
+            .map(|(_, s)| s.to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "localhost".to_string());
         sqlx::query(
             r"
             INSERT INTO room_aliases (room_alias, room_id, server_name, created_ts)
@@ -753,7 +774,7 @@ impl RoomStorage {
                 created_ts = EXCLUDED.created_ts
             ",
         )
-        .bind(alias)
+        .bind(normalized_alias)
         .bind(room_id)
         .bind(server_name)
         .bind(creation_ts)
@@ -775,12 +796,16 @@ impl RoomStorage {
     }
 
     pub async fn remove_room_alias_by_name(&self, alias: &str) -> Result<(), sqlx::Error> {
+        // B-7: Normalize the alias before deleting so that
+        // `remove_room_alias_by_name("#foo:EXAMPLE.com")` still removes the
+        // canonical row stored under `#foo:example.com`.
+        let normalized = RoomStorage::normalize_alias_server(alias);
         sqlx::query(
             r"
             DELETE FROM room_aliases WHERE room_alias = $1
             ",
         )
-        .bind(alias)
+        .bind(normalized)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -947,12 +972,15 @@ impl RoomStorage {
     }
 
     pub async fn get_room_by_alias(&self, alias: &str) -> Result<Option<String>, sqlx::Error> {
+        // B-7: Normalize the alias so that `#foo:example.com` queries match rows
+        // stored under `#Foo:EXAMPLE.com` (and vice versa).
+        let normalized = RoomStorage::normalize_alias_server(alias);
         let result: Option<(String,)> = sqlx::query_as(
             r"
             SELECT room_id FROM room_aliases WHERE room_alias = $1
             ",
         )
-        .bind(alias)
+        .bind(normalized)
         .fetch_optional(&*self.pool)
         .await?;
         Ok(result.map(|r| r.0))
