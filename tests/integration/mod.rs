@@ -114,6 +114,7 @@ mod uia_service_tests_migrated;
 // Schema contract tests migrated from tests/unit/
 mod db_schema_smoke_tests_migrated;
 mod e2ee_audit_service_tests;
+mod space_children_service_tests;
 mod schema_contract_p0_tests_migrated;
 mod schema_contract_room_summary_queue_driver_tests_migrated;
 

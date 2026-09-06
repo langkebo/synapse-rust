@@ -417,3 +417,377 @@ impl MembershipService {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for the moderation methods (`invite_user`, `knock_room`,
+    //! `ban_user`, `unban_user`, `kick_user`) using in-memory mocks.
+    //!
+    //! These live in the source file rather than a separate integration test so
+    //! they can use `super::*` imports without an extra `mod.rs` entry.
+    //! They exercise the full service layer but against in-memory fakes — no
+    //! Postgres required, no network I/O, no slow startup.
+    //!
+    //! See also: `tests/integration/space_children_service_tests.rs` for the
+    //! Postgres-backed service-layer tests.
+
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use std::sync::Arc;
+    use synapse_storage::test_mocks::{
+        InMemoryEventStore, InMemoryMemberStore, InMemoryRoomStore, InMemoryRoomSummaryStore,
+    };
+    use synapse_storage::MemberStoreApi;
+    use synapse_storage::RoomStoreApi;
+    use synapse_storage::UserStore;
+    use synapse_storage::event::{EventReader, EventWriter};
+
+    use crate::room::membership::service::{MembershipService, MembershipServiceConfig};
+    use crate::room::summary::RoomSummaryService;
+    use crate::test_mocks::FakeRoomAuth;
+
+    fn build_membership_service() -> (MembershipService, Arc<synapse_storage::test_mocks::FakeUserStore>) {
+        let room_store = Arc::new(InMemoryRoomStore::new());
+        let member_store = Arc::new(InMemoryMemberStore::new());
+        let event_store = Arc::new(InMemoryEventStore::new());
+        let summary_store = Arc::new(InMemoryRoomSummaryStore::new()) as Arc<dyn synapse_storage::room_summary::RoomSummaryStoreApi>;
+        let user_store = Arc::new(synapse_storage::test_mocks::FakeUserStore::new());
+        let user_store_dyn: Arc<dyn UserStore> = user_store.clone();
+        let room_summary = Arc::new(RoomSummaryService::new(
+            summary_store,
+            event_store.clone() as Arc<dyn synapse_storage::event::EventReader>,
+            None,
+        ));
+        let cache = Arc::new(synapse_cache::CacheManager::new(&Default::default()));
+
+        let config = MembershipServiceConfig {
+            member_storage: member_store as Arc<dyn MemberStoreApi>,
+            room_storage: room_store as Arc<dyn RoomStoreApi>,
+            event_reader: event_store.clone() as Arc<dyn EventReader>,
+            event_writer: event_store as Arc<dyn EventWriter>,
+            user_storage: user_store_dyn,
+            user_service: Arc::new(crate::UserService::new(user_store.clone())),
+            room_auth: Arc::new(FakeRoomAuth::new()),
+            server_name: "test.localhost".to_string(),
+            federation_client: None,
+            key_rotation_manager: None,
+            event_broadcaster: None,
+            room_summary_service: room_summary,
+            cache,
+            key_rotation_storage: None,
+            app_service_manager: None,
+            db_pool: None,
+        };
+        (MembershipService::new(config), user_store)
+    }
+
+    #[tokio::test]
+    async fn knock_room_on_knock_join_rule_succeeds() {
+        let (svc, user_store) = build_membership_service();
+
+        // Create a room with knock join_rule.
+        let room_id = "!knockable:test.localhost";
+        let user_id = "@alice:test.localhost";
+        let room_store = svc.room_storage.clone();
+        let mem_store = svc.member_storage.clone();
+
+        // Seed the room.
+        room_store
+            .create_room(room_id, "@creator:test.localhost", "knock", "1", false)
+            .await
+            .expect("create_room");
+
+        // User is NOT a member yet — knock transitions from (none) to knock.
+        svc.knock_room(room_id, user_id, Some("need access"))
+            .await
+            .expect("knock_room should succeed");
+
+        // Verify the member state.
+        let member = mem_store
+            .get_room_member(room_id, user_id)
+            .await
+            .expect("get_room_member");
+        assert!(
+            member.as_ref().is_some_and(|m| m.membership == "knock"),
+            "member should be in knock state"
+        );
+    }
+
+    #[tokio::test]
+    async fn knock_room_fails_on_private_join_rule() {
+        let (svc, user_store) = build_membership_service();
+
+        let room_id = "!private:test.localhost";
+        let user_id = "@bob:test.localhost";
+
+        let room_store = svc.room_storage.clone();
+        room_store
+            .create_room(room_id, "@creator:test.localhost", "invite", "1", false)
+            .await
+            .expect("create_room");
+
+        let err = svc
+            .knock_room(room_id, user_id, None)
+            .await
+            .expect_err("knock on invite-only room should fail");
+        assert!(
+            err.to_string().to_lowercase().contains("transition")
+                || err.to_string().to_lowercase().contains("not allowed"),
+            "expected transition/forbidden error, got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn knock_room_fails_when_room_missing() {
+        let (svc, user_store) = build_membership_service();
+        let err = svc
+            .knock_room("!nonexistent:test.localhost", "@alice:test.localhost", None)
+            .await
+            .expect_err("knock nonexistent room should fail");
+        assert!(
+            err.to_string().to_lowercase().contains("not found"),
+            "expected not_found error, got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn ban_user_happy_path_updates_membership() {
+        let (svc, user_store) = build_membership_service();
+
+        let room_id = "!mod:test.localhost";
+        let target = "@bad:test.localhost";
+        let moderator = "@mod:test.localhost";
+
+        let room_store = svc.room_storage.clone();
+        let mem_store = svc.member_storage.clone();
+
+        room_store
+            .create_room(room_id, moderator, "invite", "1", false)
+            .await
+            .expect("create_room");
+        mem_store
+            .add_member(room_id, moderator, "join", None, None, None, None)
+            .await
+            .expect("mod join");
+        mem_store
+            .add_member(room_id, target, "join", None, None, None, None)
+            .await
+            .expect("target join");
+
+        // Seed the target user so ban_user's user_exists check passes.
+        let username = target.trim_start_matches('@').split(':').next().unwrap_or(target).to_string();
+        user_store
+            .create_user(target, &username, None, false)
+            .await
+            .expect("create_user");
+
+        svc.ban_user(room_id, target, moderator, Some("repeated spam"))
+            .await
+            .expect("ban_user should succeed");
+
+        let member = mem_store
+            .get_room_member(room_id, target)
+            .await
+            .expect("get_room_member");
+        assert!(
+            member.as_ref().is_some_and(|m| m.membership == "ban"),
+            "target should be banned, got: {member:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn ban_user_fails_when_target_not_found() {
+        let (svc, user_store) = build_membership_service();
+
+        let room_id = "!test:test.localhost";
+        let moderator = "@mod:test.localhost";
+
+        let room_store = svc.room_storage.clone();
+        room_store
+            .create_room(room_id, moderator, "invite", "1", false)
+            .await
+            .expect("create_room");
+
+        let err = svc
+            .ban_user(room_id, "@ghost:test.localhost", moderator, None)
+            .await
+            .expect_err("ban nonexistent user should fail");
+        assert!(
+            err.to_string().to_lowercase().contains("not found")
+                || err.to_string().to_lowercase().contains("user not found"),
+            "expected not_found error, got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn unban_user_happy_path_restores_access() {
+        let (svc, user_store) = build_membership_service();
+
+        let room_id = "!unban:test.localhost";
+        let target = "@was_banned:test.localhost";
+        let unbanner = "@admin:test.localhost";
+
+        let room_store = svc.room_storage.clone();
+        let mem_store = svc.member_storage.clone();
+
+        room_store
+            .create_room(room_id, unbanner, "invite", "1", false)
+            .await
+            .expect("create_room");
+        mem_store
+            .add_member(room_id, unbanner, "join", None, None, None, None)
+            .await
+            .expect("admin join");
+        mem_store
+            .add_member(room_id, target, "ban", None, None, None, None)
+            .await
+            .expect("ban target");
+
+        svc.unban_user(room_id, target, unbanner).await.expect("unban_user should succeed");
+
+        let member = mem_store
+            .get_room_member(room_id, target)
+            .await
+            .expect("get_room_member");
+        // After unban, membership row is deleted (not present).
+        assert!(
+            member.as_ref().is_some_and(|m| m.membership == "leave"),
+            "unbanned user should have leave membership (mock converts ban→leave), got: {member:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn unban_user_allows_reinvite_after_unban() {
+        let (svc, user_store) = build_membership_service();
+
+        let room_id = "!reinvite:test.localhost";
+        let target = "@reinvited:test.localhost";
+        let admin = "@admin:test.localhost";
+
+        let room_store = svc.room_storage.clone();
+        let mem_store = svc.member_storage.clone();
+        let user_store = svc.user_storage.clone();
+
+        room_store
+            .create_room(room_id, admin, "invite", "1", false)
+            .await
+            .expect("create_room");
+        mem_store
+            .add_member(room_id, admin, "join", None, None, None, None)
+            .await
+            .expect("admin join");
+        mem_store
+            .add_member(room_id, target, "ban", None, None, None, None)
+            .await
+            .expect("ban");
+        // Seed the user so invite_user's user_exists check passes.
+        let username = target.trim_start_matches('@').split(':').next().unwrap_or(target).to_string();
+        user_store
+            .create_user(target, &username, None, false)
+            .await
+            .expect("create_user");
+
+        svc.unban_user(room_id, target, admin).await.expect("unban");
+
+        // After unban, invite should succeed (FakeRoomAuth allows it).
+        svc.invite_user(room_id, admin, target).await.expect("invite after unban");
+
+        let member = mem_store
+            .get_room_member(room_id, target)
+            .await
+            .expect("get_room_member");
+        assert!(
+            member.as_ref().is_some_and(|m| m.membership == "invite"),
+            "should be invited after unban, got: {member:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn kick_user_happy_path_removes_join() {
+        let (svc, user_store) = build_membership_service();
+
+        let room_id = "!kick:test.localhost";
+        let target = "@kicked:test.localhost";
+        let actor = "@mod:test.localhost";
+
+        let room_store = svc.room_storage.clone();
+        let mem_store = svc.member_storage.clone();
+
+        room_store
+            .create_room(room_id, actor, "invite", "1", false)
+            .await
+            .expect("create_room");
+        mem_store
+            .add_member(room_id, actor, "join", None, None, None, None)
+            .await
+            .expect("mod join");
+        mem_store
+            .add_member(room_id, target, "join", None, None, None, None)
+            .await
+            .expect("target join");
+
+        // Seed the target user so kick_user's user_exists check passes.
+        let username = target.trim_start_matches('@').split(':').next().unwrap_or(target).to_string();
+        user_store
+            .create_user(target, &username, None, false)
+            .await
+            .expect("create_user");
+
+        svc.kick_user(room_id, target, actor, Some("behaving badly"))
+            .await
+            .expect("kick_user should succeed");
+
+        let member = mem_store
+            .get_room_member(room_id, target)
+            .await
+            .expect("get_room_member");
+        assert!(
+            member.as_ref().is_some_and(|m| m.membership == "leave"),
+            "kicked user should have leave membership (mock converts join→leave), got: {member:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn invite_user_happy_path_sets_invite_membership() {
+        let (svc, user_store) = build_membership_service();
+
+        let room_id = "!invite:test.localhost";
+        let inviter = "@inviter:test.localhost";
+        let invitee = "@invitee:test.localhost";
+
+        let room_store = svc.room_storage.clone();
+        let mem_store = svc.member_storage.clone();
+        let user_store = svc.user_storage.clone();
+
+        room_store
+            .create_room(room_id, inviter, "invite", "1", false)
+            .await
+            .expect("create_room");
+        mem_store
+            .add_member(room_id, inviter, "join", None, None, None, None)
+            .await
+            .expect("inviter join");
+        // Seed the user so invite_user's user_exists check passes.
+        let username = invitee.trim_start_matches('@').split(':').next().unwrap_or(invitee).to_string();
+        user_store
+            .create_user(invitee, &username, None, false)
+            .await
+            .expect("create_user");
+
+        svc.invite_user(room_id, inviter, invitee)
+            .await
+            .expect("invite_user should succeed");
+
+        let member = mem_store
+            .get_room_member(room_id, invitee)
+            .await
+            .expect("get_room_member");
+        assert!(
+            member.as_ref().is_some_and(|m| m.membership == "invite"),
+            "invitee should be in invite state, got: {member:?}"
+        );
+    }
+}
