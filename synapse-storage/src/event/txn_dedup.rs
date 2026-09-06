@@ -61,9 +61,30 @@ impl EventStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Best-effort removal of a losing duplicate event after a txn race.
-    pub async fn delete_event_by_id(&self, event_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM events WHERE event_id = $1").bind(event_id).execute(&*self.pool).await?;
+    /// B-8: mark a losing duplicate event as soft-failed instead of physically
+    /// deleting it.
+    ///
+    /// Replaces the prior `delete_event_by_id` hard-delete path.  The losing
+    /// event's row remains in the `events` table (preserving the FK graph and
+    /// audit trail) but is hidden from consumer read paths that filter on
+    /// `soft_failed = FALSE`.  See migration
+    /// `20260906010000_add_events_soft_failed.sql` for the schema change.
+    ///
+    /// Idempotent: calling on an already soft-failed event is a no-op (the
+    /// `UPDATE ... WHERE soft_failed = FALSE` simply matches zero rows and
+    /// returns `Ok(())`).  This is deliberate so that retries from
+    /// `send_message_with_txn` after a partial failure are safe.
+    pub async fn mark_event_soft_failed(&self, event_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r"
+            UPDATE events
+            SET soft_failed = TRUE
+            WHERE event_id = $1 AND soft_failed = FALSE
+            ",
+        )
+        .bind(event_id)
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 }

@@ -1135,7 +1135,10 @@ impl crate::event::writer::EventWriter for InMemoryEventStore {
         Ok(true)
     }
 
-    async fn delete_event_by_id(&self, event_id: &str) -> Result<(), sqlx::Error> {
+    async fn mark_event_soft_failed(&self, event_id: &str) -> Result<(), sqlx::Error> {
+        // B-8: soft-failed events are filtered out of read paths via
+        // `WHERE soft_failed = FALSE`, so this in-memory mock simply drops the
+        // event from the store to match the same logical effect.
         self.events.write().await.remove(event_id);
         Ok(())
     }

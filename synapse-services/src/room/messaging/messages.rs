@@ -320,15 +320,16 @@ impl MessagingService {
                         txn_id = %txn_id,
                         loser_event_id = %event_id,
                         winner_event_id = %winner,
-                        "Concurrent duplicate txn detected; dropping losing event"
+                        "Concurrent duplicate txn detected; marking losing event as soft-failed"
                     );
-                    if let Err(e) = self.event_writer.delete_event_by_id(&event_id).await {
-                        ::tracing::warn!(
-                            event_id = %event_id,
-                            error = %e,
-                            "Failed to delete losing duplicate event after txn race"
-                        );
-                    }
+                    // B-8: mark the losing event as soft-failed instead of
+                    // hard-deleting it.  The event row and its FK children
+                    // are preserved for audit/compliance but the event is
+                    // invisible to consumer read paths.
+                    self.event_writer
+                        .mark_event_soft_failed(&event_id)
+                        .await
+                        .map_err(|e| ApiError::internal_with_context("Failed to mark event soft-failed", &e))?;
                     return Ok(json!({ "event_id": winner }));
                 }
             }

@@ -236,8 +236,8 @@ impl EventWriter for NotifyingEventWriter {
         self.inner.record_event_txn(user_id, room_id, txn_id, event_id).await
     }
 
-    async fn delete_event_by_id(&self, event_id: &str) -> Result<(), sqlx::Error> {
-        self.inner.delete_event_by_id(event_id).await
+    async fn mark_event_soft_failed(&self, event_id: &str) -> Result<(), sqlx::Error> {
+        self.inner.mark_event_soft_failed(event_id).await
     }
 }
 
@@ -465,12 +465,13 @@ mod tests {
         writer.record_event_txn(SENDER, ROOM, "txn-abc123", "$event:example.com").await.unwrap();
     }
 
-    /// `delete_event_by_id` is a hard-delete path; no notification expected.
+    /// `mark_event_soft_failed` is a soft-delete path; no notification expected.
+    /// Covered to confirm delegation to the inner EventWriter.
     #[tokio::test]
-    async fn delete_event_by_id_is_passed_to_inner() {
+    async fn mark_event_soft_failed_is_passed_to_inner() {
         let (writer, _notifier) = build();
 
-        writer.delete_event_by_id("$event:example.com").await.unwrap();
+        writer.mark_event_soft_failed("$event:example.com").await.unwrap();
     }
 
     /// `delete_events_before` is a retention purge path — deliberately silent

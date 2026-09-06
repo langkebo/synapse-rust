@@ -111,8 +111,9 @@ pub trait EventWriter: Send + Sync {
         event_id: &str,
     ) -> Result<bool, sqlx::Error>;
 
-    /// Best-effort removal of a losing duplicate event after a txn race.
-    async fn delete_event_by_id(&self, event_id: &str) -> Result<(), sqlx::Error>;
+    /// B-8: mark a losing duplicate event as soft-failed instead of physically
+    /// deleting it.  Replaces the prior `delete_event_by_id` path.
+    async fn mark_event_soft_failed(&self, event_id: &str) -> Result<(), sqlx::Error>;
 }
 
 // ── EventWriter delegation impl for Postgres EventStorage ───────────────
@@ -234,7 +235,7 @@ impl crate::event::writer::EventWriter for super::EventStorage {
         self.record_event_txn(user_id, room_id, txn_id, event_id).await
     }
 
-    async fn delete_event_by_id(&self, event_id: &str) -> Result<(), sqlx::Error> {
-        self.delete_event_by_id(event_id).await
+    async fn mark_event_soft_failed(&self, event_id: &str) -> Result<(), sqlx::Error> {
+        self.mark_event_soft_failed(event_id).await
     }
 }
