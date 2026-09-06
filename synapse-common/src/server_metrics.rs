@@ -1,104 +1,171 @@
+//! Pre-registered Prometheus counters/gauges/histograms exposed by the server.
+
 use crate::metrics::{Counter, Gauge, Histogram, MetricsCollector};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// All server-level Prometheus metrics counters/gauges/histograms, wired into `MetricsCollector`.
 pub struct ServerMetrics {
+    /// Total authentication attempts (labeled by type).
     pub auth_attempts_total: Counter,
+    /// Failed authentication attempts (labeled by type).
     pub auth_failures_total: Counter,
+    /// Successful authentication attempts (labeled by type).
     pub auth_success_total: Counter,
+    /// Total access-token validations.
     pub token_validations_total: Counter,
+    /// Token validation failures (signature, expiry, format, etc.).
     pub token_validation_errors: Counter,
 
+    /// Per-query database duration histogram (ms).
     pub db_query_duration: Histogram,
+    /// Currently in-use DB connections.
     pub db_connections_active: Gauge,
+    /// Idle DB connections available in the pool.
     pub db_connections_idle: Gauge,
+    /// DB query failures.
     pub db_query_errors: Counter,
+    /// Per-transaction duration histogram (ms).
     pub db_transaction_duration: Histogram,
 
+    /// Cache lookups that returned a hit (labeled by result).
     pub cache_hits_total: Counter,
+    /// Cache lookups that returned a miss (labeled by result).
     pub cache_misses_total: Counter,
+    /// Cache entries evicted by capacity or TTL.
     pub cache_evictions_total: Counter,
+    /// Cache backend errors (Redis down, timeout, etc.).
     pub cache_errors: Counter,
 
+    /// Outgoing federation requests.
     pub federation_requests_total: Counter,
+    /// Federation request duration histogram (ms).
     pub federation_request_duration: Histogram,
+    /// Successful X-Matrix signature verifications.
     pub federation_signature_verifications: Counter,
+    /// Failed signature verifications.
     pub federation_signature_errors: Counter,
+    /// Federation requests rejected for replay.
     pub federation_replay_attacks_blocked: Counter,
 
+    /// Total HTTP requests handled.
     pub http_requests_total: Counter,
+    /// HTTP request duration histogram (ms).
     pub http_request_duration: Histogram,
+    /// HTTP requests that returned 4xx/5xx.
     pub http_request_errors: Counter,
+    /// Currently in-flight HTTP requests.
     pub http_active_requests: Gauge,
 
+    /// JWT-specific validation failures.
     pub security_jwt_validation_errors: Counter,
+    /// Origin validation failures.
     pub security_origin_validation_errors: Counter,
+    /// Timestamp validation failures.
     pub security_timestamp_validation_errors: Counter,
 
+    /// Worker pool utilization (0.0-1.0).
     pub pool_utilization: Gauge,
+    /// Worker pool health (1=healthy, 0=degraded).
     pub pool_health_status: Gauge,
 
     // Admin / Global Stats
+    /// Total registered users on this server.
     pub total_users: Gauge,
+    /// Total rooms on this server.
     pub total_rooms: Gauge,
 
     // Dehydrated Device Cleanup Metrics
+    /// Dehydrated-device cleanup runs started.
     pub dehydrated_device_cleanup_total: Counter,
+    /// Dehydrated devices successfully cleaned up.
     pub dehydrated_device_cleaned_total: Counter,
+    /// Dehydrated-device cleanup failures.
     pub dehydrated_device_cleanup_errors_total: Counter,
+    /// Dehydrated-device cleanup duration histogram (ms).
     pub dehydrated_device_cleanup_duration: Histogram,
 
     // Room Operations Metrics
+    /// Total room create operations.
     pub room_creates_total: Counter,
+    /// Total room join operations.
     pub room_joins_total: Counter,
+    /// Total room leave operations.
     pub room_leaves_total: Counter,
+    /// Room operation duration histogram (ms).
     pub room_operation_duration: Histogram,
 
     // Message/Sync Operations Metrics
+    /// Total `/sync` requests.
     pub sync_requests_total: Counter,
+    /// `/sync` request duration histogram (ms).
     pub sync_duration: Histogram,
+    /// Total messages sent (state events and messages).
     pub messages_sent_total: Counter,
+    /// Message-send duration histogram (ms).
     pub message_send_duration: Histogram,
 
     // Presence Operations Metrics
+    /// Total presence status updates.
     pub presence_updates_total: Counter,
+    /// Presence sync duration histogram (ms).
     pub presence_sync_duration: Histogram,
 
     // State Group Operations Metrics
+    /// Total state-group conflict resolutions.
     pub state_group_resolves_total: Counter,
+    /// State-group resolve duration histogram (ms).
     pub state_group_resolve_duration: Histogram,
 
     // CSRF/Security Metrics
+    /// Total CSRF token validations.
     pub csrf_validations_total: Counter,
+    /// Failed CSRF token validations.
     pub csrf_validation_failures_total: Counter,
 
     // Megolm (E2EE) Metrics — Phase 1 vodozemac migration observability.
     // These cover share/get flows; legacy AES-256-GCM path also uses the
     // same counter names so dashboards do not need to special-case
     // backends during the migration window.
+    /// Megolm key-share operations (vodozemac + legacy).
     pub megolm_share_total: Counter,
+    /// Total recipients across all megolm shares.
     pub megolm_share_recipients_total: Counter,
+    /// Megolm share DB-lookup duration (ms).
     pub megolm_share_db_duration_ms: Histogram,
+    /// Megolm share cache-lookup duration (ms).
     pub megolm_share_cache_duration_ms: Histogram,
+    /// Megolm share cache failures.
     pub megolm_share_cache_errors_total: Counter,
+    /// Megolm share DB failures.
     pub megolm_share_db_errors_total: Counter,
+    /// Megolm session key reads.
     pub megolm_session_key_read_total: Counter,
+    /// Megolm session key read duration (ms).
     pub megolm_session_key_read_duration_ms: Histogram,
     // Megolm (E2EE) Metrics — Phase 2 dual-write observability.
     // Tracks vodozemac pickle persistence success/failure, dual-write promotion
     // (legacy→dual), and lazy migration scan progress.
+    /// Vodozemac pickle persistence successes.
     pub megolm_vodozemac_pickle_persist_total: Counter,
+    /// Vodozemac pickle persistence failures.
     pub megolm_vodozemac_pickle_persist_errors_total: Counter,
+    /// Legacy → dual-write session promotions.
     pub megolm_dual_write_promotions_total: Counter,
+    /// Dual-write promotion failures.
     pub megolm_dual_write_promotion_errors_total: Counter,
+    /// Megolm sessions scanned during lazy migration.
     pub megolm_lazy_migration_sessions_scanned_total: Counter,
+    /// Megolm sessions promoted during lazy migration.
     pub megolm_lazy_migration_sessions_promoted_total: Counter,
+    /// Megolm pickle persistence duration (ms).
     pub megolm_pickle_persist_duration_ms: Histogram,
 
     collector: Arc<MetricsCollector>,
 }
 
 impl ServerMetrics {
+    /// Creates a new ServerMetrics handle, registering all counters/gauges/histograms with `collector`.
     pub fn new(collector: Arc<MetricsCollector>) -> Self {
         Self {
             auth_attempts_total: collector
@@ -241,6 +308,7 @@ impl ServerMetrics {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
     }
 
+    /// Increments auth attempts counter and branches on `success` flag.
     pub fn record_auth_attempt(&self, success: bool) {
         self.auth_attempts_total.inc();
         if success {
@@ -250,6 +318,7 @@ impl ServerMetrics {
         }
     }
 
+    /// Increments total token validations; increments error counter on failure.
     pub fn record_token_validation(&self, success: bool) {
         self.token_validations_total.inc();
         if !success {
@@ -257,6 +326,7 @@ impl ServerMetrics {
         }
     }
 
+    /// Observes a DB query duration and increments error counter on failure.
     pub fn record_db_query(&self, duration_ms: f64, success: bool) {
         self.db_query_duration.observe(duration_ms);
         if !success {
@@ -264,6 +334,7 @@ impl ServerMetrics {
         }
     }
 
+    /// Sets pool connection counts, utilization, and health status.
     pub fn update_pool_metrics(&self, active: f64, idle: f64, utilization: f64, is_healthy: bool) {
         self.db_connections_active.set(active);
         self.db_connections_idle.set(idle);
@@ -271,6 +342,7 @@ impl ServerMetrics {
         self.pool_health_status.set(if is_healthy { 1.0 } else { 0.0 });
     }
 
+    /// Increments hit or miss counter based on `hit` flag.
     pub fn record_cache_operation(&self, hit: bool) {
         if hit {
             self.cache_hits_total.inc();
@@ -279,6 +351,7 @@ impl ServerMetrics {
         }
     }
 
+    /// Increments federation request counter and records duration.
     pub fn record_federation_request(&self, duration_ms: f64, success: bool) {
         self.federation_requests_total.inc();
         self.federation_request_duration.observe(duration_ms);
@@ -287,6 +360,7 @@ impl ServerMetrics {
         }
     }
 
+    /// Increments verification counter and branches on success.
     pub fn record_federation_signature_verification(&self, success: bool) {
         self.federation_signature_verifications.inc();
         if !success {
@@ -294,10 +368,12 @@ impl ServerMetrics {
         }
     }
 
+    /// Increments the federation replay-attack blocked counter.
     pub fn record_replay_attack_blocked(&self) {
         self.federation_replay_attacks_blocked.inc();
     }
 
+    /// Increments HTTP request counter, records duration, and increments error counter on failure.
     pub fn record_http_request(&self, duration_ms: f64, success: bool) {
         self.http_requests_total.inc();
         self.http_request_duration.observe(duration_ms);
@@ -306,14 +382,17 @@ impl ServerMetrics {
         }
     }
 
+    /// Increments the in-flight HTTP request gauge.
     pub fn http_request_started(&self) {
         self.http_active_requests.inc();
     }
 
+    /// Decrements the in-flight HTTP request gauge.
     pub fn http_request_finished(&self) {
         self.http_active_requests.dec();
     }
 
+    /// Increments the appropriate security validation error counter on failure.
     pub fn record_security_validation(&self, validation_type: SecurityValidationType, success: bool) {
         if !success {
             match validation_type {
@@ -324,6 +403,7 @@ impl ServerMetrics {
         }
     }
 
+    /// Increments the named room-operation counter and records duration.
     pub fn record_room_operation(&self, op: &str, duration_ms: f64, success: bool) {
         match op {
             "create" => self.room_creates_total.inc(),
@@ -335,28 +415,33 @@ impl ServerMetrics {
         let _ = success;
     }
 
+    /// Increments sync request counter and records duration.
     pub fn record_sync_request(&self, duration_ms: f64, success: bool) {
         self.sync_requests_total.inc();
         self.sync_duration.observe(duration_ms);
         let _ = success;
     }
 
+    /// Increments messages-sent counter and records send duration.
     pub fn record_message_send(&self, duration_ms: f64, success: bool) {
         self.messages_sent_total.inc();
         self.message_send_duration.observe(duration_ms);
         let _ = success;
     }
 
+    /// Increments presence update counter and records sync duration.
     pub fn record_presence_update(&self, duration_ms: f64) {
         self.presence_updates_total.inc();
         self.presence_sync_duration.observe(duration_ms);
     }
 
+    /// Increments state-group resolve counter and records duration.
     pub fn record_state_group_resolve(&self, duration_ms: f64) {
         self.state_group_resolves_total.inc();
         self.state_group_resolve_duration.observe(duration_ms);
     }
 
+    /// Increments total CSRF validations; increments failure counter on failure.
     pub fn record_csrf_validation(&self, success: bool) {
         self.csrf_validations_total.inc();
         if !success {
@@ -429,10 +514,12 @@ impl ServerMetrics {
         self.megolm_lazy_migration_sessions_promoted_total.inc_by(promoted);
     }
 
+    /// Returns the underlying [`MetricsCollector`] for direct registration of additional metrics.
     pub fn get_collector(&self) -> &Arc<MetricsCollector> {
         &self.collector
     }
 
+    /// Reads all counter values and returns a snapshot [`MetricsSummary`].
     pub fn get_summary(&self) -> MetricsSummary {
         MetricsSummary {
             auth_attempts: self.auth_attempts_total.get(),
@@ -473,41 +560,70 @@ impl ServerMetrics {
     }
 }
 
+/// Discriminator for the three security validation pipelines (JWT, Origin, Timestamp).
 #[derive(Debug, Clone, Copy)]
 pub enum SecurityValidationType {
+    /// JWT/JWT validation failure.
     Jwt,
+    /// Origin header validation failure.
     Origin,
+    /// Timestamp validation failure.
     Timestamp,
 }
 
 #[derive(Debug, Clone)]
+/// Snapshot of current counter values for admin/debug endpoints.
 pub struct MetricsSummary {
+    /// Total auth attempts since startup.
     pub auth_attempts: u64,
+    /// Total auth failures.
     pub auth_failures: u64,
+    /// Total auth successes.
     pub auth_success: u64,
+    /// Total token validations.
     pub token_validations: u64,
+    /// Total token validation errors.
     pub token_errors: u64,
+    /// Total cache hits.
     pub cache_hits: u64,
+    /// Total cache misses.
     pub cache_misses: u64,
+    /// Pre-computed cache hit rate (0-1).
     pub cache_hit_rate: f64,
+    /// Total outgoing federation requests.
     pub federation_requests: u64,
+    /// Total federation request errors.
     pub federation_errors: u64,
+    /// Total replay attacks blocked.
     pub replay_attacks_blocked: u64,
+    /// Total HTTP requests.
     pub http_requests: u64,
+    /// Total HTTP error responses.
     pub http_errors: u64,
+    /// Total database query errors.
     pub db_errors: u64,
+    /// Total room create operations.
     pub room_creates: u64,
+    /// Total room join operations.
     pub room_joins: u64,
+    /// Total room leave operations.
     pub room_leaves: u64,
+    /// Total `/sync` requests.
     pub sync_requests: u64,
+    /// Total messages sent.
     pub messages_sent: u64,
+    /// Total presence updates.
     pub presence_updates: u64,
+    /// Total state-group conflict resolutions.
     pub state_group_resolves: u64,
+    /// Total CSRF token validations.
     pub csrf_validations: u64,
+    /// Total failed CSRF validations.
     pub csrf_validation_failures: u64,
 }
 
 impl MetricsSummary {
+    /// Returns auth success rate as a percentage (0-100), or 0 if no attempts.
     pub fn auth_success_rate(&self) -> f64 {
         if self.auth_attempts == 0 {
             0.0
@@ -516,6 +632,7 @@ impl MetricsSummary {
         }
     }
 
+    /// Returns HTTP error rate as a percentage (0-100), or 0 if no requests.
     pub fn error_rate(&self) -> f64 {
         if self.http_requests == 0 {
             0.0

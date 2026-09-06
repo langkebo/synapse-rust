@@ -1,3 +1,5 @@
+//! Rate-limit config file types and hot-reload manager (see `RateLimitConfigManager`).
+
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -8,6 +10,7 @@ use thiserror::Error;
 use tokio::fs;
 
 #[derive(Debug, Error)]
+/// Errors emitted by rate-limit config loading and validation.
 pub enum RateLimitConfigError {
     #[error("Failed to read config file: {0}")]
     ReadError(#[source] std::io::Error),
@@ -18,10 +21,13 @@ pub enum RateLimitConfigError {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Token-bucket rule: sustained refill rate + peak burst capacity.
 pub struct RateLimitRule {
     #[serde(default = "default_per_second")]
+    /// Sustained refill rate (tokens per second).
     pub per_second: u32,
     #[serde(default = "default_burst_size")]
+    /// Maximum tokens in the bucket (peak burst capacity).
     pub burst_size: u32,
 }
 
@@ -41,6 +47,7 @@ impl Default for RateLimitRule {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
+/// How an endpoint path is compared to a rule's `path` field.
 pub enum RateLimitMatchType {
     #[default]
     Exact,
@@ -48,15 +55,20 @@ pub enum RateLimitMatchType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Per-path rate-limit override.
 pub struct RateLimitEndpointRule {
+    /// Endpoint path pattern.
     pub path: String,
     #[serde(default)]
+    /// How `path` is matched: `exact` or `prefix`.
     pub match_type: RateLimitMatchType,
+    /// Token-bucket rule applied to this endpoint.
     pub rule: RateLimitRule,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
+/// Which token-bucket implementation to use.
 pub enum RateLimitBackend {
     /// Automatically use Redis when available, fall back to in-memory otherwise.
     #[default]
@@ -68,8 +80,10 @@ pub enum RateLimitBackend {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Top-level YAML config for rate limiting.
 pub struct RateLimitConfigFile {
     #[serde(default = "default_enabled")]
+    /// Global on/off switch for rate limiting.
     pub enabled: bool,
     /// Rate-limit token-bucket backend: "auto" (default), "redis", or "local".
     ///
@@ -79,24 +93,34 @@ pub struct RateLimitConfigFile {
     #[serde(default)]
     pub backend: RateLimitBackend,
     #[serde(default)]
+    /// Default rate-limit rule applied to any endpoint not matched by `endpoints`.
     pub default: RateLimitRule,
     #[serde(default)]
+    /// Per-path overrides; first match wins.
     pub endpoints: Vec<RateLimitEndpointRule>,
     #[serde(default = "default_ip_header_priority")]
+    /// Ordered list of HTTP headers to consult when resolving the client IP.
     pub ip_header_priority: Vec<String>,
     #[serde(default = "default_include_headers")]
+    /// Whether to emit rate-limit headers (`X-RateLimit-*`) on responses.
     pub include_headers: bool,
     #[serde(default)]
+    /// Paths that bypass rate limiting entirely (exact match).
     pub exempt_paths: Vec<String>,
     #[serde(default)]
+    /// Path prefixes that bypass rate limiting.
     pub exempt_path_prefixes: Vec<String>,
     #[serde(default)]
+    /// Map of alias → canonical endpoint path (so aliased paths can match `endpoints` rules).
     pub endpoint_aliases: HashMap<String, String>,
     #[serde(default)]
+    /// If `true`, allow requests when the backend is unavailable. Default `false` (fail closed).
     pub fail_open_on_error: bool,
     #[serde(default)]
+    /// `/sync`-specific rate-limit overrides (initial + incremental bursts).
     pub sync: SyncRateLimitConfigFile,
     #[serde(default = "default_config_reload_interval")]
+    /// How often to hot-reload the YAML config file from disk.
     pub reload_interval_seconds: u64,
     /// CIDR strings for trusted reverse proxies (e.g. "10.0.0.0/8", "127.0.0.1/32").
     /// X-Forwarded-For / X-Real-IP / Forwarded headers are only trusted when the
@@ -110,12 +134,16 @@ pub struct RateLimitConfigFile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+/// `/sync`-specific rate-limit overrides (initial + incremental bursts).
 pub struct SyncRateLimitConfigFile {
     #[serde(default)]
+    /// Enables `/sync` rate limiting.
     pub enabled: bool,
     #[serde(default)]
+    /// Token-bucket for the very first `/sync` after login (warming up).
     pub initial: RateLimitRule,
     #[serde(default)]
+    /// Token-bucket for subsequent incremental `/sync` calls.
     pub incremental: RateLimitRule,
 }
 
@@ -219,6 +247,7 @@ impl RateLimitConfigFile {
     }
 }
 
+/// Hot-reloading watcher that loads `RateLimitConfigFile` from disk and notifies subscribers.
 pub struct RateLimitConfigManager {
     config: Arc<RwLock<RateLimitConfigFile>>,
     config_path: PathBuf,
@@ -366,17 +395,29 @@ pub async fn start_config_watcher(
 }
 
 #[derive(Debug, Clone)]
+/// In-memory adapter around [`RateLimitConfigFile`] with identical fields.
 pub struct RateLimitConfigAdapter {
+    /// Global on/off switch.
     pub enabled: bool,
+    /// Default rate-limit rule.
     pub default: RateLimitRule,
+    /// Per-path overrides.
     pub endpoints: Vec<RateLimitEndpointRule>,
+    /// Ordered list of headers consulted for client IP.
     pub ip_header_priority: Vec<String>,
+    /// Emit rate-limit headers on responses.
     pub include_headers: bool,
+    /// Paths that bypass rate limiting (exact match).
     pub exempt_paths: Vec<String>,
+    /// Path prefixes that bypass rate limiting.
     pub exempt_path_prefixes: Vec<String>,
+    /// Map of alias → canonical endpoint path.
     pub endpoint_aliases: HashMap<String, String>,
+    /// Allow requests when the backend is unavailable.
     pub fail_open_on_error: bool,
+    /// CIDR strings for trusted reverse proxies.
     pub trusted_proxies: Vec<String>,
+    /// Whether to honor `X-Forwarded-For` etc.
     pub trust_forwarded: bool,
 }
 
@@ -523,3 +564,4 @@ mod tests {
         assert_eq!(id, "login_endpoint");
     }
 }
+

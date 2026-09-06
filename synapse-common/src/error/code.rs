@@ -9,62 +9,89 @@ use serde::{Deserialize, Serialize};
 // MatrixErrorCode — Matrix spec error codes
 // ---------------------------------------------------------------------------
 
+/// Matrix error code — maps to a `M_*` string and an HTTP status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MatrixErrorCode {
+    /// M_FORBIDDEN: Authenticated but lacks permission for this action.
     Forbidden,
+    /// M_UNKNOWN_TOKEN: The provided access token is not valid.
     UnknownToken,
+    /// M_MISSING_TOKEN: No access token was provided.
     MissingToken,
+    /// M_BAD_JSON: The request body could not be decoded as JSON.
     BadJson,
+    /// M_NOT_JSON: The request body is valid JSON but wrong structure.
     NotJson,
+    /// M_NOT_FOUND: The requested resource does not exist.
     NotFound,
+    /// M_LIMIT_EXCEEDED: Too many requests; rate limit applied.
     LimitExceeded,
+    /// M_UNKNOWN: Fallback for unknown Matrix error codes.
     Unknown,
+    /// M_UNRECOGNIZED: The error code is not recognized by this server.
     Unrecognized,
+    /// M_UNAUTHORIZED: Authentication required.
     Unauthorized,
+    /// M_USER_DEACTIVATED: The user account has been deactivated.
     UserDeactivated,
+    /// M_USER_IN_USE: The desired user ID is already taken.
     UserInUse,
+    /// M_INVALID_USERNAME: The username is invalid.
     InvalidUsername,
+    /// M_ROOM_IN_USE: The desired room alias is already taken.
     RoomInUse,
+    /// M_INVALID_ROOM_STATE: The room state is invalid for this operation.
     InvalidRoomState,
+    /// M_THREEPID_IN_USE: The third-party ID is already in use.
     ThreepidInUse,
+    /// M_THREEPID_NOT_FOUND: The third-party ID was not found.
     ThreepidNotFound,
+    /// M_THREEPID_AUTH_FAILED: Authentication failed for a third-party ID operation.
     ThreepidAuthFailed,
+    /// M_THREEPID_DENIED: The third-party ID is denied from being used.
     ThreepidDenied,
+    /// M_SERVER_NOT_TRUSTED: The destination server is not trusted.
     ServerNotTrusted,
+    /// M_UNSUPPORTED_ROOM_VERSION: The requested room version is not supported.
     UnsupportedRoomVersion,
+    /// M_INCOMPATIBLE_ROOM_VERSION: The room version is incompatible.
     IncompatibleRoomVersion,
+    /// M_BAD_STATE: The room state does not match the expected state.
     BadState,
+    /// M_GUEST_ACCESS_FORBIDDEN: Guest access is not allowed.
     GuestAccessForbidden,
+    /// M_CAPTCHA_NEEDED: A captcha is required before registration.
     CaptchaNeeded,
+    /// M_CAPTCHA_INVALID: The provided captcha is invalid.
     CaptchaInvalid,
+    /// M_MISSING_PARAM: A required parameter is missing.
     MissingParam,
+    /// M_INVALID_PARAM: A parameter is invalid.
     InvalidParam,
+    /// M_TOO_LARGE: The request body or file is too large.
     TooLarge,
+    /// M_EXCLUSIVE: The operation conflicts with an exclusive resource.
     Exclusive,
+    /// M_RESOURCE_LIMIT_EXCEEDED: A server resource limit has been exceeded.
     ResourceLimitExceeded,
+    /// M_CANNOT_LEAVE_SERVER_NOTICE_ROOM: Cannot leave a server notice room.
     CannotLeaveServerNoticeRoom,
+    /// M_UNRECOGNIZED: The operation is not implemented (shared with `Unrecognized`).
     Unimplemented,
+    /// M_REQUEST_TIMEOUT: The request timed out.
     RequestTimeout,
-    /// MSC4335: Returned when the server has reached its user account limit.
-    /// Distinct from `LimitExceeded` (generic rate limit) and
-    /// `ResourceLimitExceeded` (server-wide resource exhaustion).
+    /// M_USER_LIMIT_EXCEEDED: The server has reached its user account limit (MSC4335).
     UserLimitExceeded,
-    /// M_UNSUPPORTED: The server does not support this feature (e.g. presence
-    /// disabled). Per Matrix spec, returned with HTTP 405 Method Not Allowed.
+    /// M_UNSUPPORTED: The server does not support this feature (e.g. presence disabled).
     Unsupported,
-    /// M_UNKNOWN_POS: A sliding-sync `pos` token was invalid or expired
-    /// (MSC4186). Distinct from `BadJson` so clients can reset their position
-    /// and resync without mistaking other 400s for pos expiry.
+    /// M_UNKNOWN_POS: The sliding-sync `pos` token is invalid or expired (MSC4186).
     UnknownPos,
-    /// M_BAD_PAGINATION: Encountered when specifying bad pagination query
-    /// parameters (e.g. an unparseable `since` token on `/sync`).
-    /// Per Matrix client-server spec, this must be returned as HTTP 400
-    /// (Bad Request), NOT 401 M_UNKNOWN_TOKEN — the access token is fine,
-    /// the pagination cursor itself is invalid.
+    /// M_BAD_PAGINATION: Bad pagination query parameters (e.g. unparseable `since` token).
     BadPagination,
 }
 
 impl MatrixErrorCode {
+    /// Returns the canonical `"M_*"` string for this error code.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Forbidden => "M_FORBIDDEN",
@@ -108,6 +135,7 @@ impl MatrixErrorCode {
         }
     }
 
+    /// Returns the canonical HTTP status code for this Matrix error code.
     pub fn http_status(&self) -> StatusCode {
         match self {
             Self::Forbidden => StatusCode::FORBIDDEN,
@@ -158,6 +186,7 @@ impl MatrixErrorCode {
     /// 返回 `Option<Self>`（未知 errcode → `None`）而非 `std::str::FromStr` 的
     /// `Result`，因容错语义不匹配该 trait；故允许 `should_implement_trait`。
     #[allow(clippy::should_implement_trait)]
+    /// Parses a `M_*` string into a `MatrixErrorCode`. Returns `None` if unknown.
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "M_FORBIDDEN" => Some(Self::Forbidden),

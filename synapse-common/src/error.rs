@@ -1,3 +1,5 @@
+//! `ApiError` + `MatrixErrorCode`: the unified HTTP/JSON error envelope for all handlers.
+
 use std::sync::{Arc, OnceLock};
 
 use axum::{
@@ -12,6 +14,7 @@ use crate::metrics::MetricsCollector;
 
 static ERROR_METRICS: OnceLock<Arc<MetricsCollector>> = OnceLock::new();
 
+/// Initialise the global error-metrics collector used by `ApiError::into_response`.
 pub fn init_error_metrics(collector: Arc<MetricsCollector>) {
     let _ = ERROR_METRICS.set(collector);
 }
@@ -23,6 +26,7 @@ pub use code::MatrixErrorCode;
 // ApiErrorKind — semantic error category (10 variants replacing 42)
 // ---------------------------------------------------------------------------
 
+/// HTTP semantic category that drives the response status. Serializes as snake_case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApiErrorKind {
@@ -53,6 +57,7 @@ pub enum ApiErrorKind {
 }
 
 impl ApiErrorKind {
+    /// Maps this kind to its canonical HTTP status code.
     pub fn default_http_status(&self) -> StatusCode {
         match self {
             Self::BadRequest => StatusCode::BAD_REQUEST,
@@ -75,6 +80,7 @@ impl ApiErrorKind {
 // ApiError — structured error with kind / code / cause
 // ---------------------------------------------------------------------------
 
+/// Type alias for an opaque, cloneable underlying error cause carried by `ApiError`.
 pub type ApiErrorCause = Arc<dyn std::error::Error + Send + Sync>;
 
 #[derive(Debug)]
@@ -88,11 +94,18 @@ impl std::fmt::Display for RetryAfterMsCause {
 
 impl std::error::Error for RetryAfterMsCause {}
 
+/// Structured API error: an HTTP semantic kind, a Matrix errcode, a user-facing
+/// message, and an optional underlying cause for logging.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiError {
+    /// HTTP semantic category that drives the response status code.
     pub kind: ApiErrorKind,
+    /// Matrix-spec error code emitted in the response body's `errcode` field.
     pub code: MatrixErrorCode,
+    /// User-facing error message; for `Internal` errors this is masked before
+    /// being returned to the client (see [`ApiError::message`]).
     pub message: String,
+    /// Optional opaque underlying error, surfaced through `std::error::Error::source`.
     #[serde(skip)]
     pub cause: Option<ApiErrorCause>,
 }
@@ -128,6 +141,8 @@ impl std::error::Error for ApiError {
 impl ApiError {
     // -- core constructors --
 
+    /// Builds a 400 `M_BAD_JSON` error. Generic catch-all for malformed client input.
+    /// Builds a 400 Bad Request error with `M_BAD_JSON` errcode.
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::BadRequest, code: MatrixErrorCode::BadJson, message: message.into(), cause: None }
     }
@@ -154,6 +169,8 @@ impl ApiError {
         }
     }
 
+    /// Builds a 401 error with `M_UNAUTHORIZED` Matrix code.
+    /// Builds a 401 Unauthorized error with `M_UNAUTHORIZED` errcode.
     pub fn unauthorized(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Unauthorized,
@@ -176,14 +193,20 @@ impl ApiError {
         }
     }
 
+    /// Builds a 403 error with `M_FORBIDDEN` Matrix code.
+    /// Builds a 403 Forbidden error with `M_FORBIDDEN` errcode.
     pub fn forbidden(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::Forbidden, code: MatrixErrorCode::Forbidden, message: message.into(), cause: None }
     }
 
+    /// Builds a 404 error with `M_NOT_FOUND` Matrix code.
+    /// Builds a 404 Not Found error with `M_NOT_FOUND` errcode.
     pub fn not_found(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::NotFound, code: MatrixErrorCode::NotFound, message: message.into(), cause: None }
     }
 
+    /// Builds a 501 error with `M_UNRECOGNIZED` (legacy alias for unimplemented).
+    /// Builds a 501 Not Implemented error with `M_UNRECOGNIZED` errcode.
     pub fn not_implemented(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::NotImplemented,
@@ -206,6 +229,8 @@ impl ApiError {
         }
     }
 
+    /// Builds a 409 `M_USER_IN_USE` conflict error.
+    /// Builds a 409 Conflict error with `M_USER_IN_USE` errcode.
     pub fn conflict(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::Conflict, code: MatrixErrorCode::UserInUse, message: message.into(), cause: None }
     }
@@ -215,6 +240,8 @@ impl ApiError {
         Self { kind: ApiErrorKind::Conflict, code, message: message.into(), cause: None }
     }
 
+    /// Builds a 500 `M_UNKNOWN` internal error.
+    /// Builds a 500 Internal error with `M_UNKNOWN` errcode.
     pub fn internal(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
@@ -237,6 +264,7 @@ impl ApiError {
     /// operation context only (the underlying DB error is logged, not exposed to the
     /// client). This is the canonical constructor for storage-layer failures where
     /// leaking SQL/table details to the client is undesirable.
+    /// Builds a 500 Internal error for database failures, masking the DB detail from the client.
     pub fn database_with_context(context: &str, err: &dyn std::fmt::Display) -> Self {
         tracing::error!(%context, %err, "database error");
         Self {
@@ -249,6 +277,7 @@ impl ApiError {
 
     /// Log an internal error and return an Internal error whose message carries the
     /// operation context only (mirrors `database_with_context` for non-DB failures).
+    /// Builds a 500 Internal error wrapping a generic operation context for opaque failures.
     pub fn internal_with_context(context: &str, err: &dyn std::fmt::Display) -> Self {
         tracing::error!(%context, %err, "internal error");
         Self {
@@ -259,10 +288,12 @@ impl ApiError {
         }
     }
 
+    /// Builds a 500 `M_UNKNOWN` error for a database failure.
     pub fn database(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
 
+    /// Builds a 500 `M_UNKNOWN` error prefixed with `Cache error:` for a cache backend failure.
     pub fn cache(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Internal,
@@ -272,10 +303,12 @@ impl ApiError {
         }
     }
 
+    /// Builds a 410 error using `M_NOT_FOUND` Matrix code.
     pub fn gone(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::Gone, code: MatrixErrorCode::NotFound, message: message.into(), cause: None }
     }
 
+    /// Builds a 401 error with `M_UNKNOWN_TOKEN` Matrix code.
     pub fn authentication(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Unauthorized,
@@ -285,6 +318,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 400 `M_INVALID_PARAM` error for failed input validation.
     pub fn validation(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::BadRequest,
@@ -294,6 +328,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 400 `M_INVALID_PARAM` error for malformed input.
     pub fn invalid_input(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::BadRequest,
@@ -303,10 +338,12 @@ impl ApiError {
         }
     }
 
+    /// Builds a 500 `M_UNKNOWN` error for a cryptographic failure.
     pub fn crypto(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
 
+    /// Builds a 429 `M_LIMIT_EXCEEDED` error with a generic message.
     pub fn rate_limited(_message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::RateLimited,
@@ -316,6 +353,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 429 error carrying a specific `retry_after_ms` hint.
     pub fn rate_limited_with_retry(retry_after_ms: u64) -> Self {
         Self {
             kind: ApiErrorKind::RateLimited,
@@ -325,6 +363,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 401 `M_MISSING_TOKEN` error for absent access tokens.
     pub fn missing_token() -> Self {
         Self {
             kind: ApiErrorKind::Unauthorized,
@@ -334,12 +373,14 @@ impl ApiError {
         }
     }
 
+    /// Builds a 400 error with `M_NOT_JSON` when JSON parsing fails.
     pub fn not_json(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::BadRequest, code: MatrixErrorCode::NotJson, message: message.into(), cause: None }
     }
 
     // -- domain-specific constructors (delegate to core with specific code) --
 
+    /// Builds a 403 `M_USER_DEACTIVATED` error.
     pub fn user_deactivated(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Forbidden,
@@ -349,6 +390,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 400 `M_INVALID_USERNAME` error.
     pub fn invalid_username(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::BadRequest,
@@ -358,14 +400,17 @@ impl ApiError {
         }
     }
 
+    /// Builds a 400 `M_USER_IN_USE` error for duplicate user IDs.
     pub fn user_in_use(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::BadRequest, code: MatrixErrorCode::UserInUse, message: message.into(), cause: None }
     }
 
+    /// Builds a 409 `M_ROOM_IN_USE` error.
     pub fn room_in_use(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::Conflict, code: MatrixErrorCode::RoomInUse, message: message.into(), cause: None }
     }
 
+    /// Builds a 400 `M_INVALID_ROOM_STATE` error.
     pub fn invalid_room_state(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::BadRequest,
@@ -375,6 +420,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 409 `M_THREEPID_IN_USE` error for duplicate third-party IDs.
     pub fn threepid_in_use(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Conflict,
@@ -384,6 +430,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 400 `M_THREEPID_NOT_FOUND` error.
     pub fn threepid_not_found(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::BadRequest,
@@ -393,6 +440,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 403 `M_THREEPID_AUTH_FAILED` error.
     pub fn threepid_auth_failed(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Forbidden,
@@ -402,6 +450,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 403 `M_THREEPID_DENIED` error.
     pub fn threepid_denied(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Forbidden,
@@ -411,6 +460,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 403 `M_SERVER_NOT_TRUSTED` error.
     pub fn server_not_trusted(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Forbidden,
@@ -420,6 +470,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 400 `M_UNSUPPORTED_ROOM_VERSION` error.
     pub fn unsupported_room_version(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::BadRequest,
@@ -429,6 +480,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 400 `M_INCOMPATIBLE_ROOM_VERSION` error.
     pub fn incompatible_room_version(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::BadRequest,
@@ -438,10 +490,12 @@ impl ApiError {
         }
     }
 
+    /// Builds a 400 `M_BAD_STATE` error.
     pub fn bad_state(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::BadRequest, code: MatrixErrorCode::BadState, message: message.into(), cause: None }
     }
 
+    /// Builds a 403 `M_GUEST_ACCESS_FORBIDDEN` error.
     pub fn guest_access_forbidden(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Forbidden,
@@ -451,6 +505,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 400 `M_CAPTCHA_NEEDED` error.
     pub fn captcha_needed(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::BadRequest,
@@ -460,6 +515,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 400 `M_CAPTCHA_INVALID` error.
     pub fn captcha_invalid(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::BadRequest,
@@ -469,6 +525,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 400 `M_MISSING_PARAM` error.
     pub fn missing_param(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::BadRequest,
@@ -478,6 +535,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 400 `M_INVALID_PARAM` error.
     pub fn invalid_param(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::BadRequest,
@@ -487,6 +545,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 413 `M_TOO_LARGE` error.
     pub fn too_large(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::PayloadTooLarge,
@@ -496,10 +555,12 @@ impl ApiError {
         }
     }
 
+    /// Builds a 409 `M_EXCLUSIVE` error.
     pub fn exclusive(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::Conflict, code: MatrixErrorCode::Exclusive, message: message.into(), cause: None }
     }
 
+    /// Builds a 403 `M_RESOURCE_LIMIT_EXCEEDED` error.
     pub fn resource_limit_exceeded(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Forbidden,
@@ -509,6 +570,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 403 `M_CANNOT_LEAVE_SERVER_NOTICE_ROOM` error.
     pub fn cannot_leave_server_notice_room(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Forbidden,
@@ -518,10 +580,12 @@ impl ApiError {
         }
     }
 
+    /// Builds a 500 `M_UNKNOWN` error.
     pub fn unknown(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
 
+    /// Builds a 400 `M_UNRECOGNIZED` error for unrecognized request payloads.
     pub fn unrecognized(message: impl Into<String>) -> Self {
         // M_UNRECOGNIZED maps to HTTP 400, matching MatrixErrorCode::Unrecognized
         // and the errcode fallback table (see d8bc373c). The router-level 404
@@ -534,6 +598,7 @@ impl ApiError {
         }
     }
 
+    /// Builds a 504 `M_REQUEST_TIMEOUT` error for upstream timeout.
     pub fn request_timeout(message: impl Into<String>) -> Self {
         Self {
             kind: ApiErrorKind::Timeout,
@@ -545,10 +610,12 @@ impl ApiError {
 
     // -- encryption / decryption (map to Internal with specific message) --
 
+    /// Builds a 500 Internal error for decryption failures.
     pub fn decryption_error(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
 
+    /// Builds a 500 `M_UNKNOWN` error for encryption failure.
     pub fn encryption_error(message: impl Into<String>) -> Self {
         Self { kind: ApiErrorKind::Internal, code: MatrixErrorCode::Unknown, message: message.into(), cause: None }
     }
@@ -567,39 +634,50 @@ impl ApiError {
 
     // -- kind predicates (replace match / matches!) --
 
+    /// Returns `true` if `kind == BadRequest`.
     pub fn is_bad_request(&self) -> bool {
         self.kind == ApiErrorKind::BadRequest
     }
+    /// Returns `true` if `kind == Unauthorized`.
     pub fn is_unauthorized(&self) -> bool {
         self.kind == ApiErrorKind::Unauthorized
     }
+    /// Returns `true` if `kind == Forbidden`.
     pub fn is_forbidden(&self) -> bool {
         self.kind == ApiErrorKind::Forbidden
     }
+    /// Returns `true` if `kind == NotFound`.
     pub fn is_not_found(&self) -> bool {
         self.kind == ApiErrorKind::NotFound
     }
+    /// Returns `true` if `kind == Conflict`.
     pub fn is_conflict(&self) -> bool {
         self.kind == ApiErrorKind::Conflict
     }
+    /// Returns `true` if `kind == Gone`.
     pub fn is_gone(&self) -> bool {
         self.kind == ApiErrorKind::Gone
     }
+    /// Returns `true` if `kind == RateLimited`.
     pub fn is_rate_limited(&self) -> bool {
         self.kind == ApiErrorKind::RateLimited
     }
+    /// Returns `true` if `kind == Internal`.
     pub fn is_internal(&self) -> bool {
         self.kind == ApiErrorKind::Internal
     }
+    /// Returns `true` if `kind == NotImplemented`.
     pub fn is_not_implemented(&self) -> bool {
         self.kind == ApiErrorKind::NotImplemented
     }
+    /// Returns `true` if `kind == Timeout`.
     pub fn is_timeout(&self) -> bool {
         self.kind == ApiErrorKind::Timeout
     }
 
     // -- code predicates (for specific Matrix error code checks) --
 
+    /// Returns `true` if the Matrix code equals `code`.
     pub fn code_is(&self, code: MatrixErrorCode) -> bool {
         self.code == code
     }
@@ -611,10 +689,12 @@ impl ApiError {
         &self.code
     }
 
+    /// Returns the Matrix error code by value.
     pub fn matrix_code(&self) -> MatrixErrorCode {
         self.code
     }
 
+    /// Returns the Matrix error code as a static string (`"M_FORBIDDEN"`, etc.).
     pub fn code_str(&self) -> &'static str {
         self.code.as_str()
     }
@@ -640,10 +720,13 @@ impl ApiError {
         &self.message
     }
 
+    /// Returns the canonical HTTP status for this error.
     pub fn http_status(&self) -> StatusCode {
         self.kind.default_http_status()
     }
 
+    /// Returns the retry-after hint in milliseconds for rate-limited errors,
+    /// or `None` for non-rate-limited errors.
     pub fn retry_after_ms(&self) -> Option<u64> {
         if self.kind == ApiErrorKind::RateLimited {
             self.cause
@@ -778,24 +861,33 @@ impl From<std::io::Error> for ApiError {
 // ApiResponse (unchanged)
 // ---------------------------------------------------------------------------
 
+/// Uniform envelope for HTTP handler return values: a `status` string plus
+/// either `data` (success) or `error` + `errcode` (failure).
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponse<T> {
+    /// Always `"ok"` for successes or `"error"` for failures.
     pub status: String,
+    /// Success payload; `None` on error.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<T>,
+    /// Error message; `None` on success.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Matrix error code; `None` on success.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub errcode: Option<String>,
+    /// Retry-after hint in milliseconds; `None` unless rate-limited.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_after_ms: Option<u64>,
 }
 
 impl<T> ApiResponse<T> {
+    /// Wraps `data` in a successful `ApiResponse`.
     pub fn success(data: T) -> Self {
         Self { status: "ok".to_string(), data: Some(data), error: None, errcode: None, retry_after_ms: None }
     }
 
+    /// Wraps an error message and Matrix errcode in an `ApiResponse`.
     pub fn error(error: String, errcode: String) -> Self {
         Self {
             status: "error".to_string(),
@@ -806,6 +898,7 @@ impl<T> ApiResponse<T> {
         }
     }
 
+    /// Wraps an error message and Matrix errcode with a `retry_after_ms` hint.
     pub fn error_with_retry(error: String, errcode: String, retry_after_ms: u64) -> Self {
         Self {
             status: "error".to_string(),
@@ -841,6 +934,7 @@ where
 // Type alias
 // ---------------------------------------------------------------------------
 
+/// Standard `Result` alias for handler return types: `Result<T, ApiError>`.
 pub type ApiResult<T> = Result<T, ApiError>;
 
 // ---------------------------------------------------------------------------

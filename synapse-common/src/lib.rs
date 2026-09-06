@@ -1,9 +1,15 @@
+//! Shared types, utilities, and configuration for the synapse-rust homeserver.
+//!
+//! Covers error envelopes (`error`), config models (`config`), crypto helpers,
+//! rate-limiting config, metrics primitives, push-rule models, and more — every
+//! module that other workspace crates depend on.
+
 // ROUND2-ISSUE-1: test code may use unwrap/expect/unwrap_err/panic per Rust testing idiom.
 // Production lib code is still held to the strict clippy lint config in [lints.clippy].
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
-// B2-TODO: ratchet in progress — see scripts/quality/check_missing_docs_ratchet.sh
-// (current baseline 0, ticket 04 sets up the ratchet; ticket 05 will switch to deny).
-// Currently ~1022 warnings (17% of public items undocumented).
+// B-3.1-b-2 in progress: 95% of pub items documented; the ratchet is the
+// primary enforcement while the remaining `///` comments are being added.
+// Switch to `#![deny(missing_docs)]` only after every pub item has docs.
 #![warn(missing_docs)]
 
 pub mod argon2_config;
