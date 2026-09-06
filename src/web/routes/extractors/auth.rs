@@ -132,7 +132,7 @@ impl FromRequestParts<AppState> for AdminUser {
 }
 
 impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
-    type Rejection = std::convert::Infallible;
+    type Rejection = ApiError;
 
     fn from_request_parts(
         parts: &mut Parts,
@@ -153,14 +153,12 @@ impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
                         is_guest,
                         access_token: Some(token),
                     }),
-                    Err(_) => Ok(Self {
-                        user_id: None,
-                        device_id: None,
-                        is_admin: false,
-                        is_shadow_banned: false,
-                        is_guest: false,
-                        access_token: None,
-                    }),
+                    // B-9 fix: previously, an invalid token was silently
+                    // downgraded to an anonymous OptionalAuthenticatedUser,
+                    // which masked auth failures and let stale-token users
+                    // fall through to anonymous handling.  Reject explicitly
+                    // with 401 M_UNKNOWN_TOKEN so the client re-authenticates.
+                    Err(e) => Err(ApiError::unauthorized(format!("Invalid access token: {e}"))),
                 },
                 Err(_) => Ok(Self {
                     user_id: None,
@@ -331,7 +329,7 @@ impl FromRequestParts<AuthContext> for AuthenticatedUser {
 
 // OptionalAuthenticatedUser for context types
 impl FromRequestParts<RoomContext> for OptionalAuthenticatedUser {
-    type Rejection = std::convert::Infallible;
+    type Rejection = ApiError;
 
     fn from_request_parts(
         parts: &mut Parts,
@@ -352,14 +350,9 @@ impl FromRequestParts<RoomContext> for OptionalAuthenticatedUser {
                         is_guest,
                         access_token: Some(token),
                     }),
-                    Err(_) => Ok(Self {
-                        user_id: None,
-                        device_id: None,
-                        is_admin: false,
-                        is_shadow_banned: false,
-                        is_guest: false,
-                        access_token: None,
-                    }),
+                    // B-9: invalid token must reject, not silently downgrade
+                    // to anonymous.  See AppState impl for the security rationale.
+                    Err(e) => Err(ApiError::unauthorized(format!("Invalid access token: {e}"))),
                 },
                 Err(_) => Ok(Self {
                     user_id: None,
@@ -375,7 +368,7 @@ impl FromRequestParts<RoomContext> for OptionalAuthenticatedUser {
 }
 
 impl FromRequestParts<SyncContext> for OptionalAuthenticatedUser {
-    type Rejection = std::convert::Infallible;
+    type Rejection = ApiError;
 
     fn from_request_parts(
         parts: &mut Parts,
@@ -396,14 +389,9 @@ impl FromRequestParts<SyncContext> for OptionalAuthenticatedUser {
                         is_guest,
                         access_token: Some(token),
                     }),
-                    Err(_) => Ok(Self {
-                        user_id: None,
-                        device_id: None,
-                        is_admin: false,
-                        is_shadow_banned: false,
-                        is_guest: false,
-                        access_token: None,
-                    }),
+                    // B-9: invalid token must reject, not silently downgrade
+                    // to anonymous.  See AppState impl for the security rationale.
+                    Err(e) => Err(ApiError::unauthorized(format!("Invalid access token: {e}"))),
                 },
                 Err(_) => Ok(Self {
                     user_id: None,
@@ -419,7 +407,7 @@ impl FromRequestParts<SyncContext> for OptionalAuthenticatedUser {
 }
 
 impl FromRequestParts<DeviceContext> for OptionalAuthenticatedUser {
-    type Rejection = std::convert::Infallible;
+    type Rejection = ApiError;
 
     fn from_request_parts(
         parts: &mut Parts,
@@ -440,14 +428,9 @@ impl FromRequestParts<DeviceContext> for OptionalAuthenticatedUser {
                         is_guest,
                         access_token: Some(token),
                     }),
-                    Err(_) => Ok(Self {
-                        user_id: None,
-                        device_id: None,
-                        is_admin: false,
-                        is_shadow_banned: false,
-                        is_guest: false,
-                        access_token: None,
-                    }),
+                    // B-9: invalid token must reject, not silently downgrade
+                    // to anonymous.  See AppState impl for the security rationale.
+                    Err(e) => Err(ApiError::unauthorized(format!("Invalid access token: {e}"))),
                 },
                 Err(_) => Ok(Self {
                     user_id: None,
@@ -463,7 +446,7 @@ impl FromRequestParts<DeviceContext> for OptionalAuthenticatedUser {
 }
 
 impl FromRequestParts<AuthContext> for OptionalAuthenticatedUser {
-    type Rejection = std::convert::Infallible;
+    type Rejection = ApiError;
 
     fn from_request_parts(
         parts: &mut Parts,
@@ -484,14 +467,9 @@ impl FromRequestParts<AuthContext> for OptionalAuthenticatedUser {
                         is_guest,
                         access_token: Some(token),
                     }),
-                    Err(_) => Ok(Self {
-                        user_id: None,
-                        device_id: None,
-                        is_admin: false,
-                        is_shadow_banned: false,
-                        is_guest: false,
-                        access_token: None,
-                    }),
+                    // B-9: invalid token must reject, not silently downgrade
+                    // to anonymous.  See AppState impl for the security rationale.
+                    Err(e) => Err(ApiError::unauthorized(format!("Invalid access token: {e}"))),
                 },
                 Err(_) => Ok(Self {
                     user_id: None,
@@ -591,7 +569,7 @@ impl FromRequestParts<MediaContext> for AuthenticatedUser {
 
 // OptionalAuthenticatedUser for AdminContext, FederationContext, MediaContext
 impl FromRequestParts<AdminContext> for OptionalAuthenticatedUser {
-    type Rejection = std::convert::Infallible;
+    type Rejection = ApiError;
 
     fn from_request_parts(
         parts: &mut Parts,
@@ -612,14 +590,9 @@ impl FromRequestParts<AdminContext> for OptionalAuthenticatedUser {
                         is_guest,
                         access_token: Some(token),
                     }),
-                    Err(_) => Ok(Self {
-                        user_id: None,
-                        device_id: None,
-                        is_admin: false,
-                        is_shadow_banned: false,
-                        is_guest: false,
-                        access_token: None,
-                    }),
+                    // B-9: invalid token must reject, not silently downgrade
+                    // to anonymous.  See AppState impl for the security rationale.
+                    Err(e) => Err(ApiError::unauthorized(format!("Invalid access token: {e}"))),
                 },
                 Err(_) => Ok(Self {
                     user_id: None,
@@ -635,7 +608,7 @@ impl FromRequestParts<AdminContext> for OptionalAuthenticatedUser {
 }
 
 impl FromRequestParts<FederationContext> for OptionalAuthenticatedUser {
-    type Rejection = std::convert::Infallible;
+    type Rejection = ApiError;
 
     fn from_request_parts(
         parts: &mut Parts,
@@ -656,14 +629,9 @@ impl FromRequestParts<FederationContext> for OptionalAuthenticatedUser {
                         is_guest,
                         access_token: Some(token),
                     }),
-                    Err(_) => Ok(Self {
-                        user_id: None,
-                        device_id: None,
-                        is_admin: false,
-                        is_shadow_banned: false,
-                        is_guest: false,
-                        access_token: None,
-                    }),
+                    // B-9: invalid token must reject, not silently downgrade
+                    // to anonymous.  See AppState impl for the security rationale.
+                    Err(e) => Err(ApiError::unauthorized(format!("Invalid access token: {e}"))),
                 },
                 Err(_) => Ok(Self {
                     user_id: None,
@@ -679,7 +647,7 @@ impl FromRequestParts<FederationContext> for OptionalAuthenticatedUser {
 }
 
 impl FromRequestParts<MediaContext> for OptionalAuthenticatedUser {
-    type Rejection = std::convert::Infallible;
+    type Rejection = ApiError;
 
     fn from_request_parts(
         parts: &mut Parts,
@@ -700,14 +668,9 @@ impl FromRequestParts<MediaContext> for OptionalAuthenticatedUser {
                         is_guest,
                         access_token: Some(token),
                     }),
-                    Err(_) => Ok(Self {
-                        user_id: None,
-                        device_id: None,
-                        is_admin: false,
-                        is_shadow_banned: false,
-                        is_guest: false,
-                        access_token: None,
-                    }),
+                    // B-9: invalid token must reject, not silently downgrade
+                    // to anonymous.  See AppState impl for the security rationale.
+                    Err(e) => Err(ApiError::unauthorized(format!("Invalid access token: {e}"))),
                 },
                 Err(_) => Ok(Self {
                     user_id: None,
