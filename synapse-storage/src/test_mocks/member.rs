@@ -154,6 +154,23 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
             .collect())
     }
 
+    async fn get_joined_rooms_page(
+        &self,
+        user_id: &str,
+        after_room_id: &str,
+        limit: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let members = self.members.read().await;
+        let mut results: Vec<String> = members
+            .iter()
+            .filter(|((rid, uid), m)| uid == user_id && m.membership == "join" && rid.as_str() > after_room_id)
+            .map(|((rid, _), _)| rid.clone())
+            .collect();
+        results.sort();
+        results.truncate(limit as usize);
+        Ok(results)
+    }
+
     async fn get_shared_room_users(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let members = self.members.read().await;
         // Find rooms the user is joined to

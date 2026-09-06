@@ -353,6 +353,22 @@ pub struct ServerConfig {
     /// 默认 64 KiB（65536 bytes）。
     #[serde(default = "default_to_device_max_payload_bytes")]
     pub to_device_max_payload_bytes: usize,
+
+    /// 管理员踢出用户（`evict_user_from_joined_rooms`）时的最大并发房间数。
+    ///
+    /// 单用户加入的房间数可能高达数百至数千；并发移除受此上限节流，
+    /// 防止瞬时连接池耗尽。参考 Synapse 的 `evict_max_concurrency = 8` 默认。
+    /// 设为 1 退化为串行；设为 0 等同 1（不并发）。
+    #[serde(default = "default_admin_evict_max_concurrency")]
+    pub admin_evict_max_concurrency: usize,
+
+    /// 管理员踢出用户时分页拉取已加入房间的页大小。
+    ///
+    /// 单用户加入的海量房间不会一次返回，而是按此大小分页游标遍历。
+    /// 默认 1000。Synapse 内部使用 100（`/_matrix/client/v3/joined_rooms` 默认），
+    /// 但管理员内部接口可以稍大以减少往返。
+    #[serde(default = "default_admin_evict_page_size")]
+    pub admin_evict_page_size: i64,
 }
 
 fn default_suppress_key_server_warning() -> bool {
@@ -441,6 +457,14 @@ fn default_to_device_max_recipients() -> usize {
 
 fn default_to_device_max_payload_bytes() -> usize {
     64 * 1024
+}
+
+fn default_admin_evict_max_concurrency() -> usize {
+    8
+}
+
+fn default_admin_evict_page_size() -> i64 {
+    1000
 }
 
 impl ServerConfig {

@@ -1,3 +1,4 @@
+use futures::stream::{self, StreamExt};
 use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::crypto::{hash_password, random_string};
@@ -137,6 +138,10 @@ pub struct AdminUserService {
     room_storage: Arc<dyn RoomStoreApi>,
     member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
     server_name: String,
+    /// Maximum concurrent room removals per evict batch. 0 is coerced to 1.
+    evict_max_concurrency: usize,
+    /// Page size for paginated room list traversal.
+    evict_page_size: i64,
 }
 
 impl AdminUserService {
@@ -149,7 +154,32 @@ impl AdminUserService {
         member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
         server_name: String,
     ) -> Self {
-        Self { user_service, user_storage, device_storage, room_storage, member_storage, server_name }
+        // Backwards-compatible defaults: keep prior behavior (sequential, full
+        // page) when callers don't pass the tuning knobs. Production wiring
+        // should call `with_evict_concurrency` / `with_evict_page_size`.
+        Self {
+            user_service,
+            user_storage,
+            device_storage,
+            room_storage,
+            member_storage,
+            server_name,
+            evict_max_concurrency: 1,
+            evict_page_size: i64::MAX / 2,
+        }
+    }
+
+    /// Tune the concurrent room-removal concurrency. `0` is coerced to 1
+    /// (sequential) to keep `buffer_unordered` well-defined.
+    pub fn with_evict_concurrency(mut self, concurrency: usize) -> Self {
+        self.evict_max_concurrency = concurrency.max(1);
+        self
+    }
+
+    /// Tune the paginated room-list page size. Values `< 1` are coerced to 1.
+    pub fn with_evict_page_size(mut self, page_size: i64) -> Self {
+        self.evict_page_size = page_size.max(1);
+        self
     }
 
     #[instrument(skip(self))]
@@ -219,26 +249,79 @@ impl AdminUserService {
 
     #[instrument(skip(self))]
     pub async fn evict_user_from_joined_rooms(&self, user_id: &str) -> Result<AdminUserEvictionResult, ApiError> {
-        let joined_rooms = self
-            .member_storage
-            .get_joined_rooms(user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
-
-        // B-1.1 fix: collect room_ids with successful `remove_member`, then issue
-        // a single batch UPDATE to refresh `room_summaries.updated_ts` for all of
-        // them. Member-count columns themselves are maintained by a v11 DB trigger
-        // on `room_memberships`, so we only batch the timestamp touch.
-        let mut failures = Vec::new();
+        // B-1.1 fix (Phase 2 — pagination + concurrent removal + visible failures):
+        // 1. Walk joined rooms via keyset pagination (LIMIT N, room_id > cursor)
+        //    to bound memory on users with very large joined-room sets.
+        // 2. Drive `remove_member` with a `buffer_unordered` pool capped at
+        //    `evict_max_concurrency` to avoid saturating the connection pool.
+        // 3. If the post-batch `decrement_member_counts_batch` fails, push the
+        //    error into `failures` and log a `warn!` (was silently swallowed
+        //    with `let _ =` before — caused stale `room_summaries.updated_ts`).
+        let mut joined_rooms: Vec<String> = Vec::new();
+        let mut failures: Vec<AdminEvictionFailure> = Vec::new();
         let mut removed: Vec<String> = Vec::new();
-        for room_id in &joined_rooms {
-            match self.member_storage.remove_member(room_id, user_id, None).await {
-                Ok(()) => removed.push(room_id.clone()),
-                Err(e) => failures.push(AdminEvictionFailure { room_id: room_id.clone(), error: e.to_string() }),
+        let page_size = self.evict_page_size;
+        let mut after_room_id = String::new();
+
+        loop {
+            let page = self
+                .member_storage
+                .get_joined_rooms_page(user_id, &after_room_id, page_size)
+                .await
+                .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
+
+            if page.is_empty() {
+                break;
             }
+            let page_len = page.len() as i64;
+            let last = page.last().cloned().unwrap_or_default();
+            joined_rooms.extend(page.iter().cloned());
+
+            // Concurrent room removals, capped at `evict_max_concurrency` (>= 1).
+            let member_storage = self.member_storage.clone();
+            let user_id_owned = user_id.to_string();
+            let mut stream = stream::iter(page.into_iter())
+                .map(|room_id| {
+                    let member_storage = member_storage.clone();
+                    let user_id_owned = user_id_owned.clone();
+                    async move {
+                        let result = member_storage.remove_member(&room_id, &user_id_owned, None).await;
+                        (room_id, result)
+                    }
+                })
+                .buffer_unordered(self.evict_max_concurrency);
+
+            while let Some((room_id, result)) = stream.next().await {
+                match result {
+                    Ok(()) => removed.push(room_id),
+                    Err(e) => failures.push(AdminEvictionFailure {
+                        room_id: room_id.clone(),
+                        error: e.to_string(),
+                    }),
+                }
+            }
+
+            // Termination: a short page means we drained the set; advance
+            // the cursor and continue for full pages.
+            if page_len < page_size || last.is_empty() {
+                break;
+            }
+            after_room_id = last;
         }
+
         if !removed.is_empty() {
-            let _ = self.room_storage.decrement_member_counts_batch(&removed).await;
+            // B-1.1: surface failures instead of silently dropping them.
+            if let Err(e) = self.room_storage.decrement_member_counts_batch(&removed).await {
+                tracing::warn!(
+                    error = %e,
+                    removed_count = removed.len(),
+                    "decrement_member_counts_batch failed; room_summaries.updated_ts may be stale"
+                );
+                failures.push(AdminEvictionFailure {
+                    room_id: "<batch>".to_string(),
+                    error: format!("decrement_member_counts_batch: {e}"),
+                });
+            }
         }
 
         Ok(AdminUserEvictionResult { joined_rooms, failures })
@@ -567,6 +650,8 @@ impl AdminUserService {
 
 #[cfg(test)]
 mod cursor_tests {
+    use std::sync::Arc;
+
     use super::{
         decode_user_cursor, encode_user_cursor, AdminEvictionFailure, AdminUserCursor, AdminUserDeviceInfo,
         AdminUserEvictionResult, AdminUserListItem, AdminUserProfile, AdminUserStats, BatchUsersResult,
@@ -722,5 +807,78 @@ mod cursor_tests {
         assert_eq!(device.display_name, Some("My Phone".to_string()));
         assert_eq!(device.last_seen_ts, Some(1_700_000_000_000));
         assert_eq!(device.last_seen_ip, Some("192.168.1.1".to_string()));
+    }
+
+    // ── B-1.1: evict builder + concurrency/page-size tests ──
+
+    #[tokio::test]
+    async fn test_admin_user_service_builder_tunes_concurrency() {
+        // Construct a minimal service — we only test the builder plumbing.
+        use synapse_storage::test_mocks::{InMemoryMemberStore, InMemoryRoomStore, FakeUserStore};
+        use synapse_storage::device::DeviceListStoreApi;
+
+        let user_store = Arc::new(FakeUserStore::default());
+        let member_store: Arc<dyn synapse_storage::membership::MemberStoreApi> =
+            Arc::new(InMemoryMemberStore::new());
+        let room_store: Arc<dyn synapse_storage::RoomStoreApi> = Arc::new(InMemoryRoomStore::new());
+        let device_store: Arc<dyn DeviceListStoreApi> =
+            Arc::new(synapse_storage::test_mocks::InMemoryDeviceListStore::new());
+
+        let svc = super::AdminUserService::new(
+            Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap()),
+            Arc::new(crate::UserService::new(user_store.clone())),
+            user_store,
+            device_store,
+            room_store,
+            member_store,
+            "example.com".to_string(),
+        )
+        .with_evict_concurrency(8)
+        .with_evict_page_size(100);
+
+        assert_eq!(svc.evict_max_concurrency, 8);
+        assert_eq!(svc.evict_page_size, 100);
+    }
+
+    #[tokio::test]
+    async fn test_admin_user_service_builder_coerces_zero_concurrency_to_one() {
+        use synapse_storage::test_mocks::{InMemoryMemberStore, InMemoryRoomStore, FakeUserStore};
+        use synapse_storage::device::DeviceListStoreApi;
+
+        let user_store = Arc::new(FakeUserStore::default());
+        let device_store: Arc<dyn DeviceListStoreApi> =
+            Arc::new(synapse_storage::test_mocks::InMemoryDeviceListStore::new());
+
+        let svc = super::AdminUserService::new(
+            Arc::new(sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap()),
+            Arc::new(crate::UserService::new(user_store.clone())),
+            user_store,
+            device_store,
+            Arc::new(InMemoryRoomStore::new()),
+            Arc::new(InMemoryMemberStore::new()),
+            "example.com".to_string(),
+        )
+        .with_evict_concurrency(0)
+        .with_evict_page_size(0);
+
+        assert_eq!(svc.evict_max_concurrency, 1, "zero concurrency coerced to 1");
+        assert_eq!(svc.evict_page_size, 1, "zero page_size coerced to 1");
+    }
+
+    #[test]
+    fn test_admin_user_eviction_result_failure_special_marker() {
+        // The `<batch>` room_id is used when the *batch*-level
+        // `decrement_member_counts_batch` fails — it is distinct from per-room
+        // failures. Ensure the field is present and not ambiguous.
+        let result = super::AdminUserEvictionResult {
+            joined_rooms: vec!["!room1:example.com".to_string()],
+            failures: vec![super::AdminEvictionFailure {
+                room_id: "<batch>".to_string(),
+                error: "decrement_member_counts_batch: db error".to_string(),
+            }],
+        };
+        assert_eq!(result.failures.len(), 1);
+        assert_eq!(result.failures[0].room_id, "<batch>");
+        assert!(result.failures[0].error.starts_with("decrement_member_counts_batch:"));
     }
 }

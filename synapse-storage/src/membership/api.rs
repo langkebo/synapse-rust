@@ -36,6 +36,25 @@ pub trait MemberStoreApi: Send + Sync {
 
     async fn get_joined_rooms(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error>;
 
+    /// Cursor-paginated variant of [`Self::get_joined_rooms`].
+    ///
+    /// Returns at most `limit` rooms whose `room_id` is **strictly greater than**
+    /// `after_room_id` (keyset pagination, no `OFFSET` penalty). An empty
+    /// `after_room_id` starts from the beginning. Callers loop until fewer than
+    /// `limit` rooms are returned to drain all joined rooms.
+    ///
+    /// Default impl falls back to the unbounded `get_joined_rooms`; the
+    /// Postgres backend overrides this with `LIMIT $2 AND room_id > $3`.
+    async fn get_joined_rooms_page(
+        &self,
+        user_id: &str,
+        after_room_id: &str,
+        limit: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let _ = (after_room_id, limit);
+        self.get_joined_rooms(user_id).await
+    }
+
     async fn get_joined_room_count(&self, user_id: &str) -> Result<i64, sqlx::Error>;
 
     async fn get_shared_room_users(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error>;
@@ -186,6 +205,15 @@ impl MemberStoreApi for super::RoomMemberStorage {
 
     async fn get_joined_rooms(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
         self.get_joined_rooms(user_id).await
+    }
+
+    async fn get_joined_rooms_page(
+        &self,
+        user_id: &str,
+        after_room_id: &str,
+        limit: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        self.get_joined_rooms_page(user_id, after_room_id, limit).await
     }
 
     async fn get_joined_room_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {

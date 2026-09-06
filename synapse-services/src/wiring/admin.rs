@@ -298,15 +298,19 @@ impl AdminServices {
             registration_token_service.clone(),
         ));
 
-        let admin_user_service = Arc::new(crate::admin_user_service::AdminUserService::new(
-            pool.clone(),
-            user_service.clone(),
-            user_storage.clone(),
-            Arc::new(DeviceStorage::new(pool)),
-            Arc::new(RoomStorage::new(pool)),
-            Arc::new(RoomMemberStorage::new(pool, config.server.get_server_name())),
-            config.server.name.clone(),
-        ));
+        let admin_user_service = Arc::new(
+            crate::admin_user_service::AdminUserService::new(
+                pool.clone(),
+                user_service.clone(),
+                user_storage.clone(),
+                Arc::new(DeviceStorage::new(pool)),
+                Arc::new(RoomStorage::new(pool)),
+                Arc::new(RoomMemberStorage::new(pool, config.server.get_server_name())),
+                config.server.name.clone(),
+            )
+            .with_evict_concurrency(config.server.admin_evict_max_concurrency)
+            .with_evict_page_size(config.server.admin_evict_page_size),
+        );
 
         Self {
             user: AdminUserServices {

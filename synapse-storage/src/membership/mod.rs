@@ -370,6 +370,37 @@ impl RoomMemberStorage {
         Ok(rows)
     }
 
+    /// Keyset-paginated variant: returns at most `limit` rooms with `room_id > after_room_id`.
+    /// This avoids `OFFSET` performance degradation on large membership sets.
+    pub async fn get_joined_rooms_page(
+        &self,
+        user_id: &str,
+        after_room_id: &str,
+        limit: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        if limit <= 0 {
+            return Ok(Vec::new());
+        }
+        let rows: Vec<String> = sqlx::query_scalar::<_, String>(
+            r"
+            SELECT room_id
+              FROM room_memberships
+             WHERE user_id = $1
+               AND membership = 'join'
+               AND room_id > $2
+          ORDER BY room_id
+             LIMIT $3
+            ",
+        )
+        .bind(user_id)
+        .bind(after_room_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
     pub async fn get_sync_rooms(
         &self,
         user_id: &str,
