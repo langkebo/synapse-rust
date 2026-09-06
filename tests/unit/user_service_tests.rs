@@ -205,6 +205,19 @@ impl UserStore for MockUserStore {
         Ok(self.users.lock().unwrap().len() as i64)
     }
 
+    async fn count_users_matching(&self, name_filter: Option<&str>) -> Result<i64, sqlx::Error> {
+        self.fail_all_check()?;
+        // Mirror the LIKE-substring semantics of the real Postgres impl:
+        // no filter → return the full table count; otherwise substring-match
+        // against username. The MockUserStore is a HashMap so we apply the
+        // same predicate in memory.
+        let users = self.users.lock().unwrap();
+        Ok(match name_filter {
+            None => users.len() as i64,
+            Some(pat) => users.values().filter(|u| u.username.contains(pat)).count() as i64,
+        })
+    }
+
     async fn count_non_deactivated_users(&self) -> Result<i64, sqlx::Error> {
         self.fail_all_check()?;
         Ok(self.users.lock().unwrap().values().filter(|u| !u.is_deactivated).count() as i64)

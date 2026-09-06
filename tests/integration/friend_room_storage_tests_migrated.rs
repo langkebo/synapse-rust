@@ -1203,7 +1203,7 @@ async fn test_get_friend_list_all_shards_batch_dedupes_per_shard() {
     insert_event(&pool, &format!("$dedup_a3_{suffix}"), &rid, &user_id, "m.friends.list", Some("A"), &v3).await;
 
     let index = storage
-        .get_friend_list_all_shards_batch(&[rid.clone()])
+        .get_friend_list_all_shards_batch(std::slice::from_ref(&rid))
         .await
         .expect("batch dedup");
 
