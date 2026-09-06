@@ -176,6 +176,17 @@ impl UserStore for FakeUserStore {
         Ok(0)
     }
 
+    async fn count_users_matching(&self, name_filter: Option<&str>) -> Result<i64, sqlx::Error> {
+        // B-6 mock: mirror the Postgres LIKE '%...%' semantics against the
+        // in-memory map.  Tests that want exact parity can rely on this.
+        let users = self.users.read().await;
+        if let Some(pat) = name_filter {
+            Ok(users.values().filter(|u| u.username.contains(pat)).count() as i64)
+        } else {
+            Ok(users.len() as i64)
+        }
+    }
+
     async fn count_non_deactivated_users(&self) -> Result<i64, sqlx::Error> {
         let users = self.users.read().await;
         Ok(users.values().filter(|u| !u.is_deactivated).count() as i64)
@@ -551,6 +562,42 @@ mod tests {
 
         let result = store.get_locked_users(10, 100).await.unwrap();
         assert!(result.is_empty());
+    }
+
+    // ── B-6: count_users_matching coverage ────────────────────────────────
+
+    #[tokio::test]
+    async fn b6_count_users_matching_none_returns_full_table_count() {
+        let store = FakeUserStore::new();
+        // FakeUserStore::new seeds @alice:example.com.
+        store.seed_user(make_user("@bob:example.com", false)).await;
+        store.seed_user(make_user("@carol:example.com", false)).await;
+
+        let count = store.count_users_matching(None).await.expect("count should succeed");
+        assert_eq!(count, 3, "no filter ⇒ all users counted (alice + bob + carol)");
+    }
+
+    #[tokio::test]
+    async fn b6_count_users_matching_substring_filters_by_username() {
+        let store = FakeUserStore::new();
+        // Override the seeded alice to control the test fully.
+        store.seed_user(make_user("@alice:example.com", false)).await;
+        store.seed_user(make_user("@alicia:example.com", false)).await;
+        store.seed_user(make_user("@bob:example.com", false)).await;
+        store.seed_user(make_user("@carol:example.com", false)).await;
+
+        // Substring "ali" must match both alice and alicia, and nothing else.
+        let count = store.count_users_matching(Some("ali")).await.expect("count should succeed");
+        assert_eq!(count, 2, "substring 'ali' matches alice + alicia, not bob/carol");
+    }
+
+    #[tokio::test]
+    async fn b6_count_users_matching_no_match_returns_zero() {
+        let store = FakeUserStore::new();
+        store.seed_user(make_user("@alice:example.com", false)).await;
+
+        let count = store.count_users_matching(Some("zzz")).await.expect("count should succeed");
+        assert_eq!(count, 0, "no match ⇒ zero");
     }
 
     #[test]

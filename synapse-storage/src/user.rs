@@ -173,6 +173,17 @@ pub trait UserStore: Send + Sync {
 
     async fn get_user_count(&self) -> Result<i64, sqlx::Error>;
 
+    /// B-6 fix: Count users that match an optional substring filter on
+    /// `username`. Used by the admin v2 `GET /_synapse/admin/v2/users` route
+    /// to compute the `total` field so the client can paginate correctly
+    /// when filtering by name. Without this the legacy `get_user_count`
+    /// returns the full-table count even when `name=alice` is set, which
+    /// makes the returned `total` inconsistent with the page contents.
+    ///
+    /// `None` ⇒ return the full-table count (equivalent to
+    /// [`Self::get_user_count`]).
+    async fn count_users_matching(&self, name_filter: Option<&str>) -> Result<i64, sqlx::Error>;
+
     /// Count users that are NOT deactivated.
     /// Mirrors Synapse's `non_deactivated_user_count` admin statistic.
     async fn count_non_deactivated_users(&self) -> Result<i64, sqlx::Error>;
@@ -520,6 +531,37 @@ impl UserStorage {
         .fetch_one(&*self.pool)
         .await?;
         row.try_get::<i64, _>("count")
+    }
+
+    /// B-6: Count users optionally filtered by a `username` substring match.
+    ///
+    /// When `name_filter` is `None` this is identical to [`Self::get_user_count`].
+    /// When `name_filter` is `Some(pat)` the SQL is:
+    ///
+    /// ```sql
+    /// SELECT COUNT(*) FROM users WHERE username LIKE '%' || $1 || '%'
+    /// ```
+    ///
+    /// Note: this pattern can NOT use a B-tree index efficiently because it
+    /// starts with a wildcard.  This is acceptable for an admin endpoint that
+    /// is called infrequently.  A future optimisation is to add a `pg_trgm`
+    /// GIN index for fuzzy username searches.
+    pub async fn count_users_matching(&self, name_filter: Option<&str>) -> Result<i64, sqlx::Error> {
+        if let Some(pat) = name_filter {
+            let row = sqlx::query(
+                r"
+                SELECT COALESCE(COUNT(*), 0) as count
+                FROM users
+                WHERE username LIKE '%' || $1 || '%'
+                ",
+            )
+            .bind(pat)
+            .fetch_one(&*self.pool)
+            .await?;
+            row.try_get::<i64, _>("count")
+        } else {
+            self.get_user_count().await
+        }
     }
 
     /// Count users that are NOT deactivated.
@@ -1537,6 +1579,10 @@ impl UserStore for UserStorage {
 
     async fn get_user_count(&self) -> Result<i64, sqlx::Error> {
         self.get_user_count().await
+    }
+
+    async fn count_users_matching(&self, name_filter: Option<&str>) -> Result<i64, sqlx::Error> {
+        self.count_users_matching(name_filter).await
     }
 
     async fn count_non_deactivated_users(&self) -> Result<i64, sqlx::Error> {

@@ -345,7 +345,16 @@ impl AdminUserService {
             .await
             .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
 
-        let total = self.user_service.get_user_count().await?;
+        // B-6 fix: compute `total` against the same name_filter used for the
+        // page query so the admin client can paginate correctly.  Previously
+        // this called `get_user_count()` which always returned the full-table
+        // count, making `total` inconsistent with the page when `name=foo`
+        // was supplied.
+        let total = self
+            .user_storage
+            .count_users_matching(name_filter)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Database error", &e))?;
 
         let users = rows
             .iter()
