@@ -43,11 +43,25 @@ pub struct RedisBusConfig {
     pub url: String,
     pub pool_size: u32,
     pub channel_prefix: String,
+    /// Maximum number of Redis publish attempts (initial + retries) before
+    /// the message is moved to the in-memory DLQ ring buffer.
+    /// Defaults to 3 (matches the previous hardcoded value).
+    pub max_publish_attempts: u32,
+    /// Initial backoff in milliseconds before the first retry. Subsequent
+    /// retries double this value (100ms → 200ms → 400ms with the default).
+    /// Defaults to 100 ms.
+    pub publish_initial_backoff_ms: u64,
 }
 
 impl Default for RedisBusConfig {
     fn default() -> Self {
-        Self { url: "redis://127.0.0.1:6379".to_string(), pool_size: 10, channel_prefix: "synapse".to_string() }
+        Self {
+            url: "redis://127.0.0.1:6379".to_string(),
+            pool_size: 10,
+            channel_prefix: "synapse".to_string(),
+            max_publish_attempts: 3,
+            publish_initial_backoff_ms: 100,
+        }
     }
 }
 
@@ -381,6 +395,7 @@ impl WorkerBus {
         if let Some(pool) = redis_pool.as_ref() {
             let full_channel = format!("{}:{}", self.config.channel_prefix, channel);
             let pool = Arc::clone(pool);
+            let config = self.config.clone(); // pull config values into the spawned task
             let full_channel = full_channel.clone();
             let encoded = encoded.clone();
             // WORK-05: Clone the DLQ Arc so the spawned task can store failed messages
@@ -402,11 +417,12 @@ impl WorkerBus {
                 let body = AssertUnwindSafe(async move {
                     let _enter = span.enter();
                     // WORK-05: 跨实例消息静默丢弃会表现为「另一台实例收不到事件」
-                    // 的诡异故障。先按指数退避重试（100ms → 200ms → 400ms），
-                    // 全部失败后存入内存 DLQ 环形缓冲，不再静默丢弃。
-                    const MAX_ATTEMPTS: u32 = 3;
+                    // 的诡异故障。先按指数退避重试，全部失败后存入内存 DLQ 环形
+                    // 缓冲，不再静默丢弃。backoff 参数由 RedisBusConfig 控制。
+                    let max_attempts = config.max_publish_attempts;
+                    let initial_backoff_ms = config.publish_initial_backoff_ms;
                     let mut last_err: Option<String> = None;
-                    for attempt in 1..=MAX_ATTEMPTS {
+                    for attempt in 1..=max_attempts {
                         let attempt_result: Result<(), String> = async {
                             let mut conn = pool.get().await.map_err(|e| format!("get connection: {e}"))?;
                             use redis::AsyncCommands;
@@ -424,13 +440,11 @@ impl WorkerBus {
                                     "Redis publish attempt failed, retrying"
                                 );
                                 last_err = Some(e);
-                                if attempt < MAX_ATTEMPTS {
-                                    // TODO(v2): extract to RedisBusConfig as `backoff_ms: Vec<u64>`
-                                    // to make initial-delay and max-attempts configurable without
-                                    // code changes. The hardcoded exponential back-off
-                                    // (100ms → 200ms → 400ms) is adequate for now.
-                                    tokio::time::sleep(std::time::Duration::from_millis(100 * (1 << (attempt - 1))))
-                                        .await;
+                                if attempt < max_attempts {
+                                    tokio::time::sleep(std::time::Duration::from_millis(
+                                        initial_backoff_ms * (1 << (attempt - 1)),
+                                    ))
+                                    .await;
                                 }
                             }
                         }
@@ -453,7 +467,7 @@ impl WorkerBus {
                         error = last_err.as_deref().unwrap_or("unknown"),
                         channel = %full_channel,
                         payload_bytes = encoded.len(),
-                        attempts = MAX_ATTEMPTS,
+                        attempts = max_attempts,
                         "WORK-05: Failed to publish to Redis after retries — message stored in DLQ for replay"
                     );
                 })
@@ -831,6 +845,8 @@ mod tests {
             url: "redis://127.0.0.1:19999".to_string(), // non-existent port
             pool_size: 2,
             channel_prefix: "synapse".to_string(),
+            max_publish_attempts: 3,
+            publish_initial_backoff_ms: 100,
         };
         let bus = WorkerBus::new(config, "test.com".to_string(), "worker1".to_string());
 
