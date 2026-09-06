@@ -1,4 +1,4 @@
-use crate::worker::bus::{RedisBusConfig, WorkerBus};
+use crate::worker::bus::WorkerBus;
 use crate::worker::health::{HealthCheckConfig, HealthChecker};
 use crate::worker::load_balancer::{LoadBalanceStrategy, WorkerLoadBalancer};
 use crate::worker::protocol::ReplicationCommand;
@@ -15,6 +15,7 @@ use tracing::{debug, info, instrument, warn};
 
 pub struct WorkerManager {
     storage: Arc<dyn WorkerStoreApi>,
+    #[allow(dead_code)] // P2-DEBT-2: reserved for future cluster rollout; currently unused after remove enable_bus
     server_name: String,
     local_worker_id: Option<String>,
     connections: Arc<RwLock<HashMap<String, ReplicationConnection>>>,
@@ -146,12 +147,11 @@ impl WorkerManager {
         self
     }
 
-    // TODO(v2): wire up in admin.rs — connect() is never called in production,
-    // WorkerManager.bus is always None, so broadcast_command in register() is
-    // a dead branch. Multi-instance cluster replication is not wired yet.
-    pub fn enable_bus(&mut self, config: RedisBusConfig, instance_name: String) {
-        self.bus = Some(Arc::new(WorkerBus::new(config, self.server_name.clone(), instance_name)));
-    }
+    // BUS wire-up: connect() and broadcast_command() are intentionally not
+    // wired in admin.rs today — multi-instance cluster replication rolls
+    // out as a follow-up. When the cluster rollout lands, callers should
+    // use `with_bus(Arc::new(WorkerBus::new(cfg, server_name, name)))` and
+    // then call `bus.connect().await` from the container startup path.
 
     pub fn enable_load_balancer(&mut self, strategy: LoadBalanceStrategy) {
         self.load_balancer = Some(Arc::new(WorkerLoadBalancer::new(strategy)));
