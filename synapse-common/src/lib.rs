@@ -4,7 +4,7 @@
 // B2-TODO: ratchet in progress — see scripts/quality/check_missing_docs_ratchet.sh
 // (current baseline 0, ticket 04 sets up the ratchet; ticket 05 will switch to deny).
 // Currently ~1022 warnings (17% of public items undocumented).
-#![allow(missing_docs)]
+#![warn(missing_docs)]
 
 pub mod argon2_config;
 pub mod background_job;

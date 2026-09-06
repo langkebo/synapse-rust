@@ -3,7 +3,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 // B2-TODO: ratchet in progress — see scripts/quality/check_missing_docs_ratchet.sh
 // (current baseline 0 in allow mode; ticket 05 will switch lint level then reset baseline).
-#![allow(missing_docs)]
+#![warn(missing_docs)]
 
 pub use synapse_services::auth;
 pub mod cache;

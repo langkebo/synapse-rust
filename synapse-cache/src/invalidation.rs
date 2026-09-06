@@ -364,6 +364,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(missing_docs)]
     fn test_cache_invalidation_message_creation() {
         let msg =
             CacheInvalidationMessage::new("test_key".to_string(), InvalidationType::Key, "instance-1".to_string());
@@ -375,6 +376,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_cache_invalidation_message_with_reason() {
         let msg =
             CacheInvalidationMessage::new("test_key".to_string(), InvalidationType::Key, "instance-1".to_string())
@@ -384,6 +386,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_cache_invalidation_message_encode_decode() {
         let msg =
             CacheInvalidationMessage::new("test_key".to_string(), InvalidationType::Pattern, "instance-1".to_string())
@@ -399,6 +402,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_cache_invalidation_config_default() {
         let config = CacheInvalidationConfig::default();
 
@@ -410,6 +414,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_invalidation_type_equality() {
         assert_eq!(InvalidationType::Key, InvalidationType::Key);
         assert_ne!(InvalidationType::Key, InvalidationType::Pattern);

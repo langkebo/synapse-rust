@@ -20,7 +20,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BASELINE_PATH="${ROOT_DIR}/.workbuddy/memory/missing-docs-baseline.txt"
+BASELINE_PATH="${ROOT_DIR}/scripts/quality/missing-docs-baseline.txt"
 mkdir -p "$(dirname "$BASELINE_PATH")"
 
 cd "$ROOT_DIR"

@@ -4,10 +4,20 @@ use std::time::{Duration, Instant};
 use synapse_common::config::CircuitBreakerConfig;
 use synapse_common::metrics::{Counter, Gauge, MetricsCollector};
 
+/// Circuit breaker state machine states.
+///
+/// Transitions: `Closed → Open → HalfOpen → Closed` (or back to `Open`).
+///
+/// - **Closed**: Normal operation; all calls pass through.
+/// - **Open**: Failure threshold exceeded; calls are immediately rejected without attempting the operation.
+/// - **HalfOpen**: Recovery probe; a limited number of calls are allowed to test if the backend has recovered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CircuitState {
+    /// Normal operation: all calls pass through.
     Closed,
+    /// Failing: calls are rejected without attempting the operation.
     Open,
+    /// Probing recovery: a limited number of calls are allowed.
     HalfOpen,
 }
 
@@ -507,6 +517,10 @@ impl CircuitBreaker {
         );
     }
 
+    /// Returns the failure rate as a percentage (0–100).
+    ///
+    /// Computed as `failed_requests / total_requests * 100`. Returns `0.0` if no
+    /// requests have been recorded.
     pub fn failure_rate(&self) -> f64 {
         let total = self.total_requests.load(Ordering::Relaxed);
         if total == 0 {
@@ -534,6 +548,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_circuit_breaker_starts_closed() {
         let cb = CircuitBreaker::new(test_config());
         assert_eq!(cb.current_state(), CircuitState::Closed);
@@ -541,6 +556,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_circuit_breaker_disabled() {
         let config = CircuitBreakerConfig { enabled: false, ..test_config() };
         let cb = CircuitBreaker::new(config);
@@ -554,6 +570,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_circuit_breaker_opens_after_threshold() {
         let cb = CircuitBreaker::new(test_config());
 
@@ -567,6 +584,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_circuit_breaker_transitions_to_half_open() {
         let cb = CircuitBreaker::new(test_config());
 
@@ -584,6 +602,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_circuit_breaker_closes_after_success_threshold() {
         let cb = CircuitBreaker::new(test_config());
 
@@ -608,6 +627,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_circuit_breaker_reopens_on_failure_in_half_open() {
         let cb = CircuitBreaker::new(test_config());
 
@@ -630,6 +650,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_circuit_breaker_metrics() {
         let cb = CircuitBreaker::new(test_config());
 
@@ -651,6 +672,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_circuit_breaker_reset() {
         let cb = CircuitBreaker::new(test_config());
 
@@ -670,6 +692,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_circuit_breaker_failure_rate() {
         let cb = CircuitBreaker::new(test_config());
 
@@ -688,6 +711,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_circuit_breaker_record_timeout() {
         let cb = CircuitBreaker::new(test_config());
 
@@ -700,6 +724,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_circuit_breaker_rejected_requests() {
         let cb = CircuitBreaker::new(test_config());
 
@@ -732,6 +757,7 @@ mod tests {
     // 测试用 `collect_metrics()` 拿 Vec<Metric> 验证（`Metric.value` 是 f64）。
 
     #[test]
+    #[allow(missing_docs)]
     fn test_attach_metrics_emits_initial_closed_state() {
         use synapse_common::metrics::MetricsCollector;
         let cb = CircuitBreaker::new(test_config());
@@ -772,6 +798,7 @@ mod tests {
     /// （独立端口，默认 9090 + `/metrics`，由 `telemetry.prometheus.enabled`
     /// 开启），它直接渲染 `MetricsCollector::to_prometheus_format()`。
     #[test]
+    #[allow(missing_docs)]
     fn test_attach_metrics_appears_in_prometheus_output() {
         use synapse_common::metrics::MetricsCollector;
         let cb = CircuitBreaker::new(test_config());
@@ -805,6 +832,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_attach_metrics_emits_outcome_counters() {
         use synapse_common::metrics::MetricsCollector;
         let cb = CircuitBreaker::new(test_config());
@@ -836,6 +864,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_attach_metrics_emits_state_transitions() {
         use synapse_common::metrics::MetricsCollector;
         let cb = CircuitBreaker::new(test_config());
@@ -866,6 +895,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_attach_metrics_emits_rejected_on_open() {
         // 验证 Open 状态下 is_call_allowed 拒绝时 increment rejected counter
         use synapse_common::metrics::MetricsCollector;
@@ -895,6 +925,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_no_metrics_handle_is_noop() {
         // 不 attach_metrics 时 record_* 必须仍然工作（不 panic / 不影响 atomic）
         let cb = CircuitBreaker::new(test_config());

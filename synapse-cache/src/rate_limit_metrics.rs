@@ -73,6 +73,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(missing_docs)]
     fn test_registers_all_six_counters() {
         let collector = MetricsCollector::new();
         let metrics = RateLimitMetrics::new(&collector);
@@ -105,6 +106,7 @@ mod tests {
     /// 默认 9090 + `/metrics`，需 `telemetry.prometheus.enabled = true`），
     /// 它直接渲染 `MetricsCollector::to_prometheus_format()`。
     #[test]
+    #[allow(missing_docs)]
     fn test_rate_limit_metrics_appear_in_prometheus_output() {
         let collector = MetricsCollector::new();
         let m = RateLimitMetrics::new(&collector);
@@ -138,6 +140,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_counters_are_independent() {
         let collector = MetricsCollector::new();
         let m = RateLimitMetrics::new(&collector);

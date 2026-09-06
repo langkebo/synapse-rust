@@ -3,10 +3,11 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 // B2-TODO: doc-debt ratchet (see scripts/check_missing_docs_ratchet.sh).
 // Currently the crate has ~322 missing-docs warnings. Instead of disabling CI
-// with a long red baseline, we keep the allow here and use a per-PR ratchet
-// script that fails the build when the diff introduces a new pub item without
-// `///` documentation. The static debt can be chipped away in batches.
-#![allow(missing_docs)]
+// with a long red baseline, we keep the warn level here (ratchet in progress)
+// and use a per-PR ratchet script that fails the build when the diff introduces
+// a new pub item without `///` documentation. The static debt can be chipped
+// away in batches.
+#![warn(missing_docs)]
 
 use deadpool_redis::{Config, Pool, PoolConfig, Runtime};
 use moka::ops::compute::Op;
@@ -1751,6 +1752,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(missing_docs)]
     fn test_cache_config_default() {
         let config = CacheConfig::default();
         assert_eq!(config.max_capacity, 100_000);
@@ -1758,6 +1760,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_cache_config_custom() {
         let config = CacheConfig { max_capacity: 5000, time_to_live: 7200 };
         assert_eq!(config.max_capacity, 5000);
@@ -1766,6 +1769,7 @@ mod tests {
 
     // 审查 #6：本地限流桶改为 moka cache 后，token bucket 行为不破坏（回归）。
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_rate_limit_token_bucket_local_fallback_basic() {
         let manager = CacheManager::new(&CacheConfig::default());
         // burst_size=2, rate=1/s：前 2 次允许，第 3 次拒绝
@@ -1778,6 +1782,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_rate_limit_token_bucket_distinct_keys_isolated() {
         let manager = CacheManager::new(&CacheConfig::default());
         let a = manager.rate_limit_token_bucket_take("a", 1, 1).await.unwrap();
@@ -1792,6 +1797,7 @@ mod tests {
     // 并全部放行，实际放行量接近并发数。这里用 barrier 让所有任务同时进入临界区，
     // 否则任务可能被顺序调度，竞态不会暴露、测试会假绿。
     #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    #[allow(missing_docs)]
     async fn test_rate_limit_token_bucket_concurrent_take_respects_burst() {
         use std::sync::Arc;
 
@@ -1826,12 +1832,14 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_local_cache_creation() {
         let config = CacheConfig { max_capacity: 100, time_to_live: 60 };
         let _local_cache = LocalCache::new(&config);
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_local_cache_set_raw() {
         let config = CacheConfig::default();
         let cache = LocalCache::new(&config);
@@ -1841,6 +1849,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_local_cache_get_raw() {
         let config = CacheConfig::default();
         let cache = LocalCache::new(&config);
@@ -1849,6 +1858,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_local_cache_remove() {
         let config = CacheConfig::default();
         let cache = LocalCache::new(&config);
@@ -1859,6 +1869,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_cache_manager_new() {
         let config = CacheConfig::default();
         let manager = CacheManager::new(&config);
@@ -1867,6 +1878,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_cache_manager_set_and_get() {
         let config = CacheConfig::default();
         let manager = CacheManager::new(&config);
@@ -1879,6 +1891,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_cache_manager_delete() {
         let config = CacheConfig::default();
         let manager = CacheManager::new(&config);
@@ -1893,6 +1906,7 @@ mod tests {
 
     // C-3: Batch set/get eliminates N+1 cache writes.
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn c3_set_batch_serialized_writes_all_keys_to_local_cache() {
         let manager = CacheManager::new(&CacheConfig::default());
         let entries = vec![
@@ -1909,6 +1923,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn c3_set_batch_typed_writes_and_reads_back() {
         let manager = CacheManager::new(&CacheConfig::default());
         let entries: Vec<(String, String, u64)> = vec![
@@ -1925,6 +1940,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn c3_set_batch_empty_is_noop() {
         let manager = CacheManager::new(&CacheConfig::default());
         let entries: Vec<(String, String, u64)> = vec![];
@@ -1933,6 +1949,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn c3_set_batch_serialized_empty_is_noop() {
         let manager = CacheManager::new(&CacheConfig::default());
         let entries: Vec<(String, String, u64)> = vec![];
@@ -1942,6 +1959,7 @@ mod tests {
     // PERF-08: broadcast_invalidation 必须同时失效本地 L1——Redis 订阅端
     // 跳过本实例自回声，本地不失效就会残留陈旧数据。
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn perf08_broadcast_invalidation_clears_local_key() {
         let manager = CacheManager::new(&CacheConfig::default());
         manager.set_raw("perf08:key", "stale", 600).await;
@@ -1955,6 +1973,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn perf08_broadcast_invalidation_pattern_clears_local() {
         let manager = CacheManager::new(&CacheConfig::default());
         manager.set_raw("perf08:room:1", "a", 600).await;
@@ -1970,6 +1989,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn perf08_broadcast_invalidation_all_clears_local() {
         let manager = CacheManager::new(&CacheConfig::default());
         manager.set_raw("perf08:any", "x", 600).await;
@@ -1984,6 +2004,7 @@ mod tests {
     // D-1: L1 必须按调用方 TTL 过期（此前 L1 固定用 builder 级 7200s TTL，
     // 与 L2 Redis 的 per-key TTL 不一致）
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn d1_set_raw_honors_per_key_ttl_in_local_cache() {
         let manager = CacheManager::new(&CacheConfig::default());
         manager.set_raw("d1:short", "v", 1).await; // 1 秒 TTL
@@ -1995,6 +2016,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn d1_set_raw_long_ttl_survives_short_window() {
         let manager = CacheManager::new(&CacheConfig::default());
         manager.set_raw("d1:long", "v", 600).await;
@@ -2005,6 +2027,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_cache_manager_get_nonexistent() {
         let config = CacheConfig::default();
         let manager = CacheManager::new(&config);
@@ -2034,12 +2057,14 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_get_raw_shared_without_redis_local_miss_returns_none() {
         let manager = CacheManager::new(&CacheConfig::default());
         assert!(manager.get_raw_shared("s7:no_such_key").await.is_none());
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_get_raw_shared_local_hit() {
         let manager = CacheManager::new(&CacheConfig::default());
         manager.set_raw("s7:local_hit", "v1", 60).await;
@@ -2047,6 +2072,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_get_raw_shared_falls_back_to_redis_and_backfills_local() {
         use redis::AsyncCommands;
         let Some((manager, pool, key)) = redis_backed_manager("fallback").await else {
@@ -2072,6 +2098,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_get_raw_shared_redis_miss_returns_none() {
         let Some((manager, _pool, key)) = redis_backed_manager("miss").await else {
             eprintln!("skip: local redis unavailable");
@@ -2081,6 +2108,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_cache_manager_token_operations() {
         let config = CacheConfig::default();
         let manager = CacheManager::new(&config);
@@ -2109,6 +2137,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_get_or_fetch_miss_populates_cache() {
         let config = CacheConfig::default();
         let manager = CacheManager::new(&config);
@@ -2136,6 +2165,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_get_or_fetch_single_flight_only_one_fetch() {
         // Verify that concurrent get_or_fetch calls for the same key trigger
         // the fetch closure exactly once.
@@ -2177,6 +2207,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_claims_struct() {
         let claims = Claims {
             sub: "user_subject".to_string(),
@@ -2196,6 +2227,7 @@ mod tests {
     // ── D-2: 命名空间缓存隔离测试 ──────────────────────────────────
 
     #[test]
+    #[allow(missing_docs)]
     fn d2_route_key_presence() {
         assert_eq!(route_key("user:@alice:example.com:presence"), Some("presence"));
         assert_eq!(route_key("user:@bob:test.org:presence"), Some("presence"));
@@ -2203,6 +2235,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn d2_route_key_sliding_sync() {
         assert_eq!(route_key("sliding_sync:presence:@alice:dev1"), Some("sliding_sync"));
         assert_eq!(route_key("sliding_sync:e2ee:@alice:dev1"), Some("sliding_sync"));
@@ -2210,16 +2243,19 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn d2_route_key_device_keys() {
         assert_eq!(route_key("device_keys_bulk:@alice:example.com"), Some("device_keys"));
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn d2_route_key_room_state() {
         assert_eq!(route_key("room_state:!abc:example.com"), Some("room_state"));
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn d2_route_key_general() {
         assert_eq!(route_key("token:abc123"), None);
         assert_eq!(route_key("user:@alice:profile"), None);
@@ -2227,6 +2263,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn d2_namespace_isolation_presence_does_not_evict_general() {
         let cache = LocalCache::new(&CacheConfig::default());
 
@@ -2245,6 +2282,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn d2_invalidate_all_clears_namespaces() {
         let cache = LocalCache::new(&CacheConfig::default());
 
@@ -2277,6 +2315,7 @@ mod tests {
     // 没有任何报错——这类「静默失效」必须有测试兜底。
 
     #[test]
+    #[allow(missing_docs)]
     fn test_attach_circuit_breaker_metrics_registers_counters() {
         // create_pool 是 lazy 的，不需要真的有 Redis 在跑——这里只是要一个
         // 带 circuit_breaker 的 RedisCache 实例。
@@ -2306,6 +2345,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_attach_circuit_breaker_metrics_is_idempotent() {
         let pool = deadpool_redis::Config::from_url("redis://127.0.0.1:6379")
             .create_pool(Some(deadpool_redis::Runtime::Tokio1))
@@ -2326,6 +2366,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_attach_circuit_breaker_metrics_without_redis_is_noop() {
         // 无 Redis 时没有熔断器可接，静默跳过（不得 panic）
         let cache = CacheManager::new(&CacheConfig::default());
@@ -2394,6 +2435,7 @@ mod compression_tests {
     use super::compression::*;
 
     #[test]
+    #[allow(missing_docs)]
     fn test_compress_decompress_roundtrip() {
         let original = b"Hello, World! This is a test string for compression.";
 
@@ -2405,6 +2447,7 @@ mod compression_tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_small_data_not_compressed() {
         let original = b"small";
 
@@ -2414,6 +2457,7 @@ mod compression_tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_compress_string_roundtrip() {
         let original = "Test string with unicode: 你好世界 🌍";
 
@@ -2423,12 +2467,14 @@ mod compression_tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_decompress_empty() {
         let result = decompress(&[]);
         assert!(result.is_err());
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_compress_decompress_large_data() {
         let original: Vec<u8> = (0..10000).map(|i| (i % 256) as u8).collect();
 

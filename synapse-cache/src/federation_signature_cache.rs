@@ -222,6 +222,7 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    #[allow(missing_docs)]
     fn test_signature_cache_config_default() {
         let config = SignatureCacheConfig::default();
         assert_eq!(config.signature_ttl, 3600);
@@ -230,6 +231,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_signature_cache_config_from_federation() {
         let config = SignatureCacheConfig::from_federation_config(7200, 1800, 300000);
         assert_eq!(config.signature_ttl, 7200);
@@ -238,6 +240,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_cache_entry_key() {
         let key = CacheEntryKey::new("example.com", "ed25519:1", "abc123");
         assert_eq!(key.origin.as_ref(), "example.com");
@@ -247,6 +250,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_signature_cache_entry() {
         let entry = SignatureCacheEntry::new(true, Duration::from_secs(3600));
         assert!(entry.verified);
@@ -255,6 +259,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_signature_cache_entry_expiration() {
         let entry = SignatureCacheEntry::new(true, Duration::from_millis(10));
         thread::sleep(Duration::from_millis(20));
@@ -263,6 +268,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_federation_signature_cache_basic() {
         let cache = FederationSignatureCache::new(SignatureCacheConfig::default());
         let key = CacheEntryKey::new("example.com", "ed25519:1", "hash123");
@@ -279,6 +285,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_federation_signature_cache_invalidate_origin() {
         let cache = FederationSignatureCache::new(SignatureCacheConfig::default());
 
@@ -298,6 +305,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_federation_signature_cache_invalidate_key() {
         let cache = FederationSignatureCache::new(SignatureCacheConfig::default());
 
@@ -314,6 +322,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_federation_signature_cache_clear_all() {
         let cache = FederationSignatureCache::new(SignatureCacheConfig::default());
 
@@ -330,6 +339,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_key_rotation_listener() {
         let cache = FederationSignatureCache::new(SignatureCacheConfig::default());
         let call_count = Arc::new(AtomicUsize::new(0));
@@ -352,6 +362,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_key_rotation_invalidates_cache() {
         let cache = FederationSignatureCache::new(SignatureCacheConfig::default());
 
@@ -373,6 +384,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_cache_stats() {
         let cache = FederationSignatureCache::new(SignatureCacheConfig::default());
 
@@ -391,6 +403,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(missing_docs)]
     fn test_cache_ttl_expiration() {
         let config = SignatureCacheConfig { signature_ttl: 1, ..Default::default() };
         let cache = FederationSignatureCache::new(config);

@@ -646,6 +646,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_cache_set_get() {
         let cache = QueryCache::default();
 
@@ -657,6 +658,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_cache_miss() {
         let cache = QueryCache::default();
 
@@ -692,6 +694,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_cache_invalidation() {
         let cache = QueryCache::default();
 
@@ -708,6 +711,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_get_multi_rooms_updates_stats_once() {
         let cache = QueryCache::default();
         cache.set_room("!room-a:example.com", serde_json::json!({"name": "A"})).await;
@@ -725,6 +729,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_get_multi_users_updates_stats_once() {
         let cache = QueryCache::default();
         cache.set_user("@alice:example.com", serde_json::json!({"displayname": "Alice"})).await;
@@ -741,6 +746,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_cache_stats() {
         let cache = QueryCache::default();
 
@@ -759,6 +765,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_cache_cleanup_expired() {
         let cache = QueryCache::default();
 
@@ -775,6 +782,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(missing_docs)]
     async fn test_get_multi_rooms() {
         let cache = QueryCache::default();
 

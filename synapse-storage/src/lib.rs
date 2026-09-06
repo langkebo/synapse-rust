@@ -5,7 +5,7 @@
 // (current baseline 0, ticket 04 sets up the ratchet; ticket 05 will switch to deny).
 // Currently emits a large volume of missing-docs warnings that drown out real
 // warnings; doc debt is tracked separately in the B2 backlog.
-#![allow(missing_docs)]
+#![warn(missing_docs)]
 
 use deadpool_redis::Pool as RedisPool;
 use sqlx::{Pool, Postgres};
