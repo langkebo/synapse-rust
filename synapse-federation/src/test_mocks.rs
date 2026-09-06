@@ -460,11 +460,7 @@ impl KeyRotationManagerApi for InMemoryKeyRotationManager {
     }
 }
 
-// ============================================================================
-// Extension TODOs (tracked in 执行清单 Phase 3)
-// ============================================================================
-
-// TODO(FED-4): Update call sites that take `FederationClient` to take `Arc<dyn FederationClientApi>`.
+// Extension TODOs moved to 执行清单 Phase 3 (see synapse-federation/src/client_api.rs)
 
 #[cfg(test)]
 mod tests {
