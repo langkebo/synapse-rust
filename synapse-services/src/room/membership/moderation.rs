@@ -483,7 +483,7 @@ mod tests {
 
     #[tokio::test]
     async fn knock_room_on_knock_join_rule_succeeds() {
-        let (svc, user_store) = build_membership_service();
+        let (svc, _user_store) = build_membership_service();
 
         // Create a room with knock join_rule.
         let room_id = "!knockable:test.localhost";
@@ -515,7 +515,7 @@ mod tests {
 
     #[tokio::test]
     async fn knock_room_fails_on_private_join_rule() {
-        let (svc, user_store) = build_membership_service();
+        let (svc, _user_store) = build_membership_service();
 
         let room_id = "!private:test.localhost";
         let user_id = "@bob:test.localhost";
@@ -540,7 +540,7 @@ mod tests {
 
     #[tokio::test]
     async fn knock_room_fails_when_room_missing() {
-        let (svc, user_store) = build_membership_service();
+        let (svc, _user_store) = build_membership_service();
         let err = svc
             .knock_room("!nonexistent:test.localhost", "@alice:test.localhost", None)
             .await
@@ -599,7 +599,7 @@ mod tests {
 
     #[tokio::test]
     async fn ban_user_fails_when_target_not_found() {
-        let (svc, user_store) = build_membership_service();
+        let (svc, _user_store) = build_membership_service();
 
         let room_id = "!test:test.localhost";
         let moderator = "@mod:test.localhost";
@@ -624,7 +624,7 @@ mod tests {
 
     #[tokio::test]
     async fn unban_user_happy_path_restores_access() {
-        let (svc, user_store) = build_membership_service();
+        let (svc, _user_store) = build_membership_service();
 
         let room_id = "!unban:test.localhost";
         let target = "@was_banned:test.localhost";
@@ -661,7 +661,7 @@ mod tests {
 
     #[tokio::test]
     async fn unban_user_allows_reinvite_after_unban() {
-        let (svc, user_store) = build_membership_service();
+        let (svc, _user_store) = build_membership_service();
 
         let room_id = "!reinvite:test.localhost";
         let target = "@reinvited:test.localhost";
@@ -752,7 +752,7 @@ mod tests {
 
     #[tokio::test]
     async fn invite_user_happy_path_sets_invite_membership() {
-        let (svc, user_store) = build_membership_service();
+        let (svc, _user_store) = build_membership_service();
 
         let room_id = "!invite:test.localhost";
         let inviter = "@inviter:test.localhost";
