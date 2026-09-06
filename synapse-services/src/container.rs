@@ -325,7 +325,9 @@ impl ServiceContainer {
             let redis_cfg = deadpool_redis::Config::from_url(&redis_url);
             match redis_cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1)) {
                 Ok(pool) => {
-                    let notifier = crate::event_notifier::EventNotifier::new().with_redis(pool, redis_url);
+                    let notifier = crate::event_notifier::EventNotifier::new()
+                        .with_redis(pool, redis_url)
+                        .with_idle_timeout_secs(config.server.event_notifier_idle_timeout_secs);
                     if let Err(e) = notifier.start_redis_subscriber(infra.shutdown_token.clone()) {
                         ::tracing::warn!(
                             "Failed to start EventNotifier Redis subscriber: {e}. Cross-instance fan-out disabled."
@@ -337,11 +339,11 @@ impl ServiceContainer {
                     ::tracing::warn!(
                         "Failed to create Redis pool for EventNotifier: {e}. Falling back to local-only notifications."
                     );
-                    crate::event_notifier::EventNotifier::new()
+                    crate::event_notifier::EventNotifier::new().with_idle_timeout_secs(config.server.event_notifier_idle_timeout_secs)
                 }
             }
         } else {
-            crate::event_notifier::EventNotifier::new()
+            crate::event_notifier::EventNotifier::new().with_idle_timeout_secs(config.server.event_notifier_idle_timeout_secs)
         };
 
         // A-7: reclaim notifier slots whose waiters have gone away, so the

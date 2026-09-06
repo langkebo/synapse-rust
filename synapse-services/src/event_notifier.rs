@@ -61,6 +61,13 @@ pub struct EventNotifier {
     /// Reconnect backoff in milliseconds after a Redis subscription error.
     /// Defaults to 1000 ms when not configured via [`EventNotifier::with_backoff_ms`].
     reconnect_backoff_ms: u64,
+    /// Recommended idle-wait duration (seconds) for sync long-poll callers
+    /// that wrap a `slot.notified()` future in a `tokio::time::timeout`.
+    ///
+    /// Production sync routes should read this via
+    /// [`EventNotifier::idle_timeout`] and use it as their
+    /// `tokio::time::timeout` budget. Default: 5 s.
+    idle_timeout_secs: u64,
 }
 
 impl std::fmt::Debug for EventNotifier {
@@ -81,6 +88,7 @@ impl EventNotifier {
             redis_url: None,
             instance_id: format!("instance-{}", uuid::Uuid::new_v4()),
             reconnect_backoff_ms: 1000, // 1 s default — same as the previous hardcoded value
+            idle_timeout_secs: 5, // 5 s default — matches the previous test wait barrier and synapse's `notify_sleep_time`
         }
     }
 
@@ -100,6 +108,20 @@ impl EventNotifier {
     pub fn with_reconnect_backoff_ms(mut self, backoff_ms: u64) -> Self {
         self.reconnect_backoff_ms = backoff_ms;
         self
+    }
+
+    /// Override the recommended idle-wait duration (seconds) for sync
+    /// long-poll callers. Default: 5 s.
+    pub fn with_idle_timeout_secs(mut self, secs: u64) -> Self {
+        self.idle_timeout_secs = secs;
+        self
+    }
+
+    /// Returns the configured idle-wait duration (seconds) as a `Duration`.
+    /// Production sync routes should wrap `slot.notified()` in
+    /// `tokio::time::timeout(self.event_notifier.idle_timeout(), ...)`.
+    pub fn idle_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.idle_timeout_secs)
     }
 
     /// Returns the notification slots a sync connection for `user_id` should
@@ -512,6 +534,7 @@ impl Clone for EventNotifier {
             redis_url: self.redis_url.clone(),
             instance_id: self.instance_id.clone(),
             reconnect_backoff_ms: self.reconnect_backoff_ms,
+            idle_timeout_secs: self.idle_timeout_secs,
         }
     }
 }
@@ -527,8 +550,9 @@ mod tests {
 
         let slots = notifier.slots_for("@waiter:example.com", std::slice::from_ref(&room_id));
         let room_slot = slots[1].clone();
+        let waiter_notifier = notifier.clone();
         let handle = tokio::spawn(async move {
-            tokio::time::timeout(tokio::time::Duration::from_secs(5), room_slot.notified()).await
+            tokio::time::timeout(waiter_notifier.idle_timeout(), room_slot.notified()).await
         });
 
         // Give the waiter time to register
@@ -546,8 +570,9 @@ mod tests {
 
         let slots = notifier.slots_for(&user_id, &[]);
         let user_slot = slots[0].clone();
+        let waiter_notifier = notifier.clone();
         let handle = tokio::spawn(async move {
-            tokio::time::timeout(tokio::time::Duration::from_secs(5), user_slot.notified()).await
+            tokio::time::timeout(waiter_notifier.idle_timeout(), user_slot.notified()).await
         });
 
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
@@ -907,5 +932,33 @@ mod tests {
         assert!(result.is_err(), "catch_unwind should return Err when the inner async block panics");
         // With catch_unwind in the body, the panic is already handled before
         // the JoinHandle is dropped — no panic is lost.
+    }
+
+    // ── B-2.2: idle timeout configuration plumbing ──
+
+    #[test]
+    fn test_event_notifier_default_idle_timeout_is_5_seconds() {
+        let notifier = EventNotifier::new();
+        assert_eq!(notifier.idle_timeout(), std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn test_event_notifier_with_idle_timeout_secs_overrides() {
+        let notifier = EventNotifier::new().with_idle_timeout_secs(15);
+        assert_eq!(notifier.idle_timeout(), std::time::Duration::from_secs(15));
+    }
+
+    #[test]
+    fn test_event_notifier_idle_timeout_zero_is_permitted() {
+        // 0 means "no recommended wait" — caller is free to use whatever.
+        let notifier = EventNotifier::new().with_idle_timeout_secs(0);
+        assert_eq!(notifier.idle_timeout(), std::time::Duration::from_secs(0));
+    }
+
+    #[test]
+    fn test_event_notifier_idle_timeout_preserved_across_clone() {
+        let notifier = EventNotifier::new().with_idle_timeout_secs(42);
+        let cloned = notifier.clone();
+        assert_eq!(cloned.idle_timeout(), std::time::Duration::from_secs(42));
     }
 }

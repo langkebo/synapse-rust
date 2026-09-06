@@ -369,6 +369,17 @@ pub struct ServerConfig {
     /// 但管理员内部接口可以稍大以减少往返。
     #[serde(default = "default_admin_evict_page_size")]
     pub admin_evict_page_size: i64,
+
+    /// `EventNotifier` 推荐给 sync 路由调用的默认 idle 等待时长（秒）。
+    ///
+    /// sync 长轮询调用方通常会对 `EventNotifier::slots_for(...).notified()`
+    /// 包一个 `tokio::time::timeout(this_value, ...)`。运维调小此值能让
+    /// sync 更快返回（更频繁的"无新事件"空响应），调大能减少 CPU 唤醒。
+    ///
+    /// 默认 5 秒，与 synapse 的 `notifier.notify_sleep_time` 量级一致。
+    /// 设为 0 表示"不推荐 timeout"（调用方应自己决定）。
+    #[serde(default = "default_event_notifier_idle_timeout_secs")]
+    pub event_notifier_idle_timeout_secs: u64,
 }
 
 fn default_suppress_key_server_warning() -> bool {
@@ -465,6 +476,10 @@ fn default_admin_evict_max_concurrency() -> usize {
 
 fn default_admin_evict_page_size() -> i64 {
     1000
+}
+
+fn default_event_notifier_idle_timeout_secs() -> u64 {
+    5
 }
 
 impl ServerConfig {
