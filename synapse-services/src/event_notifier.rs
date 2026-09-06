@@ -58,6 +58,9 @@ pub struct EventNotifier {
     redis_pool: Option<Pool>,
     redis_url: Option<String>,
     instance_id: String,
+    /// Reconnect backoff in milliseconds after a Redis subscription error.
+    /// Defaults to 1000 ms when not configured via [`EventNotifier::with_backoff_ms`].
+    reconnect_backoff_ms: u64,
 }
 
 impl std::fmt::Debug for EventNotifier {
@@ -77,6 +80,7 @@ impl EventNotifier {
             redis_pool: None,
             redis_url: None,
             instance_id: format!("instance-{}", uuid::Uuid::new_v4()),
+            reconnect_backoff_ms: 1000, // 1 s default — same as the previous hardcoded value
         }
     }
 
@@ -88,6 +92,13 @@ impl EventNotifier {
 
     pub fn with_instance_id(mut self, instance_id: String) -> Self {
         self.instance_id = instance_id;
+        self
+    }
+
+    /// Override the reconnect backoff (milliseconds) applied after a Redis
+    /// subscription error. Default: 1000 ms.
+    pub fn with_reconnect_backoff_ms(mut self, backoff_ms: u64) -> Self {
+        self.reconnect_backoff_ms = backoff_ms;
         self
     }
 
@@ -274,10 +285,12 @@ impl EventNotifier {
         let instance_id = self.instance_id.clone();
         let room_notifiers = self.room_notifiers.clone();
         let user_notifiers = self.user_notifiers.clone();
+        let reconnect_backoff_ms = self.reconnect_backoff_ms;
 
         info!(
             channel = %channel,
             instance_id = %instance_id,
+            reconnect_backoff_ms,
             "Starting EventNotifier Redis subscriber for cross-instance fan-out"
         );
 
@@ -301,16 +314,16 @@ impl EventNotifier {
                         debug!("EventNotifier subscription ended normally, reconnecting...");
                     }
                     Err(e) => {
-                        warn!("EventNotifier subscription error: {e}, reconnecting in 1s...");
+                        warn!(
+                            "EventNotifier subscription error: {e}, reconnecting in {reconnect_backoff_ms}ms..."
+                        );
                         // Race the backoff sleep against shutdown so a SIGTERM
-                        // arriving mid-retry exits immediately.
-                        // TODO(v2): make the backoff configurable via EventNotifier
-                        // config (initial_ms, max_ms, multiplier) instead of the
-                        // hardcoded 1 s linear backoff.
+                        // arriving mid-retry exits immediately. The backoff is
+                        // configured via [`EventNotifier::with_reconnect_backoff_ms`].
                         tokio::select! {
                             biased;
                             _ = shutdown.cancelled() => break,
-                            _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {}
+                            _ = tokio::time::sleep(std::time::Duration::from_millis(reconnect_backoff_ms)) => {}
                         }
                     }
                 }
@@ -498,6 +511,7 @@ impl Clone for EventNotifier {
             redis_pool: self.redis_pool.clone(),
             redis_url: self.redis_url.clone(),
             instance_id: self.instance_id.clone(),
+            reconnect_backoff_ms: self.reconnect_backoff_ms,
         }
     }
 }
