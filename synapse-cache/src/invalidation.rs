@@ -9,55 +9,80 @@ use synapse_common::ApiError;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
+/// Redis Pub/Sub channel used to broadcast cross-instance cache invalidations.
 pub const CACHE_INVALIDATION_CHANNEL: &str = "synapse:cache:invalidation";
+/// Default TTL applied to entries stored in the local in-process cache (seconds).
 pub const DEFAULT_LOCAL_CACHE_TTL_SECS: u64 = 300; // 5 min - increased for better hit rate
+/// Default TTL applied to entries stored in Redis (seconds).
 pub const DEFAULT_REDIS_CACHE_TTL_SECS: u64 = 3600; // 1 hour - keep as is
 
+/// Classification of an invalidation message, controlling how subscribers interpret the `key` field.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
 pub enum InvalidationType {
+    /// The key is an exact match for the entry to invalidate.
     Key,
+    /// The key is a Redis-style pattern (e.g. `room:*`) matching multiple entries.
     Pattern,
+    /// All entries in the cache namespace should be cleared.
     All,
+    /// The key is a prefix; all entries whose keys start with the prefix are invalidated.
     Prefix,
 }
 
+/// A message published on [`CACHE_INVALIDATION_CHANNEL`] describing an invalidation event.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheInvalidationMessage {
+    /// The cache key (exact, pattern, or prefix) to invalidate.
     pub key: String,
+    /// How `key` should be interpreted by subscribers.
     pub invalidation_type: InvalidationType,
+    /// Identifier of the server instance that originated this message.
     pub sender_instance: String,
+    /// Unix timestamp in milliseconds at which this message was created.
     pub timestamp: i64,
+    /// Optional human-readable description of why the invalidation occurred.
     pub reason: Option<String>,
 }
 
 impl CacheInvalidationMessage {
+    /// Constructs a message with the given key and type, using the current timestamp.
     pub fn new(key: String, invalidation_type: InvalidationType, sender_instance: String) -> Self {
         Self { key, invalidation_type, sender_instance, timestamp: current_timestamp_millis(), reason: None }
     }
 
+    /// Attaches a reason string and returns the updated message.
     pub fn with_reason(mut self, reason: String) -> Self {
         self.reason = Some(reason);
         self
     }
 
+    /// Serializes this message to a byte vector suitable for Redis publish.
     pub fn encode(&self) -> Result<Vec<u8>, ApiError> {
         serde_json::to_vec(self)
             .map_err(|e| ApiError::internal_with_context("Failed to encode invalidation message", &e))
     }
 
+    /// Deserializes a message from bytes received from Redis subscribe.
     pub fn decode(data: &[u8]) -> Result<Self, ApiError> {
         serde_json::from_slice(data)
             .map_err(|e| ApiError::internal_with_context("Failed to decode invalidation message", &e))
     }
 }
 
+/// Configuration for the distributed cache-invalidation subsystem.
 #[derive(Debug, Clone)]
 pub struct CacheInvalidationConfig {
+    /// Whether invalidation broadcasts are enabled. When `false`, all pub fns become no-ops.
     pub enabled: bool,
+    /// Name of the Redis Pub/Sub channel to use.
     pub channel_name: String,
+    /// TTL applied to entries in the local in-process cache (seconds).
     pub local_cache_ttl_secs: u64,
+    /// TTL applied to entries stored in Redis (seconds).
     pub redis_cache_ttl_secs: u64,
+    /// Unique identifier for this server instance (included in every broadcast message).
     pub instance_id: String,
+    /// Connection URL for the shared Redis instance.
     pub redis_url: String,
 }
 
@@ -74,6 +99,8 @@ impl Default for CacheInvalidationConfig {
     }
 }
 
+/// Publishes invalidation messages to Redis Pub/Sub so that other server instances
+/// can synchronously invalidate their local caches.
 pub struct CacheInvalidationBroadcaster {
     pool: Pool,
     config: CacheInvalidationConfig,
@@ -86,10 +113,12 @@ impl std::fmt::Debug for CacheInvalidationBroadcaster {
 }
 
 impl CacheInvalidationBroadcaster {
+    /// Constructs a broadcaster backed by the given Redis connection pool.
     pub fn new(pool: Pool, config: CacheInvalidationConfig) -> Self {
         Self { pool, config }
     }
 
+    /// Publishes an invalidation for the given key and type.
     pub async fn broadcast_invalidation(&self, key: &str, invalidation_type: InvalidationType) -> Result<(), ApiError> {
         if !self.config.enabled {
             return Ok(());
@@ -114,25 +143,34 @@ impl CacheInvalidationBroadcaster {
         Ok(())
     }
 
+    /// Removes a single key from all connected instances and the local L1 cache.
     pub async fn invalidate_key(&self, key: &str) -> Result<(), ApiError> {
         self.broadcast_invalidation(key, InvalidationType::Key).await
     }
 
+    /// Broadcasts a Redis SCAN+DELETE pattern (e.g. `"room:*"`) across all instances.
     pub async fn invalidate_pattern(&self, pattern: &str) -> Result<(), ApiError> {
         self.broadcast_invalidation(pattern, InvalidationType::Pattern).await
     }
 
+    /// Broadcasts a key-prefix invalidation (SCAN+DELETE) across all instances.
     pub async fn invalidate_prefix(&self, prefix: &str) -> Result<(), ApiError> {
         self.broadcast_invalidation(prefix, InvalidationType::Prefix).await
     }
 
+    /// Flushes the entire cache (all instances + local L1). Use sparingly.
     pub async fn invalidate_all(&self) -> Result<(), ApiError> {
         self.broadcast_invalidation("*", InvalidationType::All).await
     }
 }
 
+/// Convenience alias for the broadcast receiver end of a [`CacheInvalidationMessage`] channel.
 pub type InvalidationReceiver = broadcast::Receiver<CacheInvalidationMessage>;
 
+/// Subscribes to the Redis Pub/Sub channel and fans out messages to local broadcast receivers.
+///
+/// Implements a reconnect loop: if the Redis connection drops, the subscriber waits 1 second
+/// and re-subscribes automatically.
 pub struct CacheInvalidationSubscriber {
     client: Client,
     config: CacheInvalidationConfig,
@@ -150,6 +188,7 @@ impl std::fmt::Debug for CacheInvalidationSubscriber {
 }
 
 impl CacheInvalidationSubscriber {
+    /// Creates a subscriber that connects to the Redis instance at `redis_url`.
     pub fn new(redis_url: &str, config: CacheInvalidationConfig) -> Result<Self, ApiError> {
         let client = Client::open(redis_url)
             .map_err(|e| ApiError::internal_with_context("Failed to create Redis client", &e))?;
@@ -157,10 +196,14 @@ impl CacheInvalidationSubscriber {
         Ok(Self { client, config, sender, running: Arc::new(parking_lot::RwLock::new(false)) })
     }
 
+    /// Returns a new [`InvalidationReceiver`] that will receive all future messages on this subscriber's
+    /// broadcast channel.
     pub fn subscribe(&self) -> InvalidationReceiver {
         self.sender.subscribe()
     }
 
+    /// Starts the background reconnect loop that listens to Redis Pub/Sub and forwards messages
+    /// to all registered broadcast receivers. Idempotent — calling while already running is a no-op.
     pub fn start(&self) -> Result<(), ApiError> {
         if *self.running.read() {
             return Ok(());
@@ -258,11 +301,13 @@ impl CacheInvalidationSubscriber {
         Ok(())
     }
 
+    /// Requests the background task to stop on its next loop iteration.
     pub fn stop(&self) {
         *self.running.write() = false;
         info!("Cache invalidation subscriber stop requested");
     }
 
+    /// Returns `true` if the background reconnect loop is currently active.
     pub fn is_running(&self) -> bool {
         *self.running.read()
     }
@@ -279,6 +324,10 @@ impl Clone for CacheInvalidationSubscriber {
     }
 }
 
+/// Top-level handle for cache invalidation, holding both a broadcaster and a subscriber.
+///
+/// When constructed without a Redis pool, both halves are `None` and all invalidation
+/// operations become no-ops.
 pub struct CacheInvalidationManager {
     broadcaster: Option<Arc<CacheInvalidationBroadcaster>>,
     subscriber: Option<Arc<CacheInvalidationSubscriber>>,
@@ -296,6 +345,7 @@ impl std::fmt::Debug for CacheInvalidationManager {
 }
 
 impl CacheInvalidationManager {
+    /// Creates a manager, constructing both halves if a Redis pool is provided.
     pub fn new(pool: Option<Pool>, config: CacheInvalidationConfig) -> Self {
         let (broadcaster, subscriber) = if let Some(p) = pool {
             let subscriber = CacheInvalidationSubscriber::new(&config.redis_url, config.clone()).map(Arc::new).ok();
@@ -307,18 +357,22 @@ impl CacheInvalidationManager {
         Self { broadcaster, subscriber, config }
     }
 
+    /// Returns a reference to the broadcaster, if Redis was configured.
     pub fn broadcaster(&self) -> Option<&Arc<CacheInvalidationBroadcaster>> {
         self.broadcaster.as_ref()
     }
 
+    /// Returns a reference to the subscriber, if Redis was configured.
     pub fn subscriber(&self) -> Option<&Arc<CacheInvalidationSubscriber>> {
         self.subscriber.as_ref()
     }
 
+    /// Returns a reference to the effective config.
     pub fn config(&self) -> &CacheInvalidationConfig {
         &self.config
     }
 
+    /// Starts the background reconnect loop on the subscriber, if one was constructed.
     pub fn start_subscriber(&self) -> Result<(), ApiError> {
         if let Some(subscriber) = &self.subscriber {
             subscriber.start()?;
@@ -326,6 +380,7 @@ impl CacheInvalidationManager {
         Ok(())
     }
 
+    /// Broadcasts an exact-key invalidation.
     pub async fn invalidate_key(&self, key: &str) -> Result<(), ApiError> {
         if let Some(broadcaster) = &self.broadcaster {
             broadcaster.invalidate_key(key).await?;
@@ -333,6 +388,7 @@ impl CacheInvalidationManager {
         Ok(())
     }
 
+    /// Broadcasts a pattern-key invalidation.
     pub async fn invalidate_pattern(&self, pattern: &str) -> Result<(), ApiError> {
         if let Some(broadcaster) = &self.broadcaster {
             broadcaster.invalidate_pattern(pattern).await?;
@@ -340,6 +396,7 @@ impl CacheInvalidationManager {
         Ok(())
     }
 
+    /// Broadcasts a prefix-key invalidation.
     pub async fn invalidate_prefix(&self, prefix: &str) -> Result<(), ApiError> {
         if let Some(broadcaster) = &self.broadcaster {
             broadcaster.invalidate_prefix(prefix).await?;
@@ -347,6 +404,7 @@ impl CacheInvalidationManager {
         Ok(())
     }
 
+    /// Broadcasts a full cache clear.
     pub async fn invalidate_all(&self) -> Result<(), ApiError> {
         if let Some(broadcaster) = &self.broadcaster {
             broadcaster.invalidate_all().await?;
@@ -354,6 +412,7 @@ impl CacheInvalidationManager {
         Ok(())
     }
 
+    /// Returns a new receiver for the subscriber's broadcast channel, if Redis was configured.
     pub fn subscribe(&self) -> Option<InvalidationReceiver> {
         self.subscriber.as_ref().map(|s| s.subscribe())
     }

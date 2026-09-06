@@ -11,45 +11,69 @@ use tokio::time::Instant;
 /// not for correctness, so periodically resetting it is safe.
 const HOT_KEYS_MAX_ENTRIES: usize = 10_000;
 
+/// A single cached entry with TTL tracking and LRU metadata.
+///
+/// Each entry records its creation time, a fixed TTL, and access statistics
+/// so the cache can expire stale data and evict the least-recently-used entries.
 #[derive(Debug, Clone)]
 pub struct CacheEntry<T> {
+    /// The cached value.
     pub value: T,
+    /// `Instant` at which the entry was created.
     pub created_at: Instant,
+    /// Time-to-live for this entry.
     pub ttl: Duration,
+    /// Number of times this entry has been accessed.
     pub access_count: u32,
+    /// `Instant` of the most recent access.
     pub last_accessed: Instant,
 }
 
 impl<T> CacheEntry<T> {
+    /// Constructs a new entry wrapping `value` with the given `ttl`.
     pub fn new(value: T, ttl: Duration) -> Self {
         let now = Instant::now();
         Self { value, created_at: now, ttl, access_count: 1, last_accessed: now }
     }
 
+    /// Returns `true` if this entry has outlived its TTL.
     pub fn is_expired(&self) -> bool {
         self.created_at.elapsed() > self.ttl
     }
 
+    /// Records an access by updating `access_count` and `last_accessed`.
     pub fn touch(&mut self) {
         self.access_count += 1;
         self.last_accessed = Instant::now();
     }
 }
 
+/// Configuration for [`QueryCache`], controlling per-namespace TTLs and resource limits.
 #[derive(Debug, Clone)]
 pub struct QueryCacheConfig {
+    /// TTL for room metadata cache entries.
     pub room_ttl: Duration,
+    /// TTL for user profile cache entries.
     pub user_ttl: Duration,
+    /// TTL for event cache entries.
     pub event_ttl: Duration,
+    /// TTL for membership cache entries.
     pub membership_ttl: Duration,
+    /// TTL for device cache entries.
     pub device_ttl: Duration,
+    /// TTL for token cache entries.
     pub token_ttl: Duration,
+    /// Maximum number of entries allowed across all namespaces.
     pub max_entries: usize,
+    /// Memory budget cap in megabytes.
     pub max_memory_mb: usize,
+    /// Fraction of `max_entries` at which eviction begins (0.0–1.0).
     pub eviction_threshold: f64,
+    /// Whether to pre-populate the cache from the database on startup.
     pub warm_on_startup: bool,
 }
 
+/// Deprecated alias for [`QueryCacheConfig`]; kept for backwards compatibility only.
 #[deprecated(since = "0.1.0", note = "Use QueryCacheConfig instead to avoid confusion with cache::CacheConfig")]
 pub type CacheConfig = QueryCacheConfig;
 
@@ -70,13 +94,20 @@ impl Default for QueryCacheConfig {
     }
 }
 
+/// Runtime statistics for a [`QueryCache`], suitable for logging or metrics export.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheStats {
+    /// Total number of cache hits.
     pub hits: u64,
+    /// Total number of cache misses.
     pub misses: u64,
+    /// Total number of evicted entries.
     pub evictions: u64,
+    /// Current number of entries across all namespaces.
     pub total_entries: usize,
+    /// Approximate memory usage of the cache in bytes.
     pub memory_usage_bytes: u64,
+    /// Hit rate as a fraction in `[0.0, 1.0]`.
     pub hit_rate: f64,
 }
 
@@ -169,19 +200,29 @@ impl PartialEq for EvictionCandidate {
     }
 }
 
+/// Strategy governing when and how the cache is pre-populated.
 #[derive(Debug, Clone)]
 pub enum CacheWarmupStrategy {
+    /// Populate on demand, when entries are first accessed.
     Lazy,
+    /// Pre-populate aggressively at startup.
     Eager,
+    /// Pre-populate on a recurring schedule.
     Scheduled,
 }
 
+/// Configuration for cache warm-up behaviour.
 #[derive(Debug, Clone)]
 pub struct CacheWarmupConfig {
+    /// Warm-up strategy to apply.
     pub strategy: CacheWarmupStrategy,
+    /// Room IDs to pre-warm when `strategy` is `Eager` or `Scheduled`.
     pub rooms: Vec<String>,
+    /// User IDs to pre-warm when `strategy` is `Eager` or `Scheduled`.
     pub users: Vec<String>,
+    /// Interval between scheduled warm-up passes.
     pub interval: Duration,
+    /// Maximum number of entries to load per warm-up pass.
     pub batch_size: usize,
 }
 
@@ -197,6 +238,11 @@ impl Default for CacheWarmupConfig {
     }
 }
 
+/// In-process per-namespace query cache for hot Matrix entities (rooms, users, events, etc.).
+///
+/// Backed by a per-namespace `RwLock<HashMap>` and an atomic-statistics side-channel.
+/// The cache applies the namespace-specific TTLs from [`QueryCacheConfig`] on insert
+/// and supports manual or threshold-triggered eviction.
 pub struct QueryCache {
     config: QueryCacheConfig,
     warmup_config: RwLock<CacheWarmupConfig>,
@@ -212,6 +258,7 @@ pub struct QueryCache {
 }
 
 impl QueryCache {
+    /// Constructs a new `QueryCache` with the given config.
     pub fn new(config: QueryCacheConfig) -> Self {
         Self {
             config,
@@ -235,50 +282,62 @@ impl Default for QueryCache {
 }
 
 impl QueryCache {
+    /// Looks up a cached room entry.
     pub async fn get_room(&self, room_id: &str) -> Option<serde_json::Value> {
         self.get(&self.rooms, room_id, "room", true).await
     }
 
+    /// Caches a room entry using the configured room TTL.
     pub async fn set_room(&self, room_id: &str, value: serde_json::Value) {
         self.set(&self.rooms, room_id, value, self.config.room_ttl).await
     }
 
+    /// Looks up a cached user entry.
     pub async fn get_user(&self, user_id: &str) -> Option<serde_json::Value> {
         self.get(&self.users, user_id, "user", true).await
     }
 
+    /// Caches a user entry using the configured user TTL.
     pub async fn set_user(&self, user_id: &str, value: serde_json::Value) {
         self.set(&self.users, user_id, value, self.config.user_ttl).await
     }
 
+    /// Looks up a cached event entry.
     pub async fn get_event(&self, event_id: &str) -> Option<serde_json::Value> {
         self.get(&self.events, event_id, "event", false).await
     }
 
+    /// Caches an event entry using the configured event TTL.
     pub async fn set_event(&self, event_id: &str, value: serde_json::Value) {
         self.set(&self.events, event_id, value, self.config.event_ttl).await
     }
 
+    /// Looks up a cached membership entry.
     pub async fn get_membership(&self, key: &str) -> Option<serde_json::Value> {
         self.get(&self.memberships, key, "membership", false).await
     }
 
+    /// Caches a membership entry using the configured membership TTL.
     pub async fn set_membership(&self, key: &str, value: serde_json::Value) {
         self.set(&self.memberships, key, value, self.config.membership_ttl).await
     }
 
+    /// Looks up a cached device entry.
     pub async fn get_device(&self, key: &str) -> Option<serde_json::Value> {
         self.get(&self.devices, key, "device", false).await
     }
 
+    /// Caches a device entry using the configured device TTL.
     pub async fn set_device(&self, key: &str, value: serde_json::Value) {
         self.set(&self.devices, key, value, self.config.device_ttl).await
     }
 
+    /// Looks up a cached token entry.
     pub async fn get_token(&self, token: &str) -> Option<serde_json::Value> {
         self.get(&self.tokens, token, "token", true).await
     }
 
+    /// Caches a token entry using the configured token TTL.
     pub async fn set_token(&self, token: &str, value: serde_json::Value) {
         self.set(&self.tokens, token, value, self.config.token_ttl).await
     }
@@ -422,33 +481,40 @@ impl QueryCache {
         self.stats.set_total_entries(total);
     }
 
+    /// Invalidates a room entry and any membership rows scoped under that room.
     pub async fn invalidate_room(&self, room_id: &str) {
         self.rooms.write().await.remove(room_id);
         self.memberships.write().await.retain(|k, _| !k.starts_with(room_id));
     }
 
+    /// Invalidates a user entry and any device/token rows associated with that user.
     pub async fn invalidate_user(&self, user_id: &str) {
         self.users.write().await.remove(user_id);
         self.devices.write().await.retain(|k, _| !k.starts_with(user_id));
         self.tokens.write().await.retain(|k, _| !k.contains(user_id));
     }
 
+    /// Invalidates a single event entry.
     pub async fn invalidate_event(&self, event_id: &str) {
         self.events.write().await.remove(event_id);
     }
 
+    /// Invalidates a single membership entry.
     pub async fn invalidate_membership(&self, key: &str) {
         self.memberships.write().await.remove(key);
     }
 
+    /// Invalidates a single device entry.
     pub async fn invalidate_device(&self, key: &str) {
         self.devices.write().await.remove(key);
     }
 
+    /// Invalidates a single token entry.
     pub async fn invalidate_token(&self, token: &str) {
         self.tokens.write().await.remove(token);
     }
 
+    /// Clears every namespace and resets the hot-keys map.
     pub async fn clear(&self) {
         self.rooms.write().await.clear();
         self.users.write().await.clear();
@@ -462,11 +528,13 @@ impl QueryCache {
         self.stats.set_total_entries(0);
     }
 
+    /// Returns a snapshot of the cache statistics.
     pub async fn get_stats(&self) -> CacheStats {
         // S21: atomic snapshot — no lock needed.
         self.stats.snapshot()
     }
 
+    /// Returns the top-`limit` most-accessed keys, sorted by access count (descending).
     pub async fn get_hot_keys(&self, limit: usize) -> Vec<(String, u32)> {
         let hot_keys = self.hot_keys.read().await;
         let mut entries: Vec<_> = hot_keys.iter().collect();
@@ -474,6 +542,7 @@ impl QueryCache {
         entries.into_iter().take(limit).map(|(k, v)| (k.clone(), *v)).collect()
     }
 
+    /// Iterates every namespace and removes entries whose TTL has elapsed.
     pub async fn cleanup_expired(&self) {
         let now = Instant::now();
 
@@ -497,15 +566,21 @@ impl QueryCache {
         self.stats.record_evictions(removed as u64);
     }
 
+    /// Replaces the warm-up configuration.
     pub async fn configure_warmup(&self, config: CacheWarmupConfig) {
         let mut warmup_config = self.warmup_config.write().await;
         *warmup_config = config;
     }
 
+    /// Returns a clone of the current warm-up configuration.
     pub async fn get_warmup_config(&self) -> CacheWarmupConfig {
         self.warmup_config.read().await.clone()
     }
 
+    /// Inserts a batch of pre-warmed entries into the named cache namespace (`"room"` or `"user"`).
+    ///
+    /// Chunks the input according to `CacheWarmupConfig::batch_size`. Other `cache_type`
+    /// values are silently ignored.
     pub async fn warmup_batch(&self, items: Vec<(String, serde_json::Value)>, cache_type: &str) {
         let batch_size = self.warmup_config.read().await.batch_size;
 
@@ -526,6 +601,7 @@ impl QueryCache {
         }
     }
 
+    /// Returns a clone of the value for `key` without updating LRU access metadata.
     pub async fn peek<T>(&self, cache: &RwLock<HashMap<String, CacheEntry<T>>>, key: &str) -> Option<T>
     where
         T: Clone,
@@ -534,6 +610,7 @@ impl QueryCache {
         cache.get(key).map(|entry| entry.value.clone())
     }
 
+    /// Returns a clone of the value for `key` only if the entry is still within its TTL.
     pub async fn get_if_fresh<T>(&self, cache: &RwLock<HashMap<String, CacheEntry<T>>>, key: &str) -> Option<T>
     where
         T: Clone,
@@ -547,6 +624,8 @@ impl QueryCache {
         None
     }
 
+    /// Stores `value` under `key` with the given `ttl`. When `is_hot` is `true`, the
+    /// key is also recorded in the hot-keys map (used for cache warm-up heuristics).
     pub async fn set_with_hint<T>(
         &self,
         cache: &RwLock<HashMap<String, CacheEntry<T>>>,
@@ -577,6 +656,10 @@ impl QueryCache {
         self.update_total_entries().await;
     }
 
+    /// Looks up many rooms in a single batch.
+    ///
+    /// Returns a map keyed by room id; `Some(value)` for hits (entry not yet expired),
+    /// `None` for misses or expired entries. The map always contains every requested id.
     pub async fn get_multi_rooms(&self, room_ids: &[String]) -> HashMap<String, Option<serde_json::Value>> {
         let cache = self.rooms.read().await;
         let mut results = HashMap::new();
@@ -604,6 +687,10 @@ impl QueryCache {
         results
     }
 
+    /// Looks up many users in a single batch.
+    ///
+    /// Returns a map keyed by user id; `Some(value)` for hits, `None` for misses or
+    /// expired entries. The map always contains every requested id.
     pub async fn get_multi_users(&self, user_ids: &[String]) -> HashMap<String, Option<serde_json::Value>> {
         let cache = self.users.read().await;
         let mut results = HashMap::new();

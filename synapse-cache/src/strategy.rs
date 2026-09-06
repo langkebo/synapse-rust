@@ -122,6 +122,10 @@ impl CacheKeyBuilder {
     }
 }
 
+/// Constants for cache TTL values across cache domains (room/user/event/etc.).
+///
+/// Implemented as a zero-sized struct with associated `const` accessors so the
+/// TTLs can be referenced as `CacheTtl::USER_ACTIVE` without needing a string key.
 pub struct CacheTtl;
 
 impl CacheTtl {

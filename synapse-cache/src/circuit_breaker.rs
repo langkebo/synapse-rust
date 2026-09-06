@@ -76,15 +76,26 @@ struct CircuitBreakerMetricsHandle {
     rejected_counter: Counter,
 }
 
+/// Snapshot of circuit-breaker observability counters and timestamps.
+///
+/// All counters are monotonically increasing for the lifetime of the [`CircuitBreaker`].
 #[derive(Debug, Clone, Default)]
 pub struct CircuitBreakerMetrics {
+    /// Total number of requests the breaker has evaluated (allowed + rejected).
     pub total_requests: u64,
+    /// Number of allowed requests that returned success.
     pub successful_requests: u64,
+    /// Number of allowed requests that returned error.
     pub failed_requests: u64,
+    /// Number of requests denied because the breaker was open.
     pub rejected_requests: u64,
+    /// Number of requests that timed out before reaching the downstream.
     pub timeout_requests: u64,
+    /// Number of state transitions (Closed → Open, Open → HalfOpen, etc.).
     pub state_transitions: u64,
+    /// Wall-clock instant of the most recent failure, if any.
     pub last_failure: Option<Instant>,
+    /// Wall-clock instant of the most recent state change, if any.
     pub last_state_change: Option<Instant>,
 }
 
@@ -126,6 +137,9 @@ impl SlidingWindow {
     }
 }
 
+/// Three-state circuit breaker for Redis (or any downstream) protection.
+///
+/// States: Closed (passing), Open (rejecting), HalfOpen (probe allowed).
 pub struct CircuitBreaker {
     config: CircuitBreakerConfig,
     state: RwLock<CircuitState>,
@@ -161,6 +175,7 @@ impl std::fmt::Debug for CircuitBreaker {
 }
 
 impl CircuitBreaker {
+/// Creates a new circuit breaker in the `Closed` (passing) state with the given config.
     pub fn new(config: CircuitBreakerConfig) -> Self {
         Self {
             state: RwLock::new(CircuitState::Closed),
@@ -232,6 +247,7 @@ impl CircuitBreaker {
         });
     }
 
+/// Returns `true` if the breaker would allow a call through in its current state.
     pub fn is_call_allowed(&self) -> bool {
         if !self.config.enabled {
             return true;
@@ -283,6 +299,7 @@ impl CircuitBreaker {
         }
     }
 
+/// Records a successful downstream call. Moves the breaker toward `Closed` if it is `HalfOpen`.
     pub fn record_success(&self) {
         self.successful_requests.fetch_add(1, Ordering::Relaxed);
 
@@ -307,6 +324,7 @@ impl CircuitBreaker {
         self.emit_outcome(Outcome::Success);
     }
 
+    /// Records a failed downstream call. May open the breaker if the threshold is exceeded.
     pub fn record_failure(&self) {
         if !self.config.enabled {
             return;
@@ -336,6 +354,10 @@ impl CircuitBreaker {
         self.emit_outcome(Outcome::Failure);
     }
 
+    /// Records a downstream request that exceeded the configured timeout.
+    ///
+    /// Treated as a failure for breaker semantics but emits a separate `Timeout`
+    /// outcome for observability.
     pub fn record_timeout(&self) {
         // record_timeout 调 record_failure 复用失败语义（HalfOpen → Open 转换、
         // 滑动窗口失败计数、metrics.failed_requests 累加都共享），并由
@@ -485,10 +507,12 @@ impl CircuitBreaker {
         }
     }
 
+    /// Returns the current state of the breaker (`Closed`, `Open`, or `HalfOpen`).
     pub fn current_state(&self) -> CircuitState {
         *self.state.read()
     }
 
+    /// Returns a snapshot of the metrics counters and timestamps.
     pub fn get_metrics(&self) -> CircuitBreakerMetrics {
         let mut metrics = self.metrics.read().clone();
         metrics.total_requests = self.total_requests.load(Ordering::Relaxed);
@@ -498,6 +522,7 @@ impl CircuitBreaker {
         metrics
     }
 
+    /// Resets the breaker to `Closed` and clears all counters/windows. Used in tests.
     pub fn reset(&self) {
         *self.state.write() = CircuitState::Closed;
         *self.opened_at.write() = None;

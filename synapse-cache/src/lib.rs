@@ -1,13 +1,31 @@
 // ROUND2-ISSUE-1: test code may use unwrap/expect/unwrap_err per Rust testing idiom.
 // Production lib code is still held to the strict clippy lint config in [lints.clippy].
+//! synapse-cache: caching, rate limiting, and circuit-breaking primitives.
+//!
+//! Submodules:
+//! - [`query_cache`]: in-process namespace cache (room / user / event / device / token).
+//! - [`circuit_breaker`]: token-bucket circuit breaker for backend protection.
+//! - [`federation_signature_cache`]: caches federation signature verification results.
+//! - [`invalidation`]: Redis Pub/Sub fan-out for cross-instance cache invalidation.
+//! - [`rate_limit_metrics`]: rate-limit metrics collection.
+//! - [`strategy`]: centralised cache-key prefixes and TTLs.
+//!
+//! Top-level items: [`CacheManager`] wraps Redis with a circuit breaker and
+//! per-key degradation, [`LocalCache`] is the in-process moka cache, and
+//! [`CacheError`] is the common error type.
+
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-// B2-TODO: doc-debt ratchet (see scripts/check_missing_docs_ratchet.sh).
-// Currently the crate has ~322 missing-docs warnings. Instead of disabling CI
-// with a long red baseline, we keep the warn level here (ratchet in progress)
-// and use a per-PR ratchet script that fails the build when the diff introduces
-// a new pub item without `///` documentation. The static debt can be chipped
-// away in batches.
-#![warn(missing_docs)]
+// B-3.1-b ratchet in progress — see scripts/quality/check_missing_docs_ratchet.sh.
+// We keep the deny level now that B-3.1-b-1 has cleared every public item in
+// this crate (cargo doc -p synapse-cache reports 0 missing). The ratchet script
+// (scripts/quality/check_missing_docs_ratchet.sh) will fail any PR that
+// introduces a new undocumented public item anywhere in the workspace, so
+// neighbouring crates will hit the ratchet before they could regress this one.
+#![deny(missing_docs)]
+
+//! Multi-layer cache subsystem: in-process L1 (`LocalCache`), Redis L2 (`RedisCache`),
+//! coordinator (`CacheManager`), cross-instance invalidation pub/sub, circuit
+//! breaker, federation signature cache, and token-bucket rate limiter.
 
 use deadpool_redis::{Config, Pool, PoolConfig, Runtime};
 use moka::ops::compute::Op;
@@ -22,11 +40,17 @@ use synapse_common::ApiError;
 use thiserror::Error;
 use tokio::time::timeout;
 
+/// Circuit-breaker-protected Redis cache and in-process fallback.
 pub mod circuit_breaker;
+/// Federation signature verification cache.
 pub mod federation_signature_cache;
+/// Cross-instance cache invalidation over Redis Pub/Sub.
 pub mod invalidation;
+/// In-process per-namespace query cache.
 pub mod query_cache;
+/// Rate-limit metrics collection.
 pub mod rate_limit_metrics;
+/// Centralised cache-key prefixes and TTLs.
 pub mod strategy;
 
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerMetrics, CircuitState};
@@ -177,66 +201,94 @@ impl From<OperationFailed> for CacheErrorWrapper {
     }
 }
 
+/// Errors produced by the cache layer.
+///
+/// Covers connection failures, circuit-breaker trips, pool exhaustion, and serialisation errors.
 #[derive(Debug, Error)]
 pub enum CacheError {
+    /// Redis connection could not be established within the configured timeout.
     #[error("Redis connection timeout: {0}")]
     ConnectionTimeout(String),
+    /// A Redis command exceeded the configured command timeout.
     #[error("Redis command timeout: {0}")]
     CommandTimeout(String),
+    /// The Redis connection pool has no available connections and is at capacity.
     #[error("Redis pool exhaustion: {0}")]
     PoolExhaustion(String),
+    /// A Redis command failed for a reason other than timeout or pool exhaustion.
     #[error("Redis operation failed: {0}")]
     OperationFailed(String),
+    /// Serialising or deserialising the cache value (JSON) failed.
     #[error("Serialization error: {0}")]
     SerializationError(String),
+    /// The circuit breaker is open and no Redis operations are permitted.
     #[error("Circuit breaker is open: {0}")]
     CircuitBreakerOpen(String),
 }
 
+/// Metrics tracking local-cache / Redis-cache hit ratios and circuit-breaker behaviour.
+///
+/// Suitable for logging or metrics export.
 #[derive(Debug, Clone, Default)]
 pub struct DegradationMetrics {
+    /// Total local in-process cache hits.
     pub local_cache_hits: u64,
+    /// Total local in-process cache misses.
     pub local_cache_misses: u64,
+    /// Total Redis cache hits.
     pub redis_cache_hits: u64,
+    /// Total Redis cache misses.
     pub redis_cache_misses: u64,
+    /// Total requests rejected because the circuit breaker was open.
     pub circuit_breaker_rejections: u64,
+    /// Total requests that fell back to the database.
     pub fallback_operations: u64,
+    /// Total requests that were handled in degraded mode (Redis or circuit breaker tripped).
     pub total_degraded_requests: u64,
 }
 
 impl DegradationMetrics {
+    /// Constructs a fresh zeroed metrics instance.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Increments the local-cache hit counter.
     pub fn record_local_hit(&mut self) {
         self.local_cache_hits += 1;
     }
 
+    /// Increments the local-cache miss counter.
     pub fn record_local_miss(&mut self) {
         self.local_cache_misses += 1;
     }
 
+    /// Increments the Redis-cache hit counter.
     pub fn record_redis_hit(&mut self) {
         self.redis_cache_hits += 1;
     }
 
+    /// Increments the Redis-cache miss counter.
     pub fn record_redis_miss(&mut self) {
         self.redis_cache_misses += 1;
     }
 
+    /// Increments the circuit-breaker rejection counter.
     pub fn record_circuit_breaker_rejection(&mut self) {
         self.circuit_breaker_rejections += 1;
     }
 
+    /// Increments the database-fallback counter.
     pub fn record_fallback(&mut self) {
         self.fallback_operations += 1;
     }
 
+    /// Increments the total degraded-requests counter.
     pub fn record_degraded_request(&mut self) {
         self.total_degraded_requests += 1;
     }
 
+    /// Returns the combined (local + Redis) hit rate as a percentage in `[0.0, 100.0]`.
     pub fn hit_rate(&self) -> f64 {
         let total = self.local_cache_hits + self.local_cache_misses + self.redis_cache_hits + self.redis_cache_misses;
         if total == 0 {
@@ -246,6 +298,7 @@ impl DegradationMetrics {
         (hits as f64 / total as f64) * 100.0
     }
 
+    /// Returns the fraction of requests handled in degraded mode as a percentage in `[0.0, 100.0]`.
     pub fn degradation_rate(&self) -> f64 {
         let total = self.total_degraded_requests;
         if total == 0 {
@@ -255,8 +308,11 @@ impl DegradationMetrics {
     }
 }
 
+/// Configuration for [`LocalCache`]: capacity and global TTL.
 pub struct CacheConfig {
+    /// Maximum number of entries the cache may hold.
     pub max_capacity: u64,
+    /// Default time-to-live for entries written without a per-key TTL override (seconds).
     pub time_to_live: u64,
 }
 
@@ -269,6 +325,10 @@ impl Default for CacheConfig {
     }
 }
 
+/// In-process moka-based cache with per-key TTL support and isolated hot namespaces.
+///
+/// Hot traffic domains (presence, sliding-sync, device-keys, room-state) are routed to
+/// independent moka instances so a flood in one domain cannot evict the others' entries.
 #[derive(Clone, Debug)]
 pub struct LocalCache {
     cache: Cache<String, String>,
@@ -326,6 +386,7 @@ impl NamespaceCache {
 }
 
 impl LocalCache {
+    /// Constructs a new cache from the given configuration.
     pub fn new(config: &CacheConfig) -> Self {
         let deadlines = Arc::new(parking_lot::Mutex::new(HashMap::new()));
         let deadlines_for_listener = Arc::clone(&deadlines);
@@ -352,10 +413,12 @@ impl LocalCache {
         Self { cache, deadlines, namespaces: Arc::new(namespaces) }
     }
 
+    /// Looks up the cached claims associated with `token`.
     pub fn get(&self, token: &str) -> Option<Claims> {
         self.cache.get(token).and_then(|s| serde_json::from_str(&s).ok())
     }
 
+    /// Serialises `claims` to JSON and stores it under `token`.
     pub fn set(&self, token: &str, claims: &Claims) {
         match serde_json::to_string(claims) {
             Ok(s) => {
@@ -368,6 +431,7 @@ impl LocalCache {
         }
     }
 
+    /// Stores an arbitrary string value under `key` using the default TTL from the cache builder.
     pub fn set_raw(&self, key: &str, value: &str) {
         // D-2: 路由到独立命名空间缓存（如有）
         if let Some(ns_name) = route_key(key) {
@@ -397,6 +461,7 @@ impl LocalCache {
         self.cache.insert(key.to_string(), value.to_string());
     }
 
+    /// Retrieves the raw string value stored under `key`, returning `None` if absent or expired.
     pub fn get_raw(&self, key: &str) -> Option<String> {
         // D-2: 路由到独立命名空间缓存（如有）
         if let Some(ns_name) = route_key(key) {
@@ -425,6 +490,7 @@ impl LocalCache {
         self.cache.get(key)
     }
 
+    /// Removes the value stored under `token` from whichever cache instance is routing-target.
     pub fn remove(&self, token: &str) {
         // D-2: 路由到独立命名空间缓存（如有）
         if let Some(ns_name) = route_key(token) {
@@ -439,6 +505,7 @@ impl LocalCache {
     }
 }
 
+/// Redis-backed cache with circuit-breaker protection and degradation metrics.
 #[derive(Clone, Debug)]
 pub struct RedisCache {
     pool: Pool,
@@ -449,6 +516,7 @@ pub struct RedisCache {
 }
 
 impl RedisCache {
+    /// Constructs a Redis cache from the given config, creating a new connection pool.
     pub fn new(config: &synapse_common::config::RedisConfig) -> Result<Self, redis::RedisError> {
         let conn_str = config.connection_url();
         let mut cfg = Config::from_url(conn_str);
@@ -471,6 +539,8 @@ impl RedisCache {
         })
     }
 
+    /// Wraps an existing connection pool using the default connection/command timeouts
+    /// and the default circuit-breaker configuration.
     pub fn from_pool(pool: Pool) -> Self {
         Self {
             pool,
@@ -481,6 +551,7 @@ impl RedisCache {
         }
     }
 
+    /// Wraps an existing connection pool using the timeouts and circuit-breaker from `config`.
     pub fn from_pool_with_config(pool: Pool, config: &synapse_common::config::RedisConfig) -> Self {
         Self {
             pool,
@@ -491,10 +562,12 @@ impl RedisCache {
         }
     }
 
+    /// Returns a reference to the circuit breaker used by this Redis cache.
     pub fn get_circuit_breaker(&self) -> &CircuitBreaker {
         &self.circuit_breaker
     }
 
+    /// Returns a clone of the current degradation metrics snapshot.
     pub fn get_degradation_metrics(&self) -> DegradationMetrics {
         self.degradation_metrics.read().clone()
     }
@@ -566,6 +639,11 @@ impl RedisCache {
         }
     }
 
+    /// Retrieves a string value from Redis L2 (using GET).
+    ///
+    /// Returns `None` for both cache miss and any backend failure (circuit breaker
+    /// open, timeout, transport error). Callers requiring failure visibility should
+    /// use [`get_checked`](Self::get_checked) instead.
     pub async fn get(&self, key: &str) -> Option<String> {
         use redis::AsyncCommands;
         let result = self
@@ -647,6 +725,7 @@ impl RedisCache {
         }
     }
 
+    /// Stores a string value in Redis L2 (using SET or SETEX depending on whether `ttl > 0`).
     pub async fn set(&self, key: &str, value: &str, ttl: u64) -> Result<(), CacheError> {
         use redis::AsyncCommands;
         self.with_circuit_breaker("SET", |mut conn| async move {
@@ -679,6 +758,7 @@ impl RedisCache {
         .await
     }
 
+    /// Removes a key from Redis L2 (using DEL).
     pub async fn delete(&self, key: &str) -> Result<(), CacheError> {
         use redis::AsyncCommands;
         self.with_circuit_breaker("DELETE", |mut conn| async move {
@@ -732,16 +812,19 @@ impl RedisCache {
             .await;
     }
 
+    /// Increments a Redis hash field by `delta` (HINCRBY). Used for rate-limit token-bucket.
     pub async fn hincrby(&self, key: &str, field: &str, delta: i64) -> Result<i64, redis::RedisError> {
         use redis::AsyncCommands;
         self.with_circuit_breaker("HINCRBY", |mut conn| async move { conn.hincr(key, field, delta).await }).await
     }
 
+    /// Returns all fields and values of a Redis hash (HGETALL).
     pub async fn hgetall(&self, key: &str) -> Result<HashMap<String, String>, redis::RedisError> {
         use redis::AsyncCommands;
         self.with_circuit_breaker("HGETALL", |mut conn| async move { conn.hgetall(key).await }).await
     }
 
+    /// Extends the TTL of an existing Redis key (EXPIRE). Best-effort — errors are silently swallowed.
     pub async fn expire(&self, key: &str, ttl: u64) {
         use redis::AsyncCommands;
         let _: Result<(), CacheErrorWrapper> = self
@@ -751,6 +834,11 @@ impl RedisCache {
             .await;
     }
 
+    /// Atomic Redis-backed token-bucket rate limiter (Lua script).
+    ///
+    /// Takes up to `burst_size` tokens from the bucket identified by `key`,
+    /// refilling at `rate_per_second`. Returns the resulting [`RateLimitDecision`].
+    /// Auto-rejects when the circuit breaker is open.
     pub async fn token_bucket_take(
         &self,
         key: &str,
@@ -851,6 +939,11 @@ return {allowed, retry_after, remaining}
 /// Per-key single-flight guard type used by `get_or_fetch`.
 type SingleFlightMap = Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>;
 
+/// Central cache coordinator combining a local in-process cache (L1) with optional Redis (L2).
+///
+/// `CacheManager` provides `get` / `set` / `remove` / `get_or_fetch` / `try_acquire_lock`
+/// operations that first consult the local moka cache and optionally fall through to Redis.
+/// Cross-instance invalidation is handled via [`CacheInvalidationManager`].
 #[derive(Clone, Debug)]
 pub struct CacheManager {
     local: LocalCache,
@@ -872,6 +965,7 @@ pub struct CacheManager {
 }
 
 impl CacheManager {
+    /// Constructs a [`CacheManager`] that operates in local-only mode (no Redis).
     pub fn new(config: &CacheConfig) -> Self {
         Self {
             local: LocalCache::new(config),
@@ -886,6 +980,7 @@ impl CacheManager {
         }
     }
 
+    /// Constructs a [`CacheManager`] backed by a Redis instance at `url`.
     pub fn with_redis(
         config: &synapse_common::config::RedisConfig,
         cache_config: &CacheConfig,
@@ -933,10 +1028,12 @@ impl CacheManager {
         }
     }
 
+    /// Constructs a [`CacheManager`] backed by an existing Redis connection pool.
     pub fn with_redis_pool(pool: Pool, cache_config: &CacheConfig) -> Self {
         Self::with_redis_pool_and_url(pool, cache_config, "redis://127.0.0.1:6379")
     }
 
+    /// Constructs a [`CacheManager`] with an explicit pool and Redis URL.
     pub fn with_redis_pool_and_url(pool: Pool, cache_config: &CacheConfig, redis_url: &str) -> Self {
         let redis_cache = RedisCache::from_pool(pool.clone());
         let invalidation_config = CacheInvalidationConfig {
@@ -962,6 +1059,7 @@ impl CacheManager {
         }
     }
 
+    /// Constructs a [`CacheManager`] with a connection pool and pub/sub invalidation.
     pub fn with_redis_pool_and_invalidation(
         pool: Pool,
         cache_config: &CacheConfig,
@@ -1012,6 +1110,7 @@ impl CacheManager {
         });
     }
 
+    /// Starts the background subscription to cross-instance cache invalidation messages.
     pub fn start_invalidation_subscriber(&self) -> Result<(), ApiError> {
         if let Some(im) = &self.invalidation_manager {
             im.start_subscriber()?;
@@ -1019,18 +1118,22 @@ impl CacheManager {
         Ok(())
     }
 
+    /// Returns a reference to the [`CacheInvalidationManager`] if pub/sub is configured.
     pub fn invalidation_manager(&self) -> Option<&Arc<CacheInvalidationManager>> {
         self.invalidation_manager.as_ref()
     }
 
+    /// Returns the configured TTL for local (L1) cache entries.
     pub fn local_cache_ttl(&self) -> Duration {
         self.local_cache_ttl
     }
 
+    /// Removes a specific key from the local (L1) cache.
     pub fn invalidate_local_key(&self, key: &str) {
         self.local.remove(key);
     }
 
+    /// Returns all local cache keys that start with `prefix`.
     pub fn get_keys_with_prefix(&self, prefix: &str) -> Vec<String> {
         let mut keys: Vec<String> =
             self.local.cache.iter().filter(|(k, _)| k.starts_with(prefix)).map(|(k, _)| k.to_string()).collect();
@@ -1041,14 +1144,17 @@ impl CacheManager {
         keys
     }
 
+    /// Retrieves a raw string value from the local (L1) cache.
     pub fn get_local_raw(&self, key: &str) -> Option<String> {
         self.local.get_raw(key)
     }
 
+    /// Removes a key from the local (L1) cache.
     pub fn remove_local(&self, key: &str) {
         self.local.remove(key);
     }
 
+    /// Removes all local keys matching a glob `pattern`.
     pub fn invalidate_local_pattern(&self, pattern: &str) {
         let matcher = |k: &str| {
             if pattern.contains('*') {
@@ -1077,6 +1183,7 @@ impl CacheManager {
         }
     }
 
+    /// Clears the entire local (L1) cache including all namespaces.
     pub fn invalidate_local_all(&self) {
         self.local.cache.invalidate_all();
         // D-2: 同时清空所有命名空间缓存
@@ -1086,6 +1193,7 @@ impl CacheManager {
         }
     }
 
+    /// Broadcasts a cache-invalidation event to all instances via Redis pub/sub.
     pub async fn broadcast_invalidation(&self, key: &str, invalidation_type: InvalidationType) -> Result<(), ApiError> {
         // PERF-08: 本地 L1 同步失效。Redis 订阅端会跳过本实例的自回声
         // （sender_instance == instance_id），不在这里处理本地就永远没人处理，
@@ -1104,10 +1212,12 @@ impl CacheManager {
         Ok(())
     }
 
+    /// Returns a channel receiver for cache-invalidation pub/sub messages.
     pub fn subscribe_to_invalidations(&self) -> Option<InvalidationReceiver> {
         self.invalidation_manager.as_ref().and_then(|im| im.subscribe())
     }
 
+    /// Applies a cache-invalidation message to the local L1 cache.
     pub fn handle_invalidation_message(&self, msg: &CacheInvalidationMessage) {
         match msg.invalidation_type {
             InvalidationType::Key => {
@@ -1130,6 +1240,7 @@ impl CacheManager {
         }
     }
 
+    /// Retrieves and validates a JWT from the cache. Returns `None` if absent or expired.
     pub async fn get_token(&self, token: &str) -> Option<Claims> {
         if let Some(claims) = self.local.get(token) {
             if claims.exp >= chrono::Utc::now().timestamp() {
@@ -1157,6 +1268,7 @@ impl CacheManager {
         None
     }
 
+    /// Caches a JWT with the given TTL in both L1 and L2.
     pub async fn set_token(&self, token: &str, claims: &Claims, ttl: u64) {
         // Update L1
         self.local.set(token, claims);
@@ -1172,6 +1284,7 @@ impl CacheManager {
         }
     }
 
+    /// Revokes a JWT from all cache layers and broadcasts invalidation.
     pub async fn delete_token(&self, token: &str) {
         self.local.remove(token);
         if let Some(redis) = &self.redis {
@@ -1187,11 +1300,13 @@ impl CacheManager {
         }
     }
 
+    /// Returns `Some(true/false)` if the user active flag is cached, `None` if not present.
     pub async fn is_user_active(&self, user_id: &str) -> Option<bool> {
         let key = format!("user:active:{user_id}");
         self.get::<bool>(&key).await.ok().flatten()
     }
 
+    /// Caches the user-active flag (`active`) with the given TTL.
     pub async fn set_user_active(&self, user_id: &str, active: bool, ttl: u64) {
         let key = format!("user:active:{user_id}");
         if let Err(e) = self.set(&key, active, ttl).await {
@@ -1199,6 +1314,7 @@ impl CacheManager {
         }
     }
 
+    /// Stores a raw string value with an explicit TTL in both L1 and L2.
     pub async fn set_raw(&self, key: &str, value: &str, ttl: u64) {
         // D-1: L1 也按调用方 TTL 过期，与 L2 Redis 保持一致
         self.local.set_raw_with_ttl(key, value, Duration::from_secs(ttl));
@@ -1208,6 +1324,7 @@ impl CacheManager {
         }
     }
 
+    /// Retrieves a raw string value from L1, then falls back to L2.
     pub fn get_raw(&self, key: &str) -> Option<String> {
         self.local.get_raw(key)
     }
@@ -1240,6 +1357,7 @@ impl CacheManager {
         None
     }
 
+    /// Removes a key from both cache layers.
     pub async fn delete(&self, key: &str) {
         self.local.remove(key);
         if let Some(redis) = &self.redis {
@@ -1282,6 +1400,7 @@ impl CacheManager {
         }
     }
 
+    /// Deletes a key and broadcasts a cross-instance invalidation.
     pub async fn delete_with_invalidation(&self, key: &str, invalidation_type: InvalidationType) {
         match invalidation_type {
             InvalidationType::Key => {
@@ -1309,6 +1428,9 @@ impl CacheManager {
         }
     }
 
+    /// Retrieves and deserializes a value, falling back to L2 (Redis) on L1 miss.
+    /// Returns `Ok(None)` for cache miss; returns `Err` only on serialization or
+    /// non-recoverable backend failure.
     pub async fn get<T: for<'de> Deserialize<'de>>(&self, key: &str) -> Result<Option<T>, ApiError> {
         let key = key.to_string();
 
@@ -1608,6 +1730,7 @@ impl CacheManager {
         false
     }
 
+    /// Increments a hash field by `delta`. Used for token-bucket rate limiting.
     pub async fn hincrby(&self, key: &str, field: &str, delta: i64) -> Result<i64, ApiError> {
         if self.use_redis {
             if let Some(redis) = &self.redis {
@@ -1620,6 +1743,7 @@ impl CacheManager {
         Ok(0) // Local cache doesn't support HINCRBY yet, just return 0 or implement later
     }
 
+    /// Returns all fields and values of a Redis hash.
     pub async fn hgetall(&self, key: &str) -> Result<HashMap<String, String>, ApiError> {
         if self.use_redis {
             if let Some(redis) = &self.redis {
@@ -1629,6 +1753,7 @@ impl CacheManager {
         Ok(HashMap::new())
     }
 
+    /// Sets or extends the TTL of an existing key.
     pub async fn expire(&self, key: &str, ttl: u64) {
         if self.use_redis {
             if let Some(redis) = &self.redis {
@@ -1645,6 +1770,7 @@ impl CacheManager {
         self.use_redis
     }
 
+    /// Token-bucket rate limiter backed by Redis.
     pub async fn rate_limit_token_bucket_take(
         &self,
         key: &str,
@@ -1721,10 +1847,17 @@ impl CacheManager {
     }
 }
 
+/// Rate-limit decision returned by [`CacheManager::rate_limit_token_bucket_take`].
+///
+/// This is stored inside the `pub struct` so callers can inspect all fields directly
+/// without the crate exposing any interior mutability.
 #[derive(Debug, Clone, Copy)]
 pub struct RateLimitDecision {
+    /// `true` if the request is within the rate budget and should be allowed.
     pub allowed: bool,
+    /// Seconds the caller should wait before retrying after a `!allowed` decision.
     pub retry_after_seconds: u64,
+    /// Tokens remaining in the bucket after this take (clamped at 0).
     pub remaining: u32,
 }
 
@@ -2376,11 +2509,16 @@ mod tests {
     }
 }
 
+/// LZ77-based compression utilities for large cache values.
+///
+/// Uses gzip (compression level 6) for payloads ≥ 1 KiB; smaller values are stored
+/// verbatim with a `0` prefix byte so the decompressor can distinguish the two paths.
 pub mod compression {
     use std::io::{Read, Write};
 
     const COMPRESSION_THRESHOLD: usize = 1024;
 
+    /// Compresses `data` if it exceeds 1 KiB; small payloads are returned verbatim with a `0` prefix.
     pub fn compress(data: &[u8]) -> Result<Vec<u8>, &'static str> {
         if data.len() < COMPRESSION_THRESHOLD {
             let mut result = Vec::with_capacity(data.len() + 1);
@@ -2399,6 +2537,7 @@ pub mod compression {
         }
     }
 
+    /// Inverse of [`compress`] — inspects the prefix byte to dispatch to the right path.
     pub fn decompress(data: &[u8]) -> Result<Vec<u8>, &'static str> {
         if data.is_empty() {
             return Err("Empty data");
@@ -2417,14 +2556,17 @@ pub mod compression {
         }
     }
 
+    /// UTF-8-aware wrapper around [`compress`] — convenience for string payloads.
     pub fn compress_string(s: &str) -> Result<Vec<u8>, &'static str> {
         compress(s.as_bytes())
     }
 
+    /// Inverse of [`compress_string`] — also validates UTF-8 on the decompressed bytes.
     pub fn decompress_to_string(data: &[u8]) -> Result<String, &'static str> {
         decompress(data).and_then(|bytes| String::from_utf8(bytes).map_err(|_| "Invalid UTF-8"))
     }
 
+    /// Returns `true` when [`compress`] would actually compress (i.e. payload ≥ 1 KiB).
     pub fn should_compress(data: &[u8]) -> bool {
         data.len() >= COMPRESSION_THRESHOLD
     }
