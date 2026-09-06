@@ -127,6 +127,53 @@ impl FriendRoomStorage {
         Ok(out)
     }
 
+    /// B-1.4: 批量 fan-out 读。一次 SQL 拿多个 room_id 的 all_shards，
+    /// 把 N 次往返压缩成 1 次。返回 `room_id -> shards`，每个 shards 按
+    /// state_key 字典序排序。
+    ///
+    /// 输入 `room_ids` 可为空：直接返回空 map（避免 `room_id = ANY($1)` 空
+    /// 数组触发的 PG 反模式）。
+    pub async fn get_friend_list_all_shards_batch(
+        &self,
+        room_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<(String, serde_json::Value)>>, sqlx::Error> {
+        use std::collections::HashMap;
+
+        if room_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // DISTINCT ON (room_id, state_key) 配合 ORDER BY 必须前缀相同字段：
+        // PG 要求 `DISTINCT ON` 表达式的最左前缀与 `ORDER BY` 的最左前缀一致。
+        let rows = sqlx::query(
+            r"
+            SELECT DISTINCT ON (e.room_id, e.state_key)
+                e.room_id, e.state_key, e.content
+            FROM events e
+            WHERE e.room_id = ANY($1)
+              AND e.event_type = 'm.friends.list'
+            ORDER BY e.room_id, e.state_key, e.origin_server_ts DESC
+            ",
+        )
+        .bind(room_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut out: HashMap<String, Vec<(String, serde_json::Value)>> = HashMap::new();
+        for row in rows {
+            let room_id: String = row.get("room_id");
+            let state_key: String = row.get("state_key");
+            let content: serde_json::Value = row.get("content");
+            out.entry(room_id).or_default().push((state_key, content));
+        }
+
+        // 每个 room_id 的 shards 按 state_key 字典序排序
+        for shards in out.values_mut() {
+            shards.sort_by(|a, b| a.0.cmp(&b.0));
+        }
+        Ok(out)
+    }
+
     /// 根据好友 DM 房间 ID 反查所有关联的好友列表快照。
     pub async fn find_friend_lists_by_dm_room_id(&self, dm_room_id: &str) -> Result<Vec<FriendDmLink>, sqlx::Error> {
         sqlx::query_as::<_, FriendDmLink>(

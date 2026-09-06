@@ -1243,9 +1243,17 @@ impl FriendRoomService {
 
         let now = current_timestamp_millis();
 
-        // B-1.4: Phase 1 — sequentially fan out DB reads and in-memory shard
-        // processing so we hold only `&self` at any point (no concurrent mutable
-        // borrow of `self`).
+        // B-1.4: Phase 1 — single SQL batch reads, then sequential in-memory
+        // shard processing so we hold only `&self` at any point (no concurrent
+        // mutable borrow of `self`).
+        //
+        // Before: per-link `get_friend_list_all_shards` was called inside the
+        // fan-out for loop — 5 links × 28 shards fan-out → 5 sequential DB
+        // roundtrips.
+        //
+        // After: one `get_friend_list_all_shards_batch` SQL returns all
+        // `(friend_room_id, state_key, content)` rows; in-memory aggregation
+        // by `friend_room_id` keeps the existing for-link body unchanged.
         //
         // Phase 2 — fire ALL state-event writes concurrently. Each
         // `send_state_event_inner` clones the room_service Arc so the borrow
@@ -1254,22 +1262,38 @@ impl FriendRoomService {
         // out all writes (total wall time ≈ max latency of the slowest write).
         let mut all_writes: Vec<(String, String, String, Value)> = Vec::new();
 
+        let shard_index: std::collections::HashMap<String, Vec<(String, Value)>> = {
+            let room_ids: Vec<String> = links.iter().map(|link| link.friend_room_id.clone()).collect();
+            // Empty-link fast path: skip SQL entirely.
+            if room_ids.is_empty() {
+                std::collections::HashMap::new()
+            } else {
+                self.friend_storage
+                    .get_friend_list_all_shards_batch(&room_ids)
+                    .await
+                    .map_err(|e| ApiError::database_with_context("Failed to fan-out friend list shards (batch)", &e))?
+            }
+        };
+
         for link in links {
             // W5 sharding：find_friend_lists_by_dm_room_id 内部 SQL 写死 state_key=''，
             // 老 v4 时代会直接返回 friend list content；W5 后 owner 的 friend 散在 28 个
             // shard 里，因此 service 端必须重新 fan-out 读 all_shards 拿全量。
             // link.content 在 W5 体系下语义不完整（只反映 legacy 通道），直接丢弃。
-            let shards = self
-                .friend_storage
-                .get_friend_list_all_shards(&link.friend_room_id)
-                .await
-                .map_err(|e| ApiError::database_with_context("Failed to fan-out friend list shards", &e))?;
+            //
+            // B-1.4: shard_index pre-loaded via batch SQL — no per-link DB read.
+            let Some(shards) = shard_index.get(&link.friend_room_id) else {
+                // No shards for this room_id (shouldn't normally happen since
+                // find_friend_lists_by_dm_room_id returned a link for it,
+                // but stay defensive: skip).
+                continue;
+            };
 
             // 找出 dm_room_id 命中的 friend 所在 shard。
             // 同一个 dm_room_id 可能在不同 shard 各被一个 friend 引用（不常见但可能），
             // 因此需逐 shard 检查。
             for (state_key, shard_content) in shards {
-                let mut shard_content = shard_content;
+                let mut shard_content = shard_content.clone();
                 let mut touched = false;
                 if let Some(friends) = shard_content.get_mut("friends").and_then(|value| value.as_array_mut()) {
                     for friend in friends.iter_mut() {
@@ -1299,7 +1323,7 @@ impl FriendRoomService {
                     all_writes.push((
                         link.friend_room_id.clone(),
                         link.owner_user_id.clone(),
-                        state_key,
+                        state_key.clone(),
                         shard_content,
                     ));
                 }

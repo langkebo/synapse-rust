@@ -15,6 +15,20 @@ pub trait FriendRoomStoreApi: Send + Sync {
     ) -> Result<Option<serde_json::Value>, sqlx::Error>;
     /// v5 sharding：fan-out 读所有 shard（按字典序返回）
     async fn get_friend_list_all_shards(&self, room_id: &str) -> Result<Vec<(String, serde_json::Value)>, sqlx::Error>;
+    /// v5 sharding：B-1.4 fan-out 批读。一次 SQL 拿所有 room_id 的 shards，
+    /// 返回 `room_id -> [(state_key, content), ...]` 字典。
+    ///
+    /// 调用方：fan-out 路径上持有 N 个 friend_room_id 需要各自的 all_shards，
+    /// 用此方法把 N 次串行往返压缩为 1 次往返。
+    ///
+    /// 输入 `&[String]` 可为空：返回空 map 而非触发 SQL 报错（`room_id = ANY($1)`
+    /// 空数组是 PG 反模式，已知坑）。
+    ///
+    /// 输出按 state_key 字典序排序（`""` → `A` → ... → `#`）。
+    async fn get_friend_list_all_shards_batch(
+        &self,
+        room_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<(String, serde_json::Value)>>, sqlx::Error>;
     async fn find_friend_lists_by_dm_room_id(&self, dm_room_id: &str) -> Result<Vec<FriendDmLink>, sqlx::Error>;
     async fn get_effective_direct_links_fallback(
         &self,
@@ -127,6 +141,13 @@ impl FriendRoomStoreApi for FriendRoomStorage {
 
     async fn get_friend_list_all_shards(&self, room_id: &str) -> Result<Vec<(String, serde_json::Value)>, sqlx::Error> {
         self.get_friend_list_all_shards(room_id).await
+    }
+
+    async fn get_friend_list_all_shards_batch(
+        &self,
+        room_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<(String, serde_json::Value)>>, sqlx::Error> {
+        self.get_friend_list_all_shards_batch(room_ids).await
     }
 
     async fn find_friend_lists_by_dm_room_id(&self, dm_room_id: &str) -> Result<Vec<FriendDmLink>, sqlx::Error> {

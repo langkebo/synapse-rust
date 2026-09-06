@@ -1090,3 +1090,125 @@ async fn test_get_shared_rooms_none() {
     let shared = storage.get_shared_rooms(&user_a, &user_b).await.unwrap();
     assert!(shared.is_empty());
 }
+
+// ——————————————————————————————————————————————
+// B-1.4: get_friend_list_all_shards_batch — fan-out path optimization
+// ——————————————————————————————————————————————
+
+/// 5-link × 28-shard fan-out scenario: a single batch SQL must return shards
+/// for all 5 friend_room_ids (instead of 5 separate per-room roundtrips).
+///
+/// Acceptance criteria:
+/// - 5 distinct room_ids with 28 shards each → HashMap contains 5 keys
+/// - Each per-room Vec sorted by state_key lexicographically
+/// - DISTINCT ON (room_id, state_key) collapses duplicate inserts correctly
+/// - Empty input → empty HashMap (avoids `room_id = ANY($1)` empty-array PG gotcha)
+#[tokio::test]
+async fn test_get_friend_list_all_shards_batch_returns_5_room_index() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+    let storage = create_storage(&pool);
+    let suffix = unique_id();
+
+    let user_id = format!("@batch_user_{suffix}:localhost");
+    insert_user(&pool, &user_id, &format!("batch_user_{suffix}")).await;
+
+    let mut room_ids: Vec<String> = Vec::new();
+    for link_idx in 0..5 {
+        let rid = format!("!batch_room_{link_idx}_{suffix}:localhost");
+        insert_room(&pool, &rid).await;
+
+        // 28 shards: state_key 0..28 → lexicographic sort.
+        // Per ticket spec ("28 shard fan-out"): 28 distinct state_keys.
+        // We use letters A..Z (26) + two extra (aa, bb) to reach 28.
+        let mut shard_keys: Vec<String> = (b'A'..=b'Z')
+            .map(|b| (b as char).to_string())
+            .collect();
+        shard_keys.push("aa".to_string());
+        shard_keys.push("bb".to_string());
+        assert_eq!(shard_keys.len(), 28);
+        for (shard_idx, state_key) in shard_keys.iter().enumerate() {
+            let content = json!({
+                "friends": [
+                    {"user_id": format!("@f{link_idx}_{shard_idx}:localhost"), "dm_room_id": format!("!dm_{suffix}:localhost")}
+                ],
+                "version": 1
+            });
+            insert_event(
+                &pool,
+                &format!("$batch_{link_idx}_{shard_idx}_{suffix}"),
+                &rid,
+                &user_id,
+                "m.friends.list",
+                Some(state_key),
+                &content,
+            )
+            .await;
+        }
+        room_ids.push(rid);
+    }
+
+    // Batch read 5 rooms × 28 shards = 140 events in one SQL.
+    let index = storage
+        .get_friend_list_all_shards_batch(&room_ids)
+        .await
+        .expect("batch must succeed");
+
+    // All 5 room_ids must be in the index.
+    assert_eq!(index.len(), 5, "expected 5 room keys, got {:?}", index.keys().collect::<Vec<_>>());
+
+    // Each per-room Vec must have exactly 28 shards, sorted.
+    for rid in &room_ids {
+        let shards = index.get(rid).expect("each room present");
+        assert_eq!(shards.len(), 28, "room {} expected 28 shards, got {}", rid, shards.len());
+
+        // Verify lexicographic sort by state_key.
+        let keys: Vec<&str> = shards.iter().map(|(k, _)| k.as_str()).collect();
+        let mut sorted = keys.clone();
+        sorted.sort_unstable();
+        assert_eq!(keys, sorted, "shards must be sorted by state_key");
+    }
+
+    // Empty input → empty HashMap (PG ANY($1) empty-array guard).
+    let empty_in: Vec<String> = Vec::new();
+    let empty_out = storage
+        .get_friend_list_all_shards_batch(&empty_in)
+        .await
+        .expect("empty batch must succeed");
+    assert!(empty_out.is_empty(), "empty input must yield empty HashMap");
+}
+
+/// DISTINCT ON (room_id, state_key) semantics: re-inserting into the same
+/// shard must NOT double-count. Critical for the B-1.4 fan-out: if the
+/// batch SQL returns dupes, downstream service logic would write the
+/// same state event twice.
+#[tokio::test]
+async fn test_get_friend_list_all_shards_batch_dedupes_per_shard() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+    let storage = create_storage(&pool);
+    let suffix = unique_id();
+
+    let user_id = format!("@dedup_user_{suffix}:localhost");
+    insert_user(&pool, &user_id, &format!("dedup_user_{suffix}")).await;
+    let rid = format!("!dedup_room_{suffix}:localhost");
+    insert_room(&pool, &rid).await;
+
+    // Insert 3 events into shard "A" with increasing versions.
+    let v1 = json!({ "friends": [{"user_id": "@old:loc"}], "version": 1 });
+    let v2 = json!({ "friends": [{"user_id": "@mid:loc"}], "version": 2 });
+    let v3 = json!({ "friends": [{"user_id": "@new:loc"}], "version": 3 });
+    insert_event(&pool, &format!("$dedup_a1_{suffix}"), &rid, &user_id, "m.friends.list", Some("A"), &v1).await;
+    insert_event(&pool, &format!("$dedup_a2_{suffix}"), &rid, &user_id, "m.friends.list", Some("A"), &v2).await;
+    insert_event(&pool, &format!("$dedup_a3_{suffix}"), &rid, &user_id, "m.friends.list", Some("A"), &v3).await;
+
+    let index = storage
+        .get_friend_list_all_shards_batch(&[rid.clone()])
+        .await
+        .expect("batch dedup");
+
+    let shards = index.get(&rid).expect("room present");
+    assert_eq!(shards.len(), 1, "DISTINCT ON must collapse 3 inserts into 1 row");
+    assert_eq!(shards[0].0, "A");
+    assert_eq!(shards[0].1["version"], json!(3), "latest version wins");
+}
