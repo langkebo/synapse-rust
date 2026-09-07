@@ -35,6 +35,7 @@ pub fn admin_audit_route_manifest() -> Vec<crate::web::routes::route_ledger::Rou
 
 /// The `CreateAuditEventBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateAuditEventBody {
     /// The `actor_id` field.
     pub actor_id: String,
@@ -54,6 +55,7 @@ pub struct CreateAuditEventBody {
 
 /// The `AuditEventQueryParams` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuditEventQueryParams {
     /// The `actor_id` field.
     pub actor_id: Option<String>,

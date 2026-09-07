@@ -141,6 +141,7 @@ pub struct TelemetryAlertsResponse {
 
 /// The `TelemetryAlertQuery` struct.
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct TelemetryAlertQuery {
     /// The `status` field.
     pub status: Option<String>,

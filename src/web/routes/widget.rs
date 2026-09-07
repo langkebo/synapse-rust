@@ -17,6 +17,7 @@ use synapse_services::widget_service::{
 
 /// The `CreateWidgetBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateWidgetBody {
     /// The `room_id` field.
     pub room_id: Option<String>,
@@ -32,6 +33,7 @@ pub struct CreateWidgetBody {
 
 /// The `UpdateWidgetBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateWidgetBody {
     /// The `url` field.
     pub url: Option<String>,
@@ -62,6 +64,7 @@ fn validate_widget_url(url: &str) -> Result<(), ApiError> {
 
 /// The `SetPermissionBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SetPermissionBody {
     /// The `user_id` field.
     pub user_id: String,
@@ -71,6 +74,7 @@ pub struct SetPermissionBody {
 
 /// The `CreateSessionBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateSessionBody {
     /// The `widget_id` field.
     pub widget_id: Option<String>,
@@ -505,6 +509,7 @@ async fn ensure_session_access(
 
 /// The `WidgetCapabilitiesBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WidgetCapabilitiesBody {
     /// The `capabilities` field.
     pub capabilities: Vec<String>,
@@ -571,6 +576,7 @@ async fn set_room_widget_capabilities(
 
 /// The `SendWidgetMessageBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SendWidgetMessageBody {
     #[serde(rename = "type")]
     /// The `msg_type` field.

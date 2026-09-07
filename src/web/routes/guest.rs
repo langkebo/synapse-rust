@@ -38,6 +38,7 @@ pub async fn get_guest_info(
 
 /// The `UpgradeGuestRequest` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct UpgradeGuestRequest {
     #[validate(length(min = 1, max = 255))]
     username: String,

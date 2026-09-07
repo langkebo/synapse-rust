@@ -87,6 +87,7 @@ pub fn push_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
 
 /// The `SetPusherRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SetPusherRequest {
     /// The `pushkey` field.
     pub pushkey: String,

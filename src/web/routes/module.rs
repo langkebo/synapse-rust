@@ -15,6 +15,7 @@ use synapse_storage::module::*;
 
 /// The `CreateModuleBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateModuleBody {
     /// The `module_name` field.
     pub module_name: String,
@@ -34,6 +35,7 @@ pub struct CreateModuleBody {
 
 /// The `UpdateModuleConfigBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateModuleConfigBody {
     /// The `config` field.
     pub config: serde_json::Value,
@@ -41,6 +43,7 @@ pub struct UpdateModuleConfigBody {
 
 /// The `EnableModuleBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EnableModuleBody {
     /// The `is_enabled` field.
     pub is_enabled: bool,
@@ -48,6 +51,7 @@ pub struct EnableModuleBody {
 
 /// The `CheckSpamBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CheckSpamBody {
     /// The `event_id` field.
     pub event_id: String,
@@ -63,6 +67,7 @@ pub struct CheckSpamBody {
 
 /// The `CheckThirdPartyRuleBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CheckThirdPartyRuleBody {
     /// The `event_id` field.
     pub event_id: String,
@@ -80,6 +85,7 @@ pub struct CheckThirdPartyRuleBody {
 
 /// The `CreateAccountValidityBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateAccountValidityBody {
     /// The `user_id` field.
     pub user_id: String,
@@ -91,6 +97,7 @@ pub struct CreateAccountValidityBody {
 
 /// The `RenewAccountBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RenewAccountBody {
     /// The `renewal_token` field.
     pub renewal_token: String,
@@ -100,6 +107,7 @@ pub struct RenewAccountBody {
 
 /// The `CreatePasswordAuthProviderBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreatePasswordAuthProviderBody {
     /// The `provider_name` field.
     pub provider_name: String,
@@ -115,6 +123,7 @@ pub struct CreatePasswordAuthProviderBody {
 
 /// The `CreateMediaCallbackBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateMediaCallbackBody {
     /// The `callback_name` field.
     pub callback_name: String,
@@ -136,6 +145,7 @@ pub struct CreateMediaCallbackBody {
 
 /// The `CreateAccountDataCallbackBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateAccountDataCallbackBody {
     /// The `callback_name` field.
     pub callback_name: String,
@@ -442,6 +452,7 @@ impl From<AccountDataCallback> for AccountDataCallbackResponse {
 
 /// The `ListQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ListQuery {
     /// The `limit` field.
     pub limit: Option<i64>,
@@ -451,6 +462,7 @@ pub struct ListQuery {
 
 /// The `SpamCheckQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SpamCheckQuery {
     /// The `limit` field.
     pub limit: Option<i64>,

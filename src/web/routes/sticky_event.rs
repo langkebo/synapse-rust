@@ -27,6 +27,7 @@ pub fn sticky_event_compat_relative_routes() -> Vec<(axum::http::Method, &'stati
 
 /// Query parameters for sticky events
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StickyEventQuery {
     /// The event type to query (optional)
     #[serde(rename = "event_type")]

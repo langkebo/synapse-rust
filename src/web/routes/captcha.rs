@@ -11,6 +11,7 @@ use synapse_services::captcha_service::{SendCaptchaRequest, VerifyCaptchaRequest
 
 /// The `SendCaptchaQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SendCaptchaQuery {
     /// The `captcha_type` field.
     pub captcha_type: String,
@@ -22,6 +23,7 @@ pub struct SendCaptchaQuery {
 
 /// The `SendCaptchaBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SendCaptchaBody {
     /// The `captcha_type` field.
     pub captcha_type: String,
@@ -33,6 +35,7 @@ pub struct SendCaptchaBody {
 
 /// The `VerifyCaptchaBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VerifyCaptchaBody {
     /// The `captcha_id` field.
     pub captcha_id: String,
@@ -113,6 +116,7 @@ pub async fn get_captcha_status(
 
 /// The `CaptchaIdQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CaptchaIdQuery {
     /// The `captcha_id` field.
     pub captcha_id: String,

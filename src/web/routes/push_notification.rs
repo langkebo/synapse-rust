@@ -13,6 +13,7 @@ use synapse_storage::push_notification::{CreatePushRuleRequest, PushDevice, Push
 
 /// The `RegisterDeviceBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegisterDeviceBody {
     /// The `device_id` field.
     pub device_id: String,
@@ -36,6 +37,7 @@ pub struct RegisterDeviceBody {
 
 /// The `SendNotificationBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SendNotificationBody {
     /// The `device_id` field.
     pub device_id: Option<String>,
@@ -57,6 +59,7 @@ pub struct SendNotificationBody {
 
 /// The `CreateRuleBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateRuleBody {
     /// The `rule_id` field.
     pub rule_id: String,
@@ -87,6 +90,7 @@ pub struct RulePath {
 
 /// The `ProcessQueueQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProcessQueueQuery {
     /// The `batch_size` field.
     pub batch_size: Option<i32>,
@@ -94,6 +98,7 @@ pub struct ProcessQueueQuery {
 
 /// The `CleanupQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CleanupQuery {
     /// The `days` field.
     pub days: Option<i32>,

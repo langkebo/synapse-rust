@@ -13,6 +13,7 @@ use validator::Validate;
 
 /// The `PublicRoomsQuery` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct PublicRoomsQuery {
     #[validate(range(min = 0, max = 100))]
     #[serde(default = "default_limit")]
@@ -65,6 +66,7 @@ async fn ensure_room_alias_write_allowed(
 
 /// The `SetRoomAliasBody` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct SetRoomAliasBody {
     #[validate(length(min = 1, max = 255))]
     /// The `room_id` field.

@@ -20,6 +20,7 @@ use validator::Validate;
 
 /// The `CreateDmRequest` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct CreateDmRequest {
     #[validate(length(max = 100))]
     /// The `user_id` field.
@@ -42,6 +43,7 @@ pub struct CreateDmRequest {
 
 /// The `UpdateDmRequest` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateDmRequest {
     /// The `content` field.
     pub content: Option<Value>,

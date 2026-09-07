@@ -2,6 +2,7 @@ use serde::Deserialize;
 
 /// The `BlockRoomRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BlockRoomRequest {
     /// The `block` field.
     pub block: bool,
@@ -11,6 +12,7 @@ pub struct BlockRoomRequest {
 
 /// The `MakeRoomAdminRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MakeRoomAdminRequest {
     /// The `user_id` field.
     pub user_id: String,
@@ -18,6 +20,7 @@ pub struct MakeRoomAdminRequest {
 
 /// The `BanRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BanRequest {
     /// The `reason` field.
     pub reason: Option<String>,
@@ -25,6 +28,7 @@ pub struct BanRequest {
 
 /// The `RoomUserActionRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RoomUserActionRequest {
     /// The `user_id` field.
     pub user_id: String,
@@ -34,6 +38,7 @@ pub struct RoomUserActionRequest {
 
 /// The `RoomTokenSyncQueryParams` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RoomTokenSyncQueryParams {
     /// The `limit` field.
     pub limit: Option<i64>,
@@ -45,6 +50,7 @@ pub struct RoomTokenSyncQueryParams {
 
 /// The `SearchRoomMessagesRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SearchRoomMessagesRequest {
     /// The `search_term` field.
     pub search_term: String,
@@ -58,6 +64,7 @@ pub struct SearchRoomMessagesRequest {
 
 /// The `SearchAllRoomsRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SearchAllRoomsRequest {
     /// The `search_term` field.
     pub search_term: Option<String>,

@@ -69,6 +69,7 @@ pub fn verification_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
 
 /// The `VerificationStartBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VerificationStartBody {
     /// The `transaction_id` field.
     pub transaction_id: Option<String>,
@@ -143,6 +144,7 @@ async fn verification_start(
 
 /// The `VerificationAcceptBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VerificationAcceptBody {
     /// The `transaction_id` field.
     pub transaction_id: String,
@@ -181,6 +183,7 @@ async fn verification_accept(
 
 /// The `KeyAgreementBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KeyAgreementBody {
     /// The `transaction_id` field.
     pub transaction_id: String,
@@ -240,6 +243,7 @@ async fn verification_key_agreement(
 
 /// The `VerificationMacBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VerificationMacBody {
     /// The `transaction_id` field.
     pub transaction_id: String,
@@ -304,6 +308,7 @@ async fn verification_done(
 
 /// The `VerificationCancelBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VerificationCancelBody {
     /// The `transaction_id` field.
     pub transaction_id: String,
@@ -368,6 +373,7 @@ async fn show_qr_code(State(ctx): State<DeviceContext>, auth_user: Authenticated
 
 /// The `ScanQrBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ScanQrBody {
     /// The `transaction_id` field.
     pub transaction_id: String,
@@ -455,6 +461,7 @@ fn ensure_verification_participant(
 
 /// The `CompatVerificationRequestBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CompatVerificationRequestBody {
     /// The `transaction_id` field.
     pub transaction_id: Option<String>,
@@ -531,6 +538,7 @@ async fn compat_verification_status(
 
 /// The `CompatVerificationCancelBody` struct.
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct CompatVerificationCancelBody {
     /// The `code` field.
     pub code: Option<String>,

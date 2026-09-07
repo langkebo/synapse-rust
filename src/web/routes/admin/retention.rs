@@ -41,6 +41,7 @@ pub fn admin_retention_route_manifest() -> Vec<crate::web::routes::route_ledger:
 
 /// The `RetentionPolicyRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RetentionPolicyRequest {
     /// The `max_lifetime` field.
     pub max_lifetime: Option<i64>,
@@ -52,6 +53,7 @@ pub struct RetentionPolicyRequest {
 
 /// The `RunRetentionRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RunRetentionRequest {
     /// The `room_id` field.
     pub room_id: Option<String>,

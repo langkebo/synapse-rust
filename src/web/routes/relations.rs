@@ -72,6 +72,7 @@ pub fn relations_route_manifest() -> Vec<crate::web::routes::route_ledger::Route
 
 /// The `RelationsQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RelationsQuery {
     limit: Option<i64>,
     from: Option<String>,

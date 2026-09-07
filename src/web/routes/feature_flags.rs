@@ -43,6 +43,7 @@ mod cursor_tests {
 
 /// The `FeatureFlagListQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FeatureFlagListQuery {
     /// The `target_scope` field.
     pub target_scope: Option<String>,

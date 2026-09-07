@@ -164,6 +164,7 @@ async fn evict_user(
 
 /// The `ResetPasswordBody` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct ResetPasswordBody {
     #[validate(length(min = 8, max = 512))]
     #[serde(alias = "newPassword", alias = "new_password")]
@@ -173,6 +174,7 @@ pub struct ResetPasswordBody {
 
 /// The `CreateUpdateUserRequest` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct CreateUpdateUserRequest {
     #[validate(length(max = 255))]
     /// The `displayname` field.
@@ -856,6 +858,7 @@ pub async fn get_single_user_stats(
 
 /// Batch create users
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BatchCreateUsersRequest {
     /// The `users` field.
     pub users: Vec<BatchCreateUser>,
@@ -909,6 +912,7 @@ pub async fn batch_create_users(
 
 /// Batch deactivate users
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BatchDeactivateRequest {
     /// The `users` field.
     pub users: Vec<String>,
@@ -1014,6 +1018,7 @@ pub async fn get_account_details(
 
 /// Update account
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateAccountRequest {
     /// The `displayname` field.
     pub displayname: Option<String>,

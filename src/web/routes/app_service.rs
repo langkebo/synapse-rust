@@ -20,6 +20,7 @@ use synapse_storage::application_service::{
 
 /// The `RegisterAppServiceBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegisterAppServiceBody {
     /// The `id` field.
     pub id: String,
@@ -69,6 +70,7 @@ impl RegisterAppServiceBody {
 
 /// The `UpdateAppServiceBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateAppServiceBody {
     /// The `url` field.
     pub url: Option<String>,
@@ -109,6 +111,7 @@ impl UpdateAppServiceBody {
 
 /// The `SetStateBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SetStateBody {
     /// The `state_key` field.
     pub state_key: String,
@@ -118,6 +121,7 @@ pub struct SetStateBody {
 
 /// The `RegisterVirtualUserBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegisterVirtualUserBody {
     /// The `user_id` field.
     pub user_id: String,
@@ -129,6 +133,7 @@ pub struct RegisterVirtualUserBody {
 
 /// The `PushEventBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PushEventBody {
     /// The `room_id` field.
     pub room_id: String,

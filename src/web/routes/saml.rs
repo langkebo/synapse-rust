@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 /// The `SamlLoginQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SamlLoginQuery {
     /// The `redirect_url` field.
     pub redirect_url: Option<String>,
@@ -27,6 +28,7 @@ pub struct SamlLoginResponse {
 
 /// The `SamlCallbackQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SamlCallbackQuery {
     /// The `saml_response` field.
     pub saml_response: Option<String>,
@@ -38,6 +40,7 @@ pub struct SamlCallbackQuery {
 
 /// The `SamlCallbackBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SamlCallbackBody {
     /// The `saml_response` field.
     pub saml_response: Option<String>,
@@ -288,6 +291,7 @@ pub async fn refresh_idp_metadata(State(ctx): State<SsoContext>) -> Result<impl 
 
 /// The `SamlMappingListQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SamlMappingListQuery {
     /// The `limit` field.
     pub limit: Option<i64>,
@@ -339,6 +343,7 @@ pub struct SamlMappingPage {
 
 /// The `UpdateSamlMappingBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateSamlMappingBody {
     /// The `user_id` field.
     pub user_id: Option<String>,
@@ -348,6 +353,7 @@ pub struct UpdateSamlMappingBody {
 
 /// The `SamlLogoutAdminBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SamlLogoutAdminBody {
     /// The `user_id` field.
     pub user_id: String,

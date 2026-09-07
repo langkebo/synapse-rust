@@ -154,6 +154,7 @@ async fn ensure_target_users_exist(ctx: &AdminContext, user_ids: &[String]) -> R
 /// The `ServerNoticeRequest` struct.
 #[cfg(feature = "server-notifications")]
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ServerNoticeRequest {
     /// The `user_id` field.
     pub user_id: String,
@@ -173,6 +174,7 @@ pub struct NoticeContent {
 
 /// The `UserNotificationRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UserNotificationRequest {
     /// The `is_enabled` field.
     pub is_enabled: bool,
@@ -181,6 +183,7 @@ pub struct UserNotificationRequest {
 /// The `UpdateNotificationRequest` struct.
 #[cfg(feature = "server-notifications")]
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateNotificationRequest {
     /// The `title` field.
     pub title: Option<String>,
@@ -209,6 +212,7 @@ pub struct UpdateNotificationRequest {
 /// The `NotificationQuery` struct.
 #[cfg(feature = "server-notifications")]
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NotificationQuery {
     /// The `audience` field.
     pub audience: Option<String>,
@@ -422,6 +426,7 @@ pub async fn get_server_notices(
 
 /// The `ServerNoticesQuery` struct.
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ServerNoticesQuery {
     /// The `limit` field.
     pub limit: Option<u32>,

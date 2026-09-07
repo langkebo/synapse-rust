@@ -17,6 +17,7 @@ use synapse_storage::background_update::{
 
 /// The `QueryParams` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QueryParams {
     /// The `limit` field.
     pub limit: Option<i64>,
@@ -26,6 +27,7 @@ pub struct QueryParams {
 
 /// The `CreateUpdateBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateUpdateBody {
     /// The `job_name` field.
     pub job_name: String,
@@ -51,6 +53,7 @@ pub struct CreateUpdateBody {
 
 /// The `UpdateProgressBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateProgressBody {
     /// The `items_processed` field.
     pub items_processed: i32,
@@ -60,6 +63,7 @@ pub struct UpdateProgressBody {
 
 /// The `FailUpdateBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FailUpdateBody {
     /// The `error_message` field.
     pub error_message: String,

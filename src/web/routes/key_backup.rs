@@ -153,6 +153,7 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
 
 /// The `VersionQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VersionQuery {
     /// The `version` field.
     pub version: String,
@@ -160,6 +161,7 @@ pub struct VersionQuery {
 
 /// The `CreateBackupVersionBody` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct CreateBackupVersionBody {
     #[validate(length(max = 255, message = "Algorithm name too long"))]
     /// The `algorithm` field.
@@ -170,6 +172,7 @@ pub struct CreateBackupVersionBody {
 
 /// The `UpdateBackupVersionBody` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateBackupVersionBody {
     /// The `auth_data` field.
     pub auth_data: Option<Value>,
@@ -664,6 +667,7 @@ async fn delete_room_key_legacy(
 
 /// The `RecoverKeysBody` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct RecoverKeysBody {
     /// The `version` field.
     pub version: String,
@@ -673,6 +677,7 @@ pub struct RecoverKeysBody {
 
 /// The `BatchRecoverBody` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct BatchRecoverBody {
     /// The `version` field.
     pub version: String,

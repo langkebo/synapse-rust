@@ -447,6 +447,7 @@ pub fn friend_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
 
 /// The `AddFriendRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AddFriendRequest {
     /// The `user_id` field.
     pub user_id: String,
@@ -457,6 +458,7 @@ pub struct AddFriendRequest {
 
 /// The `UpdateNoteRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateNoteRequest {
     /// The `note` field.
     pub note: String,
@@ -464,6 +466,7 @@ pub struct UpdateNoteRequest {
 
 /// The `UpdateStatusRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateStatusRequest {
     /// The `status` field.
     pub status: String,
@@ -471,6 +474,7 @@ pub struct UpdateStatusRequest {
 
 /// The `UpdateDisplaynameRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateDisplaynameRequest {
     #[serde(rename = "displayname")]
     /// The `display_name` field.
@@ -479,6 +483,7 @@ pub struct UpdateDisplaynameRequest {
 
 /// The `FriendListQueryParams` struct.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FriendListQueryParams {
     #[serde(default)]
     /// The `limit` field.
@@ -496,6 +501,7 @@ pub struct FriendListQueryParams {
 
 /// The `FriendSearchQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FriendSearchQuery {
     #[serde(default, alias = "query")]
     /// The `q` field.
@@ -524,6 +530,7 @@ fn resolve_friend_search_term(query: &FriendSearchQuery, body: Option<&Value>) -
 
 /// The `FriendRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FriendRequest {
     /// The `user_id` field.
     pub user_id: String,
@@ -913,6 +920,7 @@ async fn check_friendship(
 
 /// The `FriendSuggestionsQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FriendSuggestionsQuery {
     /// The `limit` field.
     pub limit: Option<i64>,
@@ -935,6 +943,7 @@ async fn get_friend_suggestions(
 
 /// The `CreateGroupRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateGroupRequest {
     /// The `name` field.
     pub name: String,
@@ -942,6 +951,7 @@ pub struct CreateGroupRequest {
 
 /// The `RenameGroupRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RenameGroupRequest {
     /// The `name` field.
     pub name: String,

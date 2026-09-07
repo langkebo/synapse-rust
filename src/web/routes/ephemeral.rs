@@ -14,6 +14,7 @@ use serde_json::Value;
 
 /// The `EphemeralParams` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EphemeralParams {
     #[serde(default = "default_limit")]
     limit: i64,

@@ -22,6 +22,7 @@ pub fn create_threepid_router() -> Router<AuthContext> {
 
 /// The `RequestTokenRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RequestTokenRequest {
     /// The `client_secret` field.
     pub client_secret: String,
@@ -48,6 +49,7 @@ pub struct RequestTokenResponse {
 
 /// The `SubmitTokenRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SubmitTokenRequest {
     /// The `client_secret` field.
     pub client_secret: String,

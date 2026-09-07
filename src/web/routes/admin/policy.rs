@@ -53,6 +53,7 @@ pub fn admin_policy_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
 /// non-empty after trimming. This fail-closed posture prevents a malformed
 /// request from accidentally bypassing the policy server.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PolicyCheckRequest {
     /// The room being acted upon, e.g. `!room:example.com`.
     pub room_id: String,

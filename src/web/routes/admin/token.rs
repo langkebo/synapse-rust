@@ -58,6 +58,7 @@ async fn ensure_user_exists(ctx: &AdminContext, user_id: &str) -> Result<(), Api
 
 /// The `CreateTokenRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateTokenRequest {
     /// The `token` field.
     pub token: Option<String>,
@@ -71,6 +72,7 @@ pub struct CreateTokenRequest {
 
 /// The `UpdateTokenRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateTokenRequest {
     /// The `uses_allowed` field.
     pub uses_allowed: Option<i32>,
@@ -80,6 +82,7 @@ pub struct UpdateTokenRequest {
 
 /// The `RegistrationTokenListQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegistrationTokenListQuery {
     /// The `limit` field.
     pub limit: Option<i64>,

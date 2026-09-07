@@ -12,6 +12,7 @@ use crate::web::routes::AuthenticatedUser;
 
 /// The `ProtocolQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProtocolQuery {
     /// The `search` field.
     pub search: Option<String>,
@@ -104,6 +105,7 @@ async fn get_protocol(
 
 /// The `LocationQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LocationQuery {
     /// The `alias` field.
     pub alias: Option<String>,
@@ -134,6 +136,7 @@ async fn get_location_by_alias(
 
 /// The `UserQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UserQuery {
     /// The `userid` field.
     pub userid: Option<String>,

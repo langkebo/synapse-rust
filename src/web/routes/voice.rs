@@ -34,6 +34,7 @@ pub fn voice_upload_response(result: ApiResult<Value>) -> Result<Json<Value>, Ap
 
 /// The `VoiceListQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VoiceListQuery {
     /// The `limit` field.
     pub limit: Option<i64>,

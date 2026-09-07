@@ -13,6 +13,7 @@ use synapse_common::types::{EventId, RoomId};
 
 /// The `PinRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PinRequest {
     /// The `event_id` field.
     pub event_id: String,

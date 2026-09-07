@@ -19,6 +19,7 @@ use synapse_services::worker::types::*;
 
 /// The `RegisterWorkerBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegisterWorkerBody {
     /// The `worker_id` field.
     pub worker_id: String,
@@ -57,6 +58,7 @@ impl RegisterWorkerBody {
 
 /// The `HeartbeatBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HeartbeatBody {
     /// The `status` field.
     pub status: String,
@@ -66,6 +68,7 @@ pub struct HeartbeatBody {
 
 /// The `SendCommandBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SendCommandBody {
     /// The `command_type` field.
     pub command_type: String,
@@ -91,6 +94,7 @@ impl SendCommandBody {
 
 /// The `AssignTaskBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AssignTaskBody {
     /// The `task_type` field.
     pub task_type: String,
@@ -115,6 +119,7 @@ impl AssignTaskBody {
 
 /// The `ConnectWorkerBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConnectWorkerBody {
     /// The `address` field.
     pub address: String,
@@ -122,6 +127,7 @@ pub struct ConnectWorkerBody {
 
 /// The `CompleteTaskBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CompleteTaskBody {
     /// The `result` field.
     pub result: Option<serde_json::Value>,
@@ -129,6 +135,7 @@ pub struct CompleteTaskBody {
 
 /// The `FailTaskBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FailTaskBody {
     /// The `error` field.
     pub error: String,

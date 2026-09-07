@@ -67,6 +67,7 @@ pub fn admin_federation_route_manifest() -> Vec<crate::web::routes::route_ledger
 
 /// The `RewriteRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RewriteRequest {
     /// The `from` field.
     pub from: String,
@@ -76,6 +77,7 @@ pub struct RewriteRequest {
 
 /// The `ResolveRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ResolveRequest {
     /// The `server_name` field.
     pub server_name: String,
@@ -83,6 +85,7 @@ pub struct ResolveRequest {
 
 /// The `ConfirmRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConfirmRequest {
     /// The `server_name` field.
     pub server_name: String,
@@ -92,6 +95,7 @@ pub struct ConfirmRequest {
 
 /// The `ListPendingQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ListPendingQuery {
     /// The `limit` field.
     pub limit: Option<i32>,
@@ -101,6 +105,7 @@ pub struct ListPendingQuery {
 
 /// The `BlacklistQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BlacklistQuery {
     /// The `limit` field.
     pub limit: Option<i32>,
@@ -136,6 +141,7 @@ mod cursor_tests {
 
 /// The `DestinationsQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DestinationsQuery {
     /// The `limit` field.
     pub limit: Option<i32>,

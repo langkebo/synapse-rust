@@ -2,6 +2,7 @@ use super::*;
 
 /// The `CreateSpaceBody` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct CreateSpaceBody {
     #[validate(length(min = 1, max = 255))]
     /// The `room_id` field.
@@ -47,6 +48,7 @@ impl CreateSpaceBody {
 
 /// The `AddChildBody` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct AddChildBody {
     #[validate(length(min = 1, max = 255))]
     /// The `room_id` field.
@@ -73,6 +75,7 @@ impl AddChildBody {
 
 /// The `UpdateSpaceBody` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateSpaceBody {
     #[validate(length(max = 255))]
     /// The `name` field.
@@ -123,6 +126,7 @@ impl UpdateSpaceBody {
 
 /// The `InviteUserBody` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct InviteUserBody {
     #[validate(length(min = 1, max = 255))]
     /// The `user_id` field.
@@ -131,6 +135,7 @@ pub struct InviteUserBody {
 
 /// The `PaginationQuery` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct PaginationQuery {
     #[validate(range(min = 0, max = 1000))]
     /// The `limit` field.
@@ -141,6 +146,7 @@ pub struct PaginationQuery {
 
 /// The `SearchQuery` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct SearchQuery {
     #[serde(alias = "search_term")]
     #[validate(length(min = 1, max = 500))]
@@ -153,6 +159,7 @@ pub struct SearchQuery {
 
 /// The `HierarchyQuery` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct HierarchyQuery {
     #[validate(range(min = 1, max = 20))]
     /// The `max_depth` field.
@@ -161,6 +168,7 @@ pub struct HierarchyQuery {
 
 /// The `StatisticsQuery` struct.
 #[derive(Debug, Deserialize, Validate)]
+#[serde(deny_unknown_fields)]
 pub struct StatisticsQuery {
     #[validate(range(min = 1, max = 500))]
     /// The `limit` field.

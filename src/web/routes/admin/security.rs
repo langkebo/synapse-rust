@@ -46,6 +46,7 @@ pub fn admin_security_route_manifest() -> Vec<crate::web::routes::route_ledger::
 
 /// The `RateLimitRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RateLimitRequest {
     /// The `messages_per_second` field.
     pub messages_per_second: Option<f64>,

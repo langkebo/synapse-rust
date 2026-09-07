@@ -17,6 +17,7 @@ use synapse_storage::event_report::{
 
 /// The `QueryParams` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct QueryParams {
     /// The `limit` field.
     pub limit: Option<i64>,
@@ -30,6 +31,7 @@ pub struct QueryParams {
 
 /// The `CreateReportBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateReportBody {
     /// The `event_id` field.
     pub event_id: String,
@@ -49,6 +51,7 @@ pub struct CreateReportBody {
 
 /// The `UpdateReportBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateReportBody {
     /// The `status` field.
     pub status: Option<String>,
@@ -58,6 +61,7 @@ pub struct UpdateReportBody {
 
 /// The `ResolveReportBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ResolveReportBody {
     /// The `reason` field.
     pub reason: String,
@@ -65,6 +69,7 @@ pub struct ResolveReportBody {
 
 /// The `DismissReportBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DismissReportBody {
     /// The `reason` field.
     pub reason: String,
@@ -72,6 +77,7 @@ pub struct DismissReportBody {
 
 /// The `BlockUserBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BlockUserBody {
     /// The `blocked_until` field.
     pub blocked_until: i64,

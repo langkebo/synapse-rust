@@ -17,6 +17,7 @@ use synapse_services::external_service_integration::*;
 
 /// The `RegisterExternalServiceBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegisterExternalServiceBody {
     /// The `service_type` field.
     pub service_type: String,
@@ -34,6 +35,7 @@ pub struct RegisterExternalServiceBody {
 
 /// The `UpdateExternalServiceBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateExternalServiceBody {
     /// The `webhook_url` field.
     pub webhook_url: Option<String>,
@@ -47,6 +49,7 @@ pub struct UpdateExternalServiceBody {
 
 /// The `ListServicesQuery` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ListServicesQuery {
     #[serde(default)]
     /// The `service_type` field.

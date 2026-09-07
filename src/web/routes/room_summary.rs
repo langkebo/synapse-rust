@@ -27,6 +27,7 @@ pub struct QueryLimit {
 
 /// The `UpdateSummaryBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateSummaryBody {
     /// The `name` field.
     pub name: Option<String>,
@@ -49,6 +50,7 @@ impl UpdateSummaryBody {
 
 /// The `UpdateMemberBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateMemberBody {
     /// The `display_name` field.
     pub display_name: Option<String>,
@@ -72,6 +74,7 @@ impl UpdateMemberBody {
 
 /// The `UpdateStateBody` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateStateBody {
     /// The `event_id` field.
     pub event_id: Option<String>,
@@ -518,6 +521,7 @@ pub async fn clear_unread(
 
 /// The `RoomSummaryBatchRequest` struct.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RoomSummaryBatchRequest {
     /// The `rooms` field.
     pub rooms: Vec<String>,

@@ -38,6 +38,7 @@ use synapse_services::capability_governance::RouteCheck;
 /// param — axum requires the last param to implement `FromRequest`, and
 /// rust-analyzer cannot follow the cross-crate blanket impl.
 #[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct EmptyQuery {}
 
 // ---------------------------------------------------------------------------
