@@ -105,6 +105,7 @@ mod tests {
         assert_eq!("m.presence".parse::<EduType>().unwrap(), EduType::Presence);
         assert_eq!("m.device_list_update".parse::<EduType>().unwrap(), EduType::DeviceListUpdate);
         assert_eq!("m.direct_to_device".parse::<EduType>().unwrap(), EduType::DirectToDevice);
+        assert_eq!("m.receipt".parse::<EduType>().unwrap(), EduType::Receipt);
     }
 
     #[test]
@@ -135,6 +136,9 @@ mod tests {
         assert_ne!(EduType::Presence, EduType::DeviceListUpdate);
         assert_ne!(EduType::DirectToDevice, EduType::Typing);
         assert_ne!(EduType::DirectToDevice, EduType::DeviceListUpdate);
+        assert_ne!(EduType::Receipt, EduType::Typing);
+        assert_ne!(EduType::Receipt, EduType::DeviceListUpdate);
+        assert_ne!(EduType::Receipt, EduType::DirectToDevice);
     }
 
     #[test]
