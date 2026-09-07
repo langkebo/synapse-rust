@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 (B-3.1-a ratchet 度量脚本就位) — ✅ 已完成
 
-**Status:** phase-3-done (synapse-cache, synapse-common, synapse-e2ee 全部 deny(missing_docs) + 零 missing; 剩 4 crates: federation / services / storage / root)
+**Status:** phase-4-done (4/7 crates with `deny(missing_docs)` + 0 missing: synapse-cache, synapse-common, synapse-e2ee, synapse-federation; 剩 services/storage/root)
 
 **Spec reference:**
 - synapse 直接 `#![deny(missing_docs)]`——本仓 05 的最终目标
@@ -52,6 +52,13 @@
   - 关键陷阱：脚本累计 `/// The X field.` 多个版本需要 cleanup；`#[serde(default)]`、`#[default]` attribute 后必须插 doc 否则 rustdoc 仍报警告
   - `cargo test -p synapse-e2ee --all-features` → 376 passed; 0 failed
 
+**Phase 4 已完成（2026-09-07，本会话）:**
+- ✅ B-3.1-b-4（synapse-federation 311 项 → 0）— commit aafbb55e
+  - 20 文件改，621 行 doc 插入
+  - 脚本：Phase 1（241 root-level）+ Phase 2（121 fields/variants/methods）；14 次迭代收敛
+  - 手工：8 FederationClientError `#[error]` 变体 + Remote 字段、6 KeyRotationManagerApi trait fn 多行签名、3 FederationBroadcastError 变体、2 StateResolutionError 变体、lib.rs crate-level `//!`
+  - `cargo test -p synapse-federation --all-features` → 217 passed; 0 failed
+
 **实现计划（acceptance criteria）:**
 - [x] 跑 04 的 ratchet 脚本，记录当前 missing docs baseline N
 - [x] 7 个 crate `lib.rs:4` 切 `#![warn(missing_docs)]` —— **phase 1 完成**
@@ -69,8 +76,7 @@
   - [ ] `synapse-common` 1007 项 → B-3.1-b-2
   - [ ] `synapse-e2ee` 1151 项 → B-3.1-b-3
   - [x] `synapse-e2ee` 0 missing + `#![deny(missing_docs)]` —— **phase 3 完成（commit aec8d38b）**
-- [ ] `synapse-federation` 331 项 → B-3.1-b-4
-  - [ ] `synapse-federation` 331 项 → B-3.1-b-4
+- [x] `synapse-federation` 311 项 → B-3.1-b-4 ✅（commit aafbb55e，本会话）
   - [ ] `synapse-services` 3358 项 → B-3.1-b-5
   - [ ] `synapse-storage` 5587 项 → B-3.1-b-6
   - [ ] `synapse-rust` (root) 2392 项 → B-3.1-b-7
