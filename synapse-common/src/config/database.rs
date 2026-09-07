@@ -43,6 +43,21 @@ fn default_database_idle_in_transaction_timeout_secs() -> u64 {
     60
 }
 
+/// 默认 PG 端口。
+fn default_database_port() -> u16 {
+    5432
+}
+
+/// 默认最大连接数（对齐 Synapse ≥50，pool 实际生效上限）。
+fn default_database_max_size() -> u32 {
+    50
+}
+
+/// 默认连接超时（秒）。与旧版 Synapse 一致。
+fn default_database_connection_timeout_secs() -> u64 {
+    60
+}
+
 /// 数据库连接配置。
 #[derive(Clone, Deserialize, Educe)]
 #[educe(Debug)]
@@ -51,6 +66,7 @@ pub struct DatabaseConfig {
     /// 数据库主机地址
     pub host: String,
     /// 数据库端口
+    #[serde(default = "default_database_port")]
     pub port: u16,
     /// 数据库用户名
     pub username: String,
@@ -65,12 +81,16 @@ pub struct DatabaseConfig {
     /// ⚠️ 已废弃：实际连接池上限由 [`max_size`](Self::max_size) 控制（`server/database.rs`
     /// 的 `PgPoolOptions::max_connections` 只读 `max_size`），本字段零引用、仅保留以
     /// 兼容旧配置，勿再依赖。
+    #[serde(default)]
     pub pool_size: u32,
     /// 最大连接数（实际生效的连接池上限，对齐 Synapse ≥50）
+    #[serde(default = "default_database_max_size")]
     pub max_size: u32,
     /// 最小空闲连接数
+    #[serde(default)]
     pub min_idle: Option<u32>,
     /// 连接超时时间（秒）
+    #[serde(default = "default_database_connection_timeout_secs")]
     pub connection_timeout: u64,
     /// 连接最长生命周期（秒）。默认 1800s（30 分钟）。
     #[serde(default = "default_database_max_lifetime_secs")]
@@ -288,5 +308,64 @@ mod tests {
         };
         let dbg = format!("{redis:?}");
         assert!(!dbg.contains("redis-s3cr3t"), "RedisConfig Debug 泄露密码: {dbg}");
+    }
+
+    /// 09-ticket: 程序化构造的 `DatabaseConfig`（或反序列化缺字段时）必须落在生产安全的连接池值。
+    ///
+    /// 修复前：`max_size: 0` / `connection_timeout: 0` —— `PgPoolOptions::max_connections(0)`
+    /// 实际意味着"无限"（pg driver 内部回退 32）但 `connection_timeout: 0` 立即超时。
+    /// 修复后：缺字段反序列化使用 default fn（50 / 60s），与 `Default` impl 一致。
+    #[test]
+    fn database_config_serde_defaults_apply_when_fields_missing() {
+        // 仅给必填的 host/user/pass/name 四个字段；其他都依赖 serde default。
+        let yaml_str = "---
+host: localhost
+username: synapse
+password: secret
+name: synapse
+";
+        let cfg: DatabaseConfig =
+            serde_yaml::from_str(yaml_str).expect("serde should accept missing optional fields");
+        assert_eq!(cfg.port, 5432, "port 应默认 5432");
+        assert_eq!(cfg.max_size, 50, "max_size 应默认 50（对齐 Synapse）");
+        assert_eq!(cfg.connection_timeout, 60, "connection_timeout 应默认 60s");
+        assert_eq!(cfg.max_lifetime_secs, 1800, "max_lifetime_secs 应默认 1800s");
+        assert_eq!(cfg.idle_timeout_secs, 600, "idle_timeout_secs 应默认 600s");
+        assert_eq!(cfg.statement_timeout_secs, 30, "statement_timeout_secs 应默认 30s");
+        assert_eq!(cfg.lock_timeout_secs, 10, "lock_timeout_secs 应默认 10s");
+        assert_eq!(
+            cfg.idle_in_transaction_timeout_secs,
+            60,
+            "idle_in_transaction 应默认 60s"
+        );
+        assert_eq!(cfg.min_idle_floor, 5, "min_idle_floor 应默认 5");
+    }
+
+    /// 09-ticket: `Default::default()` 给出的值与 serde 反序列化缺字段的值一致。
+    ///
+    /// 防止 default fn 与 `Default` impl 漂移（一旦不一致就会出现"程序构造 vs 配置反序列化
+    /// 行为不同"的诡异 bug）。
+    #[test]
+    fn database_config_default_and_serde_defaults_match() {
+        let from_default = DatabaseConfig::default();
+        let yaml_str = "---
+host: any
+username: any
+password: any
+name: any
+";
+        let from_serde: DatabaseConfig =
+            serde_yaml::from_str(yaml_str).expect("serde should accept missing optional fields");
+        assert_eq!(from_default.max_size, from_serde.max_size);
+        assert_eq!(from_default.connection_timeout, from_serde.connection_timeout);
+        assert_eq!(from_default.max_lifetime_secs, from_serde.max_lifetime_secs);
+        assert_eq!(from_default.idle_timeout_secs, from_serde.idle_timeout_secs);
+        assert_eq!(from_default.statement_timeout_secs, from_serde.statement_timeout_secs);
+        assert_eq!(from_default.lock_timeout_secs, from_serde.lock_timeout_secs);
+        assert_eq!(
+            from_default.idle_in_transaction_timeout_secs,
+            from_serde.idle_in_transaction_timeout_secs
+        );
+        assert_eq!(from_default.min_idle_floor, from_serde.min_idle_floor);
     }
 }
