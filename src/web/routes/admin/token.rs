@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 use synapse_common::types::UserId;
 use synapse_storage::registration_token::decode_registration_token_cursor;
 
+/// See [`create_token_router`].
 pub fn create_token_router() -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/registration_tokens", get(get_registration_tokens))
@@ -25,6 +26,7 @@ pub fn create_token_router() -> Router<crate::web::routes::AppState> {
         .route("/_synapse/admin/v1/users/{user_id}/refresh_tokens/{token_id}", delete(delete_refresh_token))
 }
 
+/// See [`admin_token_route_manifest`].
 pub fn admin_token_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -54,26 +56,38 @@ async fn ensure_user_exists(ctx: &AdminContext, user_id: &str) -> Result<(), Api
     Ok(())
 }
 
+/// The `CreateTokenRequest` struct.
 #[derive(Debug, Deserialize)]
 pub struct CreateTokenRequest {
+    /// The `token` field.
     pub token: Option<String>,
+    /// The `uses_allowed` field.
     pub uses_allowed: Option<i32>,
+    /// The `expiry_time` field.
     pub expiry_time: Option<i64>,
+    /// The `length` field.
     pub length: Option<usize>,
 }
 
+/// The `UpdateTokenRequest` struct.
 #[derive(Debug, Deserialize)]
 pub struct UpdateTokenRequest {
+    /// The `uses_allowed` field.
     pub uses_allowed: Option<i32>,
+    /// The `expiry_time` field.
     pub expiry_time: Option<i64>,
 }
 
+/// The `RegistrationTokenListQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct RegistrationTokenListQuery {
+    /// The `limit` field.
     pub limit: Option<i64>,
+    /// The `from` field.
     pub from: Option<String>,
 }
 
+/// See [`get_registration_tokens`].
 #[axum::debug_handler]
 pub async fn get_registration_tokens(
     _admin: AdminUser,
@@ -111,6 +125,7 @@ pub async fn get_registration_tokens(
     })))
 }
 
+/// See [`create_registration_token`].
 #[axum::debug_handler]
 pub async fn create_registration_token(
     admin: AdminUser,
@@ -134,6 +149,7 @@ pub async fn create_registration_token(
     })))
 }
 
+/// See [`get_registration_token`].
 #[axum::debug_handler]
 pub async fn get_registration_token(
     _admin: AdminUser,
@@ -155,6 +171,7 @@ pub async fn get_registration_token(
     }
 }
 
+/// See [`delete_registration_token`].
 #[axum::debug_handler]
 pub async fn delete_registration_token(
     _admin: AdminUser,
@@ -166,6 +183,7 @@ pub async fn delete_registration_token(
     Ok(Json(json!({})))
 }
 
+/// See [`update_registration_token`].
 #[axum::debug_handler]
 pub async fn update_registration_token(
     _admin: AdminUser,
@@ -185,6 +203,7 @@ pub async fn update_registration_token(
     })))
 }
 
+/// See [`get_user_tokens`].
 #[axum::debug_handler]
 pub async fn get_user_tokens(
     _admin: AdminUser,
@@ -211,6 +230,7 @@ pub async fn get_user_tokens(
     Ok(Json(json!({ "tokens": token_list, "total": token_list.len() })))
 }
 
+/// See [`delete_user_token`].
 #[axum::debug_handler]
 pub async fn delete_user_token(
     _admin: AdminUser,
@@ -224,6 +244,7 @@ pub async fn delete_user_token(
     Ok(Json(json!({})))
 }
 
+/// See [`get_user_refresh_tokens`].
 #[axum::debug_handler]
 pub async fn get_user_refresh_tokens(
     _admin: AdminUser,
@@ -250,6 +271,7 @@ pub async fn get_user_refresh_tokens(
     Ok(Json(json!({ "refresh_tokens": token_list, "total": token_list.len() })))
 }
 
+/// See [`delete_refresh_token`].
 #[axum::debug_handler]
 pub async fn delete_refresh_token(
     _admin: AdminUser,

@@ -10,6 +10,7 @@ use synapse_common::current_timestamp_millis;
 
 use crate::web::routes::extractors::EventId;
 use crate::web::routes::extractors::RoomId;
+/// See [`get_room_auth`].
 pub(super) async fn get_room_auth(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -46,6 +47,7 @@ pub(super) async fn get_room_auth(
     })))
 }
 
+/// See [`get_missing_events`].
 pub(super) async fn get_missing_events(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -86,6 +88,7 @@ pub(super) async fn get_missing_events(
     })))
 }
 
+/// See [`get_event_auth`].
 pub(super) async fn get_event_auth(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -116,6 +119,7 @@ pub(super) async fn get_event_auth(
     })))
 }
 
+/// See [`get_event`].
 pub(super) async fn get_event(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -132,6 +136,7 @@ pub(super) async fn get_event(
     }
 }
 
+/// See [`get_room_event`].
 pub(super) async fn get_room_event(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -152,6 +157,7 @@ pub(super) async fn get_room_event(
     }
 }
 
+/// See [`get_state`].
 pub(super) async fn get_state(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -171,6 +177,7 @@ pub(super) async fn get_state(
     })))
 }
 
+/// See [`get_state_ids`].
 pub(super) async fn get_state_ids(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -199,6 +206,7 @@ pub(super) async fn get_state_ids(
     })))
 }
 
+/// See [`room_directory_query`].
 #[axum::debug_handler]
 pub(super) async fn room_directory_query(
     State(ctx): State<FederationContext>,
@@ -225,17 +233,20 @@ pub(super) async fn room_directory_query(
     Err(ApiError::not_found("Room not found".to_string()))
 }
 
+/// The `FederationProfileQueryParams` struct.
 #[derive(Deserialize)]
 pub(super) struct FederationProfileQueryParams {
     user_id: Option<String>,
     field: Option<String>,
 }
 
+/// The `FederationProfileFieldQuery` struct.
 #[derive(Deserialize)]
 pub(super) struct FederationProfileFieldQuery {
     field: Option<String>,
 }
 
+/// The `FederationHierarchyQueryParams` struct.
 #[derive(Deserialize)]
 pub(super) struct FederationHierarchyQueryParams {
     max_depth: Option<i32>,
@@ -244,6 +255,7 @@ pub(super) struct FederationHierarchyQueryParams {
     from: Option<String>,
 }
 
+/// See [`profile_query`].
 #[axum::debug_handler]
 pub(super) async fn profile_query(
     State(ctx): State<FederationContext>,
@@ -255,6 +267,7 @@ pub(super) async fn profile_query(
     build_profile_query_response(&ctx, &auth.origin, &user_id, params.field.as_deref()).await
 }
 
+/// See [`profile_query_legacy`].
 #[axum::debug_handler]
 pub(super) async fn profile_query_legacy(
     State(ctx): State<FederationContext>,
@@ -307,6 +320,7 @@ async fn build_profile_query_response(
     Ok(Json(response))
 }
 
+/// See [`get_public_rooms`].
 pub(super) async fn get_public_rooms(
     State(ctx): State<FederationContext>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
@@ -338,6 +352,7 @@ pub(super) async fn get_public_rooms(
     })))
 }
 
+/// See [`post_public_rooms`].
 pub(super) async fn post_public_rooms(
     State(ctx): State<FederationContext>,
     Query(_params): Query<Value>,
@@ -367,6 +382,7 @@ pub(super) async fn post_public_rooms(
     })))
 }
 
+/// See [`query_directory`].
 pub(super) async fn query_directory(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -408,6 +424,7 @@ pub(super) async fn query_directory(
     })))
 }
 
+/// See [`query_destination`].
 pub(super) async fn query_destination(State(ctx): State<FederationContext>) -> Result<Json<Value>, ApiError> {
     let mut room_versions = federation_room_versions_capability();
     if let Some(obj) = room_versions.as_object_mut() {
@@ -425,6 +442,7 @@ pub(super) async fn query_destination(State(ctx): State<FederationContext>) -> R
     })))
 }
 
+/// See [`timestamp_to_event`].
 pub(super) async fn timestamp_to_event(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -473,6 +491,7 @@ pub(super) async fn timestamp_to_event(
     })))
 }
 
+/// See [`get_room_hierarchy`].
 pub(super) async fn get_room_hierarchy(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -515,6 +534,7 @@ pub(super) async fn get_room_hierarchy(
     Ok(Json(response))
 }
 
+/// See [`backfill`].
 pub(super) async fn backfill(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -664,6 +684,7 @@ fn build_federation_state_payload(
     (pdus, auth_chain)
 }
 
+/// The `FederationStateAtEventQuery` struct.
 #[derive(Deserialize, Default)]
 pub(super) struct FederationStateAtEventQuery {
     event_id: Option<String>,

@@ -244,6 +244,7 @@ fn create_device_compat_router() -> Router<AppState> {
         .route("/keys/device_list_updates", post(get_device_list_updates))
 }
 
+/// See [`get_devices`].
 pub async fn get_devices(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
@@ -267,6 +268,7 @@ pub async fn get_devices(
     })))
 }
 
+/// See [`get_device`].
 pub async fn get_device(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
@@ -290,6 +292,7 @@ pub async fn get_device(
     }
 }
 
+/// See [`update_device`].
 pub async fn update_device(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
@@ -325,6 +328,7 @@ pub async fn update_device(
     })))
 }
 
+/// See [`delete_device`].
 pub async fn delete_device(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
@@ -346,6 +350,7 @@ pub async fn delete_device(
     Ok(Json(json!({})).into_response())
 }
 
+/// See [`delete_devices`].
 pub async fn delete_devices(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
@@ -366,6 +371,7 @@ pub async fn delete_devices(
     Ok(Json(json!({})).into_response())
 }
 
+/// See [`get_device_list_updates`].
 pub async fn get_device_list_updates(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
@@ -448,6 +454,7 @@ pub async fn get_device_list_updates(
     })))
 }
 
+/// See [`create_device_router`].
 pub fn create_device_router() -> Router<AppState> {
     let compat_router = create_device_compat_router();
 

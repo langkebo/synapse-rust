@@ -2,14 +2,20 @@ use super::*;
 use crate::web::routes::context::RoomContext;
 use crate::web::routes::extractors::RoomId;
 
+/// The `HierarchyV1Query` struct.
 #[derive(Debug, Deserialize)]
 pub(crate) struct HierarchyV1Query {
+    /// The `max_depth` field.
     pub max_depth: Option<i32>,
+    /// The `suggested_only` field.
     pub suggested_only: Option<bool>,
+    /// The `limit` field.
     pub limit: Option<i32>,
+    /// The `from` field.
     pub from: Option<String>,
 }
 
+/// See [`get_space_children`].
 pub(super) async fn get_space_children(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -23,6 +29,7 @@ pub(super) async fn get_space_children(
     .await
 }
 
+/// See [`add_child`].
 pub(super) async fn add_child(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -41,6 +48,7 @@ pub(super) async fn add_child(
     .await
 }
 
+/// See [`remove_child`].
 pub(super) async fn remove_child(
     State(ctx): State<RoomContext>,
     Path((space_id, room_id)): Path<(String, String)>,
@@ -54,6 +62,7 @@ pub(super) async fn remove_child(
     .await
 }
 
+/// See [`get_space_hierarchy`].
 pub(super) async fn get_space_hierarchy(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -79,6 +88,7 @@ pub(super) async fn get_space_hierarchy(
     .await
 }
 
+/// See [`get_space_hierarchy_v1`].
 pub(super) async fn get_space_hierarchy_v1(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -106,6 +116,7 @@ pub(super) async fn get_space_hierarchy_v1(
     .await
 }
 
+/// See [`get_parent_spaces`].
 pub(super) async fn get_parent_spaces(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
@@ -123,6 +134,7 @@ pub(super) async fn get_parent_spaces(
     Ok(json_vec_from::<_, SpaceResponse>(visible_spaces))
 }
 
+/// See [`get_space_tree_path`].
 pub(super) async fn get_space_tree_path(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -143,6 +155,7 @@ pub(super) async fn get_space_tree_path(
     .await
 }
 
+/// See [`create_space_children_hierarchy_routes`].
 pub(super) fn create_space_children_hierarchy_routes() -> Router<AppState> {
     Router::new()
         .route("/spaces/{space_id}/children", get(get_space_children))

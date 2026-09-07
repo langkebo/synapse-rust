@@ -18,6 +18,7 @@ use synapse_services::admin_user_service::{decode_user_cursor, encode_user_curso
 use synapse_storage::user::User as AdminUserRecord;
 use validator::Validate;
 
+/// See [`create_user_router`].
 pub fn create_user_router() -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/users", get(get_users))
@@ -96,6 +97,7 @@ pub fn create_user_router() -> Router<crate::web::routes::AppState> {
         .route("/_synapse/admin/v1/account/{user_id}", post(update_account))
 }
 
+/// See [`admin_user_route_manifest`].
 pub fn admin_user_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -160,24 +162,33 @@ async fn evict_user(
     })))
 }
 
+/// The `ResetPasswordBody` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct ResetPasswordBody {
     #[validate(length(min = 8, max = 512))]
     #[serde(alias = "newPassword", alias = "new_password")]
+    /// The `new_password` field.
     pub new_password: String,
 }
 
+/// The `CreateUpdateUserRequest` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct CreateUpdateUserRequest {
     #[validate(length(max = 255))]
+    /// The `displayname` field.
     pub displayname: Option<String>,
     #[validate(length(max = 2048))]
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `admin` field.
     pub admin: Option<bool>,
+    /// The `deactivated` field.
     pub deactivated: Option<bool>,
     #[validate(length(max = 255))]
+    /// The `user_type` field.
     pub user_type: Option<String>,
     #[validate(length(min = 8, max = 512))]
+    /// The `password` field.
     pub password: Option<String>,
 }
 
@@ -188,6 +199,7 @@ async fn resolve_user(ctx: &AdminContext, identifier: &str) -> Result<AdminUserR
 // Moved to admin/mod.rs
 use super::ensure_super_admin_for_privilege_change;
 
+/// See [`get_users`].
 #[axum::debug_handler]
 pub async fn get_users(
     _admin: AdminUser,
@@ -328,6 +340,7 @@ async fn delete_user(
     })))
 }
 
+/// See [`set_admin`].
 #[axum::debug_handler]
 pub async fn set_admin(
     admin: AdminUser,
@@ -393,6 +406,7 @@ pub async fn set_admin(
     Ok(Json(json!({ "success": true })))
 }
 
+/// See [`deactivate_user`].
 #[axum::debug_handler]
 pub async fn deactivate_user(
     admin: AdminUser,
@@ -465,6 +479,7 @@ pub async fn deactivate_user(
     Ok(Json(json!({ "id_server_unbind_result": "success" })))
 }
 
+/// See [`reset_user_password`].
 #[axum::debug_handler]
 pub async fn reset_user_password(
     admin: AdminUser,
@@ -493,6 +508,7 @@ pub async fn reset_user_password(
     Ok(Json(json!({})))
 }
 
+/// See [`get_user_rooms_admin`].
 #[axum::debug_handler]
 pub async fn get_user_rooms_admin(
     _admin: AdminUser,
@@ -516,6 +532,7 @@ pub async fn get_user_rooms_admin(
     })))
 }
 
+/// See [`get_user_devices_admin`].
 #[axum::debug_handler]
 pub async fn get_user_devices_admin(
     _admin: AdminUser,
@@ -543,6 +560,7 @@ pub async fn get_user_devices_admin(
     })))
 }
 
+/// See [`delete_user_device_admin`].
 #[axum::debug_handler]
 pub async fn delete_user_device_admin(
     admin: AdminUser,
@@ -579,6 +597,7 @@ pub async fn delete_user_device_admin(
     Ok(Json(json!({})))
 }
 
+/// See [`delete_user_device_admin_compat`].
 #[axum::debug_handler]
 pub async fn delete_user_device_admin_compat(
     admin: AdminUser,
@@ -589,6 +608,7 @@ pub async fn delete_user_device_admin_compat(
     delete_user_device_admin(admin, state, path, headers).await
 }
 
+/// See [`login_as_user`].
 #[axum::debug_handler]
 pub async fn login_as_user(
     admin: AdminUser,
@@ -657,6 +677,7 @@ pub async fn login_as_user(
     })))
 }
 
+/// See [`logout_user_devices`].
 #[axum::debug_handler]
 pub async fn logout_user_devices(
     _admin: AdminUser,
@@ -677,6 +698,7 @@ pub async fn logout_user_devices(
     })))
 }
 
+/// See [`get_users_v2`].
 #[axum::debug_handler]
 pub async fn get_users_v2(
     _admin: AdminUser,
@@ -723,6 +745,7 @@ pub async fn get_users_v2(
     })))
 }
 
+/// See [`get_user_v2`].
 #[axum::debug_handler]
 pub async fn get_user_v2(
     _admin: AdminUser,
@@ -764,6 +787,7 @@ pub async fn get_user_v2(
     }
 }
 
+/// See [`create_or_update_user_v2`].
 #[axum::debug_handler]
 pub async fn create_or_update_user_v2(
     admin: AdminUser,
@@ -790,6 +814,7 @@ pub async fn create_or_update_user_v2(
     Ok(Json(json!({})))
 }
 
+/// See [`get_user_stats`].
 #[axum::debug_handler]
 pub async fn get_user_stats(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     let stats = ctx.admin_user_service.get_user_stats().await?;
@@ -805,6 +830,7 @@ pub async fn get_user_stats(_admin: AdminUser, State(ctx): State<AdminContext>) 
     })))
 }
 
+/// See [`get_single_user_stats`].
 #[axum::debug_handler]
 pub async fn get_single_user_stats(
     _admin: AdminUser,
@@ -831,17 +857,24 @@ pub async fn get_single_user_stats(
 /// Batch create users
 #[derive(Debug, Deserialize)]
 pub struct BatchCreateUsersRequest {
+    /// The `users` field.
     pub users: Vec<BatchCreateUser>,
 }
 
+/// The `BatchCreateUser` struct.
 #[derive(Debug, Deserialize)]
 pub struct BatchCreateUser {
+    /// The `username` field.
     pub username: String,
+    /// The `password` field.
     pub password: Option<String>,
+    /// The `displayname` field.
     pub displayname: Option<String>,
+    /// The `admin` field.
     pub admin: Option<bool>,
 }
 
+/// See [`batch_create_users`].
 #[axum::debug_handler]
 pub async fn batch_create_users(
     admin: AdminUser,
@@ -877,10 +910,13 @@ pub async fn batch_create_users(
 /// Batch deactivate users
 #[derive(Debug, Deserialize)]
 pub struct BatchDeactivateRequest {
+    /// The `users` field.
     pub users: Vec<String>,
+    /// The `erase` field.
     pub erase: Option<bool>,
 }
 
+/// See [`batch_deactivate_users`].
 #[axum::debug_handler]
 pub async fn batch_deactivate_users(
     _admin: AdminUser,
@@ -979,11 +1015,15 @@ pub async fn get_account_details(
 /// Update account
 #[derive(Debug, Deserialize)]
 pub struct UpdateAccountRequest {
+    /// The `displayname` field.
     pub displayname: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `admin` field.
     pub admin: Option<bool>,
 }
 
+/// See [`update_account`].
 #[axum::debug_handler]
 pub async fn update_account(
     admin: AdminUser,

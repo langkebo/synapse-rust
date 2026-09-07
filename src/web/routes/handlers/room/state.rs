@@ -13,6 +13,7 @@ use synapse_common::current_timestamp_millis;
 use synapse_storage::beacon::CreateBeaconInfoParams;
 use synapse_storage::event::CreateEventParams;
 
+/// See [`get_room_state`].
 pub(crate) async fn get_room_state(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -49,6 +50,7 @@ pub(crate) fn filter_state_events_by_type(events: &[Value], event_type: &str) ->
     events.iter().filter(|e| e.get("type").and_then(|v| v.as_str()) == Some(event_type)).cloned().collect()
 }
 
+/// See [`get_state_by_type`].
 pub(crate) async fn get_state_by_type(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -82,6 +84,7 @@ pub(crate) async fn get_state_by_type(
     }
 }
 
+/// See [`get_state_event`].
 pub(crate) async fn get_state_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -173,6 +176,7 @@ fn beacon_info_content_source(content: &Value) -> &Value {
     content.get("m.beacon_info").filter(|v| v.is_object()).unwrap_or(content)
 }
 
+/// See [`send_state_event`].
 pub(crate) async fn send_state_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -257,6 +261,7 @@ pub(crate) async fn send_state_event(
     })))
 }
 
+/// See [`put_state_event`].
 pub(crate) async fn put_state_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -327,6 +332,7 @@ pub(crate) async fn put_state_event(
     })))
 }
 
+/// See [`get_state_event_empty_key`].
 pub(crate) async fn get_state_event_empty_key(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -352,6 +358,7 @@ pub(crate) async fn get_state_event_empty_key(
     Ok(Json(state_event_content_response(event.get("content").unwrap_or(&json!({})))))
 }
 
+/// See [`get_power_levels`].
 pub(crate) async fn get_power_levels(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -390,6 +397,7 @@ pub(crate) async fn put_power_levels(
         .await
 }
 
+/// See [`put_state_event_empty_key`].
 pub(crate) async fn put_state_event_empty_key(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -430,6 +438,7 @@ pub(crate) async fn put_state_event_empty_key(
     })))
 }
 
+/// See [`put_state_event_no_key`].
 pub(crate) async fn put_state_event_no_key(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -470,6 +479,7 @@ pub(crate) async fn put_state_event_no_key(
     })))
 }
 
+/// See [`get_room_permissions`].
 pub(crate) async fn get_room_permissions(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

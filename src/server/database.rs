@@ -15,6 +15,7 @@ fn format_pg_timeout(seconds: u64) -> String {
     format!("'{seconds}s'")
 }
 
+/// See [`build_database_pool`].
 pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std::error::Error>> {
     let db_cfg = &config.database;
     let statement_timeout_sql = format!("SET statement_timeout = {}", format_pg_timeout(db_cfg.statement_timeout_secs));

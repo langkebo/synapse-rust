@@ -9,6 +9,7 @@ use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
+/// See [`send_receipt`].
 pub(crate) async fn send_receipt(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -51,6 +52,7 @@ pub(crate) async fn send_receipt(
     })))
 }
 
+/// See [`get_receipts`].
 pub(crate) async fn get_receipts(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -71,6 +73,7 @@ pub(crate) async fn get_receipts(
     })))
 }
 
+/// See [`set_read_markers`].
 pub(crate) async fn set_read_markers(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

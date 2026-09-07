@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use synapse_common::current_timestamp_millis;
 use synapse_storage::event::CreateEventParams;
 
+/// See [`get_single_event`].
 pub(crate) async fn get_single_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -33,6 +34,7 @@ pub(crate) async fn get_single_event(
     Ok(Json(event))
 }
 
+/// See [`get_event_keys`].
 pub(crate) async fn get_event_keys(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -55,6 +57,7 @@ pub(crate) async fn get_event_keys(
     })))
 }
 
+/// See [`get_room_thread`].
 pub(crate) async fn get_room_thread(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -132,6 +135,7 @@ pub(crate) async fn get_room_thread(
     })))
 }
 
+/// See [`get_room_notifications`].
 pub(crate) async fn get_room_notifications(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -173,6 +177,7 @@ pub(crate) async fn get_room_notifications(
     })))
 }
 
+/// See [`get_messages`].
 pub(crate) async fn get_messages(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -242,6 +247,7 @@ pub(crate) async fn get_messages(
     Ok(Json(response))
 }
 
+/// See [`send_message`].
 pub(crate) async fn send_message(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -373,6 +379,7 @@ pub(crate) async fn send_message(
     Ok(Json(result))
 }
 
+/// See [`get_room_message_queue`].
 pub(crate) async fn get_room_message_queue(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -420,6 +427,7 @@ pub(crate) async fn get_room_message_queue(
     })))
 }
 
+/// See [`get_room_timeline`].
 pub(crate) async fn get_room_timeline(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -443,6 +451,7 @@ pub(crate) async fn get_room_timeline(
     ))
 }
 
+/// See [`get_room_unread_count`].
 pub(crate) async fn get_room_unread_count(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -465,6 +474,7 @@ pub(crate) async fn get_room_unread_count(
     })))
 }
 
+/// See [`get_room_encrypted_events`].
 pub(crate) async fn get_room_encrypted_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -505,6 +515,7 @@ pub(crate) async fn get_room_encrypted_events(
     })))
 }
 
+/// See [`get_room_event_perspective`].
 pub(crate) async fn get_room_event_perspective(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -542,6 +553,7 @@ pub(crate) async fn get_room_event_perspective(
     })))
 }
 
+/// See [`get_room_user_fragments`].
 pub(crate) async fn get_room_user_fragments(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -583,6 +595,7 @@ pub(crate) async fn get_room_user_fragments(
     })))
 }
 
+/// See [`get_room_reduced_events`].
 pub(crate) async fn get_room_reduced_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -625,6 +638,7 @@ pub(crate) async fn get_room_reduced_events(
     })))
 }
 
+/// See [`get_room_event_url`].
 pub(crate) async fn get_room_event_url(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -679,6 +693,7 @@ pub(crate) async fn get_room_event_url(
     })))
 }
 
+/// See [`sign_room_event`].
 pub(crate) async fn sign_room_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -729,6 +744,7 @@ pub(crate) async fn sign_room_event(
     })))
 }
 
+/// See [`verify_room_event`].
 pub(crate) async fn verify_room_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -777,6 +793,7 @@ pub(crate) async fn verify_room_event(
     })))
 }
 
+/// See [`translate_room_event`].
 pub(crate) async fn translate_room_event(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
@@ -826,6 +843,7 @@ pub(crate) async fn translate_room_event(
     })))
 }
 
+/// See [`translate_text`].
 pub(crate) async fn translate_text(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
@@ -873,6 +891,7 @@ pub(crate) async fn translate_text(
     })))
 }
 
+/// See [`convert_room_event`].
 pub(crate) async fn convert_room_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -896,6 +915,7 @@ pub(crate) async fn convert_room_event(
     })))
 }
 
+/// See [`redact_event`].
 pub(crate) async fn redact_event(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,

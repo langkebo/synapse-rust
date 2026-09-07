@@ -15,38 +15,60 @@ use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use crate::web::utils::auth::resolve_request_id;
 use synapse_services::external_service_integration::*;
 
+/// The `RegisterExternalServiceBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct RegisterExternalServiceBody {
+    /// The `service_type` field.
     pub service_type: String,
+    /// The `service_id` field.
     pub service_id: String,
+    /// The `display_name` field.
     pub display_name: String,
+    /// The `webhook_url` field.
     pub webhook_url: Option<String>,
+    /// The `api_key` field.
     pub api_key: Option<String>,
+    /// The `config` field.
     pub config: Option<serde_json::Value>,
 }
 
+/// The `UpdateExternalServiceBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct UpdateExternalServiceBody {
+    /// The `webhook_url` field.
     pub webhook_url: Option<String>,
+    /// The `api_key` field.
     pub api_key: Option<String>,
+    /// The `config` field.
     pub config: Option<serde_json::Value>,
+    /// The `is_enabled` field.
     pub is_enabled: Option<bool>,
 }
 
+/// The `ListServicesQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct ListServicesQuery {
     #[serde(default)]
+    /// The `service_type` field.
     pub service_type: Option<String>,
 }
 
+/// The `ExternalServiceResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct ExternalServiceResponse {
+    /// The `as_id` field.
     pub as_id: String,
+    /// The `service_type` field.
     pub service_type: String,
+    /// The `service_id` field.
     pub service_id: String,
+    /// The `display_name` field.
     pub display_name: String,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `is_healthy` field.
     pub is_healthy: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
@@ -129,6 +151,7 @@ async fn webhook_auth_guard(request: Request<Body>, next: axum::middleware::Next
     next.run(request).await
 }
 
+/// See [`register_external_service`].
 pub async fn register_external_service(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
@@ -155,6 +178,7 @@ pub async fn register_external_service(
     Ok((StatusCode::CREATED, Json(ExternalServiceResponse::from(service))))
 }
 
+/// See [`list_external_services`].
 pub async fn list_external_services(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
@@ -174,6 +198,7 @@ pub async fn list_external_services(
     Ok(Json(response))
 }
 
+/// See [`get_external_service_health`].
 pub async fn get_external_service_health(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -197,6 +222,7 @@ pub async fn get_external_service_health(
     })))
 }
 
+/// See [`check_service_health`].
 pub async fn check_service_health(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -214,6 +240,7 @@ pub async fn check_service_health(
     })))
 }
 
+/// See [`unregister_external_service`].
 pub async fn unregister_external_service(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -228,6 +255,7 @@ pub async fn unregister_external_service(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// See [`update_external_service`].
 pub async fn update_external_service(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -256,6 +284,7 @@ pub async fn update_external_service(
     Ok(Json(ExternalServiceResponse::from(service)))
 }
 
+/// See [`handle_trendradar_webhook`].
 pub async fn handle_trendradar_webhook(
     State(ctx): State<AdminContext>,
     Path(service_id): Path<String>,
@@ -275,6 +304,7 @@ pub async fn handle_trendradar_webhook(
     })))
 }
 
+/// See [`handle_generic_webhook`].
 pub async fn handle_generic_webhook(
     State(ctx): State<AdminContext>,
     Path(service_id): Path<String>,
@@ -299,6 +329,7 @@ pub async fn handle_generic_webhook(
     })))
 }
 
+/// See [`get_all_health_status`].
 pub async fn get_all_health_status(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
@@ -310,6 +341,7 @@ pub async fn get_all_health_status(
     Ok(Json(status_list))
 }
 
+/// See [`client_update_external_service`].
 pub async fn client_update_external_service(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
@@ -338,6 +370,7 @@ pub async fn client_update_external_service(
     Ok(Json(ExternalServiceResponse::from(service)))
 }
 
+/// See [`client_delete_external_service`].
 pub async fn client_delete_external_service(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
@@ -352,6 +385,7 @@ pub async fn client_delete_external_service(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// See [`client_health_check_all`].
 pub async fn client_health_check_all(
     State(ctx): State<AdminContext>,
     _user: AuthenticatedUser,
@@ -363,6 +397,7 @@ pub async fn client_health_check_all(
     Ok(Json(status_list))
 }
 
+/// See [`create_external_service_router`].
 pub fn create_external_service_router(state: AppState) -> Router<AppState> {
     let admin_routes =
         Router::new()
@@ -425,6 +460,7 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
     public_routes.merge(admin_routes).merge(admin_v1_routes).merge(client_v1_routes).with_state(state)
 }
 
+/// See [`external_service_route_manifest`].
 pub fn external_service_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

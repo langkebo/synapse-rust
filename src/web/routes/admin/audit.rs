@@ -12,12 +12,14 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_storage::audit::{decode_audit_event_cursor, AuditEventFilters, CreateAuditEventRequest};
 
+/// See [`create_audit_router`].
 pub fn create_audit_router() -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/audit/events", post(create_audit_event).get(list_audit_events))
         .route("/_synapse/admin/v1/audit/events/{event_id}", get(get_audit_event))
 }
 
+/// See [`admin_audit_route_manifest`].
 pub fn admin_audit_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -31,28 +33,45 @@ pub fn admin_audit_route_manifest() -> Vec<crate::web::routes::route_ledger::Rou
     .collect()
 }
 
+/// The `CreateAuditEventBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct CreateAuditEventBody {
+    /// The `actor_id` field.
     pub actor_id: String,
+    /// The `action` field.
     pub action: String,
+    /// The `resource_type` field.
     pub resource_type: String,
+    /// The `resource_id` field.
     pub resource_id: String,
+    /// The `result` field.
     pub result: String,
+    /// The `request_id` field.
     pub request_id: String,
+    /// The `details` field.
     pub details: Option<Value>,
 }
 
+/// The `AuditEventQueryParams` struct.
 #[derive(Debug, Deserialize)]
 pub struct AuditEventQueryParams {
+    /// The `actor_id` field.
     pub actor_id: Option<String>,
+    /// The `action` field.
     pub action: Option<String>,
+    /// The `resource_type` field.
     pub resource_type: Option<String>,
+    /// The `resource_id` field.
     pub resource_id: Option<String>,
+    /// The `result` field.
     pub result: Option<String>,
+    /// The `limit` field.
     pub limit: Option<i64>,
+    /// The `from` field.
     pub from: Option<String>,
 }
 
+/// See [`create_audit_event`].
 #[axum::debug_handler]
 pub async fn create_audit_event(
     _admin: AdminUser,
@@ -75,6 +94,7 @@ pub async fn create_audit_event(
     Ok(Json(json!(event)))
 }
 
+/// See [`list_audit_events`].
 #[axum::debug_handler]
 pub async fn list_audit_events(
     _admin: AdminUser,
@@ -117,6 +137,7 @@ pub async fn list_audit_events(
     })))
 }
 
+/// See [`get_audit_event`].
 #[axum::debug_handler]
 pub async fn get_audit_event(
     _admin: AdminUser,
@@ -132,10 +153,12 @@ pub async fn get_audit_event(
     Ok(Json(json!(event)))
 }
 
+/// See [`resolve_request_id`].
 pub(crate) fn resolve_request_id(headers: &HeaderMap) -> String {
     resolve_request_id_from_headers(headers)
 }
 
+/// See [`record_audit_event`].
 pub(crate) async fn record_audit_event(
     ctx: &AdminContext,
     actor_id: &str,

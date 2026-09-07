@@ -18,6 +18,7 @@ use synapse_common::current_timestamp_millis;
 
 const DEFAULT_FRIEND_LIST_LIMIT: usize = 20;
 
+/// See [`create_friend_router`].
 pub fn create_friend_router(state: AppState) -> Router<AppState> {
     Router::new()
         // v3 路径
@@ -338,6 +339,7 @@ pub fn create_friend_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+/// See [`friend_route_manifest`].
 pub fn friend_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -443,48 +445,66 @@ pub fn friend_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
     .collect()
 }
 
+/// The `AddFriendRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AddFriendRequest {
+    /// The `user_id` field.
     pub user_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `message` field.
     pub message: Option<String>,
 }
 
+/// The `UpdateNoteRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateNoteRequest {
+    /// The `note` field.
     pub note: String,
 }
 
+/// The `UpdateStatusRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateStatusRequest {
+    /// The `status` field.
     pub status: String,
 }
 
+/// The `UpdateDisplaynameRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateDisplaynameRequest {
     #[serde(rename = "displayname")]
+    /// The `display_name` field.
     pub display_name: String,
 }
 
+/// The `FriendListQueryParams` struct.
 #[derive(Debug, Default, Deserialize)]
 pub struct FriendListQueryParams {
     #[serde(default)]
+    /// The `limit` field.
     pub limit: Option<usize>,
     #[serde(default)]
+    /// The `offset` field.
     pub offset: Option<usize>,
     #[serde(default)]
+    /// The `from` field.
     pub from: Option<String>,
     #[serde(default)]
+    /// The `sort_by` field.
     pub sort_by: Option<String>,
 }
 
+/// The `FriendSearchQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct FriendSearchQuery {
     #[serde(default, alias = "query")]
+    /// The `q` field.
     pub q: Option<String>,
     #[serde(default)]
+    /// The `mode` field.
     pub mode: Option<String>,
     #[serde(default)]
+    /// The `limit` field.
     pub limit: Option<usize>,
 }
 
@@ -502,23 +522,35 @@ fn resolve_friend_search_term(query: &FriendSearchQuery, body: Option<&Value>) -
     .filter(|s| !s.is_empty())
 }
 
+/// The `FriendRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FriendRequest {
+    /// The `user_id` field.
     pub user_id: String,
     #[serde(rename = "displayname")]
+    /// The `display_name` field.
     pub display_name: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `message` field.
     pub message: Option<String>,
+    /// The `timestamp` field.
     pub timestamp: i64,
+    /// The `status` field.
     pub status: FriendRequestStatus,
 }
 
+/// The `FriendRequestStatus` enum.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FriendRequestStatus {
+    /// The `Pending` variant.
     Pending,
+    /// The `Accepted` variant.
     Accepted,
+    /// The `Rejected` variant.
     Rejected,
+    /// The `Cancelled` variant.
     Cancelled,
 }
 
@@ -879,8 +911,10 @@ async fn check_friendship(
     })))
 }
 
+/// The `FriendSuggestionsQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct FriendSuggestionsQuery {
+    /// The `limit` field.
     pub limit: Option<i64>,
 }
 
@@ -899,13 +933,17 @@ async fn get_friend_suggestions(
 
 // 好友分组相关处理函数
 
+/// The `CreateGroupRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateGroupRequest {
+    /// The `name` field.
     pub name: String,
 }
 
+/// The `RenameGroupRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RenameGroupRequest {
+    /// The `name` field.
     pub name: String,
 }
 

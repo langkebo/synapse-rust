@@ -44,6 +44,7 @@ pub async fn get_dehydrated_device(
     }
 }
 
+/// See [`put_dehydrated_device`].
 pub async fn put_dehydrated_device(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -81,6 +82,7 @@ pub async fn put_dehydrated_device(
     })))
 }
 
+/// See [`get_dehydrated_device_status`].
 pub async fn get_dehydrated_device_status(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -89,6 +91,7 @@ pub async fn get_dehydrated_device_status(
     Ok(Json(status))
 }
 
+/// See [`delete_dehydrated_device`].
 pub async fn delete_dehydrated_device(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

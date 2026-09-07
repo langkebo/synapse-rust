@@ -63,6 +63,7 @@ async fn filter_visible_presence_targets(ctx: &RoomContext, current_user_id: &st
     targets.iter().filter(|target_id| allowed.contains(*target_id)).cloned().collect()
 }
 
+/// See [`get_presence`].
 pub(crate) async fn get_presence(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -101,6 +102,7 @@ pub(crate) async fn get_presence(
     }
 }
 
+/// See [`set_presence`].
 pub(crate) async fn set_presence(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -138,6 +140,7 @@ pub(crate) async fn set_presence(
     Ok(Json(json!({})))
 }
 
+/// See [`presence_list`].
 pub(crate) async fn presence_list(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
@@ -230,6 +233,7 @@ pub(crate) async fn presence_list(
     })))
 }
 
+/// See [`get_presence_list_no_path`].
 pub(crate) async fn get_presence_list_no_path(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -276,6 +280,7 @@ pub(crate) async fn get_presence_list_no_path(
     })))
 }
 
+/// See [`get_presence_list`].
 pub(crate) async fn get_presence_list(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

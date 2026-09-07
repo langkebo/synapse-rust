@@ -1,6 +1,7 @@
 use crate::common::ApiError;
 use axum::extract::rejection::JsonRejection;
 
+/// The `MatrixJson` struct.
 pub struct MatrixJson<T>(pub T);
 
 impl<S, T> axum::extract::FromRequest<S> for MatrixJson<T>

@@ -13,6 +13,7 @@ use synapse_services::oidc_service::OidcService;
 
 use super::{consume_oidc_auth_session, store_oidc_auth_session, validate_state_pkce_binding, OidcAuthSession};
 
+/// The `SsoRedirectQuery` struct.
 #[derive(Debug, Deserialize)]
 pub(crate) struct SsoRedirectQuery {
     #[serde(rename = "redirectUrl")]
@@ -102,6 +103,7 @@ fn resolve_sso_redirect_url(ctx: &SsoContext, query: &SsoRedirectQuery) -> Strin
     url
 }
 
+/// See [`sso_redirect`].
 pub(crate) async fn sso_redirect(
     State(ctx): State<SsoContext>,
     Query(query): Query<SsoRedirectQuery>,
@@ -144,9 +146,13 @@ pub(crate) async fn sso_redirect(
 /// OIDC Callback Request - handles OIDC authorization callback
 #[derive(Debug, Deserialize)]
 pub(crate) struct OidcCallbackRequest {
+    /// The `code` field.
     pub code: Option<String>,
+    /// The `state` field.
     pub state: Option<String>,
+    /// The `error` field.
     pub error: Option<String>,
+    /// The `error_description` field.
     pub error_description: Option<String>,
 }
 

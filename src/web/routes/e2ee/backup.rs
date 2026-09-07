@@ -16,6 +16,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::Value;
 
+/// See [`get_secure_backup_list`].
 #[axum::debug_handler]
 pub(crate) async fn get_secure_backup_list(
     State(ctx): State<E2eeRoomContext>,
@@ -40,6 +41,7 @@ pub(crate) async fn get_secure_backup_list(
     Ok(Json(Value::Object(response)))
 }
 
+/// See [`create_secure_backup`].
 #[axum::debug_handler]
 pub(crate) async fn create_secure_backup(
     State(ctx): State<E2eeRoomContext>,
@@ -74,6 +76,7 @@ pub(crate) async fn create_secure_backup(
     }
 }
 
+/// See [`get_secure_backup`].
 #[axum::debug_handler]
 pub(crate) async fn get_secure_backup(
     State(ctx): State<E2eeRoomContext>,
@@ -94,6 +97,7 @@ pub(crate) async fn get_secure_backup(
     }
 }
 
+/// See [`store_secure_backup_keys`].
 #[axum::debug_handler]
 pub(crate) async fn store_secure_backup_keys(
     State(ctx): State<E2eeRoomContext>,
@@ -133,6 +137,7 @@ pub(crate) async fn store_secure_backup_keys(
     })))
 }
 
+/// See [`restore_secure_backup`].
 #[axum::debug_handler]
 pub(crate) async fn restore_secure_backup(
     State(ctx): State<E2eeRoomContext>,
@@ -149,6 +154,7 @@ pub(crate) async fn restore_secure_backup(
     })))
 }
 
+/// See [`verify_secure_backup_passphrase`].
 #[axum::debug_handler]
 pub(crate) async fn verify_secure_backup_passphrase(
     _state: State<E2eeRoomContext>,
@@ -161,6 +167,7 @@ pub(crate) async fn verify_secure_backup_passphrase(
     Err(ApiError::gone("passphrase verification removed: verify client-side with the recovery key".to_string()))
 }
 
+/// See [`delete_secure_backup`].
 #[axum::debug_handler]
 pub(crate) async fn delete_secure_backup(
     State(ctx): State<E2eeRoomContext>,
@@ -172,12 +179,14 @@ pub(crate) async fn delete_secure_backup(
     Ok(empty_json())
 }
 
+/// The `AuditPaginationQuery` struct.
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct AuditPaginationQuery {
     limit: Option<usize>,
     from: Option<String>,
 }
 
+/// See [`get_key_history`].
 #[axum::debug_handler]
 pub(crate) async fn get_key_history(
     State(ctx): State<E2eeRoomContext>,

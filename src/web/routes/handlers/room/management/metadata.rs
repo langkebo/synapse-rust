@@ -46,6 +46,7 @@ use crate::web::routes::context::RoomContext;
 //    that accepts the state_events slice and returns the room type string.
 // =============================================================================
 
+/// The `RoomSyncQueryDto` struct.
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct RoomSyncQueryDto {
     #[serde(default, deserialize_with = "deserialize_optional_u64")]
@@ -56,6 +57,7 @@ pub(crate) struct RoomSyncQueryDto {
     since: Option<String>,
 }
 
+/// See [`room_initial_sync`].
 pub(crate) async fn room_initial_sync(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -125,6 +127,7 @@ pub(crate) async fn room_initial_sync(
     })))
 }
 
+/// See [`get_room_sync`].
 pub(crate) async fn get_room_sync(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -149,6 +152,7 @@ pub(crate) async fn get_room_sync(
     Ok(Json(result))
 }
 
+/// See [`get_room_capabilities`].
 pub(crate) async fn get_room_capabilities(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -192,6 +196,7 @@ pub(crate) async fn get_room_capabilities(
     })))
 }
 
+/// See [`get_room_thread_by_id`].
 pub(crate) async fn get_room_thread_by_id(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -228,6 +233,7 @@ pub(crate) async fn get_room_thread_by_id(
     })))
 }
 
+/// See [`get_room_turn_server`].
 pub(crate) async fn get_room_turn_server(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -262,6 +268,7 @@ pub(crate) async fn get_room_turn_server(
     })))
 }
 
+/// See [`get_room_metadata`].
 pub(crate) async fn get_room_metadata(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -321,6 +328,7 @@ pub(crate) async fn get_room_metadata(
     Ok(Json(response))
 }
 
+/// See [`get_room_vault_data`].
 pub(crate) async fn get_room_vault_data(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -352,6 +360,7 @@ pub(crate) async fn get_room_vault_data(
     }
 }
 
+/// See [`set_room_vault_data`].
 pub(crate) async fn set_room_vault_data(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -374,6 +383,7 @@ pub(crate) async fn set_room_vault_data(
     })))
 }
 
+/// See [`get_room_rendered`].
 pub(crate) async fn get_room_rendered(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -422,6 +432,7 @@ pub(crate) async fn get_room_rendered(
     })))
 }
 
+/// See [`get_room_external_ids`].
 pub(crate) async fn get_room_external_ids(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -445,6 +456,7 @@ pub(crate) async fn get_room_external_ids(
     })))
 }
 
+/// See [`get_room_service_types`].
 pub(crate) async fn get_room_service_types(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -478,6 +490,7 @@ pub(crate) async fn get_room_service_types(
     })))
 }
 
+/// See [`get_room_device`].
 pub(crate) async fn get_room_device(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -519,6 +532,7 @@ pub(crate) async fn get_room_device(
     })))
 }
 
+/// See [`get_room_resolve`].
 pub(crate) async fn get_room_resolve(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -544,6 +558,7 @@ pub(crate) async fn get_room_resolve(
     })))
 }
 
+/// See [`get_room_spaces`].
 pub(crate) async fn get_room_spaces(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -598,6 +613,7 @@ pub(crate) async fn get_room_spaces(
     })))
 }
 
+/// See [`search_room_messages`].
 pub(crate) async fn search_room_messages(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -658,6 +674,7 @@ pub(crate) async fn search_room_messages(
     })))
 }
 
+/// See [`get_retention_policy`].
 pub(crate) async fn get_retention_policy(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

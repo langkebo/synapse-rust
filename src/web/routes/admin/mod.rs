@@ -1,16 +1,30 @@
+/// The `audit` module.
 pub mod audit;
+/// The `cleanup` module.
 pub mod cleanup;
+/// The `federation` module.
 pub mod federation;
+/// The `media` module.
 pub mod media;
+/// The `notification` module.
 pub mod notification;
+/// The `policy` module.
 pub mod policy;
+/// The `register` module.
 pub mod register;
+/// The `report` module.
 pub mod report;
+/// The `retention` module.
 pub mod retention;
+/// The `room` module.
 pub mod room;
+/// The `security` module.
 pub mod security;
+/// The `server` module.
 pub mod server;
+/// The `token` module.
 pub mod token;
+/// The `user` module.
 pub mod user;
 
 use crate::web::routes::AppState;
@@ -31,6 +45,7 @@ pub use server::create_server_router;
 pub use token::create_token_router;
 pub use user::create_user_router;
 
+/// See [`ensure_super_admin_for_privilege_change`].
 pub(crate) fn ensure_super_admin_for_privilege_change(
     admin: &crate::web::routes::AdminUser,
 ) -> Result<(), crate::common::ApiError> {
@@ -40,6 +55,7 @@ pub(crate) fn ensure_super_admin_for_privilege_change(
     Ok(())
 }
 
+/// See [`create_admin_module_router`].
 pub fn create_admin_module_router(state: AppState) -> Router<crate::web::routes::AppState> {
     #[allow(unused_mut)]
     let mut admin_router = Router::new()
@@ -71,6 +87,7 @@ pub fn create_admin_module_router(state: AppState) -> Router<crate::web::routes:
     Router::new().merge(protected).merge(create_register_router(state))
 }
 
+/// See [`admin_module_route_manifest`].
 pub fn admin_module_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     let mut entries = Vec::new();
     entries.extend(audit::admin_audit_route_manifest());

@@ -47,6 +47,7 @@ fn resolve_rate_limit_override(ctx: &SyncContext) -> (bool, bool, u32, u32, u32,
     }
 }
 
+/// See [`sync`].
 pub(crate) async fn sync(
     State(ctx): State<SyncContext>,
     headers: HeaderMap,
@@ -181,6 +182,7 @@ async fn execute_sync(params: SyncParams) -> Result<Json<Value>, ApiError> {
     }
 }
 
+/// See [`get_events`].
 pub(crate) async fn get_events(
     State(ctx): State<SyncContext>,
     auth_user: AuthenticatedUser,

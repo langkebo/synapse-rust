@@ -59,6 +59,7 @@ async fn save_extended_profile_document(
     ctx.account_data_service.set_account_data(user_id, EXTENDED_PROFILE_DATA_TYPE, &content).await
 }
 
+/// See [`get_extended_profile`].
 pub async fn get_extended_profile(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
@@ -77,6 +78,7 @@ pub async fn get_extended_profile(
     Ok(Json(serde_json::Value::Object(load_extended_profile_document(&ctx, &user_id).await?)))
 }
 
+/// See [`get_extended_profile_field`].
 pub async fn get_extended_profile_field(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
@@ -105,6 +107,7 @@ pub async fn get_extended_profile_field(
     Ok(Json(value))
 }
 
+/// See [`put_extended_profile_field`].
 pub async fn put_extended_profile_field(
     State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
@@ -137,6 +140,7 @@ pub async fn put_extended_profile_field(
     })))
 }
 
+/// See [`delete_extended_profile_field`].
 pub async fn delete_extended_profile_field(
     State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,

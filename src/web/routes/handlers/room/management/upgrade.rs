@@ -8,6 +8,7 @@ use synapse_common::current_timestamp_millis;
 
 use crate::web::routes::context::RoomContext;
 
+/// See [`upgrade_room`].
 pub(crate) async fn upgrade_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -23,6 +24,7 @@ pub(crate) async fn upgrade_room(
     Ok(Json(UpgradeRoomResponse { replacement_room: new_room_id }))
 }
 
+/// See [`get_room_version`].
 pub(crate) async fn get_room_version(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -49,6 +51,7 @@ pub(crate) async fn get_room_version(
     })))
 }
 
+/// See [`forget_room`].
 pub(crate) async fn forget_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

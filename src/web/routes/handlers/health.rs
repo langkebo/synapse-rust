@@ -25,6 +25,7 @@ pub async fn health_check(State(ctx): State<AdminContext>) -> impl IntoResponse 
     )
 }
 
+/// See [`detailed_health_check`].
 pub async fn detailed_health_check(State(ctx): State<AdminContext>) -> impl IntoResponse {
     let mut checks = serde_json::Map::new();
     let mut overall_status = "healthy";

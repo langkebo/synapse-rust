@@ -28,6 +28,7 @@ fn create_account_data_compat_router() -> Router<AppState> {
         .route("/user/{user_id}/openid/request_token", get(get_openid_token).post(get_openid_token))
 }
 
+/// See [`create_account_data_router`].
 pub fn create_account_data_router(state: AppState) -> Router<AppState> {
     let compat_router = create_account_data_compat_router();
 
@@ -58,6 +59,7 @@ fn account_data_compat_relative_routes() -> Vec<(axum::http::Method, &'static st
     ]
 }
 
+/// See [`account_data_route_manifest`].
 pub fn account_data_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     crate::web::routes::route_ledger::expand_under_prefixes(
         "account_data",

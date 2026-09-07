@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use super::upload::ensure_local_media_server_name;
 use crate::web::routes::extractors::{MediaId, ServerName};
 
+/// See [`check_quota`].
 pub(crate) async fn check_quota(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
@@ -25,6 +26,7 @@ pub(crate) async fn check_quota(
     })))
 }
 
+/// See [`quota_stats`].
 pub(crate) async fn quota_stats(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
@@ -41,6 +43,7 @@ pub(crate) async fn quota_stats(
     })))
 }
 
+/// See [`quota_alerts`].
 pub(crate) async fn quota_alerts(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
@@ -68,6 +71,7 @@ pub(crate) async fn quota_alerts(
     })))
 }
 
+/// See [`delete_media`].
 pub(crate) async fn delete_media(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,

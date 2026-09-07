@@ -28,6 +28,7 @@ fn parse_federation_query_i64(params: &Value, key: &str, default: i64) -> Result
     }
 }
 
+/// See [`media_download`].
 pub(super) async fn media_download(
     State(ctx): State<FederationContext>,
     Path((server_name, media_id)): Path<(ServerName, MediaId)>,
@@ -41,6 +42,7 @@ pub(super) async fn media_download(
     Ok((headers, content))
 }
 
+/// See [`media_thumbnail`].
 pub(super) async fn media_thumbnail(
     State(ctx): State<FederationContext>,
     Path((server_name, media_id)): Path<(ServerName, MediaId)>,

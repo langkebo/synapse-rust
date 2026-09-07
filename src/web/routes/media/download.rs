@@ -105,6 +105,7 @@ fn build_proxy_media_headers(
     }
 }
 
+/// See [`media_response_headers`].
 pub(crate) fn media_response_headers(headers: &synapse_services::media::MediaResponseHeaders) -> HeaderMap {
     let mut out = HeaderMap::new();
     if let Ok(v) = HeaderValue::from_str(&headers.content_type) {
@@ -126,6 +127,7 @@ pub(crate) fn media_response_headers(headers: &synapse_services::media::MediaRes
     out
 }
 
+/// See [`media_error_response`].
 pub(crate) fn media_error_response(error: &ApiError) -> (StatusCode, HeaderMap, Vec<u8>) {
     let status = error.http_status();
     let error_body = serde_json::to_vec(&json!({
@@ -257,6 +259,7 @@ pub(crate) async fn download_media_stream_common(
     }
 }
 
+/// See [`thumbnail_request_params`].
 pub(crate) fn thumbnail_request_params(params: &Value) -> (u32, u32, &str) {
     let width = params.get("width").and_then(|v| v.as_u64()).filter(|&w| w <= 10000).unwrap_or(800) as u32;
     let height = params.get("height").and_then(|v| v.as_u64()).filter(|&h| h <= 10000).unwrap_or(600) as u32;
@@ -264,6 +267,7 @@ pub(crate) fn thumbnail_request_params(params: &Value) -> (u32, u32, &str) {
     (width, height, method)
 }
 
+/// See [`thumbnail_response_common`].
 pub(crate) async fn thumbnail_response_common(
     ctx: &MediaContext,
     server_name: &str,
@@ -290,6 +294,7 @@ pub(crate) async fn thumbnail_response_common(
 // Download handlers (S3: streaming — no full buffering into Vec<u8>)
 // ---------------------------------------------------------------------------
 
+/// See [`download_media`].
 pub(crate) async fn download_media(
     State(ctx): State<MediaContext>,
     auth_user: OptionalAuthenticatedUser,
@@ -300,6 +305,7 @@ pub(crate) async fn download_media(
     Ok((status, headers, body).into_response())
 }
 
+/// See [`download_media_with_filename`].
 pub(crate) async fn download_media_with_filename(
     State(ctx): State<MediaContext>,
     auth_user: OptionalAuthenticatedUser,
@@ -352,6 +358,7 @@ pub(crate) async fn download_media_signed_with_filename(
     Ok((status, headers, body).into_response())
 }
 
+/// See [`download_media_authenticated`].
 pub(crate) async fn download_media_authenticated(
     State(ctx): State<MediaContext>,
     _auth_user: AuthenticatedUser,
@@ -361,6 +368,7 @@ pub(crate) async fn download_media_authenticated(
     Ok((status, headers, body).into_response())
 }
 
+/// See [`download_media_authenticated_with_filename`].
 pub(crate) async fn download_media_authenticated_with_filename(
     State(ctx): State<MediaContext>,
     _auth_user: AuthenticatedUser,
@@ -370,6 +378,7 @@ pub(crate) async fn download_media_authenticated_with_filename(
     Ok((status, headers, body).into_response())
 }
 
+/// See [`download_media_v1`].
 pub(crate) async fn download_media_v1(
     State(ctx): State<MediaContext>,
     Path((server_name, media_id)): Path<(ServerName, MediaId)>,
@@ -383,6 +392,7 @@ pub(crate) async fn download_media_v1(
     }
 }
 
+/// See [`download_media_v1_with_filename`].
 pub(crate) async fn download_media_v1_with_filename(
     State(ctx): State<MediaContext>,
     Path((server_name, media_id, filename)): Path<(ServerName, MediaId, String)>,
@@ -400,6 +410,7 @@ pub(crate) async fn download_media_v1_with_filename(
 // Thumbnail handlers
 // ---------------------------------------------------------------------------
 
+/// See [`get_thumbnail`].
 pub(crate) async fn get_thumbnail(
     State(ctx): State<MediaContext>,
     auth_user: OptionalAuthenticatedUser,
@@ -412,6 +423,7 @@ pub(crate) async fn get_thumbnail(
     Ok((StatusCode::OK, headers, response.content))
 }
 
+/// See [`get_thumbnail_authenticated`].
 pub(crate) async fn get_thumbnail_authenticated(
     State(ctx): State<MediaContext>,
     _auth_user: AuthenticatedUser,

@@ -7,6 +7,7 @@ use crate::web::middleware::{payload_too_large_json_middleware, request_debug_mi
 use crate::web::routes::create_router;
 use crate::web::AppState;
 
+/// See [`build_router`].
 pub fn build_router(app_state: AppState, config: &Config) -> Router {
     create_router(app_state)
         // G-1: 全局 body 上限读取权威字段 config.server.max_upload_size，

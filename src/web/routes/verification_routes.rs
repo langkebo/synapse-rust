@@ -27,6 +27,7 @@ fn create_verification_compat_router() -> Router<AppState> {
         .route("/keys/verification/{transaction_id}/cancel", post(compat_verification_cancel))
 }
 
+/// See [`create_verification_router`].
 pub fn create_verification_router(_state: AppState) -> Router<AppState> {
     let compat_router = create_verification_compat_router();
 
@@ -66,22 +67,35 @@ pub fn verification_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
     )
 }
 
+/// The `VerificationStartBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct VerificationStartBody {
+    /// The `transaction_id` field.
     pub transaction_id: Option<String>,
+    /// The `from_device` field.
     pub from_device: String,
+    /// The `to_user` field.
     pub to_user: Option<String>,
+    /// The `to_device` field.
     pub to_device: Option<String>,
+    /// The `method` field.
     pub method: Option<String>,
+    /// The `methods` field.
     pub methods: Option<Vec<String>>,
 }
 
+/// The `VerificationStartResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct VerificationStartResponse {
+    /// The `transaction_id` field.
     pub transaction_id: String,
+    /// The `method` field.
     pub method: String,
+    /// The `key_agreement_protocol` field.
     pub key_agreement_protocol: Vec<String>,
+    /// The `hash` field.
     pub hash: Vec<String>,
+    /// The `short_authentication_string` field.
     pub short_authentication_string: Vec<String>,
 }
 
@@ -127,11 +141,16 @@ async fn verification_start(
     })))
 }
 
+/// The `VerificationAcceptBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct VerificationAcceptBody {
+    /// The `transaction_id` field.
     pub transaction_id: String,
+    /// The `key_agreement_protocol` field.
     pub key_agreement_protocol: String,
+    /// The `hash` field.
     pub hash: String,
+    /// The `commitment` field.
     pub commitment: Option<String>,
 }
 
@@ -160,9 +179,12 @@ async fn verification_accept(
     })))
 }
 
+/// The `KeyAgreementBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct KeyAgreementBody {
+    /// The `transaction_id` field.
     pub transaction_id: String,
+    /// The `pubkey` field.
     pub pubkey: String,
 }
 
@@ -216,9 +238,12 @@ async fn verification_key_agreement(
     Ok(Json(response))
 }
 
+/// The `VerificationMacBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct VerificationMacBody {
+    /// The `transaction_id` field.
     pub transaction_id: String,
+    /// The `mac` field.
     pub mac: String,
 }
 
@@ -277,10 +302,14 @@ async fn verification_done(
     })))
 }
 
+/// The `VerificationCancelBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct VerificationCancelBody {
+    /// The `transaction_id` field.
     pub transaction_id: String,
+    /// The `code` field.
     pub code: String,
+    /// The `reason` field.
     pub reason: String,
 }
 
@@ -337,13 +366,20 @@ async fn show_qr_code(State(ctx): State<DeviceContext>, auth_user: Authenticated
     })))
 }
 
+/// The `ScanQrBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct ScanQrBody {
+    /// The `transaction_id` field.
     pub transaction_id: String,
+    /// The `server_name` field.
     pub server_name: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `device_ed25519_key` field.
     pub device_ed25519_key: String,
+    /// The `device_curve25519_key` field.
     pub device_curve25519_key: String,
 }
 
@@ -417,13 +453,20 @@ fn ensure_verification_participant(
     }
 }
 
+/// The `CompatVerificationRequestBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct CompatVerificationRequestBody {
+    /// The `transaction_id` field.
     pub transaction_id: Option<String>,
+    /// The `from_device` field.
     pub from_device: Option<String>,
+    /// The `to_user` field.
     pub to_user: String,
+    /// The `to_device` field.
     pub to_device: Option<String>,
+    /// The `method` field.
     pub method: Option<String>,
+    /// The `methods` field.
     pub methods: Option<Vec<String>>,
 }
 
@@ -486,9 +529,12 @@ async fn compat_verification_status(
     })))
 }
 
+/// The `CompatVerificationCancelBody` struct.
 #[derive(Debug, Deserialize, Default)]
 pub struct CompatVerificationCancelBody {
+    /// The `code` field.
     pub code: Option<String>,
+    /// The `reason` field.
     pub reason: Option<String>,
 }
 

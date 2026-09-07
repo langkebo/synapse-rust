@@ -115,6 +115,7 @@ pub fn create_delayed_events_router() -> Router<AppState> {
     Router::new().route("/delayed_events/{delay_id}", post(manage_delayed_event))
 }
 
+/// See [`delayed_events_route_manifest`].
 pub fn delayed_events_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

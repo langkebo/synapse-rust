@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::types::{DeviceId, UserId};
 
+/// See [`create_server_router`].
 pub fn create_server_router(_state: AppState) -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/server", get(get_admin_info_compat))
@@ -29,6 +30,7 @@ pub fn create_server_router(_state: AppState) -> Router<crate::web::routes::AppS
         .route("/_synapse/admin/v1/invite/allowlist", get(get_invite_allowlist_admin))
 }
 
+/// See [`admin_server_route_manifest`].
 pub fn admin_server_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -56,11 +58,13 @@ pub fn admin_server_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
     .collect()
 }
 
+/// See [`get_admin_info_compat`].
 #[axum::debug_handler]
 pub async fn get_admin_info_compat(admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     get_admin_info(admin, State(ctx)).await
 }
 
+/// See [`get_admin_info`].
 #[allow(clippy::unused_async)]
 pub async fn get_admin_info(admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     // Only super_admin can access server info
@@ -75,6 +79,7 @@ pub async fn get_admin_info(admin: AdminUser, State(ctx): State<AdminContext>) -
     })))
 }
 
+/// See [`get_admin_whoami`].
 #[allow(clippy::unused_async)]
 pub async fn get_admin_whoami(admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
@@ -85,6 +90,7 @@ pub async fn get_admin_whoami(admin: AdminUser, State(ctx): State<AdminContext>)
     })))
 }
 
+/// See [`get_server_version`].
 #[allow(clippy::unused_async)]
 pub async fn get_server_version(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
@@ -94,6 +100,7 @@ pub async fn get_server_version(_admin: AdminUser, State(ctx): State<AdminContex
     })))
 }
 
+/// See [`purge_media_cache`].
 #[axum::debug_handler]
 pub async fn purge_media_cache(
     _admin: AdminUser,
@@ -116,6 +123,7 @@ pub async fn purge_media_cache(
     })))
 }
 
+/// See [`restart_server`].
 #[allow(clippy::unused_async)] // axum handlers must be async even when the await is inside spawn
 pub async fn restart_server(
     _admin: AdminUser,
@@ -146,6 +154,7 @@ pub async fn restart_server(
     })))
 }
 
+/// See [`get_statistics`].
 #[axum::debug_handler]
 pub async fn get_statistics(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     let total_users = ctx.account_identity_service.get_user_count().await?;
@@ -212,6 +221,7 @@ pub async fn get_statistics(_admin: AdminUser, State(ctx): State<AdminContext>) 
     })))
 }
 
+/// See [`get_status`].
 #[axum::debug_handler]
 pub async fn get_status(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     let db_ok = ctx.admin_server_service.is_database_healthy().await;
@@ -223,6 +233,7 @@ pub async fn get_status(_admin: AdminUser, State(ctx): State<AdminContext>) -> R
     })))
 }
 
+/// See [`whois`].
 #[axum::debug_handler]
 pub async fn whois(
     _admin: AdminUser,
@@ -255,6 +266,7 @@ pub async fn whois(
     })))
 }
 
+/// See [`whois_device`].
 #[axum::debug_handler]
 pub async fn whois_device(
     _admin: AdminUser,
@@ -282,6 +294,7 @@ pub async fn whois_device(
     }
 }
 
+/// See [`get_health`].
 #[axum::debug_handler]
 pub async fn get_health(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     let db_ok = ctx.admin_server_service.is_database_healthy().await;
@@ -292,6 +305,7 @@ pub async fn get_health(_admin: AdminUser, State(ctx): State<AdminContext>) -> R
     })))
 }
 
+/// See [`get_config`].
 #[allow(clippy::unused_async)]
 pub async fn get_config(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
@@ -302,6 +316,7 @@ pub async fn get_config(_admin: AdminUser, State(ctx): State<AdminContext>) -> R
     })))
 }
 
+/// See [`get_experimental_features`].
 #[axum::debug_handler]
 pub async fn get_experimental_features(
     _admin: AdminUser,
@@ -333,6 +348,7 @@ pub async fn get_experimental_features(
     })))
 }
 
+/// See [`get_jitsi_config`].
 #[allow(clippy::unused_async)]
 pub async fn get_jitsi_config(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     // Jitsi domain is not hardcoded to a third-party service.  Deployments
@@ -348,6 +364,7 @@ pub async fn get_jitsi_config(_admin: AdminUser, State(ctx): State<AdminContext>
     })))
 }
 
+/// See [`get_invite_blocklist_admin`].
 #[axum::debug_handler]
 pub async fn get_invite_blocklist_admin(
     _admin: AdminUser,
@@ -364,6 +381,7 @@ pub async fn get_invite_blocklist_admin(
     })))
 }
 
+/// See [`get_invite_allowlist_admin`].
 #[axum::debug_handler]
 pub async fn get_invite_allowlist_admin(
     _admin: AdminUser,

@@ -8,26 +8,45 @@ use serde::Serialize;
 /// OpenID Connect Discovery document
 #[derive(Debug, Serialize)]
 pub(crate) struct OpenIdDiscovery {
+    /// The `issuer` field.
     pub issuer: String,
+    /// The `authorization_endpoint` field.
     pub authorization_endpoint: String,
+    /// The `token_endpoint` field.
     pub token_endpoint: String,
+    /// The `userinfo_endpoint` field.
     pub userinfo_endpoint: String,
+    /// The `jwks_uri` field.
     pub jwks_uri: String,
+    /// The `registration_endpoint` field.
     pub registration_endpoint: Option<String>,
+    /// The `revocation_endpoint` field.
     pub revocation_endpoint: Option<String>,
+    /// The `end_session_endpoint` field.
     pub end_session_endpoint: Option<String>,
+    /// The `scopes_supported` field.
     pub scopes_supported: Vec<String>,
+    /// The `response_types_supported` field.
     pub response_types_supported: Vec<String>,
+    /// The `response_modes_supported` field.
     pub response_modes_supported: Vec<String>,
+    /// The `grant_types_supported` field.
     pub grant_types_supported: Vec<String>,
+    /// The `token_endpoint_auth_methods_supported` field.
     pub token_endpoint_auth_methods_supported: Vec<String>,
+    /// The `claims_supported` field.
     pub claims_supported: Vec<String>,
+    /// The `ui_locales_supported` field.
     pub ui_locales_supported: Vec<String>,
+    /// The `subject_types_supported` field.
     pub subject_types_supported: Vec<String>,
+    /// The `id_token_signing_alg_values_supported` field.
     pub id_token_signing_alg_values_supported: Vec<String>,
+    /// The `code_challenge_methods_supported` field.
     pub code_challenge_methods_supported: Vec<String>,
 }
 
+/// See [`builtin_oidc_login`].
 #[cfg(feature = "builtin-oidc")]
 pub(crate) async fn builtin_oidc_login(
     State(ctx): State<SsoContext>,
@@ -72,6 +91,7 @@ pub(crate) async fn builtin_oidc_login(
     Ok(Json(serde_json::json!({ "code": code })))
 }
 
+/// See [`jwks`].
 #[cfg(feature = "builtin-oidc")]
 pub(crate) async fn jwks(State(ctx): State<SsoContext>) -> Result<Json<serde_json::Value>, ApiError> {
     if let Some(provider) = &ctx.builtin_oidc_provider {

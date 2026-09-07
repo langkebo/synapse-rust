@@ -16,6 +16,7 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_services::uia_service::UiaService;
 
+/// See [`whoami`].
 pub(crate) async fn whoami(State(ctx): State<AuthContext>, headers: HeaderMap) -> Result<Json<Value>, ApiError> {
     // P-035: Return spec-compliant errcodes for the whoami endpoint.
     // Missing token -> M_MISSING_TOKEN; invalid/expired token -> M_UNKNOWN_TOKEN.
@@ -36,6 +37,7 @@ pub(crate) async fn whoami(State(ctx): State<AuthContext>, headers: HeaderMap) -
     })))
 }
 
+/// See [`can_view_profile_for_requester`].
 pub(crate) async fn can_view_profile_for_requester(
     account_identity_service: &synapse_services::account_identity_service::AccountIdentityService,
     requester_id: Option<&str>,
@@ -46,6 +48,7 @@ pub(crate) async fn can_view_profile_for_requester(
     Ok(results.get(user_id).copied().unwrap_or(false))
 }
 
+/// See [`can_view_profile_for_requester_batch`].
 pub(crate) async fn can_view_profile_for_requester_batch(
     account_identity_service: &synapse_services::account_identity_service::AccountIdentityService,
     requester_id: Option<&str>,
@@ -54,6 +57,7 @@ pub(crate) async fn can_view_profile_for_requester_batch(
     account_identity_service.can_view_profile_for_requester_batch(requester_id, user_ids).await
 }
 
+/// See [`enforce_profile_visibility`].
 pub(crate) async fn enforce_profile_visibility(
     auth_service: &(dyn synapse_services::auth::TokenAuth + Send + Sync),
     account_identity_service: &synapse_services::account_identity_service::AccountIdentityService,
@@ -84,6 +88,7 @@ pub(crate) async fn enforce_profile_visibility(
     Ok(())
 }
 
+/// See [`get_profile`].
 pub(crate) async fn get_profile(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
@@ -101,6 +106,7 @@ pub(crate) async fn get_profile(
     Ok(Json(ctx.registration_service.get_profile(&user_id).await?))
 }
 
+/// See [`get_displayname`].
 pub(crate) async fn get_displayname(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
@@ -125,6 +131,7 @@ pub(crate) async fn get_displayname(
     Ok(Json(json!({ "displayname": displayname })))
 }
 
+/// See [`get_avatar_url`].
 pub(crate) async fn get_avatar_url(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
@@ -174,6 +181,7 @@ async fn try_fetch_remote_profile(ctx: &AuthContext, user_id: &str) -> Result<Op
     })))
 }
 
+/// See [`update_displayname`].
 pub(crate) async fn update_displayname(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
@@ -202,6 +210,7 @@ pub(crate) async fn update_displayname(
     Ok(Json(json!({})))
 }
 
+/// See [`update_avatar`].
 pub(crate) async fn update_avatar(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
@@ -230,6 +239,7 @@ pub(crate) async fn update_avatar(
     Ok(Json(json!({})))
 }
 
+/// See [`change_password_uia`].
 pub(crate) async fn change_password_uia(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
@@ -385,6 +395,7 @@ pub(crate) async fn change_password_uia(
     }
 }
 
+/// See [`request_password_email_verification`].
 pub(crate) async fn request_password_email_verification(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
@@ -425,6 +436,7 @@ pub(crate) async fn request_password_email_verification(
     .await
 }
 
+/// See [`deactivate_account`].
 pub(crate) async fn deactivate_account(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
@@ -459,6 +471,7 @@ pub(crate) async fn deactivate_account(
     .into_response())
 }
 
+/// See [`get_threepids`].
 pub(crate) async fn get_threepids(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
@@ -484,6 +497,7 @@ pub(crate) async fn get_threepids(
     })))
 }
 
+/// See [`add_threepid`].
 pub(crate) async fn add_threepid(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
@@ -621,6 +635,7 @@ pub(crate) async fn add_threepid(
     Ok(Json(json!({})))
 }
 
+/// See [`request_3pid_add_email_verification`].
 pub(crate) async fn request_3pid_add_email_verification(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
@@ -639,6 +654,7 @@ pub(crate) async fn request_3pid_add_email_verification(
     .await
 }
 
+/// The `DeleteThreepidRequest` struct.
 #[derive(Debug, Deserialize)]
 pub(crate) struct DeleteThreepidRequest {
     medium: String,
@@ -651,6 +667,7 @@ pub(crate) struct DeleteThreepidRequest {
     id_access_token: Option<String>,
 }
 
+/// See [`delete_threepid`].
 pub(crate) async fn delete_threepid(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
@@ -666,6 +683,7 @@ pub(crate) async fn delete_threepid(
     Ok(Json(json!({})))
 }
 
+/// See [`unbind_threepid`].
 pub(crate) async fn unbind_threepid(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,

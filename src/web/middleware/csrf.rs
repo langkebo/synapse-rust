@@ -9,12 +9,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const ADMIN_TOKEN_TTL_SECS: u64 = 24 * 3600;
 
+/// The `CsrfTokenManager` struct.
 pub struct CsrfTokenManager {
     secret: String,
     token_ttl: std::time::Duration,
 }
 
 impl CsrfTokenManager {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(secret: String) -> Self {
         Self { secret, token_ttl: std::time::Duration::from_secs(ADMIN_TOKEN_TTL_SECS) }
     }
@@ -37,6 +40,8 @@ impl CsrfTokenManager {
         Some(format!("{payload}:{signature}"))
     }
 
+    /// See [`validate_token`].
+    /// See [`validate_token`].
     pub fn validate_token(&self, token: &str, session_id: &str) -> bool {
         let parts: Vec<&str> = token.split(':').collect();
         if parts.len() != 3 {
@@ -92,6 +97,7 @@ fn extract_cookie_session_id_for_csrf(headers: &HeaderMap) -> Option<String> {
     })
 }
 
+/// See [`csrf_middleware`].
 pub async fn csrf_middleware(State(ctx): State<CoreContext>, request: Request<Body>, next: Next) -> Response {
     let csrf_manager = CsrfTokenManager::new(ctx.config.security.csrf_secret.clone());
     let method = request.method().clone();

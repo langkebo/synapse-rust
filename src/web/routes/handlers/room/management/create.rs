@@ -58,6 +58,7 @@ pub(crate) fn parse_invite_entries(invite_value: &Value) -> Result<ParsedInvites
     Ok((user_ids, reasons))
 }
 
+/// See [`create_private_room`].
 pub(crate) async fn create_private_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -69,6 +70,7 @@ pub(crate) async fn create_private_room(
     create_room(State(ctx), auth_user, headers, Json(body)).await
 }
 
+/// See [`create_room`].
 pub(crate) async fn create_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use validator::Validate;
 
+/// See [`register_guest`].
 pub async fn register_guest(State(ctx): State<AuthContext>) -> Result<Json<Value>, ApiError> {
     if !ctx.config.server.enable_registration {
         return Err(ApiError::forbidden("Registration is disabled".to_string()));
@@ -23,6 +24,7 @@ pub async fn register_guest(State(ctx): State<AuthContext>) -> Result<Json<Value
     })))
 }
 
+/// See [`get_guest_info`].
 pub async fn get_guest_info(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
@@ -34,6 +36,7 @@ pub async fn get_guest_info(
     })))
 }
 
+/// The `UpgradeGuestRequest` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct UpgradeGuestRequest {
     #[validate(length(min = 1, max = 255))]
@@ -42,6 +45,7 @@ pub struct UpgradeGuestRequest {
     password: String,
 }
 
+/// See [`upgrade_guest`].
 pub async fn upgrade_guest(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
@@ -63,6 +67,7 @@ pub async fn upgrade_guest(
     })))
 }
 
+/// See [`create_guest_router`].
 pub fn create_guest_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/v3/register/guest", post(register_guest))
@@ -71,6 +76,7 @@ pub fn create_guest_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+/// See [`guest_route_manifest`].
 pub fn guest_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

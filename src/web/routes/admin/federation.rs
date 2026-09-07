@@ -17,6 +17,7 @@ use synapse_services::admin_federation_service::{
 use synapse_storage::federation_blacklist::decode_federation_blacklist_cursor;
 use tracing::info;
 
+/// See [`create_federation_router`].
 pub fn create_federation_router() -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/federation/destinations", get(get_destinations))
@@ -37,6 +38,7 @@ pub fn create_federation_router() -> Router<crate::web::routes::AppState> {
         .route("/_synapse/admin/v1/federation/cache/clear", post(clear_federation_cache))
 }
 
+/// See [`admin_federation_route_manifest`].
 pub fn admin_federation_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -63,32 +65,46 @@ pub fn admin_federation_route_manifest() -> Vec<crate::web::routes::route_ledger
     .collect()
 }
 
+/// The `RewriteRequest` struct.
 #[derive(Debug, Deserialize)]
 pub struct RewriteRequest {
+    /// The `from` field.
     pub from: String,
+    /// The `to` field.
     pub to: String,
 }
 
+/// The `ResolveRequest` struct.
 #[derive(Debug, Deserialize)]
 pub struct ResolveRequest {
+    /// The `server_name` field.
     pub server_name: String,
 }
 
+/// The `ConfirmRequest` struct.
 #[derive(Debug, Deserialize)]
 pub struct ConfirmRequest {
+    /// The `server_name` field.
     pub server_name: String,
+    /// The `accept` field.
     pub accept: bool,
 }
 
+/// The `ListPendingQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct ListPendingQuery {
+    /// The `limit` field.
     pub limit: Option<i32>,
+    /// The `from` field.
     pub from: Option<String>,
 }
 
+/// The `BlacklistQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct BlacklistQuery {
+    /// The `limit` field.
     pub limit: Option<i32>,
+    /// The `from` field.
     pub from: Option<String>,
 }
 
@@ -118,10 +134,14 @@ mod cursor_tests {
     }
 }
 
+/// The `DestinationsQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct DestinationsQuery {
+    /// The `limit` field.
     pub limit: Option<i32>,
+    /// The `from` field.
     pub from: Option<String>,
+    /// The `offset` field.
     pub offset: Option<i64>,
 }
 
@@ -143,6 +163,7 @@ fn validate_destinations_query(
     Ok((limit, cursor))
 }
 
+/// See [`get_destinations`].
 #[axum::debug_handler]
 pub async fn get_destinations(
     _admin: AdminUser,
@@ -161,6 +182,7 @@ pub async fn get_destinations(
     })))
 }
 
+/// See [`get_destination`].
 #[axum::debug_handler]
 pub async fn get_destination(
     _admin: AdminUser,
@@ -173,6 +195,7 @@ pub async fn get_destination(
     }
 }
 
+/// See [`reset_connection`].
 #[axum::debug_handler]
 pub async fn reset_connection(
     _admin: AdminUser,
@@ -183,6 +206,7 @@ pub async fn reset_connection(
     Ok(Json(json!({})))
 }
 
+/// See [`delete_destination`].
 #[axum::debug_handler]
 pub async fn delete_destination(
     _admin: AdminUser,
@@ -193,6 +217,7 @@ pub async fn delete_destination(
     Ok(Json(json!({})))
 }
 
+/// See [`get_destination_rooms`].
 #[axum::debug_handler]
 pub async fn get_destination_rooms(
     _admin: AdminUser,
@@ -204,6 +229,7 @@ pub async fn get_destination_rooms(
     Ok(Json(json!({ "rooms": room_list, "total": room_list.len() })))
 }
 
+/// See [`rewrite_federation`].
 #[axum::debug_handler]
 pub async fn rewrite_federation(
     admin: AdminUser,
@@ -228,6 +254,7 @@ pub async fn rewrite_federation(
     })))
 }
 
+/// See [`resolve_federation`].
 #[axum::debug_handler]
 pub async fn resolve_federation(
     admin: AdminUser,
@@ -248,6 +275,7 @@ pub async fn resolve_federation(
     })))
 }
 
+/// See [`confirm_federation`].
 #[axum::debug_handler]
 pub async fn confirm_federation(
     admin: AdminUser,
@@ -273,6 +301,7 @@ pub async fn confirm_federation(
     })))
 }
 
+/// See [`list_pending_federation`].
 #[axum::debug_handler]
 pub async fn list_pending_federation(
     _admin: AdminUser,
@@ -292,6 +321,7 @@ pub async fn list_pending_federation(
     })))
 }
 
+/// See [`get_blacklist`].
 #[axum::debug_handler]
 pub async fn get_blacklist(
     _admin: AdminUser,
@@ -325,6 +355,7 @@ pub async fn get_blacklist(
     })))
 }
 
+/// See [`add_to_blacklist`].
 #[axum::debug_handler]
 pub async fn add_to_blacklist(
     admin: AdminUser,
@@ -335,6 +366,7 @@ pub async fn add_to_blacklist(
     Ok(Json(json!({})))
 }
 
+/// See [`remove_from_blacklist`].
 #[axum::debug_handler]
 pub async fn remove_from_blacklist(
     admin: AdminUser,
@@ -345,6 +377,7 @@ pub async fn remove_from_blacklist(
     Ok(Json(json!({})))
 }
 
+/// See [`get_federation_cache`].
 #[axum::debug_handler]
 pub async fn get_federation_cache(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     let entries = ctx.admin_federation_service.get_federation_cache().await?;
@@ -352,6 +385,7 @@ pub async fn get_federation_cache(_admin: AdminUser, State(ctx): State<AdminCont
     Ok(Json(json!({ "cache": entries, "total": entries.len() })))
 }
 
+/// See [`delete_federation_cache_entry`].
 #[axum::debug_handler]
 pub async fn delete_federation_cache_entry(
     _admin: AdminUser,
@@ -362,6 +396,7 @@ pub async fn delete_federation_cache_entry(
     Ok(Json(json!({})))
 }
 
+/// See [`clear_federation_cache`].
 #[axum::debug_handler]
 pub async fn clear_federation_cache(
     _admin: AdminUser,

@@ -1,15 +1,19 @@
 pub use synapse_e2ee::backup;
 pub use synapse_e2ee::cross_signing;
 pub use synapse_e2ee::crypto;
+/// The `device_keys` module.
 pub mod device_keys;
 pub use synapse_e2ee::device_trust;
 pub use synapse_e2ee::key_request;
+/// The `key_rotation` module.
 pub mod key_rotation;
+/// The `megolm` module.
 pub mod megolm;
 pub use synapse_e2ee::olm;
 pub use synapse_e2ee::secure_backup;
 pub use synapse_e2ee::signature;
 pub use synapse_e2ee::signed_json;
+/// The `ssss` module.
 pub mod ssss;
 pub use synapse_e2ee::to_device;
 pub use synapse_e2ee::vodozemac_megolm;

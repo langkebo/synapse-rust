@@ -49,6 +49,7 @@ async fn ensure_room_alias_write_allowed(
     Ok(())
 }
 
+/// See [`get_user_directory_profile`].
 pub(crate) async fn get_user_directory_profile(
     State(ctx): State<AdminContext>,
     _auth_user: AuthenticatedUser,
@@ -71,6 +72,7 @@ pub(crate) async fn get_user_directory_profile(
     })))
 }
 
+/// See [`search_user_directory`].
 pub(crate) async fn search_user_directory(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
@@ -120,6 +122,7 @@ fn encode_user_cursor(created_ts: i64, user_id: &str) -> String {
     format!("{created_ts}|{user_id}")
 }
 
+/// See [`list_user_directory`].
 pub(crate) async fn list_user_directory(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
@@ -166,6 +169,7 @@ pub(crate) async fn list_user_directory(
     })))
 }
 
+/// See [`report_event`].
 pub(crate) async fn report_event(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
@@ -207,6 +211,7 @@ pub(crate) async fn report_event(
     })))
 }
 
+/// See [`update_report_score`].
 pub(crate) async fn update_report_score(
     State(_ctx): State<AdminContext>,
     _auth_user: AuthenticatedUser,
@@ -217,6 +222,7 @@ pub(crate) async fn update_report_score(
     Err(ApiError::forbidden("Report score updates are not available via the client API".to_string()))
 }
 
+/// See [`report_room`].
 pub(crate) async fn report_room(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
@@ -331,6 +337,7 @@ pub(crate) async fn report_user(
     Ok(Json(json!({})))
 }
 
+/// See [`get_scanner_info`].
 pub(crate) async fn get_scanner_info(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
@@ -354,6 +361,7 @@ pub(crate) async fn get_scanner_info(
     })))
 }
 
+/// See [`get_room_aliases`].
 pub(crate) async fn get_room_aliases(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
@@ -371,6 +379,7 @@ pub(crate) async fn get_room_aliases(
     Ok(Json(json!({ "aliases": aliases })))
 }
 
+/// See [`set_room_alias`].
 pub(crate) async fn set_room_alias(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
@@ -405,6 +414,7 @@ pub(crate) async fn set_room_alias(
     })))
 }
 
+/// See [`delete_room_alias`].
 pub(crate) async fn delete_room_alias(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
@@ -418,6 +428,7 @@ pub(crate) async fn delete_room_alias(
     Ok(Json(json!({})))
 }
 
+/// See [`get_room_by_alias`].
 pub(crate) async fn get_room_by_alias(
     State(ctx): State<AdminContext>,
     _auth_user: OptionalAuthenticatedUser,
@@ -431,6 +442,7 @@ pub(crate) async fn get_room_by_alias(
     }
 }
 
+/// See [`set_room_alias_direct`].
 #[axum::debug_handler]
 pub(crate) async fn set_room_alias_direct(
     State(ctx): State<AdminContext>,
@@ -471,6 +483,7 @@ pub(crate) async fn set_room_alias_direct(
     })))
 }
 
+/// See [`delete_room_alias_direct`].
 #[axum::debug_handler]
 pub(crate) async fn delete_room_alias_direct(
     State(ctx): State<AdminContext>,
@@ -491,6 +504,7 @@ pub(crate) async fn delete_room_alias_direct(
     })))
 }
 
+/// See [`get_public_rooms`].
 pub(crate) async fn get_public_rooms(
     State(ctx): State<AdminContext>,
     _auth_user: OptionalAuthenticatedUser,
@@ -565,6 +579,7 @@ mod cursor_tests {
     }
 }
 
+/// See [`query_public_rooms`].
 #[axum::debug_handler]
 pub(crate) async fn query_public_rooms(
     State(ctx): State<AdminContext>,

@@ -12,6 +12,7 @@ use synapse_common::current_timestamp_millis;
 use super::{dispatch_federation_member_event_to_appservice, federatable_room_version, re_sign_pdu_locally};
 use crate::web::routes::extractors::RoomId;
 
+/// See [`thirdparty_invite`].
 pub(crate) async fn thirdparty_invite(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -87,6 +88,7 @@ pub(crate) async fn thirdparty_invite(
     })))
 }
 
+/// See [`invite_v2`].
 pub(crate) async fn invite_v2(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -153,6 +155,7 @@ pub(crate) async fn invite_v2(
     })))
 }
 
+/// See [`invite`].
 pub(crate) async fn invite(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -182,6 +185,7 @@ pub(crate) async fn invite(
     })))
 }
 
+/// See [`exchange_third_party_invite`].
 pub(crate) async fn exchange_third_party_invite(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,

@@ -28,6 +28,7 @@ use synapse_services::admin_registration_service::AdminRegisterRequest;
 use synapse_services::captcha_service::VerifyCaptchaRequest;
 use validator::Validate;
 
+/// See [`create_register_router`].
 pub fn create_register_router(state: AppState) -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/register/nonce", get(get_nonce))
@@ -35,6 +36,7 @@ pub fn create_register_router(state: AppState) -> Router<crate::web::routes::App
         .with_state(state)
 }
 
+/// See [`admin_register_route_manifest`].
 pub fn admin_register_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

@@ -18,15 +18,21 @@ use synapse_services::room::summary::{
     RoomSummaryStats, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
 };
 
+/// The `QueryLimit` struct.
 #[derive(Debug, Deserialize)]
 pub struct QueryLimit {
+    /// The `limit` field.
     pub limit: Option<i64>,
 }
 
+/// The `UpdateSummaryBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct UpdateSummaryBody {
+    /// The `name` field.
     pub name: Option<String>,
+    /// The `topic` field.
     pub topic: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
 }
 
@@ -41,10 +47,14 @@ impl UpdateSummaryBody {
     }
 }
 
+/// The `UpdateMemberBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct UpdateMemberBody {
+    /// The `display_name` field.
     pub display_name: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `membership` field.
     pub membership: Option<String>,
 }
 
@@ -60,18 +70,27 @@ impl UpdateMemberBody {
     }
 }
 
+/// The `UpdateStateBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct UpdateStateBody {
+    /// The `event_id` field.
     pub event_id: Option<String>,
+    /// The `content` field.
     pub content: serde_json::Value,
 }
 
+/// The `MemberResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct MemberResponse {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `display_name` field.
     pub display_name: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `membership` field.
     pub membership: String,
+    /// The `is_hero` field.
     pub is_hero: bool,
 }
 
@@ -87,13 +106,20 @@ impl From<RoomSummaryMember> for MemberResponse {
     }
 }
 
+/// The `StatsResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct StatsResponse {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `total_events` field.
     pub total_events: i64,
+    /// The `total_state_events` field.
     pub total_state_events: i64,
+    /// The `total_messages` field.
     pub total_messages: i64,
+    /// The `total_media` field.
     pub total_media: i64,
+    /// The `storage_size` field.
     pub storage_size: i64,
 }
 
@@ -110,12 +136,17 @@ impl From<RoomSummaryStats> for StatsResponse {
     }
 }
 
+/// The `RoomSummaryListResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct RoomSummaryListResponse {
+    /// The `summaries` field.
     pub summaries: Vec<RoomSummaryResponse>,
+    /// The `rooms` field.
     pub rooms: Vec<RoomSummaryResponse>,
+    /// The `chunk` field.
     pub chunk: Vec<RoomSummaryResponse>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `next_batch` field.
     pub next_batch: Option<String>,
 }
 
@@ -191,6 +222,7 @@ async fn ensure_room_summary_manage_access(
     Ok(())
 }
 
+/// See [`get_room_summary`].
 pub async fn get_room_summary(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
@@ -203,6 +235,7 @@ pub async fn get_room_summary(
     Ok(Json(require_found(summary, "Room summary not found")?))
 }
 
+/// See [`get_user_summaries`].
 pub async fn get_user_summaries(
     State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
@@ -218,6 +251,7 @@ pub async fn get_user_summaries(
     }))
 }
 
+/// See [`create_room_summary`].
 pub async fn create_room_summary(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
@@ -233,6 +267,7 @@ pub async fn create_room_summary(
     Ok(created_json(summary))
 }
 
+/// See [`create_internal_room_summary`].
 pub async fn create_internal_room_summary(
     State(ctx): State<RoomContext>,
     _admin: AdminUser,
@@ -243,6 +278,7 @@ pub async fn create_internal_room_summary(
     Ok(created_json(summary))
 }
 
+/// See [`update_room_summary`].
 pub async fn update_room_summary(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
@@ -259,6 +295,7 @@ pub async fn update_room_summary(
     Ok(Json(summary))
 }
 
+/// See [`delete_room_summary`].
 pub async fn delete_room_summary(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
@@ -271,6 +308,7 @@ pub async fn delete_room_summary(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// See [`sync_room_summary`].
 pub async fn sync_room_summary(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
@@ -283,6 +321,7 @@ pub async fn sync_room_summary(
     Ok(Json(summary))
 }
 
+/// See [`get_members`].
 pub async fn get_members(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
@@ -295,6 +334,7 @@ pub async fn get_members(
     Ok(json_vec_from::<_, MemberResponse>(members))
 }
 
+/// See [`add_member`].
 pub async fn add_member(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
@@ -310,6 +350,7 @@ pub async fn add_member(
     Ok(created_json_from::<_, MemberResponse>(member))
 }
 
+/// See [`update_member`].
 pub async fn update_member(
     State(ctx): State<RoomContext>,
     Path((room_id, user_id)): Path<(String, String)>,
@@ -326,6 +367,7 @@ pub async fn update_member(
     Ok(json_from::<_, MemberResponse>(member))
 }
 
+/// See [`remove_member`].
 pub async fn remove_member(
     State(ctx): State<RoomContext>,
     Path((room_id, user_id)): Path<(String, String)>,
@@ -338,6 +380,7 @@ pub async fn remove_member(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// See [`get_state`].
 pub async fn get_state(
     State(ctx): State<RoomContext>,
     Path((room_id, event_type, state_key)): Path<(String, String, String)>,
@@ -351,6 +394,7 @@ pub async fn get_state(
     Ok(room_summary_state_json(&require_found(ss, "State not found")?))
 }
 
+/// See [`update_state`].
 pub async fn update_state(
     State(ctx): State<RoomContext>,
     Path((room_id, event_type, state_key)): Path<(String, String, String)>,
@@ -368,6 +412,7 @@ pub async fn update_state(
     Ok(room_summary_state_json(&ss))
 }
 
+/// See [`get_all_state`].
 pub async fn get_all_state(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
@@ -392,6 +437,7 @@ pub async fn get_all_state(
     Ok(Json(response))
 }
 
+/// See [`get_stats`].
 pub async fn get_stats(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
@@ -409,6 +455,7 @@ pub async fn get_stats(
     Ok(Json(StatsResponse::from(stats)))
 }
 
+/// See [`recalculate_stats`].
 pub async fn recalculate_stats(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
@@ -421,6 +468,7 @@ pub async fn recalculate_stats(
     Ok(Json(StatsResponse::from(stats)))
 }
 
+/// See [`process_updates`].
 pub async fn process_updates(
     State(ctx): State<RoomContext>,
     _admin: AdminUser,
@@ -435,6 +483,7 @@ pub async fn process_updates(
     })))
 }
 
+/// See [`recalculate_heroes`].
 pub async fn recalculate_heroes(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
@@ -449,6 +498,7 @@ pub async fn recalculate_heroes(
     })))
 }
 
+/// See [`clear_unread`].
 pub async fn clear_unread(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
@@ -466,41 +516,62 @@ pub async fn clear_unread(
     })))
 }
 
+/// The `RoomSummaryBatchRequest` struct.
 #[derive(Debug, Deserialize)]
 pub struct RoomSummaryBatchRequest {
+    /// The `rooms` field.
     pub rooms: Vec<String>,
     #[serde(default, rename = "suggested_only")]
+    /// The `is_suggested_only` field.
     pub is_suggested_only: bool,
 }
 
+/// The `Msc3266RoomSummaryResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct Msc3266RoomSummaryResponse {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `room_type` field.
     pub room_type: Option<String>,
+    /// The `name` field.
     pub name: Option<String>,
+    /// The `topic` field.
     pub topic: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `canonical_alias` field.
     pub canonical_alias: Option<String>,
+    /// The `join_rule` field.
     pub join_rule: String,
+    /// The `num_joined_members` field.
     pub num_joined_members: i64,
     #[serde(rename = "world_readable")]
+    /// The `is_world_readable` field.
     pub is_world_readable: bool,
     #[serde(rename = "guest_can_join")]
+    /// The `is_guest_can_join` field.
     pub is_guest_can_join: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `children_state` field.
     pub children_state: Option<Vec<serde_json::Value>>,
     /// `allowed_room_ids` for restricted/knock_restricted join rules
     /// (Matrix v1.15). Forwarded from the underlying `RoomSummaryResponse`.
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `allowed_room_ids` field.
     pub allowed_room_ids: Option<Vec<String>>,
 }
 
+/// The `Msc3266RoomSummaryBatchResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct Msc3266RoomSummaryBatchResponse {
+    /// The `rooms` field.
     pub rooms: Vec<Msc3266RoomSummaryResponse>,
+    /// The `events` field.
     pub events: Vec<serde_json::Value>,
+    /// The `total_room_count_estimate` field.
     pub total_room_count_estimate: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `next_batch` field.
     pub next_batch: Option<String>,
 }
 
@@ -548,6 +619,7 @@ fn create_room_summary_v3_router() -> Router<AppState> {
         .route("/rooms/{room_id}/summary/unread/clear", post(clear_unread))
 }
 
+/// See [`batch_get_room_summaries`].
 pub async fn batch_get_room_summaries(
     State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
@@ -584,6 +656,7 @@ fn create_room_summary_v1_router() -> Router<AppState> {
     Router::new().route("/rooms/{room_id}/summary", get(get_room_summary))
 }
 
+/// See [`create_room_summary_router`].
 pub fn create_room_summary_router(state: AppState) -> Router<AppState> {
     Router::new()
         .nest("/_matrix/client/v3", create_room_summary_v3_router())
@@ -624,6 +697,7 @@ fn room_summary_v3_extra_relative_routes() -> Vec<(axum::http::Method, &'static 
     ]
 }
 
+/// See [`room_summary_route_manifest`].
 pub fn room_summary_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::{expand_under_prefixes, RouteEntry};
     use axum::http::Method;

@@ -9,6 +9,7 @@ use crate::web::routes::ApiError;
 use axum::{extract::State, Json};
 use serde_json::json;
 
+/// See [`get_client_config`].
 pub async fn get_client_config(State(ctx): State<AuthContext>) -> Result<Json<serde_json::Value>, ApiError> {
     let config = &ctx.config;
     let base_url = config.server.get_public_baseurl();

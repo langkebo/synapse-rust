@@ -25,20 +25,31 @@ pub const SCHEMA_VERSION: &str = "1";
 /// order here; `serde_json`'s `PrettyFormatter` respects that.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LedgerArtifact {
+    /// The `schema_version` field.
     pub schema_version: String,
+    /// The `generated_at` field.
     pub generated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `synapse_rust_commit` field.
     pub synapse_rust_commit: Option<String>,
+    /// The `state_profile` field.
     pub state_profile: String,
+    /// The `profile_flags` field.
     pub profile_flags: ProfileFlagsJson,
+    /// The `entry_count` field.
     pub entry_count: usize,
+    /// The `entries` field.
     pub entries: Vec<LedgerEntryJson>,
 }
 
+/// The `ProfileFlagsJson` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProfileFlagsJson {
+    /// The `oidc_enabled` field.
     pub oidc_enabled: bool,
+    /// The `worker_enabled` field.
     pub worker_enabled: bool,
+    /// The `saml_enabled` field.
     pub saml_enabled: bool,
 }
 
@@ -48,15 +59,22 @@ impl From<&ProfileFlags> for ProfileFlagsJson {
     }
 }
 
+/// The `LedgerEntryJson` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LedgerEntryJson {
+    /// The `method` field.
     pub method: String,
+    /// The `path` field.
     pub path: String,
+    /// The `registered_by` field.
     pub registered_by: String,
+    /// The `path_params` field.
     pub path_params: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    /// The `query_params` field.
     pub query_params: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `auth` field.
     pub auth: Option<String>,
 }
 

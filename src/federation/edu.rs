@@ -326,9 +326,11 @@ async fn handle_direct_to_device_edu(
 // EduDispatcher — routes inbound EDUs to the correct handler
 // ---------------------------------------------------------------------------
 
+/// The `EduDispatcher` struct.
 pub struct EduDispatcher;
 
 impl EduDispatcher {
+    /// See [`dispatch`].
     pub async fn dispatch(
         ctx: &FederationContext,
         origin: &str,

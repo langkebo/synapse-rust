@@ -11,47 +11,71 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+/// The `SamlLoginQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct SamlLoginQuery {
+    /// The `redirect_url` field.
     pub redirect_url: Option<String>,
 }
 
+/// The `SamlLoginResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct SamlLoginResponse {
+    /// The `redirect_url` field.
     pub redirect_url: String,
 }
 
+/// The `SamlCallbackQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct SamlCallbackQuery {
+    /// The `saml_response` field.
     pub saml_response: Option<String>,
+    /// The `saml_request` field.
     pub saml_request: Option<String>,
+    /// The `relay_state` field.
     pub relay_state: Option<String>,
 }
 
+/// The `SamlCallbackBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct SamlCallbackBody {
+    /// The `saml_response` field.
     pub saml_response: Option<String>,
+    /// The `saml_request` field.
     pub saml_request: Option<String>,
+    /// The `relay_state` field.
     pub relay_state: Option<String>,
 }
 
+/// The `SamlAuthResult` struct.
 #[derive(Debug, Serialize)]
 pub struct SamlAuthResult {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `access_token` field.
     pub access_token: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `expires_in` field.
     pub expires_in: i64,
+    /// The `refresh_token` field.
     pub refresh_token: Option<String>,
 }
 
+/// The `SamlMetadataResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct SamlMetadataResponse {
+    /// The `entity_id` field.
     pub entity_id: String,
+    /// The `sso_url` field.
     pub sso_url: String,
+    /// The `slo_url` field.
     pub slo_url: Option<String>,
+    /// The `certificate` field.
     pub certificate: Option<String>,
 }
 
+/// See [`saml_login`].
 pub async fn saml_login(
     State(ctx): State<SsoContext>,
     Query(query): Query<SamlLoginQuery>,
@@ -65,6 +89,7 @@ pub async fn saml_login(
     Ok(Json(SamlLoginResponse { redirect_url: auth_request.redirect_url }))
 }
 
+/// See [`saml_login_redirect`].
 pub async fn saml_login_redirect(
     State(ctx): State<SsoContext>,
     Query(query): Query<SamlLoginQuery>,
@@ -78,6 +103,7 @@ pub async fn saml_login_redirect(
     Ok(Redirect::temporary(&auth_request.redirect_url))
 }
 
+/// See [`saml_callback_post`].
 pub async fn saml_callback_post(
     State(ctx): State<SsoContext>,
     Json(body): Json<SamlCallbackBody>,
@@ -85,6 +111,7 @@ pub async fn saml_callback_post(
     handle_saml_callback(&ctx, body.saml_response.as_deref(), body.relay_state.as_deref()).await
 }
 
+/// See [`saml_callback_get`].
 pub async fn saml_callback_get(
     State(ctx): State<SsoContext>,
     Query(query): Query<SamlCallbackQuery>,
@@ -137,6 +164,7 @@ async fn handle_saml_callback(
     Ok(Json(SamlAuthResult { user_id: auth_result.user_id, access_token, device_id, expires_in, refresh_token }))
 }
 
+/// See [`saml_logout`].
 pub async fn saml_logout(
     State(ctx): State<SsoContext>,
     _auth_user: AuthenticatedUser,
@@ -165,6 +193,7 @@ pub async fn saml_logout(
     })))
 }
 
+/// See [`saml_logout_callback`].
 pub async fn saml_logout_callback(
     State(ctx): State<SsoContext>,
     Query(query): Query<SamlCallbackQuery>,
@@ -182,6 +211,7 @@ pub async fn saml_logout_callback(
     })))
 }
 
+/// See [`get_saml_metadata`].
 pub async fn get_saml_metadata(State(ctx): State<SsoContext>) -> Result<impl IntoResponse, ApiError> {
     if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
@@ -197,6 +227,7 @@ pub async fn get_saml_metadata(State(ctx): State<SsoContext>) -> Result<impl Int
     }))
 }
 
+/// See [`get_sp_metadata`].
 pub async fn get_sp_metadata(State(ctx): State<SsoContext>) -> Result<impl IntoResponse, ApiError> {
     if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
@@ -233,6 +264,7 @@ pub async fn get_sp_metadata(State(ctx): State<SsoContext>) -> Result<impl IntoR
     Ok(([(header::CONTENT_TYPE, "application/xml; charset=utf-8")], metadata))
 }
 
+/// See [`refresh_idp_metadata`].
 pub async fn refresh_idp_metadata(State(ctx): State<SsoContext>) -> Result<impl IntoResponse, ApiError> {
     if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
@@ -254,20 +286,31 @@ pub async fn refresh_idp_metadata(State(ctx): State<SsoContext>) -> Result<impl 
 // and guarded by `admin_auth_middleware`.
 // ============================================================================
 
+/// The `SamlMappingListQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct SamlMappingListQuery {
+    /// The `limit` field.
     pub limit: Option<i64>,
+    /// The `from` field.
     pub from: Option<String>,
 }
 
+/// The `SamlMappingView` struct.
 #[derive(Debug, Serialize)]
 pub struct SamlMappingView {
+    /// The `name_id` field.
     pub name_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `issuer` field.
     pub issuer: String,
+    /// The `first_seen_ts` field.
     pub first_seen_ts: i64,
+    /// The `last_authenticated_ts` field.
     pub last_authenticated_ts: i64,
+    /// The `authentication_count` field.
     pub authentication_count: i32,
+    /// The `attributes` field.
     pub attributes: serde_json::Value,
 }
 
@@ -285,30 +328,43 @@ impl From<synapse_storage::saml::SamlUserMapping> for SamlMappingView {
     }
 }
 
+/// The `SamlMappingPage` struct.
 #[derive(Debug, Serialize)]
 pub struct SamlMappingPage {
+    /// The `mappings` field.
     pub mappings: Vec<SamlMappingView>,
+    /// The `next_token` field.
     pub next_token: Option<String>,
 }
 
+/// The `UpdateSamlMappingBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct UpdateSamlMappingBody {
+    /// The `user_id` field.
     pub user_id: Option<String>,
+    /// The `attributes` field.
     pub attributes: Option<serde_json::Value>,
 }
 
+/// The `SamlLogoutAdminBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct SamlLogoutAdminBody {
+    /// The `user_id` field.
     pub user_id: String,
 }
 
+/// The `SamlLogoutAdminResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct SamlLogoutAdminResponse {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `redirect_url` field.
     pub redirect_url: Option<String>,
+    /// The `sessions_invalidated` field.
     pub sessions_invalidated: u32,
 }
 
+/// See [`list_saml_mappings_admin`].
 pub async fn list_saml_mappings_admin(
     State(ctx): State<SsoContext>,
     Query(query): Query<SamlMappingListQuery>,
@@ -321,6 +377,7 @@ pub async fn list_saml_mappings_admin(
     Ok(Json(SamlMappingPage { mappings: rows.into_iter().map(SamlMappingView::from).collect(), next_token }))
 }
 
+/// See [`get_saml_mapping_admin`].
 pub async fn get_saml_mapping_admin(
     State(ctx): State<SsoContext>,
     Path(name_id): Path<String>,
@@ -333,6 +390,7 @@ pub async fn get_saml_mapping_admin(
     Ok(Json(SamlMappingView::from(row)))
 }
 
+/// See [`update_saml_mapping_admin`].
 pub async fn update_saml_mapping_admin(
     State(ctx): State<SsoContext>,
     Path(name_id): Path<String>,
@@ -349,6 +407,7 @@ pub async fn update_saml_mapping_admin(
     Ok(Json(SamlMappingView::from(row)))
 }
 
+/// See [`delete_saml_mapping_admin`].
 pub async fn delete_saml_mapping_admin(
     State(ctx): State<SsoContext>,
     Path(name_id): Path<String>,
@@ -360,6 +419,7 @@ pub async fn delete_saml_mapping_admin(
     Ok(Json(serde_json::json!({ "removed": removed })))
 }
 
+/// See [`saml_logout_admin`].
 pub async fn saml_logout_admin(
     State(ctx): State<SsoContext>,
     Json(body): Json<SamlLogoutAdminBody>,
@@ -386,10 +446,12 @@ pub async fn saml_logout_admin(
     Ok(Json(SamlLogoutAdminResponse { user_id: body.user_id, redirect_url, sessions_invalidated: 1 }))
 }
 
+/// See [`get_saml_admin_config`].
 pub async fn get_saml_admin_config(State(ctx): State<SsoContext>) -> Result<impl IntoResponse, ApiError> {
     Ok(Json(ctx.saml_service.effective_config()))
 }
 
+/// See [`update_saml_admin_config`].
 pub async fn update_saml_admin_config(
     State(ctx): State<SsoContext>,
     Json(body): Json<serde_json::Value>,
@@ -398,6 +460,7 @@ pub async fn update_saml_admin_config(
     Ok(Json(merged))
 }
 
+/// See [`create_saml_router`].
 pub fn create_saml_router(state: AppState) -> axum::Router<AppState> {
     use axum::routing::*;
 
@@ -438,6 +501,7 @@ pub fn create_saml_router(state: AppState) -> axum::Router<AppState> {
     public_routes.merge(admin_routes).with_state(state)
 }
 
+/// See [`saml_route_manifest`].
 pub fn saml_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

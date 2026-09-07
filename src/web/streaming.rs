@@ -6,22 +6,30 @@ use axum::{
 use std::path::Path;
 use thiserror::Error;
 
+/// The `StreamingError` enum.
 #[derive(Debug, Error)]
 pub enum StreamingError {
     #[error("File read error: {0}")]
+    /// The `FileReadError` variant.
     FileReadError(String),
     #[error("Metadata error: {0}")]
+    /// The `MetadataError` variant.
     MetadataError(String),
     #[error("Header parse error: {0}")]
+    /// The `HeaderParseError` variant.
     HeaderParseError(String),
     #[error("Invalid content length")]
+    /// The `InvalidContentLength` variant.
     InvalidContentLength,
     #[error("SSE construction error: {0}")]
+    /// The `SseError` variant.
     SseError(String),
 }
 
+/// Constant `CHUNK_SIZE`.
 pub const CHUNK_SIZE: usize = 64 * 1024;
 
+/// The `StreamingResponse` struct.
 pub struct StreamingResponse {
     status: StatusCode,
     headers: HeaderMap,
@@ -29,6 +37,7 @@ pub struct StreamingResponse {
 }
 
 impl StreamingResponse {
+    /// See [`file`].
     pub async fn file(
         path: &Path,
         filename: Option<String>,
@@ -71,6 +80,8 @@ impl StreamingResponse {
         Ok(Self { status: StatusCode::OK, headers, body: Bytes::from(data) })
     }
 
+    /// See [`bytes`].
+    /// See [`bytes`].
     pub fn bytes(data: Vec<u8>, content_type: &str) -> Result<Self, StreamingError> {
         let mut headers = HeaderMap::new();
         let content_type_header =
@@ -83,6 +94,8 @@ impl StreamingResponse {
         Ok(Self { status: StatusCode::OK, headers, body: Bytes::from(data) })
     }
 
+    /// See [`sse`].
+    /// See [`sse`].
     pub fn sse(event_name: &str, data: &str, id: Option<u64>) -> Result<Self, StreamingError> {
         let mut sse_data = String::new();
         if let Some(event_id) = id {
@@ -111,6 +124,8 @@ impl StreamingResponse {
         Ok(Self { status: StatusCode::OK, headers, body: Bytes::from(sse_data) })
     }
 
+    /// See [`chunked`].
+    /// See [`chunked`].
     pub fn chunked(items: &[String], content_type: &str) -> Result<Self, StreamingError> {
         let combined = items.join("\n");
 
@@ -132,6 +147,7 @@ impl IntoResponse for StreamingResponse {
     }
 }
 
+/// See [`stream_file`].
 pub async fn stream_file(
     path: &Path,
     filename: Option<String>,
@@ -140,10 +156,12 @@ pub async fn stream_file(
     StreamingResponse::file(path, filename, content_type).await
 }
 
+/// See [`stream_sse`].
 pub fn stream_sse(event_name: &str, data: &str, id: Option<u64>) -> Result<StreamingResponse, StreamingError> {
     StreamingResponse::sse(event_name, data, id)
 }
 
+/// See [`stream_json_chunked`].
 pub fn stream_json_chunked(items: Vec<serde_json::Value>) -> Result<StreamingResponse, StreamingError> {
     let json_strings: Vec<String> = items
         .into_iter()

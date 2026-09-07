@@ -13,6 +13,7 @@ use synapse_common::types::DeviceId;
 use super::backup::*;
 use super::devices::*;
 
+/// See [`parse_stream_id`].
 pub(crate) fn parse_stream_id(s: &str) -> Option<i64> {
     s.strip_prefix('s')?.parse::<i64>().ok().filter(|&n| n >= 0)
 }
@@ -50,6 +51,7 @@ fn create_e2ee_v3_only_router() -> Router<AppState> {
         .route("/keys/history", get(get_key_history))
 }
 
+/// See [`create_e2ee_router`].
 pub fn create_e2ee_router(state: AppState) -> Router<AppState> {
     let compat_router = create_e2ee_compat_router();
     let v3_only_router = create_e2ee_v3_only_router();

@@ -14,6 +14,7 @@ use axum::{
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
+/// See [`join_room`].
 pub(crate) async fn join_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -28,6 +29,7 @@ pub(crate) async fn join_room(
     })))
 }
 
+/// See [`join_room_by_id_or_alias`].
 pub(crate) async fn join_room_by_id_or_alias(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
@@ -103,6 +105,7 @@ pub(crate) async fn join_room_by_id_or_alias(
     })))
 }
 
+/// See [`leave_room`].
 pub(crate) async fn leave_room(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
@@ -142,6 +145,7 @@ pub(crate) async fn leave_room(
     Ok(Json(json!({})))
 }
 
+/// See [`knock_room`].
 pub(crate) async fn knock_room(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
@@ -187,6 +191,7 @@ pub(crate) async fn knock_room(
     })))
 }
 
+/// See [`invite_user`].
 pub(crate) async fn invite_user(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -223,6 +228,7 @@ pub(crate) async fn invite_user(
     })))
 }
 
+/// See [`invite_user_by_room`].
 pub(crate) async fn invite_user_by_room(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
@@ -260,6 +266,7 @@ pub(crate) async fn invite_user_by_room(
     })))
 }
 
+/// See [`get_room_members`].
 pub(crate) async fn get_room_members(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
@@ -342,6 +349,7 @@ pub(crate) async fn get_room_members(
     Ok(Json(filtered))
 }
 
+/// See [`get_room_members_recent`].
 pub(crate) async fn get_room_members_recent(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -366,6 +374,7 @@ pub(crate) async fn get_room_members_recent(
     })))
 }
 
+/// See [`get_joined_members`].
 pub(crate) async fn get_joined_members(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -408,6 +417,7 @@ pub(crate) async fn get_joined_members(
     })))
 }
 
+/// See [`get_room_membership`].
 pub(crate) async fn get_room_membership(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -434,6 +444,7 @@ pub(crate) async fn get_room_membership(
     })))
 }
 
+/// See [`get_membership_events`].
 pub(crate) async fn get_membership_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -469,6 +480,7 @@ pub(crate) async fn get_membership_events(
     })))
 }
 
+/// See [`get_room_invites`].
 pub(crate) async fn get_room_invites(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -509,6 +521,7 @@ pub(crate) async fn get_room_invites(
     })))
 }
 
+/// See [`kick_user`].
 pub(crate) async fn kick_user(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
@@ -554,6 +567,7 @@ pub(crate) async fn kick_user(
     Ok(Json(json!({})))
 }
 
+/// See [`ban_user`].
 pub(crate) async fn ban_user(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
@@ -603,6 +617,7 @@ pub(crate) async fn ban_user(
 // Public API
 // ---------------------------------------------------------------------------
 
+/// See [`unban_user`].
 pub(crate) async fn unban_user(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

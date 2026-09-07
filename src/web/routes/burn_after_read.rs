@@ -13,6 +13,7 @@ use axum::{
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
+/// See [`create_burn_after_read_router`].
 pub fn create_burn_after_read_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route(
@@ -71,6 +72,7 @@ pub fn create_burn_after_read_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+/// See [`burn_after_read_route_manifest`].
 pub fn burn_after_read_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

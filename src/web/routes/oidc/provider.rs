@@ -14,48 +14,68 @@ use super::{current_unix_ts, store_oidc_auth_session};
 #[derive(Debug, Deserialize, Validate)]
 pub(crate) struct OidcTokenRequest {
     #[validate(length(min = 1, max = 100))]
+    /// The `grant_type` field.
     pub grant_type: String,
     #[validate(length(min = 1, max = 2048))]
+    /// The `code` field.
     pub code: Option<String>,
     #[validate(length(max = 2048))]
+    /// The `redirect_uri` field.
     pub redirect_uri: Option<String>,
     #[validate(length(max = 2048))]
+    /// The `refresh_token` field.
     pub refresh_token: Option<String>,
     #[validate(length(max = 1024))]
+    /// The `scope` field.
     pub scope: Option<String>,
     #[validate(length(max = 255))]
+    /// The `client_id` field.
     pub client_id: Option<String>,
     #[validate(length(min = 43, max = 128))]
+    /// The `code_verifier` field.
     pub code_verifier: Option<String>,
 }
 
 /// OIDC Token Response
 #[derive(Debug, Serialize)]
 pub(crate) struct OidcTokenResponse {
+    /// The `access_token` field.
     pub access_token: String,
+    /// The `token_type` field.
     pub token_type: String,
+    /// The `expires_in` field.
     pub expires_in: i64,
+    /// The `refresh_token` field.
     pub refresh_token: Option<String>,
+    /// The `scope` field.
     pub scope: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `matrix_user_id` field.
     pub matrix_user_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `device_id` field.
     pub device_id: Option<String>,
 }
 
 /// OIDC UserInfo Response
 #[derive(Debug, Serialize)]
 pub(crate) struct OidcUserInfoResponse {
+    /// The `sub` field.
     pub sub: String,
+    /// The `name` field.
     pub name: Option<String>,
+    /// The `picture` field.
     pub picture: Option<String>,
+    /// The `email` field.
     pub email: Option<String>,
 }
 
 /// OIDC Logout Request
 #[derive(Debug, Deserialize)]
 pub(crate) struct OidcLogoutRequest {
+    /// The `refresh_token` field.
     pub refresh_token: Option<String>,
+    /// The `device_id` field.
     pub device_id: Option<String>,
 }
 
@@ -63,16 +83,22 @@ pub(crate) struct OidcLogoutRequest {
 #[derive(Debug, Deserialize, Validate)]
 pub(crate) struct OidcAuthorizeRequest {
     #[validate(length(min = 1, max = 50))]
+    /// The `response_type` field.
     pub response_type: String,
     #[validate(length(min = 1, max = 255))]
+    /// The `client_id` field.
     pub client_id: String,
     #[validate(length(min = 1, max = 2048))]
+    /// The `redirect_uri` field.
     pub redirect_uri: String,
     #[validate(length(max = 1024))]
+    /// The `scope` field.
     pub scope: Option<String>,
     #[validate(length(max = 512))]
+    /// The `state` field.
     pub state: Option<String>,
     #[validate(length(max = 512))]
+    /// The `nonce` field.
     pub nonce: Option<String>,
 }
 

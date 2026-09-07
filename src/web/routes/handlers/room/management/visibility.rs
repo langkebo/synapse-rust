@@ -8,6 +8,7 @@ use synapse_common::current_timestamp_millis;
 
 use crate::web::routes::context::RoomContext;
 
+/// See [`get_room_visibility`].
 #[axum::debug_handler]
 pub(crate) async fn get_room_visibility(
     State(ctx): State<RoomContext>,
@@ -30,6 +31,7 @@ pub(crate) async fn get_room_visibility(
     })))
 }
 
+/// See [`set_room_visibility`].
 #[axum::debug_handler]
 pub(crate) async fn set_room_visibility(
     State(ctx): State<RoomContext>,

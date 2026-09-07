@@ -1,25 +1,36 @@
 use super::*;
 
+/// The `CreateSpaceBody` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct CreateSpaceBody {
     #[validate(length(min = 1, max = 255))]
+    /// The `room_id` field.
     pub room_id: String,
     #[validate(length(max = 255))]
+    /// The `name` field.
     pub name: Option<String>,
     #[validate(length(max = 1000))]
+    /// The `topic` field.
     pub topic: Option<String>,
     #[validate(length(max = 2048))]
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
     #[validate(length(max = 50))]
+    /// The `join_rule` field.
     pub join_rule: Option<String>,
     #[validate(length(max = 50))]
+    /// The `visibility` field.
     pub visibility: Option<String>,
+    /// The `is_public` field.
     pub is_public: Option<bool>,
     #[validate(length(max = 255))]
+    /// The `parent_space_id` field.
     pub parent_space_id: Option<String>,
 }
 
 impl CreateSpaceBody {
+    /// See [`into_request`].
+    /// See [`into_request`].
     pub fn into_request(self, creator: String) -> synapse_storage::space::CreateSpaceRequest {
         synapse_storage::space::CreateSpaceRequest {
             room_id: self.room_id,
@@ -35,16 +46,22 @@ impl CreateSpaceBody {
     }
 }
 
+/// The `AddChildBody` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct AddChildBody {
     #[validate(length(min = 1, max = 255))]
+    /// The `room_id` field.
     pub room_id: String,
     #[validate(length(max = 100))]
+    /// The `via_servers` field.
     pub via_servers: Vec<String>,
+    /// The `suggested` field.
     pub suggested: Option<bool>,
 }
 
 impl AddChildBody {
+    /// See [`into_request`].
+    /// See [`into_request`].
     pub fn into_request(self, space_id: String, sender: String) -> synapse_storage::space::AddChildRequest {
         synapse_storage::space::AddChildRequest {
             space_id,
@@ -56,22 +73,31 @@ impl AddChildBody {
     }
 }
 
+/// The `UpdateSpaceBody` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct UpdateSpaceBody {
     #[validate(length(max = 255))]
+    /// The `name` field.
     pub name: Option<String>,
     #[validate(length(max = 1000))]
+    /// The `topic` field.
     pub topic: Option<String>,
     #[validate(length(max = 2048))]
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
     #[validate(length(max = 50))]
+    /// The `join_rule` field.
     pub join_rule: Option<String>,
     #[validate(length(max = 50))]
+    /// The `visibility` field.
     pub visibility: Option<String>,
+    /// The `is_public` field.
     pub is_public: Option<bool>,
 }
 
 impl UpdateSpaceBody {
+    /// See [`into_request`].
+    /// See [`into_request`].
     pub fn into_request(self) -> synapse_storage::space::UpdateSpaceRequest {
         let mut request = synapse_storage::space::UpdateSpaceRequest::new();
 
@@ -98,53 +124,78 @@ impl UpdateSpaceBody {
     }
 }
 
+/// The `InviteUserBody` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct InviteUserBody {
     #[validate(length(min = 1, max = 255))]
+    /// The `user_id` field.
     pub user_id: String,
 }
 
+/// The `PaginationQuery` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct PaginationQuery {
     #[validate(range(min = 0, max = 1000))]
+    /// The `limit` field.
     pub limit: Option<i64>,
+    /// The `from` field.
     pub from: Option<String>,
 }
 
+/// The `SearchQuery` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct SearchQuery {
     #[serde(alias = "search_term")]
     #[validate(length(min = 1, max = 500))]
+    /// The `query` field.
     pub query: String,
     #[validate(range(min = 0, max = 100))]
+    /// The `limit` field.
     pub limit: Option<i64>,
 }
 
+/// The `HierarchyQuery` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct HierarchyQuery {
     #[validate(range(min = 1, max = 20))]
+    /// The `max_depth` field.
     pub max_depth: Option<i32>,
 }
 
+/// The `StatisticsQuery` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct StatisticsQuery {
     #[validate(range(min = 1, max = 500))]
+    /// The `limit` field.
     pub limit: Option<i64>,
 }
 
+/// The `SpaceResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct SpaceResponse {
+    /// The `space_id` field.
     pub space_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `name` field.
     pub name: Option<String>,
+    /// The `topic` field.
     pub topic: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `creator` field.
     pub creator: String,
+    /// The `join_rule` field.
     pub join_rule: String,
+    /// The `visibility` field.
     pub visibility: Option<String>,
+    /// The `is_public` field.
     pub is_public: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
+    /// The `parent_space_id` field.
     pub parent_space_id: Option<String>,
 }
 
@@ -167,13 +218,20 @@ impl From<synapse_storage::space::Space> for SpaceResponse {
     }
 }
 
+/// The `SpaceChildResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct SpaceChildResponse {
+    /// The `space_id` field.
     pub space_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `via_servers` field.
     pub via_servers: Vec<String>,
+    /// The `sender` field.
     pub sender: String,
+    /// The `is_suggested` field.
     pub is_suggested: bool,
+    /// The `added_ts` field.
     pub added_ts: i64,
 }
 
@@ -190,12 +248,18 @@ impl From<synapse_storage::space::SpaceChild> for SpaceChildResponse {
     }
 }
 
+/// The `SpaceMemberResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct SpaceMemberResponse {
+    /// The `space_id` field.
     pub space_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `membership` field.
     pub membership: String,
+    /// The `joined_ts` field.
     pub joined_ts: i64,
+    /// The `inviter` field.
     pub inviter: Option<String>,
 }
 
@@ -211,11 +275,16 @@ impl From<synapse_storage::space::SpaceMember> for SpaceMemberResponse {
     }
 }
 
+/// The `SpaceHierarchyResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct SpaceHierarchyResponse {
+    /// The `space` field.
     pub space: SpaceResponse,
+    /// The `children` field.
     pub children: Vec<SpaceChildResponse>,
+    /// The `members` field.
     pub members: Vec<SpaceMemberResponse>,
+    /// The `rooms` field.
     pub rooms: Vec<synapse_storage::space::SpaceHierarchyRoom>,
 }
 

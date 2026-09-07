@@ -30,6 +30,7 @@ pub fn sticky_event_compat_relative_routes() -> Vec<(axum::http::Method, &'stati
 pub struct StickyEventQuery {
     /// The event type to query (optional)
     #[serde(rename = "event_type")]
+    /// The `event_type` field.
     pub event_type: Option<String>,
 }
 

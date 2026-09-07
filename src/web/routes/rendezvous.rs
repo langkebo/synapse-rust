@@ -18,6 +18,7 @@ use synapse_storage::rendezvous::{
 
 const RENDEZVOUS_KEY_HEADER: &str = "x-matrix-rendezvous-key";
 
+/// See [`create_rendezvous_router`].
 pub fn create_rendezvous_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/v1/rendezvous", post(create_session))
@@ -29,6 +30,7 @@ pub fn create_rendezvous_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+/// See [`rendezvous_route_manifest`].
 pub fn rendezvous_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

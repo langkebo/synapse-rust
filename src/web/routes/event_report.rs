@@ -15,61 +15,98 @@ use synapse_storage::event_report::{
     CreateEventReportRequest, EventReport, EventReportHistory, EventReportStats, UpdateEventReportRequest,
 };
 
+/// The `QueryParams` struct.
 #[derive(Debug, Deserialize)]
 pub struct QueryParams {
+    /// The `limit` field.
     pub limit: Option<i64>,
+    /// The `since_score` field.
     pub since_score: Option<i32>,
+    /// The `since_ts` field.
     pub since_ts: Option<i64>,
+    /// The `since_id` field.
     pub since_id: Option<i64>,
 }
 
+/// The `CreateReportBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct CreateReportBody {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `reported_user_id` field.
     pub reported_user_id: Option<String>,
+    /// The `event_json` field.
     pub event_json: Option<serde_json::Value>,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `score` field.
     pub score: Option<i32>,
 }
 
+/// The `UpdateReportBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct UpdateReportBody {
+    /// The `status` field.
     pub status: Option<String>,
+    /// The `score` field.
     pub score: Option<i32>,
 }
 
+/// The `ResolveReportBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct ResolveReportBody {
+    /// The `reason` field.
     pub reason: String,
 }
 
+/// The `DismissReportBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct DismissReportBody {
+    /// The `reason` field.
     pub reason: String,
 }
 
+/// The `BlockUserBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct BlockUserBody {
+    /// The `blocked_until` field.
     pub blocked_until: i64,
+    /// The `reason` field.
     pub reason: String,
 }
 
+/// The `ReportResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct ReportResponse {
+    /// The `id` field.
     pub id: i64,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `reporter_user_id` field.
     pub reporter_user_id: String,
+    /// The `reported_user_id` field.
     pub reported_user_id: Option<String>,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `status` field.
     pub status: String,
+    /// The `score` field.
     pub score: i32,
+    /// The `received_ts` field.
     pub received_ts: i64,
+    /// The `resolved_ts` field.
     pub resolved_ts: Option<i64>,
+    /// The `resolved_by` field.
     pub resolved_by: Option<String>,
+    /// The `resolution_reason` field.
     pub resolution_reason: Option<String>,
 }
 
@@ -93,15 +130,24 @@ impl From<EventReport> for ReportResponse {
     }
 }
 
+/// The `ReportHistoryResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct ReportHistoryResponse {
+    /// The `id` field.
     pub id: i64,
+    /// The `report_id` field.
     pub report_id: i64,
+    /// The `action` field.
     pub action: String,
+    /// The `actor_user_id` field.
     pub actor_user_id: Option<String>,
+    /// The `old_status` field.
     pub old_status: Option<String>,
+    /// The `new_status` field.
     pub new_status: Option<String>,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
@@ -120,17 +166,28 @@ impl From<EventReportHistory> for ReportHistoryResponse {
     }
 }
 
+/// The `StatsResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct StatsResponse {
+    /// The `id` field.
     pub id: i64,
+    /// The `date` field.
     pub date: chrono::NaiveDate,
+    /// The `total_reports` field.
     pub total_reports: i32,
+    /// The `open_reports` field.
     pub open_reports: i32,
+    /// The `resolved_reports` field.
     pub resolved_reports: i32,
+    /// The `dismissed_reports` field.
     pub dismissed_reports: i32,
+    /// The `avg_resolution_time_hours` field.
     pub avg_resolution_time_hours: Option<i32>,
+    /// The `avg_resolution_time_ms` field.
     pub avg_resolution_time_ms: Option<i64>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
@@ -153,6 +210,7 @@ impl From<EventReportStats> for StatsResponse {
     }
 }
 
+/// See [`create_report`].
 pub async fn create_report(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
@@ -174,6 +232,7 @@ pub async fn create_report(
     Ok((StatusCode::CREATED, Json(ReportResponse::from(report))))
 }
 
+/// See [`get_report`].
 pub async fn get_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -185,6 +244,7 @@ pub async fn get_report(
     Ok(Json(ReportResponse::from(report)))
 }
 
+/// See [`get_reports_by_event`].
 pub async fn get_reports_by_event(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -197,6 +257,7 @@ pub async fn get_reports_by_event(
     Ok(Json(response))
 }
 
+/// See [`get_reports_by_room`].
 pub async fn get_reports_by_room(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -212,6 +273,7 @@ pub async fn get_reports_by_room(
     Ok(Json(response))
 }
 
+/// See [`get_reports_by_reporter`].
 pub async fn get_reports_by_reporter(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -230,6 +292,7 @@ pub async fn get_reports_by_reporter(
     Ok(Json(response))
 }
 
+/// See [`get_reports_by_status`].
 pub async fn get_reports_by_status(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -248,6 +311,7 @@ pub async fn get_reports_by_status(
     Ok(Json(response))
 }
 
+/// See [`get_all_reports`].
 pub async fn get_all_reports(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -263,6 +327,7 @@ pub async fn get_all_reports(
     Ok(Json(response))
 }
 
+/// See [`update_report`].
 pub async fn update_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -277,6 +342,7 @@ pub async fn update_report(
     Ok(Json(ReportResponse::from(report)))
 }
 
+/// See [`resolve_report`].
 pub async fn resolve_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -288,6 +354,7 @@ pub async fn resolve_report(
     Ok(Json(ReportResponse::from(report)))
 }
 
+/// See [`dismiss_report`].
 pub async fn dismiss_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -299,6 +366,7 @@ pub async fn dismiss_report(
     Ok(Json(ReportResponse::from(report)))
 }
 
+/// See [`escalate_report`].
 pub async fn escalate_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -309,6 +377,7 @@ pub async fn escalate_report(
     Ok(Json(ReportResponse::from(report)))
 }
 
+/// See [`delete_report`].
 pub async fn delete_report(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -319,6 +388,7 @@ pub async fn delete_report(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// See [`get_report_history`].
 pub async fn get_report_history(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -331,6 +401,7 @@ pub async fn get_report_history(
     Ok(Json(response))
 }
 
+/// See [`check_rate_limit`].
 pub async fn check_rate_limit(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -345,6 +416,7 @@ pub async fn check_rate_limit(
     })))
 }
 
+/// See [`block_user`].
 pub async fn block_user(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -356,6 +428,7 @@ pub async fn block_user(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// See [`unblock_user`].
 pub async fn unblock_user(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -366,6 +439,7 @@ pub async fn unblock_user(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// See [`get_stats`].
 pub async fn get_stats(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -380,6 +454,7 @@ pub async fn get_stats(
     Ok(Json(response))
 }
 
+/// See [`count_by_status`].
 pub async fn count_by_status(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -393,6 +468,7 @@ pub async fn count_by_status(
     })))
 }
 
+/// See [`count_all`].
 pub async fn count_all(State(ctx): State<AdminContext>, _auth_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
     let count = ctx.event_report_service.count_all_reports().await?;
 
@@ -401,6 +477,7 @@ pub async fn count_all(State(ctx): State<AdminContext>, _auth_user: AdminUser) -
     })))
 }
 
+/// See [`create_event_report_router`].
 pub fn create_event_report_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/event_reports", post(create_report))
@@ -426,6 +503,7 @@ pub fn create_event_report_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+/// See [`event_report_route_manifest`].
 pub fn event_report_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

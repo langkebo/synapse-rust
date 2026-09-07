@@ -1,5 +1,8 @@
+/// The `context` module.
 pub(crate) mod context;
+/// The `hierarchy` module.
 pub(crate) mod hierarchy;
+/// The `search` module.
 #[allow(clippy::module_inception)]
 pub(crate) mod search;
 
@@ -18,6 +21,7 @@ fn create_room_context_router() -> Router<AppState> {
     Router::new().route("/rooms/{room_id}/context/{event_id}", get(context::get_event_context))
 }
 
+/// See [`create_search_router`].
 pub fn create_search_router(state: AppState) -> Router<AppState> {
     let v1_router = Router::new()
         .merge(create_room_context_router())
@@ -36,6 +40,7 @@ pub fn create_search_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+/// See [`search_route_manifest`].
 pub fn search_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::{expand_under_prefixes, RouteEntry};
     use axum::http::Method;

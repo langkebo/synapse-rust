@@ -73,6 +73,7 @@ pub fn key_backup_route_manifest() -> Vec<RouteEntry> {
     expand_under_prefixes("key_backup", NEST_PREFIXES, &relative_routes())
 }
 
+/// See [`create_key_backup_router`].
 pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
     let router = Router::new()
         .route(
@@ -150,20 +151,27 @@ pub fn create_key_backup_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+/// The `VersionQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct VersionQuery {
+    /// The `version` field.
     pub version: String,
 }
 
+/// The `CreateBackupVersionBody` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct CreateBackupVersionBody {
     #[validate(length(max = 255, message = "Algorithm name too long"))]
+    /// The `algorithm` field.
     pub algorithm: Option<String>,
+    /// The `auth_data` field.
     pub auth_data: Option<Value>,
 }
 
+/// The `UpdateBackupVersionBody` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct UpdateBackupVersionBody {
+    /// The `auth_data` field.
     pub auth_data: Option<Value>,
 }
 
@@ -654,16 +662,23 @@ async fn delete_room_key_legacy(
     delete_session_impl(&ctx, &auth_user.user_id, &version, &room_id, &session_id).await
 }
 
+/// The `RecoverKeysBody` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct RecoverKeysBody {
+    /// The `version` field.
     pub version: String,
+    /// The `rooms` field.
     pub rooms: Option<Vec<String>>,
 }
 
+/// The `BatchRecoverBody` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct BatchRecoverBody {
+    /// The `version` field.
     pub version: String,
+    /// The `room_ids` field.
     pub room_ids: Vec<String>,
+    /// The `session_limit` field.
     pub session_limit: Option<i32>,
 }
 

@@ -141,6 +141,7 @@ pub async fn bulk_get_typing(
     Ok(Json(json!(result)))
 }
 
+/// See [`create_typing_router`].
 pub fn create_typing_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route(
@@ -158,6 +159,7 @@ pub fn create_typing_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+/// See [`typing_route_manifest`].
 pub fn typing_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

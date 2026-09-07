@@ -7,6 +7,7 @@ use synapse_common::current_timestamp_millis;
 
 use crate::web::routes::context::RoomContext;
 
+/// See [`set_room_account_data`].
 pub(crate) async fn set_room_account_data(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -30,6 +31,7 @@ pub(crate) async fn set_room_account_data(
     })))
 }
 
+/// See [`get_room_account_data`].
 pub(crate) async fn get_room_account_data(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

@@ -9,6 +9,7 @@ use super::{
     dispatch_federation_member_event_to_appservice, federatable_room_version, validate_federation_user_origin,
 };
 
+/// See [`knock_room`].
 pub(crate) async fn knock_room(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,

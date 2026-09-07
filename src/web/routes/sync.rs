@@ -42,6 +42,7 @@ fn create_sync_v3_router(state: AppState) -> Router<AppState> {
     create_sync_compat_router(state).route("/joined_rooms", get(get_joined_rooms)).route("/my_rooms", get(get_my_rooms))
 }
 
+/// See [`create_sync_router`].
 pub fn create_sync_router(state: AppState) -> Router<AppState> {
     Router::new()
         .nest("/_matrix/client/r0", create_sync_r0_router(state.clone()))

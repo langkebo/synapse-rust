@@ -128,6 +128,10 @@ mod tests {
                 admin_rbac_enabled: default_admin_rbac_enabled(),
                 ui_auth_session_timeout: default_ui_auth_session_timeout(),
                 csrf_secret: String::new(),
+                audit_async_enabled: default_audit_async_enabled(),
+                audit_channel_capacity: default_audit_channel_capacity(),
+                audit_batch_size: default_audit_batch_size(),
+                audit_flush_interval_ms: default_audit_flush_interval_ms(),
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -290,6 +294,10 @@ mod tests {
                 admin_rbac_enabled: default_admin_rbac_enabled(),
                 ui_auth_session_timeout: default_ui_auth_session_timeout(),
                 csrf_secret: String::new(),
+                audit_async_enabled: default_audit_async_enabled(),
+                audit_channel_capacity: default_audit_channel_capacity(),
+                audit_batch_size: default_audit_batch_size(),
+                audit_flush_interval_ms: default_audit_flush_interval_ms(),
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -564,6 +572,10 @@ mod tests {
                 admin_rbac_enabled: default_admin_rbac_enabled(),
                 ui_auth_session_timeout: default_ui_auth_session_timeout(),
                 csrf_secret: String::new(),
+                audit_async_enabled: default_audit_async_enabled(),
+                audit_channel_capacity: default_audit_channel_capacity(),
+                audit_batch_size: default_audit_batch_size(),
+                audit_flush_interval_ms: default_audit_flush_interval_ms(),
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -711,6 +723,10 @@ mod tests {
             admin_rbac_enabled: default_admin_rbac_enabled(),
             ui_auth_session_timeout: default_ui_auth_session_timeout(),
             csrf_secret: String::new(),
+            audit_async_enabled: default_audit_async_enabled(),
+            audit_channel_capacity: default_audit_channel_capacity(),
+            audit_batch_size: default_audit_batch_size(),
+            audit_flush_interval_ms: default_audit_flush_interval_ms(),
         };
 
         assert!(config.secret.len() > 16);

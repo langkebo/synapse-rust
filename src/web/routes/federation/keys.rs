@@ -9,6 +9,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
+/// See [`server_key`].
 pub(super) async fn server_key(State(ctx): State<FederationContext>) -> Result<Json<Value>, ApiError> {
     if ctx.config.federation.signing_key.is_none() {
         ctx.key_rotation_manager
@@ -20,6 +21,7 @@ pub(super) async fn server_key(State(ctx): State<FederationContext>) -> Result<J
     Ok(Json(resolve_server_keys(&ctx).await?))
 }
 
+/// See [`key_query`].
 pub(super) async fn key_query(
     State(ctx): State<FederationContext>,
     Path((server_name, key_id)): Path<(ServerName, String)>,
@@ -156,6 +158,7 @@ pub(super) async fn key_query_batch(
     Ok(Json(json!({ "server_keys": results })))
 }
 
+/// See [`key_clone`].
 pub(super) async fn key_clone(
     State(ctx): State<FederationContext>,
     Json(_body): Json<Value>,
@@ -163,6 +166,7 @@ pub(super) async fn key_clone(
     server_key(State(ctx)).await
 }
 
+/// See [`keys_claim`].
 pub(super) async fn keys_claim(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -203,6 +207,7 @@ pub(super) async fn keys_claim(
     })))
 }
 
+/// See [`keys_query`].
 pub(super) async fn keys_query(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -243,6 +248,7 @@ pub(super) async fn keys_query(
     })))
 }
 
+/// See [`keys_upload`].
 pub(super) async fn keys_upload(
     State(_ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -258,6 +264,7 @@ pub(super) async fn keys_upload(
     Err(ApiError::unrecognized("Federation keys upload is not supported. Use client-side user/keys endpoints instead."))
 }
 
+/// See [`legacy_keys_claim`].
 pub(super) async fn legacy_keys_claim(
     State(_ctx): State<FederationContext>,
     Extension(_auth): Extension<FederationRequestAuth>,
@@ -268,6 +275,7 @@ pub(super) async fn legacy_keys_claim(
     ))
 }
 
+/// See [`legacy_keys_query`].
 pub(super) async fn legacy_keys_query(
     State(_ctx): State<FederationContext>,
     Extension(_auth): Extension<FederationRequestAuth>,
@@ -278,6 +286,7 @@ pub(super) async fn legacy_keys_query(
     ))
 }
 
+/// See [`query_auth`].
 pub(super) async fn query_auth(State(_ctx): State<FederationContext>) -> Result<Json<Value>, ApiError> {
     // Previously this returned `{"auth_chain": []}` as a stub, which could
     // mislead federation peers into thinking the room has no auth events.

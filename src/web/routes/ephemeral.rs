@@ -12,6 +12,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// The `EphemeralParams` struct.
 #[derive(Debug, Deserialize)]
 pub struct EphemeralParams {
     #[serde(default = "default_limit")]
@@ -22,11 +23,15 @@ fn default_limit() -> i64 {
     100
 }
 
+/// The `EphemeralResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct EphemeralResponse {
     #[serde(rename = "chunk")]
+    /// The `events` field.
     pub events: Vec<Value>,
+    /// The `start` field.
     pub start: Option<String>,
+    /// The `end` field.
     pub end: Option<String>,
 }
 
@@ -45,10 +50,12 @@ pub async fn get_ephemeral_events(
     Ok(Json(EphemeralResponse { events, start: None, end: None }))
 }
 
+/// See [`create_ephemeral_router`].
 pub fn create_ephemeral_router(state: AppState) -> Router<AppState> {
     Router::new().route("/_matrix/client/v3/rooms/{room_id}/ephemeral", get(get_ephemeral_events)).with_state(state)
 }
 
+/// See [`ephemeral_route_manifest`].
 pub fn ephemeral_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

@@ -33,6 +33,7 @@ mod cursor_tests {
     }
 }
 
+/// See [`create_space`].
 pub(super) async fn create_space(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -46,6 +47,7 @@ pub(super) async fn create_space(
     Ok(created_json_from::<_, SpaceResponse>(SpaceResponse::from(space)))
 }
 
+/// See [`get_space`].
 pub(super) async fn get_space(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -62,6 +64,7 @@ pub(super) async fn get_space(
     .await
 }
 
+/// See [`get_space_by_room`].
 pub(super) async fn get_space_by_room(
     State(ctx): State<RoomContext>,
     Path(room_id): Path<RoomId>,
@@ -78,6 +81,7 @@ pub(super) async fn get_space_by_room(
     .await
 }
 
+/// See [`update_space`].
 pub(super) async fn update_space(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -96,6 +100,7 @@ pub(super) async fn update_space(
     .await
 }
 
+/// See [`delete_space`].
 pub(super) async fn delete_space(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -109,6 +114,7 @@ pub(super) async fn delete_space(
     .await
 }
 
+/// See [`get_user_spaces`].
 pub(super) async fn get_user_spaces(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -118,6 +124,7 @@ pub(super) async fn get_user_spaces(
     Ok(json_vec_from::<_, SpaceResponse>(spaces.into_iter().map(SpaceResponse::from).collect()))
 }
 
+/// See [`get_public_spaces`].
 pub(super) async fn get_public_spaces(
     State(ctx): State<RoomContext>,
     Query(query): Query<PaginationQuery>,
@@ -147,6 +154,7 @@ pub(super) async fn get_public_spaces(
     })))
 }
 
+/// See [`search_spaces`].
 pub(super) async fn search_spaces(
     State(ctx): State<RoomContext>,
     Query(query): Query<SearchQuery>,
@@ -160,6 +168,7 @@ pub(super) async fn search_spaces(
     Ok(json_vec_from::<_, SpaceResponse>(spaces.into_iter().map(SpaceResponse::from).collect()))
 }
 
+/// See [`get_space_statistics`].
 pub(super) async fn get_space_statistics(
     State(ctx): State<RoomContext>,
     Query(query): Query<StatisticsQuery>,
@@ -187,6 +196,7 @@ pub(super) async fn get_space_statistics(
     Ok(Json(visible_stats))
 }
 
+/// See [`create_space_lifecycle_query_routes`].
 pub(super) fn create_space_lifecycle_query_routes() -> Router<AppState> {
     Router::new()
         .route("/spaces", post(create_space))

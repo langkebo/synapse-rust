@@ -81,6 +81,7 @@ fn base_route_manifest() -> RouteLedger {
     ledger
 }
 
+/// See [`declared_route_manifest_for`].
 pub fn declared_route_manifest_for(state: &AppState) -> RouteLedger {
     declared_route_manifest_for_profile(&ProfileFlags::from_state(state))
 }
@@ -353,6 +354,7 @@ fn create_vendor_router() -> Router<AppState> {
         .route("/search_recipients", post(handlers::search::search::search_recipients))
 }
 
+/// See [`create_router`].
 pub fn create_router(state: AppState) -> Router {
     // Validate the declared route manifest before assembling the live router.
     // A duplicate (method, path) here is the exact class of bug that made

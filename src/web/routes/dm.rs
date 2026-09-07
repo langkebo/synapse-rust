@@ -18,24 +18,34 @@ use synapse_services::friend_room_service::FriendRoomCreateRoomConfig;
 use synapse_services::CreateRoomConfig;
 use validator::Validate;
 
+/// The `CreateDmRequest` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct CreateDmRequest {
     #[validate(length(max = 100))]
+    /// The `user_id` field.
     pub user_id: Option<String>,
     #[validate(length(max = 100))]
+    /// The `invite` field.
     pub invite: Option<Vec<String>>,
+    /// The `is_direct` field.
     pub is_direct: Option<bool>,
     #[validate(length(max = 255))]
+    /// The `name` field.
     pub name: Option<String>,
     #[validate(length(max = 1024))]
+    /// The `topic` field.
     pub topic: Option<String>,
     #[validate(length(max = 50))]
+    /// The `visibility` field.
     pub visibility: Option<String>,
 }
 
+/// The `UpdateDmRequest` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct UpdateDmRequest {
+    /// The `content` field.
     pub content: Option<Value>,
+    /// The `users` field.
     pub users: Option<Value>,
 }
 
@@ -475,6 +485,7 @@ async fn load_dm_partner_info(
     ))
 }
 
+/// See [`create_dm_room`].
 pub async fn create_dm_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -502,6 +513,7 @@ pub async fn create_dm_room(
     Ok(Json(json!({ "room_id": room_id })))
 }
 
+/// See [`get_dm_rooms`].
 pub async fn get_dm_rooms(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -523,6 +535,7 @@ pub async fn get_dm_rooms(
     }
 }
 
+/// See [`update_dm_room`].
 pub async fn update_dm_room(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -545,6 +558,7 @@ pub async fn update_dm_room(
     })))
 }
 
+/// See [`check_room_dm`].
 pub async fn check_room_dm(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -562,6 +576,7 @@ pub async fn check_room_dm(
     }
 }
 
+/// See [`get_dm_partner_route`].
 pub async fn get_dm_partner_route(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -577,6 +592,7 @@ pub async fn get_dm_partner_route(
     })))
 }
 
+/// See [`create_dm_router`].
 pub fn create_dm_router(state: AppState) -> Router<AppState> {
     let v3_router = Router::new()
         .route("/direct", get(get_dm_rooms))
@@ -593,6 +609,7 @@ pub fn create_dm_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+/// See [`dm_route_manifest`].
 pub fn dm_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

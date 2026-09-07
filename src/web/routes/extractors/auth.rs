@@ -13,31 +13,50 @@ use axum::{
 use serde_json::json;
 use synapse_storage::audit::CreateAuditEventRequest;
 
+/// The `AuthenticatedUser` struct.
 #[derive(Clone)]
 pub struct AuthenticatedUser {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `is_admin` field.
     pub is_admin: bool,
+    /// The `is_shadow_banned` field.
     pub is_shadow_banned: bool,
+    /// The `is_guest` field.
     pub is_guest: bool,
+    /// The `access_token` field.
     pub access_token: String,
 }
 
+/// The `OptionalAuthenticatedUser` struct.
 #[derive(Clone)]
 pub struct OptionalAuthenticatedUser {
+    /// The `user_id` field.
     pub user_id: Option<String>,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `is_admin` field.
     pub is_admin: bool,
+    /// The `is_shadow_banned` field.
     pub is_shadow_banned: bool,
+    /// The `is_guest` field.
     pub is_guest: bool,
+    /// The `access_token` field.
     pub access_token: Option<String>,
 }
 
+/// The `AdminUser` struct.
 #[derive(Clone)]
 pub struct AdminUser {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `access_token` field.
     pub access_token: String,
+    /// The `role` field.
     pub role: String,
 }
 

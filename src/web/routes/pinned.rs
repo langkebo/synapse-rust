@@ -11,16 +11,21 @@ use crate::web::routes::room_access::ensure_room_member_ctx;
 use crate::web::routes::{validate_event_id, validate_room_id, AuthenticatedUser};
 use synapse_common::types::{EventId, RoomId};
 
+/// The `PinRequest` struct.
 #[derive(Debug, Deserialize)]
 pub struct PinRequest {
+    /// The `event_id` field.
     pub event_id: String,
 }
 
+/// The `PinnedEventsResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct PinnedEventsResponse {
+    /// The `pinned_events` field.
     pub pinned_events: Vec<String>,
 }
 
+/// See [`get_pinned_events`].
 pub async fn get_pinned_events(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -36,6 +41,7 @@ pub async fn get_pinned_events(
     Ok(Json(PinnedEventsResponse { pinned_events: pinned_list }))
 }
 
+/// See [`pin_event`].
 pub async fn pin_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -70,6 +76,7 @@ pub async fn pin_event(
     })))
 }
 
+/// See [`unpin_event`].
 pub async fn unpin_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

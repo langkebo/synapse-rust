@@ -20,10 +20,12 @@ async fn is_member_via(
 // RoomContext-based helpers — used by handlers migrated to State<RoomContext>.
 // =============================================================================
 
+/// See [`is_member_ctx`].
 pub(crate) async fn is_member_ctx(ctx: &RoomContext, user_id: &str, room_id: &str) -> Result<bool, ApiError> {
     is_member_via(&ctx.room_service, user_id, room_id).await
 }
 
+/// See [`is_member_or_creator_ctx`].
 pub(crate) async fn is_member_or_creator_ctx(
     ctx: &RoomContext,
     user_id: &str,
@@ -36,6 +38,7 @@ pub(crate) async fn is_member_or_creator_ctx(
     is_member_ctx(ctx, user_id, room_id).await
 }
 
+/// See [`ensure_room_member_ctx`].
 pub(crate) async fn ensure_room_member_ctx(
     ctx: &RoomContext,
     auth_user: &AuthenticatedUser,
@@ -52,6 +55,7 @@ pub(crate) async fn ensure_room_member_ctx(
     Ok(())
 }
 
+/// See [`ensure_room_member_strict_ctx`].
 pub(crate) async fn ensure_room_member_strict_ctx(
     ctx: &RoomContext,
     auth_user: &AuthenticatedUser,
@@ -69,6 +73,7 @@ pub(crate) async fn ensure_room_member_strict_ctx(
 // AdminContext-based helpers — used by handlers migrated to State<AdminContext>.
 // =============================================================================
 
+/// See [`ensure_room_member_admin`].
 pub(crate) async fn ensure_room_member_admin(
     ctx: &AdminContext,
     auth_user: &AuthenticatedUser,
@@ -85,6 +90,7 @@ pub(crate) async fn ensure_room_member_admin(
     Ok(())
 }
 
+/// See [`ensure_room_member_strict_admin`].
 pub(crate) async fn ensure_room_member_strict_admin(
     ctx: &AdminContext,
     auth_user: &AuthenticatedUser,

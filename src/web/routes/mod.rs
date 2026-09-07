@@ -2,100 +2,165 @@
 // L0 — Core Matrix route modules (always compiled, required for core-private-chat)
 // =============================================================================
 mod account_compat;
+/// The `account_data` module.
 pub mod account_data;
+/// The `admin` module.
 pub mod admin;
+/// The `app_service` module.
 pub mod app_service;
 mod assembly;
 mod auth_compat;
+/// The `background_update` module.
 pub mod background_update;
+/// The `captcha` module.
 pub mod captcha;
+/// The `context` module.
 pub mod context;
 mod delayed_events;
+/// The `device` module.
 pub mod device;
 mod directory;
 mod directory_reporting;
+/// The `dm` module.
 pub mod dm;
+/// The `e2ee` module.
 pub mod e2ee;
+/// The `ephemeral` module.
 pub mod ephemeral;
+/// The `event_report` module.
 pub mod event_report;
+/// The `extractors` module.
 pub mod extractors;
+/// The `feature_flags` module.
 pub mod feature_flags;
+/// The `federation` module.
 pub mod federation;
+/// The `formatting` module.
 pub(crate) mod formatting;
+/// The `guest` module.
 pub mod guest;
+/// The `handlers` module.
 pub mod handlers;
+/// The `invite_blocklist` module.
 pub mod invite_blocklist;
+/// The `key_backup` module.
 pub mod key_backup;
+/// The `key_rotation` module.
 pub mod key_rotation;
+/// The `ledger_export` module.
 pub mod ledger_export;
+/// The `media` module.
 pub mod media;
+/// The `moderation` module.
 pub mod moderation;
+/// The `module` module.
 pub mod module;
+/// The `msc4108_rendezvous` module.
 pub mod msc4108_rendezvous;
+/// The `oidc` module.
 pub mod oidc;
+/// The `pinned` module.
 pub mod pinned;
+/// The `presence` module.
 pub mod presence;
+/// The `push` module.
 pub mod push;
+/// The `push_notification` module.
 pub mod push_notification;
+/// The `push_rules` module.
 pub mod push_rules;
+/// The `qr_login_token` module.
 pub mod qr_login_token;
+/// The `reactions` module.
 pub mod reactions;
+/// The `relations` module.
 pub mod relations;
+/// The `rendezvous` module.
 pub mod rendezvous;
 mod response_helpers;
+/// The `room` module.
 pub mod room;
 mod room_access;
+/// The `room_summary` module.
 pub mod room_summary;
+/// The `route_ledger` module.
 pub mod route_ledger;
+/// The `route_module` module.
 pub mod route_module;
+/// The `sliding_sync` module.
 pub mod sliding_sync;
+/// The `space` module.
 pub mod space;
+/// The `state` module.
 pub mod state;
+/// The `sticky_event` module.
 pub mod sticky_event;
+/// The `sync` module.
 pub mod sync;
+/// The `tags` module.
 pub mod tags;
+/// The `telemetry` module.
 pub mod telemetry;
+/// The `thirdparty` module.
 pub mod thirdparty;
+/// The `threepid` module.
 pub mod threepid;
+/// The `typing` module.
 pub mod typing;
+/// The `validators` module.
 pub mod validators;
+/// The `verification_routes` module.
 pub mod verification_routes;
+/// The `worker` module.
 pub mod worker;
 
 // =============================================================================
 // L1 — VoIP routes (standard Matrix TURN support, always available)
 // =============================================================================
+/// The `voip` module.
 pub mod voip;
 
 // =============================================================================
 // L3 — Feature-gated extension route modules (off by default in core builds)
 // =============================================================================
+/// The `friend_room` module.
 #[cfg(feature = "friends")]
 pub mod friend_room;
 
+/// The `voice` module.
 #[cfg(feature = "voice-extended")]
 pub mod voice;
 
+/// The `saml` module.
 #[cfg(feature = "saml-sso")]
 pub mod saml;
 
+/// The `cas` module.
 #[cfg(feature = "cas-sso")]
 pub mod cas;
 
+/// The `widget` module.
 #[cfg(feature = "widgets")]
 pub mod widget;
 
+/// The `burn_after_read` module.
 #[cfg(feature = "burn-after-read")]
 pub mod burn_after_read;
 
+/// The `external_service` module.
 #[cfg(feature = "external-services")]
 pub mod external_service;
 
+/// The `PaginatedResponse` struct.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct PaginatedResponse<T> {
+    /// The `items` field.
     pub items: Vec<T>,
+    /// The `total` field.
     pub total: Option<i64>,
+    /// The `limit` field.
     pub limit: i64,
+    /// The `next_batch` field.
     pub next_batch: Option<String>,
 }
 

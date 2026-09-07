@@ -30,6 +30,7 @@ const DEFAULT_INTEGRITY_CHECK_INTERVAL_SECS: u64 = 3600;
 /// Default maintenance interval (seconds) when not configured.
 const DEFAULT_MAINTENANCE_INTERVAL_SECS: u64 = 86400;
 
+/// The `ScheduledTasks` struct.
 pub struct ScheduledTasks {
     database: Arc<Database>,
     last_health_status: Arc<RwLock<Option<DatabaseHealthStatus>>>,
@@ -43,6 +44,8 @@ pub struct ScheduledTasks {
 }
 
 impl ScheduledTasks {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(database: Arc<Database>) -> Self {
         // Backwards-compatible constructor: reads no Config, uses hardcoded defaults.
         // New code should use [`Self::from_config`].
@@ -340,34 +343,50 @@ impl ScheduledTasks {
         });
     }
 
+    /// See [`get_last_health_status`].
+    /// See [`get_last_health_status`].
     pub async fn get_last_health_status(&self) -> Option<DatabaseHealthStatus> {
         self.last_health_status.read().await.clone()
     }
 
+    /// See [`get_last_performance_metrics`].
+    /// See [`get_last_performance_metrics`].
     pub async fn get_last_performance_metrics(&self) -> Option<PerformanceMetrics> {
         self.last_performance_metrics.read().await.clone()
     }
 
+    /// See [`get_last_integrity_report`].
+    /// See [`get_last_integrity_report`].
     pub async fn get_last_integrity_report(&self) -> Option<DataIntegrityReport> {
         self.last_integrity_report.read().await.clone()
     }
 
+    /// See [`get_last_maintenance_report`].
+    /// See [`get_last_maintenance_report`].
     pub async fn get_last_maintenance_report(&self) -> Option<MaintenanceReport> {
         self.last_maintenance_report.read().await.clone()
     }
 
+    /// See [`trigger_health_check`].
+    /// See [`trigger_health_check`].
     pub async fn trigger_health_check(&self) -> Result<DatabaseHealthStatus, String> {
         self.database.health_check().await.map_err(|e| e.to_string())
     }
 
+    /// See [`trigger_performance_check`].
+    /// See [`trigger_performance_check`].
     pub async fn trigger_performance_check(&self) -> Result<PerformanceMetrics, String> {
         self.database.get_performance_metrics().await.map_err(|e| e.to_string())
     }
 
+    /// See [`trigger_integrity_check`].
+    /// See [`trigger_integrity_check`].
     pub async fn trigger_integrity_check(&self) -> Result<DataIntegrityReport, String> {
         self.database.verify_data_integrity().await.map_err(|e| e.to_string())
     }
 
+    /// See [`trigger_maintenance`].
+    /// See [`trigger_maintenance`].
     pub async fn trigger_maintenance(&self) -> Result<MaintenanceReport, String> {
         let pool = self.database.pool().clone();
         let maintenance = DatabaseMaintenance::new(pool);
@@ -375,15 +394,20 @@ impl ScheduledTasks {
     }
 }
 
+/// The `TaskMetricsCollector` struct.
 pub struct TaskMetricsCollector {
     scheduled_tasks: Arc<ScheduledTasks>,
 }
 
 impl TaskMetricsCollector {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(scheduled_tasks: Arc<ScheduledTasks>) -> Self {
         Self { scheduled_tasks }
     }
 
+    /// See [`collect_all`].
+    /// See [`collect_all`].
     pub async fn collect_all(&self) -> CollectedMetrics {
         let health = self.scheduled_tasks.get_last_health_status().await;
         let performance = self.scheduled_tasks.get_last_performance_metrics().await;
@@ -398,15 +422,22 @@ impl TaskMetricsCollector {
     }
 }
 
+/// The `CollectedMetrics` struct.
 #[derive(Clone, Debug)]
 pub struct CollectedMetrics {
+    /// The `timestamp` field.
     pub timestamp: chrono::DateTime<Utc>,
+    /// The `health_status` field.
     pub health_status: Option<DatabaseHealthStatus>,
+    /// The `performance_metrics` field.
     pub performance_metrics: Option<PerformanceMetrics>,
+    /// The `integrity_report` field.
     pub integrity_report: Option<DataIntegrityReport>,
 }
 
 impl CollectedMetrics {
+    /// See [`to_json`].
+    /// See [`to_json`].
     pub fn to_json(&self) -> serde_json::Value {
         serde_json::json!({
             "timestamp": self.timestamp.to_rfc3339(),

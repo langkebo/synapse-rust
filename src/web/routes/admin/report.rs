@@ -11,6 +11,7 @@ use axum::{
 use serde_json::{json, Value};
 use synapse_storage::event_report::EventReport;
 
+/// See [`create_report_router`].
 pub fn create_report_router() -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/reports", get(get_all_reports))
@@ -23,6 +24,7 @@ pub fn create_report_router() -> Router<crate::web::routes::AppState> {
         )
 }
 
+/// See [`admin_report_route_manifest`].
 pub fn admin_report_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -54,6 +56,7 @@ fn report_to_json(report: &EventReport) -> Value {
     })
 }
 
+/// See [`get_all_reports`].
 #[axum::debug_handler]
 pub async fn get_all_reports(
     _admin: AdminUser,
@@ -81,6 +84,7 @@ pub async fn get_all_reports(
     Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))
 }
 
+/// See [`get_report`].
 #[axum::debug_handler]
 pub async fn get_report(
     _admin: AdminUser,
@@ -95,6 +99,7 @@ pub async fn get_report(
     }
 }
 
+/// See [`delete_report`].
 #[axum::debug_handler]
 pub async fn delete_report(
     _admin: AdminUser,
@@ -106,6 +111,7 @@ pub async fn delete_report(
     Ok(Json(json!({})))
 }
 
+/// See [`get_room_reports`].
 #[axum::debug_handler]
 pub async fn get_room_reports(
     _admin: AdminUser,
@@ -139,6 +145,7 @@ pub async fn get_room_reports(
     Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))
 }
 
+/// See [`get_room_report`].
 #[axum::debug_handler]
 pub async fn get_room_report(
     _admin: AdminUser,
@@ -159,6 +166,7 @@ pub async fn get_room_report(
     }
 }
 
+/// See [`delete_room_report`].
 #[axum::debug_handler]
 pub async fn delete_room_report(
     _admin: AdminUser,

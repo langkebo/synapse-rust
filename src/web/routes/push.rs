@@ -26,6 +26,7 @@ fn create_push_compat_router() -> Router<AppState> {
         .route("/notifications/{notification_id}/ack", post(ack_notification))
 }
 
+/// See [`create_push_router`].
 pub fn create_push_router(state: AppState) -> Router<AppState> {
     let compat_router = create_push_compat_router();
 
@@ -73,6 +74,7 @@ fn push_v3_only_absolute_routes() -> Vec<crate::web::routes::route_ledger::Route
     .collect()
 }
 
+/// See [`push_route_manifest`].
 pub fn push_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     let mut out = crate::web::routes::route_ledger::expand_under_prefixes(
         "push",
@@ -83,50 +85,75 @@ pub fn push_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
     out
 }
 
+/// The `SetPusherRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SetPusherRequest {
+    /// The `pushkey` field.
     pub pushkey: String,
     #[serde(rename = "kind")]
+    /// The `kind` field.
     pub kind: Option<String>,
+    /// The `app_id` field.
     pub app_id: String,
     // 当 kind=null（删除 pusher）时，这些字段可省略
     #[serde(default)]
+    /// The `app_display_name` field.
     pub app_display_name: Option<String>,
     #[serde(default)]
+    /// The `device_display_name` field.
     pub device_display_name: Option<String>,
+    /// The `profile_tag` field.
     pub profile_tag: Option<String>,
     #[serde(default)]
+    /// The `lang` field.
     pub lang: Option<String>,
+    /// The `data` field.
     pub data: Option<Value>,
+    /// The `append` field.
     pub append: Option<bool>,
 }
 
+/// The `PushRule` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PushRule {
+    /// The `rule_id` field.
     pub rule_id: String,
     #[serde(rename = "default")]
+    /// The `is_default` field.
     pub is_default: bool,
     #[serde(rename = "enabled")]
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `pattern` field.
     pub pattern: Option<String>,
+    /// The `conditions` field.
     pub conditions: Option<Vec<PushCondition>>,
+    /// The `actions` field.
     pub actions: Vec<PushAction>,
 }
 
+/// The `PushCondition` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PushCondition {
     #[serde(rename = "kind")]
+    /// The `kind` field.
     pub kind: String,
+    /// The `key` field.
     pub key: Option<String>,
+    /// The `pattern` field.
     pub pattern: Option<String>,
     #[serde(rename = "is")]
+    /// The `is_value` field.
     pub is_value: Option<String>,
 }
 
+/// The `PushAction` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PushAction {
     #[serde(rename = "set_tweak")]
+    /// The `set_tweak` field.
     pub set_tweak: Option<String>,
+    /// The `value` field.
     pub value: Option<Value>,
 }
 

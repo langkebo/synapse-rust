@@ -30,6 +30,7 @@ pub(crate) fn build_join_event_template(user_id: &str) -> serde_json::Value {
     })
 }
 
+/// See [`make_join`].
 pub(crate) async fn make_join(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -88,6 +89,7 @@ pub(crate) async fn make_join(
     result
 }
 
+/// See [`send_join`].
 pub(crate) async fn send_join(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -194,6 +196,7 @@ pub(crate) async fn send_join(
     result
 }
 
+/// See [`send_join_v2`].
 pub(crate) async fn send_join_v2(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,

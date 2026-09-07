@@ -10,8 +10,10 @@ use crate::common::ApiError;
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
 
+/// The `ProtocolQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct ProtocolQuery {
+    /// The `search` field.
     pub search: Option<String>,
 }
 
@@ -23,6 +25,7 @@ fn create_thirdparty_compat_router() -> Router<AppState> {
         .route("/thirdparty/user/{protocol}", get(get_user))
 }
 
+/// See [`create_thirdparty_router`].
 pub fn create_thirdparty_router(state: AppState) -> Router<AppState> {
     let compat_router = create_thirdparty_compat_router();
 
@@ -48,6 +51,7 @@ fn thirdparty_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)
     ]
 }
 
+/// See [`thirdparty_route_manifest`].
 pub fn thirdparty_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::{expand_under_prefixes, RouteEntry};
     use axum::http::Method;
@@ -98,11 +102,16 @@ async fn get_protocol(
     }
 }
 
+/// The `LocationQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct LocationQuery {
+    /// The `alias` field.
     pub alias: Option<String>,
+    /// The `search` field.
     pub search: Option<String>,
+    /// The `server` field.
     pub server: Option<String>,
+    /// The `channel` field.
     pub channel: Option<String>,
 }
 
@@ -123,11 +132,16 @@ async fn get_location_by_alias(
     Err(ApiError::unrecognized("No third-party location bridges configured"))
 }
 
+/// The `UserQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct UserQuery {
+    /// The `userid` field.
     pub userid: Option<String>,
+    /// The `search` field.
     pub search: Option<String>,
+    /// The `nickname` field.
     pub nickname: Option<String>,
+    /// The `server` field.
     pub server: Option<String>,
 }
 

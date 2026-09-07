@@ -7,27 +7,39 @@ use axum::http::{HeaderValue, Request, StatusCode};
 use axum::response::Response;
 use tracing::info;
 
+/// The `CorsSecurityReport` struct.
 #[derive(Debug, Clone)]
 pub struct CorsSecurityReport {
+    /// The `is_development_mode` field.
     pub is_development_mode: bool,
+    /// The `is_localhost_bind` field.
     pub is_localhost_bind: bool,
+    /// The `allows_any_origin` field.
     pub allows_any_origin: bool,
+    /// The `allowed_origins` field.
     pub allowed_origins: Vec<String>,
+    /// The `has_pattern` field.
     pub has_pattern: bool,
+    /// The `warnings` field.
     pub warnings: Vec<String>,
+    /// The `errors` field.
     pub errors: Vec<String>,
 }
 
 impl CorsSecurityReport {
+    /// See [`has_issues`].
+    /// See [`has_issues`].
     pub fn has_issues(&self) -> bool {
         !self.errors.is_empty() || !self.warnings.is_empty()
     }
 }
 
+/// See [`set_config_allowed_origins`].
 pub fn set_config_allowed_origins(origins: Vec<String>) {
     set_config_allowed_origins_once(origins);
 }
 
+/// See [`check_cors_security`].
 pub fn check_cors_security() -> CorsSecurityReport {
     let is_dev = is_dev_mode();
     let allowed_origins = get_allowed_origins();
@@ -87,6 +99,7 @@ pub fn check_cors_security() -> CorsSecurityReport {
     }
 }
 
+/// See [`log_cors_security_report`].
 pub fn log_cors_security_report(report: &CorsSecurityReport) {
     let mode = if report.is_development_mode { "DEVELOPMENT" } else { "PRODUCTION" };
     info!("CORS Security Configuration Check: mode={}", mode);
@@ -121,6 +134,7 @@ pub fn log_cors_security_report(report: &CorsSecurityReport) {
     }
 }
 
+/// See [`validate_cors_config_for_production`].
 pub fn validate_cors_config_for_production() -> Result<(), String> {
     let report = check_cors_security();
 
@@ -131,6 +145,7 @@ pub fn validate_cors_config_for_production() -> Result<(), String> {
     Ok(())
 }
 
+/// See [`validate_bind_address_for_dev_mode`].
 pub fn validate_bind_address_for_dev_mode(host: &str) -> Result<(), String> {
     if !is_dev_mode() {
         return Ok(());
@@ -150,6 +165,7 @@ pub fn validate_bind_address_for_dev_mode(host: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// See [`cors_middleware`].
 pub async fn cors_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
     let origin = request.headers().get("origin").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
 

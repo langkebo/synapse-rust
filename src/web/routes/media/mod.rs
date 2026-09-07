@@ -160,6 +160,7 @@ pub fn create_media_router(state: &AppState) -> Router<AppState> {
         .nest("/_matrix/client/v1/media", authenticated_media_router.merge(preview_router))
 }
 
+/// See [`create_upload_provider_router`].
 pub fn create_upload_provider_router() -> Router<AppState> {
     Router::new()
         .route("/upload/token", post(upload::create_upload_token))
@@ -229,6 +230,7 @@ fn media_authenticated_relative_routes() -> Vec<(axum::http::Method, &'static st
     ]
 }
 
+/// See [`media_route_manifest`].
 pub fn media_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::expand_under_prefixes;
     let mut out = expand_under_prefixes("media", &["/_matrix/media/v1"], &media_v1_relative_routes());

@@ -32,12 +32,16 @@ pub fn voice_upload_response(result: ApiResult<Value>) -> Result<Json<Value>, Ap
     }
 }
 
+/// The `VoiceListQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct VoiceListQuery {
+    /// The `limit` field.
     pub limit: Option<i64>,
+    /// The `from` field.
     pub from: Option<i64>,
 }
 
+/// See [`create_voice_router`].
 pub fn create_voice_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/r0/voice/upload", post(upload_voice_message))
@@ -72,6 +76,7 @@ pub fn create_voice_router(_state: AppState) -> Router<AppState> {
         .route("/_matrix/vendor/v1/voice/{media_id}/transcription", post(transcribe_voice_message))
 }
 
+/// See [`voice_route_manifest`].
 pub fn voice_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

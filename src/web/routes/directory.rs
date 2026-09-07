@@ -11,13 +11,16 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use validator::Validate;
 
+/// The `PublicRoomsQuery` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct PublicRoomsQuery {
     #[validate(range(min = 0, max = 100))]
     #[serde(default = "default_limit")]
+    /// The `limit` field.
     pub limit: i32,
     #[validate(length(max = 256))]
     #[serde(default)]
+    /// The `since` field.
     pub since: Option<String>,
 }
 
@@ -60,25 +63,36 @@ async fn ensure_room_alias_write_allowed(
     Ok(())
 }
 
+/// The `SetRoomAliasBody` struct.
 #[derive(Debug, Deserialize, Validate)]
 pub struct SetRoomAliasBody {
     #[validate(length(min = 1, max = 255))]
+    /// The `room_id` field.
     pub room_id: String,
 }
 
+/// The `PublicRoom` struct.
 #[derive(Debug, Serialize)]
 pub struct PublicRoom {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `name` field.
     pub name: Option<String>,
+    /// The `topic` field.
     pub topic: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `member_count` field.
     pub member_count: i64,
     #[serde(rename = "world_readable")]
+    /// The `is_world_readable` field.
     pub is_world_readable: bool,
     #[serde(rename = "guest_can_join")]
+    /// The `is_guest_can_join` field.
     pub is_guest_can_join: bool,
 }
 
+/// See [`get_directory_room`].
 pub async fn get_directory_room(
     State(ctx): State<RoomContext>,
     Path(room_alias): Path<RoomAlias>,
@@ -136,6 +150,7 @@ fn extract_remote_server_from_alias(alias: &str, local_server: &str) -> Option<S
     }
 }
 
+/// See [`set_room_alias_handler`].
 pub async fn set_room_alias_handler(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -160,6 +175,7 @@ pub async fn set_room_alias_handler(
     })))
 }
 
+/// See [`remove_room_alias`].
 pub async fn remove_room_alias(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -188,6 +204,7 @@ pub async fn remove_room_alias(
     })))
 }
 
+/// See [`get_alias_servers`].
 pub async fn get_alias_servers(
     State(ctx): State<RoomContext>,
     Path(room_alias): Path<RoomAlias>,
@@ -208,6 +225,7 @@ pub async fn get_alias_servers(
     }
 }
 
+/// See [`get_public_rooms_handler`].
 pub async fn get_public_rooms_handler(
     State(ctx): State<RoomContext>,
     Query(query): Query<PublicRoomsQuery>,
@@ -265,6 +283,7 @@ pub async fn get_public_rooms_handler(
     })))
 }
 
+/// See [`search_public_rooms`].
 pub async fn search_public_rooms(
     State(ctx): State<RoomContext>,
     Json(body): Json<Value>,

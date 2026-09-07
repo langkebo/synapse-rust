@@ -40,6 +40,7 @@ pub(crate) fn parse_upload_filename(headers: &HeaderMap, query_params: &Value) -
     })
 }
 
+/// See [`ensure_local_media_server_name`].
 pub(crate) fn ensure_local_media_server_name(ctx: &MediaContext, server_name: &str) -> Result<(), ApiError> {
     if server_name != ctx.server_name {
         return Err(ApiError::not_found("Media not found".to_string()));
@@ -51,6 +52,7 @@ pub(crate) fn ensure_local_media_server_name(ctx: &MediaContext, server_name: &s
 // Upload common helpers
 // ---------------------------------------------------------------------------
 
+/// See [`upload_media_common`].
 pub(crate) async fn upload_media_common(
     ctx: &MediaContext,
     user_id: &str,
@@ -75,6 +77,7 @@ pub(crate) async fn upload_media_common(
     Ok(Json(ctx.media_domain_service.upload_media(user_id, &content_bytes, content_type, filename.as_deref()).await?))
 }
 
+/// See [`upload_media_with_id_common`].
 pub(crate) async fn upload_media_with_id_common(
     ctx: &MediaContext,
     user_id: &str,
@@ -113,6 +116,7 @@ pub(crate) async fn upload_media_with_id_common(
 // Upload handlers
 // ---------------------------------------------------------------------------
 
+/// See [`upload_media_v3`].
 pub(crate) async fn upload_media_v3(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
@@ -123,6 +127,7 @@ pub(crate) async fn upload_media_v3(
     upload_media_common(&ctx, &auth_user.user_id, &params, &headers, body).await
 }
 
+/// See [`upload_media_v1`].
 pub(crate) async fn upload_media_v1(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
@@ -133,6 +138,7 @@ pub(crate) async fn upload_media_v1(
     upload_media_common(&ctx, &auth_user.user_id, &params, &headers, body).await
 }
 
+/// See [`upload_media_with_id`].
 pub(crate) async fn upload_media_with_id(
     State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,

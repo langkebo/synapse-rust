@@ -8,6 +8,7 @@ use synapse_services::search_service::TimestampDirection;
 use std::collections::HashMap;
 
 use crate::web::routes::extractors::{EventId, RoomId};
+/// See [`get_event_context`].
 pub(crate) async fn get_event_context(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -74,6 +75,7 @@ pub(crate) async fn get_event_context(
     })))
 }
 
+/// See [`timestamp_to_event`].
 pub(crate) async fn timestamp_to_event(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

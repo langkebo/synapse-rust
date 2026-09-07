@@ -9,6 +9,7 @@ use axum::response::{IntoResponse, Response};
 use axum::{body::Body, middleware::Next};
 use std::net::SocketAddr;
 
+/// See [`rate_limit_middleware`].
 pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Request<Body>, next: Next) -> Response {
     // 配置启动后只读，无理由 clone：原版每次请求深拷 5 个堆分配字段
     // （Vec<Rule>、Vec<String>、Vec<String>、Vec<String>、HashMap<String,String>）。

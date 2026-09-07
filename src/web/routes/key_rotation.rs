@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 use synapse_common::types::DeviceId;
 
+/// See [`get_key_rotation_status`].
 pub async fn get_key_rotation_status(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
@@ -34,6 +35,7 @@ pub async fn get_key_rotation_status_post(
     get_key_rotation_status(State(ctx), auth_user).await
 }
 
+/// See [`rotate_keys`].
 pub async fn rotate_keys(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
@@ -58,6 +60,7 @@ pub async fn rotate_keys(
     }
 }
 
+/// See [`get_rotation_history`].
 pub async fn get_rotation_history(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
@@ -89,6 +92,7 @@ pub async fn get_rotation_history(
     })))
 }
 
+/// See [`revoke_old_keys`].
 pub async fn revoke_old_keys(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
@@ -123,6 +127,7 @@ pub async fn revoke_old_keys(
     }
 }
 
+/// See [`configure_key_rotation`].
 pub async fn configure_key_rotation(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
@@ -221,6 +226,7 @@ pub async fn configure_key_rotation_post(
     configure_key_rotation(State(ctx), auth_user, Json(body)).await
 }
 
+/// See [`check_needs_rotation`].
 pub async fn check_needs_rotation(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
@@ -274,6 +280,7 @@ pub async fn check_needs_rotation_post(
     check_needs_rotation(State(ctx), auth_user, axum::extract::Query(params)).await
 }
 
+/// See [`create_key_rotation_router`].
 pub fn create_key_rotation_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route(
@@ -298,6 +305,7 @@ pub fn create_key_rotation_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+/// See [`key_rotation_route_manifest`].
 pub fn key_rotation_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use super::federatable_room_version;
 use crate::web::routes::extractors::RoomId;
 
+/// See [`get_room_members`].
 pub(crate) async fn get_room_members(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -41,6 +42,7 @@ pub(crate) async fn get_room_members(
     })))
 }
 
+/// See [`get_joined_room_members`].
 pub(crate) async fn get_joined_room_members(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -72,6 +74,7 @@ pub(crate) async fn get_joined_room_members(
     })))
 }
 
+/// See [`get_user_devices`].
 pub(crate) async fn get_user_devices(
     State(ctx): State<FederationContext>,
     Extension(_auth): Extension<FederationRequestAuth>,
@@ -123,6 +126,7 @@ pub(crate) async fn get_user_devices(
     })))
 }
 
+/// See [`get_joining_rules`].
 pub(crate) async fn get_joining_rules(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,

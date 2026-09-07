@@ -14,6 +14,7 @@ fn create_reactions_compat_router() -> Router<AppState> {
     Router::new().route("/rooms/{room_id}/send/m.reaction/{txn_id}", put(add_reaction))
 }
 
+/// See [`create_reactions_router`].
 pub fn create_reactions_router(state: AppState) -> Router<AppState> {
     let compat_router = create_reactions_compat_router();
 
@@ -30,6 +31,7 @@ fn reactions_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)>
     vec![(Method::PUT, "/rooms/{room_id}/send/m.reaction/{txn_id}")]
 }
 
+/// See [`reactions_route_manifest`].
 pub fn reactions_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     crate::web::routes::route_ledger::expand_under_prefixes(
         "reactions",
@@ -38,17 +40,23 @@ pub fn reactions_route_manifest() -> Vec<crate::web::routes::route_ledger::Route
     )
 }
 
+/// The `RelatesTo` struct.
 #[derive(Debug, Deserialize)]
 pub struct RelatesTo {
+    /// The `event_id` field.
     pub event_id: String,
     #[serde(rename = "rel_type")]
+    /// The `rel_type` field.
     pub rel_type: String,
     #[serde(default)]
+    /// The `is_falling_back` field.
     pub is_falling_back: Option<bool>,
 }
 
+/// The `ReactionResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct ReactionResponse {
+    /// The `event_id` field.
     pub event_id: String,
 }
 

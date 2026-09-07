@@ -12,8 +12,10 @@ use crate::web::routes::response_helpers::empty_json;
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
 
+/// The `TagContent` struct.
 #[derive(Debug, Deserialize)]
 pub struct TagContent {
+    /// The `order` field.
     pub order: Option<f64>,
 }
 
@@ -25,6 +27,7 @@ fn create_tags_compat_router() -> Router<AppState> {
         .route("/user/{user_id}/rooms/{room_id}/tags/{tag}", delete(delete_tag))
 }
 
+/// See [`create_tags_router`].
 pub fn create_tags_router(state: AppState) -> Router<AppState> {
     let compat_router = create_tags_compat_router();
 
@@ -46,6 +49,7 @@ fn tags_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     ]
 }
 
+/// See [`tags_route_manifest`].
 pub fn tags_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     crate::web::routes::route_ledger::expand_under_prefixes("tags", TAGS_NEST_PREFIXES, &tags_compat_relative_routes())
 }

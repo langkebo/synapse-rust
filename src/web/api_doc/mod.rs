@@ -7,11 +7,17 @@
 //! well-known endpoints are annotated as canonical examples. Additional routes
 //! should be annotated incrementally through follow-up patches.
 
+/// The `admin` module.
 pub mod admin;
+/// The `auth` module.
 pub mod auth;
+/// The `client_server` module.
 pub mod client_server;
+/// The `federation` module.
 pub mod federation;
+/// The `health` module.
 pub mod health;
+/// The `schemas` module.
 pub mod schemas;
 
 use crate::web::routes::AppState;

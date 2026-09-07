@@ -4,6 +4,7 @@ use crate::web::routes::{AdminUser, AppState};
 use axum::{extract::State, routing::post, Json, Router};
 use serde_json::{json, Value};
 
+/// See [`create_cleanup_router`].
 pub fn create_cleanup_router(state: AppState) -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/cleanup/all", post(cleanup_all))
@@ -12,6 +13,7 @@ pub fn create_cleanup_router(state: AppState) -> Router<crate::web::routes::AppS
         .with_state(state)
 }
 
+/// See [`admin_cleanup_route_manifest`].
 pub fn admin_cleanup_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -25,6 +27,7 @@ pub fn admin_cleanup_route_manifest() -> Vec<crate::web::routes::route_ledger::R
     .collect()
 }
 
+/// See [`cleanup_all`].
 #[axum::debug_handler]
 pub async fn cleanup_all(
     _admin: AdminUser,
@@ -67,6 +70,7 @@ pub async fn cleanup_all(
     Ok(Json(Value::Object(results)))
 }
 
+/// See [`cleanup_rooms`].
 #[axum::debug_handler]
 pub async fn cleanup_rooms(
     _admin: AdminUser,
@@ -78,6 +82,7 @@ pub async fn cleanup_rooms(
     Ok(Json(results))
 }
 
+/// See [`cleanup_tokens`].
 #[axum::debug_handler]
 pub async fn cleanup_tokens(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     let mut token_results = serde_json::Map::new();

@@ -13,6 +13,7 @@ use serde_json::Value;
 // Re-export shared logic from synapse-common (single source of truth).
 pub use synapse_common::push_rules::{default_push_rules_for_user, get_default_push_rules, merge_default_push_rules};
 
+/// See [`get_push_rules_default`].
 pub async fn get_push_rules_default(
     State(ctx): State<SyncContext>,
     auth_user: AuthenticatedUser,
@@ -29,6 +30,7 @@ pub async fn get_push_rules_default(
     Ok(Json(default_push_rules_for_user(&auth_user.user_id, username)))
 }
 
+/// See [`get_push_rules_global_default`].
 pub async fn get_push_rules_global_default(
     State(ctx): State<SyncContext>,
     auth_user: AuthenticatedUser,

@@ -19,12 +19,18 @@ pub use synapse_common::server_metrics;
 
 // Local genuine modules (non-facade). These shadow the same-named modules
 // that the glob would re-export from synapse_common; local definitions win.
+/// The `config` module.
 pub mod config;
+/// The `crypto` module.
 pub mod crypto;
+/// The `error` module.
 pub mod error;
+/// The `federation_test_keys` module.
 #[cfg(any(test, feature = "test-utils"))]
 pub mod federation_test_keys;
+/// The `health` module.
 pub mod health;
+/// The `logging` module.
 pub mod logging;
 
 // Re-exports of local-only items from genuine modules.

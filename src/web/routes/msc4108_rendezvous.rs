@@ -25,6 +25,7 @@ use axum::{
 
 const MSC4108_TTL_MS: i64 = 5 * 60 * 1000; // 5 minutes
 
+/// See [`create_msc4108_rendezvous_router`].
 pub fn create_msc4108_rendezvous_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/unstable/org.matrix.msc4108/rendezvous", post(create_session))
@@ -35,6 +36,7 @@ pub fn create_msc4108_rendezvous_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+/// See [`msc4108_route_manifest`].
 pub fn msc4108_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

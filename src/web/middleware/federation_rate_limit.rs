@@ -18,6 +18,7 @@ use axum::{body::Body, middleware::Next};
 
 use super::federation_auth::FederationRequestAuth;
 
+/// See [`federation_rate_limit_middleware`].
 pub async fn federation_rate_limit_middleware(
     State(ctx): State<FederationContext>,
     request: Request<Body>,

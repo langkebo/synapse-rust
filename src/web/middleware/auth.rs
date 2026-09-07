@@ -11,10 +11,12 @@ use axum::{body::Body, response::Response, Json};
 use serde_json::json;
 use synapse_storage::audit::CreateAuditEventRequest;
 
+/// See [`extract_token`].
 pub fn extract_token(headers: &HeaderMap, uri: &str) -> Option<String> {
     crate::web::utils::auth::extract_token_opt(headers, uri)
 }
 
+/// See [`auth_middleware`].
 pub async fn auth_middleware(
     State(ctx): State<CoreContext>,
     request: Request<Body>,
@@ -43,6 +45,7 @@ pub async fn auth_middleware(
     response
 }
 
+/// See [`shadow_ban_middleware`].
 pub async fn shadow_ban_middleware(
     State(ctx): State<CoreContext>,
     request: Request<Body>,
@@ -132,6 +135,7 @@ fn is_shadow_ban_exempt_path(path: &str) -> bool {
     path.starts_with("/_synapse/admin/")
 }
 
+/// See [`admin_auth_middleware`].
 pub async fn admin_auth_middleware(
     State(ctx): State<AdminContext>,
     request: Request<Body>,

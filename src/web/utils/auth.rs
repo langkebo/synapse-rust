@@ -1,10 +1,12 @@
 use crate::common::ApiError;
 use axum::http::HeaderMap;
 
+/// See [`generate_request_id`].
 pub(crate) fn generate_request_id() -> String {
     format!("req-{}", uuid::Uuid::new_v4())
 }
 
+/// See [`resolve_request_id`].
 pub(crate) fn resolve_request_id(headers: &HeaderMap) -> String {
     headers
         .get("x-request-id")
@@ -14,6 +16,7 @@ pub(crate) fn resolve_request_id(headers: &HeaderMap) -> String {
         .map_or_else(generate_request_id, |v| v.to_string())
 }
 
+/// See [`bearer_token_opt`].
 pub(crate) fn bearer_token_opt(headers: &HeaderMap) -> Option<String> {
     headers
         .get("authorization")
@@ -23,6 +26,7 @@ pub(crate) fn bearer_token_opt(headers: &HeaderMap) -> Option<String> {
         .filter(|s| !s.trim().is_empty())
 }
 
+/// See [`bearer_token`].
 pub(crate) fn bearer_token(headers: &HeaderMap) -> Result<String, ApiError> {
     let token = headers
         .get("authorization")

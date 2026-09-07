@@ -1,5 +1,8 @@
+/// The `auth` module.
 pub mod auth;
+/// The `json` module.
 pub mod json;
+/// The `localhost_guard` module.
 pub mod localhost_guard;
 mod pagination;
 
@@ -18,6 +21,7 @@ pub use synapse_common::types::{
 
 /// Extension trait: Axum-aware validators for ID types.
 pub trait UserIdParseExt {
+    /// See [`parse_matrix`].
     fn parse_matrix(raw: &str) -> Result<Self, ApiError>
     where
         Self: Sized;

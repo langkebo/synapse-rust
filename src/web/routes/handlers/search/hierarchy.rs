@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use crate::web::routes::extractors::RoomId;
 use std::collections::HashMap;
 
+/// See [`build_room_hierarchy_response`].
 pub(crate) async fn build_room_hierarchy_response(
     ctx: &RoomContext,
     room_id: &str,
@@ -194,6 +195,7 @@ pub(crate) async fn build_room_hierarchy_response(
     }))
 }
 
+/// See [`get_room_hierarchy`].
 pub(crate) async fn get_room_hierarchy(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

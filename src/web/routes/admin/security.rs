@@ -12,6 +12,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::types::UserId;
 
+/// See [`create_security_router`].
 pub fn create_security_router() -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/users/{user_id}/shadow_ban", post(shadow_ban_user))
@@ -24,6 +25,7 @@ pub fn create_security_router() -> Router<crate::web::routes::AppState> {
         .route("/_synapse/admin/v1/users/{user_id}/override_ratelimit", delete(delete_user_override_rate_limit))
 }
 
+/// See [`admin_security_route_manifest`].
 pub fn admin_security_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -42,9 +44,12 @@ pub fn admin_security_route_manifest() -> Vec<crate::web::routes::route_ledger::
     .collect()
 }
 
+/// The `RateLimitRequest` struct.
 #[derive(Debug, Deserialize)]
 pub struct RateLimitRequest {
+    /// The `messages_per_second` field.
     pub messages_per_second: Option<f64>,
+    /// The `burst_count` field.
     pub burst_count: Option<i32>,
 }
 
@@ -58,6 +63,7 @@ async fn ensure_user_exists(ctx: &AdminContext, user_id: &str) -> Result<(), Api
     Ok(())
 }
 
+/// See [`shadow_ban_user`].
 #[axum::debug_handler]
 pub async fn shadow_ban_user(
     admin: AdminUser,
@@ -81,6 +87,7 @@ pub async fn shadow_ban_user(
     Ok(Json(json!({})))
 }
 
+/// See [`unshadow_ban_user`].
 #[axum::debug_handler]
 pub async fn unshadow_ban_user(
     admin: AdminUser,
@@ -104,6 +111,7 @@ pub async fn unshadow_ban_user(
     Ok(Json(json!({})))
 }
 
+/// See [`get_user_rate_limit`].
 #[axum::debug_handler]
 pub async fn get_user_rate_limit(
     _admin: AdminUser,
@@ -120,6 +128,7 @@ pub async fn get_user_rate_limit(
     })))
 }
 
+/// See [`set_user_rate_limit`].
 #[axum::debug_handler]
 pub async fn set_user_rate_limit(
     admin: AdminUser,
@@ -155,6 +164,7 @@ pub async fn set_user_rate_limit(
     })))
 }
 
+/// See [`delete_user_rate_limit`].
 #[axum::debug_handler]
 pub async fn delete_user_rate_limit(
     admin: AdminUser,
@@ -180,6 +190,7 @@ pub async fn delete_user_rate_limit(
     Ok(Json(json!({})))
 }
 
+/// See [`get_user_override_rate_limit`].
 #[axum::debug_handler]
 pub async fn get_user_override_rate_limit(
     admin: AdminUser,
@@ -189,6 +200,7 @@ pub async fn get_user_override_rate_limit(
     get_user_rate_limit(admin, State(ctx), Path(user_id)).await
 }
 
+/// See [`set_user_override_rate_limit`].
 #[axum::debug_handler]
 pub async fn set_user_override_rate_limit(
     admin: AdminUser,
@@ -200,6 +212,7 @@ pub async fn set_user_override_rate_limit(
     set_user_rate_limit(admin, State(ctx), Path(user_id), headers, body).await
 }
 
+/// See [`delete_user_override_rate_limit`].
 #[axum::debug_handler]
 pub async fn delete_user_override_rate_limit(
     admin: AdminUser,

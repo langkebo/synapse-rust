@@ -12,20 +12,29 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "voip-tracking")]
 use synapse_common::current_timestamp_millis;
 
+/// The `TurnServerResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnServerResponse {
+    /// The `username` field.
     pub username: String,
+    /// The `password` field.
     pub password: String,
+    /// The `uris` field.
     pub uris: Vec<String>,
+    /// The `ttl` field.
     pub ttl: i64,
 }
 
+/// The `VoipConfigResponse` struct.
 #[derive(Debug, Clone, Serialize)]
 pub struct VoipConfigResponse {
+    /// The `turn_servers` field.
     pub turn_servers: Option<Vec<TurnServerResponse>>,
+    /// The `stun_servers` field.
     pub stun_servers: Option<Vec<String>>,
 }
 
+/// See [`get_turn_server`].
 #[allow(clippy::unused_async)]
 pub async fn get_turn_server(
     State(ctx): State<RoomContext>,
@@ -56,6 +65,7 @@ pub async fn get_turn_server(
     }))
 }
 
+/// See [`get_voip_config`].
 #[allow(clippy::unused_async)]
 pub async fn get_voip_config(
     State(ctx): State<RoomContext>,
@@ -95,6 +105,7 @@ pub async fn get_voip_config(
     Ok(Json(VoipConfigResponse { turn_servers, stun_servers }))
 }
 
+/// See [`get_turn_credentials_guest`].
 #[allow(clippy::unused_async)]
 pub async fn get_turn_credentials_guest(
     State(ctx): State<RoomContext>,

@@ -15,6 +15,7 @@ use super::schemas::*;
         ),
     ),
 )]
+/// See [`detailed_health_check`].
 pub fn detailed_health_check() -> axum::Json<ApiHealthStatus> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -36,6 +37,7 @@ pub fn detailed_health_check() -> axum::Json<ApiHealthStatus> {
         ),
     ),
 )]
+/// See [`get_server_version`].
 pub fn get_server_version() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -66,6 +68,7 @@ pub fn get_server_version() -> axum::Json<serde_json::Value> {
         ),
     ),
 )]
+/// See [`get_pushers`].
 pub fn get_pushers() -> axum::Json<ApiPushersResponse> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -80,6 +83,7 @@ pub fn get_pushers() -> axum::Json<ApiPushersResponse> {
         (status = 200, description = "All push rules", body = schemas::ApiClientGenericJson)
     ),
 )]
+/// See [`get_push_rules`].
 pub fn get_push_rules() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -97,6 +101,7 @@ pub fn get_push_rules() -> axum::Json<serde_json::Value> {
         (status = 200, description = "Push rule scope", body = schemas::ApiClientGenericJson)
     ),
 )]
+/// See [`get_push_rules_scope`].
 pub fn get_push_rules_scope() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -115,6 +120,7 @@ pub fn get_push_rules_scope() -> axum::Json<serde_json::Value> {
         (status = 200, description = "Push rule kind listing", body = schemas::ApiClientGenericJson)
     ),
 )]
+/// See [`get_push_rules_kind`].
 pub fn get_push_rules_kind() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -135,6 +141,7 @@ pub fn get_push_rules_kind() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Push rule not found")
     ),
 )]
+/// See [`get_push_rule`].
 pub fn get_push_rule() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -159,6 +166,7 @@ pub fn get_push_rule() -> axum::Json<serde_json::Value> {
         ),
     ),
 )]
+/// See [`get_devices`].
 pub fn get_devices() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -189,6 +197,7 @@ pub fn get_devices() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Device not found")
     ),
 )]
+/// See [`get_device`].
 pub fn get_device() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -219,6 +228,7 @@ pub fn get_device() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`update_device_doc`].
 pub fn update_device_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -242,6 +252,7 @@ pub fn update_device_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`delete_device_doc`].
 pub fn delete_device_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -262,6 +273,7 @@ pub fn delete_device_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`delete_devices_doc`].
 pub fn delete_devices_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -287,6 +299,7 @@ pub fn delete_devices_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "User not found")
     ),
 )]
+/// See [`get_profile_info`].
 pub fn get_profile_info() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -311,6 +324,7 @@ pub fn get_profile_info() -> axum::Json<serde_json::Value> {
         (status = 404, description = "User not found")
     ),
 )]
+/// See [`get_profile_displayname`].
 pub fn get_profile_displayname() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -335,6 +349,7 @@ pub fn get_profile_displayname() -> axum::Json<serde_json::Value> {
         (status = 404, description = "User not found")
     ),
 )]
+/// See [`get_profile_avatar_url`].
 pub fn get_profile_avatar_url() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -357,6 +372,7 @@ pub fn get_profile_avatar_url() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`update_avatar_url_doc`].
 pub fn update_avatar_url_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -384,6 +400,7 @@ pub fn update_avatar_url_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "User not found")
     ),
 )]
+/// See [`get_presence_status`].
 pub fn get_presence_status() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -409,6 +426,7 @@ pub fn get_presence_status() -> axum::Json<serde_json::Value> {
         )
     ),
 )]
+/// See [`get_presence_list_current_user`].
 pub fn get_presence_list_current_user() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -438,6 +456,7 @@ pub fn get_presence_list_current_user() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Access denied")
     ),
 )]
+/// See [`get_presence_list_for_user`].
 pub fn get_presence_list_for_user() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -461,6 +480,7 @@ pub fn get_presence_list_for_user() -> axum::Json<serde_json::Value> {
         (status = 404, description = "No dehydrated device exists")
     ),
 )]
+/// See [`get_dehydrated_device_status_doc`].
 pub fn get_dehydrated_device_status_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -489,6 +509,7 @@ pub fn get_dehydrated_device_status_doc() -> axum::Json<serde_json::Value> {
         )
     ),
 )]
+/// See [`get_rtc_transports_doc`].
 pub fn get_rtc_transports_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -508,6 +529,7 @@ pub fn get_rtc_transports_doc() -> axum::Json<serde_json::Value> {
         )
     ),
 )]
+/// See [`get_media_config`].
 pub fn get_media_config() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -530,6 +552,7 @@ pub fn get_media_config() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_joined_rooms_doc`].
 pub fn get_joined_rooms_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -563,6 +586,7 @@ pub fn get_joined_rooms_doc() -> axum::Json<serde_json::Value> {
         )
     ),
 )]
+/// See [`get_public_rooms_doc`].
 pub fn get_public_rooms_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -587,6 +611,7 @@ pub fn get_public_rooms_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`create_room_doc`].
 pub fn create_room_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -617,6 +642,7 @@ pub fn create_room_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`send_message_doc`].
 pub fn send_message_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -645,6 +671,7 @@ pub fn send_message_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`join_room_doc`].
 pub fn join_room_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -666,6 +693,7 @@ pub fn join_room_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`leave_room_doc`].
 pub fn leave_room_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -694,6 +722,7 @@ pub fn leave_room_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`forget_room_doc`].
 pub fn forget_room_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -724,6 +753,7 @@ pub fn forget_room_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`invite_user_doc`].
 pub fn invite_user_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -759,6 +789,7 @@ pub fn invite_user_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_joined_members_doc`].
 pub fn get_joined_members_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -780,6 +811,7 @@ pub fn get_joined_members_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`update_displayname_doc`].
 pub fn update_displayname_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -808,6 +840,7 @@ pub fn update_displayname_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_user_directory_profile_doc`].
 pub fn get_user_directory_profile_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -838,6 +871,7 @@ pub fn get_user_directory_profile_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`search_user_directory_doc`].
 pub fn search_user_directory_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -861,6 +895,7 @@ pub fn search_user_directory_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Room not found")
     )
 )]
+/// See [`get_room_visibility_doc`].
 pub fn get_room_visibility_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -889,6 +924,7 @@ pub fn get_room_visibility_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`set_room_visibility_doc`].
 pub fn set_room_visibility_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -912,6 +948,7 @@ pub fn set_room_visibility_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Alias not found")
     )
 )]
+/// See [`get_room_by_alias_doc`].
 pub fn get_room_by_alias_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -941,6 +978,7 @@ pub fn get_room_by_alias_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`set_room_alias_direct_doc`].
 pub fn set_room_alias_direct_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -967,6 +1005,7 @@ pub fn set_room_alias_direct_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`delete_room_alias_direct_doc`].
 pub fn delete_room_alias_direct_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -997,6 +1036,7 @@ pub fn delete_room_alias_direct_doc() -> axum::Json<serde_json::Value> {
         )
     )
 )]
+/// See [`query_public_rooms_doc`].
 pub fn query_public_rooms_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1022,6 +1062,7 @@ pub fn query_public_rooms_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_room_aliases_doc`].
 pub fn get_room_aliases_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1050,6 +1091,7 @@ pub fn get_room_aliases_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`set_room_alias_doc`].
 pub fn set_room_alias_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1071,6 +1113,7 @@ pub fn set_room_alias_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`delete_room_alias_doc`].
 pub fn delete_room_alias_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1096,6 +1139,7 @@ pub fn delete_room_alias_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`sync_doc`].
 pub fn sync_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1117,6 +1161,7 @@ pub fn sync_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_events_doc`].
 pub fn get_events_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1145,6 +1190,7 @@ pub fn get_events_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_my_rooms_doc`].
 pub fn get_my_rooms_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1164,6 +1210,7 @@ pub fn get_my_rooms_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`search_room_events_doc`].
 pub fn search_room_events_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1182,6 +1229,7 @@ pub fn search_room_events_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`search_recipients_doc`].
 pub fn search_recipients_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1200,6 +1248,7 @@ pub fn search_recipients_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`search_rooms_doc`].
 pub fn search_rooms_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1222,6 +1271,7 @@ pub fn search_rooms_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_event_context_doc`].
 pub fn get_event_context_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1246,6 +1296,7 @@ pub fn get_event_context_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_room_hierarchy_doc`].
 pub fn get_room_hierarchy_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1274,6 +1325,7 @@ pub fn get_room_hierarchy_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`timestamp_to_event_doc`].
 pub fn timestamp_to_event_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1301,6 +1353,7 @@ pub fn timestamp_to_event_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`upload_media_v3_doc`].
 pub fn upload_media_v3_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1320,6 +1373,7 @@ pub fn upload_media_v3_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Media not found")
     )
 )]
+/// See [`download_media_doc`].
 pub fn download_media_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1342,6 +1396,7 @@ pub fn download_media_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Media not found")
     )
 )]
+/// See [`get_thumbnail_doc`].
 pub fn get_thumbnail_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1361,6 +1416,7 @@ pub fn get_thumbnail_doc() -> axum::Json<serde_json::Value> {
         (status = 400, description = "Invalid URL")
     )
 )]
+/// See [`preview_url_doc`].
 pub fn preview_url_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1382,6 +1438,7 @@ pub fn preview_url_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`report_room_doc`].
 pub fn report_room_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1404,6 +1461,7 @@ pub fn report_room_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`report_event_doc`].
 pub fn report_event_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1426,6 +1484,7 @@ pub fn report_event_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`update_report_score_doc`].
 pub fn update_report_score_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1451,6 +1510,7 @@ pub fn update_report_score_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_relations_by_event_doc`].
 pub fn get_relations_by_event_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1476,6 +1536,7 @@ pub fn get_relations_by_event_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_relations_doc`].
 pub fn get_relations_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1506,6 +1567,7 @@ pub fn get_relations_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`send_relation_doc`].
 pub fn send_relation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1531,6 +1593,7 @@ pub fn send_relation_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_aggregations_doc`].
 pub fn get_aggregations_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1559,6 +1622,7 @@ pub fn get_aggregations_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`add_reaction_doc`].
 pub fn add_reaction_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1584,6 +1648,7 @@ pub fn add_reaction_doc() -> axum::Json<serde_json::Value> {
         )
     )
 )]
+/// See [`get_client_config_doc`].
 pub fn get_client_config_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1607,6 +1672,7 @@ pub fn get_client_config_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_guest_info_doc`].
 pub fn get_guest_info_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1633,6 +1699,7 @@ pub fn get_guest_info_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`upgrade_guest_doc`].
 pub fn upgrade_guest_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1647,6 +1714,7 @@ pub fn upgrade_guest_doc() -> axum::Json<serde_json::Value> {
         (status = 200, description = "Third-party protocol registry", body = schemas::ApiClientGenericJson)
     )
 )]
+/// See [`get_thirdparty_protocols_doc`].
 pub fn get_thirdparty_protocols_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1674,6 +1742,7 @@ pub fn get_thirdparty_protocols_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_thirdparty_protocol_doc`].
 pub fn get_thirdparty_protocol_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1699,6 +1768,7 @@ pub fn get_thirdparty_protocol_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_thirdparty_location_doc`].
 pub fn get_thirdparty_location_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1723,6 +1793,7 @@ pub fn get_thirdparty_location_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_thirdparty_location_by_alias_doc`].
 pub fn get_thirdparty_location_by_alias_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1747,6 +1818,7 @@ pub fn get_thirdparty_location_by_alias_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_thirdparty_user_by_id_doc`].
 pub fn get_thirdparty_user_by_id_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1777,6 +1849,7 @@ pub fn get_thirdparty_user_by_id_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`set_push_rule_actions_doc`].
 pub fn set_push_rule_actions_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1805,6 +1878,7 @@ pub fn set_push_rule_actions_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_push_rule_enabled_doc`].
 pub fn get_push_rule_enabled_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1835,6 +1909,7 @@ pub fn get_push_rule_enabled_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`set_push_rule_enabled_doc`].
 pub fn set_push_rule_enabled_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1852,6 +1927,7 @@ pub fn set_push_rule_enabled_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_push_rules_default_doc`].
 pub fn get_push_rules_default_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1869,6 +1945,7 @@ pub fn get_push_rules_default_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_push_rules_global_default_doc`].
 pub fn get_push_rules_global_default_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1886,6 +1963,7 @@ pub fn get_push_rules_global_default_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_push_rules_default_r0_doc`].
 pub fn get_push_rules_default_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1903,6 +1981,7 @@ pub fn get_push_rules_default_r0_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_push_rules_global_default_r0_doc`].
 pub fn get_push_rules_global_default_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1923,6 +2002,7 @@ pub fn get_push_rules_global_default_r0_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_presence_status_v1_doc`].
 pub fn get_presence_status_v1_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1944,6 +2024,7 @@ pub fn get_presence_status_v1_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`set_presence_status_v1_doc`].
 pub fn set_presence_status_v1_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1964,6 +2045,7 @@ pub fn set_presence_status_v1_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_presence_status_r0_doc`].
 pub fn get_presence_status_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -1985,6 +2067,7 @@ pub fn get_presence_status_r0_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`set_presence_status_r0_doc`].
 pub fn set_presence_status_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2010,6 +2093,7 @@ pub fn set_presence_status_r0_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_typing_users_doc`].
 pub fn get_typing_users_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2036,6 +2120,7 @@ pub fn get_typing_users_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_user_typing_doc`].
 pub fn get_user_typing_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2058,6 +2143,7 @@ pub fn get_user_typing_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`set_typing_doc`].
 pub fn set_typing_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2083,6 +2169,7 @@ pub fn set_typing_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`bulk_get_typing_doc`].
 pub fn bulk_get_typing_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2108,6 +2195,7 @@ pub fn bulk_get_typing_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_typing_users_r0_doc`].
 pub fn get_typing_users_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2134,6 +2222,7 @@ pub fn get_typing_users_r0_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_user_typing_r0_doc`].
 pub fn get_user_typing_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2156,6 +2245,7 @@ pub fn get_user_typing_r0_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`set_typing_r0_doc`].
 pub fn set_typing_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2181,6 +2271,7 @@ pub fn set_typing_r0_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`bulk_get_typing_r0_doc`].
 pub fn bulk_get_typing_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2204,6 +2295,7 @@ pub fn bulk_get_typing_r0_doc() -> axum::Json<serde_json::Value> {
         (status = 400, description = "Invalid rendezvous request")
     )
 )]
+/// See [`create_rendezvous_session_doc`].
 pub fn create_rendezvous_session_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2233,6 +2325,7 @@ pub fn create_rendezvous_session_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Session not found")
     )
 )]
+/// See [`get_rendezvous_session_doc`].
 pub fn get_rendezvous_session_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2255,6 +2348,7 @@ pub fn get_rendezvous_session_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`update_rendezvous_session_doc`].
 pub fn update_rendezvous_session_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2276,6 +2370,7 @@ pub fn update_rendezvous_session_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`delete_rendezvous_session_doc`].
 pub fn delete_rendezvous_session_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2305,6 +2400,7 @@ pub fn delete_rendezvous_session_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`send_rendezvous_message_doc`].
 pub fn send_rendezvous_message_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2326,6 +2422,7 @@ pub fn send_rendezvous_message_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_rendezvous_messages_doc`].
 pub fn get_rendezvous_messages_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2343,6 +2440,7 @@ pub fn get_rendezvous_messages_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_push_devices_doc`].
 pub fn get_push_devices_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2361,6 +2459,7 @@ pub fn get_push_devices_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`register_push_device_doc`].
 pub fn register_push_device_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2381,6 +2480,7 @@ pub fn register_push_device_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`unregister_push_device_doc`].
 pub fn unregister_push_device_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2404,6 +2504,7 @@ pub fn unregister_push_device_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`send_push_notification_doc`].
 pub fn send_push_notification_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2421,6 +2522,7 @@ pub fn send_push_notification_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_push_notification_rules_doc`].
 pub fn get_push_notification_rules_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2439,6 +2541,7 @@ pub fn get_push_notification_rules_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`create_push_notification_rule_doc`].
 pub fn create_push_notification_rule_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2461,6 +2564,7 @@ pub fn create_push_notification_rule_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`delete_push_notification_rule_doc`].
 pub fn delete_push_notification_rule_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2485,6 +2589,7 @@ pub fn delete_push_notification_rule_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_thirdparty_location_r0_doc`].
 pub fn get_thirdparty_location_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2509,6 +2614,7 @@ pub fn get_thirdparty_location_r0_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_thirdparty_user_r0_doc`].
 pub fn get_thirdparty_user_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2534,6 +2640,7 @@ pub fn get_thirdparty_user_r0_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`oidc_userinfo_v3_doc`].
 pub fn oidc_userinfo_v3_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2561,6 +2668,7 @@ pub fn oidc_userinfo_v3_doc() -> axum::Json<serde_json::Value> {
         (status = 400, description = "OIDC is not enabled or request validation failed")
     )
 )]
+/// See [`oidc_token_v3_doc`].
 pub fn oidc_token_v3_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2592,6 +2700,7 @@ pub fn oidc_token_v3_doc() -> axum::Json<serde_json::Value> {
         (status = 400, description = "OIDC is not enabled or response_type is unsupported")
     )
 )]
+/// See [`oidc_authorize_v3_doc`].
 pub fn oidc_authorize_v3_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2623,6 +2732,7 @@ pub fn oidc_authorize_v3_doc() -> axum::Json<serde_json::Value> {
         (status = 401, description = "OIDC state is missing, expired, or invalid")
     )
 )]
+/// See [`oidc_callback_v3_doc`].
 pub fn oidc_callback_v3_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2648,6 +2758,7 @@ pub fn oidc_callback_v3_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`oidc_userinfo_r0_doc`].
 pub fn oidc_userinfo_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2675,6 +2786,7 @@ pub fn oidc_userinfo_r0_doc() -> axum::Json<serde_json::Value> {
         (status = 400, description = "OIDC is not enabled or request validation failed")
     )
 )]
+/// See [`oidc_token_r0_doc`].
 pub fn oidc_token_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2706,6 +2818,7 @@ pub fn oidc_token_r0_doc() -> axum::Json<serde_json::Value> {
         (status = 400, description = "OIDC is not enabled or response_type is unsupported")
     )
 )]
+/// See [`oidc_authorize_r0_doc`].
 pub fn oidc_authorize_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2737,6 +2850,7 @@ pub fn oidc_authorize_r0_doc() -> axum::Json<serde_json::Value> {
         (status = 401, description = "OIDC state is missing, expired, or invalid")
     )
 )]
+/// See [`oidc_callback_r0_doc`].
 pub fn oidc_callback_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2760,6 +2874,7 @@ pub fn oidc_callback_r0_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`appservice_ping_doc`].
 pub fn appservice_ping_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2784,6 +2899,7 @@ pub fn appservice_ping_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`appservice_transactions_doc`].
 pub fn appservice_transactions_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2806,6 +2922,7 @@ pub fn appservice_transactions_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`appservice_user_query_doc`].
 pub fn appservice_user_query_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2828,6 +2945,7 @@ pub fn appservice_user_query_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`appservice_room_alias_query_doc`].
 pub fn appservice_room_alias_query_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2856,6 +2974,7 @@ pub fn appservice_room_alias_query_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Application service not found")
     )
 )]
+/// See [`appservice_query_doc`].
 pub fn appservice_query_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2883,6 +3002,7 @@ pub fn appservice_query_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`key_rotation_status_get_doc`].
 pub fn key_rotation_status_get_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2901,6 +3021,7 @@ pub fn key_rotation_status_get_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`key_rotation_status_post_doc`].
 pub fn key_rotation_status_post_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2927,6 +3048,7 @@ pub fn key_rotation_status_post_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`key_rotation_rotate_doc`].
 pub fn key_rotation_rotate_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2959,6 +3081,7 @@ pub fn key_rotation_rotate_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`key_rotation_history_doc`].
 pub fn key_rotation_history_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -2986,6 +3109,7 @@ pub fn key_rotation_history_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`key_rotation_revoke_doc`].
 pub fn key_rotation_revoke_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3014,6 +3138,7 @@ pub fn key_rotation_revoke_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`key_rotation_config_put_doc`].
 pub fn key_rotation_config_put_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3033,6 +3158,7 @@ pub fn key_rotation_config_put_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`key_rotation_config_post_doc`].
 pub fn key_rotation_config_post_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3061,6 +3187,7 @@ pub fn key_rotation_config_post_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`key_rotation_check_get_doc`].
 pub fn key_rotation_check_get_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3082,6 +3209,7 @@ pub fn key_rotation_check_get_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`key_rotation_check_post_doc`].
 pub fn key_rotation_check_post_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3105,6 +3233,7 @@ pub fn key_rotation_check_post_doc() -> axum::Json<serde_json::Value> {
         (status = 400, description = "SAML authentication is not enabled")
     )
 )]
+/// See [`get_saml_metadata_r0_doc`].
 pub fn get_saml_metadata_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3120,6 +3249,7 @@ pub fn get_saml_metadata_r0_doc() -> axum::Json<serde_json::Value> {
         (status = 400, description = "SAML authentication is not enabled")
     )
 )]
+/// See [`get_sp_metadata_r0_doc`].
 pub fn get_sp_metadata_r0_doc() -> String {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3143,6 +3273,7 @@ pub fn get_sp_metadata_r0_doc() -> String {
         (status = 400, description = "SAML authentication is not enabled")
     )
 )]
+/// See [`get_saml_metadata_v3_doc`].
 pub fn get_saml_metadata_v3_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3158,6 +3289,7 @@ pub fn get_saml_metadata_v3_doc() -> axum::Json<serde_json::Value> {
         (status = 400, description = "SAML authentication is not enabled")
     )
 )]
+/// See [`get_sp_metadata_v3_doc`].
 pub fn get_sp_metadata_v3_doc() -> String {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3173,6 +3305,7 @@ pub fn get_sp_metadata_v3_doc() -> String {
         (status = 404, description = "OIDC not configured")
     )
 )]
+/// See [`get_auth_metadata_doc`].
 pub fn get_auth_metadata_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3188,6 +3321,7 @@ pub fn get_auth_metadata_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "OIDC not configured")
     )
 )]
+/// See [`get_auth_issuer_doc`].
 pub fn get_auth_issuer_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3206,6 +3340,7 @@ pub fn get_auth_issuer_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_dehydrated_device_doc`].
 pub fn get_dehydrated_device_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3231,6 +3366,7 @@ pub fn get_dehydrated_device_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`put_dehydrated_device_doc`].
 pub fn put_dehydrated_device_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3254,6 +3390,7 @@ pub fn put_dehydrated_device_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`delete_dehydrated_device_doc`].
 pub fn delete_dehydrated_device_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3275,6 +3412,7 @@ pub fn delete_dehydrated_device_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`post_dehydrated_device_events_doc`].
 pub fn post_dehydrated_device_events_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3294,6 +3432,7 @@ pub fn post_dehydrated_device_events_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`sliding_sync_v1_doc`].
 pub fn sliding_sync_v1_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3329,6 +3468,7 @@ pub fn sliding_sync_v1_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_ephemeral_events_doc`].
 pub fn get_ephemeral_events_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3357,6 +3497,7 @@ pub fn get_ephemeral_events_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`redact_thread_reply_doc`].
 pub fn redact_thread_reply_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3376,6 +3517,7 @@ pub fn redact_thread_reply_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`get_room_auth_doc`].
 pub fn get_room_auth_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3394,6 +3536,7 @@ pub fn get_room_auth_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`get_joining_rules_doc`].
 pub fn get_joining_rules_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3413,6 +3556,7 @@ pub fn get_joining_rules_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`event_auth_doc`].
 pub fn event_auth_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3429,6 +3573,7 @@ pub fn event_auth_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`legacy_keys_claim_federation_doc`].
 pub fn legacy_keys_claim_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3445,6 +3590,7 @@ pub fn legacy_keys_claim_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`legacy_keys_query_federation_doc`].
 pub fn legacy_keys_query_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3461,6 +3607,7 @@ pub fn legacy_keys_query_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`keys_upload_federation_doc`].
 pub fn keys_upload_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3476,6 +3623,7 @@ pub fn keys_upload_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 200, description = "Success")
     )
 )]
+/// See [`key_clone_federation_doc`].
 pub fn key_clone_federation_doc() -> String {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3495,6 +3643,7 @@ pub fn key_clone_federation_doc() -> String {
         ("BearerAuth" = [])
     )
 )]
+/// See [`sliding_sync_msc3575_doc`].
 pub fn sliding_sync_msc3575_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3514,6 +3663,7 @@ pub fn sliding_sync_msc3575_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`sliding_sync_simplified_msc3575_doc`].
 pub fn sliding_sync_simplified_msc3575_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3532,6 +3682,7 @@ pub fn sliding_sync_simplified_msc3575_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Not Found")
     )
 )]
+/// See [`get_extended_profile_msc4133_doc`].
 pub fn get_extended_profile_msc4133_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3551,6 +3702,7 @@ pub fn get_extended_profile_msc4133_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Not Found")
     )
 )]
+/// See [`get_extended_profile_field_msc4133_doc`].
 pub fn get_extended_profile_field_msc4133_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3574,6 +3726,7 @@ pub fn get_extended_profile_field_msc4133_doc() -> axum::Json<serde_json::Value>
         ("BearerAuth" = [])
     )
 )]
+/// See [`put_extended_profile_field_msc4133_doc`].
 pub fn put_extended_profile_field_msc4133_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3597,6 +3750,7 @@ pub fn put_extended_profile_field_msc4133_doc() -> axum::Json<serde_json::Value>
         ("BearerAuth" = [])
     )
 )]
+/// See [`delete_extended_profile_field_msc4133_doc`].
 pub fn delete_extended_profile_field_msc4133_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3616,6 +3770,7 @@ pub fn delete_extended_profile_field_msc4133_doc() -> axum::Json<serde_json::Val
         ("BearerAuth" = [])
     )
 )]
+/// See [`create_dm_doc`].
 pub fn create_dm_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3634,6 +3789,7 @@ pub fn create_dm_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_direct_map_doc`].
 pub fn get_direct_map_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3656,6 +3812,7 @@ pub fn get_direct_map_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`update_direct_map_doc`].
 pub fn update_direct_map_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3670,6 +3827,7 @@ pub fn update_direct_map_doc() -> axum::Json<serde_json::Value> {
         (status = 200, description = "Voice config", body = schemas::ApiClientGenericJson),
     ),
 )]
+/// See [`get_voice_config_doc`].
 pub fn get_voice_config_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3688,6 +3846,7 @@ pub fn get_voice_config_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`upload_voice_message_doc`].
 pub fn upload_voice_message_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3705,6 +3864,7 @@ pub fn upload_voice_message_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_voice_stats_doc`].
 pub fn get_voice_stats_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3725,6 +3885,7 @@ pub fn get_voice_stats_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_room_voice_stats_doc`].
 pub fn get_room_voice_stats_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3747,6 +3908,7 @@ pub fn get_room_voice_stats_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_room_voice_messages_doc`].
 pub fn get_room_voice_messages_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3767,6 +3929,7 @@ pub fn get_room_voice_messages_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_voice_message_content_doc`].
 pub fn get_voice_message_content_doc() -> String {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3787,6 +3950,7 @@ pub fn get_voice_message_content_doc() -> String {
         ("BearerAuth" = [])
     )
 )]
+/// See [`convert_voice_message_doc`].
 pub fn convert_voice_message_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3807,6 +3971,7 @@ pub fn convert_voice_message_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`optimize_voice_message_doc`].
 pub fn optimize_voice_message_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3827,6 +3992,7 @@ pub fn optimize_voice_message_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`transcribe_voice_message_doc`].
 pub fn transcribe_voice_message_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3845,6 +4011,7 @@ pub fn transcribe_voice_message_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`create_widget_doc`].
 pub fn create_widget_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3865,6 +4032,7 @@ pub fn create_widget_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_widget_doc`].
 pub fn get_widget_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3886,6 +4054,7 @@ pub fn get_widget_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`update_widget_doc`].
 pub fn update_widget_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3906,6 +4075,7 @@ pub fn update_widget_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`delete_widget_doc`].
 pub fn delete_widget_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3926,6 +4096,7 @@ pub fn delete_widget_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_widget_config_doc`].
 pub fn get_widget_config_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3946,6 +4117,7 @@ pub fn get_widget_config_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_room_widgets_doc`].
 pub fn get_room_widgets_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3966,6 +4138,7 @@ pub fn get_room_widgets_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_jitsi_config_doc`].
 pub fn get_jitsi_config_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -3988,6 +4161,7 @@ pub fn get_jitsi_config_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`send_room_widget_message_doc`].
 pub fn send_room_widget_message_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4009,6 +4183,7 @@ pub fn send_room_widget_message_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`set_widget_permission_doc`].
 pub fn set_widget_permission_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4029,6 +4204,7 @@ pub fn set_widget_permission_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_widget_permissions_doc`].
 pub fn get_widget_permissions_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4050,6 +4226,7 @@ pub fn get_widget_permissions_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`delete_widget_permission_doc`].
 pub fn delete_widget_permission_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4071,6 +4248,7 @@ pub fn delete_widget_permission_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`create_widget_session_doc`].
 pub fn create_widget_session_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4091,6 +4269,7 @@ pub fn create_widget_session_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_widget_sessions_doc`].
 pub fn get_widget_sessions_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4111,6 +4290,7 @@ pub fn get_widget_sessions_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_widget_session_doc`].
 pub fn get_widget_session_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4131,6 +4311,7 @@ pub fn get_widget_session_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`terminate_widget_session_doc`].
 pub fn terminate_widget_session_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4149,6 +4330,7 @@ pub fn terminate_widget_session_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`register_external_service_doc`].
 pub fn register_external_service_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4169,6 +4351,7 @@ pub fn register_external_service_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`list_external_services_doc`].
 pub fn list_external_services_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4189,6 +4372,7 @@ pub fn list_external_services_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`unregister_external_service_doc`].
 pub fn unregister_external_service_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4210,6 +4394,7 @@ pub fn unregister_external_service_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`update_external_service_doc`].
 pub fn update_external_service_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4230,6 +4415,7 @@ pub fn update_external_service_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_external_service_doc`].
 pub fn get_external_service_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4251,6 +4437,7 @@ pub fn get_external_service_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`enable_burn_doc`].
 pub fn enable_burn_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4271,6 +4458,7 @@ pub fn enable_burn_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_burn_settings_doc`].
 pub fn get_burn_settings_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4291,6 +4479,7 @@ pub fn get_burn_settings_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_pending_burns_doc`].
 pub fn get_pending_burns_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4312,6 +4501,7 @@ pub fn get_pending_burns_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`mark_burn_read_doc`].
 pub fn mark_burn_read_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4333,6 +4523,7 @@ pub fn mark_burn_read_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`cancel_burn_doc`].
 pub fn cancel_burn_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4350,6 +4541,7 @@ pub fn cancel_burn_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_friends_doc`].
 pub fn get_friends_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4368,6 +4560,7 @@ pub fn get_friends_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`send_friend_request_doc`].
 pub fn send_friend_request_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4385,6 +4578,7 @@ pub fn send_friend_request_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`search_friend_directory_doc`].
 pub fn search_friend_directory_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4402,6 +4596,7 @@ pub fn search_friend_directory_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_incoming_requests_doc`].
 pub fn get_incoming_requests_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4419,6 +4614,7 @@ pub fn get_incoming_requests_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_outgoing_requests_doc`].
 pub fn get_outgoing_requests_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4436,6 +4632,7 @@ pub fn get_outgoing_requests_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_received_requests_doc`].
 pub fn get_received_requests_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4456,6 +4653,7 @@ pub fn get_received_requests_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`accept_friend_request_doc`].
 pub fn accept_friend_request_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4476,6 +4674,7 @@ pub fn accept_friend_request_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`reject_friend_request_doc`].
 pub fn reject_friend_request_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4496,6 +4695,7 @@ pub fn reject_friend_request_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`cancel_friend_request_doc`].
 pub fn cancel_friend_request_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4516,6 +4716,7 @@ pub fn cancel_friend_request_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`check_friendship_doc`].
 pub fn check_friendship_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4533,6 +4734,7 @@ pub fn check_friendship_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_friend_suggestions_doc`].
 pub fn get_friend_suggestions_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4553,6 +4755,7 @@ pub fn get_friend_suggestions_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`remove_friend_doc`].
 pub fn remove_friend_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4574,6 +4777,7 @@ pub fn remove_friend_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`update_friend_note_doc`].
 pub fn update_friend_note_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4594,6 +4798,7 @@ pub fn update_friend_note_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_friend_status_doc`].
 pub fn get_friend_status_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4615,6 +4820,7 @@ pub fn get_friend_status_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`update_friend_status_doc`].
 pub fn update_friend_status_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4635,6 +4841,7 @@ pub fn update_friend_status_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_friend_info_doc`].
 pub fn get_friend_info_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4656,6 +4863,7 @@ pub fn get_friend_info_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`update_friend_displayname_doc`].
 pub fn update_friend_displayname_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4673,6 +4881,7 @@ pub fn update_friend_displayname_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_friend_groups_doc`].
 pub fn get_friend_groups_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4691,6 +4900,7 @@ pub fn get_friend_groups_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`create_friend_group_doc`].
 pub fn create_friend_group_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4711,6 +4921,7 @@ pub fn create_friend_group_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`delete_friend_group_doc`].
 pub fn delete_friend_group_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4732,6 +4943,7 @@ pub fn delete_friend_group_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`rename_friend_group_doc`].
 pub fn rename_friend_group_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4752,6 +4964,7 @@ pub fn rename_friend_group_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_friend_group_friends_doc`].
 pub fn get_friend_group_friends_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4773,6 +4986,7 @@ pub fn get_friend_group_friends_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`add_friend_to_group_doc`].
 pub fn add_friend_to_group_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4794,6 +5008,7 @@ pub fn add_friend_to_group_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`remove_friend_from_group_doc`].
 pub fn remove_friend_from_group_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4814,6 +5029,7 @@ pub fn remove_friend_from_group_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_friend_groups_for_user_doc`].
 pub fn get_friend_groups_for_user_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -4834,6 +5050,7 @@ pub fn get_friend_groups_for_user_doc() -> axum::Json<serde_json::Value> {
         ("BearerAuth" = [])
     )
 )]
+/// See [`get_friend_dm_doc`].
 pub fn get_friend_dm_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }

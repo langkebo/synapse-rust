@@ -1,5 +1,8 @@
+/// The `management` module.
 pub mod management;
+/// The `spaces` module.
 pub mod spaces;
+/// The `types` module.
 pub mod types;
 
 use crate::common::ApiError;
@@ -101,6 +104,7 @@ mod cursor_tests {
     }
 }
 
+/// See [`create_room_router`].
 pub fn create_room_router(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/rooms", get(get_rooms))
@@ -248,6 +252,7 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
         )
 }
 
+/// See [`admin_room_route_manifest`].
 pub fn admin_room_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -302,6 +307,7 @@ pub fn admin_room_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
     .collect()
 }
 
+/// See [`get_room_aliases_admin`].
 #[axum::debug_handler]
 pub async fn get_room_aliases_admin(
     _admin: AdminUser,
@@ -317,6 +323,7 @@ pub async fn get_room_aliases_admin(
     })))
 }
 
+/// See [`get_rooms`].
 #[axum::debug_handler]
 pub async fn get_rooms(
     _admin: AdminUser,
@@ -376,6 +383,7 @@ pub async fn get_rooms(
     })))
 }
 
+/// See [`get_room`].
 #[axum::debug_handler]
 pub async fn get_room(
     _admin: AdminUser,
@@ -414,6 +422,7 @@ pub async fn get_room(
     }
 }
 
+/// See [`delete_room`].
 #[axum::debug_handler]
 pub async fn delete_room(
     admin: AdminUser,
@@ -428,6 +437,7 @@ pub async fn delete_room(
     })))
 }
 
+/// See [`get_room_members_admin`].
 #[axum::debug_handler]
 pub async fn get_room_members_admin(
     _admin: AdminUser,
@@ -471,6 +481,7 @@ pub async fn get_room_members_admin(
     })))
 }
 
+/// See [`get_room_state_admin`].
 #[axum::debug_handler]
 pub async fn get_room_state_admin(
     _admin: AdminUser,
@@ -499,6 +510,7 @@ pub async fn get_room_state_admin(
     Ok(Json(json!({ "state": state_events })))
 }
 
+/// See [`get_room_messages_admin`].
 #[axum::debug_handler]
 pub async fn get_room_messages_admin(
     _admin: AdminUser,
@@ -544,6 +556,7 @@ pub async fn get_room_messages_admin(
     })))
 }
 
+/// See [`shutdown_room`].
 #[axum::debug_handler]
 pub async fn shutdown_room(
     _admin: AdminUser,
@@ -585,6 +598,7 @@ pub async fn get_event_context_admin(
     Ok(Json(ctx.room_service.messaging().get_event_context_admin(&room_id, &event_id, 5).await?))
 }
 
+/// See [`get_room_token_sync_admin`].
 #[axum::debug_handler]
 pub async fn get_room_token_sync_admin(
     _admin: AdminUser,
@@ -675,6 +689,7 @@ pub async fn get_room_token_sync_admin(
     })))
 }
 
+/// See [`search_room_messages_admin`].
 #[axum::debug_handler]
 pub async fn search_room_messages_admin(
     _admin: AdminUser,
@@ -746,6 +761,7 @@ pub async fn get_room_forward_extremities(
     })))
 }
 
+/// See [`search_all_rooms`].
 #[axum::debug_handler]
 pub async fn search_all_rooms(
     _admin: AdminUser,
@@ -755,6 +771,7 @@ pub async fn search_all_rooms(
     search_all_rooms_impl(&ctx, body).await
 }
 
+/// See [`search_all_rooms_query`].
 #[axum::debug_handler]
 pub async fn search_all_rooms_query(
     _admin: AdminUser,

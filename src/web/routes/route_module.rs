@@ -29,8 +29,11 @@ use crate::web::routes::{federation, oidc, room, route_ledger::RouteEntry, state
 /// boolean read by an existing `manifest_for` impl.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProfileFlags {
+    /// The `oidc_enabled` field.
     pub oidc_enabled: bool,
+    /// The `worker_enabled` field.
     pub worker_enabled: bool,
+    /// The `saml_enabled` field.
     pub saml_enabled: bool,
 }
 
@@ -79,44 +82,67 @@ pub trait RouteModule: Send + Sync {
         self.manifest_for_profile(&ProfileFlags::from_state(state))
     }
 
+    /// See [`merge_into`].
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState>;
 }
 
+/// The `RoomModule` struct.
 pub struct RoomModule;
+/// The `FederationModule` struct.
 pub struct FederationModule;
+/// The `OidcModule` struct.
 pub struct OidcModule;
+/// The `WorkerBodyModule` struct.
 pub struct WorkerBodyModule;
+/// The `SamlModule` struct.
 #[cfg(feature = "saml-sso")]
 pub struct SamlModule;
+/// The `CasModule` struct.
 #[cfg(feature = "cas-sso")]
 pub struct CasModule;
+/// The `BurnAfterReadModule` struct.
 #[cfg(feature = "burn-after-read")]
 pub struct BurnAfterReadModule;
+/// The `WidgetModule` struct.
 #[cfg(feature = "widgets")]
 pub struct WidgetModule;
+/// The `FriendModule` struct.
 #[cfg(feature = "friends")]
 pub struct FriendModule;
+/// The `VoiceModule` struct.
 #[cfg(feature = "voice-extended")]
 pub struct VoiceModule;
+/// The `ExternalServiceModule` struct.
 #[cfg(feature = "external-services")]
 pub struct ExternalServiceModule;
 
+/// Static `ROOM_MODULE`.
 pub static ROOM_MODULE: RoomModule = RoomModule;
+/// Static `FEDERATION_MODULE`.
 pub static FEDERATION_MODULE: FederationModule = FederationModule;
+/// Static `OIDC_MODULE`.
 pub static OIDC_MODULE: OidcModule = OidcModule;
+/// Static `WORKER_BODY_MODULE`.
 pub static WORKER_BODY_MODULE: WorkerBodyModule = WorkerBodyModule;
+/// Static `SAML_MODULE`.
 #[cfg(feature = "saml-sso")]
 pub static SAML_MODULE: SamlModule = SamlModule;
+/// Static `CAS_MODULE`.
 #[cfg(feature = "cas-sso")]
 pub static CAS_MODULE: CasModule = CasModule;
+/// Static `BURN_AFTER_READ_MODULE`.
 #[cfg(feature = "burn-after-read")]
 pub static BURN_AFTER_READ_MODULE: BurnAfterReadModule = BurnAfterReadModule;
+/// Static `WIDGET_MODULE`.
 #[cfg(feature = "widgets")]
 pub static WIDGET_MODULE: WidgetModule = WidgetModule;
+/// Static `FRIEND_MODULE`.
 #[cfg(feature = "friends")]
 pub static FRIEND_MODULE: FriendModule = FriendModule;
+/// Static `VOICE_MODULE`.
 #[cfg(feature = "voice-extended")]
 pub static VOICE_MODULE: VoiceModule = VoiceModule;
+/// Static `EXTERNAL_SERVICE_MODULE`.
 #[cfg(feature = "external-services")]
 pub static EXTERNAL_SERVICE_MODULE: ExternalServiceModule = ExternalServiceModule;
 

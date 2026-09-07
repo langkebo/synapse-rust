@@ -1,8 +1,11 @@
 // OIDC (OpenID Connect) routes
 // Matrix Spec: https://matrix.org/docs/spec/openid.html
 
+/// The `builtin` module.
 pub(crate) mod builtin;
+/// The `provider` module.
 pub(crate) mod provider;
+/// The `sso` module.
 pub(crate) mod sso;
 
 use crate::common::error::ApiError;
@@ -22,6 +25,7 @@ use synapse_storage::oidc_session_storage::{OidcAuthSession as DbOidcAuthSession
 
 const OIDC_AUTH_SESSION_TTL_SECONDS: u64 = 600;
 
+/// The `OidcAuthSession` struct.
 #[derive(Debug, Clone)]
 pub(crate) struct OidcAuthSession {
     pub(crate) nonce: String,
@@ -31,10 +35,12 @@ pub(crate) struct OidcAuthSession {
     pub(crate) redirect_uri: String,
 }
 
+/// See [`current_unix_ts`].
 pub(crate) fn current_unix_ts() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
 
+/// See [`store_oidc_auth_session`].
 pub(crate) async fn store_oidc_auth_session(
     storage: &Arc<dyn OidcSessionStoreApi>,
     state: &str,
@@ -69,6 +75,7 @@ pub(crate) async fn store_oidc_auth_session(
     Ok(())
 }
 
+/// See [`consume_oidc_auth_session`].
 pub(crate) async fn consume_oidc_auth_session(
     storage: &Arc<dyn OidcSessionStoreApi>,
     state: &str,
@@ -91,6 +98,7 @@ pub(crate) async fn consume_oidc_auth_session(
     })
 }
 
+/// See [`validate_state_pkce_binding`].
 pub(crate) fn validate_state_pkce_binding(auth_session: &OidcAuthSession) -> Result<(), ApiError> {
     if auth_session.code_challenge_method != "S256" {
         return Err(ApiError::unauthorized("Unsupported OIDC PKCE challenge method".to_string()));
@@ -142,6 +150,7 @@ pub fn create_oidc_router(state: AppState) -> Router<AppState> {
     router.with_state(state)
 }
 
+/// See [`oidc_enabled`].
 pub fn oidc_enabled(ctx: &SsoContext) -> bool {
     #[cfg(feature = "saml-sso")]
     let saml_enabled = ctx.saml_service.is_enabled();
@@ -151,6 +160,7 @@ pub fn oidc_enabled(ctx: &SsoContext) -> bool {
     ctx.oidc_service.is_some() || ctx.builtin_oidc_provider.is_some() || saml_enabled
 }
 
+/// See [`create_oidc_fallback_router`].
 pub fn create_oidc_fallback_router() -> Router<AppState> {
     Router::new()
         .route("/.well-known/openid-configuration", get(builtin::get_openid_configuration))
@@ -205,6 +215,7 @@ pub fn oidc_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
     .collect()
 }
 
+/// See [`oidc_fallback_manifest`].
 pub fn oidc_fallback_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -215,6 +226,7 @@ pub fn oidc_fallback_manifest() -> Vec<crate::web::routes::route_ledger::RouteEn
         .collect()
 }
 
+/// See [`oidc_route_manifest_for`].
 pub fn oidc_route_manifest_for(ctx: &SsoContext) -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     if oidc_enabled(ctx) {
         oidc_route_manifest()

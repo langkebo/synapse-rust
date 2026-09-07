@@ -30,6 +30,7 @@ fn create_relations_with_event_router() -> Router<AppState> {
     create_relations_core_router().route("/rooms/{room_id}/relations/{event_id}", get(get_relations_by_event))
 }
 
+/// See [`create_relations_router`].
 pub fn create_relations_router(state: AppState) -> Router<AppState> {
     let with_event_router = create_relations_with_event_router();
     let core_router = create_relations_core_router();
@@ -57,6 +58,7 @@ fn relations_with_event_relative_routes() -> Vec<(axum::http::Method, &'static s
     out
 }
 
+/// See [`relations_route_manifest`].
 pub fn relations_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::expand_under_prefixes;
     let mut out = expand_under_prefixes(
@@ -68,6 +70,7 @@ pub fn relations_route_manifest() -> Vec<crate::web::routes::route_ledger::Route
     out
 }
 
+/// The `RelationsQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct RelationsQuery {
     limit: Option<i64>,
@@ -78,28 +81,41 @@ pub struct RelationsQuery {
     direction: Option<String>,
 }
 
+/// The `RelationsResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct RelationsResponse {
+    /// The `chunk` field.
     pub chunk: Vec<Value>,
+    /// The `next_batch` field.
     pub next_batch: Option<String>,
+    /// The `prev_batch` field.
     pub prev_batch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `origin_server_ts` field.
     pub origin_server_ts: Option<i64>,
     /// SDK `getRelationCount` 读取此字段；空时下游永远视为 0。
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `total` field.
     pub total: Option<i64>,
 }
 
+/// The `RelationSendResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct RelationSendResponse {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `relates_to` field.
     pub relates_to: RelationTarget,
 }
 
+/// The `RelationTarget` struct.
 #[derive(Debug, Serialize)]
 pub struct RelationTarget {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `rel_type` field.
     pub rel_type: String,
 }
 

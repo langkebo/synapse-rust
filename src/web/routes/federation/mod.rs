@@ -15,12 +15,18 @@ use std::time::Duration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::{timeout, Instant};
 
+/// The `events` module.
 pub mod events;
+/// The `keys` module.
 pub mod keys;
+/// The `media` module.
 pub mod media;
+/// The `membership` module.
 pub mod membership;
+/// The `transaction` module.
 pub mod transaction;
 
+/// See [`validate_federation_origin`].
 pub(super) fn validate_federation_origin(
     authenticated_origin: &str,
     declared_origin: Option<&str>,
@@ -34,6 +40,7 @@ pub(super) fn validate_federation_origin(
     Ok(())
 }
 
+/// See [`sender_server_name`].
 pub(super) fn sender_server_name(sender: &str) -> Option<&str> {
     sender
         .strip_prefix('@')
@@ -41,10 +48,12 @@ pub(super) fn sender_server_name(sender: &str) -> Option<&str> {
         .filter(|server| !server.is_empty())
 }
 
+/// See [`user_matches_origin`].
 pub(super) fn user_matches_origin(user_id: &str, origin: &str) -> bool {
     user_id.rsplit_once(':').is_some_and(|(_, server_name)| server_name == origin)
 }
 
+/// See [`validate_federation_origin_in_room`].
 pub(super) async fn validate_federation_origin_in_room(
     ctx: &FederationContext,
     room_id: &str,
@@ -61,6 +70,7 @@ pub(super) async fn validate_federation_origin_in_room(
     Err(ApiError::forbidden("Authenticated server has no joined members in this room".to_string()))
 }
 
+/// See [`validate_federation_origin_can_observe_room`].
 pub(super) async fn validate_federation_origin_can_observe_room(
     ctx: &FederationContext,
     room_id: &str,
@@ -82,6 +92,7 @@ pub(super) async fn validate_federation_origin_can_observe_room(
     Err(ApiError::not_found("Room not found".to_string()))
 }
 
+/// See [`validate_federation_origin_shares_user_room`].
 pub(super) async fn validate_federation_origin_shares_user_room(
     ctx: &FederationContext,
     user_id: &str,
@@ -169,6 +180,7 @@ pub(crate) async fn is_server_allowed_by_room_acl(ctx: &FederationContext, room_
     }
 }
 
+/// See [`increment_counter`].
 pub(super) fn increment_counter(ctx: &FederationContext, name: &str) {
     if let Some(counter) = ctx.metrics.get_counter(name) {
         counter.inc();
@@ -177,6 +189,7 @@ pub(super) fn increment_counter(ctx: &FederationContext, name: &str) {
     }
 }
 
+/// See [`observe_histogram`].
 pub(super) fn observe_histogram(ctx: &FederationContext, name: &str, value: f64) {
     if let Some(histogram) = ctx.metrics.get_histogram(name) {
         histogram.observe(value);
@@ -185,6 +198,7 @@ pub(super) fn observe_histogram(ctx: &FederationContext, name: &str, value: f64)
     }
 }
 
+/// See [`increment_gauge`].
 pub(super) fn increment_gauge(ctx: &FederationContext, name: &str) {
     if let Some(gauge) = ctx.metrics.get_gauge(name) {
         gauge.inc();
@@ -193,6 +207,7 @@ pub(super) fn increment_gauge(ctx: &FederationContext, name: &str) {
     }
 }
 
+/// See [`decrement_gauge`].
 pub(super) fn decrement_gauge(ctx: &FederationContext, name: &str) {
     if let Some(gauge) = ctx.metrics.get_gauge(name) {
         gauge.dec();
@@ -201,6 +216,7 @@ pub(super) fn decrement_gauge(ctx: &FederationContext, name: &str) {
     }
 }
 
+/// See [`acquire_with_timeout`].
 pub(super) async fn acquire_with_timeout(
     semaphore: Arc<Semaphore>,
     acquire_timeout_ms: u64,
@@ -272,6 +288,7 @@ async fn openid_userinfo(
     })))
 }
 
+/// See [`create_federation_router`].
 pub fn create_federation_router(state: &AppState) -> Router<AppState> {
     let fed_ctx = FederationContext::from_ref(state);
 
@@ -389,6 +406,7 @@ fn federation_protected_relative_routes() -> Vec<(axum::http::Method, &'static s
     ]
 }
 
+/// See [`federation_route_manifest`].
 pub fn federation_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
 

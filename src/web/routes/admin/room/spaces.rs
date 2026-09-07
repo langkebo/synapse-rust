@@ -15,6 +15,7 @@ async fn resolve_space_id(ctx: &AdminContext, identifier: &str) -> Result<String
         .ok_or_else(|| ApiError::not_found("Space not found".to_string()))
 }
 
+/// See [`get_spaces`].
 #[axum::debug_handler]
 pub async fn get_spaces(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     let spaces = ctx.space_service.get_all_spaces_for_admin().await?;
@@ -36,6 +37,7 @@ pub async fn get_spaces(_admin: AdminUser, State(ctx): State<AdminContext>) -> R
     Ok(Json(json!({ "spaces": space_list, "total": space_list.len() })))
 }
 
+/// See [`get_space`].
 #[axum::debug_handler]
 pub async fn get_space(
     _admin: AdminUser,
@@ -57,6 +59,7 @@ pub async fn get_space(
     }
 }
 
+/// See [`delete_space`].
 #[axum::debug_handler]
 pub async fn delete_space(
     _admin: AdminUser,
@@ -73,6 +76,7 @@ pub async fn delete_space(
     Ok(Json(json!({ "deleted": true })))
 }
 
+/// See [`get_space_users`].
 #[axum::debug_handler]
 pub async fn get_space_users(
     _admin: AdminUser,
@@ -86,6 +90,7 @@ pub async fn get_space_users(
     Ok(Json(json!({ "users": user_list, "total": user_list.len() })))
 }
 
+/// See [`get_space_rooms`].
 #[axum::debug_handler]
 pub async fn get_space_rooms(
     _admin: AdminUser,
@@ -99,6 +104,7 @@ pub async fn get_space_rooms(
     Ok(Json(json!({ "rooms": room_list, "total": room_list.len() })))
 }
 
+/// See [`get_space_stats`].
 #[axum::debug_handler]
 pub async fn get_space_stats(
     _admin: AdminUser,

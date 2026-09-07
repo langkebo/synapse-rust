@@ -14,6 +14,7 @@ use super::{
     validate_federation_member_event,
 };
 
+/// See [`make_leave`].
 pub(crate) async fn make_leave(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -53,6 +54,7 @@ pub(crate) async fn make_leave(
     })))
 }
 
+/// See [`send_leave`].
 pub(crate) async fn send_leave(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -124,6 +126,7 @@ pub(crate) async fn send_leave(
     })))
 }
 
+/// See [`send_leave_v2`].
 pub(crate) async fn send_leave_v2(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,

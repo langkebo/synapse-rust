@@ -11,6 +11,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_storage::retention::{CreateRoomRetentionPolicyRequest, UpdateServerRetentionPolicyRequest};
 
+/// See [`create_retention_router`].
 pub fn create_retention_router() -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/retention/policy", get(get_retention_policy))
@@ -21,6 +22,7 @@ pub fn create_retention_router() -> Router<crate::web::routes::AppState> {
         .route("/_synapse/admin/v1/retention/status", get(get_retention_status))
 }
 
+/// See [`admin_retention_route_manifest`].
 pub fn admin_retention_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -37,18 +39,25 @@ pub fn admin_retention_route_manifest() -> Vec<crate::web::routes::route_ledger:
     .collect()
 }
 
+/// The `RetentionPolicyRequest` struct.
 #[derive(Debug, Deserialize)]
 pub struct RetentionPolicyRequest {
+    /// The `max_lifetime` field.
     pub max_lifetime: Option<i64>,
+    /// The `min_lifetime` field.
     pub min_lifetime: Option<i64>,
+    /// The `is_expire_on_clients` field.
     pub is_expire_on_clients: Option<bool>,
 }
 
+/// The `RunRetentionRequest` struct.
 #[derive(Debug, Deserialize)]
 pub struct RunRetentionRequest {
+    /// The `room_id` field.
     pub room_id: Option<String>,
 }
 
+/// See [`get_retention_policy`].
 #[axum::debug_handler]
 pub async fn get_retention_policy(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     let policy = ctx.retention_service.get_server_policy_optional().await?;
@@ -67,6 +76,7 @@ pub async fn get_retention_policy(_admin: AdminUser, State(ctx): State<AdminCont
     }
 }
 
+/// See [`set_retention_policy`].
 #[axum::debug_handler]
 pub async fn set_retention_policy(
     _admin: AdminUser,
@@ -89,6 +99,7 @@ pub async fn set_retention_policy(
     })))
 }
 
+/// See [`get_room_retention_policy`].
 #[axum::debug_handler]
 pub async fn get_room_retention_policy(
     _admin: AdminUser,
@@ -119,6 +130,7 @@ pub async fn get_room_retention_policy(
     }
 }
 
+/// See [`set_room_retention_policy`].
 #[axum::debug_handler]
 pub async fn set_room_retention_policy(
     _admin: AdminUser,
@@ -148,6 +160,7 @@ pub async fn set_room_retention_policy(
     })))
 }
 
+/// See [`run_retention`].
 #[axum::debug_handler]
 pub async fn run_retention(
     _admin: AdminUser,
@@ -180,6 +193,7 @@ pub async fn run_retention(
     }
 }
 
+/// See [`get_retention_status`].
 #[axum::debug_handler]
 pub async fn get_retention_status(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     let status = ctx.retention_service.get_status_summary().await?;

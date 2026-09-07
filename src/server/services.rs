@@ -6,6 +6,7 @@ use crate::common::config::Config;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_services::ServiceContainer;
 
+/// See [`build_service_container`].
 pub async fn build_service_container(
     pool: &Arc<sqlx::PgPool>,
     config: &Config,

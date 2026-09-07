@@ -41,21 +41,31 @@ mod cursor_tests {
     }
 }
 
+/// The `FeatureFlagListQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct FeatureFlagListQuery {
+    /// The `target_scope` field.
     pub target_scope: Option<String>,
+    /// The `status` field.
     pub status: Option<String>,
+    /// The `limit` field.
     pub limit: Option<i64>,
+    /// The `from` field.
     pub from: Option<String>,
 }
 
+/// The `FeatureFlagListResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct FeatureFlagListResponse<T> {
+    /// The `flags` field.
     pub flags: Vec<T>,
+    /// The `total` field.
     pub total: i64,
+    /// The `next_batch` field.
     pub next_batch: Option<String>,
 }
 
+/// See [`create_feature_flag`].
 pub async fn create_feature_flag(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
@@ -67,6 +77,7 @@ pub async fn create_feature_flag(
     Ok(Json(flag))
 }
 
+/// See [`update_feature_flag`].
 pub async fn update_feature_flag(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
@@ -79,6 +90,7 @@ pub async fn update_feature_flag(
     Ok(Json(flag))
 }
 
+/// See [`get_feature_flag`].
 pub async fn get_feature_flag(
     State(ctx): State<AdminContext>,
     Path(flag_key): Path<String>,
@@ -88,6 +100,7 @@ pub async fn get_feature_flag(
     Ok(Json(flag))
 }
 
+/// See [`list_feature_flags`].
 pub async fn list_feature_flags(
     State(ctx): State<AdminContext>,
     Query(query): Query<FeatureFlagListQuery>,
@@ -113,6 +126,7 @@ pub async fn list_feature_flags(
     Ok(Json(FeatureFlagListResponse { flags, total, next_batch }))
 }
 
+/// See [`create_feature_flags_router`].
 pub fn create_feature_flags_router(state: AppState) -> axum::Router<AppState> {
     use axum::routing::*;
 
@@ -123,6 +137,7 @@ pub fn create_feature_flags_router(state: AppState) -> axum::Router<AppState> {
         .with_state(state)
 }
 
+/// See [`feature_flags_route_manifest`].
 pub fn feature_flags_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 
 use crate::web::routes::context::RoomContext;
 
+/// See [`get_room_info`].
 pub(crate) async fn get_room_info(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -64,6 +65,7 @@ pub(crate) async fn get_room_info(
     })))
 }
 
+/// See [`get_joined_rooms`].
 pub(crate) async fn get_joined_rooms(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -75,6 +77,7 @@ pub(crate) async fn get_joined_rooms(
     })))
 }
 
+/// See [`get_my_rooms`].
 pub(crate) async fn get_my_rooms(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -87,6 +90,7 @@ pub(crate) async fn get_my_rooms(
     })))
 }
 
+/// See [`get_user_rooms`].
 pub(crate) async fn get_user_rooms(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

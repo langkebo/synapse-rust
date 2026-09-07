@@ -9,6 +9,7 @@ use axum::{
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
+/// See [`media_config`].
 pub(crate) async fn media_config(State(ctx): State<MediaContext>, _auth_user: AuthenticatedUser) -> impl IntoResponse {
     let route_owner = synapse_services::worker::topology_validator::current_instance_worker_type(&ctx.config.worker);
     (
@@ -19,6 +20,7 @@ pub(crate) async fn media_config(State(ctx): State<MediaContext>, _auth_user: Au
     )
 }
 
+/// See [`preview_url`].
 pub(crate) async fn preview_url(
     State(ctx): State<MediaContext>,
     _auth_user: AuthenticatedUser,

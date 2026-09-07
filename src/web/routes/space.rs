@@ -15,6 +15,7 @@ use crate::web::routes::context::RoomContext;
 pub(super) use crate::web::routes::response_helpers::{created_json_from, json_from, json_vec_from};
 use crate::web::routes::{AppState, AuthenticatedUser, OptionalAuthenticatedUser};
 
+/// The `children_hierarchy` module.
 pub mod children_hierarchy;
 mod lifecycle_query;
 mod membership_state;
@@ -27,6 +28,7 @@ use membership_state::create_space_membership_state_routes;
 use summary::create_space_summary_routes;
 pub(super) use types::*;
 
+/// See [`resolve_space_by_room`].
 pub(super) async fn resolve_space_by_room(
     state: &RoomContext,
     space_room_id: &str,
@@ -40,6 +42,7 @@ pub(super) async fn resolve_space_by_room(
     space.ok_or_else(|| ApiError::not_found("Space not found"))
 }
 
+/// See [`resolve_space`].
 pub(super) async fn resolve_space(
     state: &RoomContext,
     space_identifier: &str,
@@ -57,6 +60,7 @@ pub(super) async fn resolve_space(
     resolve_space_by_room(state, space_identifier).await
 }
 
+/// See [`with_resolved_space`].
 pub(super) async fn with_resolved_space<T, F, Fut>(
     state: RoomContext,
     space_room_id: String,
@@ -70,6 +74,7 @@ where
     operation(state, space).await
 }
 
+/// See [`can_user_view_space`].
 pub(super) async fn can_user_view_space(
     state: &RoomContext,
     space: &synapse_storage::space::Space,
@@ -85,6 +90,7 @@ pub(super) async fn can_user_view_space(
     }
 }
 
+/// See [`ensure_space_visible`].
 pub(super) async fn ensure_space_visible(
     state: &RoomContext,
     space: &synapse_storage::space::Space,
@@ -101,6 +107,7 @@ pub(super) async fn ensure_space_visible(
     }
 }
 
+/// See [`with_visible_space`].
 pub(super) async fn with_visible_space<T, F, Fut>(
     state: RoomContext,
     space_room_id: String,
@@ -116,6 +123,7 @@ where
     operation(state, space, auth_user).await
 }
 
+/// See [`validate_request`].
 pub(super) fn validate_request<T>(request: &T) -> Result<(), ApiError>
 where
     T: Validate,
@@ -123,10 +131,12 @@ where
     request.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {e}")))
 }
 
+/// See [`encode_space_member_cursor`].
 pub(super) fn encode_space_member_cursor(joined_ts: i64, user_id: &str) -> String {
     BASE64.encode(format!("{}:{}", joined_ts, user_id))
 }
 
+/// See [`decode_space_member_cursor`].
 pub(super) fn decode_space_member_cursor(cursor: &str) -> Option<(i64, String)> {
     let decoded = BASE64.decode(cursor).ok()?;
     let s = String::from_utf8(decoded).ok()?;
@@ -136,10 +146,12 @@ pub(super) fn decode_space_member_cursor(cursor: &str) -> Option<(i64, String)> 
     Some((ts, user_id))
 }
 
+/// See [`encode_space_child_cursor`].
 pub(super) fn encode_space_child_cursor(added_ts: i64, id: i64) -> String {
     BASE64.encode(format!("{}:{}", added_ts, id))
 }
 
+/// See [`decode_space_child_cursor`].
 pub(super) fn decode_space_child_cursor(cursor: &str) -> Option<(i64, i64)> {
     let decoded = BASE64.decode(cursor).ok()?;
     let s = String::from_utf8(decoded).ok()?;
@@ -149,6 +161,7 @@ pub(super) fn decode_space_child_cursor(cursor: &str) -> Option<(i64, i64)> {
     Some((ts, id))
 }
 
+/// See [`create_space_router`].
 pub fn create_space_router(state: AppState) -> Router<AppState> {
     let router = Router::new()
         .merge(create_space_lifecycle_query_routes())
@@ -200,6 +213,7 @@ fn space_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     ]
 }
 
+/// See [`space_route_manifest`].
 pub fn space_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     crate::web::routes::route_ledger::expand_under_prefixes("space", SPACE_NEST_PREFIXES, &space_relative_routes())
 }

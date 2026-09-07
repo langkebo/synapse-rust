@@ -12,22 +12,35 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_services::telemetry_service::{ExportConfig, TelemetryAlert, TelemetryAlertFilters, TelemetryService};
 
+/// The `TelemetryStatusResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct TelemetryStatusResponse {
+    /// The `enabled` field.
     pub enabled: bool,
+    /// The `trace_enabled` field.
     pub trace_enabled: bool,
+    /// The `metrics_enabled` field.
     pub metrics_enabled: bool,
+    /// The `service_name` field.
     pub service_name: String,
+    /// The `service_version` field.
     pub service_version: String,
+    /// The `sampling_ratio` field.
     pub sampling_ratio: f64,
+    /// The `export_config` field.
     pub export_config: ExportConfigResponse,
 }
 
+/// The `ExportConfigResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct ExportConfigResponse {
+    /// The `otlp_endpoint` field.
     pub otlp_endpoint: Option<String>,
+    /// The `prometheus_port` field.
     pub prometheus_port: Option<u16>,
+    /// The `prometheus_path` field.
     pub prometheus_path: Option<String>,
+    /// The `batch_export` field.
     pub batch_export: bool,
 }
 
@@ -42,8 +55,10 @@ impl From<ExportConfig> for ExportConfigResponse {
     }
 }
 
+/// The `ResourceAttributesResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct ResourceAttributesResponse {
+    /// The `attributes` field.
     pub attributes: std::collections::HashMap<String, String>,
 }
 
@@ -58,54 +73,84 @@ pub struct ResourceAttributesResponse {
 /// 端点错配成 Prometheus 的 scrape target。
 #[derive(Debug, Serialize)]
 pub struct PrometheusScrapeTarget {
+    /// The `port` field.
     pub port: u16,
+    /// The `path` field.
     pub path: String,
     /// 提示：抓取端点需要 `telemetry.prometheus.enabled = true` 才会监听。
     pub note: &'static str,
 }
 
+/// The `MetricsSummaryResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct MetricsSummaryResponse {
+    /// The `total_metrics` field.
     pub total_metrics: usize,
+    /// The `total_counters` field.
     pub total_counters: usize,
+    /// The `total_gauges` field.
     pub total_gauges: usize,
+    /// The `total_histograms` field.
     pub total_histograms: usize,
+    /// The `rendered_bytes` field.
     pub rendered_bytes: usize,
+    /// The `snapshot_ts` field.
     pub snapshot_ts: i64,
+    /// The `appservice_scheduler` field.
     pub appservice_scheduler: AppserviceSchedulerTelemetrySummary,
     /// Prometheus 抓取端点；仅当 `telemetry.prometheus.enabled` 时非空。
     /// 为 `None` 表示独立端口未监听，此时没有任何可 scrape 的目标。
     pub prometheus_scrape_target: Option<PrometheusScrapeTarget>,
 }
 
+/// The `AppserviceSchedulerTelemetrySummary` struct.
 #[derive(Debug, Serialize, Default, PartialEq, Eq)]
 pub struct AppserviceSchedulerTelemetrySummary {
+    /// The `total_services` field.
     pub total_services: usize,
+    /// The `scheduler_available_services` field.
     pub scheduler_available_services: usize,
+    /// The `services_in_backoff` field.
     pub services_in_backoff: usize,
+    /// The `services_capacity_limited` field.
     pub services_capacity_limited: usize,
+    /// The `services_with_pending_transactions` field.
     pub services_with_pending_transactions: usize,
+    /// The `total_pending_events` field.
     pub total_pending_events: i64,
+    /// The `total_pending_transactions` field.
     pub total_pending_transactions: i64,
+    /// The `total_success_count` field.
     pub total_success_count: i64,
+    /// The `total_failure_count` field.
     pub total_failure_count: i64,
+    /// The `total_backoff_count` field.
     pub total_backoff_count: i64,
+    /// The `total_capacity_limited_count` field.
     pub total_capacity_limited_count: i64,
+    /// The `total_in_flight_count` field.
     pub total_in_flight_count: i64,
 }
 
+/// The `TelemetryAlertsResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct TelemetryAlertsResponse {
+    /// The `alerts` field.
     pub alerts: Vec<TelemetryAlert>,
 }
 
+/// The `TelemetryAlertQuery` struct.
 #[derive(Debug, Deserialize, Default)]
 pub struct TelemetryAlertQuery {
+    /// The `status` field.
     pub status: Option<String>,
+    /// The `severity` field.
     pub severity: Option<String>,
+    /// The `refresh` field.
     pub refresh: Option<bool>,
 }
 
+/// See [`get_status`].
 pub async fn get_status(
     State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
@@ -128,6 +173,7 @@ pub async fn get_status(
     Ok(Json(response))
 }
 
+/// See [`get_resource_attributes`].
 pub async fn get_resource_attributes(
     State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
@@ -142,6 +188,7 @@ pub async fn get_resource_attributes(
     Ok(Json(response))
 }
 
+/// See [`get_metrics_summary`].
 pub async fn get_metrics_summary(
     State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
@@ -174,6 +221,7 @@ pub async fn get_metrics_summary(
     }))
 }
 
+/// See [`summarize_appservice_scheduler_metrics`].
 pub(crate) fn summarize_appservice_scheduler_metrics(
     appservice_statistics: &[serde_json::Value],
 ) -> AppserviceSchedulerTelemetrySummary {
@@ -227,6 +275,7 @@ pub(crate) fn summarize_appservice_scheduler_metrics(
     summary
 }
 
+/// See [`health_check`].
 pub async fn health_check(
     State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
@@ -250,6 +299,7 @@ pub async fn health_check(
     })))
 }
 
+/// See [`list_alerts`].
 pub async fn list_alerts(
     State(ctx): State<AdminContext>,
     Query(query): Query<TelemetryAlertQuery>,
@@ -266,6 +316,7 @@ pub async fn list_alerts(
     Ok(Json(TelemetryAlertsResponse { alerts }))
 }
 
+/// See [`acknowledge_alert`].
 pub async fn acknowledge_alert(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
@@ -292,6 +343,7 @@ pub async fn acknowledge_alert(
     Ok(Json(alert))
 }
 
+/// See [`create_telemetry_router`].
 pub fn create_telemetry_router(state: AppState) -> axum::Router<AppState> {
     use axum::routing::*;
 
@@ -306,6 +358,7 @@ pub fn create_telemetry_router(state: AppState) -> axum::Router<AppState> {
         .with_state(state)
 }
 
+/// See [`telemetry_route_manifest`].
 pub fn telemetry_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

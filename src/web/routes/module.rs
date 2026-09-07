@@ -13,103 +13,170 @@ use serde::{Deserialize, Serialize};
 use synapse_services::module_service::*;
 use synapse_storage::module::*;
 
+/// The `CreateModuleBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateModuleBody {
+    /// The `module_name` field.
     pub module_name: String,
+    /// The `module_type` field.
     pub module_type: String,
+    /// The `version` field.
     pub version: String,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `is_enabled` field.
     pub is_enabled: Option<bool>,
+    /// The `priority` field.
     pub priority: Option<i32>,
+    /// The `config` field.
     pub config: Option<serde_json::Value>,
 }
 
+/// The `UpdateModuleConfigBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateModuleConfigBody {
+    /// The `config` field.
     pub config: serde_json::Value,
 }
 
+/// The `EnableModuleBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EnableModuleBody {
+    /// The `is_enabled` field.
     pub is_enabled: bool,
 }
 
+/// The `CheckSpamBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CheckSpamBody {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `content` field.
     pub content: serde_json::Value,
 }
 
+/// The `CheckThirdPartyRuleBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CheckThirdPartyRuleBody {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `state_events` field.
     pub state_events: Vec<serde_json::Value>,
 }
 
+/// The `CreateAccountValidityBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateAccountValidityBody {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `expiration_ts` field.
     pub expiration_ts: i64,
+    /// The `is_valid` field.
     pub is_valid: Option<bool>,
 }
 
+/// The `RenewAccountBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RenewAccountBody {
+    /// The `renewal_token` field.
     pub renewal_token: String,
+    /// The `new_expiration_ts` field.
     pub new_expiration_ts: i64,
 }
 
+/// The `CreatePasswordAuthProviderBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreatePasswordAuthProviderBody {
+    /// The `provider_name` field.
     pub provider_name: String,
+    /// The `provider_type` field.
     pub provider_type: String,
+    /// The `config` field.
     pub config: serde_json::Value,
+    /// The `is_enabled` field.
     pub is_enabled: Option<bool>,
+    /// The `priority` field.
     pub priority: Option<i32>,
 }
 
+/// The `CreateMediaCallbackBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateMediaCallbackBody {
+    /// The `callback_name` field.
     pub callback_name: String,
+    /// The `callback_type` field.
     pub callback_type: String,
+    /// The `url` field.
     pub url: String,
+    /// The `method` field.
     pub method: Option<String>,
+    /// The `headers` field.
     pub headers: Option<serde_json::Value>,
+    /// The `is_enabled` field.
     pub is_enabled: Option<bool>,
+    /// The `timeout_ms` field.
     pub timeout_ms: Option<i32>,
+    /// The `retry_count` field.
     pub retry_count: Option<i32>,
 }
 
+/// The `CreateAccountDataCallbackBody` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateAccountDataCallbackBody {
+    /// The `callback_name` field.
     pub callback_name: String,
+    /// The `config` field.
     pub config: serde_json::Value,
+    /// The `is_enabled` field.
     pub is_enabled: Option<bool>,
+    /// The `data_types` field.
     pub data_types: Option<Vec<String>>,
 }
 
+/// The `ModuleResponse` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ModuleResponse {
+    /// The `id` field.
     pub id: i64,
+    /// The `module_name` field.
     pub module_name: String,
+    /// The `module_type` field.
     pub module_type: String,
+    /// The `version` field.
     pub version: String,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `priority` field.
     pub priority: i32,
+    /// The `config` field.
     pub config: Option<serde_json::Value>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
+    /// The `last_executed_ts` field.
     pub last_executed_ts: Option<i64>,
+    /// The `execution_count` field.
     pub execution_count: i32,
+    /// The `error_count` field.
     pub error_count: i32,
+    /// The `last_error` field.
     pub last_error: Option<String>,
 }
 
@@ -134,19 +201,32 @@ impl From<Module> for ModuleResponse {
     }
 }
 
+/// The `SpamCheckResultResponse` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SpamCheckResultResponse {
+    /// The `id` field.
     pub id: i64,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `content` field.
     pub content: Option<serde_json::Value>,
+    /// The `result` field.
     pub result: String,
+    /// The `score` field.
     pub score: i32,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `checker_module` field.
     pub checker_module: String,
+    /// The `checked_ts` field.
     pub checked_ts: i64,
+    /// The `action_taken` field.
     pub action_taken: Option<String>,
 }
 
@@ -169,18 +249,29 @@ impl From<SpamCheckResult> for SpamCheckResultResponse {
     }
 }
 
+/// The `ThirdPartyRuleResultResponse` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ThirdPartyRuleResultResponse {
+    /// The `id` field.
     pub id: i64,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `rule_name` field.
     pub rule_name: String,
     #[serde(rename = "allowed")]
+    /// The `is_allowed` field.
     pub is_allowed: bool,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `modified_content` field.
     pub modified_content: Option<serde_json::Value>,
+    /// The `checked_ts` field.
     pub checked_ts: i64,
 }
 
@@ -201,14 +292,22 @@ impl From<ThirdPartyRuleResult> for ThirdPartyRuleResultResponse {
     }
 }
 
+/// The `AccountValidityResponse` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AccountValidityResponse {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `expiration_ts` field.
     pub expiration_ts: Option<i64>,
+    /// The `last_check_at` field.
     pub last_check_at: Option<i64>,
+    /// The `renewal_token` field.
     pub renewal_token: Option<String>,
+    /// The `is_valid` field.
     pub is_valid: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
@@ -236,15 +335,24 @@ impl From<AccountValidity> for AccountValidityResponse {
     }
 }
 
+/// The `PasswordAuthProviderResponse` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PasswordAuthProviderResponse {
+    /// The `id` field.
     pub id: i64,
+    /// The `provider_name` field.
     pub provider_name: String,
+    /// The `provider_type` field.
     pub provider_type: String,
+    /// The `config` field.
     pub config: Option<serde_json::Value>,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `priority` field.
     pub priority: i32,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
@@ -263,16 +371,26 @@ impl From<PasswordAuthProvider> for PasswordAuthProviderResponse {
     }
 }
 
+/// The `MediaCallbackResponse` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MediaCallbackResponse {
+    /// The `id` field.
     pub id: i64,
+    /// The `callback_type` field.
     pub callback_type: String,
+    /// The `media_id` field.
     pub media_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `status` field.
     pub status: String,
+    /// The `result` field.
     pub result: Option<serde_json::Value>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `completed_ts` field.
     pub completed_ts: Option<i64>,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
 }
 
@@ -292,13 +410,20 @@ impl From<MediaCallback> for MediaCallbackResponse {
     }
 }
 
+/// The `AccountDataCallbackResponse` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AccountDataCallbackResponse {
+    /// The `id` field.
     pub id: i64,
+    /// The `callback_name` field.
     pub callback_name: String,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `data_types` field.
     pub data_types: Option<Vec<String>>,
+    /// The `config` field.
     pub config: Option<serde_json::Value>,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
@@ -315,17 +440,23 @@ impl From<AccountDataCallback> for AccountDataCallbackResponse {
     }
 }
 
+/// The `ListQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
+    /// The `limit` field.
     pub limit: Option<i64>,
+    /// The `from` field.
     pub from: Option<String>,
 }
 
+/// The `SpamCheckQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct SpamCheckQuery {
+    /// The `limit` field.
     pub limit: Option<i64>,
 }
 
+/// See [`create_module`].
 pub async fn create_module(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -346,6 +477,7 @@ pub async fn create_module(
     Ok((StatusCode::CREATED, Json(ModuleResponse::from(module))))
 }
 
+/// See [`get_module`].
 pub async fn get_module(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -357,6 +489,7 @@ pub async fn get_module(
     Ok(Json(ModuleResponse::from(module)))
 }
 
+/// See [`get_modules_by_type`].
 pub async fn get_modules_by_type(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -369,6 +502,7 @@ pub async fn get_modules_by_type(
     Ok(Json(responses))
 }
 
+/// See [`get_all_modules`].
 pub async fn get_all_modules(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -386,6 +520,7 @@ pub async fn get_all_modules(
     })))
 }
 
+/// See [`update_module_config`].
 pub async fn update_module_config(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -397,6 +532,7 @@ pub async fn update_module_config(
     Ok(Json(ModuleResponse::from(module)))
 }
 
+/// See [`enable_module`].
 pub async fn enable_module(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -408,6 +544,7 @@ pub async fn enable_module(
     Ok(Json(ModuleResponse::from(module)))
 }
 
+/// See [`delete_module`].
 pub async fn delete_module(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -418,6 +555,7 @@ pub async fn delete_module(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// See [`check_spam`].
 pub async fn check_spam(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -436,6 +574,7 @@ pub async fn check_spam(
     Ok(Json(result))
 }
 
+/// See [`check_third_party_rule`].
 pub async fn check_third_party_rule(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -455,6 +594,7 @@ pub async fn check_third_party_rule(
     Ok(Json(result))
 }
 
+/// See [`get_spam_check_result`].
 pub async fn get_spam_check_result(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -469,6 +609,7 @@ pub async fn get_spam_check_result(
     Ok(Json(SpamCheckResultResponse::from(result)))
 }
 
+/// See [`get_spam_check_results_by_sender`].
 pub async fn get_spam_check_results_by_sender(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -484,6 +625,7 @@ pub async fn get_spam_check_results_by_sender(
     Ok(Json(responses))
 }
 
+/// See [`get_third_party_rule_results`].
 pub async fn get_third_party_rule_results(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -497,6 +639,7 @@ pub async fn get_third_party_rule_results(
     Ok(Json(responses))
 }
 
+/// See [`get_execution_logs`].
 pub async fn get_execution_logs(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -510,6 +653,7 @@ pub async fn get_execution_logs(
     Ok(Json(logs))
 }
 
+/// See [`create_account_validity`].
 pub async fn create_account_validity(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -528,6 +672,7 @@ pub async fn create_account_validity(
     Ok((StatusCode::CREATED, Json(AccountValidityResponse::from(validity))))
 }
 
+/// See [`get_account_validity`].
 pub async fn get_account_validity(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -542,6 +687,7 @@ pub async fn get_account_validity(
     Ok(Json(AccountValidityResponse::from(validity)))
 }
 
+/// See [`renew_account`].
 pub async fn renew_account(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -560,6 +706,7 @@ pub async fn renew_account(
     Ok(Json(AccountValidityResponse::from(validity)))
 }
 
+/// See [`create_password_auth_provider`].
 pub async fn create_password_auth_provider(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -582,6 +729,7 @@ pub async fn create_password_auth_provider(
     Ok((StatusCode::CREATED, Json(PasswordAuthProviderResponse::from(provider))))
 }
 
+/// See [`get_password_auth_providers`].
 pub async fn get_password_auth_providers(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -598,6 +746,7 @@ pub async fn get_password_auth_providers(
     Ok(Json(responses))
 }
 
+/// See [`create_media_callback`].
 pub async fn create_media_callback(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -623,6 +772,7 @@ pub async fn create_media_callback(
     Ok((StatusCode::CREATED, Json(MediaCallbackResponse::from(callback))))
 }
 
+/// See [`get_media_callbacks`].
 pub async fn get_media_callbacks(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -639,6 +789,7 @@ pub async fn get_media_callbacks(
     Ok(Json(responses))
 }
 
+/// See [`get_all_media_callbacks`].
 pub async fn get_all_media_callbacks(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -654,6 +805,7 @@ pub async fn get_all_media_callbacks(
     Ok(Json(responses))
 }
 
+/// See [`create_account_data_callback`].
 pub async fn create_account_data_callback(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -675,6 +827,7 @@ pub async fn create_account_data_callback(
     Ok((StatusCode::CREATED, Json(AccountDataCallbackResponse::from(callback))))
 }
 
+/// See [`get_account_data_callbacks`].
 pub async fn get_account_data_callbacks(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -691,6 +844,7 @@ pub async fn get_account_data_callbacks(
     Ok(Json(responses))
 }
 
+/// See [`create_module_router`].
 pub fn create_module_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/modules", post(create_module))
@@ -720,6 +874,7 @@ pub fn create_module_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+/// See [`module_route_manifest`].
 pub fn module_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

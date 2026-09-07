@@ -15,51 +15,84 @@ use synapse_storage::background_update::{
     BackgroundUpdate, BackgroundUpdateHistory, BackgroundUpdateStats, CreateBackgroundUpdateRequest,
 };
 
+/// The `QueryParams` struct.
 #[derive(Debug, Deserialize)]
 pub struct QueryParams {
+    /// The `limit` field.
     pub limit: Option<i64>,
+    /// The `from` field.
     pub from: Option<String>,
 }
 
+/// The `CreateUpdateBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct CreateUpdateBody {
+    /// The `job_name` field.
     pub job_name: String,
+    /// The `job_type` field.
     pub job_type: String,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `table_name` field.
     pub table_name: Option<String>,
+    /// The `column_name` field.
     pub column_name: Option<String>,
+    /// The `total_items` field.
     pub total_items: Option<i32>,
+    /// The `batch_size` field.
     pub batch_size: Option<i32>,
+    /// The `sleep_ms` field.
     pub sleep_ms: Option<i32>,
+    /// The `depends_on` field.
     pub depends_on: Option<Vec<String>>,
+    /// The `metadata` field.
     pub metadata: Option<serde_json::Value>,
 }
 
+/// The `UpdateProgressBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct UpdateProgressBody {
+    /// The `items_processed` field.
     pub items_processed: i32,
+    /// The `total_items` field.
     pub total_items: Option<i32>,
 }
 
+/// The `FailUpdateBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct FailUpdateBody {
+    /// The `error_message` field.
     pub error_message: String,
 }
 
+/// The `UpdateResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct UpdateResponse {
+    /// The `job_name` field.
     pub job_name: String,
+    /// The `job_type` field.
     pub job_type: String,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `table_name` field.
     pub table_name: Option<String>,
+    /// The `status` field.
     pub status: String,
+    /// The `progress` field.
     pub progress: serde_json::Value,
+    /// The `total_items` field.
     pub total_items: i32,
+    /// The `processed_items` field.
     pub processed_items: i32,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `started_ts` field.
     pub started_ts: Option<i64>,
+    /// The `completed_ts` field.
     pub completed_ts: Option<i64>,
+    /// The `error_message` field.
     pub error_message: Option<String>,
+    /// The `retry_count` field.
     pub retry_count: i32,
 }
 
@@ -83,14 +116,22 @@ impl From<BackgroundUpdate> for UpdateResponse {
     }
 }
 
+/// The `HistoryResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct HistoryResponse {
+    /// The `id` field.
     pub id: i64,
+    /// The `job_name` field.
     pub job_name: String,
+    /// The `execution_start_ts` field.
     pub execution_start_ts: i64,
+    /// The `execution_end_ts` field.
     pub execution_end_ts: Option<i64>,
+    /// The `status` field.
     pub status: String,
+    /// The `items_processed` field.
     pub items_processed: i32,
+    /// The `error_message` field.
     pub error_message: Option<String>,
 }
 
@@ -108,17 +149,28 @@ impl From<BackgroundUpdateHistory> for HistoryResponse {
     }
 }
 
+/// The `StatsResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct StatsResponse {
+    /// The `id` field.
     pub id: i64,
+    /// The `job_name` field.
     pub job_name: String,
+    /// The `total_updates` field.
     pub total_updates: i32,
+    /// The `completed_updates` field.
     pub completed_updates: i32,
+    /// The `failed_updates` field.
     pub failed_updates: i32,
+    /// The `last_run_ts` field.
     pub last_run_ts: Option<i64>,
+    /// The `next_run_ts` field.
     pub next_run_ts: Option<i64>,
+    /// The `average_duration_ms` field.
     pub average_duration_ms: i64,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
@@ -139,6 +191,7 @@ impl From<BackgroundUpdateStats> for StatsResponse {
     }
 }
 
+/// See [`create_update`].
 pub async fn create_update(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -162,6 +215,7 @@ pub async fn create_update(
     Ok((StatusCode::CREATED, Json(UpdateResponse::from(update))))
 }
 
+/// See [`get_update`].
 pub async fn get_update(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -176,6 +230,7 @@ pub async fn get_update(
     Ok(Json(UpdateResponse::from(update)))
 }
 
+/// See [`get_all_updates`].
 pub async fn get_all_updates(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -193,6 +248,7 @@ pub async fn get_all_updates(
     })))
 }
 
+/// See [`get_pending_updates`].
 pub async fn get_pending_updates(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -204,6 +260,7 @@ pub async fn get_pending_updates(
     Ok(Json(response))
 }
 
+/// See [`get_running_updates`].
 pub async fn get_running_updates(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -215,6 +272,7 @@ pub async fn get_running_updates(
     Ok(Json(response))
 }
 
+/// See [`start_update`].
 pub async fn start_update(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -225,6 +283,7 @@ pub async fn start_update(
     Ok(Json(UpdateResponse::from(update)))
 }
 
+/// See [`update_progress`].
 pub async fn update_progress(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -237,6 +296,7 @@ pub async fn update_progress(
     Ok(Json(UpdateResponse::from(update)))
 }
 
+/// See [`complete_update`].
 pub async fn complete_update(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -247,6 +307,7 @@ pub async fn complete_update(
     Ok(Json(UpdateResponse::from(update)))
 }
 
+/// See [`fail_update`].
 pub async fn fail_update(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -258,6 +319,7 @@ pub async fn fail_update(
     Ok(Json(UpdateResponse::from(update)))
 }
 
+/// See [`cancel_update`].
 pub async fn cancel_update(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -268,6 +330,7 @@ pub async fn cancel_update(
     Ok(Json(UpdateResponse::from(update)))
 }
 
+/// See [`delete_update`].
 pub async fn delete_update(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -278,6 +341,7 @@ pub async fn delete_update(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// See [`get_history`].
 pub async fn get_history(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -293,6 +357,7 @@ pub async fn get_history(
     Ok(Json(response))
 }
 
+/// See [`retry_failed`].
 pub async fn retry_failed(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -304,6 +369,7 @@ pub async fn retry_failed(
     })))
 }
 
+/// See [`cleanup_locks`].
 pub async fn cleanup_locks(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -315,6 +381,7 @@ pub async fn cleanup_locks(
     })))
 }
 
+/// See [`count_by_status`].
 pub async fn count_by_status(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -328,6 +395,7 @@ pub async fn count_by_status(
     })))
 }
 
+/// See [`count_all`].
 pub async fn count_all(State(ctx): State<AdminContext>, _auth_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
     let count = ctx.background_update_service.count_all().await?;
 
@@ -336,6 +404,7 @@ pub async fn count_all(State(ctx): State<AdminContext>, _auth_user: AdminUser) -
     })))
 }
 
+/// See [`get_stats`].
 pub async fn get_stats(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -350,6 +419,7 @@ pub async fn get_stats(
     Ok(Json(response))
 }
 
+/// See [`get_next_pending`].
 pub async fn get_next_pending(
     State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
@@ -362,16 +432,24 @@ pub async fn get_next_pending(
     }
 }
 
+/// The `BackgroundUpdateStatus` struct.
 #[derive(Debug, Serialize)]
 pub struct BackgroundUpdateStatus {
+    /// The `pending_count` field.
     pub pending_count: i64,
+    /// The `running_count` field.
     pub running_count: i64,
+    /// The `completed_count` field.
     pub completed_count: i64,
+    /// The `failed_count` field.
     pub failed_count: i64,
+    /// The `total_count` field.
     pub total_count: i64,
+    /// The `current_update` field.
     pub current_update: Option<UpdateResponse>,
 }
 
+/// See [`get_status`].
 pub async fn get_status(State(ctx): State<AdminContext>, _auth_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
     let pending = ctx.background_update_service.count_by_status("pending").await?;
     let running = ctx.background_update_service.count_by_status("running").await?;
@@ -391,6 +469,7 @@ pub async fn get_status(State(ctx): State<AdminContext>, _auth_user: AdminUser) 
     }))
 }
 
+/// See [`create_background_update_router`].
 pub fn create_background_update_router(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/admin/v1/background_updates", post(create_update))
@@ -416,6 +495,7 @@ pub fn create_background_update_router(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+/// See [`background_update_route_manifest`].
 pub fn background_update_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

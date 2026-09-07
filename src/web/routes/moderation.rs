@@ -22,6 +22,7 @@ fn create_moderation_v3_router() -> Router<AppState> {
         .route("/users/{user_id}/report", post(report_user))
 }
 
+/// See [`create_moderation_router`].
 pub fn create_moderation_router() -> Router<AppState> {
     let compat_router = create_room_report_compat_router();
 
@@ -31,6 +32,7 @@ pub fn create_moderation_router() -> Router<AppState> {
         .nest("/_matrix/client/v3", create_moderation_v3_router())
 }
 
+/// See [`moderation_route_manifest`].
 pub fn moderation_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::expand_under_prefixes;
     use axum::http::Method;

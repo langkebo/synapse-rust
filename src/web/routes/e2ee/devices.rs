@@ -14,6 +14,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_common::types::DeviceId;
 
+/// See [`device_list_update`].
 #[axum::debug_handler]
 pub(crate) async fn device_list_update(
     State(ctx): State<DeviceContext>,
@@ -97,6 +98,7 @@ pub(crate) async fn device_list_update(
     })))
 }
 
+/// See [`room_key_distribution`].
 #[allow(clippy::unused_async)]
 pub(crate) async fn room_key_distribution(
     State(_ctx): State<DeviceContext>,
@@ -108,6 +110,7 @@ pub(crate) async fn room_key_distribution(
     ))
 }
 
+/// See [`send_to_device`].
 #[axum::debug_handler]
 pub(crate) async fn send_to_device(
     State(ctx): State<DeviceContext>,
@@ -187,6 +190,7 @@ pub(crate) async fn send_to_device(
     Ok(Json(json!({ "failures": {} })))
 }
 
+/// See [`upload_signatures`].
 #[axum::debug_handler]
 pub(crate) async fn upload_signatures(
     State(ctx): State<DeviceContext>,
@@ -198,6 +202,7 @@ pub(crate) async fn upload_signatures(
     Ok(Json(response))
 }
 
+/// See [`upload_device_signing`].
 #[axum::debug_handler]
 pub(crate) async fn upload_device_signing(
     State(ctx): State<DeviceContext>,
@@ -259,12 +264,14 @@ pub(crate) async fn upload_device_signing(
     Ok(Json(json!({})).into_response())
 }
 
+/// See [`has_upload_device_signing_keys`].
 pub(crate) fn has_upload_device_signing_keys(body: &Value) -> bool {
     ["master_key", "self_signing_key", "user_signing_key"]
         .iter()
         .any(|field| body.get(*field).and_then(Value::as_object).is_some_and(|key_obj| !key_obj.is_empty()))
 }
 
+/// See [`create_room_key_request`].
 #[axum::debug_handler]
 pub(crate) async fn create_room_key_request(
     State(ctx): State<DeviceContext>,
@@ -294,10 +301,12 @@ pub(crate) async fn create_room_key_request(
     })))
 }
 
+/// See [`encode_key_request_cursor`].
 pub(crate) fn encode_key_request_cursor(ts: i64, id: &str) -> String {
     BASE64.encode(format!("{}:{}", ts, id))
 }
 
+/// See [`decode_key_request_cursor`].
 pub(crate) fn decode_key_request_cursor(cursor: &str) -> Option<(i64, String)> {
     let decoded = BASE64.decode(cursor).ok()?;
     let s = String::from_utf8(decoded).ok()?;
@@ -307,6 +316,7 @@ pub(crate) fn decode_key_request_cursor(cursor: &str) -> Option<(i64, String)> {
     Some((ts, id))
 }
 
+/// See [`get_room_key_requests`].
 pub(crate) async fn get_room_key_requests(
     State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
@@ -343,6 +353,7 @@ pub(crate) async fn get_room_key_requests(
     })))
 }
 
+/// See [`delete_room_key_request`].
 #[axum::debug_handler]
 pub(crate) async fn delete_room_key_request(
     State(ctx): State<DeviceContext>,
@@ -371,6 +382,7 @@ struct CreateRoomKeyRequestBody {
     request_id: Option<String>,
 }
 
+/// The `GetRoomKeyRequestsQuery` struct.
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct GetRoomKeyRequestsQuery {
     status: Option<String>,
@@ -380,6 +392,7 @@ pub(crate) struct GetRoomKeyRequestsQuery {
     from: Option<String>,
 }
 
+/// See [`serialize_room_key_request`].
 pub(crate) fn serialize_room_key_request(request: crate::e2ee::key_request::KeyRequestInfo) -> Value {
     let action = request.action;
     let status = if action == "cancellation" || action == "cancelled" {
@@ -411,6 +424,7 @@ pub(crate) fn serialize_room_key_request(request: crate::e2ee::key_request::KeyR
 // E2EE Phase 1: Device Trust Handlers
 // =====================================================
 
+/// See [`request_device_verification`].
 #[axum::debug_handler]
 pub(crate) async fn request_device_verification(
     State(ctx): State<DeviceContext>,
@@ -450,6 +464,7 @@ pub(crate) async fn request_device_verification(
     })))
 }
 
+/// See [`respond_device_verification`].
 #[axum::debug_handler]
 pub(crate) async fn respond_device_verification(
     State(ctx): State<DeviceContext>,
@@ -473,6 +488,7 @@ pub(crate) async fn respond_device_verification(
     })))
 }
 
+/// See [`get_verification_status`].
 #[axum::debug_handler]
 pub(crate) async fn get_verification_status(
     State(ctx): State<DeviceContext>,
@@ -495,6 +511,7 @@ pub(crate) async fn get_verification_status(
     }
 }
 
+/// See [`get_device_trust_list`].
 #[axum::debug_handler]
 pub(crate) async fn get_device_trust_list(
     State(ctx): State<DeviceContext>,
@@ -519,6 +536,7 @@ pub(crate) async fn get_device_trust_list(
     })))
 }
 
+/// See [`get_device_trust`].
 #[axum::debug_handler]
 pub(crate) async fn get_device_trust(
     State(ctx): State<DeviceContext>,
@@ -538,6 +556,7 @@ pub(crate) async fn get_device_trust(
     }
 }
 
+/// See [`get_security_summary`].
 #[axum::debug_handler]
 pub(crate) async fn get_security_summary(
     State(ctx): State<DeviceContext>,

@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use synapse_common::types::{MediaId, UserId};
 use synapse_services::admin_media_service::decode_media_cursor;
 
+/// See [`create_media_router`].
 pub fn create_media_router() -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/media", get(get_all_media))
@@ -21,6 +22,7 @@ pub fn create_media_router() -> Router<crate::web::routes::AppState> {
         .route("/_synapse/admin/v1/quarantine_media/{media_id}/changes", get(get_media_quarantine_changes))
 }
 
+/// See [`admin_media_route_manifest`].
 pub fn admin_media_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -38,6 +40,7 @@ pub fn admin_media_route_manifest() -> Vec<crate::web::routes::route_ledger::Rou
     .collect()
 }
 
+/// See [`get_all_media`].
 #[axum::debug_handler]
 pub async fn get_all_media(
     _admin: AdminUser,
@@ -73,6 +76,7 @@ pub async fn get_all_media(
     })))
 }
 
+/// See [`get_media_info`].
 #[axum::debug_handler]
 pub async fn get_media_info(
     _admin: AdminUser,
@@ -96,6 +100,7 @@ pub async fn get_media_info(
     }
 }
 
+/// See [`delete_media`].
 #[axum::debug_handler]
 pub async fn delete_media(
     _admin: AdminUser,
@@ -107,6 +112,7 @@ pub async fn delete_media(
     Ok(Json(json!({})))
 }
 
+/// See [`get_media_quota`].
 #[axum::debug_handler]
 pub async fn get_media_quota(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     let quota = ctx.admin_media_service.get_media_quota().await?;
@@ -119,6 +125,7 @@ pub async fn get_media_quota(_admin: AdminUser, State(ctx): State<AdminContext>)
     })))
 }
 
+/// See [`get_user_media`].
 #[axum::debug_handler]
 pub async fn get_user_media(
     _admin: AdminUser,
@@ -143,6 +150,7 @@ pub async fn get_user_media(
     Ok(Json(json!({ "media": media_list, "total": media_list.len() })))
 }
 
+/// See [`delete_user_media`].
 #[axum::debug_handler]
 pub async fn delete_user_media(
     _admin: AdminUser,
@@ -154,6 +162,7 @@ pub async fn delete_user_media(
     Ok(Json(json!({ "deleted": deleted })))
 }
 
+/// See [`get_media_quarantine_changes`].
 #[axum::debug_handler]
 pub async fn get_media_quarantine_changes(
     _admin: AdminUser,

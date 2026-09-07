@@ -135,6 +135,7 @@ struct SsoRedirectQuery {
     redirect_after: Option<String>,
 }
 
+/// See [`cas_routes`].
 pub fn cas_routes(state: AppState) -> Router<AppState> {
     let public_routes = Router::new()
         .route("/login", get(login_redirect))
@@ -183,6 +184,7 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
     public_routes.merge(standard_admin_routes).merge(legacy_admin_routes).with_state(state)
 }
 
+/// See [`cas_route_manifest`].
 pub fn cas_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

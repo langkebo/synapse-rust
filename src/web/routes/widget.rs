@@ -15,19 +15,29 @@ use synapse_services::widget_service::{
     UpdateWidgetRequest, WidgetListResponse,
 };
 
+/// The `CreateWidgetBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct CreateWidgetBody {
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `widget_type` field.
     pub widget_type: String,
+    /// The `url` field.
     pub url: String,
+    /// The `name` field.
     pub name: String,
+    /// The `data` field.
     pub data: Option<serde_json::Value>,
 }
 
+/// The `UpdateWidgetBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct UpdateWidgetBody {
+    /// The `url` field.
     pub url: Option<String>,
+    /// The `name` field.
     pub name: Option<String>,
+    /// The `data` field.
     pub data: Option<serde_json::Value>,
 }
 
@@ -50,30 +60,47 @@ fn validate_widget_url(url: &str) -> Result<(), ApiError> {
     }
 }
 
+/// The `SetPermissionBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct SetPermissionBody {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `permissions` field.
     pub permissions: Vec<String>,
 }
 
+/// The `CreateSessionBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct CreateSessionBody {
+    /// The `widget_id` field.
     pub widget_id: Option<String>,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `expires_in_ms` field.
     pub expires_in_ms: Option<i64>,
 }
 
+/// The `WidgetApiResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct WidgetApiResponse {
+    /// The `widget_id` field.
     pub widget_id: String,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `user_id` field.
     pub user_id: String,
     #[serde(rename = "type")]
+    /// The `widget_type` field.
     pub widget_type: String,
+    /// The `url` field.
     pub url: String,
+    /// The `name` field.
     pub name: String,
+    /// The `data` field.
     pub data: serde_json::Value,
+    /// The `creator` field.
     pub creator: String,
+    /// The `active` field.
     pub active: bool,
 }
 
@@ -93,6 +120,7 @@ impl From<synapse_storage::widget::Widget> for WidgetApiResponse {
     }
 }
 
+/// See [`create_widget_router`].
 pub fn create_widget_router() -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/v1/widgets", post(create_widget))
@@ -117,6 +145,7 @@ pub fn create_widget_router() -> Router<AppState> {
         .route("/_matrix/client/v1/widgets/sessions/{session_id}", delete(terminate_widget_session))
 }
 
+/// See [`widget_route_manifest`].
 pub fn widget_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -474,8 +503,10 @@ async fn ensure_session_access(
     Ok(())
 }
 
+/// The `WidgetCapabilitiesBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct WidgetCapabilitiesBody {
+    /// The `capabilities` field.
     pub capabilities: Vec<String>,
 }
 
@@ -538,10 +569,13 @@ async fn set_room_widget_capabilities(
     })))
 }
 
+/// The `SendWidgetMessageBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct SendWidgetMessageBody {
     #[serde(rename = "type")]
+    /// The `msg_type` field.
     pub msg_type: String,
+    /// The `content` field.
     pub content: serde_json::Value,
 }
 

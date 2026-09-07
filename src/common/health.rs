@@ -13,6 +13,8 @@ pub struct CacheHealthCheck {
 }
 
 impl CacheHealthCheck {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(cache: CacheManager) -> Self {
         Self { cache }
     }

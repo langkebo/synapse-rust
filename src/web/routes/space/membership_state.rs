@@ -2,6 +2,7 @@ use super::*;
 use crate::web::routes::context::RoomContext;
 use synapse_common::types::RoomId;
 
+/// See [`get_space_members`].
 pub(super) async fn get_space_members(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -38,6 +39,7 @@ pub(super) async fn get_space_members(
     .await
 }
 
+/// See [`get_space_rooms`].
 pub(super) async fn get_space_rooms(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -70,6 +72,7 @@ pub(super) async fn get_space_rooms(
     .await
 }
 
+/// See [`get_space_state`].
 pub(super) async fn get_space_state(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -85,6 +88,7 @@ pub(super) async fn get_space_state(
     .await
 }
 
+/// See [`invite_user`].
 pub(super) async fn invite_user(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -102,6 +106,7 @@ pub(super) async fn invite_user(
     .await
 }
 
+/// See [`join_space`].
 pub(super) async fn join_space(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -116,6 +121,7 @@ pub(super) async fn join_space(
     .await
 }
 
+/// See [`leave_space`].
 pub(super) async fn leave_space(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -129,6 +135,7 @@ pub(super) async fn leave_space(
     .await
 }
 
+/// See [`create_space_membership_state_routes`].
 pub(super) fn create_space_membership_state_routes() -> Router<AppState> {
     Router::new()
         .route("/spaces/{space_id}/members", get(get_space_members))

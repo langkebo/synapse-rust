@@ -144,6 +144,7 @@ fn create_room_v3_router() -> Router<AppState> {
         .route("/rooms/{room_id}/anti_screenshot", get(get_anti_screenshot).put(set_anti_screenshot))
 }
 
+/// See [`create_room_router`].
 pub fn create_room_router() -> Router<AppState> {
     Router::new()
         .nest("/_matrix/client/r0", create_room_r0_router())
@@ -263,6 +264,7 @@ fn room_v3_only_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     v3_only
 }
 
+/// See [`room_route_manifest`].
 pub fn room_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::expand_under_prefixes;
     use axum::http::Method;

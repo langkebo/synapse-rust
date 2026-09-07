@@ -7,6 +7,7 @@ use synapse_common::security::{ReplayProtectionCache, ReplayProtectionConfig};
 use synapse_services::ServiceContainer;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 
+/// The `AppState` struct.
 #[derive(Clone)]
 pub struct AppState {
     // `services` 必须用 Arc 包裹：AppState 经 `#[derive(Clone)]` 实现深拷贝，
@@ -15,17 +16,27 @@ pub struct AppState {
     // （ServiceContainer → CoreServices → Config → UrlPreviewConfig 的 Vec），
     // 883 份副本常驻内存 ≈ 1.7GB（jemalloc prof 实测 clone_subtree 占 84.8%）。
     // 改 Arc 后 clone 只是引用计数 +1，Config 全程仅一份。
+    /// The `services` field.
     pub services: Arc<ServiceContainer>,
+    /// The `cache` field.
     pub cache: Arc<CacheManager>,
+    /// The `health_checker` field.
     pub health_checker: Arc<HealthChecker>,
+    /// The `federation_signature_cache` field.
     pub federation_signature_cache: Arc<FederationSignatureCache>,
     /// S1 修复：联邦重放保护缓存，用于在时间窗口内去重已验签的请求签名。
     pub replay_protection_cache: Arc<ReplayProtectionCache>,
+    /// The `federation_key_fetch_priority_semaphore` field.
     pub federation_key_fetch_priority_semaphore: Arc<Semaphore>,
+    /// The `federation_key_fetch_general_semaphore` field.
     pub federation_key_fetch_general_semaphore: Arc<Semaphore>,
+    /// The `federation_inbound_edu_semaphore` field.
     pub federation_inbound_edu_semaphore: Arc<Semaphore>,
+    /// The `federation_join_semaphore` field.
     pub federation_join_semaphore: Arc<Semaphore>,
+    /// The `federation_inbound_edu_origin_semaphores` field.
     pub federation_inbound_edu_origin_semaphores: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
+    /// The `federation_presence_backoff_until` field.
     pub federation_presence_backoff_until: Arc<RwLock<HashMap<String, i64>>>,
     rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
     /// B-4: Paths auto-derived from the route ledger (`rate_limit_exempt = true`
@@ -43,16 +54,22 @@ pub struct AppState {
     /// 时提前归还 schema（并发下被其它测试复用 → 数据竞态 → 401「User not found」）。
     /// 生产构建（无 `test-utils` feature）不编译此字段，恒为 `None`。
     #[cfg(feature = "test-utils")]
+    /// The `test_schema_lease` field.
     pub test_schema_lease: Option<Arc<crate::test_utils::LeasedSchema>>,
 }
 
+/// The `SyncRateLimitOverride` struct.
 #[derive(Debug, Clone)]
 pub struct SyncRateLimitOverride {
+    /// The `fail_open_on_error` field.
     pub fail_open_on_error: bool,
+    /// The `sync` field.
     pub sync: SyncRateLimitConfigFile,
 }
 
 impl AppState {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(services: ServiceContainer, cache: Arc<CacheManager>) -> Self {
         let pool = services.database_pool();
         let mut health_checker = HealthChecker::new("0.1.0".to_string());
@@ -110,6 +127,8 @@ impl AppState {
         }
     }
 
+    /// See [`with_rate_limit_config`].
+    /// See [`with_rate_limit_config`].
     pub fn with_rate_limit_config(mut self, manager: Arc<RateLimitConfigManager>) -> Self {
         self.rate_limit_config_manager = Some(manager);
         self
@@ -129,14 +148,20 @@ impl AppState {
         self
     }
 
+    /// See [`rate_limit_config`].
+    /// See [`rate_limit_config`].
     pub fn rate_limit_config(&self) -> Option<RateLimitConfigFile> {
         self.rate_limit_config_manager.as_ref().map(|manager| manager.get_config())
     }
 
+    /// See [`rate_limit_config_manager`].
+    /// See [`rate_limit_config_manager`].
     pub fn rate_limit_config_manager(&self) -> Option<&Arc<RateLimitConfigManager>> {
         self.rate_limit_config_manager.as_ref()
     }
 
+    /// See [`sync_rate_limit_override`].
+    /// See [`sync_rate_limit_override`].
     pub fn sync_rate_limit_override(&self) -> Option<SyncRateLimitOverride> {
         self.rate_limit_config_manager.as_ref().map(|manager| {
             let config = manager.get_config();

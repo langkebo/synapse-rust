@@ -38,12 +38,16 @@ fn compute_key_cache_ttl_secs(valid_until_ts: Option<i64>) -> u64 {
     FEDERATION_KEY_CACHE_TTL_SECS.min(spec_capped)
 }
 
+/// The `FederationRequestAuth` struct.
 #[derive(Clone, Debug)]
 pub struct FederationRequestAuth {
+    /// The `origin` field.
     pub origin: String,
+    /// The `key_id` field.
     pub key_id: String,
 }
 
+/// See [`federation_auth_middleware`].
 pub async fn federation_auth_middleware(
     State(ctx): State<FederationContext>,
     request: Request<Body>,
@@ -243,6 +247,7 @@ fn is_local_federation_destination(ctx: &FederationContext, destination: &str) -
     .any(|local_name| !local_name.is_empty() && local_name == destination)
 }
 
+/// See [`replication_http_auth_middleware`].
 pub async fn replication_http_auth_middleware(
     State(ctx): State<CoreContext>,
     request: Request<Body>,
@@ -338,6 +343,7 @@ fn canonical_federation_request_bytes(
     }
 }
 
+/// See [`verify_federation_signature_with_cache`].
 pub(crate) async fn verify_federation_signature_with_cache(
     ctx: &FederationContext,
     origin: &str,

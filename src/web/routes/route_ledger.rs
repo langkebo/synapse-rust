@@ -60,7 +60,9 @@ use std::fmt;
 /// entries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouteEntry {
+    /// The `method` field.
     pub method: Method,
+    /// The `path` field.
     pub path: &'static str,
     /// Human-readable name of the router module that registers this entry —
     /// e.g. `"key_backup"`. Surfaced in duplicate diagnostics so the offending
@@ -78,15 +80,21 @@ pub struct RouteEntry {
 }
 
 impl RouteEntry {
+    /// See [`new`].
+    /// See [`new`].
     pub const fn new(method: Method, path: &'static str, registered_by: &'static str) -> Self {
         Self { method, path, registered_by, query_params: &[], auth: None, rate_limit_exempt: false }
     }
 
+    /// See [`with_auth`].
+    /// See [`with_auth`].
     pub const fn with_auth(mut self, auth: &'static str) -> Self {
         self.auth = Some(auth);
         self
     }
 
+    /// See [`with_query_params`].
+    /// See [`with_query_params`].
     pub const fn with_query_params(mut self, query_params: &'static [&'static str]) -> Self {
         self.query_params = query_params;
         self
@@ -138,13 +146,18 @@ pub struct RouteLedger {
     entries: Vec<RouteEntry>,
 }
 
+/// The `RegisteredByCount` struct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegisteredByCount {
+    /// The `registered_by` field.
     pub registered_by: &'static str,
+    /// The `entries` field.
     pub entries: usize,
 }
 
 impl RouteLedger {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }
@@ -157,14 +170,20 @@ impl RouteLedger {
         self.entries.extend(entries);
     }
 
+    /// See [`iter`].
+    /// See [`iter`].
     pub fn iter(&self) -> impl Iterator<Item = &RouteEntry> {
         self.entries.iter()
     }
 
+    /// See [`len`].
+    /// See [`len`].
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    /// See [`is_empty`].
+    /// See [`is_empty`].
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -239,15 +258,21 @@ pub struct LedgerReport {
     pub r0_route_count: usize,
 }
 
+/// The `DuplicateEntry` struct.
 #[derive(Debug, Clone)]
 pub struct DuplicateEntry {
+    /// The `method` field.
     pub method: Method,
+    /// The `path` field.
     pub path: &'static str,
+    /// The `registered_by` field.
     pub registered_by: Vec<&'static str>,
 }
 
+/// The `DuplicateRouteError` struct.
 #[derive(Debug, Clone)]
 pub struct DuplicateRouteError {
+    /// The `duplicates` field.
     pub duplicates: Vec<DuplicateEntry>,
 }
 

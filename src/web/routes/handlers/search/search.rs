@@ -24,71 +24,99 @@ fn default_order_by() -> String {
     "rank".to_string()
 }
 
+/// The `SearchRequest` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct SearchRequest {
+    /// The `search_categories` field.
     pub search_categories: SearchCategories,
 }
 
+/// The `SearchCategories` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct SearchCategories {
     #[serde(default)]
+    /// The `room_events` field.
     pub room_events: Option<RoomEventsSearch>,
     #[serde(default)]
+    /// The `users` field.
     pub users: Option<UsersSearch>,
 }
 
+/// The `RoomEventsSearch` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct RoomEventsSearch {
+    /// The `search_term` field.
     pub search_term: String,
     #[serde(default)]
+    /// The `keys` field.
     pub keys: Vec<String>,
     #[serde(default)]
+    /// The `filter` field.
     pub filter: Option<Filter>,
     #[serde(default)]
+    /// The `groupings` field.
     pub groupings: Option<Groupings>,
     #[serde(default = "default_order_by")]
+    /// The `order_by` field.
     pub order_by: String,
     #[serde(default)]
+    /// The `next_batch` field.
     pub next_batch: Option<String>,
 }
 
+/// The `UsersSearch` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct UsersSearch {
+    /// The `search_term` field.
     pub search_term: String,
     #[serde(default)]
+    /// The `limit` field.
     pub limit: Option<u32>,
 }
 
+/// The `Filter` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Filter {
     #[serde(default)]
+    /// The `limit` field.
     pub limit: Option<u32>,
     #[serde(default)]
+    /// The `rooms` field.
     pub rooms: Option<Vec<String>>,
     #[serde(default)]
+    /// The `not_rooms` field.
     pub not_rooms: Option<Vec<String>>,
     #[serde(default)]
+    /// The `types` field.
     pub types: Option<Vec<String>>,
     #[serde(default)]
+    /// The `not_types` field.
     pub not_types: Option<Vec<String>>,
     #[serde(default)]
+    /// The `senders` field.
     pub senders: Option<Vec<String>>,
     #[serde(default)]
+    /// The `not_senders` field.
     pub not_senders: Option<Vec<String>>,
 }
 
+/// The `Groupings` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Groupings {
     #[serde(default)]
+    /// The `group_by` field.
     pub group_by: Vec<GroupBy>,
 }
 
+/// The `GroupBy` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct GroupBy {
     #[serde(rename = "key")]
+    /// The `key` field.
     pub key: String,
 }
 
+/// See [`validate_search_request`].
 pub(crate) fn validate_search_request(body: &SearchRequest) -> Result<(), ApiError> {
     if let Some(room_events) = &body.search_categories.room_events {
         if room_events.search_term.len() > MAX_SEARCH_TERM_LENGTH {
@@ -147,6 +175,7 @@ pub(crate) fn validate_search_request(body: &SearchRequest) -> Result<(), ApiErr
     Ok(())
 }
 
+/// See [`search`].
 pub(crate) async fn search(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -307,13 +336,17 @@ async fn search_users(ctx: &RoomContext, user_id: &str, search: &UsersSearch) ->
     Ok(result)
 }
 
+/// The `SearchRecipientsRequest` struct.
 #[derive(Debug, Deserialize)]
 pub(crate) struct SearchRecipientsRequest {
+    /// The `search_term` field.
     pub search_term: String,
     #[serde(default)]
+    /// The `limit` field.
     pub limit: Option<u32>,
 }
 
+/// See [`search_recipients`].
 pub(crate) async fn search_recipients(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
@@ -370,13 +403,17 @@ pub(crate) async fn search_recipients(
     })))
 }
 
+/// The `SearchRoomsRequest` struct.
 #[derive(Debug, Deserialize)]
 pub(crate) struct SearchRoomsRequest {
+    /// The `search_term` field.
     pub search_term: String,
     #[serde(default)]
+    /// The `limit` field.
     pub limit: Option<u32>,
 }
 
+/// See [`search_rooms`].
 pub(crate) async fn search_rooms(
     State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,

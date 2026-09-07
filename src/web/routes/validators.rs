@@ -14,6 +14,7 @@
 //                      username localpart charset, timestamp window, etc.)
 use crate::common::{ApiError, PresenceState};
 
+/// See [`validate_user_id`].
 pub fn validate_user_id(user_id: &str) -> Result<(), ApiError> {
     if user_id.is_empty() {
         return Err(ApiError::invalid_input("user_id is required".to_string()));
@@ -44,6 +45,7 @@ pub fn validate_user_id(user_id: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// See [`validate_room_id`].
 pub fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
     if room_id.is_empty() {
         return Err(ApiError::invalid_input("room_id is required".to_string()));
@@ -70,6 +72,7 @@ pub fn validate_room_id(room_id: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// See [`validate_room_alias`].
 pub fn validate_room_alias(room_alias: &str) -> Result<(), ApiError> {
     if room_alias.is_empty() {
         return Err(ApiError::invalid_input("room_alias is required".to_string()));
@@ -104,6 +107,7 @@ pub fn validate_room_alias(room_alias: &str) -> Result<(), ApiError> {
 /// in earlier Postgres versions).
 pub const MAX_EVENT_ID_LEN: usize = 255;
 
+/// See [`validate_event_id`].
 pub fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
     if event_id.is_empty() {
         return Err(ApiError::invalid_input("event_id is required".to_string()));
@@ -121,6 +125,7 @@ pub fn validate_event_id(event_id: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// See [`validate_presence_status`].
 pub fn validate_presence_status(presence: &str) -> Result<(), ApiError> {
     if !PresenceState::valid_strs().contains(&presence) {
         return Err(ApiError::invalid_input(format!(
@@ -131,6 +136,7 @@ pub fn validate_presence_status(presence: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// See [`validate_receipt_type`].
 pub fn validate_receipt_type(receipt_type: &str) -> Result<(), ApiError> {
     let valid_types = ["m.read", "m.read.private"];
     if !valid_types.contains(&receipt_type) {
@@ -142,6 +148,7 @@ pub fn validate_receipt_type(receipt_type: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// See [`validate_membership`].
 pub fn validate_membership(membership: &str) -> Result<(), ApiError> {
     let valid_memberships = ["join", "leave", "invite", "ban", "knock"];
     if !valid_memberships.contains(&membership) {

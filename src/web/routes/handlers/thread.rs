@@ -131,6 +131,7 @@ impl From<synapse_storage::thread::ThreadReply> for ReplyResponse {
     }
 }
 
+/// See [`create_thread_routes`].
 pub fn create_thread_routes(state: AppState) -> Router<AppState> {
     Router::new()
         // Global threads endpoints (v1)
@@ -225,6 +226,7 @@ pub fn create_thread_routes(state: AppState) -> Router<AppState> {
         .with_state(state)
 }
 
+/// See [`thread_route_manifest`].
 pub fn thread_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

@@ -23,6 +23,7 @@ use synapse_storage::*;
 mod database;
 mod router;
 mod services;
+/// The `telemetry` module.
 pub mod telemetry;
 
 const MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS: u64 = 300;
@@ -102,6 +103,7 @@ fn create_rate_limit_manager(config_path: &std::path::Path) -> Arc<RateLimitConf
     Arc::new(RateLimitConfigManager::new(default_config, config_path.to_path_buf()))
 }
 
+/// The `SynapseServer` struct.
 pub struct SynapseServer {
     app_state: Arc<AppState>,
     router: Router,
@@ -115,6 +117,8 @@ pub struct SynapseServer {
 }
 
 impl SynapseServer {
+    /// See [`new`].
+    /// See [`new`].
     pub async fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
         // Make CORS origins from homeserver.yaml visible to the security check
         // BEFORE we run validation, so operators don't have to also set
@@ -257,6 +261,8 @@ impl SynapseServer {
         })
     }
 
+    /// See [`run`].
+    /// See [`run`].
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         self.log_startup_banner();
 
@@ -718,6 +724,8 @@ impl SynapseServer {
         }
     }
 
+    /// See [`metrics_collector`].
+    /// See [`metrics_collector`].
     pub fn metrics_collector(&self) -> &Arc<TaskMetricsCollector> {
         &self.metrics_collector
     }

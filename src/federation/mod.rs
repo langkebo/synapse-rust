@@ -1,8 +1,10 @@
 pub use synapse_federation::client;
 pub use synapse_federation::device_sync;
+/// The `edu` module.
 pub mod edu;
 pub use synapse_federation::event_auth;
 pub use synapse_federation::event_broadcaster;
+/// The `friend` module.
 #[cfg(feature = "friends")]
 pub mod friend;
 pub use synapse_federation::key_rotation;

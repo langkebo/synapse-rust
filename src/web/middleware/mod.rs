@@ -1,9 +1,16 @@
+/// The `auth` module.
 pub mod auth;
+/// The `cors` module.
 pub mod cors;
+/// The `csrf` module.
 pub mod csrf;
+/// The `federation_auth` module.
 pub mod federation_auth;
+/// The `federation_rate_limit` module.
 pub mod federation_rate_limit;
+/// The `rate_limit` module.
 pub mod rate_limit;
+/// The `security` module.
 pub mod security;
 
 pub use auth::*;
@@ -34,10 +41,12 @@ static CONFIG_ALLOWED_ORIGINS: std::sync::OnceLock<Vec<String>> = std::sync::Onc
 static BIND_ADDRESS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static TRUST_FORWARDED_HEADERS: AtomicBool = AtomicBool::new(false);
 
+/// See [`set_bind_address`].
 pub fn set_bind_address(addr: String) {
     let _ = BIND_ADDRESS.set(addr);
 }
 
+/// See [`set_trust_forwarded_headers`].
 pub fn set_trust_forwarded_headers(trust: bool) {
     let was_trusted = TRUST_FORWARDED_HEADERS.swap(trust, Ordering::SeqCst);
     if trust && !was_trusted {
@@ -49,10 +58,12 @@ pub fn set_trust_forwarded_headers(trust: bool) {
     }
 }
 
+/// See [`is_forwarded_headers_trusted`].
 pub(crate) fn is_forwarded_headers_trusted() -> bool {
     TRUST_FORWARDED_HEADERS.load(Ordering::SeqCst)
 }
 
+/// See [`is_localhost_bind`].
 pub(crate) fn is_localhost_bind() -> bool {
     BIND_ADDRESS.get().is_some_and(|addr| is_local_bind_address(addr))
 }
@@ -65,10 +76,12 @@ pub(crate) fn is_local_bind_address(addr: &str) -> bool {
     host == "127.0.0.1" || host == "localhost" || host == "::1" || host.starts_with("127.")
 }
 
+/// See [`is_dev_mode`].
 pub(crate) fn is_dev_mode() -> bool {
     std::env::var("RUST_ENV").unwrap_or_else(|_| "production".to_string()).to_lowercase() == "development"
 }
 
+/// See [`get_allowed_origins`].
 pub(crate) fn get_allowed_origins() -> Vec<String> {
     if let Ok(env_value) = std::env::var("ALLOWED_ORIGINS") {
         let parsed: Vec<String> =
@@ -81,6 +94,7 @@ pub(crate) fn get_allowed_origins() -> Vec<String> {
     CONFIG_ALLOWED_ORIGINS.get().cloned().unwrap_or_default()
 }
 
+/// See [`is_origin_allowed`].
 pub(crate) fn is_origin_allowed(origin: &str) -> bool {
     if is_dev_mode() && is_localhost_bind() {
         return true;
@@ -105,6 +119,7 @@ pub(crate) fn is_origin_allowed(origin: &str) -> bool {
     false
 }
 
+/// See [`normalize_origin`].
 pub(crate) fn normalize_origin(origin: &str) -> String {
     let normalized = origin.trim_end_matches('/').to_lowercase();
     let parts: Vec<&str> = normalized.split("://").collect();
@@ -115,6 +130,7 @@ pub(crate) fn normalize_origin(origin: &str) -> String {
     }
 }
 
+/// See [`extract_request_origin`].
 pub(crate) fn extract_request_origin(headers: &HeaderMap) -> Option<String> {
     let host = if is_forwarded_headers_trusted() {
         headers.get("x-forwarded-host").or_else(|| headers.get("host")).and_then(|value| value.to_str().ok())?
@@ -131,14 +147,17 @@ pub(crate) fn extract_request_origin(headers: &HeaderMap) -> Option<String> {
     Some(normalize_origin(&format!("{scheme}://{host}")))
 }
 
+/// See [`same_origin`].
 pub(crate) fn same_origin(request_origin: &str, headers: &HeaderMap) -> bool {
     extract_request_origin(headers).is_some_and(|server_origin| normalize_origin(request_origin) == server_origin)
 }
 
+/// See [`is_safe_http_method`].
 pub(crate) fn is_safe_http_method(method: &Method) -> bool {
     matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS | Method::TRACE)
 }
 
+/// See [`extract_origin_candidate`].
 pub(crate) fn extract_origin_candidate(headers: &HeaderMap) -> Option<String> {
     headers.get("origin").and_then(|value| value.to_str().ok()).map(|value| value.to_string()).or_else(|| {
         headers
@@ -149,10 +168,12 @@ pub(crate) fn extract_origin_candidate(headers: &HeaderMap) -> Option<String> {
     })
 }
 
+/// See [`cors_origins_regex`].
 pub(crate) fn cors_origins_regex() -> Option<&'static Regex> {
     CORS_ORIGINS_REGEX.as_ref()
 }
 
+/// See [`set_config_allowed_origins_once`].
 pub(crate) fn set_config_allowed_origins_once(origins: Vec<String>) {
     let _ = CONFIG_ALLOWED_ORIGINS.set(origins);
 }

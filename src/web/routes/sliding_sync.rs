@@ -38,6 +38,7 @@ pub fn create_sliding_sync_router(_state: AppState) -> Router<AppState> {
         .route("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync", post(sliding_sync))
 }
 
+/// See [`sliding_sync_route_manifest`].
 pub fn sliding_sync_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

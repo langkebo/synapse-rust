@@ -7,10 +7,12 @@ use std::sync::Arc;
 
 use crate::common::ApiError;
 
+/// See [`require_found`].
 pub(crate) fn require_found<T>(value: Option<T>, message: &'static str) -> Result<T, ApiError> {
     value.ok_or_else(|| ApiError::not_found(message))
 }
 
+/// See [`json_from`].
 pub(crate) fn json_from<T, U>(value: T) -> Json<U>
 where
     U: From<T>,
@@ -18,6 +20,7 @@ where
     Json(U::from(value))
 }
 
+/// See [`json_vec_from`].
 pub(crate) fn json_vec_from<T, U>(items: Vec<T>) -> Json<Vec<U>>
 where
     U: From<T>,
@@ -25,6 +28,7 @@ where
     Json(items.into_iter().map(U::from).collect())
 }
 
+/// See [`created_json_from`].
 pub(crate) fn created_json_from<T, U>(value: T) -> (StatusCode, Json<U>)
 where
     U: From<T>,
@@ -32,18 +36,22 @@ where
     (StatusCode::CREATED, json_from(value))
 }
 
+/// See [`created_json`].
 pub(crate) fn created_json<T>(value: T) -> (StatusCode, Json<T>) {
     (StatusCode::CREATED, Json(value))
 }
 
+/// See [`empty_json`].
 pub(crate) fn empty_json() -> Json<Value> {
     Json(json!({}))
 }
 
+/// See [`status_json`].
 pub(crate) fn status_json(status: &'static str) -> Json<Value> {
     Json(json!({ "status": status }))
 }
 
+/// See [`filter_users_with_shared_rooms`].
 pub(crate) async fn filter_users_with_shared_rooms(
     room_service: &Arc<dyn synapse_services::RoomServiceApi>,
     current_user_id: &str,

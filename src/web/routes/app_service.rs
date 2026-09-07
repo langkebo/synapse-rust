@@ -18,18 +18,29 @@ use synapse_storage::application_service::{
     UpdateApplicationServiceRequest,
 };
 
+/// The `RegisterAppServiceBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct RegisterAppServiceBody {
+    /// The `id` field.
     pub id: String,
+    /// The `url` field.
     pub url: String,
+    /// The `as_token` field.
     pub as_token: String,
+    /// The `hs_token` field.
     pub hs_token: String,
+    /// The `sender` field.
     pub sender: Option<String>,
+    /// The `sender_localpart` field.
     pub sender_localpart: Option<String>,
+    /// The `description` field.
     pub description: Option<String>,
     #[serde(rename = "rate_limited")]
+    /// The `is_rate_limited` field.
     pub is_rate_limited: Option<bool>,
+    /// The `protocols` field.
     pub protocols: Option<Vec<String>>,
+    /// The `namespaces` field.
     pub namespaces: Option<serde_json::Value>,
 }
 
@@ -56,13 +67,19 @@ impl RegisterAppServiceBody {
     }
 }
 
+/// The `UpdateAppServiceBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct UpdateAppServiceBody {
+    /// The `url` field.
     pub url: Option<String>,
+    /// The `description` field.
     pub description: Option<String>,
     #[serde(rename = "rate_limited")]
+    /// The `is_rate_limited` field.
     pub is_rate_limited: Option<bool>,
+    /// The `protocols` field.
     pub protocols: Option<Vec<String>>,
+    /// The `is_enabled` field.
     pub is_enabled: Option<bool>,
 }
 
@@ -90,54 +107,83 @@ impl UpdateAppServiceBody {
     }
 }
 
+/// The `SetStateBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct SetStateBody {
+    /// The `state_key` field.
     pub state_key: String,
+    /// The `state_value` field.
     pub state_value: String,
 }
 
+/// The `RegisterVirtualUserBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct RegisterVirtualUserBody {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `displayname` field.
     pub displayname: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
 }
 
+/// The `PushEventBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct PushEventBody {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `state_key` field.
     pub state_key: Option<String>,
 }
 
+/// The `QueryLimit` struct.
 #[derive(Debug, Deserialize)]
 pub struct QueryLimit {
+    /// The `limit` field.
     pub limit: Option<i64>,
 }
 
+/// The `QueryUser` struct.
 #[derive(Debug, Deserialize)]
 pub struct QueryUser {
+    /// The `user_id` field.
     pub user_id: String,
 }
 
+/// The `QueryAlias` struct.
 #[derive(Debug, Deserialize)]
 pub struct QueryAlias {
+    /// The `alias` field.
     pub alias: String,
 }
 
+/// The `AppServiceResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct AppServiceResponse {
+    /// The `id` field.
     pub id: i64,
+    /// The `as_id` field.
     pub as_id: String,
+    /// The `url` field.
     pub url: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `description` field.
     pub description: Option<String>,
     #[serde(rename = "rate_limited")]
+    /// The `is_rate_limited` field.
     pub is_rate_limited: bool,
+    /// The `protocols` field.
     pub protocols: Vec<String>,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
@@ -157,12 +203,18 @@ impl From<ApplicationService> for AppServiceResponse {
     }
 }
 
+/// The `VirtualUserResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct VirtualUserResponse {
+    /// The `as_id` field.
     pub as_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `displayname` field.
     pub displayname: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
@@ -196,6 +248,7 @@ fn extract_as_token(headers: &HeaderMap) -> Result<String, ApiError> {
         .ok_or_else(|| ApiError::unauthorized("Missing or invalid authorization header"))
 }
 
+/// See [`register_app_service`].
 pub async fn register_app_service(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
@@ -208,6 +261,7 @@ pub async fn register_app_service(
     Ok(created_json_from::<_, AppServiceResponse>(service))
 }
 
+/// See [`get_app_service`].
 pub async fn get_app_service(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -219,6 +273,7 @@ pub async fn get_app_service(
     Ok(json_from::<_, AppServiceResponse>(require_found(service, "Application service not found")?))
 }
 
+/// See [`list_app_services`].
 pub async fn list_app_services(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
@@ -228,6 +283,7 @@ pub async fn list_app_services(
     Ok(json_vec_from::<_, AppServiceResponse>(services))
 }
 
+/// See [`update_app_service`].
 pub async fn update_app_service(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -242,6 +298,7 @@ pub async fn update_app_service(
     Ok(json_from::<_, AppServiceResponse>(service))
 }
 
+/// See [`delete_app_service`].
 pub async fn delete_app_service(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -253,6 +310,7 @@ pub async fn delete_app_service(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// See [`ping_app_service`].
 pub async fn ping_app_service(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -267,6 +325,7 @@ pub async fn ping_app_service(
     })))
 }
 
+/// See [`set_app_service_state`].
 pub async fn set_app_service_state(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -279,6 +338,7 @@ pub async fn set_app_service_state(
     Ok(app_service_state_json(&state_entry))
 }
 
+/// See [`get_app_service_state`].
 pub async fn get_app_service_state(
     State(ctx): State<AdminContext>,
     Path((as_id, state_key)): Path<(String, String)>,
@@ -290,6 +350,7 @@ pub async fn get_app_service_state(
     Ok(app_service_state_json(&require_found(state_entry, "State not found")?))
 }
 
+/// See [`get_app_service_states`].
 pub async fn get_app_service_states(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -301,6 +362,7 @@ pub async fn get_app_service_states(
     Ok(Json(states))
 }
 
+/// See [`register_virtual_user`].
 pub async fn register_virtual_user(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -316,6 +378,7 @@ pub async fn register_virtual_user(
     Ok(created_json_from::<_, VirtualUserResponse>(user))
 }
 
+/// See [`get_virtual_users`].
 pub async fn get_virtual_users(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -327,6 +390,7 @@ pub async fn get_virtual_users(
     Ok(json_vec_from::<_, VirtualUserResponse>(users))
 }
 
+/// See [`get_namespaces`].
 pub async fn get_namespaces(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -338,6 +402,7 @@ pub async fn get_namespaces(
     Ok(Json(namespaces))
 }
 
+/// See [`get_pending_events`].
 pub async fn get_pending_events(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -351,6 +416,7 @@ pub async fn get_pending_events(
     Ok(Json(events))
 }
 
+/// See [`push_event`].
 pub async fn push_event(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -374,6 +440,7 @@ pub async fn push_event(
     ))
 }
 
+/// See [`query_user`].
 pub async fn query_user(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
@@ -388,6 +455,7 @@ pub async fn query_user(
     })))
 }
 
+/// See [`query_room_alias`].
 pub async fn query_room_alias(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
@@ -402,12 +470,14 @@ pub async fn query_room_alias(
     })))
 }
 
+/// See [`get_statistics`].
 pub async fn get_statistics(State(ctx): State<AdminContext>, _admin: AdminUser) -> Result<impl IntoResponse, ApiError> {
     let stats = ctx.app_service_manager.get_statistics().await?;
 
     Ok(Json(stats))
 }
 
+/// See [`app_service_ping`].
 pub async fn app_service_ping(
     State(ctx): State<AdminContext>,
     headers: HeaderMap,
@@ -421,6 +491,7 @@ pub async fn app_service_ping(
     })))
 }
 
+/// See [`app_service_transactions`].
 pub async fn app_service_transactions(
     State(ctx): State<AdminContext>,
     Path((as_id, _txn_id)): Path<(String, String)>,
@@ -442,6 +513,7 @@ pub async fn app_service_transactions(
     Ok(empty_json())
 }
 
+/// See [`app_service_user_query`].
 pub async fn app_service_user_query(
     State(ctx): State<AdminContext>,
     Path(user_id): Path<UserId>,
@@ -460,6 +532,7 @@ pub async fn app_service_user_query(
     Ok(empty_json())
 }
 
+/// See [`app_service_room_alias_query`].
 pub async fn app_service_room_alias_query(
     State(ctx): State<AdminContext>,
     Path(alias): Path<String>,
@@ -478,6 +551,7 @@ pub async fn app_service_room_alias_query(
     Ok(empty_json())
 }
 
+/// See [`app_service_query`].
 pub async fn app_service_query(
     State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
@@ -497,6 +571,7 @@ pub async fn app_service_query(
     })))
 }
 
+/// See [`create_app_service_router`].
 pub fn create_app_service_router(state: &AppState) -> Router<AppState> {
     let public_routes = Router::new()
         .route("/_matrix/client/v1/user/{user_id}/appservice", get(get_user_appservice))
@@ -539,6 +614,7 @@ pub fn create_app_service_router(state: &AppState) -> Router<AppState> {
     public_routes.merge(admin_routes)
 }
 
+/// See [`app_service_route_manifest`].
 pub fn app_service_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

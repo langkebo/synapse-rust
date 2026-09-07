@@ -115,6 +115,7 @@ fn requested_room_key_session_ids(body: &Value, room_id: &str) -> Option<HashSet
     }
 }
 
+/// See [`get_room_keys`].
 pub(crate) async fn get_room_keys(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
@@ -139,6 +140,7 @@ pub(crate) async fn get_room_keys(
     })))
 }
 
+/// See [`get_room_key_count`].
 pub(crate) async fn get_room_key_count(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
@@ -161,6 +163,7 @@ pub(crate) async fn get_room_key_count(
     })))
 }
 
+/// See [`claim_room_keys`].
 pub(crate) async fn claim_room_keys(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
@@ -194,6 +197,7 @@ pub(crate) async fn claim_room_keys(
     })))
 }
 
+/// See [`get_room_keys_version`].
 pub(crate) async fn get_room_keys_version(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
@@ -211,6 +215,7 @@ pub(crate) async fn get_room_keys_version(
     })))
 }
 
+/// See [`forward_room_keys`].
 pub(crate) async fn forward_room_keys(
     State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,

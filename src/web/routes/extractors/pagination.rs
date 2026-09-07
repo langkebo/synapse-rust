@@ -1,17 +1,24 @@
 use serde::Deserialize;
 
+/// Constant `DEFAULT_PAGE_LIMIT`.
 pub const DEFAULT_PAGE_LIMIT: i64 = 20;
+/// Constant `MAX_PAGE_LIMIT`.
 pub const MAX_PAGE_LIMIT: i64 = 100;
 
+/// The `Pagination` struct.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Pagination {
     #[serde(default)]
+    /// The `from` field.
     pub from: Option<String>,
     #[serde(default)]
+    /// The `to` field.
     pub to: Option<String>,
     #[serde(default = "default_limit")]
+    /// The `limit` field.
     pub limit: Option<i64>,
     #[serde(default)]
+    /// The `dir` field.
     pub dir: Option<String>,
 }
 
@@ -21,19 +28,27 @@ fn default_limit() -> Option<i64> {
 }
 
 impl Pagination {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(limit: Option<i64>) -> Self {
         Self { limit, ..Default::default() }
     }
 
+    /// See [`with_direction`].
+    /// See [`with_direction`].
     pub fn with_direction(mut self, dir: String) -> Self {
         self.dir = Some(dir);
         self
     }
 
+    /// See [`is_forward`].
+    /// See [`is_forward`].
     pub fn is_forward(&self) -> bool {
         self.dir.as_deref() != Some("b")
     }
 
+    /// See [`effective_limit`].
+    /// See [`effective_limit`].
     pub fn effective_limit(&self) -> i64 {
         self.limit.unwrap_or(DEFAULT_PAGE_LIMIT).clamp(1, MAX_PAGE_LIMIT)
     }

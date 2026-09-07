@@ -1,8 +1,14 @@
+/// The `e2ee` module.
 pub(crate) mod e2ee;
+/// The `events` module.
 pub(crate) mod events;
+/// The `management` module.
 pub(crate) mod management;
+/// The `members` module.
 pub(crate) mod members;
+/// The `receipts` module.
 pub(crate) mod receipts;
+/// The `state` module.
 pub mod state;
 
 pub(crate) use e2ee::*;
@@ -29,6 +35,7 @@ fn parse_room_messages_from_token(params: &serde_json::Value) -> Option<(i64, Op
     })
 }
 
+/// See [`ensure_room_view_access`].
 pub(crate) async fn ensure_room_view_access(
     ctx: &RoomContext,
     auth_user: &AuthenticatedUser,
@@ -39,6 +46,7 @@ pub(crate) async fn ensure_room_view_access(
     Ok(())
 }
 
+/// See [`normalize_room_event_type`].
 pub(crate) fn normalize_room_event_type(event_type: &str) -> String {
     if event_type.starts_with("m.room.") || event_type.starts_with("m.") {
         event_type.to_string()
@@ -47,10 +55,12 @@ pub(crate) fn normalize_room_event_type(event_type: &str) -> String {
     }
 }
 
+/// See [`state_event_content_response`].
 pub(crate) fn state_event_content_response(content: &serde_json::Value) -> serde_json::Value {
     content.clone()
 }
 
+/// See [`ensure_room_state_write_access`].
 pub(crate) async fn ensure_room_state_write_access(
     ctx: &RoomContext,
     auth_user: &AuthenticatedUser,
@@ -64,6 +74,7 @@ pub(crate) async fn ensure_room_state_write_access(
     Ok(())
 }
 
+/// See [`get_room_event`].
 pub(crate) async fn get_room_event(
     ctx: &RoomContext,
     room_id: &str,
@@ -72,11 +83,13 @@ pub(crate) async fn get_room_event(
     ctx.room_service.messaging().get_event(room_id, event_id).await
 }
 
+/// The `UpgradeRoomRequest` struct.
 #[derive(Debug, Deserialize)]
 pub(crate) struct UpgradeRoomRequest {
     pub(crate) new_version: String,
 }
 
+/// The `UpgradeRoomResponse` struct.
 #[derive(Debug, Serialize)]
 pub(crate) struct UpgradeRoomResponse {
     pub(crate) replacement_room: String,

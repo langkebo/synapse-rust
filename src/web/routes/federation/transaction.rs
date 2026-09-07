@@ -13,6 +13,7 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
+/// See [`send_transaction`].
 pub(super) async fn send_transaction(
     State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,

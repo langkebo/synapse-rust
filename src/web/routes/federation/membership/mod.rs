@@ -1,7 +1,12 @@
+/// The `invite` module.
 pub(crate) mod invite;
+/// The `join` module.
 pub(crate) mod join;
+/// The `knock` module.
 pub(crate) mod knock;
+/// The `leave` module.
 pub(crate) mod leave;
+/// The `query` module.
 pub(crate) mod query;
 
 use crate::common::*;
@@ -27,6 +32,7 @@ use super::{
 // Shared helper functions used across multiple submodules
 // ---------------------------------------------------------------------------
 
+/// See [`federatable_room_version`].
 pub(crate) async fn federatable_room_version(ctx: &FederationContext, room_id: &str) -> Result<String, ApiError> {
     let room = ctx
         .room_service
@@ -45,6 +51,7 @@ pub(crate) async fn federatable_room_version(ctx: &FederationContext, room_id: &
     Ok(room.room_version)
 }
 
+/// See [`dispatch_federation_member_event_to_appservice`].
 pub(crate) async fn dispatch_federation_member_event_to_appservice(
     ctx: &FederationContext,
     event_id: &str,
@@ -56,6 +63,7 @@ pub(crate) async fn dispatch_federation_member_event_to_appservice(
     ctx.room_service.dispatch_appservice_event(event_id, room_id, "m.room.member", sender, content, state_key).await;
 }
 
+/// See [`validate_federation_user_origin`].
 pub(crate) fn validate_federation_user_origin(authenticated_origin: &str, user_id: &str) -> Result<(), ApiError> {
     if sender_server_name(user_id) != Some(authenticated_origin) {
         return Err(ApiError::forbidden("Federation user_id does not match authenticated origin".to_string()));
@@ -64,6 +72,7 @@ pub(crate) fn validate_federation_user_origin(authenticated_origin: &str, user_i
     Ok(())
 }
 
+/// See [`validate_federation_member_event`].
 pub(crate) fn validate_federation_member_event<'a>(
     authenticated_origin: &str,
     room_id: &str,
@@ -134,6 +143,7 @@ pub(crate) fn validate_federation_member_event<'a>(
     Ok(sender)
 }
 
+/// See [`get_effective_room_join_rule_content`].
 pub(crate) async fn get_effective_room_join_rule_content(
     ctx: &FederationContext,
     room_id: &str,
@@ -148,6 +158,7 @@ pub(crate) async fn get_effective_room_join_rule_content(
         .and_then(|event| event.get("content").cloned()))
 }
 
+/// See [`get_effective_room_join_rule`].
 pub(crate) async fn get_effective_room_join_rule(ctx: &FederationContext, room_id: &str) -> ApiResult<String> {
     let effective_join_rule = if let Some(content) = get_effective_room_join_rule_content(ctx, room_id).await? {
         content.get("join_rule").and_then(|value| value.as_str()).map(|value| value.to_string())
@@ -263,6 +274,7 @@ pub(crate) fn create_router() -> Router<AppState> {
 // Route manifest – keeps the route ledger aligned with the router
 // ---------------------------------------------------------------------------
 
+/// See [`membership_route_manifest`].
 pub(crate) fn membership_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     vec![

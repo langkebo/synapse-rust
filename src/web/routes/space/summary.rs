@@ -2,6 +2,7 @@ use super::*;
 use crate::web::routes::context::RoomContext;
 use synapse_common::types::RoomId;
 
+/// See [`get_space_summary`].
 pub(super) async fn get_space_summary(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -16,6 +17,7 @@ pub(super) async fn get_space_summary(
     .await
 }
 
+/// See [`get_space_summary_with_children`].
 pub(super) async fn get_space_summary_with_children(
     State(ctx): State<RoomContext>,
     Path(space_id): Path<RoomId>,
@@ -30,6 +32,7 @@ pub(super) async fn get_space_summary_with_children(
     .await
 }
 
+/// See [`create_space_summary_routes`].
 pub(super) fn create_space_summary_routes() -> Router<AppState> {
     Router::new()
         .route("/spaces/{space_id}/summary", get(get_space_summary))

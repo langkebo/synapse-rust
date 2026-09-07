@@ -7,6 +7,7 @@ use axum::{
     Router,
 };
 
+/// See [`create_presence_router`].
 pub fn create_presence_router() -> Router<AppState> {
     Router::new()
         .route("/_matrix/client/v1/presence/{user_id}/status", get(get_presence).put(set_presence).post(set_presence))
@@ -16,6 +17,7 @@ pub fn create_presence_router() -> Router<AppState> {
         .route("/_matrix/client/v3/presence/list/{user_id}", get(get_presence_list))
 }
 
+/// See [`presence_route_manifest`].
 pub fn presence_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

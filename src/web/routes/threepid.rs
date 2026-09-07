@@ -15,39 +15,57 @@ fn generate_token() -> String {
     random_string(24)
 }
 
+/// See [`create_threepid_router`].
 pub fn create_threepid_router() -> Router<AuthContext> {
     Router::new().route("/requestToken", post(request_token)).route("/submitToken", post(submit_token))
 }
 
+/// The `RequestTokenRequest` struct.
 #[derive(Debug, Deserialize)]
 pub struct RequestTokenRequest {
+    /// The `client_secret` field.
     pub client_secret: String,
+    /// The `email` field.
     pub email: String,
+    /// The `send_attempt` field.
     pub send_attempt: Option<i32>,
+    /// The `next_link` field.
     pub next_link: Option<String>,
+    /// The `id_server` field.
     pub id_server: Option<String>,
+    /// The `id_access_token` field.
     pub id_access_token: Option<String>,
 }
 
+/// The `RequestTokenResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct RequestTokenResponse {
+    /// The `sid` field.
     pub sid: String,
+    /// The `submit_url` field.
     pub submit_url: Option<String>,
 }
 
+/// The `SubmitTokenRequest` struct.
 #[derive(Debug, Deserialize)]
 pub struct SubmitTokenRequest {
+    /// The `client_secret` field.
     pub client_secret: String,
+    /// The `token` field.
     pub token: String,
+    /// The `sid` field.
     pub sid: String,
 }
 
+/// The `SubmitTokenResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct SubmitTokenResponse {
     #[serde(rename = "success")]
+    /// The `is_success` field.
     pub is_success: bool,
 }
 
+/// See [`request_token`].
 pub async fn request_token(
     State(ctx): State<AuthContext>,
     Json(req): Json<RequestTokenRequest>,
@@ -96,6 +114,7 @@ pub async fn request_token(
     Ok(Json(RequestTokenResponse { sid: session_id, submit_url }))
 }
 
+/// See [`submit_token`].
 pub async fn submit_token(
     State(ctx): State<AuthContext>,
     Json(req): Json<SubmitTokenRequest>,

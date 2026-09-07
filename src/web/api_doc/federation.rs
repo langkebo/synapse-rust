@@ -18,6 +18,7 @@
         )
     )
 )]
+/// See [`get_federation_version_doc`].
 pub fn get_federation_version_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -59,6 +60,7 @@ pub fn get_federation_version_doc() -> axum::Json<serde_json::Value> {
         )
     )
 )]
+/// See [`get_federation_discovery_doc`].
 pub fn get_federation_discovery_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -77,6 +79,7 @@ pub fn get_federation_discovery_doc() -> axum::Json<serde_json::Value> {
         (status = 200, description = "Public rooms list", body = serde_json::Value)
     )
 )]
+/// See [`get_public_rooms_federation_doc`].
 pub fn get_public_rooms_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -94,6 +97,7 @@ pub fn get_public_rooms_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 200, description = "Success")
     )
 )]
+/// See [`query_destination_doc`].
 pub fn query_destination_doc() -> String {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -115,6 +119,7 @@ pub fn query_destination_doc() -> String {
         (status = 401, description = "Invalid or expired token")
     )
 )]
+/// See [`openid_userinfo_doc`].
 pub fn openid_userinfo_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -133,6 +138,7 @@ pub fn openid_userinfo_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`get_room_members_doc`].
 pub fn get_room_members_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -151,6 +157,7 @@ pub fn get_room_members_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`get_joined_room_members_doc`].
 pub fn get_joined_room_members_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -169,6 +176,7 @@ pub fn get_joined_room_members_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`get_user_devices_doc`].
 pub fn get_user_devices_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -189,6 +197,7 @@ pub fn get_user_devices_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`knock_room_doc`].
 pub fn knock_room_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -205,6 +214,7 @@ pub fn knock_room_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`thirdparty_invite_doc`].
 pub fn thirdparty_invite_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -225,6 +235,7 @@ pub fn thirdparty_invite_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`invite_v2_doc`].
 pub fn invite_v2_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -244,6 +255,7 @@ pub fn invite_v2_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`send_transaction_doc`].
 pub fn send_transaction_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -265,6 +277,7 @@ pub fn send_transaction_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Not Found")
     )
 )]
+/// See [`make_join_doc`].
 pub fn make_join_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -285,6 +298,7 @@ pub fn make_join_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Not Found")
     )
 )]
+/// See [`make_leave_doc`].
 pub fn make_leave_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -305,6 +319,7 @@ pub fn make_leave_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`send_join_doc`].
 pub fn send_join_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -325,6 +340,7 @@ pub fn send_join_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`send_leave_doc`].
 pub fn send_leave_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -345,6 +361,7 @@ pub fn send_leave_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`invite_doc`].
 pub fn invite_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -364,6 +381,7 @@ pub fn invite_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`get_missing_events_federation_doc`].
 pub fn get_missing_events_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -384,6 +402,7 @@ pub fn get_missing_events_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Not Found")
     )
 )]
+/// See [`get_room_event_doc`].
 pub fn get_room_event_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -405,6 +424,7 @@ pub fn get_room_event_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Not Found")
     )
 )]
+/// See [`timestamp_to_event_federation_doc`].
 pub fn timestamp_to_event_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -424,6 +444,7 @@ pub fn timestamp_to_event_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`get_event_auth_doc`].
 pub fn get_event_auth_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -443,6 +464,7 @@ pub fn get_event_auth_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`query_auth_doc`].
 pub fn query_auth_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -462,6 +484,7 @@ pub fn query_auth_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`get_state_federation_doc`].
 pub fn get_state_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -481,6 +504,7 @@ pub fn get_state_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Not Found")
     )
 )]
+/// See [`get_event_federation_doc`].
 pub fn get_event_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -500,6 +524,7 @@ pub fn get_event_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`get_state_ids_federation_doc`].
 pub fn get_state_ids_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -518,6 +543,7 @@ pub fn get_state_ids_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Not Found")
     )
 )]
+/// See [`room_directory_query_federation_doc`].
 pub fn room_directory_query_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -537,6 +563,7 @@ pub fn room_directory_query_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Not Found")
     )
 )]
+/// See [`profile_query_federation_doc`].
 pub fn profile_query_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -555,6 +582,7 @@ pub fn profile_query_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Not Found")
     )
 )]
+/// See [`profile_query_legacy_federation_doc`].
 pub fn profile_query_legacy_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -573,6 +601,7 @@ pub fn profile_query_legacy_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`get_room_hierarchy_federation_doc`].
 pub fn get_room_hierarchy_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -593,6 +622,7 @@ pub fn get_room_hierarchy_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`backfill_federation_doc`].
 pub fn backfill_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -609,6 +639,7 @@ pub fn backfill_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`user_keys_upload_federation_doc`].
 pub fn user_keys_upload_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -625,6 +656,7 @@ pub fn user_keys_upload_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`keys_claim_federation_doc`].
 pub fn keys_claim_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -641,6 +673,7 @@ pub fn keys_claim_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`keys_query_federation_doc`].
 pub fn keys_query_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -657,6 +690,7 @@ pub fn keys_query_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`v2_keys_query_federation_doc`].
 pub fn v2_keys_query_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -677,6 +711,7 @@ pub fn v2_keys_query_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`send_join_v2_federation_doc`].
 pub fn send_join_v2_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -697,6 +732,7 @@ pub fn send_join_v2_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`send_leave_v2_federation_doc`].
 pub fn send_leave_v2_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -713,6 +749,7 @@ pub fn send_leave_v2_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`post_public_rooms_federation_doc`].
 pub fn post_public_rooms_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -731,6 +768,7 @@ pub fn post_public_rooms_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Not Found")
     )
 )]
+/// See [`query_directory_federation_doc`].
 pub fn query_directory_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -750,6 +788,7 @@ pub fn query_directory_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Not Found")
     )
 )]
+/// See [`media_download_federation_doc`].
 pub fn media_download_federation_doc() -> String {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -772,6 +811,7 @@ pub fn media_download_federation_doc() -> String {
         (status = 404, description = "Not Found")
     )
 )]
+/// See [`media_thumbnail_federation_doc`].
 pub fn media_thumbnail_federation_doc() -> String {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -791,6 +831,7 @@ pub fn media_thumbnail_federation_doc() -> String {
         (status = 403, description = "Forbidden")
     )
 )]
+/// See [`exchange_third_party_invite_federation_doc`].
 pub fn exchange_third_party_invite_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -805,6 +846,7 @@ pub fn exchange_third_party_invite_federation_doc() -> axum::Json<serde_json::Va
         (status = 200, description = "Server keys", body = serde_json::Value)
     )
 )]
+/// See [`server_key_federation_doc`].
 pub fn server_key_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -819,6 +861,7 @@ pub fn server_key_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 200, description = "Server keys", body = serde_json::Value)
     )
 )]
+/// See [`server_key_v2_federation_doc`].
 pub fn server_key_v2_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -838,6 +881,7 @@ pub fn server_key_v2_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Not Found")
     )
 )]
+/// See [`key_query_federation_doc`].
 pub fn key_query_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
@@ -857,6 +901,7 @@ pub fn key_query_federation_doc() -> axum::Json<serde_json::Value> {
         (status = 404, description = "Not Found")
     )
 )]
+/// See [`key_query_v2_federation_doc`].
 pub fn key_query_v2_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }

@@ -29,12 +29,14 @@ use synapse_services::policy_service::PolicyResult;
 /// requires extending the service-side dispatch as well.
 const KNOWN_ACTIONS: &[&str] = &["create", "join", "invite", "send"];
 
+/// See [`create_policy_router`].
 pub fn create_policy_router() -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/policy/status", get(get_policy_status))
         .route("/_synapse/admin/v1/policy/check", post(check_policy))
 }
 
+/// See [`admin_policy_route_manifest`].
 pub fn admin_policy_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
@@ -111,6 +113,7 @@ fn fail_mode_string(fail_open: bool) -> &'static str {
     }
 }
 
+/// See [`get_policy_status`].
 #[allow(clippy::unused_async)]
 pub async fn get_policy_status(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     let cfg = &ctx.config.policy_server;
@@ -126,6 +129,7 @@ pub async fn get_policy_status(_admin: AdminUser, State(ctx): State<AdminContext
     })))
 }
 
+/// See [`check_policy`].
 #[axum::debug_handler]
 pub async fn check_policy(
     _admin: AdminUser,

@@ -11,66 +11,108 @@ use synapse_common::types::DeviceId;
 use synapse_services::push_notification_service::SendNotificationRequest;
 use synapse_storage::push_notification::{CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest};
 
+/// The `RegisterDeviceBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct RegisterDeviceBody {
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `push_token` field.
     pub push_token: String,
+    /// The `push_type` field.
     pub push_type: String,
+    /// The `app_id` field.
     pub app_id: Option<String>,
+    /// The `platform` field.
     pub platform: Option<String>,
+    /// The `platform_version` field.
     pub platform_version: Option<String>,
+    /// The `app_version` field.
     pub app_version: Option<String>,
+    /// The `locale` field.
     pub locale: Option<String>,
+    /// The `timezone` field.
     pub timezone: Option<String>,
 }
 
+/// The `SendNotificationBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct SendNotificationBody {
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `event_id` field.
     pub event_id: Option<String>,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `notification_type` field.
     pub notification_type: Option<String>,
+    /// The `title` field.
     pub title: String,
+    /// The `body` field.
     pub body: String,
+    /// The `data` field.
     pub data: Option<serde_json::Value>,
+    /// The `priority` field.
     pub priority: Option<i32>,
 }
 
+/// The `CreateRuleBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct CreateRuleBody {
+    /// The `rule_id` field.
     pub rule_id: String,
+    /// The `scope` field.
     pub scope: String,
+    /// The `kind` field.
     pub kind: String,
+    /// The `priority` field.
     pub priority: i32,
+    /// The `conditions` field.
     pub conditions: serde_json::Value,
+    /// The `actions` field.
     pub actions: serde_json::Value,
+    /// The `enabled` field.
     pub enabled: bool,
 }
 
+/// The `RulePath` struct.
 #[derive(Debug, Deserialize)]
 pub struct RulePath {
+    /// The `scope` field.
     pub scope: String,
+    /// The `kind` field.
     pub kind: String,
+    /// The `rule_id` field.
     pub rule_id: String,
 }
 
+/// The `ProcessQueueQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct ProcessQueueQuery {
+    /// The `batch_size` field.
     pub batch_size: Option<i32>,
 }
 
+/// The `CleanupQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct CleanupQuery {
+    /// The `days` field.
     pub days: Option<i32>,
 }
 
+/// The `DeviceResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct DeviceResponse {
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `push_type` field.
     pub push_type: String,
+    /// The `platform` field.
     pub platform: Option<String>,
+    /// The `enabled` field.
     pub enabled: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `last_used_ts` field.
     pub last_used_ts: Option<i64>,
 }
 
@@ -87,14 +129,22 @@ impl From<PushDevice> for DeviceResponse {
     }
 }
 
+/// The `RuleResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct RuleResponse {
+    /// The `rule_id` field.
     pub rule_id: String,
+    /// The `scope` field.
     pub scope: String,
+    /// The `kind` field.
     pub kind: String,
+    /// The `priority` field.
     pub priority: i32,
+    /// The `conditions` field.
     pub conditions: serde_json::Value,
+    /// The `actions` field.
     pub actions: serde_json::Value,
+    /// The `enabled` field.
     pub enabled: bool,
 }
 
@@ -112,6 +162,7 @@ impl From<PushRule> for RuleResponse {
     }
 }
 
+/// See [`register_device`].
 pub async fn register_device(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
@@ -136,6 +187,7 @@ pub async fn register_device(
     Ok(Json(DeviceResponse::from(device)))
 }
 
+/// See [`unregister_device`].
 pub async fn unregister_device(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
@@ -148,6 +200,7 @@ pub async fn unregister_device(
     })))
 }
 
+/// See [`get_devices`].
 pub async fn get_devices(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
@@ -159,6 +212,7 @@ pub async fn get_devices(
     Ok(Json(response))
 }
 
+/// See [`send_notification`].
 pub async fn send_notification(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
@@ -183,6 +237,7 @@ pub async fn send_notification(
     })))
 }
 
+/// See [`create_rule`].
 pub async fn create_rule(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
@@ -204,6 +259,7 @@ pub async fn create_rule(
     Ok(Json(RuleResponse::from(rule)))
 }
 
+/// See [`get_rules`].
 pub async fn get_rules(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
@@ -215,6 +271,7 @@ pub async fn get_rules(
     Ok(Json(response))
 }
 
+/// See [`delete_rule`].
 pub async fn delete_rule(
     State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
@@ -227,6 +284,7 @@ pub async fn delete_rule(
     })))
 }
 
+/// See [`process_queue`].
 pub async fn process_queue(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
@@ -243,6 +301,7 @@ pub async fn process_queue(
     })))
 }
 
+/// See [`cleanup_logs`].
 pub async fn cleanup_logs(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
@@ -259,6 +318,7 @@ pub async fn cleanup_logs(
     })))
 }
 
+/// See [`create_push_notification_router`].
 pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState> {
     use axum::routing::*;
 
@@ -287,6 +347,7 @@ pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState
     public_routes.merge(admin_routes).with_state(state)
 }
 
+/// See [`push_notification_route_manifest`].
 pub fn push_notification_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;

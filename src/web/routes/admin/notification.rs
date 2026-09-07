@@ -75,6 +75,7 @@ mod cursor_tests {
     }
 }
 
+/// See [`create_notification_router`].
 pub fn create_notification_router() -> Router<crate::web::routes::AppState> {
     #[allow(unused_mut)]
     let mut router = Router::new();
@@ -107,6 +108,7 @@ pub fn create_notification_router() -> Router<crate::web::routes::AppState> {
     router
 }
 
+/// See [`admin_notification_route_manifest`].
 pub fn admin_notification_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     #[allow(unused_mut)]
@@ -149,49 +151,74 @@ async fn ensure_target_users_exist(ctx: &AdminContext, user_ids: &[String]) -> R
     ctx.server_notification_service.ensure_target_users_exist(user_ids).await
 }
 
+/// The `ServerNoticeRequest` struct.
 #[cfg(feature = "server-notifications")]
 #[derive(Debug, Deserialize)]
 pub struct ServerNoticeRequest {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `content` field.
     pub content: NoticeContent,
 }
 
+/// The `NoticeContent` struct.
 #[cfg(feature = "server-notifications")]
 #[derive(Debug, Deserialize)]
 pub struct NoticeContent {
+    /// The `msgtype` field.
     pub msgtype: String,
+    /// The `body` field.
     pub body: String,
 }
 
+/// The `UserNotificationRequest` struct.
 #[derive(Debug, Deserialize)]
 pub struct UserNotificationRequest {
+    /// The `is_enabled` field.
     pub is_enabled: bool,
 }
 
+/// The `UpdateNotificationRequest` struct.
 #[cfg(feature = "server-notifications")]
 #[derive(Debug, Deserialize)]
 pub struct UpdateNotificationRequest {
+    /// The `title` field.
     pub title: Option<String>,
+    /// The `content` field.
     pub content: Option<String>,
+    /// The `notification_type` field.
     pub notification_type: Option<String>,
+    /// The `priority` field.
     pub priority: Option<i32>,
+    /// The `target_audience` field.
     pub target_audience: Option<String>,
+    /// The `target_user_ids` field.
     pub target_user_ids: Option<Vec<String>>,
+    /// The `starts_at` field.
     pub starts_at: Option<i64>,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `is_dismissable` field.
     pub is_dismissable: Option<bool>,
+    /// The `action_url` field.
     pub action_url: Option<String>,
+    /// The `action_text` field.
     pub action_text: Option<String>,
 }
 
+/// The `NotificationQuery` struct.
 #[cfg(feature = "server-notifications")]
 #[derive(Debug, Deserialize)]
 pub struct NotificationQuery {
+    /// The `audience` field.
     pub audience: Option<String>,
+    /// The `limit` field.
     pub limit: Option<usize>,
+    /// The `from` field.
     pub from: Option<String>,
 }
 
+/// See [`create_notification`].
 #[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn create_notification(
@@ -207,6 +234,7 @@ pub async fn create_notification(
     Ok(Json(json!(notification)))
 }
 
+/// See [`list_notifications`].
 #[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn list_notifications(
@@ -230,6 +258,7 @@ pub async fn list_notifications(
     })))
 }
 
+/// See [`get_notification`].
 #[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn get_notification(
@@ -245,6 +274,7 @@ pub async fn get_notification(
     }
 }
 
+/// See [`update_notification`].
 #[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn update_notification(
@@ -283,6 +313,7 @@ pub async fn update_notification(
     Ok(Json(json!(notification)))
 }
 
+/// See [`delete_notification`].
 #[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn delete_notification(
@@ -299,6 +330,7 @@ pub async fn delete_notification(
     Ok(Json(json!({})))
 }
 
+/// See [`deactivate_notification`].
 #[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn deactivate_notification(
@@ -315,6 +347,7 @@ pub async fn deactivate_notification(
     Ok(Json(json!({ "is_enabled": false })))
 }
 
+/// See [`list_active_notifications`].
 #[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn list_active_notifications(
@@ -326,6 +359,7 @@ pub async fn list_active_notifications(
     Ok(Json(json!(notifications)))
 }
 
+/// See [`send_server_notice`].
 #[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn send_server_notice(
@@ -365,6 +399,7 @@ pub async fn send_server_notice(
     Ok(Json(json!({ "event_id": message_event_id, "room_id": room_id, "notice_id": notice_id })))
 }
 
+/// See [`get_server_notices`].
 #[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn get_server_notices(
@@ -385,12 +420,16 @@ pub async fn get_server_notices(
     })))
 }
 
+/// The `ServerNoticesQuery` struct.
 #[derive(Debug, Deserialize, Default)]
 pub struct ServerNoticesQuery {
+    /// The `limit` field.
     pub limit: Option<u32>,
+    /// The `from` field.
     pub from: Option<String>,
 }
 
+/// See [`get_server_notice`].
 #[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn get_server_notice(
@@ -406,6 +445,7 @@ pub async fn get_server_notice(
     }
 }
 
+/// See [`delete_server_notice`].
 #[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn delete_server_notice(
@@ -418,6 +458,7 @@ pub async fn delete_server_notice(
     Ok(Json(json!({})))
 }
 
+/// See [`get_user_notification`].
 #[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn get_user_notification(
@@ -435,6 +476,7 @@ pub async fn get_user_notification(
     }
 }
 
+/// See [`update_user_notification`].
 #[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn update_user_notification(
@@ -450,6 +492,7 @@ pub async fn update_user_notification(
     Ok(Json(json!({ "is_enabled": body.is_enabled })))
 }
 
+/// See [`get_user_pushers`].
 #[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn get_user_pushers(
@@ -464,6 +507,7 @@ pub async fn get_user_pushers(
     Ok(Json(json!({ "pushers": pusher_list, "total": pusher_list.len() })))
 }
 
+/// See [`delete_user_pusher`].
 #[cfg(feature = "server-notifications")]
 #[axum::debug_handler]
 pub async fn delete_user_pusher(

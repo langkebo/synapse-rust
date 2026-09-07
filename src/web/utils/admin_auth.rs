@@ -14,11 +14,16 @@ use synapse_storage::user::User;
 
 type HmacSha1 = Hmac<Sha1>;
 
+/// The `AuthorizedAdmin` struct.
 #[derive(Clone, Debug)]
 pub(crate) struct AuthorizedAdmin {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `access_token` field.
     pub access_token: String,
+    /// The `role` field.
     pub role: String,
 }
 
@@ -109,6 +114,7 @@ pub(crate) async fn authorize_admin_from_services(
     Ok(AuthorizedAdmin { user_id, device_id, access_token, role })
 }
 
+/// See [`authorize_admin_request`].
 pub(crate) async fn authorize_admin_request(
     headers: &HeaderMap,
     method: &Method,
@@ -242,6 +248,7 @@ async fn enforce_admin_login_mfa_impl(
     verify_totp_code(security, mfa_code, Some(&user))
 }
 
+/// See [`normalize_admin_role`].
 pub(crate) fn normalize_admin_role(user_type: Option<&str>) -> String {
     match user_type.map(str::trim).filter(|value| !value.is_empty()) {
         None => {
@@ -258,6 +265,7 @@ pub(crate) fn normalize_admin_role(user_type: Option<&str>) -> String {
     }
 }
 
+/// See [`should_require_admin_mfa`].
 pub(crate) fn should_require_admin_mfa(security: &SecurityConfig, method: &Method, path: &str) -> bool {
     security.admin_mfa_required
         && !security.admin_mfa_shared_secret.trim().is_empty()

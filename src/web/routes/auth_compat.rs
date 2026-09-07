@@ -11,6 +11,7 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
+/// See [`register`].
 pub(crate) async fn register(
     State(ctx): State<AuthContext>,
     Query(query): Query<Value>,
@@ -99,6 +100,7 @@ pub(crate) async fn register(
     .into_response())
 }
 
+/// See [`check_username_availability`].
 pub(crate) async fn check_username_availability(
     State(ctx): State<AuthContext>,
     Query(params): Query<Value>,
@@ -121,6 +123,7 @@ pub(crate) async fn check_username_availability(
     })))
 }
 
+/// See [`request_email_verification`].
 pub(crate) async fn request_email_verification(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
@@ -138,6 +141,7 @@ pub(crate) async fn request_email_verification(
     .await
 }
 
+/// See [`request_email_verification_with_submit_path`].
 pub(crate) async fn request_email_verification_with_submit_path(
     ctx: &AuthContext,
     body: &Value,
@@ -213,6 +217,7 @@ pub(crate) async fn request_email_verification_with_submit_path(
     })))
 }
 
+/// See [`session_client_secret`].
 pub(crate) fn session_client_secret(session_data: Option<&Value>) -> Option<&str> {
     match session_data {
         Some(Value::String(secret)) => Some(secret.as_str()),
@@ -221,6 +226,7 @@ pub(crate) fn session_client_secret(session_data: Option<&Value>) -> Option<&str
     }
 }
 
+/// See [`submit_email_token`].
 pub(crate) async fn submit_email_token(
     State(ctx): State<AuthContext>,
     MatrixJson(body): MatrixJson<Value>,
@@ -249,6 +255,7 @@ pub(crate) async fn submit_email_token(
     })))
 }
 
+/// See [`get_login_flows`].
 pub(crate) async fn get_login_flows(State(ctx): State<AuthContext>) -> Json<Value> {
     let mut flows = vec![json!({"type": "m.login.password"}), json!({"type": "m.login.token"})];
 
@@ -301,6 +308,7 @@ pub(crate) async fn get_login_flows(State(ctx): State<AuthContext>) -> Json<Valu
     Json(json!({ "flows": flows }))
 }
 
+/// See [`get_register_flows`].
 pub(crate) async fn get_register_flows() -> Json<Value> {
     Json(json!({
         "flows": [
@@ -405,6 +413,7 @@ async fn clear_login_failures(cache: &crate::cache::CacheManager, ip: &str, user
     cache.delete(&key).await;
 }
 
+/// See [`login`].
 pub(crate) async fn login(
     State(ctx): State<AuthContext>,
     headers: HeaderMap,
@@ -526,6 +535,7 @@ pub(crate) async fn generate_qr_login_token(
     })))
 }
 
+/// See [`logout`].
 pub(crate) async fn logout(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
@@ -535,6 +545,7 @@ pub(crate) async fn logout(
     Ok(Json(json!({})))
 }
 
+/// See [`logout_all`].
 pub(crate) async fn logout_all(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
@@ -544,6 +555,7 @@ pub(crate) async fn logout_all(
     Ok(Json(json!({})))
 }
 
+/// See [`refresh_token`].
 pub(crate) async fn refresh_token(
     State(ctx): State<AuthContext>,
     Json(body): Json<Value>,
@@ -563,6 +575,7 @@ pub(crate) async fn refresh_token(
     })))
 }
 
+/// See [`login_fallback_page`].
 pub(crate) async fn login_fallback_page(
     State(ctx): State<AuthContext>,
 ) -> Result<axum::response::Html<String>, ApiError> {

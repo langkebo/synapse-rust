@@ -17,15 +17,24 @@ use crate::web::routes::{AdminUser, AppState};
 use synapse_common::config::worker::WorkerConfig;
 use synapse_services::worker::types::*;
 
+/// The `RegisterWorkerBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct RegisterWorkerBody {
+    /// The `worker_id` field.
     pub worker_id: String,
+    /// The `worker_name` field.
     pub worker_name: String,
+    /// The `worker_type` field.
     pub worker_type: String,
+    /// The `host` field.
     pub host: String,
+    /// The `port` field.
     pub port: u16,
+    /// The `config` field.
     pub config: Option<serde_json::Value>,
+    /// The `metadata` field.
     pub metadata: Option<serde_json::Value>,
+    /// The `version` field.
     pub version: Option<String>,
 }
 
@@ -46,17 +55,25 @@ impl RegisterWorkerBody {
     }
 }
 
+/// The `HeartbeatBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct HeartbeatBody {
+    /// The `status` field.
     pub status: String,
+    /// The `load_stats` field.
     pub load_stats: Option<WorkerLoadStatsUpdate>,
 }
 
+/// The `SendCommandBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct SendCommandBody {
+    /// The `command_type` field.
     pub command_type: String,
+    /// The `command_data` field.
     pub command_data: serde_json::Value,
+    /// The `priority` field.
     pub priority: Option<i32>,
+    /// The `max_retries` field.
     pub max_retries: Option<i32>,
 }
 
@@ -72,11 +89,16 @@ impl SendCommandBody {
     }
 }
 
+/// The `AssignTaskBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct AssignTaskBody {
+    /// The `task_type` field.
     pub task_type: String,
+    /// The `task_data` field.
     pub task_data: serde_json::Value,
+    /// The `priority` field.
     pub priority: Option<i32>,
+    /// The `preferred_worker_id` field.
     pub preferred_worker_id: Option<String>,
 }
 
@@ -91,51 +113,78 @@ impl AssignTaskBody {
     }
 }
 
+/// The `ConnectWorkerBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct ConnectWorkerBody {
+    /// The `address` field.
     pub address: String,
 }
 
+/// The `CompleteTaskBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct CompleteTaskBody {
+    /// The `result` field.
     pub result: Option<serde_json::Value>,
 }
 
+/// The `FailTaskBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct FailTaskBody {
+    /// The `error` field.
     pub error: String,
 }
 
+/// The `QueryLimit` struct.
 #[derive(Debug, Deserialize)]
 pub struct QueryLimit {
+    /// The `limit` field.
     pub limit: Option<i64>,
 }
 
+/// The `QueryStream` struct.
 #[derive(Debug, Deserialize)]
 pub struct QueryStream {
+    /// The `stream_id` field.
     pub stream_id: Option<i64>,
 }
 
+/// The `QueryPosition` struct.
 #[derive(Debug, Deserialize)]
 pub struct QueryPosition {
+    /// The `stream_name` field.
     pub stream_name: String,
 }
 
+/// The `WorkerResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct WorkerResponse {
+    /// The `id` field.
     pub id: i64,
+    /// The `worker_id` field.
     pub worker_id: String,
+    /// The `worker_name` field.
     pub worker_name: String,
+    /// The `worker_type` field.
     pub worker_type: String,
+    /// The `instance_map_keys` field.
     pub instance_map_keys: Vec<String>,
+    /// The `responsibility_domains` field.
     pub responsibility_domains: Vec<String>,
+    /// The `owned_route_prefixes` field.
     pub owned_route_prefixes: Vec<String>,
+    /// The `replication_streams` field.
     pub replication_streams: Vec<String>,
+    /// The `capabilities` field.
     pub capabilities: WorkerCapabilities,
+    /// The `host` field.
     pub host: String,
+    /// The `port` field.
     pub port: i32,
+    /// The `status` field.
     pub status: String,
+    /// The `last_heartbeat_ts` field.
     pub last_heartbeat_ts: Option<i64>,
+    /// The `started_ts` field.
     pub started_ts: i64,
 }
 
@@ -174,12 +223,18 @@ impl From<WorkerInfo> for WorkerResponse {
     }
 }
 
+/// The `WorkerCommandResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct WorkerCommandResponse {
+    /// The `command_id` field.
     pub command_id: String,
+    /// The `target_worker_id` field.
     pub target_worker_id: String,
+    /// The `command_type` field.
     pub command_type: String,
+    /// The `status` field.
     pub status: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
@@ -195,11 +250,16 @@ impl From<WorkerCommand> for WorkerCommandResponse {
     }
 }
 
+/// The `WorkerTaskResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct WorkerTaskResponse {
+    /// The `task_id` field.
     pub task_id: String,
+    /// The `task_type` field.
     pub task_type: String,
+    /// The `status` field.
     pub status: String,
+    /// The `assigned_worker_id` field.
     pub assigned_worker_id: Option<String>,
 }
 
@@ -209,28 +269,44 @@ impl From<WorkerTaskAssignment> for WorkerTaskResponse {
     }
 }
 
+/// The `WorkerStreamWriterOwners` struct.
 #[derive(Debug, Serialize)]
 pub struct WorkerStreamWriterOwners {
+    /// The `stream_name` field.
     pub stream_name: String,
+    /// The `owners` field.
     pub owners: Vec<String>,
 }
 
+/// The `WorkerRouteOwnerExpectation` struct.
 #[derive(Debug, Serialize)]
 pub struct WorkerRouteOwnerExpectation {
+    /// The `probe` field.
     pub probe: String,
+    /// The `path` field.
     pub path: String,
+    /// The `expected_owner` field.
     pub expected_owner: String,
 }
 
+/// The `WorkerTopologyValidationResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct WorkerTopologyValidationResponse {
+    /// The `worker_enabled` field.
     pub worker_enabled: bool,
+    /// The `instance_name` field.
     pub instance_name: String,
+    /// The `known_instances` field.
     pub known_instances: Vec<String>,
+    /// The `replication_enabled` field.
     pub replication_enabled: bool,
+    /// The `replication_http_enabled` field.
     pub replication_http_enabled: bool,
+    /// The `validation` field.
     pub validation: synapse_services::worker::topology_validator::TopologyValidation,
+    /// The `stream_writers` field.
     pub stream_writers: Vec<WorkerStreamWriterOwners>,
+    /// The `route_owner_expectations` field.
     pub route_owner_expectations: Vec<WorkerRouteOwnerExpectation>,
 }
 
@@ -295,6 +371,7 @@ fn build_topology_validation_response(config: &WorkerConfig) -> WorkerTopologyVa
     }
 }
 
+/// See [`register_worker`].
 pub async fn register_worker(
     State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
@@ -307,6 +384,7 @@ pub async fn register_worker(
     Ok(created_json_from::<_, WorkerResponse>(worker))
 }
 
+/// See [`get_worker`].
 pub async fn get_worker(
     State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
@@ -317,6 +395,7 @@ pub async fn get_worker(
     Ok(json_from::<_, WorkerResponse>(require_found(worker, "Worker not found")?))
 }
 
+/// See [`list_workers`].
 pub async fn list_workers(
     State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
@@ -326,6 +405,7 @@ pub async fn list_workers(
     Ok(json_vec_from::<_, WorkerResponse>(workers))
 }
 
+/// See [`list_workers_by_type`].
 pub async fn list_workers_by_type(
     State(ctx): State<AdminContext>,
     Path(worker_type): Path<String>,
@@ -338,6 +418,7 @@ pub async fn list_workers_by_type(
     Ok(json_vec_from::<_, WorkerResponse>(workers))
 }
 
+/// See [`heartbeat`].
 pub async fn heartbeat(
     State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
@@ -350,6 +431,7 @@ pub async fn heartbeat(
     Ok(status_json("ok"))
 }
 
+/// See [`unregister_worker`].
 pub async fn unregister_worker(
     State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
@@ -360,6 +442,7 @@ pub async fn unregister_worker(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// See [`send_command`].
 pub async fn send_command(
     State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
@@ -373,6 +456,7 @@ pub async fn send_command(
     Ok(created_json_from::<_, WorkerCommandResponse>(command))
 }
 
+/// See [`get_pending_commands`].
 pub async fn get_pending_commands(
     State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
@@ -384,6 +468,7 @@ pub async fn get_pending_commands(
     Ok(json_vec_from::<_, WorkerCommandResponse>(commands))
 }
 
+/// See [`complete_command`].
 pub async fn complete_command(
     State(ctx): State<AdminContext>,
     Path(command_id): Path<String>,
@@ -393,6 +478,7 @@ pub async fn complete_command(
     Ok(status_json("completed"))
 }
 
+/// See [`fail_command`].
 pub async fn fail_command(
     State(ctx): State<AdminContext>,
     Path(command_id): Path<String>,
@@ -403,6 +489,7 @@ pub async fn fail_command(
     Ok(status_json("failed"))
 }
 
+/// See [`assign_task`].
 pub async fn assign_task(
     State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
@@ -415,6 +502,7 @@ pub async fn assign_task(
     Ok(created_json_from::<_, WorkerTaskResponse>(task))
 }
 
+/// See [`get_pending_tasks`].
 pub async fn get_pending_tasks(
     State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
@@ -426,6 +514,7 @@ pub async fn get_pending_tasks(
     Ok(json_vec_from::<_, WorkerTaskResponse>(tasks))
 }
 
+/// See [`claim_next_task`].
 pub async fn claim_next_task(
     State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
@@ -436,6 +525,7 @@ pub async fn claim_next_task(
     Ok(Json(WorkerTaskResponse::from(task)))
 }
 
+/// See [`claim_task`].
 pub async fn claim_task(
     State(ctx): State<AdminContext>,
     Path((task_id, worker_id)): Path<(String, String)>,
@@ -446,6 +536,7 @@ pub async fn claim_task(
     Ok(status_json("claimed"))
 }
 
+/// See [`complete_task`].
 pub async fn complete_task(
     State(ctx): State<AdminContext>,
     Path(task_id): Path<String>,
@@ -456,6 +547,7 @@ pub async fn complete_task(
     Ok(status_json("completed"))
 }
 
+/// See [`fail_task`].
 pub async fn fail_task(
     State(ctx): State<AdminContext>,
     Path(task_id): Path<String>,
@@ -466,6 +558,7 @@ pub async fn fail_task(
     Ok(status_json("failed"))
 }
 
+/// See [`connect_worker`].
 pub async fn connect_worker(
     State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
@@ -476,6 +569,7 @@ pub async fn connect_worker(
     Ok(status_json("connected"))
 }
 
+/// See [`disconnect_worker`].
 pub async fn disconnect_worker(
     State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
@@ -485,6 +579,7 @@ pub async fn disconnect_worker(
     Ok(status_json("disconnected"))
 }
 
+/// See [`get_replication_position`].
 pub async fn get_replication_position(
     State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
@@ -500,6 +595,7 @@ pub async fn get_replication_position(
     })))
 }
 
+/// See [`update_replication_position`].
 pub async fn update_replication_position(
     State(ctx): State<AdminContext>,
     Path((worker_id, stream_name)): Path<(String, String)>,
@@ -510,6 +606,7 @@ pub async fn update_replication_position(
     Ok(status_json("updated"))
 }
 
+/// See [`get_events`].
 pub async fn get_events(
     State(ctx): State<AdminContext>,
     Query(query): Query<QueryStream>,
@@ -521,6 +618,7 @@ pub async fn get_events(
     Ok(Json(events))
 }
 
+/// See [`get_statistics`].
 pub async fn get_statistics(
     State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
@@ -532,10 +630,12 @@ pub async fn get_statistics(
     Ok(Json(stats))
 }
 
+/// See [`get_topology`].
 pub async fn get_topology(_state: State<AdminContext>, _admin_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
     Ok(Json(WorkerTopologySummary::baseline()))
 }
 
+/// See [`get_topology_validation`].
 pub async fn get_topology_validation(
     State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
@@ -543,6 +643,7 @@ pub async fn get_topology_validation(
     Ok(Json(build_topology_validation_response(&ctx.config.worker)))
 }
 
+/// See [`get_type_statistics`].
 pub async fn get_type_statistics(
     State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
@@ -552,6 +653,7 @@ pub async fn get_type_statistics(
     Ok(Json(stats))
 }
 
+/// See [`select_worker`].
 pub async fn select_worker(
     State(ctx): State<AdminContext>,
     Path(task_type): Path<String>,
@@ -566,6 +668,7 @@ pub async fn select_worker(
     })))
 }
 
+/// See [`create_worker_router`].
 pub fn create_worker_router(state: AppState) -> Router<AppState> {
     let admin = create_worker_admin_router(&state);
     if state.services.core.config.worker.enabled {

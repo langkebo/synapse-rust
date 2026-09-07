@@ -8,6 +8,7 @@ use axum::response::Response;
 use std::time::Instant;
 use tracing::Instrument;
 
+/// See [`logging_middleware`].
 pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
     let start = Instant::now();
     let method = request.method().clone();
@@ -43,6 +44,7 @@ pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::
     response
 }
 
+/// See [`security_headers_middleware`].
 pub async fn security_headers_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
     let mut response = next.run(request).await;
 
@@ -93,6 +95,7 @@ pub async fn security_headers_middleware(request: Request<Body>, next: axum::mid
     response
 }
 
+/// See [`metrics_middleware`].
 pub async fn metrics_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
     let start = Instant::now();
     let method = request.method().clone();
@@ -107,6 +110,7 @@ pub async fn metrics_middleware(request: Request<Body>, next: axum::middleware::
     response
 }
 
+/// See [`request_debug_middleware`].
 pub async fn request_debug_middleware(request: Request<Body>, next: Next) -> Response {
     let debug = tracing::enabled!(tracing::Level::DEBUG);
     let method = debug.then(|| request.method().clone());
@@ -138,6 +142,7 @@ pub async fn payload_too_large_json_middleware(request: Request<Body>, next: Nex
     response
 }
 
+/// See [`request_timeout_middleware`].
 pub async fn request_timeout_middleware(request: Request<Body>, next: Next) -> Response {
     let timeout_secs = resolve_request_timeout_secs(&request);
     let result = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), next.run(request)).await;
@@ -186,6 +191,7 @@ fn is_long_polling_endpoint(path: &str) -> bool {
         || path.contains("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync")
 }
 
+/// See [`request_id_middleware`].
 pub async fn request_id_middleware(mut request: Request<Body>, next: Next) -> Response {
     let request_id = resolve_request_id(request.headers());
 

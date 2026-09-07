@@ -12,6 +12,7 @@ use axum::{
 use serde_json::{json, Value};
 use synapse_common::current_timestamp_millis;
 
+/// See [`cleanup_abnormal_rooms`].
 #[axum::debug_handler]
 pub async fn cleanup_abnormal_rooms(
     _admin: AdminUser,
@@ -25,6 +26,7 @@ pub async fn cleanup_abnormal_rooms(
     Ok(Json(results))
 }
 
+/// See [`block_room`].
 #[axum::debug_handler]
 pub async fn block_room(
     admin: AdminUser,
@@ -56,6 +58,7 @@ pub async fn block_room(
     Ok(Json(json!({ "block": body.block })))
 }
 
+/// See [`get_room_block_status`].
 #[axum::debug_handler]
 pub async fn get_room_block_status(
     _admin: AdminUser,
@@ -77,6 +80,7 @@ pub async fn get_room_block_status(
     }
 }
 
+/// See [`unblock_room`].
 #[axum::debug_handler]
 pub async fn unblock_room(
     admin: AdminUser,
@@ -104,6 +108,7 @@ pub async fn unblock_room(
     Ok(Json(json!({ "block": false })))
 }
 
+/// See [`make_room_admin`].
 #[axum::debug_handler]
 pub async fn make_room_admin(
     admin: AdminUser,
@@ -125,6 +130,7 @@ pub async fn make_room_admin(
     Ok(Json(json!({})))
 }
 
+/// See [`purge_history`].
 #[axum::debug_handler]
 pub async fn purge_history(
     admin: AdminUser,
@@ -168,6 +174,7 @@ pub async fn purge_history(
     })))
 }
 
+/// See [`purge_history_by_room`].
 #[axum::debug_handler]
 pub async fn purge_history_by_room(
     admin: AdminUser,
@@ -230,6 +237,7 @@ pub async fn backfill_room(
     })))
 }
 
+/// See [`purge_room`].
 #[axum::debug_handler]
 pub async fn purge_room(
     admin: AdminUser,
@@ -289,6 +297,7 @@ pub async fn remove_room_member(
     Ok(Json(remove_room_member_internal(&ctx, &room_id, &user_id, &request_id).await?))
 }
 
+/// See [`ban_user`].
 #[axum::debug_handler]
 pub async fn ban_user(
     admin: AdminUser,
@@ -301,6 +310,7 @@ pub async fn ban_user(
     Ok(Json(ban_user_internal(&ctx, &room_id, &user_id, &admin.user_id, body.reason.as_deref(), &request_id).await?))
 }
 
+/// See [`ban_user_by_body`].
 #[axum::debug_handler]
 pub async fn ban_user_by_body(
     admin: AdminUser,
@@ -340,6 +350,7 @@ pub async fn kick_user(
     Ok(Json(kick_user_internal(&ctx, &room_id, &user_id, &admin.user_id, body.reason.as_deref(), &request_id).await?))
 }
 
+/// See [`kick_user_by_body`].
 #[axum::debug_handler]
 pub async fn kick_user_by_body(
     admin: AdminUser,

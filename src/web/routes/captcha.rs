@@ -9,39 +9,57 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use synapse_services::captcha_service::{SendCaptchaRequest, VerifyCaptchaRequest};
 
+/// The `SendCaptchaQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct SendCaptchaQuery {
+    /// The `captcha_type` field.
     pub captcha_type: String,
+    /// The `target` field.
     pub target: String,
+    /// The `template_name` field.
     pub template_name: Option<String>,
 }
 
+/// The `SendCaptchaBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct SendCaptchaBody {
+    /// The `captcha_type` field.
     pub captcha_type: String,
+    /// The `target` field.
     pub target: String,
+    /// The `template_name` field.
     pub template_name: Option<String>,
 }
 
+/// The `VerifyCaptchaBody` struct.
 #[derive(Debug, Deserialize)]
 pub struct VerifyCaptchaBody {
+    /// The `captcha_id` field.
     pub captcha_id: String,
+    /// The `code` field.
     pub code: String,
 }
 
+/// The `CaptchaResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct CaptchaResponse {
+    /// The `captcha_id` field.
     pub captcha_id: String,
+    /// The `expires_in` field.
     pub expires_in: i64,
+    /// The `captcha_type` field.
     pub captcha_type: String,
 }
 
+/// The `VerifyResponse` struct.
 #[derive(Debug, Serialize)]
 pub struct VerifyResponse {
     #[serde(rename = "verified")]
+    /// The `is_verified` field.
     pub is_verified: bool,
 }
 
+/// See [`send_captcha`].
 pub async fn send_captcha(
     State(ctx): State<AdminContext>,
     Json(body): Json<SendCaptchaBody>,
@@ -58,6 +76,7 @@ pub async fn send_captcha(
     }))
 }
 
+/// See [`verify_captcha`].
 pub async fn verify_captcha(
     State(ctx): State<AdminContext>,
     Json(body): Json<VerifyCaptchaBody>,
@@ -69,6 +88,7 @@ pub async fn verify_captcha(
     Ok(Json(VerifyResponse { is_verified: verified }))
 }
 
+/// See [`get_captcha_status`].
 pub async fn get_captcha_status(
     State(ctx): State<AdminContext>,
     Query(query): Query<CaptchaIdQuery>,
@@ -91,11 +111,14 @@ pub async fn get_captcha_status(
     })))
 }
 
+/// The `CaptchaIdQuery` struct.
 #[derive(Debug, Deserialize)]
 pub struct CaptchaIdQuery {
+    /// The `captcha_id` field.
     pub captcha_id: String,
 }
 
+/// See [`cleanup_expired`].
 pub async fn cleanup_expired(
     State(ctx): State<AdminContext>,
     _admin: AdminUser,
@@ -108,6 +131,7 @@ pub async fn cleanup_expired(
     })))
 }
 
+/// See [`create_captcha_router`].
 pub fn create_captcha_router(state: &AppState) -> axum::Router<AppState> {
     use axum::routing::*;
 
@@ -132,6 +156,7 @@ pub fn create_captcha_router(state: &AppState) -> axum::Router<AppState> {
     public_routes.merge(admin_routes)
 }
 
+/// See [`captcha_route_manifest`].
 pub fn captcha_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
     use axum::http::Method;
