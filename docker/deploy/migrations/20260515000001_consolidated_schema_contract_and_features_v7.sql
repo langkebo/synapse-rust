@@ -337,7 +337,7 @@ CREATE TABLE IF NOT EXISTS leak_alerts (
 
 CREATE INDEX IF NOT EXISTS idx_leak_alerts_user ON leak_alerts(user_id);
 CREATE INDEX IF NOT EXISTS idx_leak_alerts_created ON leak_alerts(created_ts DESC);
-CREATE INDEX IF NOT EXISTS idx_leak_alerts_acknowledged ON leak_alerts(acknowledged) WHERE acknowledged = FALSE;
+CREATE INDEX IF NOT EXISTS idx_leak_alerts_acknowledged ON leak_alerts(is_acknowledged) WHERE is_acknowledged = FALSE;
 
 -- ============================================================================
 -- 完成
