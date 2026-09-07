@@ -19,12 +19,14 @@ use tokio::time::{interval, Duration as TokioDuration};
 const DEFAULT_KEY_ROTATION_INTERVAL_DAYS: i64 = 7;
 const DEFAULT_KEY_ROTATION_THRESHOLD_DAYS: i64 = 1;
 const DEFAULT_KEY_GRACE_PERIOD_MINUTES: i64 = 5;
+const DEFAULT_KEY_ROTATION_INTERVAL_MS: i64 = 3_600_000;
 
 #[derive(Debug, Clone)]
 struct FederationRotationConfig {
     rotation_interval_days: i64,
     rotation_threshold_days: i64,
     grace_period_minutes: i64,
+    rotation_interval_ms: i64,
 }
 
 /// (see code)
@@ -34,6 +36,7 @@ impl Default for FederationRotationConfig {
             rotation_interval_days: DEFAULT_KEY_ROTATION_INTERVAL_DAYS,
             rotation_threshold_days: DEFAULT_KEY_ROTATION_THRESHOLD_DAYS,
             grace_period_minutes: DEFAULT_KEY_GRACE_PERIOD_MINUTES,
+            rotation_interval_ms: DEFAULT_KEY_ROTATION_INTERVAL_MS,
         }
     }
 }
@@ -361,22 +364,42 @@ impl KeyRotationManager {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(DEFAULT_KEY_GRACE_PERIOD_MINUTES);
 
+        let rotation_interval_ms: i64 =
+            sqlx::query_scalar::<_, String>(r"SELECT value FROM key_rotation_config WHERE key = 'interval_ms'")
+                .fetch_optional(&*self.pool)
+                .await?
+                .and_then(|v: String| v.parse::<i64>().ok())
+                .unwrap_or(DEFAULT_KEY_ROTATION_INTERVAL_MS);
+
         let new_config = FederationRotationConfig {
             rotation_interval_days: interval_days,
             rotation_threshold_days: threshold_days,
             grace_period_minutes,
+            rotation_interval_ms,
         };
 
         let mut config = self.rotation_config.write().await;
         tracing::info!(
-            "Loaded federation rotation config: interval={}d, threshold={}d, grace={}m",
+            "Loaded federation rotation config: interval={}d, threshold={}d, grace={}m, interval_ms={}",
             new_config.rotation_interval_days,
             new_config.rotation_threshold_days,
-            new_config.grace_period_minutes
+            new_config.grace_period_minutes,
+            new_config.rotation_interval_ms
         );
         *config = new_config;
 
         Ok(())
+    }
+
+    /// Returns the configured auto-rotation scheduler interval in milliseconds,
+    /// falling back to the default (1 hour) if not explicitly set.
+    pub async fn get_interval_ms(&self) -> i64 {
+        let config = self.rotation_config.read().await;
+        if config.rotation_interval_ms > 0 {
+            config.rotation_interval_ms
+        } else {
+            DEFAULT_KEY_ROTATION_INTERVAL_MS
+        }
     }
 
     /// See [`set_rotation_config_value`.
@@ -413,7 +436,14 @@ impl KeyRotationManager {
             tracing::warn!("Failed to load rotation config from database, using defaults: {}", e);
         }
 
-        let mut interval = interval(TokioDuration::from_secs(3600));
+        let scheduler_interval_ms = manager.get_interval_ms().await;
+        tracing::info!(
+            "Auto-rotation scheduler interval: {}ms",
+            scheduler_interval_ms
+        );
+
+        let mut interval =
+            interval(TokioDuration::from_millis(scheduler_interval_ms as u64));
 
         tokio::spawn(async move {
             loop {

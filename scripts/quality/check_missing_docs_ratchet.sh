@@ -4,7 +4,7 @@
 # B-3.1-a: 文档缺失 ratchet 度量脚本
 #
 # 思路：跑 `cargo doc --no-deps --workspace --all-features`，grep "warning: missing
-# documentation" 的行数，与 `.workbuddy/memory/missing-docs-baseline.txt` 中存
+# documentation" 的行数，与 `scripts/quality/missing-docs-baseline.txt` 中存
 # 的上次值比较。当前值 > baseline → 退出码 1（ratchet 触发，禁增）；当前值
 # ≤ baseline → 退出码 0（OK 或进步）。
 #
