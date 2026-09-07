@@ -1,0 +1,7 @@
+-- sample_label: 20260508-203214
+-- generated_at: 2026-05-08T12:32:14Z
+-- db: synapse
+
+collected_at	database_name	server_version
+2026-05-08 12:32:14.806051+00	synapse	PostgreSQL 16.13 on aarch64-unknown-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+(1 row)

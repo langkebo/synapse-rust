@@ -1,0 +1,36 @@
+-- sample_label: 20260508-203214
+-- generated_at: 2026-05-08T12:32:15Z
+-- db: synapse
+
+relname	last_vacuum	last_autovacuum	last_analyze	last_autoanalyze	vacuum_count	autovacuum_count	analyze_count	autoanalyze_count	n_dead_tup
+presence					0	0	0	0	35
+refresh_tokens				2026-05-08 12:12:58.04062+00	0	0	0	2	32
+access_tokens				2026-05-08 12:12:58.036752+00	0	0	0	2	27
+room_summary_members		2026-05-08 05:34:33.238079+00		2026-05-08 08:57:07.185301+00	0	1	0	2	27
+devices				2026-05-08 12:12:58.012415+00	0	0	0	2	24
+room_summaries				2026-05-08 09:03:07.330287+00	0	0	0	5	23
+federation_queue				2026-05-08 08:39:06.683358+00	0	0	0	3	19
+room_memberships				2026-05-08 09:03:07.280379+00	0	0	0	1	14
+room_summary_update_queue					0	0	0	0	11
+events				2026-05-08 09:03:07.313487+00	0	0	0	5	6
+schema_migrations					0	0	0	0	5
+users					0	0	0	0	5
+read_markers					0	0	0	0	3
+room_summary_state				2026-05-08 08:57:07.151561+00	0	0	0	4	2
+event_receipts					0	0	0	0	2
+server_media_quota					0	0	0	0	2
+cross_signing_keys					0	0	0	0	2
+rooms				2026-05-08 05:31:33.171405+00	0	0	0	1	2
+account_data					0	0	0	0	1
+room_ephemeral					0	0	0	0	1
+workers					0	0	0	0	0
+modules					0	0	0	0	0
+qr_login_transactions					0	0	0	0	0
+upload_chunks					0	0	0	0	0
+background_update_locks					0	0	0	0	0
+ai_connections					0	0	0	0	0
+media_callbacks					0	0	0	0	0
+event_signatures					0	0	0	0	0
+thread_roots					0	0	0	0	0
+thread_read_receipts					0	0	0	0	0
+(30 rows)

@@ -1,0 +1,951 @@
+[element-web-harness] Building synapse-rust docker image
+ Image synapse-rust:latest Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 711B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 9.16kB 0.0s done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/rust:1.93.0-slim-bookworm
+#3 DONE 0.0s
+
+#4 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#4 DONE 0.6s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 1.40kB 0.0s done
+#5 DONE 0.1s
+
+#6 [builder  1/16] FROM docker.io/library/rust:1.93.0-slim-bookworm
+#6 DONE 0.0s
+
+#7 [tools 1/5] FROM docker.io/library/debian:bookworm-slim@sha256:0104b334637a5f19aa9c983a91b54c89887c0984081f2068983107a6f6c21eeb
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 8.25MB 0.5s done
+#8 DONE 0.6s
+
+#9 [builder  9/16] COPY synapse-e2ee/Cargo.toml        ./synapse-e2ee/Cargo.toml
+#9 CACHED
+
+#10 [builder  5/16] COPY .sqlx ./.sqlx
+#10 CACHED
+
+#11 [builder  6/16] COPY synapse-common/Cargo.toml      ./synapse-common/Cargo.toml
+#11 CACHED
+
+#12 [builder  2/16] WORKDIR /workspace
+#12 CACHED
+
+#13 [builder  4/16] COPY Cargo.toml Cargo.lock ./
+#13 CACHED
+
+#14 [builder  3/16] RUN apt-get update && apt-get install -y --no-install-recommends     ca-certificates     clang     file     pkg-config     libssl-dev     build-essential     && rm -rf /var/lib/apt/lists/*
+#14 CACHED
+
+#15 [builder 11/16] COPY synapse-services/Cargo.toml    ./synapse-services/Cargo.toml
+#15 CACHED
+
+#16 [builder 12/16] COPY synapse-web/Cargo.toml         ./synapse-web/Cargo.toml
+#16 CACHED
+
+#17 [builder  7/16] COPY synapse-cache/Cargo.toml       ./synapse-cache/Cargo.toml
+#17 CACHED
+
+#18 [builder  8/16] COPY synapse-storage/Cargo.toml     ./synapse-storage/Cargo.toml
+#18 CACHED
+
+#19 [builder 10/16] COPY synapse-federation/Cargo.toml  ./synapse-federation/Cargo.toml
+#19 CACHED
+
+#20 [builder 13/16] RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked     mkdir -p src src/bin synapse-common/src synapse-cache/src synapse-storage/src synapse-e2ee/src              synapse-federation/src synapse-services/src synapse-web/src &&     echo "fn main() {}" > src/main.rs &&     echo "fn main() {}" > src/bin/healthcheck.rs &&     echo "pub fn stub() {}" > synapse-common/src/lib.rs &&     echo "pub fn stub() {}" > synapse-cache/src/lib.rs &&     echo "pub fn stub() {}" > synapse-storage/src/lib.rs &&     echo "pub fn stub() {}" > synapse-e2ee/src/lib.rs &&     echo "pub fn stub() {}" > synapse-federation/src/lib.rs &&     echo "pub fn stub() {}" > synapse-services/src/lib.rs &&     echo "pub fn stub() {}" > synapse-web/src/lib.rs &&     cargo fetch --locked &&     rm -rf src/ synapse-common/src synapse-cache/src synapse-storage/src synapse-e2ee/src            synapse-federation/src synapse-services/src synapse-web/src
+#20 CACHED
+
+#21 [builder 14/16] COPY . .
+#21 DONE 1.1s
+
+#22 [builder 15/16] RUN rm -f rust-toolchain rust-toolchain.toml
+#22 DONE 0.2s
+
+#23 [builder 16/16] RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked     cargo build --release --locked --features server --no-default-features --bin synapse-rust --bin healthcheck &&     install -Dm755 target/release/synapse-rust          /out/app/synapse-rust &&     install -Dm755 target/release/healthcheck           /out/app/healthcheck &&     install -Dm755 docker/db_migrate.sh                 /out/app/scripts/db_migrate.sh &&     install -Dm755 docker/deploy/scripts/container-migrate.sh /out/app/scripts/container-migrate.sh &&     install -Dm755 docker/healthcheck.sh                /out/app/scripts/healthcheck.sh &&     install -Dm755 docker/entrypoint.sh                 /out/app/entrypoint.sh &&     install -Dm644 docker/config/rate_limit.yaml          /out/app/config_defaults/rate_limit.yaml &&     mkdir -p /out/app/config /out/app/data /out/app/logs /out/app/migrations &&     cp -R migrations/. /out/app/migrations/
+#23 1.147 [1m[92m   Compiling[0m proc-macro2 v1.0.106
+#23 1.609 [1m[92m   Compiling[0m unicode-ident v1.0.24
+#23 1.630 [1m[92m   Compiling[0m quote v1.0.45
+#23 1.964 [1m[92m   Compiling[0m syn v2.0.117
+#23 3.606 [1m[92m   Compiling[0m libc v0.2.186
+#23 3.711 [1m[92m   Compiling[0m cfg-if v1.0.4
+#23 3.724 [1m[92m   Compiling[0m serde v1.0.228
+#23 3.797 [1m[92m   Compiling[0m serde_derive v1.0.228
+#23 5.083 [1m[92m   Compiling[0m serde_core v1.0.228
+#23 6.054 [1m[92m   Compiling[0m version_check v0.9.5
+#23 6.127 [1m[92m   Compiling[0m typenum v1.19.0
+#23 6.206 [1m[92m   Compiling[0m smallvec v1.15.1
+#23 6.282 [1m[92m   Compiling[0m generic-array v0.14.7
+#23 6.326 [1m[92m   Compiling[0m parking_lot_core v0.9.12
+#23 6.374 [1m[92m   Compiling[0m memchr v2.8.0
+#23 6.634 [1m[92m   Compiling[0m synstructure v0.13.2
+#23 6.804 [1m[92m   Compiling[0m zerofrom-derive v0.1.6
+#23 7.218 [1m[92m   Compiling[0m pin-project-lite v0.2.17
+#23 7.233 [1m[92m   Compiling[0m autocfg v1.5.0
+#23 7.337 [1m[92m   Compiling[0m yoke-derive v0.8.1
+#23 7.693 [1m[92m   Compiling[0m once_cell v1.21.4
+#23 7.754 [1m[92m   Compiling[0m getrandom v0.2.17
+#23 7.834 [1m[92m   Compiling[0m scopeguard v1.2.0
+#23 7.849 [1m[92m   Compiling[0m lock_api v0.4.14
+#23 8.315 [1m[92m   Compiling[0m zerovec-derive v0.11.2
+#23 8.696 [1m[92m   Compiling[0m itoa v1.0.18
+#23 8.927 [1m[92m   Compiling[0m parking_lot v0.12.5
+#23 9.253 [1m[92m   Compiling[0m rand_core v0.6.4
+#23 9.337 [1m[92m   Compiling[0m bytes v1.11.1
+#23 9.819 [1m[92m   Compiling[0m displaydoc v0.2.5
+#23 10.07 [1m[92m   Compiling[0m log v0.4.29
+#23 10.14 [1m[92m   Compiling[0m futures-core v0.3.32
+#23 10.17 [1m[92m   Compiling[0m libm v0.2.16
+#23 10.25 [1m[92m   Compiling[0m crypto-common v0.1.7
+#23 10.28 [1m[92m   Compiling[0m socket2 v0.6.3
+#23 10.59 [1m[92m   Compiling[0m errno v0.3.14
+#23 10.63 [1m[92m   Compiling[0m stable_deref_trait v1.2.1
+#23 10.64 [1m[92m   Compiling[0m futures-sink v0.3.32
+#23 10.66 [1m[92m   Compiling[0m signal-hook-registry v1.4.8
+#23 10.82 [1m[92m   Compiling[0m mio v1.2.0
+#23 11.07 [1m[92m   Compiling[0m tracing-attributes v0.1.31
+#23 11.51 [1m[92m   Compiling[0m tokio-macros v2.6.1
+#23 11.83 [1m[92m   Compiling[0m zerocopy v0.8.48
+#23 11.93 [1m[92m   Compiling[0m tokio v1.50.0
+#23 15.44 [1m[92m   Compiling[0m zerocopy-derive v0.8.48
+#23 17.44 [1m[92m   Compiling[0m icu_properties_data v2.1.2
+#23 17.47 [1m[92m   Compiling[0m icu_normalizer_data v2.1.1
+#23 17.55 [1m[92m   Compiling[0m tracing-core v0.1.36
+#23 17.85 [1m[92m   Compiling[0m num-traits v0.2.19
+#23 17.89 [1m[92m   Compiling[0m equivalent v1.0.2
+#23 17.91 [1m[92m   Compiling[0m thiserror v2.0.18
+#23 17.98 [1m[92m   Compiling[0m subtle v2.6.1
+#23 18.71 [1m[92m   Compiling[0m slab v0.4.12
+#23 18.96 [1m[92m   Compiling[0m futures-channel v0.3.32
+#23 19.02 [1m[92m   Compiling[0m zerofrom v0.1.6
+#23 19.04 [1m[92m   Compiling[0m zeroize_derive v1.4.3
+#23 19.24 [1m[92m   Compiling[0m thiserror-impl v2.0.18
+#23 19.62 [1m[92m   Compiling[0m zmij v1.0.21
+#23 19.68 [1m[92m   Compiling[0m crossbeam-utils v0.8.21
+#23 19.74 [1m[92m   Compiling[0m const-oid v0.9.6
+#23 20.01 [1m[92m   Compiling[0m zeroize v1.8.2
+#23 20.06 [1m[92m   Compiling[0m yoke v0.8.1
+#23 20.10 [1m[92m   Compiling[0m tracing v0.1.44
+#23 20.23 [1m[92m   Compiling[0m futures-macro v0.3.32
+#23 20.46 [1m[92m   Compiling[0m futures-task v0.3.32
+#23 20.50 [1m[92m   Compiling[0m hashbrown v0.17.0
+#23 20.69 [1m[92m   Compiling[0m percent-encoding v2.3.2
+#23 20.77 [1m[92m   Compiling[0m futures-io v0.3.32
+#23 20.81 [1m[92m   Compiling[0m futures-util v0.3.32
+#23 21.59 [1m[92m   Compiling[0m indexmap v2.14.0
+#23 21.99 [1m[92m   Compiling[0m serde_json v1.0.149
+#23 22.11 [1m[92m   Compiling[0m zerovec v0.11.5
+#23 23.16 [1m[92m   Compiling[0m ppv-lite86 v0.2.21
+#23 23.21 [1m[92m   Compiling[0m num-integer v0.1.46
+#23 23.40 [1m[92m   Compiling[0m block-buffer v0.10.4
+#23 23.49 [1m[92m   Compiling[0m digest v0.10.7
+#23 23.54 [1m[92m   Compiling[0m rand_chacha v0.3.1
+#23 23.64 [1m[92m   Compiling[0m tinystr v0.8.2
+#23 23.73 [1m[92m   Compiling[0m tokio-util v0.7.18
+#23 24.05 [1m[92m   Compiling[0m litemap v0.8.1
+#23 24.09 [1m[92m   Compiling[0m shlex v1.3.0
+#23 24.13 [1m[92m   Compiling[0m find-msvc-tools v0.1.9
+#23 24.18 [1m[92m   Compiling[0m writeable v0.6.2
+#23 24.23 [1m[92m   Compiling[0m anyhow v1.0.102
+#23 24.30 [1m[92m   Compiling[0m icu_locale_core v2.1.1
+#23 25.05 [1m[92m   Compiling[0m cc v1.2.61
+#23 25.41 [1m[92m   Compiling[0m rand v0.8.5
+#23 25.60 [1m[92m   Compiling[0m potential_utf v0.1.4
+#23 25.64 [1m[92m   Compiling[0m zerotrie v0.2.3
+#23 25.77 [1m[92m   Compiling[0m http v1.4.0
+#23 26.33 [1m[92m   Compiling[0m base64 v0.22.1
+#23 26.48 [1m[92m   Compiling[0m icu_provider v2.1.1
+#23 26.61 [1m[92m   Compiling[0m icu_collections v2.1.1
+#23 27.14 [1m[92m   Compiling[0m http-body v1.0.1
+#23 27.17 [1m[92m   Compiling[0m num-bigint v0.4.6
+#23 28.38 [1m[92m   Compiling[0m either v1.15.0
+#23 28.44 [1m[92m   Compiling[0m bitflags v2.11.1
+#23 28.53 [1m[92m   Compiling[0m fnv v1.0.7
+#23 28.54 [1m[92m   Compiling[0m simd-adler32 v0.3.9
+#23 29.60 [1m[92m   Compiling[0m icu_normalizer v2.1.1
+#23 30.04 [1m[92m   Compiling[0m icu_properties v2.1.2
+#23 30.47 [1m[92m   Compiling[0m form_urlencoded v1.2.2
+#23 30.60 [1m[92m   Compiling[0m tower-service v0.3.3
+#23 30.62 [1m[92m   Compiling[0m httparse v1.10.1
+#23 30.70 [1m[92m   Compiling[0m siphasher v1.0.2
+#23 30.84 [1m[92m   Compiling[0m phf_shared v0.11.3
+#23 31.01 [1m[92m   Compiling[0m idna_adapter v1.2.1
+#23 31.22 [1m[92m   Compiling[0m cpufeatures v0.2.17
+#23 31.24 [1m[92m   Compiling[0m adler2 v2.0.1
+#23 31.34 [1m[92m   Compiling[0m crc32fast v1.5.0
+#23 31.40 [1m[92m   Compiling[0m vcpkg v0.2.15
+#23 31.56 [1m[92m   Compiling[0m allocator-api2 v0.2.21
+#23 31.67 [1m[92m   Compiling[0m pkg-config v0.3.32
+#23 31.82 [1m[92m   Compiling[0m atomic-waker v1.1.2
+#23 31.84 [1m[92m   Compiling[0m httpdate v1.0.3
+#23 31.96 [1m[92m   Compiling[0m try-lock v0.2.5
+#23 31.98 [1m[92m   Compiling[0m utf8_iter v1.0.4
+#23 32.01 [1m[92m   Compiling[0m idna v1.1.0
+#23 32.77 [1m[92m   Compiling[0m want v0.3.1
+#23 32.80 [1m[92m   Compiling[0m h2 v0.4.13
+#23 35.54 [1m[92m   Compiling[0m openssl-sys v0.9.112
+#23 35.69 [1m[92m   Compiling[0m miniz_oxide v0.8.9
+#23 36.41 [1m[92m   Compiling[0m phf_generator v0.11.3
+#23 36.53 [1m[92m   Compiling[0m bigdecimal v0.4.10
+#23 36.73 [1m[92m   Compiling[0m pin-utils v0.1.0
+#23 36.74 [1m[92m   Compiling[0m hyper v1.8.1
+#23 38.67 [1m[92m   Compiling[0m url v2.5.8
+#23 39.57 [1m[92m   Compiling[0m http-body-util v0.1.3
+#23 39.68 [1m[92m   Compiling[0m crossbeam-epoch v0.9.18
+#23 39.84 [1m[92m   Compiling[0m sync_wrapper v1.0.2
+#23 39.86 [1m[92m   Compiling[0m ahash v0.8.12
+#23 39.95 [1m[92m   Compiling[0m tower-layer v0.3.3
+#23 40.01 [1m[92m   Compiling[0m base64ct v1.8.3
+#23 40.11 [1m[92m   Compiling[0m ipnet v2.12.0
+#23 40.52 [1m[92m   Compiling[0m new_debug_unreachable v1.0.6
+#23 40.59 [1m[92m   Compiling[0m hyper-util v0.1.20
+#23 41.64 [1m[92m   Compiling[0m flate2 v1.1.9
+#23 41.82 [1m[92m   Compiling[0m block-padding v0.3.3
+#23 41.85 [1m[92m   Compiling[0m getrandom v0.4.2
+#23 41.89 [1m[92m   Compiling[0m rayon-core v1.13.0
+#23 41.93 [1m[92m   Compiling[0m crunchy v0.2.4
+#23 42.01 [1m[92m   Compiling[0m inout v0.1.4
+#23 42.69 [1m[92m   Compiling[0m tower v0.5.3
+#23 43.06 [1m[92m   Compiling[0m crossbeam-deque v0.8.6
+#23 43.13 [1m[92m   Compiling[0m itertools v0.14.0
+#23 43.52 [1m[92m   Compiling[0m tokio-stream v0.1.18
+#23 43.67 [1m[92m   Compiling[0m equator-macro v0.4.2
+#23 43.89 [1m[92m   Compiling[0m async-trait v0.1.89
+#23 44.21 [1m[92m   Compiling[0m ryu v1.0.23
+#23 44.29 [1m[92m   Compiling[0m foreign-types-shared v0.1.1
+#23 44.35 [1m[92m   Compiling[0m spin v0.9.8
+#23 44.39 [1m[92m   Compiling[0m openssl v0.10.76
+#23 44.44 [1m[92m   Compiling[0m getrandom v0.3.4
+#23 44.50 [1m[92m   Compiling[0m tiny-keccak v2.0.2
+#23 44.59 [1m[92m   Compiling[0m lazy_static v1.5.0
+#23 44.65 [1m[92m   Compiling[0m foreign-types v0.3.2
+#23 44.66 [1m[92m   Compiling[0m equator v0.4.2
+#23 45.24 [1m[92m   Compiling[0m cipher v0.4.4
+#23 45.74 [1m[92m   Compiling[0m concurrent-queue v2.5.0
+#23 46.00 [1m[92m   Compiling[0m arrayvec v0.7.6
+#23 46.07 [1m[92m   Compiling[0m openssl-macros v0.1.1
+#23 46.18 [1m[92m   Compiling[0m foldhash v0.1.5
+#23 46.21 [1m[92m   Compiling[0m unicase v2.9.0
+#23 46.25 [1m[92m   Compiling[0m semver v1.0.28
+#23 46.32 [1m[92m   Compiling[0m tinyvec_macros v0.1.1
+#23 46.38 [1m[92m   Compiling[0m mime v0.3.17
+#23 46.52 [1m[92m   Compiling[0m native-tls v0.2.18
+#23 46.67 [1m[92m   Compiling[0m parking v2.2.1
+#23 48.06 [1m[92m   Compiling[0m event-listener v5.4.1
+#23 48.13 [1m[92m   Compiling[0m hashbrown v0.15.5
+#23 48.46 [1m[92m   Compiling[0m tinyvec v1.11.0
+#23 48.55 [1m[92m   Compiling[0m rustc_version v0.4.1
+#23 48.62 [1m[92m   Compiling[0m mime_guess v2.0.5
+#23 51.52 [1m[92m   Compiling[0m uuid v1.23.0
+#23 51.83 [1m[92m   Compiling[0m aligned-vec v0.6.4
+#23 52.02 [1m[92m   Compiling[0m hashbrown v0.14.5
+#23 52.24 [1m[92m   Compiling[0m pem-rfc7468 v0.7.0
+#23 52.54 [1m[92m   Compiling[0m phf_macros v0.11.3
+#23 52.79 [1m[92m   Compiling[0m string_cache_codegen v0.5.4
+#23 52.95 [1m[92m   Compiling[0m phf_codegen v0.11.3
+#23 52.97 [1m[92m   Compiling[0m sha2 v0.10.9
+#23 53.87 [1m[92m   Compiling[0m universal-hash v0.5.1
+#23 53.93 [1m[92m   Compiling[0m aho-corasick v1.1.4
+#23 55.44 [1m[92m   Compiling[0m der_derive v0.7.3
+#23 55.80 [1m[92m   Compiling[0m proc-macro-error-attr2 v2.0.0
+#23 55.96 [1m[92m   Compiling[0m ucd-trie v0.1.7
+#23 56.08 [1m[92m   Compiling[0m iana-time-zone v0.1.65
+#23 56.14 [1m[92m   Compiling[0m crc-catalog v2.4.0
+#23 56.15 [1m[92m   Compiling[0m winnow v1.0.0
+#23 56.52 [1m[92m   Compiling[0m compression-core v0.4.31
+#23 56.56 [1m[92m   Compiling[0m flagset v0.4.7
+#23 56.59 [1m[92m   Compiling[0m opaque-debug v0.3.1
+#23 56.67 [1m[92m   Compiling[0m openssl-probe v0.2.1
+#23 56.76 [1m[92m   Compiling[0m regex-syntax v0.8.10
+#23 59.35 [1m[92m   Compiling[0m regex-automata v0.4.14
+#23 66.31 [1m[92m   Compiling[0m der v0.7.10
+#23 67.31 [1m[92m   Compiling[0m compression-codecs v0.4.37
+#23 67.46 [1m[92m   Compiling[0m toml_parser v1.1.0+spec-1.1.0
+#23 67.64 [1m[92m   Compiling[0m crc v3.4.0
+#23 67.69 [1m[92m   Compiling[0m chrono v0.4.44
+#23 68.45 [1m[92m   Compiling[0m pest v2.8.6
+#23 68.93 [1m[92m   Compiling[0m proc-macro-error2 v2.0.1
+#23 69.60 [1m[92m   Compiling[0m web_atoms v0.1.3
+#23 69.76 [1m[92m   Compiling[0m phf v0.11.3
+#23 70.14 [1m[92m   Compiling[0m rand_core v0.9.5
+#23 70.20 [1m[92m   Compiling[0m v_frame v0.3.9
+#23 70.26 [1m[92m   Compiling[0m futures-intrusive v0.5.0
+#23 70.37 [1m[92m   Compiling[0m const-random-macro v0.1.16
+#23 70.45 [1m[92m   Compiling[0m curve25519-dalek v4.1.3
+#23 70.50 [1m[92m   Compiling[0m unicode-normalization v0.1.25
+#23 70.81 [1m[92m   Compiling[0m hashlink v0.10.0
+#23 70.98 [1m[92m   Compiling[0m rayon v1.12.0
+#23 71.67 [1m[92m   Compiling[0m crossbeam-queue v0.3.12
+#23 71.70 [1m[92m   Compiling[0m hmac v0.12.1
+#23 71.72 [1m[92m   Compiling[0m num-rational v0.4.2
+#23 72.07 [1m[92m   Compiling[0m opentelemetry v0.31.0
+#23 73.06 [1m[92m   Compiling[0m ipnetwork v0.20.0
+#23 73.15 [1m[92m   Compiling[0m as-slice v0.2.1
+#23 73.17 [1m[92m   Compiling[0m encoding_rs v0.8.35
+#23 74.71 [1m[92m   Compiling[0m pin-project-internal v1.1.11
+#23 75.05 [1m[92m   Compiling[0m built v0.8.0
+#23 75.18 [1m[92m   Compiling[0m unicode-properties v0.1.4
+#23 75.22 [1m[92m   Compiling[0m paste v1.0.15
+#23 75.37 [1m[92m   Compiling[0m rustversion v1.0.22
+#23 75.49 [1m[92m   Compiling[0m ident_case v1.0.1
+#23 75.51 [1m[92m   Compiling[0m toml_datetime v1.1.0+spec-1.1.0
+#23 75.57 [1m[92m   Compiling[0m mac v0.1.1
+#23 75.58 [1m[92m   Compiling[0m precomputed-hash v0.1.1
+#23 75.59 [1m[92m   Compiling[0m av-scenechange v0.14.1
+#23 75.72 [1m[92m   Compiling[0m strsim v0.11.1
+#23 75.87 [1m[92m   Compiling[0m unicode-bidi v0.3.18
+#23 76.05 [1m[92m   Compiling[0m stringprep v0.1.5
+#23 76.16 [1m[92m   Compiling[0m sqlx-core v0.8.6
+#23 76.96 [1m[92m   Compiling[0m darling_core v0.20.11
+#23 77.57 [1m[92m   Compiling[0m string_cache v0.8.9
+#23 77.66 [1m[92m   Compiling[0m futf v0.1.5
+#23 77.68 [1m[92m   Compiling[0m toml_edit v0.25.8+spec-1.1.0
+#23 78.41 [1m[92m   Compiling[0m rav1e v0.8.1
+#23 78.47 [1m[92m   Compiling[0m pin-project v1.1.11
+#23 78.48 [1m[92m   Compiling[0m aligned v0.4.3
+#23 78.50 [1m[92m   Compiling[0m hkdf v0.12.4
+#23 78.53 [1m[92m   Compiling[0m const-random v0.1.18
+#23 78.54 [1m[92m   Compiling[0m rand_chacha v0.9.0
+#23 79.05 [1m[92m   Compiling[0m pest_meta v2.8.6
+#23 79.46 [1m[92m   Compiling[0m async-compression v0.4.41
+#23 79.61 [1m[92m   Compiling[0m spki v0.7.3
+#23 79.69 [1m[92m   Compiling[0m tokio-native-tls v0.3.1
+#23 79.77 [1m[92m   Compiling[0m serde_urlencoded v0.7.1
+#23 79.84 [1m[92m   Compiling[0m prost-derive v0.14.3
+#23 80.31 [1m[92m   Compiling[0m md-5 v0.10.6
+#23 80.33 [1m[92m   Compiling[0m hyper-timeout v0.5.2
+#23 80.38 [1m[92m   Compiling[0m atoi v2.0.0
+#23 80.45 [1m[92m   Compiling[0m signature v2.2.0
+#23 80.48 [1m[92m   Compiling[0m futures-executor v0.3.32
+#23 80.62 [1m[92m   Compiling[0m nom v8.0.0
+#23 81.53 [1m[92m   Compiling[0m no_std_io2 v0.9.3
+#23 81.54 [1m[92m   Compiling[0m profiling-procmacros v1.0.17
+#23 81.67 [1m[92m   Compiling[0m arg_enum_proc_macro v0.3.4
+#23 81.90 [1m[92m   Compiling[0m dotenvy v0.15.7
+#23 82.02 [1m[92m   Compiling[0m http-range-header v0.4.2
+#23 82.15 [1m[92m   Compiling[0m time-core v0.1.8
+#23 82.18 [1m[92m   Compiling[0m utf-8 v0.7.6
+#23 82.25 [1m[92m   Compiling[0m whoami v1.6.1
+#23 82.31 [1m[92m   Compiling[0m quick-error v2.0.1
+#23 82.48 [1m[92m   Compiling[0m iri-string v0.7.11
+#23 83.31 [1m[92m   Compiling[0m pastey v0.1.1
+#23 83.43 [1m[92m   Compiling[0m y4m v0.8.0
+#23 83.51 [1m[92m   Compiling[0m powerfmt v0.2.0
+#23 83.57 [1m[92m   Compiling[0m hex v0.4.3
+#23 83.62 [1m[92m   Compiling[0m byteorder v1.5.0
+#23 83.67 [1m[92m   Compiling[0m home v0.5.12
+#23 83.69 [1m[92m   Compiling[0m num-conv v0.2.1
+#23 83.76 [1m[92m   Compiling[0m time-macros v0.2.27
+#23 84.05 [1m[92m   Compiling[0m sqlx-postgres v0.8.6
+#23 85.88 [1m[92m   Compiling[0m deranged v0.5.8
+#23 86.56 [1m[92m   Compiling[0m tower-http v0.6.8
+#23 88.63 [1m[92m   Compiling[0m tendril v0.4.3
+#23 88.70 [1m[92m   Compiling[0m profiling v1.0.17
+#23 88.71 [1m[92m   Compiling[0m bitstream-io v4.10.0
+#23 88.88 [1m[92m   Compiling[0m av1-grain v0.2.5
+#23 91.28 [1m[92m   Compiling[0m tonic v0.14.5
+#23 93.90 [1m[92m   Compiling[0m prost v0.14.3
+#23 94.07 [1m[92m   Compiling[0m hyper-tls v0.6.0
+#23 94.13 [1m[92m   Compiling[0m pest_generator v2.8.6
+#23 94.50 [1m[92m   Compiling[0m rand v0.9.4
+#23 94.73 [1m[92m   Compiling[0m dlv-list v0.5.2
+#23 95.99 [1m[92m   Compiling[0m proc-macro-crate v3.5.0
+#23 96.11 [1m[92m   Compiling[0m darling_macro v0.20.11
+#23 96.32 [1m[92m   Compiling[0m maybe-rayon v0.1.1
+#23 96.79 [1m[92m   Compiling[0m ring v0.17.14
+#23 96.95 [1m[92m   Compiling[0m rustls-pki-types v1.14.0
+#23 97.22 [1m[92m   Compiling[0m half v2.7.1
+#23 97.39 [1m[92m   Compiling[0m aead v0.5.2
+#23 97.58 [1m[92m   Compiling[0m toml_datetime v0.6.11
+#23 97.84 [1m[92m   Compiling[0m serde_spanned v0.6.9
+#23 97.87 [1m[92m   Compiling[0m num-derive v0.4.2
+#23 98.13 [1m[92m   Compiling[0m fax_derive v0.2.0
+#23 98.31 [1m[92m   Compiling[0m simd_helpers v0.1.0
+#23 98.78 [1m[92m   Compiling[0m noop_proc_macro v0.3.0
+#23 98.84 [1m[92m   Compiling[0m zune-core v0.5.1
+#23 99.17 [1m[92m   Compiling[0m dtoa v1.0.11
+#23 99.23 [1m[92m   Compiling[0m imgref v1.12.0
+#23 99.29 [1m[92m   Compiling[0m heck v0.5.0
+#23 99.34 [1m[92m   Compiling[0m toml_write v0.1.2
+#23 99.41 [1m[92m   Compiling[0m portable-atomic v1.13.1
+#23 99.55 [1m[92m   Compiling[0m num-bigint-dig v0.8.6
+#23 99.59 [1m[92m   Compiling[0m winnow v0.7.15
+#23 100.2 [1m[92m   Compiling[0m weezl v0.1.12
+#23 100.6 [1m[92m   Compiling[0m toml_edit v0.22.27
+#23 103.3 [1m[92m   Compiling[0m sqlx-macros-core v0.8.6
+#23 103.7 [1m[92m   Compiling[0m loop9 v0.1.5
+#23 103.8 [1m[92m   Compiling[0m time v0.3.47
+#23 104.7 [1m[92m   Compiling[0m dtoa-short v0.3.5
+#23 105.9 [1m[92m   Compiling[0m zune-jpeg v0.5.15
+#23 109.0 [1m[92m   Compiling[0m fax v0.2.6
+#23 111.1 [1m[92m   Compiling[0m reqwest v0.12.28
+#23 118.5 [1m[92m   Compiling[0m darling v0.20.11
+#23 118.5 [1m[92m   Compiling[0m matrix-pickle-derive v0.2.2
+#23 118.7 [1m[92m   Compiling[0m arc-swap v1.9.0
+#23 118.8 [1m[92m   Compiling[0m ordered-multimap v0.7.3
+#23 118.9 [1m[92m   Compiling[0m opentelemetry_sdk v0.31.0
+#23 124.3 [1m[92m   Compiling[0m markup5ever v0.35.0
+#23 124.5 [1m[92m   Compiling[0m pest_derive v2.8.6
+#23 124.7 [1m[92m   Compiling[0m tonic-prost v0.14.5
+#23 124.7 [1m[92m   Compiling[0m ed25519 v2.2.3
+#23 124.8 [1m[92m   Compiling[0m pkcs8 v0.10.2
+#23 125.1 [1m[92m   Compiling[0m matchers v0.2.0
+#23 125.2 [1m[92m   Compiling[0m poly1305 v0.8.0
+#23 125.2 [1m[92m   Compiling[0m polyval v0.6.2
+#23 125.3 [1m[92m   Compiling[0m hashlink v0.8.4
+#23 125.4 [1m[92m   Compiling[0m event-listener-strategy v0.5.4
+#23 125.4 [1m[92m   Compiling[0m avif-serialize v0.8.8
+#23 125.7 [1m[92m   Compiling[0m aes v0.8.4
+#23 125.9 [1m[92m   Compiling[0m chacha20 v0.9.1
+#23 126.0 [1m[92m   Compiling[0m sharded-slab v0.1.7
+#23 126.2 [1m[92m   Compiling[0m prost-derive v0.13.5
+#23 126.7 [1m[92m   Compiling[0m itertools v0.13.0
+#23 127.3 [1m[92m   Compiling[0m fdeflate v0.3.7
+#23 127.6 [1m[92m   Compiling[0m zune-inflate v0.2.54
+#23 127.9 [1m[92m   Compiling[0m combine v4.6.7
+#23 129.3 [1m[92m   Compiling[0m num-iter v0.1.45
+#23 129.3 [1m[92m   Compiling[0m tracing-serde v0.2.0
+#23 129.4 [1m[92m   Compiling[0m tracing-log v0.2.0
+#23 129.5 [1m[92m   Compiling[0m deadpool-runtime v0.1.4
+#23 129.5 [1m[92m   Compiling[0m socket2 v0.5.10
+#23 129.8 [1m[92m   Compiling[0m num_cpus v1.17.0
+#23 130.0 [1m[92m   Compiling[0m thread_local v1.1.9
+#23 130.1 [1m[92m   Compiling[0m cssparser-macros v0.6.1
+#23 130.3 [1m[92m   Compiling[0m match_token v0.35.0
+#23 130.5 [1m[92m   Compiling[0m bit_field v0.10.3
+#23 130.9 [1m[92m   Compiling[0m minimal-lexical v0.2.1
+#23 131.0 [1m[92m   Compiling[0m color_quant v1.1.0
+#23 131.1 [1m[92m   Compiling[0m nu-ansi-term v0.50.3
+#23 131.3 [1m[92m   Compiling[0m untrusted v0.9.0
+#23 131.3 [1m[92m   Compiling[0m sha1_smol v1.0.1
+#23 131.4 [1m[92m   Compiling[0m arraydeque v0.5.1
+#23 131.5 [1m[92m   Compiling[0m pxfm v0.1.29
+#23 134.3 [1m[92m   Compiling[0m rgb v0.8.53
+#23 134.4 [1m[92m   Compiling[0m base64 v0.21.7
+#23 134.6 [1m[92m   Compiling[0m byteorder-lite v0.1.0
+#23 134.7 [1m[92m   Compiling[0m lebe v0.5.3
+#23 134.8 [1m[92m   Compiling[0m unicode-segmentation v1.13.2
+#23 135.0 [1m[92m   Compiling[0m bytemuck v1.25.0
+#23 135.1 [1m[92m   Compiling[0m qoi v0.4.1
+#23 135.2 [1m[92m   Compiling[0m convert_case v0.6.0
+#23 135.5 [1m[92m   Compiling[0m exr v1.74.0
+#23 145.9 [1m[92m   Compiling[0m image-webp v0.2.4
+#23 146.9 [1m[92m   Compiling[0m ron v0.8.1
+#23 147.6 [1m[92m   Compiling[0m ravif v0.13.0
+#23 156.5 [1m[92m   Compiling[0m moxcms v0.8.1
+#23 161.3 [1m[92m   Compiling[0m yaml-rust2 v0.8.1
+#23 162.5 [1m[92m   Compiling[0m redis v0.27.6
+#23 168.4 [1m[92m   Compiling[0m tracing-subscriber v0.3.23
+#23 170.5 [1m[92m   Compiling[0m gif v0.14.2
+#23 171.2 [1m[92m   Compiling[0m nom v7.1.3
+#23 171.8 [1m[92m   Compiling[0m html5ever v0.35.0
+#23 172.3 [1m[92m   Compiling[0m cssparser v0.35.0
+#23 172.8 [1m[92m   Compiling[0m deadpool v0.12.3
+#23 174.9 [1m[92m   Compiling[0m png v0.18.1
+#23 175.8 [1m[92m   Compiling[0m prost v0.13.5
+#23 176.0 [1m[92m   Compiling[0m chacha20poly1305 v0.10.1
+#23 176.0 [1m[92m   Compiling[0m async-lock v3.4.2
+#23 176.3 [1m[92m   Compiling[0m ghash v0.5.1
+#23 176.3 [1m[92m   Compiling[0m pkcs1 v0.7.5
+#23 177.0 [1m[92m   Compiling[0m ed25519-dalek v2.2.0
+#23 177.2 [1m[92m   Compiling[0m opentelemetry-proto v0.31.0
+#23 178.7 [1m[92m   Compiling[0m json5 v0.4.1
+#23 179.6 [1m[92m   Compiling[0m rust-ini v0.20.0
+#23 180.1 [1m[92m   Compiling[0m matrix-pickle v0.2.2
+#23 180.2 [1m[92m   Compiling[0m validator_derive v0.20.0
+#23 180.7 [1m[92m   Compiling[0m opentelemetry-http v0.31.0
+#23 181.4 [1m[92m   Compiling[0m tiff v0.11.3
+#23 182.6 [1m[92m   Compiling[0m simple_asn1 v0.6.4
+#23 183.3 [1m[92m   Compiling[0m sqlx-macros v0.8.6
+#23 184.5 [1m[92m   Compiling[0m toml v0.8.23
+#23 185.3 [1m[92m   Compiling[0m x25519-dalek v2.0.1
+#23 185.4 [1m[92m   Compiling[0m cfb v0.7.3
+#23 185.9 [1m[92m   Compiling[0m regex v1.12.3
+#23 186.3 [1m[92m   Compiling[0m axum-core v0.5.6
+#23 187.0 [1m[92m   Compiling[0m cbc v0.1.2
+#23 187.0 [1m[92m   Compiling[0m ctr v0.9.2
+#23 187.0 [1m[92m   Compiling[0m password-hash v0.5.0
+#23 187.4 [1m[92m   Compiling[0m pem v3.0.6
+#23 187.6 [1m[92m   Compiling[0m blake2 v0.10.6
+#23 187.8 [1m[92m   Compiling[0m crossbeam-channel v0.5.15
+#23 188.1 [1m[92m   Compiling[0m serde_path_to_error v0.1.20
+#23 188.2 [1m[92m   Compiling[0m serde_bytes v0.11.19
+#23 188.3 [1m[92m   Compiling[0m axum-macros v0.5.0
+#23 188.8 [1m[92m   Compiling[0m maplit v1.0.2
+#23 188.8 [1m[92m   Compiling[0m unsafe-libyaml v0.2.11
+#23 189.7 [1m[92m   Compiling[0m matchit v0.8.4
+#23 190.0 [1m[92m   Compiling[0m tagptr v0.2.0
+#23 190.0 [1m[92m   Compiling[0m smawk v0.3.2
+#23 190.0 [1m[92m   Compiling[0m pathdiff v0.2.3
+#23 190.1 [1m[92m   Compiling[0m unicode-linebreak v0.1.5
+#23 190.1 [1m[92m   Compiling[0m unicode-width v0.2.2
+#23 190.2 [1m[92m   Compiling[0m textwrap v0.16.2
+#23 190.8 [1m[92m   Compiling[0m config v0.14.1
+#23 192.7 [1m[92m   Compiling[0m moka v0.12.15
+#23 193.4 [1m[92m   Compiling[0m axum v0.8.8
+#23 195.1 [1m[92m   Compiling[0m serde_yaml v0.9.34+deprecated
+#23 196.2 [1m[92m   Compiling[0m ammonia v4.1.2
+#23 198.4 [1m[92m   Compiling[0m vodozemac v0.9.0
+#23 201.7 [1m[92m   Compiling[0m argon2 v0.5.3
+#23 202.0 [1m[92m   Compiling[0m jsonwebtoken v9.3.1
+#23 203.0 [1m[92m   Compiling[0m aes-gcm v0.10.3
+#23 203.1 [1m[92m   Compiling[0m validator v0.20.0
+#23 203.6 [1m[92m   Compiling[0m infer v0.19.0
+#23 204.0 [1m[92m   Compiling[0m sqlx v0.8.6
+#23 204.1 [1m[92m   Compiling[0m image v0.25.10
+#23 216.0 [1m[92m   Compiling[0m opentelemetry-otlp v0.31.1
+#23 217.3 [1m[92m   Compiling[0m rsa v0.9.10
+#23 218.1 [1m[92m   Compiling[0m deadpool-redis v0.18.0
+#23 218.2 [1m[92m   Compiling[0m tracing-opentelemetry v0.32.1
+#23 218.7 [1m[92m   Compiling[0m futures v0.3.32
+#23 218.7 [1m[92m   Compiling[0m x509-cert v0.2.5
+#23 220.4 [1m[92m   Compiling[0m dashmap v6.1.0
+#23 220.6 [1m[92m   Compiling[0m metrics v0.23.1
+#23 220.8 [1m[92m   Compiling[0m sha1 v0.10.6
+#23 220.9 [1m[92m   Compiling[0m dns-lookup v3.0.1
+#23 221.0 [1m[92m   Compiling[0m quick-xml v0.37.5
+#23 221.6 [1m[92m   Compiling[0m urlencoding v2.1.3
+#23 221.6 [1m[92m   Compiling[0m synapse-common v0.1.0 (/workspace/synapse-common)
+#23 221.8 [1m[33mwarning[0m[1m: unused import: `Value`[0m
+#23 221.8  [1m[94m--> [0msynapse-common/src/error.rs:9:24
+#23 221.8   [1m[94m|[0m
+#23 221.8 [1m[94m9[0m [1m[94m|[0m use serde_json::{json, Value};
+#23 221.8   [1m[94m|[0m                        [1m[33m^^^^^[0m
+#23 221.8   [1m[94m|[0m
+#23 221.8   [1m[94m= [0m[1mnote[0m: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+#23 221.8 
+#23 234.0 [1m[33mwarning[0m: `synapse-common` (lib) generated 1 warning (run `cargo fix --lib -p synapse-common` to apply 1 suggestion)
+#23 234.0 [1m[92m   Compiling[0m synapse-rust v0.1.0 (/workspace)
+#23 237.2 [1m[33mwarning[0m[1m: unused import: `Instant`[0m
+#23 237.2  [1m[94m--> [0msrc/common/backpressure.rs:7:27
+#23 237.2   [1m[94m|[0m
+#23 237.2 [1m[94m7[0m [1m[94m|[0m use std::time::{Duration, Instant};
+#23 237.2   [1m[94m|[0m                           [1m[33m^^^^^^^[0m
+#23 237.2   [1m[94m|[0m
+#23 237.2   [1m[94m= [0m[1mnote[0m: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+#23 237.2 
+#23 237.2 [1m[33mwarning[0m[1m: unused imports: `Verifier` and `VerifyingKey`[0m
+#23 237.2  [1m[94m--> [0msrc/e2ee/crypto/ed25519.rs:5:41
+#23 237.2   [1m[94m|[0m
+#23 237.2 [1m[94m5[0m [1m[94m|[0m use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
+#23 237.2   [1m[94m|[0m                                         [1m[33m^^^^^^^^[0m  [1m[33m^^^^^^^^^^^^[0m
+#23 237.2 
+#23 237.2 [1m[33mwarning[0m[1m: unused import: `crate::services::*`[0m
+#23 237.2  [1m[94m--> [0msrc/services/media_service.rs:5:5
+#23 237.2   [1m[94m|[0m
+#23 237.2 [1m[94m5[0m [1m[94m|[0m use crate::services::*;
+#23 237.2   [1m[94m|[0m     [1m[33m^^^^^^^^^^^^^^^^^^[0m
+#23 237.2 
+#23 237.2 [1m[33mwarning[0m[1m: unused import: `crate::services::*`[0m
+#23 237.2  [1m[94m--> [0msrc/services/registration_service.rs:5:5
+#23 237.2   [1m[94m|[0m
+#23 237.2 [1m[94m5[0m [1m[94m|[0m use crate::services::*;
+#23 237.2   [1m[94m|[0m     [1m[33m^^^^^^^^^^^^^^^^^^[0m
+#23 237.2 
+#23 257.8 [1m[33mwarning[0m[1m: unused import: `sqlx::Row`[0m
+#23 257.8   [1m[94m--> [0msrc/services/room/service.rs:11:5
+#23 257.8    [1m[94m|[0m
+#23 257.8 [1m[94m11[0m [1m[94m|[0m use sqlx::Row;
+#23 257.8    [1m[94m|[0m     [1m[33m^^^^^^^^^[0m
+#23 257.8 
+#23 257.8 [1m[33mwarning[0m[1m: unused import: `crate::services`[0m
+#23 257.8  [1m[94m--> [0msrc/services/sync_service/api.rs:5:5
+#23 257.8   [1m[94m|[0m
+#23 257.8 [1m[94m5[0m [1m[94m|[0m use crate::services::*;
+#23 257.8   [1m[94m|[0m     [1m[33m^^^^^^^^^^^^^^^[0m
+#23 257.8 
+#23 258.1 [1m[33mwarning[0m[1m: unused variable: `permit`[0m
+#23 258.1    [1m[94m--> [0msrc/common/backpressure.rs:158:19
+#23 258.1     [1m[94m|[0m
+#23 258.1 [1m[94m158[0m [1m[94m|[0m             Ok(Ok(permit)) => {
+#23 258.1     [1m[94m|[0m                   [1m[33m^^^^^^[0m [1m[33mhelp: if this is intentional, prefix it with an underscore: `_permit`[0m
+#23 258.1     [1m[94m|[0m
+#23 258.1     [1m[94m= [0m[1mnote[0m: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+#23 258.1 
+#23 258.1 [1m[33mwarning[0m[1m: unused variable: `e`[0m
+#23 258.1    [1m[94m--> [0msrc/common/backpressure.rs:341:17
+#23 258.1     [1m[94m|[0m
+#23 258.1 [1m[94m341[0m [1m[94m|[0m             Err(e) => {
+#23 258.1     [1m[94m|[0m                 [1m[33m^[0m [1m[33mhelp: if this is intentional, prefix it with an underscore: `_e`[0m
+#23 258.1 
+#23 266.1 [1m[33mwarning[0m[1m: field `low_watermark` is never read[0m
+#23 266.1    [1m[94m--> [0msrc/common/backpressure.rs:234:5
+#23 266.1     [1m[94m|[0m
+#23 266.1 [1m[94m232[0m [1m[94m|[0m pub struct PoolWatermarkController {
+#23 266.1     [1m[94m|[0m            [1m[94m-----------------------[0m [1m[94mfield in this struct[0m
+#23 266.1 [1m[94m233[0m [1m[94m|[0m     /// 低水位线
+#23 266.1 [1m[94m234[0m [1m[94m|[0m     low_watermark: usize,
+#23 266.1     [1m[94m|[0m     [1m[33m^^^^^^^^^^^^^[0m
+#23 266.1     [1m[94m|[0m
+#23 266.1     [1m[94m= [0m[1mnote[0m: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+#23 266.1 
+#23 266.1 [1m[33mwarning[0m[1m: struct `AuditPaginationQuery` is never constructed[0m
+#23 266.1     [1m[94m--> [0msrc/web/routes/e2ee_routes.rs:1147:8
+#23 266.1      [1m[94m|[0m
+#23 266.1 [1m[94m1147[0m [1m[94m|[0m struct AuditPaginationQuery {
+#23 266.1      [1m[94m|[0m        [1m[33m^^^^^^^^^^^^^^^^^^^^[0m
+#23 266.1 
+#23 266.1 [1m[33mwarning[0m[1m: function `get_key_history` is never used[0m
+#23 266.1     [1m[94m--> [0msrc/web/routes/e2ee_routes.rs:1153:10
+#23 266.1      [1m[94m|[0m
+#23 266.1 [1m[94m1153[0m [1m[94m|[0m async fn get_key_history(
+#23 266.1      [1m[94m|[0m          [1m[33m^^^^^^^^^^^^^^^[0m
+#23 266.1 
+#23 489.5 [1m[33mwarning[0m: `synapse-rust` (lib) generated 11 warnings (run `cargo fix --lib -p synapse-rust` to apply 6 suggestions)
+#23 507.9 [1m[92m    Finished[0m `release` profile [optimized] target(s) in 8m 27s
+#23 DONE 508.2s
+
+#24 [tools 2/5] RUN apt-get update && apt-get install -y --no-install-recommends     ca-certificates     libssl3     postgresql-client     curl     tini     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+#24 CACHED
+
+#25 [tools 3/5] RUN groupadd -g 1000 synapse &&     useradd -u 1000 -g synapse -m -s /usr/sbin/nologin synapse
+#25 CACHED
+
+#26 [tools 4/5] COPY --chown=1000:1000 --from=builder /out/app /app
+#26 CACHED
+
+#27 [tools 5/5] WORKDIR /app
+#27 CACHED
+
+#28 exporting to image
+#28 exporting layers done
+#28 writing image sha256:0fbd9ca49400b976d68735ea6b99ec42ca4e6db45c05190773803402cad36486 done
+#28 naming to docker.io/library/synapse-rust:latest done
+#28 DONE 0.0s
+
+#29 resolving provenance for metadata file
+#29 DONE 0.0s
+ Image synapse-rust:latest Built 
+[element-web-harness] Starting browser interop stack
+ Network synapse_network Creating 
+ Network synapse_network Created 
+ Volume synapse_redis_data Creating 
+ Volume synapse_redis_data Created 
+ Volume synapse_postgres_data Creating 
+ Volume synapse_postgres_data Created 
+ Container synapse-redis Creating 
+ Container synapse-postgres Creating 
+ Container synapse-element-web Creating 
+ Container synapse-redis Created 
+ Container synapse-element-web Created 
+ Container synapse-postgres Created 
+ Container synapse-rust Creating 
+ Container synapse-rust Created 
+ Container synapse-nginx Creating 
+ Container synapse-nginx Created 
+ Container synapse-postgres Starting 
+ Container synapse-redis Starting 
+ Container synapse-element-web Starting 
+ Container synapse-element-web Started 
+ Container synapse-redis Started 
+ Container synapse-postgres Started 
+ Container synapse-postgres Waiting 
+ Container synapse-redis Waiting 
+ Container synapse-redis Healthy 
+ Container synapse-postgres Healthy 
+ Container synapse-rust Starting 
+ Container synapse-rust Started 
+ Container synapse-rust Waiting 
+ Container synapse-element-web Waiting 
+ Container synapse-element-web Healthy 
+ Container synapse-rust Healthy 
+ Container synapse-nginx Starting 
+ Container synapse-nginx Started 
+[element-web-harness] Waiting for Matrix HTTPS endpoint
+curl: (35) Recv failure: Connection reset by peer
+[element-web-harness] Waiting for Element Web
+[element-web-harness] Registered test user @elementweb_1781096655_14586:matrix.test
+[element-web-harness] Running Element Web test: test:basic
+
+> element-web-harness@0.1.0 test:basic
+> node basic-interactions.mjs
+
+[element-web] opening https://element.test/#/login
+[element-web:debug] Initialised rageshake.
+[element-web:debug] To fix line numbers in Chrome: Meatball menu → Settings → Ignore list → Add /rageshake\.ts & /logger\.ts$
+[element-web:debug] Using Web platform
+[element-web:pageerror] ReferenceError: Cannot access 'B' before initialization
+    at Object.J (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:63156)
+    at y.start (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1350110)
+    at get instance (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1467348)
+    at ./src/stores/widgets/WidgetLayoutStore.ts (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1475314)
+    at a (https://element.test/bundles/cf3bb8c0811189dfa3be/bundle.js:2:17066)
+    at ./src/utils/WidgetUtils.ts (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1582744)
+    at a (https://element.test/bundles/cf3bb8c0811189dfa3be/bundle.js:2:17066)
+    at ./src/stores/ActiveWidgetStore.ts (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1323398)
+    at a (https://element.test/bundles/cf3bb8c0811189dfa3be/bundle.js:2:17066)
+    at ./src/stores/WidgetStore.ts (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1355058)
+[element-web:pageerror] ReferenceError: Cannot access 'B' before initialization
+    at Object.J (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:63156)
+    at l.start (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1350110)
+    at d.start (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1327098)
+    at https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1519871
+    at ./src/stores/widgets/WidgetMessagingStore.ts (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1519882)
+    at a (https://element.test/bundles/cf3bb8c0811189dfa3be/bundle.js:2:17066)
+    at ./src/stores/ActiveWidgetStore.ts (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1323432)
+    at a (https://element.test/bundles/cf3bb8c0811189dfa3be/bundle.js:2:17066)
+    at ./src/stores/WidgetStore.ts (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1355058)
+    at a (https://element.test/bundles/cf3bb8c0811189dfa3be/bundle.js:2:17066)
+[element-web:pageerror] ReferenceError: Cannot access 'B' before initialization
+    at Object.J (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:63156)
+    at l.start (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1350110)
+    at h.start (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1327098)
+    at https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1358258
+    at ./src/stores/WidgetStore.ts (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1358269)
+    at a (https://element.test/bundles/cf3bb8c0811189dfa3be/bundle.js:2:17066)
+    at ./src/modules/ModuleRunner.ts (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:1201994)
+    at a (https://element.test/bundles/cf3bb8c0811189dfa3be/bundle.js:2:17066)
+    at ./src/SecurityManager.ts (https://element.test/bundles/cf3bb8c0811189dfa3be/init.js:1:126865)
+    at a (https://element.test/bundles/cf3bb8c0811189dfa3be/bundle.js:2:17066)
+[element-web:error] Failed to load resource: the server responded with a status of 404 ()
+[element-web:warning] No bug report endpoint set - logs will not be persisted
+[element-web:debug] returning explicit theme: light
+[element-web:debug] returning explicit theme: light
+[element-web:debug] set language to en
+[element-web:debug] Application is running in production mode
+[element-web:debug] Vector starting at https://element.test/
+[element-web:log] startUpdater, current version is 1.12.21
+[element-web:debug] Verifying homeserver configuration
+[element-web:debug] Config uses a default_server_config - validating object
+[element-web:log] No update available, already on 1.12.21
+[element-web:debug] FetchHttpApi: --> GET https://matrix.test/_matrix/client/versions
+[element-web:debug] FetchHttpApi: <-- GET https://matrix.test/_matrix/client/versions [3ms 200]
+[element-web:debug] FetchHttpApi: --> GET https://matrix.test/_matrix/client/unstable/org.matrix.msc2965/auth_metadata
+[element-web:debug] FetchHttpApi: <-- GET https://matrix.test/_matrix/client/unstable/org.matrix.msc2965/auth_metadata [3ms 200]
+[element-web:debug] Using homeserver config: {hsUrl: https://matrix.test, hsName: matrix.test, hsNameIsDifferent: false, isUrl: undefined, isDefault: true}
+[element-web:debug] Updating SdkConfig with validated discovery information
+[element-web:debug] returning explicit theme: light
+[element-web:info] checkSessionLockFree No other session has the lock
+[element-web:info] getSessionLock[1e55a129-bb49-4d13-bce9-3e8a6a59e1af] No other session has the lock: proceeding with startup
+[element-web:debug] No previous session found.
+[element-web:debug] showScreenAfterLogin: showing screen login
+[element-web:debug] showScreen login
+[element-web:debug] MatrixChat: handling action view_welcome_page
+[element-web:debug] MatrixChat: Queuing change of view from LOADING to WELCOME
+[element-web:debug] newscreen welcome
+[element-web:debug] MatrixChat: handling action start_login
+[element-web:debug] MatrixChat: Queuing change of view from LOADING to LOGIN
+[element-web:warning] Recording already started for: mx_PageChange
+[element-web:debug] newscreen login
+[element-web:debug] FetchHttpApi: --> GET https://matrix.test/_matrix/client/versions
+[element-web:debug] FetchHttpApi: <-- GET https://matrix.test/_matrix/client/versions [37ms 200]
+[element-web:debug] FetchHttpApi: --> GET https://matrix.test/_matrix/client/unstable/org.matrix.msc2965/auth_metadata
+[element-web:debug] FetchHttpApi: <-- GET https://matrix.test/_matrix/client/unstable/org.matrix.msc2965/auth_metadata [6ms 200]
+[element-web:error] Failed to get oidc native flow Error: Dynamic registration not supported
+    at d (https://element.test/bundles/cf3bb8c0811189dfa3be/7837.js:2:346785)
+    at https://element.test/bundles/cf3bb8c0811189dfa3be/element-web-app.js:1:38545
+    at async P (https://element.test/bundles/cf3bb8c0811189dfa3be/element-web-app.js:1:38293)
+    at async T.getFlows (https://element.test/bundles/cf3bb8c0811189dfa3be/element-web-app.js:1:37189)
+[element-web:debug] FetchHttpApi: --> GET https://matrix.test/_matrix/client/v3/login
+[element-web:debug] FetchHttpApi: <-- GET https://matrix.test/_matrix/client/v3/login [5ms 200]
+[element-web:debug] Skipping flow {type: m.login.token} due to unsupported login type m.login.token
+[element-web:debug] FetchHttpApi: --> POST https://matrix.test/_matrix/client/v3/login
+[element-web:debug] FetchHttpApi: <-- POST https://matrix.test/_matrix/client/v3/login [130ms 200]
+[element-web:debug] Overrode homeserver setting with https://matrix.test from login response
+[element-web:debug] Created pickle key for @elementweb_1781096655_14586:matrix.test|HrREJiIzh9AhYVho
+[element-web:debug] setLoggedIn: mxid: @elementweb_1781096655_14586:matrix.test deviceId: HrREJiIzh9AhYVho guest: false hs: https://matrix.test softLogout: false  freshLogin: true
+[element-web] Detected setLoggedIn in console!
+[element-web] login smoke passed
+[element-web:info] Clearing storage, deleteEverything=undefined
+[element-web:debug] Removing indexeddb instance: matrix-js-sdk:crypto
+[element-web:info] Removing IndexedDB instance matrix-js-sdk::matrix-sdk-crypto
+[element-web:debug] Removed indexeddb instance: matrix-js-sdk:crypto
+[element-web:info] Removed IndexedDB instance matrix-js-sdk::matrix-sdk-crypto
+[element-web:info] Removing IndexedDB instance matrix-js-sdk::matrix-sdk-crypto-meta
+[element-web:info] Removed IndexedDB instance matrix-js-sdk::matrix-sdk-crypto-meta
+[element-web:debug] IndexedDB worker is ready
+[element-web:debug] Removing indexeddb instance: matrix-js-sdk:riot-web-sync
+[element-web:debug] Removed indexeddb instance: matrix-js-sdk:riot-web-sync
+[element-web:debug] Deleted indexeddb data.
+[element-web:debug] StorageManager: Checking storage consistency
+[element-web:debug] StorageManager: Local storage supported? true
+[element-web:debug] StorageManager: IndexedDB supported? true
+[element-web:debug] StorageManager: Local storage contains data? true
+[element-web:debug] StorageManager: Crypto initialised? false
+[element-web:debug] StorageManager: Sync store using IndexedDB contains data? false
+[element-web:debug] StorageManager: Rust Crypto store using IndexedDB contains data? false
+[element-web:debug] StorageManager: Legacy Crypto store using IndexedDB contains non migrated data? false
+[element-web:debug] StorageManager: Storage consistency checks passed
+[element-web:debug] No refresh token was supplied: access token will not be refreshed
+[element-web:debug] Session persisted for @elementweb_1781096655_14586:matrix.test
+[element-web:debug] Lifecycle: Starting MatrixClient
+[element-web:debug] MatrixChat: handling action will_start_client
+[element-web:debug] EventIndex: Platform doesn't support event indexing, not initializing.
+[element-web:debug] IndexedDBStore.startup: connecting to backend
+[element-web:debug] MatrixClientPeg: waiting for MatrixClient store to initialise
+[element-web:debug] FetchHttpApi: --> GET https://matrix.test/_matrix/client/v3/thirdparty/protocols
+[element-web:debug] MatrixChat: handling action on_logged_in
+[element-web:debug] MatrixChat: handling action do_after_sync_prepared
+[element-web:debug] StorageManager: Persistent? false
+[element-web:debug] FetchHttpApi: <-- GET https://matrix.test/_matrix/client/v3/thirdparty/protocols [5ms 200]
+[element-web:debug] IndexedDB worker is ready
+[element-web:debug] LocalIndexedDBStoreBackend.connect: connecting...
+[element-web:debug] LocalIndexedDBStoreBackend.connect: awaiting connection...
+[element-web:debug] LocalIndexedDBStoreBackend.connect: upgrading from 0
+[element-web:debug] LocalIndexedDBStoreBackend.connect: connected
+[element-web:debug] LocalIndexedDBStoreBackend: loading account data...
+[element-web:debug] LocalIndexedDBStoreBackend: loading sync data...
+[element-web:debug] LocalIndexedDBStoreBackend: loaded account data
+[element-web:debug] LocalIndexedDBStoreBackend: loaded sync data
+[element-web:debug] LocalIndexedDBStoreBackend: loaded initial data
+[element-web:debug] IndexedDBStore.startup: loading presence events
+[element-web:debug] IndexedDBStore.startup: processing presence events
+[element-web:debug] Downloading Rust crypto library
+[element-web:debug] Initialising Rust crypto-sdk WASM artifact
+[element-web:debug] Opening Rust CryptoStore
+[element-web:debug] DEBUG matrix_sdk_indexeddb::crypto_store: IndexedDbCryptoStore: Opening meta-store matrix-js-sdk::matrix-sdk-crypto-meta
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/mod.rs:1767
+[element-web:debug] DEBUG matrix_sdk_indexeddb::crypto_store: IndexedDbCryptoStore: encrypting new store cipher
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/mod.rs:454
+[element-web:debug] DEBUG matrix_sdk_indexeddb::crypto_store: IndexedDbCryptoStore: opening main store matrix-js-sdk::matrix-sdk-crypto
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/mod.rs:356
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v5 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v5 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v6 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v6 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v7 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:57
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations::v5_to_v7: Migrating inbound group session data from v1 to v2
+    row_count=0
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/v5_to_v7.rs:69
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v7 finished
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:73
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v7 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v7 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v8 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:57
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations::v7_to_v8: Fixing inbound group session data keys
+    row_count=0
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/v7_to_v8.rs:49
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v8 finished
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:73
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v8 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v8 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v9 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v9 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v10 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:57
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations::v8_to_v10: Shrinking inbound_group_session records
+    row_count=0
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/v8_to_v10.rs:76
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v10 finished
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:73
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v10 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v10 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v11 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:57
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v11 finished
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:73
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v11 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v11 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v12 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v12 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v13 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v13 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v14 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:57
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v14 finished
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:73
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v14 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v14 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v100 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v100 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v10 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:57
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations::v14_to_v101: Migrating withheld_sessions data
+    row_count=0
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/v14_to_v101.rs:56
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v10 finished
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:73
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v101 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v101 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v102 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v102 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v103 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v103 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v104 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v104 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v105 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:57
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v105 finished
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:73
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v105 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v105 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v106 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v106 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v11 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:57
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore migrate data before v11 finished
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:73
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v107 starting
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:255
+[element-web:info] INFO matrix_sdk_indexeddb::crypto_store::migrations: IndexeddbCryptoStore upgrade schema -> v107 complete
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-indexeddb-0.18.0/src/crypto_store/migrations/mod.rs:269
+[element-web:debug] Init OlmMachine
+[element-web:debug] DEBUG matrix_sdk_crypto::machine: Created a new Olm account
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-crypto-0.18.0/src/machine/mod.rs:364
+    in matrix_sdk_crypto::machine::with_store with user_id="@elementweb_1781096655_14586:matrix.test" device_id="HrREJiIzh9AhYVho" ed25519_key=7hprIbw59D1WLA8TvTg+stGuzfIpeKH6yNDmxhLiJFU curve25519_key=uxFM71VS3DDZOWCgqeDo8n0PzmaNTaT+613ViUbYRl0
+[element-web:debug] DEBUG matrix_sdk_crypto::machine: Creating an empty cross signing identity stub
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-crypto-0.18.0/src/machine/mod.rs:380
+    in matrix_sdk_crypto::machine::with_store with user_id="@elementweb_1781096655_14586:matrix.test" device_id="HrREJiIzh9AhYVho" ed25519_key=7hprIbw59D1WLA8TvTg+stGuzfIpeKH6yNDmxhLiJFU curve25519_key=uxFM71VS3DDZOWCgqeDo8n0PzmaNTaT+613ViUbYRl0
+[element-web:debug] Checking key backup status...
+[element-web:debug] FetchHttpApi: --> GET https://matrix.test/_matrix/client/v3/room_keys/version
+[element-web:debug] DEBUG matrix_sdk_crypto::identities::manager: Created a /keys/query request
+    request_id="6f693e4b96da401d9a7c51e33e84d09e" users=["@elementweb_1781096655_14586:matrix.test"]
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-crypto-0.18.0/src/identities/manager.rs:877
+[element-web:debug] Completed rust crypto-sdk setup
+[element-web:debug] FetchHttpApi: --> GET https://matrix.test/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device
+[element-web:error] Failed to load resource: the server responded with a status of 404 ()
+[element-web:debug] FetchHttpApi: <-- GET https://matrix.test/_matrix/client/v3/room_keys/version [73ms 404]
+[element-web:error] Failed to load resource: the server responded with a status of 404 ()
+[element-web:debug] FetchHttpApi: <-- GET https://matrix.test/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device [63ms 404]
+[element-web:debug] No key backup present on server: not enabling key backup
+[element-web:debug] Starting device dehydration
+[element-web] Screenshot saved: /Users/ljf/Desktop/hu_ts/synapse-rust/artifacts/e2ee-interop-basic/element-web-after-login-1781097186056.png
+[element-web] trying to create a new room...
+[element-web] Screenshot saved: /Users/ljf/Desktop/hu_ts/synapse-rust/artifacts/e2ee-interop-basic/element-web-main-ui-1781097186311.png
+[element-web] could not find create room button, skipping room creation, but login was successful!
+[element-web] Debug: Current page elements...
+[element-web] Buttons found: []

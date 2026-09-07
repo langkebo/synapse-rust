@@ -1,0 +1,4 @@
+-- sample_label: 20260508-203142
+-- generated_at: 2026-05-08T12:31:42Z
+-- db: synapse
+

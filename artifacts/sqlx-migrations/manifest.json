@@ -1,0 +1,8 @@
+{
+  "baseline": "00000000_unified_schema_v11.sql",
+  "count": 2,
+  "migrations": [
+    "00000000_unified_schema_v11.sql",
+    "00000001_extensions_v10.sql"
+  ]
+}

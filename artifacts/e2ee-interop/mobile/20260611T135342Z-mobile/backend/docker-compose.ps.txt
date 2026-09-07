@@ -1,0 +1,6 @@
+NAME                  IMAGE                         COMMAND                   SERVICE        CREATED          STATUS                    PORTS
+synapse-element-web   vectorim/element-web:latest   "/docker-entrypoint.…"   element-web    25 hours ago     Up 25 hours (healthy)     8080/tcp
+synapse-nginx         nginx:1.27-alpine             "/docker-entrypoint.…"   nginx          25 hours ago     Up 25 hours (healthy)     0.0.0.0:80->80/tcp, [::]:80->80/tcp, 0.0.0.0:443->443/tcp, [::]:443->443/tcp, 0.0.0.0:8448->8448/tcp, [::]:8448->8448/tcp
+synapse-postgres      postgres:16                   "docker-entrypoint.s…"   db             25 hours ago     Up 25 hours (healthy)     5432/tcp
+synapse-redis         redis:7-alpine                "docker-entrypoint.s…"   redis          25 hours ago     Up 25 hours (healthy)     6379/tcp
+synapse-rust          synapse-rust:latest           "/usr/bin/tini -- /a…"   synapse-rust   45 seconds ago   Up 44 seconds (healthy)   8008/tcp, 8448/tcp, 9090/tcp
