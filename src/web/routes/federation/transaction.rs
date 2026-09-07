@@ -1,5 +1,4 @@
 use crate::common::*;
-use crate::federation::EduDispatcher;
 use crate::web::middleware::FederationRequestAuth;
 use crate::web::routes::context::FederationContext;
 use crate::web::routes::extractors::TransactionId;
@@ -12,6 +11,10 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+
+mod edus;
+use crate::web::routes::federation::transaction::edus::process_inbound_edus as process_edus;
+use crate::web::routes::federation::transaction::edus::log_edu_summary;
 
 /// See [`send_transaction`].
 pub(super) async fn send_transaction(
@@ -67,115 +70,29 @@ pub(super) async fn send_transaction(
     let inbound_edus_max_per_txn = ctx.config.federation.inbound_edus_max_per_txn;
     let inbound_presence_updates_max_per_txn = ctx.config.federation.inbound_presence_updates_max_per_txn;
 
-    if process_inbound_edus {
-        if let Some(edus) = edus {
-            let mut processed_edus = 0usize;
-            let mut total_processed = 0usize;
-            let mut total_dropped = 0usize;
-            let mut total_errored = 0usize;
-
-            super::increment_gauge(&ctx, "federation_inbound_edu_in_flight");
-
-            let edu_processing = async {
-                let (_global_permit, wait_ms) = super::acquire_with_timeout(
-                    ctx.federation_inbound_edu_semaphore.clone(),
-                    ctx.config.federation.inbound_edu_acquire_timeout_ms,
-                )
-                .await?;
-                super::observe_histogram(&ctx, "federation_inbound_edu_wait_ms", wait_ms as f64);
-
-                let _origin_permit = acquire_origin_edu_permit(&ctx, origin).await?.0;
-
-                if let Some(backoff_ms) = get_presence_backoff_remaining_ms(&ctx, origin).await {
-                    super::increment_counter(&ctx, "federation_inbound_presence_backoff_total");
-                    ::tracing::debug!(
-                        "Skipping presence EDU processing for origin {} due to backoff {}ms",
-                        origin,
-                        backoff_ms
-                    );
-                    // Skip only presence EDUs; other types can still be processed.
-                }
-
-                for edu in edus.iter().take(inbound_edus_max_per_txn) {
-                    processed_edus += 1;
-                    let edu_type_str = edu.get("edu_type").and_then(|v| v.as_str()).unwrap_or("");
-
-                    // Skip presence EDUs when disabled or backoff is active.
-                    if edu_type_str == "m.presence" && !process_inbound_presence_edus {
-                        continue;
-                    }
-                    if edu_type_str == "m.presence" && get_presence_backoff_remaining_ms(&ctx, origin).await.is_some() {
-                        continue;
-                    }
-
-                    // Per-type rate limiting for presence.
-                    let remaining = if edu_type_str == "m.presence" {
-                        inbound_presence_updates_max_per_txn.saturating_sub(total_processed)
-                    } else {
-                        inbound_edus_max_per_txn
-                    };
-
-                    if remaining == 0 {
-                        continue;
-                    }
-
-                    match EduDispatcher::dispatch(&ctx, origin, edu, remaining).await {
-                        Some(result) => {
-                            total_processed += result.processed;
-                            total_dropped += result.dropped;
-                            total_errored += result.errored;
-                            if result.errored > 0 {
-                                break;
-                            }
-                        }
-                        None => {
-                            // Unknown/unsupported EDU type — silently skip.
-                            ::tracing::trace!(
-                                request_id = %request_id,
-                                txn_id = %txn_id,
-                                origin = %origin,
-                                edu_type = edu_type_str,
-                                "Skipping unknown EDU type"
-                            );
-                        }
-                    }
-                }
-                Ok::<(), ApiError>(())
-            }
-            .await;
-
-            if let Err(error) = edu_processing {
-                if error.is_rate_limited() {
-                    super::increment_counter(&ctx, "federation_inbound_edu_limited_total");
-                } else {
-                    super::increment_counter(&ctx, "federation_inbound_edu_error_total");
-                    ::tracing::warn!(
-                        request_id = %request_id,
-                        txn_id = %txn_id,
-                        origin = %origin,
-                        error = %error,
-                        "Failed to process inbound EDUs"
-                    );
-                }
-            }
-
-            super::decrement_gauge(&ctx, "federation_inbound_edu_in_flight");
-
-            ::tracing::debug!(
-                request_id = %request_id,
-                txn_id = %txn_id,
-                origin = %origin,
-                pdu_count = pdus.len(),
-                edu_count = edus.len(),
-                edus_processed = processed_edus,
-                edu_updates_processed = total_processed,
-                edu_updates_dropped = total_dropped,
-                edu_updates_errored = total_errored,
-                "Inbound federation EDU processing summary"
-            );
-        }
+    let edus_array_ref = if process_inbound_edus { edus } else { None };
+    if let Some(edus) = edus_array_ref {
+        let stats = process_edus(
+            &ctx,
+            origin,
+            &txn_id,
+            &request_id,
+            edus,
+            process_inbound_presence_edus,
+            inbound_edus_max_per_txn,
+            inbound_presence_updates_max_per_txn,
+        )
+        .await
+        .unwrap_or_default();
+        log_edu_summary(
+            &request_id,
+            &txn_id,
+            origin,
+            pdus.len(),
+            edus.len(),
+            &stats,
+        );
     }
-
     let mut results = Vec::new();
 
     // F-02: PDU count cap is now a config-driven value (default 50, Matrix

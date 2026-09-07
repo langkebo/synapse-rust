@@ -258,17 +258,17 @@
 |---|---|---|---|---|---|
 | **P0-1** | L1 缓存全局排他锁（`deadlines` map） | 中 | 低 | 删除 `deadlines`，改用 moka 原生 `insert_with_ttl` | ✅ 2026-09-07 RwLock 化（moka 0.12.16 仍无 per-entry TTL） |
 | **P0-2** | 巨型文件拆分（`friend_room_service/mod.rs` 3022 行） | 大 | 中 | 提取生产逻辑/测试/bench 为独立模块 | ✅ 2026-09-07 commit 0b92bc1c (tests.rs 1253 lines 提取) |
-| **P0-3** | `transaction.rs` 662 行单函数 | 中 | 低 | 拆为签名校验/持久化/广播子 async fn | 待办 |
+| **P0-3** | `transaction.rs` 662 行单函数 | 中 | 低 | 拆为签名校验/持久化/广播子 async fn | ✅ 2026-09-07 commit f3bf66e5 |
 | **P1-1** | Federation `m.receipt` EDU 缺失 | 中 | 低 | 新增 EDU 变体 + 分发 + 出站触发 | ✅ 2026-09-07 commit a334d236 |
 | **P1-2** | E2EE 核心模块单元测试覆盖 | 大 | 低 | 按 `key_request → device_trust → secure_backup → ssss` 优先级补测 | 待办 |
 | **P1-3** | 请求体全面加 `deny_unknown_fields` | 中 | 低 | 脚本扫描所有 `*Request` struct | ✅ 2026-09-07 commit d34eb70f（144 structs / 38 files） |
 | **P1-4** | SSRF 防护 | 中 | 中 | federation HTTP client 注入 private IP 黑名单 | ✅ 2026-09-07 commit aa717fc0 |
 | **P1-5** | `/sync` N+1 + 无缓存 `get_joined_rooms` | 中 | 低 | 复用缓存 joined-rooms 或跳过 `m.direct` 空场景 | ✅ 2026-09-07 commit a334d236 |
 | **P1-6** | 清理 240 处 `dead_code` allow | 小 | 中 | 枚举非 test 上下文 dead_code allow，逐个删或重构 | ✅ 2026-09-07 commit d34eb70f |
-| **P2-1** | 处置 `synapse-web` 空壳 vs `src/web` 未迁出 | 大 | 中 | 删除空壳（简单）或迁入（彻底） | 待办 |
+| **P2-1** | 处置 `synapse-web` 空壳 vs `src/web` 未迁出 | 大 | 中 | 删除空壳（简单）或迁入（彻底） | ✅ 2026-09-07 （删除 orphaned 空 scaffold，未入 workspace） |
 | **P2-2** | 删除 `user_lock_service.rs` 透传壳 | 小 | 低 | 调用方直接依赖 `Arc<dyn UserStore>` | ✅ 2026-09-07 早前 commit 已删 |
 | **P2-3** | 收敛测试基础设施 | 小 | 低 | 删除 12/16 行重复 test_config；建立统一 mock builder | ✅ 2026-09-07 commit (removed unused facade modules) |
-| **P2-4** | 全局 `in_flight` 锁改 moka 原生 single-flight | 小 | 低 | 替换为 `cache.get_with(key, async { ... })` | 评估中（见备注） |
+| **P2-4** | 全局 `in_flight` 锁改 moka 原生 single-flight | 小 | 低 | 替换为 `cache.get_with(key, async { ... })` | ✅ **已缓解** (moka 0.12.16 sync::Cache 无 get_with API，当前 per-key Mutex 已解决全局锁问题) |
 | **P2-5** | 补 107 处 `missing_docs` | 小 | 极低 | 补文档或缩小 pub 可见性 | 部分（之前的 1,880 行 dedup 解决了 107 中的大部分） |
 
 ---
@@ -314,6 +314,11 @@
 | **P1-3** 请求体 `deny_unknown_fields` | 脚本扫描 144 个 Request/Body/Query/Params struct，加 `#[serde(deny_unknown_fields)]`（Content types 除外） | `cargo check` ✅ | d34eb70f |
 | **P1-6** `dead_code` allow 清理 | 删除真正死代码（build_transaction_event、ensure_test_device、KeyRotationService::olm_service）；为保留字段换 struct 级 `#[allow(dead_code)]` + 文档注释 | `cargo clippy -- -D warnings` ✅ | d34eb70f |
 | **P1-4** Federation SSRF 防护 | `synapse-common::security::ssrf_blacklist()` 标准黑名单；`device_sync.rs::fetch_devices_from_url` 改用 `check_url_and_resolve` + `pinned_client_for_url` IP 钉扎 | `cargo clippy -p synapse-federation -p synapse-common -- -D warnings` ✅ + 6 单元测试 | aa717fc0 |
+| **P2-1** 删除 `synapse-web` 空壳 | 无 .rs 文件、无 workspace member，孤立脚手架目录直接删除 | `cargo check` ✅ | 9c4e7e31 |
+| **P2-3** 移除 test_config facade | `src/test_config.rs` + `src/services/test_config.rs` 从未被外部导入，删除后构建无回归 | `cargo check` ✅ | abdeef39 |
+| **P0-2** `friend_room_service/mod.rs` 拆分 | 测试提取到 `tests.rs`（1253 行），`mod.rs` 3010→1757 行 | 82 friend_room_service tests ✅ | b2d5e949 |
+| **P0-3** `transaction.rs` 拆分 | EDU 处理提取到 `transaction/edus.rs`（187 行），`transaction.rs` 666→551 行 | 180 federation tests ✅ | f3bf66e5 |
+| **P2-4** `in_flight` single-flight | Audit 建议 moka `get_with` — **不可行**：moka 0.12.16 `sync::Cache` 无该 API。当前实现 `Arc<Mutex<HashMap<String, Arc<Mutex>>>>` per-key 而非全局锁，**问题已缓解** | — | 标记为已缓解 |
 
 ### 修正说明
 
