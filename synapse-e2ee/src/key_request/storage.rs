@@ -5,15 +5,19 @@ use synapse_common::map_database;
 use synapse_common::ApiError;
 
 #[derive(Clone)]
+/// The `KeyRequestStorage` type.
 pub struct KeyRequestStorage {
     pool: PgPool,
 }
 
+/// (see code)
 impl KeyRequestStorage {
+    /// See [`new`].
     pub fn new(pool: &PgPool) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_request`].
     pub async fn create_request(&self, request: &KeyRequestInfo) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -41,6 +45,7 @@ impl KeyRequestStorage {
         Ok(())
     }
 
+    /// See [`get_request`].
     pub async fn get_request(&self, request_id: &str) -> Result<Option<KeyRequestInfo>, ApiError> {
         sqlx::query_as::<_, KeyRequestInfo>(
             r"
@@ -66,6 +71,7 @@ impl KeyRequestStorage {
         .map_err(map_database!("get_request"))
     }
 
+    /// See [`get_requests_for_user`].
     pub async fn get_requests_for_user(&self, user_id: &str) -> Result<Vec<KeyRequestInfo>, ApiError> {
         sqlx::query_as::<_, KeyRequestInfo>(
             r"
@@ -93,6 +99,7 @@ impl KeyRequestStorage {
         .map_err(map_database!("get_requests_for_user"))
     }
 
+    /// See [`get_all_pending_requests`].
     pub async fn get_all_pending_requests(&self) -> Result<Vec<KeyRequestInfo>, ApiError> {
         sqlx::query_as::<_, KeyRequestInfo>(
             r"
@@ -119,6 +126,7 @@ impl KeyRequestStorage {
         .map_err(map_database!("get_all_pending_requests"))
     }
 
+    /// See [`fulfill_request`].
     pub async fn fulfill_request(&self, request_id: &str, device_id: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
@@ -139,6 +147,7 @@ impl KeyRequestStorage {
         Ok(())
     }
 
+    /// See [`cancel_request`].
     pub async fn cancel_request(&self, request_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -155,6 +164,7 @@ impl KeyRequestStorage {
         Ok(())
     }
 
+    /// See [`update_request_status`].
     pub async fn update_request_status(&self, request_id: &str, status: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
@@ -175,6 +185,7 @@ impl KeyRequestStorage {
         Ok(())
     }
 
+    /// See [`delete_request`].
     pub async fn delete_request(&self, request_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -189,6 +200,7 @@ impl KeyRequestStorage {
         Ok(())
     }
 
+    /// See [`delete_old_requests`].
     pub async fn delete_old_requests(&self, older_than_ts: i64) -> Result<u64, ApiError> {
         let result = sqlx::query(
             r"
@@ -204,6 +216,7 @@ impl KeyRequestStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`get_requests_paginated`].
     pub async fn get_requests_paginated(
         &self,
         pagination: KeyRequestPagination<'_>,

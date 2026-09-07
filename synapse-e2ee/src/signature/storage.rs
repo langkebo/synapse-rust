@@ -2,15 +2,19 @@ use super::models::*;
 use sqlx::PgPool;
 use synapse_common::ApiError;
 
+/// The `SignatureStorage` type.
 pub struct SignatureStorage<'a> {
     pool: &'a PgPool,
 }
 
+/// (see code)
 impl<'a> SignatureStorage<'a> {
+    /// See [`new`].
     pub fn new(pool: &'a PgPool) -> Self {
         Self { pool }
     }
 
+    /// See [`create_signature`].
     pub async fn create_signature(&self, signature: &EventSignature) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -33,6 +37,7 @@ impl<'a> SignatureStorage<'a> {
         Ok(())
     }
 
+    /// See [`get_signature`].
     pub async fn get_signature(
         &self,
         event_id: &str,
@@ -64,6 +69,7 @@ impl<'a> SignatureStorage<'a> {
         Ok(row)
     }
 
+    /// See [`get_event_signatures`].
     pub async fn get_event_signatures(&self, event_id: &str) -> Result<Vec<EventSignature>, ApiError> {
         let rows = sqlx::query_as::<_, EventSignature>(
             r"

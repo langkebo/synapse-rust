@@ -9,12 +9,14 @@ use synapse_common::traits::DehydratedDeviceProvider;
 use synapse_common::ApiError;
 
 #[derive(Clone)]
+/// The `CrossSigningService` type.
 pub struct CrossSigningService {
     storage: CrossSigningStorage,
     device_keys_storage: Option<Arc<dyn DeviceKeyStoreApi>>,
     dehydrated_device_service: Option<Arc<dyn DehydratedDeviceProvider>>,
 }
 
+/// (see code)
 impl CrossSigningService {
     async fn record_cross_signing_change(&self, user_id: &str) {
         if let Some(device_keys_storage) = &self.device_keys_storage {
@@ -46,20 +48,24 @@ impl CrossSigningService {
             .ok_or_else(|| ApiError::bad_request(format!("Missing ed25519 key in {field_name}")))
     }
 
+    /// See [`new`].
     pub fn new(storage: CrossSigningStorage) -> Self {
         Self { storage, device_keys_storage: None, dehydrated_device_service: None }
     }
 
+    /// See [`with_device_keys_storage`].
     pub fn with_device_keys_storage(mut self, storage: Arc<dyn DeviceKeyStoreApi>) -> Self {
         self.device_keys_storage = Some(storage);
         self
     }
 
+    /// See [`with_dehydrated_device_service`].
     pub fn with_dehydrated_device_service(mut self, service: Arc<dyn DehydratedDeviceProvider>) -> Self {
         self.dehydrated_device_service = Some(service);
         self
     }
 
+    /// See [`get_cross_signing_keys`].
     pub async fn get_cross_signing_keys(&self, user_id: &str) -> Result<CrossSigningKeys, ApiError> {
         let keys = self.storage.get_cross_signing_keys(user_id).await?;
 
@@ -86,6 +92,7 @@ impl CrossSigningService {
         })
     }
 
+    /// See [`get_public_cross_signing_keys`].
     pub async fn get_public_cross_signing_keys(
         &self,
         user_id: &str,
@@ -99,6 +106,7 @@ impl CrossSigningService {
         Ok((master_key, self_signing_key))
     }
 
+    /// See [`upload_key_signature`].
     pub async fn upload_key_signature(
         &self,
         user_id: &str,
@@ -121,6 +129,7 @@ impl CrossSigningService {
         Ok(())
     }
 
+    /// See [`upload_device_signing_key`].
     pub async fn upload_device_signing_key(
         &self,
         user_id: &str,
@@ -264,6 +273,7 @@ impl CrossSigningService {
         verify_signed_json(user_id, &master_key_id, &master_key.public_key, signature, key_json).unwrap_or(false)
     }
 
+    /// See [`upload_signatures`].
     pub async fn upload_signatures(
         &self,
         user_id: &str,
@@ -304,12 +314,14 @@ impl CrossSigningService {
         Ok(SignatureUploadResponse { fail })
     }
 
+    /// See [`get_user_signatures`].
     pub async fn get_user_signatures(&self, user_id: &str) -> Result<UserSignatures, ApiError> {
         let signatures = self.storage.get_user_signatures(user_id).await?;
 
         Ok(UserSignatures { user_id: user_id.to_string(), signatures })
     }
 
+    /// See [`verify_signature`].
     pub async fn verify_signature(
         &self,
         request: &SignatureVerificationRequest,
@@ -341,6 +353,7 @@ impl CrossSigningService {
         Ok(SignatureVerificationResponse { valid, verified_at: current_timestamp_utc() })
     }
 
+    /// See [`get_device_signatures`].
     pub async fn get_device_signatures(
         &self,
         user_id: &str,
@@ -349,6 +362,7 @@ impl CrossSigningService {
         self.storage.get_device_signatures(user_id, device_id).await
     }
 
+    /// See [`delete_cross_signing_keys`].
     pub async fn delete_cross_signing_keys(&self, user_id: &str) -> Result<(), ApiError> {
         self.storage.delete_cross_signing_keys(user_id).await?;
         self.record_cross_signing_change(user_id).await;
@@ -358,6 +372,7 @@ impl CrossSigningService {
         Ok(())
     }
 
+    /// See [`sign_device`].
     pub async fn sign_device(
         &self,
         user_id: &str,
@@ -379,6 +394,7 @@ impl CrossSigningService {
         self.storage.save_device_signature(&device_sig).await
     }
 
+    /// See [`sign_user`].
     pub async fn sign_user(
         &self,
         user_id: &str,
@@ -400,6 +416,7 @@ impl CrossSigningService {
         self.storage.save_device_signature(&device_sig).await
     }
 
+    /// See [`verify_device_signature`].
     pub async fn verify_device_signature(
         &self,
         user_id: &str,
@@ -475,6 +492,7 @@ impl CrossSigningService {
         }
     }
 
+    /// See [`get_user_verification_status`].
     pub async fn get_user_verification_status(&self, user_id: &str) -> Result<UserVerificationStatus, ApiError> {
         let master_key = self.storage.get_cross_signing_key(user_id, "master").await?;
         let self_signing_key = self.storage.get_cross_signing_key(user_id, "self_signing").await?;
@@ -560,6 +578,7 @@ impl CrossSigningService {
         false
     }
 
+    /// See [`verify_device_key`].
     pub async fn verify_device_key(
         &self,
         user_id: &str,
@@ -668,6 +687,7 @@ impl CrossSigningService {
         })
     }
 
+    /// See [`get_verified_devices`].
     pub async fn get_verified_devices(&self, user_id: &str) -> Result<VerifiedDevicesMap, ApiError> {
         let mut verified_devices = Vec::new();
 

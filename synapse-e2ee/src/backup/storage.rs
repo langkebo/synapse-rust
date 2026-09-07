@@ -5,27 +5,69 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone)]
+/// The `BackupKeyInsertParams` type.
 pub struct BackupKeyInsertParams {
+    /// The `user_id` field.
+    /// The `backup_id` field.
+    /// The `room_id` field.
+    /// The `session_id` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `backup_data` field.
     pub user_id: String,
+    /// The `backup_id` field.
+    /// The `room_id` field.
+    /// The `session_id` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `backup_data` field.
     pub backup_id: String,
+    /// The `room_id` field.
+    /// The `session_id` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `backup_data` field.
     pub room_id: String,
+    /// The `session_id` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `backup_data` field.
     pub session_id: String,
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `backup_data` field.
     pub first_message_index: i64,
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `backup_data` field.
     pub forwarded_count: i64,
+    /// The `is_verified` field.
+    /// The `backup_data` field.
     pub is_verified: bool,
+    /// The `backup_data` field.
     pub backup_data: serde_json::Value,
 }
 
 #[derive(Clone)]
+/// The `KeyBackupStorage` type.
 pub struct KeyBackupStorage {
+    /// The `pool` field.
     pub pool: Arc<PgPool>,
 }
 
+/// (see code)
 impl KeyBackupStorage {
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_backup`].
     pub async fn create_backup(&self, backup: &KeyBackup) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
         sqlx::query(
@@ -68,6 +110,7 @@ impl KeyBackupStorage {
         Ok(())
     }
 
+    /// See [`get_backup`].
     pub async fn get_backup(&self, user_id: &str) -> Result<Option<KeyBackup>, ApiError> {
         let row = sqlx::query_as::<_, KeyBackupRow>(
             r"
@@ -93,6 +136,7 @@ impl KeyBackupStorage {
         Ok(row.map(KeyBackup::from))
     }
 
+    /// See [`get_all_backup_versions`].
     pub async fn get_all_backup_versions(&self, user_id: &str) -> Result<Vec<KeyBackup>, ApiError> {
         let rows = sqlx::query_as::<_, KeyBackupRow>(
             r"
@@ -117,6 +161,7 @@ impl KeyBackupStorage {
         Ok(rows.into_iter().map(KeyBackup::from).collect())
     }
 
+    /// See [`get_backup_version`].
     pub async fn get_backup_version(&self, user_id: &str, version: &str) -> Result<Option<KeyBackup>, ApiError> {
         // E-05: instead of `version.parse().unwrap_or(0)` (which silently
         // degrades UUID or other non-numeric versions to a lookup of
@@ -169,6 +214,7 @@ impl KeyBackupStorage {
         }
     }
 
+    /// See [`delete_backup`].
     pub async fn delete_backup(&self, user_id: &str, version: &str) -> Result<(), ApiError> {
         // E-05: same fix as `get_backup_version` — branch on i64 vs text
         // rather than silently coercing non-numeric versions to 0.
@@ -201,15 +247,19 @@ impl KeyBackupStorage {
 }
 
 #[derive(Clone)]
+/// The `BackupKeyStorage` type.
 pub struct BackupKeyStorage {
     pool: Arc<PgPool>,
 }
 
+/// (see code)
 impl BackupKeyStorage {
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`upload_backup_key`].
     pub async fn upload_backup_key(&self, params: BackupKeyInsertParams) -> Result<(), ApiError> {
         let mut tx = self.pool.begin().await?;
 
@@ -262,6 +312,7 @@ impl BackupKeyStorage {
         Ok(())
     }
 
+    /// See [`get_room_backup_keys`].
     pub async fn get_room_backup_keys(&self, user_id: &str, room_id: &str) -> Result<Vec<BackupKeyInfo>, ApiError> {
         let rows = sqlx::query_as::<_, BackupKeyInfo>(
             r"
@@ -287,6 +338,7 @@ impl BackupKeyStorage {
         Ok(rows)
     }
 
+    /// See [`get_room_backup_keys_by_backup_id`].
     pub async fn get_room_backup_keys_by_backup_id(
         &self,
         user_id: &str,
@@ -320,6 +372,7 @@ impl BackupKeyStorage {
         Ok(rows)
     }
 
+    /// See [`get_backup_keys_by_rooms`].
     pub async fn get_backup_keys_by_rooms(
         &self,
         user_id: &str,
@@ -366,6 +419,7 @@ impl BackupKeyStorage {
         Ok(result)
     }
 
+    /// See [`get_backup_key`].
     pub async fn get_backup_key(
         &self,
         user_id: &str,
@@ -397,6 +451,7 @@ impl BackupKeyStorage {
         Ok(row)
     }
 
+    /// See [`get_backup_key_by_backup_id`].
     pub async fn get_backup_key_by_backup_id(
         &self,
         user_id: &str,
@@ -433,6 +488,7 @@ impl BackupKeyStorage {
         Ok(row)
     }
 
+    /// See [`delete_backup_key`].
     pub async fn delete_backup_key(&self, user_id: &str, room_id: &str, session_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -482,6 +538,7 @@ impl BackupKeyStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`delete_room_for_version`].
     pub async fn delete_room_for_version(&self, user_id: &str, version: &str, room_id: &str) -> Result<u64, ApiError> {
         let result = sqlx::query(
             r"
@@ -502,6 +559,7 @@ impl BackupKeyStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`delete_all_for_version`].
     pub async fn delete_all_for_version(&self, user_id: &str, version: &str) -> Result<u64, ApiError> {
         let result = sqlx::query(
             r"

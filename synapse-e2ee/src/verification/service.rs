@@ -18,21 +18,26 @@ const SAS_EMOJIS: &[&str; 64] = &[
     "🦍", "🦧", "🐘", "🦛", "🦏", "🐪", "🐫",
 ];
 
+/// The `VerificationService` type.
 pub struct VerificationService {
     storage: Arc<VerificationStorage>,
 }
 
+/// (see code)
 impl Clone for VerificationService {
     fn clone(&self) -> Self {
         Self { storage: self.storage.clone() }
     }
 }
 
+/// (see code)
 impl VerificationService {
+    /// See [`new`].
     pub fn new(storage: Arc<VerificationStorage>) -> Self {
         Self { storage }
     }
 
+    /// See [`generate_key_pair`].
     pub fn generate_key_pair(&self) -> (String, String) {
         let secret = StaticSecret::random_from_rng(aes_gcm::aead::OsRng);
         let public = PublicKey::from(&secret);
@@ -45,6 +50,7 @@ impl VerificationService {
         (secret_b64, public_b64)
     }
 
+    /// See [`compute_shared_secret`].
     pub fn compute_shared_secret(&self, our_secret: &str, their_public: &str) -> Result<[u8; 32], ApiError> {
         let secret_bytes = base64::engine::general_purpose::STANDARD.decode(our_secret).map_err(|e| {
             tracing::error!("Invalid secret key: {e}");
@@ -72,6 +78,7 @@ impl VerificationService {
         Ok(*shared_secret.as_bytes())
     }
 
+    /// See [`derive_sas`].
     pub fn derive_sas(&self, shared_secret: &[u8; 32], info: &str) -> [u8; 6] {
         use sha2::{Digest, Sha256};
 
@@ -85,6 +92,7 @@ impl VerificationService {
         sas_bytes
     }
 
+    /// See [`compute_mac`].
     pub fn compute_mac(&self, keys: &[String], shared_secret: &[u8; 32], info: &str) -> Result<String, ApiError> {
         let mut mac = HmacSha256::new_from_slice(shared_secret).map_err(|e| {
             tracing::error!("MAC error: {e}");
@@ -100,6 +108,7 @@ impl VerificationService {
         Ok(base64::engine::general_purpose::STANDARD.encode(result.into_bytes()))
     }
 
+    /// See [`start_sas_verification`].
     pub async fn start_sas_verification(
         &self,
         from_user: &str,
@@ -152,6 +161,7 @@ impl VerificationService {
         Ok(sas_data)
     }
 
+    /// See [`accept_sas`].
     pub async fn accept_sas(
         &self,
         transaction_id: &str,
@@ -221,6 +231,7 @@ impl VerificationService {
         Ok(sas_data)
     }
 
+    /// See [`generate_sas`].
     pub async fn generate_sas(&self, transaction_id: &str, other_pubkey: &str) -> Result<SasResult, ApiError> {
         let request = self.storage.get_request(transaction_id).await?;
         let Some(_request) = request else {
@@ -281,6 +292,7 @@ impl VerificationService {
         })
     }
 
+    /// See [`confirm_sas`].
     pub async fn confirm_sas(&self, transaction_id: &str, mac: &str) -> Result<bool, ApiError> {
         if mac.is_empty() {
             return Err(ApiError::bad_request("MAC must not be empty".to_string()));
@@ -322,20 +334,24 @@ impl VerificationService {
         Ok(true)
     }
 
+    /// See [`get_pending_verifications`].
     pub async fn get_pending_verifications(&self, user_id: &str) -> Result<Vec<VerificationRequest>, ApiError> {
         self.storage.get_pending_verifications(user_id).await
     }
 
+    /// See [`get_request`].
     pub async fn get_request(&self, transaction_id: &str) -> Result<Option<VerificationRequest>, ApiError> {
         self.storage.get_request(transaction_id).await
     }
 
+    /// See [`cancel_verification`].
     pub async fn cancel_verification(&self, transaction_id: &str, code: &str, reason: &str) -> Result<(), ApiError> {
         self.storage.update_state(transaction_id, VerificationState::Cancelled).await?;
         tracing::info!("Verification {} cancelled: {} - {}", transaction_id, code, reason);
         Ok(())
     }
 
+    /// See [`generate_qr_code`].
     pub async fn generate_qr_code(
         &self,
         user_id: &str,
@@ -371,6 +387,7 @@ impl VerificationService {
         Ok(qr_data)
     }
 
+    /// See [`scan_qr_code`].
     pub async fn scan_qr_code(
         &self,
         qr_data: &QrCodeData,

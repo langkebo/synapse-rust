@@ -14,6 +14,7 @@ use synapse_common::ApiError;
 use synapse_storage::DehydratedDeviceStorage;
 
 #[derive(Clone)]
+/// The `DeviceKeyService` type.
 pub struct DeviceKeyService {
     storage: Arc<dyn DeviceKeyStoreApi>,
     cross_signing_storage: Option<Arc<CrossSigningStorage>>,
@@ -21,25 +22,31 @@ pub struct DeviceKeyService {
     cache: Arc<CacheManager>,
 }
 
+/// (see code)
 impl DeviceKeyService {
+    /// See [`new`].
     pub fn new(storage: Arc<dyn DeviceKeyStoreApi>, cache: Arc<CacheManager>) -> Self {
         Self { storage, cross_signing_storage: None, dehydrated_device_storage: None, cache }
     }
 
+    /// See [`with_cross_signing_storage`].
     pub fn with_cross_signing_storage(mut self, storage: Arc<CrossSigningStorage>) -> Self {
         self.cross_signing_storage = Some(storage);
         self
     }
 
+    /// See [`with_dehydrated_device_storage`].
     pub fn with_dehydrated_device_storage(mut self, storage: DehydratedDeviceStorage) -> Self {
         self.dehydrated_device_storage = Some(storage);
         self
     }
 
+    /// See [`query_keys`].
     pub async fn query_keys(&self, request: KeyQueryRequest) -> Result<KeyQueryResponse, ApiError> {
         self.query_keys_internal(request, None).await
     }
 
+    /// See [`query_keys_for_federation`].
     pub async fn query_keys_for_federation(
         &self,
         request: KeyQueryRequest,
@@ -191,6 +198,7 @@ impl DeviceKeyService {
         })
     }
 
+    /// See [`upload_keys`].
     pub async fn upload_keys(
         &self,
         request: KeyUploadRequest,
@@ -480,10 +488,12 @@ impl DeviceKeyService {
         Ok(KeyUploadResponse { one_time_key_counts: serde_json::Value::Object(one_time_key_counts) })
     }
 
+    /// See [`claim_keys`].
     pub async fn claim_keys(&self, request: KeyClaimRequest) -> Result<KeyClaimResponse, ApiError> {
         self.claim_keys_internal(request, None).await
     }
 
+    /// See [`claim_keys_for_federation`].
     pub async fn claim_keys_for_federation(
         &self,
         request: KeyClaimRequest,
@@ -567,6 +577,7 @@ impl DeviceKeyService {
         })
     }
 
+    /// See [`delete_keys`].
     pub async fn delete_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         self.storage.delete_device_keys(user_id, device_id).await?;
 
@@ -578,6 +589,7 @@ impl DeviceKeyService {
         Ok(())
     }
 
+    /// See [`get_key_changes`].
     pub async fn get_key_changes(
         &self,
         from: &str,
@@ -590,6 +602,7 @@ impl DeviceKeyService {
         self.storage.get_key_changes_with_left(from_ts, to_ts, current_user_id).await
     }
 
+    /// See [`upload_signatures`].
     pub async fn upload_signatures(
         &self,
         user_id: &str,

@@ -6,69 +6,181 @@ fn default_json_object() -> serde_json::Value {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `DeviceKey` type.
 pub struct DeviceKey {
+    /// The `id` field.
+    /// The `user_id` field.
+    /// The `device_id` field.
+    /// The `display_name` field.
+    /// The `algorithm` field.
+    /// The `key_id` field.
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `created_ts` field.
+    /// The `updated_ts` field.
     pub id: i64,
+    /// The `user_id` field.
+    /// The `device_id` field.
+    /// The `display_name` field.
+    /// The `algorithm` field.
+    /// The `key_id` field.
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `created_ts` field.
+    /// The `updated_ts` field.
     pub user_id: String,
+    /// The `device_id` field.
+    /// The `display_name` field.
+    /// The `algorithm` field.
+    /// The `key_id` field.
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `created_ts` field.
+    /// The `updated_ts` field.
     pub device_id: String,
+    /// The `display_name` field.
+    /// The `algorithm` field.
+    /// The `key_id` field.
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `created_ts` field.
+    /// The `updated_ts` field.
     pub display_name: Option<String>,
+    /// The `algorithm` field.
+    /// The `key_id` field.
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `created_ts` field.
+    /// The `updated_ts` field.
     pub algorithm: String,
+    /// The `key_id` field.
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `created_ts` field.
+    /// The `updated_ts` field.
     pub key_id: String,
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `created_ts` field.
+    /// The `updated_ts` field.
     pub public_key: String,
+    /// The `signatures` field.
+    /// The `created_ts` field.
+    /// The `updated_ts` field.
     pub signatures: serde_json::Value,
+    /// The `created_ts` field.
+    /// The `updated_ts` field.
     pub created_ts: DateTime<Utc>,
+    /// The `updated_ts` field.
     pub updated_ts: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `DeviceKeys` type.
 pub struct DeviceKeys {
+    /// The `user_id` field.
+    /// The `device_id` field.
+    /// The `algorithms` field.
+    /// The `keys` field.
+    /// The `signatures` field.
+    /// The `unsigned` field.
     pub user_id: String,
+    /// The `device_id` field.
+    /// The `algorithms` field.
+    /// The `keys` field.
+    /// The `signatures` field.
+    /// The `unsigned` field.
     pub device_id: String,
+    /// The `algorithms` field.
+    /// The `keys` field.
+    /// The `signatures` field.
+    /// The `unsigned` field.
     pub algorithms: Vec<String>,
+    /// The `keys` field.
+    /// The `signatures` field.
+    /// The `unsigned` field.
     pub keys: serde_json::Value,
+    /// The `signatures` field.
+    /// The `unsigned` field.
     pub signatures: serde_json::Value,
+    /// The `unsigned` field.
     pub unsigned: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `KeyQueryRequest` type.
 pub struct KeyQueryRequest {
+    /// The `timeout` field.
     pub timeout: Option<u64>,
     #[serde(default = "default_json_object")]
+    /// The `token` field.
     pub device_keys: serde_json::Value,
+    /// The `token` field.
     pub token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `KeyQueryResponse` type.
 pub struct KeyQueryResponse {
+    /// The `device_keys` field.
+    /// The `master_keys` field.
+    /// The `self_signing_keys` field.
+    /// The `user_signing_keys` field.
+    /// The `failures` field.
     pub device_keys: serde_json::Value,
+    /// The `master_keys` field.
+    /// The `self_signing_keys` field.
+    /// The `user_signing_keys` field.
+    /// The `failures` field.
     pub master_keys: serde_json::Value,
+    /// The `self_signing_keys` field.
+    /// The `user_signing_keys` field.
+    /// The `failures` field.
     pub self_signing_keys: serde_json::Value,
+    /// The `user_signing_keys` field.
+    /// The `failures` field.
     pub user_signing_keys: serde_json::Value,
+    /// The `failures` field.
     pub failures: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `KeyUploadRequest` type.
 pub struct KeyUploadRequest {
+    /// The `device_keys` field.
+    /// The `one_time_keys` field.
     pub device_keys: Option<DeviceKeys>,
+    /// The `one_time_keys` field.
     pub one_time_keys: Option<serde_json::Value>,
+    /// The `fallback_keys` field.
     #[serde(default)]
     pub fallback_keys: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `KeyUploadResponse` type.
 pub struct KeyUploadResponse {
+    /// The `one_time_key_counts` field.
     pub one_time_key_counts: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `KeyClaimRequest` type.
 pub struct KeyClaimRequest {
+    /// The `timeout` field.
     pub timeout: Option<u64>,
+    /// The `one_time_keys` field.
     #[serde(default = "default_json_object")]
     pub one_time_keys: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `KeyClaimResponse` type.
 pub struct KeyClaimResponse {
+    /// The `one_time_keys` field.
+    /// The `failures` field.
     pub one_time_keys: serde_json::Value,
+    /// The `failures` field.
     pub failures: serde_json::Value,
 }
 

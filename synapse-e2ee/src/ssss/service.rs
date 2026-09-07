@@ -25,21 +25,26 @@ const SSSS_IV_LENGTH: usize = 12;
 const SSSS_HKDF_INFO: &[u8] = b"matrix:ssss:curve25519-aes-sha2";
 
 #[derive(Clone)]
+/// The `SecretStorageService` type.
 pub struct SecretStorageService {
     storage: SecretStorage,
     dehydrated_device_service: Option<Arc<dyn DehydratedDeviceProvider>>,
 }
 
+/// (see code)
 impl SecretStorageService {
+    /// See [`new`].
     pub fn new(storage: SecretStorage) -> Self {
         Self { storage, dehydrated_device_service: None }
     }
 
+    /// See [`with_dehydrated_device_service`].
     pub fn with_dehydrated_device_service(mut self, service: Arc<dyn DehydratedDeviceProvider>) -> Self {
         self.dehydrated_device_service = Some(service);
         self
     }
 
+    /// See [`create_key`].
     pub fn create_key(&self, _user_id: &str, algorithm: &str) -> Result<SecretStorageKeyCreationTerm, ApiError> {
         let key_id = format!("{}", uuid::Uuid::new_v4());
 
@@ -114,6 +119,7 @@ impl SecretStorageService {
         }
     }
 
+    /// See [`store_key`].
     pub async fn store_key(&self, user_id: &str, key: &SecretStorageKeyCreationTerm) -> Result<(), ApiError> {
         let encrypted_key = match &key.key {
             SecretStorageKeyCreationKey::Curve25519AesSha2(ck) => ck.key.clone(),
@@ -153,6 +159,7 @@ impl SecretStorageService {
         self.storage.create_key(&storage_key).await
     }
 
+    /// See [`store_account_data_key`].
     pub async fn store_account_data_key(&self, user_id: &str, key_id: &str, content: &Value) -> Result<(), ApiError> {
         let algorithm = content
             .get("algorithm")
@@ -185,14 +192,17 @@ impl SecretStorageService {
         self.storage.create_key(&storage_key).await
     }
 
+    /// See [`get_key`].
     pub async fn get_key(&self, user_id: &str, key_id: &str) -> Result<Option<SecretStorageKey>, ApiError> {
         self.storage.get_key(user_id, key_id).await
     }
 
+    /// See [`get_all_keys`].
     pub async fn get_all_keys(&self, user_id: &str) -> Result<Vec<SecretStorageKey>, ApiError> {
         self.storage.get_all_keys(user_id).await
     }
 
+    /// See [`delete_key`].
     pub async fn delete_key(&self, user_id: &str, key_id: &str) -> Result<(), ApiError> {
         self.storage.delete_key(user_id, key_id).await?;
         if let Some(dehydrated_device_service) = &self.dehydrated_device_service {
@@ -201,6 +211,7 @@ impl SecretStorageService {
         Ok(())
     }
 
+    /// See [`encrypt_secret`].
     pub fn encrypt_secret(&self, secret: &str, _key_id: &str, key_data: &SecretStorageKey) -> Result<String, ApiError> {
         match key_data.algorithm.as_str() {
             "org.matrix.msc2697.v1.curve25519-aes-sha2" => Self::encrypt_secret_curve25519(secret, key_data),
@@ -277,6 +288,7 @@ impl SecretStorageService {
         Ok(BASE64.encode(&result))
     }
 
+    /// See [`store_secret`].
     pub async fn store_secret(
         &self,
         user_id: &str,
@@ -293,10 +305,12 @@ impl SecretStorageService {
         self.storage.store_secret(user_id, &secret).await
     }
 
+    /// See [`get_secret`].
     pub async fn get_secret(&self, user_id: &str, secret_name: &str) -> Result<Option<StoredSecret>, ApiError> {
         self.storage.get_secret(user_id, secret_name).await
     }
 
+    /// See [`get_secrets`].
     pub async fn get_secrets(
         &self,
         user_id: &str,
@@ -313,18 +327,22 @@ impl SecretStorageService {
         Ok(result)
     }
 
+    /// See [`delete_secret`].
     pub async fn delete_secret(&self, user_id: &str, secret_name: &str) -> Result<(), ApiError> {
         self.storage.delete_secret(user_id, secret_name).await
     }
 
+    /// See [`delete_secrets`].
     pub async fn delete_secrets(&self, user_id: &str, secret_names: &[String]) -> Result<(), ApiError> {
         self.storage.delete_secrets(user_id, secret_names).await
     }
 
+    /// See [`has_secrets`].
     pub async fn has_secrets(&self, user_id: &str) -> Result<bool, ApiError> {
         self.storage.has_secrets(user_id).await
     }
 
+    /// See [`get_encryption_info`].
     pub fn get_encryption_info(&self, _user_id: &str) -> Result<SecretStorageEncryptionInfo, ApiError> {
         Ok(SecretStorageEncryptionInfo::default())
     }

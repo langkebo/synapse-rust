@@ -3,13 +3,42 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+/// The `EventSignature` type.
 pub struct EventSignature {
+    /// The `id` field.
+    /// The `event_id` field.
+    /// The `user_id` field.
+    /// The `device_id` field.
+    /// The `signature` field.
+    /// The `key_id` field.
+    /// The `created_ts` field.
     pub id: Uuid,
+    /// The `event_id` field.
+    /// The `user_id` field.
+    /// The `device_id` field.
+    /// The `signature` field.
+    /// The `key_id` field.
+    /// The `created_ts` field.
     pub event_id: String,
+    /// The `user_id` field.
+    /// The `device_id` field.
+    /// The `signature` field.
+    /// The `key_id` field.
+    /// The `created_ts` field.
     pub user_id: String,
+    /// The `device_id` field.
+    /// The `signature` field.
+    /// The `key_id` field.
+    /// The `created_ts` field.
     pub device_id: String,
+    /// The `signature` field.
+    /// The `key_id` field.
+    /// The `created_ts` field.
     pub signature: String,
+    /// The `key_id` field.
+    /// The `created_ts` field.
     pub key_id: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 

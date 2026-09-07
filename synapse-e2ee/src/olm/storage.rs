@@ -9,18 +9,74 @@ use synapse_common::ApiError;
 /// including `i32` for `message_index` which the public model widens to `u32`).
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct OlmSessionRow {
+    /// The `session_id` field.
+    /// The `user_id` field.
+    /// The `device_id` field.
+    /// The `sender_key` field.
+    /// The `receiver_key` field.
+    /// The `serialized_state` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub session_id: String,
+    /// The `user_id` field.
+    /// The `device_id` field.
+    /// The `sender_key` field.
+    /// The `receiver_key` field.
+    /// The `serialized_state` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub user_id: String,
+    /// The `device_id` field.
+    /// The `sender_key` field.
+    /// The `receiver_key` field.
+    /// The `serialized_state` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub device_id: String,
+    /// The `sender_key` field.
+    /// The `receiver_key` field.
+    /// The `serialized_state` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub sender_key: String,
+    /// The `receiver_key` field.
+    /// The `serialized_state` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub receiver_key: String,
+    /// The `serialized_state` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub serialized_state: String,
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub message_index: i32,
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub created_ts: i64,
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub last_used_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
 }
 
+/// (see code)
 impl From<OlmSessionRow> for OlmSessionData {
     fn from(row: OlmSessionRow) -> Self {
         OlmSessionData {
@@ -39,15 +95,19 @@ impl From<OlmSessionRow> for OlmSessionData {
 }
 
 #[derive(Clone)]
+/// The `OlmStorage` type.
 pub struct OlmStorage {
     pool: Arc<PgPool>,
 }
 
+/// (see code)
 impl OlmStorage {
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_tables`].
     pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -107,6 +167,7 @@ impl OlmStorage {
         Ok(())
     }
 
+    /// See [`save_account`].
     pub async fn save_account(&self, account: &OlmAccountData) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
@@ -140,6 +201,7 @@ impl OlmStorage {
         Ok(())
     }
 
+    /// See [`load_account`].
     pub async fn load_account(&self, user_id: &str, device_id: &str) -> Result<Option<OlmAccountData>, ApiError> {
         let row: Option<OlmAccountRow> = sqlx::query_as::<_, OlmAccountRow>(
             r"
@@ -170,6 +232,7 @@ impl OlmStorage {
         }))
     }
 
+    /// See [`delete_account`].
     pub async fn delete_account(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -188,6 +251,7 @@ impl OlmStorage {
         Ok(())
     }
 
+    /// See [`save_session`].
     pub async fn save_session(&self, session: &OlmSessionData) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -220,6 +284,7 @@ impl OlmStorage {
         Ok(())
     }
 
+    /// See [`load_sessions`].
     pub async fn load_sessions(&self, user_id: &str, device_id: &str) -> Result<Vec<OlmSessionData>, ApiError> {
         let rows: Vec<OlmSessionRow> = sqlx::query_as::<_, OlmSessionRow>(
             r"
@@ -248,6 +313,7 @@ impl OlmStorage {
         Ok(rows.into_iter().map(Into::into).collect())
     }
 
+    /// See [`load_session`].
     pub async fn load_session(&self, session_id: &str) -> Result<Option<OlmSessionData>, ApiError> {
         let row: Option<OlmSessionRow> = sqlx::query_as::<_, OlmSessionRow>(
             r"
@@ -274,6 +340,7 @@ impl OlmStorage {
         Ok(row.map(Into::into))
     }
 
+    /// See [`load_session_by_sender_key`].
     pub async fn load_session_by_sender_key(
         &self,
         user_id: &str,
@@ -309,6 +376,7 @@ impl OlmStorage {
         Ok(row.map(Into::into))
     }
 
+    /// See [`delete_session`].
     pub async fn delete_session(&self, session_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -324,6 +392,7 @@ impl OlmStorage {
         Ok(())
     }
 
+    /// See [`delete_sessions_for_device`].
     pub async fn delete_sessions_for_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -340,6 +409,7 @@ impl OlmStorage {
         Ok(())
     }
 
+    /// See [`delete_expired_sessions`].
     pub async fn delete_expired_sessions(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();
 
@@ -357,6 +427,7 @@ impl OlmStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`update_session_last_used`].
     pub async fn update_session_last_used(&self, session_id: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
@@ -376,6 +447,7 @@ impl OlmStorage {
         Ok(())
     }
 
+    /// See [`get_session_count`].
     pub async fn get_session_count(&self, user_id: &str, device_id: &str) -> Result<i64, ApiError> {
         let count: i64 = sqlx::query_scalar::<_, i64>(
             r"

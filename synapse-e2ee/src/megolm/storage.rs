@@ -11,20 +11,99 @@ use synapse_common::ApiError;
 /// including BIGINT timestamps that the public model converts to DateTime<Utc>).
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct MegolmSessionRow {
+    /// The `id` field.
+    /// The `session_id` field.
+    /// The `room_id` field.
+    /// The `sender_key` field.
+    /// The `session_key` field.
+    /// The `algorithm` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
+    /// The `pickle_format` field.
+    /// The `vodozemac_pickle` field.
     pub id: uuid::Uuid,
+    /// The `session_id` field.
+    /// The `room_id` field.
+    /// The `sender_key` field.
+    /// The `session_key` field.
+    /// The `algorithm` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
+    /// The `pickle_format` field.
+    /// The `vodozemac_pickle` field.
     pub session_id: String,
+    /// The `room_id` field.
+    /// The `sender_key` field.
+    /// The `session_key` field.
+    /// The `algorithm` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
+    /// The `pickle_format` field.
+    /// The `vodozemac_pickle` field.
     pub room_id: String,
+    /// The `sender_key` field.
+    /// The `session_key` field.
+    /// The `algorithm` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
+    /// The `pickle_format` field.
+    /// The `vodozemac_pickle` field.
     pub sender_key: String,
+    /// The `session_key` field.
+    /// The `algorithm` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
+    /// The `pickle_format` field.
+    /// The `vodozemac_pickle` field.
     pub session_key: String,
+    /// The `algorithm` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
+    /// The `pickle_format` field.
+    /// The `vodozemac_pickle` field.
     pub algorithm: String,
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
+    /// The `pickle_format` field.
+    /// The `vodozemac_pickle` field.
     pub message_index: i64,
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
+    /// The `pickle_format` field.
+    /// The `vodozemac_pickle` field.
     pub created_ts: i64,
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
+    /// The `pickle_format` field.
+    /// The `vodozemac_pickle` field.
     pub last_used_ts: Option<i64>,
+    /// The `expires_at` field.
+    /// The `pickle_format` field.
+    /// The `vodozemac_pickle` field.
     pub expires_at: Option<i64>,
+    /// The `pickle_format` field.
+    /// The `vodozemac_pickle` field.
     pub pickle_format: String,
+    /// The `vodozemac_pickle` field.
     pub vodozemac_pickle: Option<String>,
 }
 
+/// (see code)
 impl From<MegolmSessionRow> for MegolmSession {
     fn from(row: MegolmSessionRow) -> Self {
         let created_ts_dt = chrono::DateTime::from_timestamp_millis(row.created_ts).unwrap_or_else(Utc::now);
@@ -50,15 +129,20 @@ impl From<MegolmSessionRow> for MegolmSession {
 }
 
 #[derive(Clone)]
+/// The `MegolmSessionStorage` type.
 pub struct MegolmSessionStorage {
+    /// The `pool` field.
     pub pool: Arc<PgPool>,
 }
 
+/// (see code)
 impl MegolmSessionStorage {
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_session`].
     pub async fn create_session(&self, session: &MegolmSession) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -89,6 +173,7 @@ impl MegolmSessionStorage {
         Ok(())
     }
 
+    /// See [`get_session`].
     pub async fn get_session(&self, session_id: &str) -> Result<Option<MegolmSession>, ApiError> {
         let row: Option<MegolmSessionRow> = sqlx::query_as::<_, MegolmSessionRow>(
             r"
@@ -117,6 +202,7 @@ impl MegolmSessionStorage {
         Ok(row.map(Into::into))
     }
 
+    /// See [`get_room_sessions`].
     pub async fn get_room_sessions(&self, room_id: &str) -> Result<Vec<MegolmSession>, ApiError> {
         let rows: Vec<MegolmSessionRow> = sqlx::query_as::<_, MegolmSessionRow>(
             r"
@@ -145,6 +231,7 @@ impl MegolmSessionStorage {
         Ok(rows.into_iter().map(Into::into).collect())
     }
 
+    /// See [`update_session`].
     pub async fn update_session(&self, session: &MegolmSession) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -171,6 +258,7 @@ impl MegolmSessionStorage {
         Ok(())
     }
 
+    /// See [`delete_session`].
     pub async fn delete_session(&self, session_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"

@@ -8,18 +8,27 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::map_database;
 use synapse_common::ApiError;
 
+/// The `LeakDetectionService` type.
 pub struct LeakDetectionService {
     storage: Arc<LeakDetectionStorage>,
     config: LeakDetectionConfig,
 }
 
 #[derive(Clone, Debug)]
+/// The `LeakDetectionConfig` type.
 pub struct LeakDetectionConfig {
+    /// The `max_message_index_gap` field.
+    /// The `max_time_gap_hours` field.
+    /// The `enable_detection` field.
     pub max_message_index_gap: u32,
+    /// The `max_time_gap_hours` field.
+    /// The `enable_detection` field.
     pub max_time_gap_hours: i64,
+    /// The `enable_detection` field.
     pub enable_detection: bool,
 }
 
+/// (see code)
 impl Default for LeakDetectionConfig {
     fn default() -> Self {
         Self { max_message_index_gap: 10, max_time_gap_hours: 24, enable_detection: true }
@@ -27,28 +36,67 @@ impl Default for LeakDetectionConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `LeakAlert` type.
 pub struct LeakAlert {
+    /// The `id` field.
+    /// The `key_id` field.
+    /// The `details` field.
+    /// The `created_ts` field.
+    /// The `is_acknowledged` field.
+    /// The `acknowledged_by` field.
+    /// The `acknowledged_at` field.
     pub id: i64,
+    /// The `key_id` field.
+    /// The `details` field.
+    /// The `created_ts` field.
+    /// The `is_acknowledged` field.
+    /// The `acknowledged_by` field.
+    /// The `acknowledged_at` field.
     pub key_id: String,
+    /// The `details` field.
+    /// The `created_ts` field.
+    /// The `is_acknowledged` field.
+    /// The `acknowledged_by` field.
+    /// The `acknowledged_at` field.
     pub details: Option<serde_json::Value>,
+    /// The `created_ts` field.
+    /// The `is_acknowledged` field.
+    /// The `acknowledged_by` field.
+    /// The `acknowledged_at` field.
     pub created_ts: i64,
+    /// The `is_acknowledged` field.
+    /// The `acknowledged_by` field.
+    /// The `acknowledged_at` field.
     pub is_acknowledged: bool,
+    /// The `acknowledged_by` field.
+    /// The `acknowledged_at` field.
     pub acknowledged_by: Option<String>,
+    /// The `acknowledged_at` field.
     pub acknowledged_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `LeakDetectionResult` type.
 pub struct LeakDetectionResult {
+    /// The `has_leak` field.
+    /// The `alerts` field.
+    /// The `risk_level` field.
     pub has_leak: bool,
+    /// The `alerts` field.
+    /// The `risk_level` field.
     pub alerts: Vec<LeakAlert>,
+    /// The `risk_level` field.
     pub risk_level: String,
 }
 
+/// (see code)
 impl LeakDetectionService {
+    /// See [`new`].
     pub fn new(storage: Arc<LeakDetectionStorage>, config: LeakDetectionConfig) -> Self {
         Self { storage, config }
     }
 
+    /// See [`detect_session_leak`].
     pub async fn detect_session_leak(
         &self,
         session: &MegolmSession,
@@ -142,37 +190,60 @@ impl LeakDetectionService {
         Ok(LeakDetectionResult { has_leak, alerts, risk_level: risk_level.to_string() })
     }
 
+    /// See [`get_user_alerts`].
     pub async fn get_user_alerts(&self, user_id: &str) -> Result<Vec<LeakAlert>, ApiError> {
         self.storage.get_user_alerts(user_id).await
     }
 
+    /// See [`acknowledge_alert`].
     pub async fn acknowledge_alert(&self, alert_id: i64, acknowledged_by: &str) -> Result<(), ApiError> {
         self.storage.acknowledge_alert(alert_id, acknowledged_by).await
     }
 
+    /// See [`get_leak_statistics`].
     pub async fn get_leak_statistics(&self) -> Result<LeakStatistics, ApiError> {
         self.storage.get_leak_statistics().await
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `LeakStatistics` type.
 pub struct LeakStatistics {
+    /// The `total_alerts` field.
+    /// The `unresolved_alerts` field.
+    /// The `high_severity_count` field.
+    /// The `medium_severity_count` field.
+    /// The `low_severity_count` field.
     pub total_alerts: i64,
+    /// The `unresolved_alerts` field.
+    /// The `high_severity_count` field.
+    /// The `medium_severity_count` field.
+    /// The `low_severity_count` field.
     pub unresolved_alerts: i64,
+    /// The `high_severity_count` field.
+    /// The `medium_severity_count` field.
+    /// The `low_severity_count` field.
     pub high_severity_count: i64,
+    /// The `medium_severity_count` field.
+    /// The `low_severity_count` field.
     pub medium_severity_count: i64,
+    /// The `low_severity_count` field.
     pub low_severity_count: i64,
 }
 
+/// The `LeakDetectionStorage` type.
 pub struct LeakDetectionStorage {
     pool: Arc<sqlx::PgPool>,
 }
 
+/// (see code)
 impl LeakDetectionStorage {
+    /// See [`new`].
     pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
         Self { pool }
     }
 
+    /// See [`save_alert`].
     pub async fn save_alert(&self, alert: &LeakAlert) -> Result<(), ApiError> {
         sqlx::query(
             "INSERT INTO leak_alerts
@@ -192,10 +263,12 @@ impl LeakDetectionStorage {
         Ok(())
     }
 
+    /// See [`get_session_device_count`].
     pub async fn get_session_device_count(&self, _session_id: &str) -> Result<i64, ApiError> {
         Ok(1)
     }
 
+    /// See [`get_user_alerts`].
     pub async fn get_user_alerts(&self, user_id: &str) -> Result<Vec<LeakAlert>, ApiError> {
         let rows = sqlx::query(
             "SELECT id, key_id, details, created_ts, is_acknowledged, acknowledged_by, acknowledged_at
@@ -225,6 +298,7 @@ impl LeakDetectionStorage {
         Ok(alerts)
     }
 
+    /// See [`acknowledge_alert`].
     pub async fn acknowledge_alert(&self, alert_id: i64, acknowledged_by: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
         sqlx::query(
@@ -242,6 +316,7 @@ impl LeakDetectionStorage {
         Ok(())
     }
 
+    /// See [`get_leak_statistics`].
     pub async fn get_leak_statistics(&self) -> Result<LeakStatistics, ApiError> {
         let row = sqlx::query(
             "SELECT

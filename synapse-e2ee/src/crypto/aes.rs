@@ -33,33 +33,40 @@ const NONCE_PRUNE_BATCH: usize = 256;
 
 // E2EE-03: 密钥材料在 Clone/Drop 时必须零化，与 Ed25519SecretKey 对齐
 #[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
+/// The `Aes256GcmKey` type.
 pub struct Aes256GcmKey {
     bytes: [u8; 32],
 }
 
+/// (see code)
 impl Aes256GcmKey {
+    /// See [`generate`].
     pub fn generate() -> Self {
         let mut bytes = [0u8; 32];
         rand::rng().fill_bytes(&mut bytes);
         Self { bytes }
     }
 
+    /// See [`from_bytes`].
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
         Self { bytes }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// The `Aes256GcmNonce` type.
 pub struct Aes256GcmNonce {
     bytes: [u8; 12],
 }
 
+/// (see code)
 impl Serialize for Aes256GcmNonce {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(self.bytes))
     }
 }
 
+/// (see code)
 impl<'de> Deserialize<'de> for Aes256GcmNonce {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
@@ -68,6 +75,7 @@ impl<'de> Deserialize<'de> for Aes256GcmNonce {
     }
 }
 
+/// (see code)
 impl Aes256GcmNonce {
     fn generate() -> Self {
         let mut bytes = [0u8; 12];
@@ -85,6 +93,7 @@ impl Aes256GcmNonce {
         Ok(Self { bytes: arr })
     }
 
+    /// See [`as_bytes`].
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -92,11 +101,13 @@ impl Aes256GcmNonce {
 
 #[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// The `XChaCha20Poly1305Nonce` type.
 pub struct XChaCha20Poly1305Nonce {
     bytes: [u8; 24],
 }
 
 #[cfg(test)]
+/// (see code)
 impl Serialize for XChaCha20Poly1305Nonce {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&base64::engine::general_purpose::STANDARD.encode(self.bytes))
@@ -104,6 +115,7 @@ impl Serialize for XChaCha20Poly1305Nonce {
 }
 
 #[cfg(test)]
+/// (see code)
 impl<'de> Deserialize<'de> for XChaCha20Poly1305Nonce {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let s = String::deserialize(deserializer)?;
@@ -113,13 +125,16 @@ impl<'de> Deserialize<'de> for XChaCha20Poly1305Nonce {
 }
 
 #[cfg(test)]
+/// (see code)
 impl XChaCha20Poly1305Nonce {
+    /// See [`generate`].
     pub fn generate() -> Self {
         let mut bytes = [0u8; 24];
         rand::rng().fill_bytes(&mut bytes);
         Self { bytes }
     }
 
+    /// See [`from_bytes`].
     pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self, CryptoError> {
         let bytes = bytes.as_ref();
         if bytes.len() != 24 {
@@ -130,6 +145,7 @@ impl XChaCha20Poly1305Nonce {
         Ok(Self { bytes: arr })
     }
 
+    /// See [`as_bytes`].
     pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -137,12 +153,14 @@ impl XChaCha20Poly1305Nonce {
 
 #[cfg(test)]
 #[derive(Debug, Clone)]
+/// The `Aes256GcmCiphertext` type.
 pub struct Aes256GcmCiphertext {
     nonce: Aes256GcmNonce,
     ciphertext: Vec<u8>,
 }
 
 #[cfg(test)]
+/// (see code)
 impl Serialize for Aes256GcmCiphertext {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
@@ -154,6 +172,7 @@ impl Serialize for Aes256GcmCiphertext {
 }
 
 #[cfg(test)]
+/// (see code)
 impl<'de> Deserialize<'de> for Aes256GcmCiphertext {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = serde_json::Value::deserialize(deserializer)?;
@@ -170,21 +189,26 @@ impl<'de> Deserialize<'de> for Aes256GcmCiphertext {
 }
 
 #[cfg(test)]
+/// (see code)
 impl Aes256GcmCiphertext {
+    /// See [`new`].
     pub fn new(nonce: Aes256GcmNonce, ciphertext: Vec<u8>) -> Self {
         Self { nonce, ciphertext }
     }
 
+    /// See [`nonce`].
     pub fn nonce(&self) -> &Aes256GcmNonce {
         &self.nonce
     }
 
+    /// See [`ciphertext`].
     pub fn ciphertext(&self) -> &[u8] {
         &self.ciphertext
     }
 }
 
 #[cfg(test)]
+/// (see code)
 impl AsRef<[u8]> for Aes256GcmCiphertext {
     fn as_ref(&self) -> &[u8] {
         &self.ciphertext
@@ -194,12 +218,14 @@ impl AsRef<[u8]> for Aes256GcmCiphertext {
 #[cfg(test)]
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
+/// The `XChaCha20Poly1305Ciphertext` type.
 pub struct XChaCha20Poly1305Ciphertext {
     nonce: XChaCha20Poly1305Nonce,
     ciphertext: Vec<u8>,
 }
 
 #[cfg(test)]
+/// (see code)
 impl Serialize for XChaCha20Poly1305Ciphertext {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
@@ -211,6 +237,7 @@ impl Serialize for XChaCha20Poly1305Ciphertext {
 }
 
 #[cfg(test)]
+/// (see code)
 impl<'de> Deserialize<'de> for XChaCha20Poly1305Ciphertext {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = serde_json::Value::deserialize(deserializer)?;
@@ -228,21 +255,26 @@ impl<'de> Deserialize<'de> for XChaCha20Poly1305Ciphertext {
 
 #[cfg(test)]
 #[allow(dead_code)]
+/// (see code)
 impl XChaCha20Poly1305Ciphertext {
+    /// See [`new`].
     pub fn new(nonce: XChaCha20Poly1305Nonce, ciphertext: Vec<u8>) -> Self {
         Self { nonce, ciphertext }
     }
 
+    /// See [`nonce`].
     pub fn nonce(&self) -> &XChaCha20Poly1305Nonce {
         &self.nonce
     }
 
+    /// See [`ciphertext`].
     pub fn ciphertext(&self) -> &[u8] {
         &self.ciphertext
     }
 }
 
 #[cfg(test)]
+/// (see code)
 impl AsRef<[u8]> for XChaCha20Poly1305Ciphertext {
     fn as_ref(&self) -> &[u8] {
         &self.ciphertext
@@ -266,6 +298,7 @@ struct NonceKey {
     bytes: [u8; MAX_NONCE_LEN],
 }
 
+/// (see code)
 impl NonceKey {
     /// Returns `None` when the nonce is empty or longer than [`MAX_NONCE_LEN`],
     /// so oversized input is rejected instead of silently truncated.
@@ -280,6 +313,7 @@ impl NonceKey {
 }
 
 #[derive(Debug)]
+/// The `NonceTracker` type.
 pub struct NonceTracker {
     used_nonces: DashSet<NonceKey>,
     /// Insertion order of the tracked nonces, so eviction can drop the
@@ -291,11 +325,14 @@ pub struct NonceTracker {
     max_history_size: usize,
 }
 
+/// (see code)
 impl NonceTracker {
+    /// See [`new`].
     pub fn new() -> Self {
         Self::with_history_size(NONCE_HISTORY_SIZE)
     }
 
+    /// See [`with_history_size`].
     pub fn with_history_size(max_history_size: usize) -> Self {
         Self {
             used_nonces: DashSet::new(),
@@ -305,6 +342,7 @@ impl NonceTracker {
         }
     }
 
+    /// See [`check_and_record`].
     pub fn check_and_record(&self, nonce: &[u8]) -> Result<(), CryptoError> {
         let key = NonceKey::new(nonce).ok_or(CryptoError::InvalidNonceLength)?;
 
@@ -344,14 +382,17 @@ impl NonceTracker {
         }
     }
 
+    /// See [`counter`].
     pub fn counter(&self) -> u64 {
         self.counter.load(Ordering::SeqCst)
     }
 
+    /// See [`is_nonce_used`].
     pub fn is_nonce_used(&self, nonce: &[u8]) -> bool {
         NonceKey::new(nonce).is_some_and(|key| self.used_nonces.contains(&key))
     }
 
+    /// See [`clear`].
     pub fn clear(&self) {
         let mut order = self.order.lock().unwrap_or_else(|e| e.into_inner());
         order.clear();
@@ -360,6 +401,7 @@ impl NonceTracker {
     }
 }
 
+/// (see code)
 impl Default for NonceTracker {
     fn default() -> Self {
         Self::new()
@@ -388,11 +430,14 @@ pub struct SecureNonceGenerator {
     tracker: Arc<NonceTracker>,
 }
 
+/// (see code)
 impl SecureNonceGenerator {
+    /// See [`new`].
     pub fn new(tracker: Arc<NonceTracker>) -> Self {
         Self { counter: AtomicU64::new(0), tracker }
     }
 
+    /// See [`generate_aes_gcm_nonce`].
     pub fn generate_aes_gcm_nonce(&self) -> Result<Aes256GcmNonce, CryptoError> {
         let mut nonce_bytes = [0u8; 12];
         rand::rng().fill_bytes(&mut nonce_bytes);
@@ -405,6 +450,7 @@ impl SecureNonceGenerator {
     }
 
     #[cfg(test)]
+    /// See [`generate_xchacha_nonce`].
     pub fn generate_xchacha_nonce(&self) -> Result<XChaCha20Poly1305Nonce, CryptoError> {
         let counter = self.counter.fetch_add(1, Ordering::SeqCst);
         if counter >= NONCE_COUNTER_MAX {
@@ -422,6 +468,7 @@ impl SecureNonceGenerator {
     }
 
     #[cfg(test)]
+    /// See [`counter`].
     pub fn counter(&self) -> u64 {
         self.counter.load(Ordering::SeqCst)
     }
@@ -443,6 +490,7 @@ pub struct Aes256GcmCipher {
     nonce_generator: Option<Arc<SecureNonceGenerator>>,
 }
 
+/// (see code)
 impl Default for Aes256GcmCipher {
     fn default() -> Self {
         let tracker = Arc::new(NonceTracker::new());
@@ -451,7 +499,9 @@ impl Default for Aes256GcmCipher {
     }
 }
 
+/// (see code)
 impl Aes256GcmCipher {
+    /// See [`with_nonce_tracker`].
     pub fn with_nonce_tracker(tracker: Arc<NonceTracker>) -> Self {
         let nonce_generator = Arc::new(SecureNonceGenerator::new(tracker));
         Self { nonce_generator: Some(nonce_generator) }
@@ -503,6 +553,7 @@ impl Aes256GcmCipher {
         self.nonce_generator.as_ref().map(|gen| gen.tracker().counter()).unwrap_or(0)
     }
 
+    /// See [`decrypt`].
     pub fn decrypt(key: &Aes256GcmKey, nonce: &Aes256GcmNonce, encrypted: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let cipher_key = GenericArray::<u8, U32>::from_slice(&key.bytes);
         let cipher = Aes256Gcm::new(cipher_key);
@@ -517,21 +568,26 @@ impl Aes256GcmCipher {
 
 #[cfg(test)]
 #[derive(Debug)]
+/// The `XChaCha20Poly1305Cipher` type.
 pub struct XChaCha20Poly1305Cipher {
     nonce_generator: Option<Arc<SecureNonceGenerator>>,
 }
 
 #[cfg(test)]
+/// (see code)
 impl XChaCha20Poly1305Cipher {
+    /// See [`new`].
     pub fn new() -> Self {
         Self { nonce_generator: None }
     }
 
+    /// See [`with_nonce_tracker`].
     pub fn with_nonce_tracker(tracker: Arc<NonceTracker>) -> Self {
         let nonce_generator = Arc::new(SecureNonceGenerator::new(tracker));
         Self { nonce_generator: Some(nonce_generator) }
     }
 
+    /// See [`encrypt`].
     pub fn encrypt(&self, key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let nonce = if let Some(ref gen) = self.nonce_generator {
             gen.generate_xchacha_nonce()?
@@ -552,6 +608,7 @@ impl XChaCha20Poly1305Cipher {
         Ok(result)
     }
 
+    /// See [`decrypt`].
     pub fn decrypt(key: &[u8; 32], nonce: &XChaCha20Poly1305Nonce, encrypted: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let cipher = XChaCha20Poly1305::new(key.into());
         let nonce_bytes = XNonce::from_slice(nonce.as_bytes());
@@ -564,6 +621,7 @@ impl XChaCha20Poly1305Cipher {
 }
 
 #[cfg(test)]
+/// (see code)
 impl Default for XChaCha20Poly1305Cipher {
     fn default() -> Self {
         Self::new()
@@ -572,6 +630,7 @@ impl Default for XChaCha20Poly1305Cipher {
 
 #[cfg(test)]
 #[derive(Debug)]
+/// The `E2eeCryptoProvider` type.
 pub struct E2eeCryptoProvider {
     aes_cipher: Aes256GcmCipher,
     xchacha_cipher: XChaCha20Poly1305Cipher,
@@ -580,7 +639,9 @@ pub struct E2eeCryptoProvider {
 
 #[cfg(test)]
 #[allow(dead_code)]
+/// (see code)
 impl E2eeCryptoProvider {
+    /// See [`new`].
     pub fn new() -> Self {
         let nonce_tracker = Arc::new(NonceTracker::new());
         let aes_cipher = Aes256GcmCipher::with_nonce_tracker(Arc::clone(&nonce_tracker));
@@ -589,6 +650,7 @@ impl E2eeCryptoProvider {
         Self { aes_cipher, xchacha_cipher, nonce_tracker }
     }
 
+    /// See [`with_history_size`].
     pub fn with_history_size(max_history_size: usize) -> Self {
         let nonce_tracker = Arc::new(NonceTracker::with_history_size(max_history_size));
         let aes_cipher = Aes256GcmCipher::with_nonce_tracker(Arc::clone(&nonce_tracker));
@@ -597,10 +659,12 @@ impl E2eeCryptoProvider {
         Self { aes_cipher, xchacha_cipher, nonce_tracker }
     }
 
+    /// See [`encrypt_aes`].
     pub fn encrypt_aes(&self, key: &Aes256GcmKey, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         self.aes_cipher.encrypt_with_nonce(key, plaintext)
     }
 
+    /// See [`decrypt_aes`].
     pub fn decrypt_aes(
         &self,
         key: &Aes256GcmKey,
@@ -610,10 +674,12 @@ impl E2eeCryptoProvider {
         Aes256GcmCipher::decrypt(key, nonce, encrypted)
     }
 
+    /// See [`encrypt_xchacha`].
     pub fn encrypt_xchacha(&self, key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         self.xchacha_cipher.encrypt(key, plaintext)
     }
 
+    /// See [`decrypt_xchacha`].
     pub fn decrypt_xchacha(
         key: &[u8; 32],
         nonce: &XChaCha20Poly1305Nonce,
@@ -622,24 +688,29 @@ impl E2eeCryptoProvider {
         XChaCha20Poly1305Cipher::decrypt(key, nonce, encrypted)
     }
 
+    /// See [`nonce_tracker`].
     pub fn nonce_tracker(&self) -> &NonceTracker {
         &self.nonce_tracker
     }
 
+    /// See [`nonce_counter`].
     pub fn nonce_counter(&self) -> u64 {
         self.nonce_tracker.counter()
     }
 
+    /// See [`is_nonce_used`].
     pub fn is_nonce_used(&self, nonce: &[u8]) -> bool {
         self.nonce_tracker.is_nonce_used(nonce)
     }
 
+    /// See [`clear_nonce_history`].
     pub fn clear_nonce_history(&self) {
         self.nonce_tracker.clear();
     }
 }
 
 #[cfg(test)]
+/// (see code)
 impl Default for E2eeCryptoProvider {
     fn default() -> Self {
         Self::new()

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use synapse_common::map_database;
 use synapse_common::ApiError;
 
+/// The `DeviceTrustService` type.
 pub struct DeviceTrustService {
     storage: Arc<DeviceTrustStorage>,
     verification: Arc<VerificationService>,
@@ -19,18 +20,27 @@ pub struct DeviceTrustService {
 }
 
 #[derive(Clone)]
+/// The `DeviceTrustConfig` type.
 pub struct DeviceTrustConfig {
+    /// The `verification_timeout_minutes` field.
+    /// The `max_unverified_devices` field.
+    /// The `require_verification_for_history` field.
     pub verification_timeout_minutes: i64,
+    /// The `max_unverified_devices` field.
+    /// The `require_verification_for_history` field.
     pub max_unverified_devices: i64,
+    /// The `require_verification_for_history` field.
     pub require_verification_for_history: bool,
 }
 
+/// (see code)
 impl Default for DeviceTrustConfig {
     fn default() -> Self {
         Self { verification_timeout_minutes: 5, max_unverified_devices: 3, require_verification_for_history: true }
     }
 }
 
+/// (see code)
 impl Clone for DeviceTrustService {
     fn clone(&self) -> Self {
         Self {
@@ -43,7 +53,9 @@ impl Clone for DeviceTrustService {
     }
 }
 
+/// (see code)
 impl DeviceTrustService {
+    /// See [`new`].
     pub fn new(
         storage: Arc<DeviceTrustStorage>,
         verification: Arc<VerificationService>,
@@ -53,6 +65,7 @@ impl DeviceTrustService {
         Self { storage, verification, cross_signing, device_keys, config: DeviceTrustConfig::default() }
     }
 
+    /// See [`with_config`].
     pub fn with_config(
         storage: Arc<DeviceTrustStorage>,
         verification: Arc<VerificationService>,

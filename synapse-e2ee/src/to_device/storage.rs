@@ -7,26 +7,59 @@ use synapse_common::map_database;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone)]
+/// The `ToDeviceMessage` type.
 pub struct ToDeviceMessage<'a> {
+    /// The `sender_user_id` field.
+    /// The `sender_device_id` field.
+    /// The `recipient_user_id` field.
+    /// The `recipient_device_id` field.
+    /// The `event_type` field.
+    /// The `message_id` field.
+    /// The `content` field.
     pub sender_user_id: &'a str,
+    /// The `sender_device_id` field.
+    /// The `recipient_user_id` field.
+    /// The `recipient_device_id` field.
+    /// The `event_type` field.
+    /// The `message_id` field.
+    /// The `content` field.
     pub sender_device_id: &'a str,
+    /// The `recipient_user_id` field.
+    /// The `recipient_device_id` field.
+    /// The `event_type` field.
+    /// The `message_id` field.
+    /// The `content` field.
     pub recipient_user_id: &'a str,
+    /// The `recipient_device_id` field.
+    /// The `event_type` field.
+    /// The `message_id` field.
+    /// The `content` field.
     pub recipient_device_id: &'a str,
+    /// The `event_type` field.
+    /// The `message_id` field.
+    /// The `content` field.
     pub event_type: &'a str,
+    /// The `message_id` field.
+    /// The `content` field.
     pub message_id: Option<&'a str>,
+    /// The `content` field.
     pub content: Value,
 }
 
 #[derive(Clone)]
+/// The `ToDeviceStorage` type.
 pub struct ToDeviceStorage {
     pool: Arc<Pool<Postgres>>,
 }
 
+/// (see code)
 impl ToDeviceStorage {
+    /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`device_exists`].
     pub async fn device_exists(&self, user_id: &str, device_id: &str) -> Result<bool, ApiError> {
         // Accept either a regular device or a (non-expired) dehydrated device
         // (MSC3814) as a valid recipient — without this, to-device messages
@@ -53,6 +86,7 @@ impl ToDeviceStorage {
         Ok(result.is_some())
     }
 
+    /// See [`record_transaction`].
     pub async fn record_transaction(
         &self,
         sender_user_id: &str,
@@ -78,6 +112,7 @@ impl ToDeviceStorage {
         Ok(row.is_some())
     }
 
+    /// See [`cleanup_old_transactions`].
     pub async fn cleanup_old_transactions(&self, max_age_ms: i64) -> Result<u64, ApiError> {
         let cutoff = current_timestamp_millis() - max_age_ms;
         let result = sqlx::query(
@@ -94,6 +129,7 @@ impl ToDeviceStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`add_message`].
     pub async fn add_message(&self, msg: ToDeviceMessage<'_>) -> Result<(), ApiError> {
         if !self.device_exists(msg.recipient_user_id, msg.recipient_device_id).await? {
             ::tracing::warn!(
@@ -253,6 +289,7 @@ impl ToDeviceStorage {
         Ok(out)
     }
 
+    /// See [`get_messages`].
     pub async fn get_messages(&self, user_id: &str, device_id: &str) -> Result<Vec<Value>, ApiError> {
         let rows = sqlx::query(
             r"
@@ -289,6 +326,7 @@ impl ToDeviceStorage {
         Ok(messages)
     }
 
+    /// See [`get_messages_since`].
     pub async fn get_messages_since(
         &self,
         user_id: &str,
@@ -343,6 +381,7 @@ impl ToDeviceStorage {
         Ok((messages, max_stream_id))
     }
 
+    /// See [`get_current_stream_id`].
     pub async fn get_current_stream_id(&self, user_id: &str, device_id: &str) -> Result<i64, ApiError> {
         let max_id: Option<i64> = sqlx::query_scalar(
             r"
@@ -361,6 +400,7 @@ impl ToDeviceStorage {
         Ok(max_id.unwrap_or(0))
     }
 
+    /// See [`has_messages_since`].
     pub async fn has_messages_since(
         &self,
         user_id: &str,
@@ -387,6 +427,7 @@ impl ToDeviceStorage {
         Ok(row.is_some())
     }
 
+    /// See [`get_and_delete_messages`].
     pub async fn get_and_delete_messages(&self, user_id: &str, device_id: &str) -> Result<Vec<Value>, ApiError> {
         // E2EE-10: Wrap DELETE...RETURNING in a CTE so we can apply
         // ORDER BY stream_id ASC to the returned rows.  PostgreSQL's
@@ -432,6 +473,7 @@ impl ToDeviceStorage {
         Ok(messages)
     }
 
+    /// See [`delete_messages`].
     pub async fn delete_messages(&self, ids: &[i64]) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -447,6 +489,7 @@ impl ToDeviceStorage {
         Ok(())
     }
 
+    /// See [`delete_messages_up_to`].
     pub async fn delete_messages_up_to(&self, user_id: &str, device_id: &str, stream_id: i64) -> Result<(), ApiError> {
         sqlx::query(
             r"

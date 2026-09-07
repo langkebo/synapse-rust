@@ -23,15 +23,19 @@ pub struct InMemoryKeyRotationStorage {
     marked_rotations: Arc<RwLock<Vec<(String, String)>>>,
 }
 
+/// (see code)
 impl InMemoryKeyRotationStorage {
+    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// See [`seed_last_rotation_ts`].
     pub async fn seed_last_rotation_ts(&self, user_id: &str, ts: i64) {
         self.last_rotation_ts.write().await.insert(user_id.to_string(), ts);
     }
 
+    /// See [`seed_device_history`].
     pub async fn seed_device_history(
         &self,
         user_id: &str,
@@ -50,6 +54,7 @@ impl InMemoryKeyRotationStorage {
 }
 
 #[async_trait::async_trait]
+/// (see code)
 impl KeyRotationStorageApi for InMemoryKeyRotationStorage {
     async fn get_user_last_rotation_ts(&self, user_id: &str) -> Result<Option<i64>, ApiError> {
         Ok(self.last_rotation_ts.read().await.get(user_id).copied())
@@ -123,7 +128,9 @@ struct DeviceListStreamEntry {
     created_ts: i64,
 }
 
+/// (see code)
 impl InMemoryDeviceKeyStore {
+    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }
@@ -146,6 +153,7 @@ impl InMemoryDeviceKeyStore {
 }
 
 #[async_trait::async_trait]
+/// (see code)
 impl DeviceKeyStoreApi for InMemoryDeviceKeyStore {
     async fn record_device_list_change_best_effort(&self, user_id: &str, device_id: Option<&str>, change_type: &str) {
         let now = current_timestamp_millis();

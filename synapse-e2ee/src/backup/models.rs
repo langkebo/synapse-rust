@@ -2,30 +2,104 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+/// The `KeyBackup` type.
 pub struct KeyBackup {
+    /// The `user_id` field.
+    /// The `backup_id` field.
+    /// The `version` field.
+    /// The `algorithm` field.
+    /// The `auth_key` field.
+    /// The `mgmt_key` field.
+    /// The `backup_data` field.
+    /// The `etag` field.
     pub user_id: String,
+    /// The `backup_id` field.
+    /// The `version` field.
+    /// The `algorithm` field.
+    /// The `auth_key` field.
+    /// The `mgmt_key` field.
+    /// The `backup_data` field.
+    /// The `etag` field.
     pub backup_id: String,
+    /// The `version` field.
+    /// The `algorithm` field.
+    /// The `auth_key` field.
+    /// The `mgmt_key` field.
+    /// The `backup_data` field.
+    /// The `etag` field.
     pub version: i64,
+    /// The `algorithm` field.
+    /// The `auth_key` field.
+    /// The `mgmt_key` field.
+    /// The `backup_data` field.
+    /// The `etag` field.
     pub algorithm: String,
+    /// The `auth_key` field.
+    /// The `mgmt_key` field.
+    /// The `backup_data` field.
+    /// The `etag` field.
     pub auth_key: String,
+    /// The `mgmt_key` field.
+    /// The `backup_data` field.
+    /// The `etag` field.
     pub mgmt_key: String,
+    /// The `backup_data` field.
+    /// The `etag` field.
     pub backup_data: serde_json::Value,
+    /// The `etag` field.
     pub etag: Option<String>,
 }
 
 /// SQLx row type for KeyBackup — absorbs nullable columns from the DB schema.
 #[derive(sqlx::FromRow)]
 pub struct KeyBackupRow {
+    /// The `user_id` field.
+    /// The `backup_id` field.
+    /// The `version` field.
+    /// The `algorithm` field.
+    /// The `auth_key` field.
+    /// The `mgmt_key` field.
+    /// The `backup_data` field.
+    /// The `etag` field.
     pub user_id: String,
+    /// The `backup_id` field.
+    /// The `version` field.
+    /// The `algorithm` field.
+    /// The `auth_key` field.
+    /// The `mgmt_key` field.
+    /// The `backup_data` field.
+    /// The `etag` field.
     pub backup_id: String,
+    /// The `version` field.
+    /// The `algorithm` field.
+    /// The `auth_key` field.
+    /// The `mgmt_key` field.
+    /// The `backup_data` field.
+    /// The `etag` field.
     pub version: i64,
+    /// The `algorithm` field.
+    /// The `auth_key` field.
+    /// The `mgmt_key` field.
+    /// The `backup_data` field.
+    /// The `etag` field.
     pub algorithm: String,
+    /// The `auth_key` field.
+    /// The `mgmt_key` field.
+    /// The `backup_data` field.
+    /// The `etag` field.
     pub auth_key: Option<String>,
+    /// The `mgmt_key` field.
+    /// The `backup_data` field.
+    /// The `etag` field.
     pub mgmt_key: Option<String>,
+    /// The `backup_data` field.
+    /// The `etag` field.
     pub backup_data: Option<serde_json::Value>,
+    /// The `etag` field.
     pub etag: Option<String>,
 }
 
+/// (see code)
 impl From<KeyBackupRow> for KeyBackup {
     fn from(row: KeyBackupRow) -> Self {
         Self {
@@ -42,117 +116,325 @@ impl From<KeyBackupRow> for KeyBackup {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `BackupVersion` type.
 pub struct BackupVersion {
+    /// The `version` field.
+    /// The `algorithm` field.
+    /// The `auth_data` field.
+    /// The `count` field.
+    /// The `etag` field.
     pub version: String,
+    /// The `algorithm` field.
+    /// The `auth_data` field.
+    /// The `count` field.
+    /// The `etag` field.
     pub algorithm: String,
+    /// The `auth_data` field.
+    /// The `count` field.
+    /// The `etag` field.
     pub auth_data: serde_json::Value,
+    /// The `count` field.
+    /// The `etag` field.
     pub count: i64,
+    /// The `etag` field.
     pub etag: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `BackupUploadRequest` type.
 pub struct BackupUploadRequest {
+    /// The `algorithm` field.
     pub algorithm: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `BackupKeyUploadRequest` type.
 pub struct BackupKeyUploadRequest {
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub first_message_index: i64,
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub forwarded_count: i64,
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub is_verified: bool,
+    /// The `session_data` field.
     pub session_data: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `BackupUploadResponse` type.
 pub struct BackupUploadResponse {
+    /// The `etag` field.
+    /// The `count` field.
     pub etag: String,
+    /// The `count` field.
     pub count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+/// The `BackupKeyInfo` type.
 pub struct BackupKeyInfo {
+    /// The `user_id` field.
+    /// The `backup_id` field.
+    /// The `room_id` field.
+    /// The `session_id` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub user_id: String,
+    /// The `backup_id` field.
+    /// The `room_id` field.
+    /// The `session_id` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub backup_id: String,
+    /// The `room_id` field.
+    /// The `session_id` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub room_id: String,
+    /// The `session_id` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub session_id: String,
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub first_message_index: i64,
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub forwarded_count: i64,
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub is_verified: bool,
+    /// The `session_data` field.
     pub session_data: serde_json::Value,
 }
 
 #[derive(Debug, Clone)]
+/// The `BackupKeyUpload` type.
 pub struct BackupKeyUpload {
+    /// The `session_id` field.
+    /// The `session_data` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
     pub session_id: String,
+    /// The `session_data` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
     pub session_data: String,
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
     pub first_message_index: i64,
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
     pub forwarded_count: i64,
+    /// The `is_verified` field.
     pub is_verified: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `RecoveryRequest` type.
 pub struct RecoveryRequest {
+    /// The `version` field.
+    /// The `rooms` field.
     pub version: String,
+    /// The `rooms` field.
     pub rooms: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `RecoveryResponse` type.
 pub struct RecoveryResponse {
+    /// The `rooms` field.
+    /// The `total_keys` field.
+    /// The `recovered_keys` field.
     pub rooms: serde_json::Value,
+    /// The `total_keys` field.
+    /// The `recovered_keys` field.
     pub total_keys: i64,
+    /// The `recovered_keys` field.
     pub recovered_keys: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `RecoveryProgress` type.
 pub struct RecoveryProgress {
+    /// The `user_id` field.
+    /// The `version` field.
+    /// The `total_keys` field.
+    /// The `recovered_keys` field.
+    /// The `status` field.
+    /// The `started_ts` field.
+    /// The `updated_ts` field.
     pub user_id: String,
+    /// The `version` field.
+    /// The `total_keys` field.
+    /// The `recovered_keys` field.
+    /// The `status` field.
+    /// The `started_ts` field.
+    /// The `updated_ts` field.
     pub version: String,
+    /// The `total_keys` field.
+    /// The `recovered_keys` field.
+    /// The `status` field.
+    /// The `started_ts` field.
+    /// The `updated_ts` field.
     pub total_keys: i64,
+    /// The `recovered_keys` field.
+    /// The `status` field.
+    /// The `started_ts` field.
+    /// The `updated_ts` field.
     pub recovered_keys: i64,
+    /// The `status` field.
+    /// The `started_ts` field.
+    /// The `updated_ts` field.
     pub status: String,
+    /// The `started_ts` field.
+    /// The `updated_ts` field.
     pub started_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `RecoverySession` type.
 pub struct RecoverySession {
+    /// The `user_id` field.
+    /// The `version` field.
+    /// The `room_id` field.
+    /// The `session_id` field.
+    /// The `session_data` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `recovered_ts` field.
     pub user_id: String,
+    /// The `version` field.
+    /// The `room_id` field.
+    /// The `session_id` field.
+    /// The `session_data` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `recovered_ts` field.
     pub version: String,
+    /// The `room_id` field.
+    /// The `session_id` field.
+    /// The `session_data` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `recovered_ts` field.
     pub room_id: String,
+    /// The `session_id` field.
+    /// The `session_data` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `recovered_ts` field.
     pub session_id: String,
+    /// The `session_data` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `recovered_ts` field.
     pub session_data: serde_json::Value,
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `recovered_ts` field.
     pub first_message_index: i64,
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `recovered_ts` field.
     pub forwarded_count: i64,
+    /// The `is_verified` field.
+    /// The `recovered_ts` field.
     pub is_verified: bool,
+    /// The `recovered_ts` field.
     pub recovered_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `BackupVerificationRequest` type.
 pub struct BackupVerificationRequest {
+    /// The `version` field.
     pub version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `BackupVerificationResponse` type.
 pub struct BackupVerificationResponse {
+    /// The `valid` field.
+    /// The `algorithm` field.
+    /// The `auth_data` field.
+    /// The `key_count` field.
+    /// The `signatures` field.
     pub valid: bool,
+    /// The `algorithm` field.
+    /// The `auth_data` field.
+    /// The `key_count` field.
+    /// The `signatures` field.
     pub algorithm: String,
+    /// The `auth_data` field.
+    /// The `key_count` field.
+    /// The `signatures` field.
     pub auth_data: serde_json::Value,
+    /// The `key_count` field.
+    /// The `signatures` field.
     pub key_count: i64,
+    /// The `signatures` field.
     pub signatures: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `BatchRecoveryRequest` type.
 pub struct BatchRecoveryRequest {
+    /// The `version` field.
+    /// The `room_ids` field.
+    /// The `session_limit` field.
     pub version: String,
+    /// The `room_ids` field.
+    /// The `session_limit` field.
     pub room_ids: Vec<String>,
+    /// The `session_limit` field.
     pub session_limit: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `BatchRecoveryResponse` type.
 pub struct BatchRecoveryResponse {
+    /// The `rooms` field.
+    /// The `total_sessions` field.
+    /// The `has_more` field.
+    /// The `next_batch` field.
     pub rooms: serde_json::Map<String, serde_json::Value>,
+    /// The `total_sessions` field.
+    /// The `has_more` field.
+    /// The `next_batch` field.
     pub total_sessions: i64,
+    /// The `has_more` field.
+    /// The `next_batch` field.
     pub has_more: bool,
+    /// The `next_batch` field.
     pub next_batch: Option<String>,
 }
 

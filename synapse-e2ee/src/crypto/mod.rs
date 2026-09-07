@@ -8,35 +8,46 @@ pub use ed25519::{Ed25519KeyPair, Ed25519PublicKey};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
+/// The `CryptoError` enum.
 pub enum CryptoError {
+    /// Invalid base64 encoding.
     #[error("Invalid base64 encoding")]
     InvalidBase64,
 
+    /// Invalid key length.
     #[error("Invalid key length")]
     InvalidKeyLength,
 
+    /// Signature verification failed.
     #[error("Signature verification failed")]
     SignatureVerificationFailed,
 
+    /// Encryption error with details.
     #[error("Encryption error: {0}")]
     EncryptionError(String),
 
+    /// Decryption error with details.
     #[error("Decryption error: {0}")]
     DecryptionError(String),
 
+    /// Hash error with details.
     #[error("Hash error: {0}")]
     HashError(String),
 
+    /// Nonce reuse detected (catastrophic for AES-GCM).
     #[error("Nonce reuse detected")]
     NonceReuseDetected,
 
+    /// Nonce counter overflow.
     #[error("Nonce counter overflow")]
     NonceCounterOverflow,
 
+    /// Invalid nonce length.
     #[error("Invalid nonce length")]
     InvalidNonceLength,
 }
 
+/// (see code)
 impl PartialEq for CryptoError {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -54,6 +65,7 @@ impl PartialEq for CryptoError {
     }
 }
 
+/// (see code)
 impl From<CryptoError> for ApiError {
     fn from(err: CryptoError) -> Self {
         match err {

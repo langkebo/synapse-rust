@@ -14,15 +14,44 @@ use synapse_common::ApiError;
 /// homeserver's SSSS layout.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct SecretStorageKeyRow {
+    /// The `key_id` field.
+    /// The `user_id` field.
+    /// The `algorithm` field.
+    /// The `encrypted_key` field.
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `created_ts` field.
     pub key_id: String,
+    /// The `user_id` field.
+    /// The `algorithm` field.
+    /// The `encrypted_key` field.
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `created_ts` field.
     pub user_id: String,
+    /// The `algorithm` field.
+    /// The `encrypted_key` field.
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `created_ts` field.
     pub algorithm: String,
+    /// The `encrypted_key` field.
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `created_ts` field.
     pub encrypted_key: String,
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `created_ts` field.
     pub public_key: Option<String>,
+    /// The `signatures` field.
+    /// The `created_ts` field.
     pub signatures: Option<serde_json::Value>,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
+/// (see code)
 impl SecretStorageKeyRow {
     fn into_storage_key(self) -> SecretStorageKey {
         SecretStorageKey {
@@ -40,11 +69,18 @@ impl SecretStorageKeyRow {
 /// Internal row representation for `e2ee_stored_secrets`.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct StoredSecretRow {
+    /// The `secret_name` field.
+    /// The `encrypted_secret` field.
+    /// The `key_id` field.
     pub secret_name: String,
+    /// The `encrypted_secret` field.
+    /// The `key_id` field.
     pub encrypted_secret: Option<String>,
+    /// The `key_id` field.
     pub key_id: Option<String>,
 }
 
+/// (see code)
 impl StoredSecretRow {
     fn into_stored_secret(self) -> StoredSecret {
         StoredSecret {
@@ -56,15 +92,19 @@ impl StoredSecretRow {
 }
 
 #[derive(Clone)]
+/// The `SecretStorage` type.
 pub struct SecretStorage {
     pool: PgPool,
 }
 
+/// (see code)
 impl SecretStorage {
+    /// See [`new`].
     pub fn new(pool: &PgPool) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_key`].
     pub async fn create_key(&self, key: &SecretStorageKey) -> Result<(), ApiError> {
         let result = sqlx::query(
             r"
@@ -108,6 +148,7 @@ impl SecretStorage {
         Ok(())
     }
 
+    /// See [`get_key`].
     pub async fn get_key(&self, user_id: &str, key_id: &str) -> Result<Option<SecretStorageKey>, ApiError> {
         let row: Option<SecretStorageKeyRow> = sqlx::query_as::<_, SecretStorageKeyRow>(
             r"
@@ -132,6 +173,7 @@ impl SecretStorage {
         Ok(row.map(SecretStorageKeyRow::into_storage_key))
     }
 
+    /// See [`get_all_keys`].
     pub async fn get_all_keys(&self, user_id: &str) -> Result<Vec<SecretStorageKey>, ApiError> {
         let rows: Vec<SecretStorageKeyRow> = sqlx::query_as::<_, SecretStorageKeyRow>(
             r"
@@ -155,6 +197,7 @@ impl SecretStorage {
         Ok(rows.into_iter().map(SecretStorageKeyRow::into_storage_key).collect())
     }
 
+    /// See [`delete_key`].
     pub async fn delete_key(&self, user_id: &str, key_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -172,6 +215,7 @@ impl SecretStorage {
         Ok(())
     }
 
+    /// See [`store_secret`].
     pub async fn store_secret(&self, user_id: &str, secret: &StoredSecret) -> Result<(), ApiError> {
         let now_ts = current_timestamp_millis();
         sqlx::query(
@@ -202,6 +246,7 @@ impl SecretStorage {
         Ok(())
     }
 
+    /// See [`get_secret`].
     pub async fn get_secret(&self, user_id: &str, secret_name: &str) -> Result<Option<StoredSecret>, ApiError> {
         let row: Option<StoredSecretRow> = sqlx::query_as::<_, StoredSecretRow>(
             r"
@@ -222,6 +267,7 @@ impl SecretStorage {
         Ok(row.map(StoredSecretRow::into_stored_secret))
     }
 
+    /// See [`get_secrets`].
     pub async fn get_secrets(&self, user_id: &str, secret_names: &[String]) -> Result<Vec<StoredSecret>, ApiError> {
         if secret_names.is_empty() {
             return Ok(Vec::new());
@@ -246,6 +292,7 @@ impl SecretStorage {
         Ok(rows.into_iter().map(StoredSecretRow::into_stored_secret).collect())
     }
 
+    /// See [`delete_secret`].
     pub async fn delete_secret(&self, user_id: &str, secret_name: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -262,6 +309,7 @@ impl SecretStorage {
         Ok(())
     }
 
+    /// See [`delete_secrets`].
     pub async fn delete_secrets(&self, user_id: &str, secret_names: &[String]) -> Result<(), ApiError> {
         if secret_names.is_empty() {
             return Ok(());
@@ -282,6 +330,7 @@ impl SecretStorage {
         Ok(())
     }
 
+    /// See [`has_secrets`].
     pub async fn has_secrets(&self, user_id: &str) -> Result<bool, ApiError> {
         let count: i64 = sqlx::query_scalar::<_, i64>(
             r"

@@ -11,19 +11,86 @@ use synapse_common::ApiError;
 /// `DeviceKey` struct uses `DateTime<Utc>`, so we convert after the row lands.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct DeviceKeyRow {
+    /// The `user_id` field.
+    /// The `device_id` field.
+    /// The `algorithm` field.
+    /// The `key_id` field.
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `display_name` field.
+    /// The `added_ts` field.
+    /// The `ts_updated_ms` field.
+    /// The `key_data` field.
+    /// The `is_fallback` field.
     pub user_id: String,
+    /// The `device_id` field.
+    /// The `algorithm` field.
+    /// The `key_id` field.
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `display_name` field.
+    /// The `added_ts` field.
+    /// The `ts_updated_ms` field.
+    /// The `key_data` field.
+    /// The `is_fallback` field.
     pub device_id: String,
+    /// The `algorithm` field.
+    /// The `key_id` field.
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `display_name` field.
+    /// The `added_ts` field.
+    /// The `ts_updated_ms` field.
+    /// The `key_data` field.
+    /// The `is_fallback` field.
     pub algorithm: String,
+    /// The `key_id` field.
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `display_name` field.
+    /// The `added_ts` field.
+    /// The `ts_updated_ms` field.
+    /// The `key_data` field.
+    /// The `is_fallback` field.
     pub key_id: String,
+    /// The `public_key` field.
+    /// The `signatures` field.
+    /// The `display_name` field.
+    /// The `added_ts` field.
+    /// The `ts_updated_ms` field.
+    /// The `key_data` field.
+    /// The `is_fallback` field.
     pub public_key: String,
+    /// The `signatures` field.
+    /// The `display_name` field.
+    /// The `added_ts` field.
+    /// The `ts_updated_ms` field.
+    /// The `key_data` field.
+    /// The `is_fallback` field.
     pub signatures: Option<serde_json::Value>,
+    /// The `display_name` field.
+    /// The `added_ts` field.
+    /// The `ts_updated_ms` field.
+    /// The `key_data` field.
+    /// The `is_fallback` field.
     pub display_name: Option<String>,
+    /// The `added_ts` field.
+    /// The `ts_updated_ms` field.
+    /// The `key_data` field.
+    /// The `is_fallback` field.
     pub added_ts: i64,
+    /// The `ts_updated_ms` field.
+    /// The `key_data` field.
+    /// The `is_fallback` field.
     pub ts_updated_ms: Option<i64>,
+    /// The `key_data` field.
+    /// The `is_fallback` field.
     pub key_data: Option<String>,
+    /// The `is_fallback` field.
     pub is_fallback: Option<bool>,
 }
 
+/// (see code)
 impl DeviceKeyRow {
     fn into_device_key(self) -> DeviceKey {
         let parsed: serde_json::Value =
@@ -56,7 +123,9 @@ impl DeviceKeyRow {
 }
 
 #[derive(Clone)]
+/// The `DeviceKeyStorage` type.
 pub struct DeviceKeyStorage {
+    /// The `pool` field.
     pub pool: Arc<PgPool>,
 }
 
@@ -66,9 +135,13 @@ pub struct DeviceKeyStorage {
 /// implementations do not need database lifecycle management.
 #[async_trait::async_trait]
 pub trait DeviceKeyStoreApi: Send + Sync {
+    /// Best-effort recording of device list changes for debugging.
     async fn record_device_list_change_best_effort(&self, user_id: &str, device_id: Option<&str>, change_type: &str);
+    /// Persist a device key to the database.
     async fn create_device_key(&self, key: &DeviceKey) -> Result<(), ApiError>;
+    /// Persist a fallback key to the database.
     async fn create_fallback_key(&self, key: &DeviceKey) -> Result<(), ApiError>;
+    /// Delete all fallback keys for a given device.
     async fn delete_fallback_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError>;
     /// Returns algorithms of fallback keys that have NOT been claimed yet.
     ///
@@ -77,39 +150,53 @@ pub trait DeviceKeyStoreApi: Send + Sync {
     /// The client sees the algorithm disappear and uploads a new fallback key.
     /// The old fallback key is NOT deleted (can be reused by other sessions).
     async fn get_unused_fallback_key_types(&self, user_id: &str, device_id: &str) -> Result<Vec<String>, ApiError>;
+    /// Get a single device key by user/device/algorithm.
     async fn get_device_key(
         &self,
         user_id: &str,
         device_id: &str,
         algorithm: &str,
     ) -> Result<Option<DeviceKey>, ApiError>;
+    /// Get multiple device keys by user and a list of device IDs.
     async fn get_device_keys(&self, user_id: &str, device_ids: &[String]) -> Result<Vec<DeviceKey>, ApiError>;
+    /// Get all device keys for a user.
     async fn get_all_device_keys(&self, user_id: &str) -> Result<Vec<DeviceKey>, ApiError>;
+    /// Get all device keys for a batch of user IDs.
     async fn get_all_device_keys_batch(&self, user_ids: &[String])
         -> Result<HashMap<String, Vec<DeviceKey>>, ApiError>;
+    /// Delete a single device key.
     async fn delete_device_key(&self, user_id: &str, device_id: &str, algorithm: &str) -> Result<(), ApiError>;
+    /// Get device count for a user.
     async fn get_device_count(&self, user_id: &str) -> Result<i64, ApiError>;
+    /// Get device counts for a batch of users.
     async fn get_device_counts_batch(&self, user_ids: &[String]) -> Result<HashMap<String, i64>, sqlx::Error>;
+    /// Delete all device keys for a device.
     async fn delete_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError>;
+    /// Get the count of one-time keys for a device.
     async fn get_one_time_keys_count(&self, user_id: &str, device_id: &str) -> Result<i64, ApiError>;
+    /// Get one-time-key counts grouped by algorithm.
     async fn get_one_time_keys_count_by_algorithm(
         &self,
         user_id: &str,
         device_id: &str,
     ) -> Result<std::collections::HashMap<String, i64>, ApiError>;
+    /// Claim a single one-time key for outbound session establishment.
     async fn claim_one_time_key(
         &self,
         user_id: &str,
         device_id: &str,
         algorithm: &str,
     ) -> Result<Option<DeviceKey>, ApiError>;
+    /// Get device ID changes since `from_ts` up to `to_ts`.
     async fn get_key_changes(&self, from_ts: i64, to_ts: i64) -> Result<Vec<String>, ApiError>;
+    /// Get device ID changes plus the users who left.
     async fn get_key_changes_with_left(
         &self,
         from_ts: i64,
         to_ts: i64,
         current_user_id: &str,
     ) -> Result<(Vec<String>, Vec<String>), ApiError>;
+    /// Persist an Ed25519 signature on a device key.
     async fn store_signature(
         &self,
         target_user_id: &str,
@@ -120,11 +207,14 @@ pub trait DeviceKeyStoreApi: Send + Sync {
     ) -> Result<(), ApiError>;
 }
 
+/// (see code)
 impl DeviceKeyStorage {
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_tables`].
     pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -182,6 +272,7 @@ impl DeviceKeyStorage {
 }
 
 #[async_trait::async_trait]
+/// (see code)
 impl DeviceKeyStoreApi for DeviceKeyStorage {
     async fn record_device_list_change_best_effort(&self, user_id: &str, device_id: Option<&str>, change_type: &str) {
         let now = current_timestamp_millis();

@@ -11,6 +11,7 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::map_database;
 use synapse_common::ApiError;
 
+/// The `KeyRotationService` type.
 pub struct KeyRotationService {
     #[allow(dead_code)]
     olm_service: Arc<OlmService>,
@@ -24,13 +25,25 @@ const DEFAULT_MEGOLM_ROTATION_MESSAGES: i64 = 100;
 const DEFAULT_MAX_SESSION_AGE_DAYS: i64 = 90;
 
 #[derive(Clone, Debug)]
+/// The `KeyRotationConfig` type.
 pub struct KeyRotationConfig {
+    /// The `olm_rotation_days` field.
+    /// The `megolm_rotation_messages` field.
+    /// The `max_session_age_days` field.
+    /// The `enable_auto_rotation` field.
     pub olm_rotation_days: i64,
+    /// The `megolm_rotation_messages` field.
+    /// The `max_session_age_days` field.
+    /// The `enable_auto_rotation` field.
     pub megolm_rotation_messages: i64,
+    /// The `max_session_age_days` field.
+    /// The `enable_auto_rotation` field.
     pub max_session_age_days: i64,
+    /// The `enable_auto_rotation` field.
     pub enable_auto_rotation: bool,
 }
 
+/// (see code)
 impl Default for KeyRotationConfig {
     fn default() -> Self {
         Self {
@@ -42,7 +55,9 @@ impl Default for KeyRotationConfig {
     }
 }
 
+/// (see code)
 impl KeyRotationConfig {
+    /// See [`load_from_storage`].
     pub async fn load_from_storage(storage: &KeyRotationStorage) -> Result<Self, ApiError> {
         let olm_rotation_days: i64 = storage
             .get_rotation_config("olm_rotation_days")
@@ -68,6 +83,7 @@ impl KeyRotationConfig {
         Ok(Self { olm_rotation_days, megolm_rotation_messages, max_session_age_days, enable_auto_rotation })
     }
 
+    /// See [`persist_to_storage`].
     pub async fn persist_to_storage(&self, storage: &KeyRotationStorage) -> Result<(), ApiError> {
         storage.set_rotation_config("olm_rotation_days", &self.olm_rotation_days.to_string()).await?;
         storage.set_rotation_config("megolm_rotation_messages", &self.megolm_rotation_messages.to_string()).await?;
@@ -78,26 +94,81 @@ impl KeyRotationConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `KeyRotationLog` type.
 pub struct KeyRotationLog {
+    /// The `id` field.
+    /// The `user_id` field.
+    /// The `device_id` field.
+    /// The `room_id` field.
+    /// The `rotation_type` field.
+    /// The `old_key_id` field.
+    /// The `new_key_id` field.
+    /// The `reason` field.
+    /// The `rotated_at` field.
     pub id: i64,
+    /// The `user_id` field.
+    /// The `device_id` field.
+    /// The `room_id` field.
+    /// The `rotation_type` field.
+    /// The `old_key_id` field.
+    /// The `new_key_id` field.
+    /// The `reason` field.
+    /// The `rotated_at` field.
     pub user_id: String,
+    /// The `device_id` field.
+    /// The `room_id` field.
+    /// The `rotation_type` field.
+    /// The `old_key_id` field.
+    /// The `new_key_id` field.
+    /// The `reason` field.
+    /// The `rotated_at` field.
     pub device_id: String,
+    /// The `room_id` field.
+    /// The `rotation_type` field.
+    /// The `old_key_id` field.
+    /// The `new_key_id` field.
+    /// The `reason` field.
+    /// The `rotated_at` field.
     pub room_id: Option<String>,
+    /// The `rotation_type` field.
+    /// The `old_key_id` field.
+    /// The `new_key_id` field.
+    /// The `reason` field.
+    /// The `rotated_at` field.
     pub rotation_type: String,
+    /// The `old_key_id` field.
+    /// The `new_key_id` field.
+    /// The `reason` field.
+    /// The `rotated_at` field.
     pub old_key_id: Option<String>,
+    /// The `new_key_id` field.
+    /// The `reason` field.
+    /// The `rotated_at` field.
     pub new_key_id: String,
+    /// The `reason` field.
+    /// The `rotated_at` field.
     pub reason: Option<String>,
+    /// The `rotated_at` field.
     pub rotated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `RotationStatus` type.
 pub struct RotationStatus {
+    /// The `total_sessions` field.
+    /// The `rotated_sessions` field.
+    /// The `last_rotation` field.
     pub total_sessions: i64,
+    /// The `rotated_sessions` field.
+    /// The `last_rotation` field.
     pub rotated_sessions: i64,
+    /// The `last_rotation` field.
     pub last_rotation: Option<DateTime<Utc>>,
 }
 
+/// (see code)
 impl KeyRotationService {
+    /// See [`new`].
     pub fn new(
         olm_service: Arc<OlmService>,
         megolm_service: Arc<MegolmProvider>,
@@ -107,6 +178,7 @@ impl KeyRotationService {
         Self { olm_service, megolm_service, storage, config: Arc::new(tokio::sync::RwLock::new(config)) }
     }
 
+    /// See [`new_with_db_config`].
     pub async fn new_with_db_config(
         olm_service: Arc<OlmService>,
         megolm_service: Arc<MegolmProvider>,
@@ -121,22 +193,26 @@ impl KeyRotationService {
         Self { olm_service, megolm_service, storage, config: Arc::new(tokio::sync::RwLock::new(config)) }
     }
 
+    /// See [`reload_config`].
     pub async fn reload_config(&self) -> Result<(), ApiError> {
         let new_config = KeyRotationConfig::load_from_storage(&self.storage).await?;
         *self.config.write().await = new_config;
         Ok(())
     }
 
+    /// See [`update_config`].
     pub async fn update_config(&self, new_config: KeyRotationConfig) -> Result<(), ApiError> {
         new_config.persist_to_storage(&self.storage).await?;
         *self.config.write().await = new_config;
         Ok(())
     }
 
+    /// See [`get_config`].
     pub async fn get_config(&self) -> KeyRotationConfig {
         self.config.read().await.clone()
     }
 
+    /// See [`should_rotate`].
     pub async fn should_rotate(&self, session: &MegolmSession) -> Result<bool, ApiError> {
         let config = self.config.read().await;
         let age_days = (Utc::now() - session.last_used_ts).num_days();
@@ -157,6 +233,7 @@ impl KeyRotationService {
         Ok(false)
     }
 
+    /// See [`rotate_megolm_session`].
     pub async fn rotate_megolm_session(&self, room_id: &str, user_id: &str) -> Result<MegolmSession, ApiError> {
         let new_session = self.megolm_service.create_session(room_id, user_id).await?;
 
@@ -169,6 +246,7 @@ impl KeyRotationService {
         Ok(new_session)
     }
 
+    /// See [`rotate_all_user_sessions`].
     pub async fn rotate_all_user_sessions(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
         let mut rotated_rooms = Vec::new();
 
@@ -184,11 +262,13 @@ impl KeyRotationService {
         Ok(rotated_rooms)
     }
 
+    /// See [`cleanup_expired_sessions`].
     pub async fn cleanup_expired_sessions(&self) -> Result<i64, ApiError> {
         let count = self.storage.delete_expired_sessions().await?;
         Ok(count)
     }
 
+    /// See [`get_rotation_status`].
     pub async fn get_rotation_status(&self, user_id: &str) -> Result<RotationStatus, ApiError> {
         self.storage.get_rotation_status(user_id).await
     }
@@ -217,6 +297,7 @@ impl KeyRotationService {
         Ok(needs_rotation)
     }
 
+    /// See [`notify_member_left_encrypted_room`].
     pub async fn notify_member_left_encrypted_room(
         &self,
         room_id: &str,
@@ -238,6 +319,7 @@ impl KeyRotationService {
         Ok(remaining)
     }
 
+    /// See [`forward_keys_for_new_member`].
     pub async fn forward_keys_for_new_member(&self, room_id: &str, new_user_id: &str) -> Result<(), ApiError> {
         let sessions = self.megolm_service.get_room_sessions(room_id).await?;
 
@@ -284,36 +366,49 @@ impl KeyRotationService {
         Ok(())
     }
 
+    /// See [`get_rooms_needing_key_rotation`].
     pub async fn get_rooms_needing_key_rotation(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
         self.storage.get_rooms_needing_key_rotation(user_id).await
     }
 }
 
 #[async_trait]
+/// The `KeyRotationStorageApi` trait.
 pub trait KeyRotationStorageApi: Send + Sync {
+    /// Get the last key-rotation timestamp for a user (millis since epoch).
     async fn get_user_last_rotation_ts(&self, user_id: &str) -> Result<Option<i64>, ApiError>;
+    /// Get the rotation history for a single device.
     async fn get_device_rotation_history(
         &self,
         user_id: &str,
         device_id: &str,
     ) -> Result<Vec<(Option<String>, Option<i64>)>, ApiError>;
+    /// Set a rotation configuration value.
     async fn set_rotation_config(&self, key: &str, value: &str) -> Result<(), ApiError>;
+    /// Get a rotation configuration value.
     async fn get_rotation_config(&self, key: &str) -> Result<Option<String>, ApiError>;
+    /// Get the last rotation timestamp for a specific key.
     async fn get_last_rotation_for_key(&self, user_id: &str, key_id: &str) -> Result<Option<i64>, ApiError>;
+    /// Get the latest rotation timestamp across all keys for a user.
     async fn get_max_rotation_ts(&self, user_id: &str) -> Result<i64, ApiError>;
+    /// Mark a key rotation as needed when a user leaves a room.
     async fn mark_key_rotation_needed(&self, room_id: &str, leaving_user_id: &str) -> Result<(), ApiError>;
 }
 
 #[derive(Clone)]
+/// The `KeyRotationStorage` type.
 pub struct KeyRotationStorage {
     pool: Arc<sqlx::PgPool>,
 }
 
+/// (see code)
 impl KeyRotationStorage {
+    /// See [`new`].
     pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
         Self { pool }
     }
 
+    /// See [`log_rotation`].
     pub async fn log_rotation(&self, user_id: &str, room_id: &str, rotation_type: &str) -> Result<(), ApiError> {
         let now = Utc::now();
         let new_key_id = uuid::Uuid::new_v4().to_string();
@@ -338,6 +433,7 @@ impl KeyRotationStorage {
         Ok(())
     }
 
+    /// See [`get_encrypted_rooms`].
     pub async fn get_encrypted_rooms(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
         let rows = sqlx::query_as::<_, (String,)>(
             r"
@@ -359,6 +455,7 @@ impl KeyRotationStorage {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
+    /// See [`record_key_share`].
     pub async fn record_key_share(&self, room_id: &str, session_id: &str, share_reason: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
         sqlx::query(
@@ -409,6 +506,7 @@ impl KeyRotationStorage {
         Ok(row.is_some())
     }
 
+    /// See [`mark_rotated`].
     pub async fn mark_rotated(&self, user_id: &str, room_id: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
         sqlx::query(
@@ -428,6 +526,7 @@ impl KeyRotationStorage {
         Ok(())
     }
 
+    /// See [`check_needs_rotation`].
     pub async fn check_needs_rotation(&self, user_id: &str, room_id: &str) -> Result<bool, ApiError> {
         let row = sqlx::query_as::<_, (bool,)>(
             r"
@@ -444,6 +543,7 @@ impl KeyRotationStorage {
         Ok(row.as_ref().is_none_or(|r| !r.0))
     }
 
+    /// See [`delete_expired_sessions`].
     pub async fn delete_expired_sessions(&self) -> Result<i64, ApiError> {
         let result =
             sqlx::query("DELETE FROM megolm_sessions WHERE expires_at < (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)")
@@ -454,6 +554,7 @@ impl KeyRotationStorage {
         Ok(result.rows_affected() as i64)
     }
 
+    /// See [`get_rotation_status`].
     pub async fn get_rotation_status(&self, user_id: &str) -> Result<RotationStatus, ApiError> {
         let seven_days_ago_ms = current_timestamp_millis() - 7 * 24 * 3600 * 1000;
         let row = sqlx::query(
@@ -478,6 +579,7 @@ impl KeyRotationStorage {
         })
     }
 
+    /// See [`get_encrypted_room_members`].
     pub async fn get_encrypted_room_members(&self, room_id: &str) -> Result<Vec<String>, ApiError> {
         let rows = sqlx::query_as::<_, (String,)>(
             r"
@@ -498,6 +600,7 @@ impl KeyRotationStorage {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
+    /// See [`get_rooms_needing_key_rotation`].
     pub async fn get_rooms_needing_key_rotation(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
         let rows = sqlx::query_as::<_, (String,)>(
             r"
@@ -516,6 +619,7 @@ impl KeyRotationStorage {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
+    /// See [`clear_key_rotation_needed`].
     pub async fn clear_key_rotation_needed(&self, room_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -650,6 +754,7 @@ impl KeyRotationStorage {
 }
 
 #[async_trait]
+/// (see code)
 impl KeyRotationStorageApi for KeyRotationStorage {
     async fn get_user_last_rotation_ts(&self, user_id: &str) -> Result<Option<i64>, ApiError> {
         self.get_user_last_rotation_ts(user_id).await

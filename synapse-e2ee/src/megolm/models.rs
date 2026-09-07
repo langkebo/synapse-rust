@@ -14,13 +14,19 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum PickleFormat {
+    /// Legacy libolm pickle format (default).
     #[default]
     Legacy,
+    /// The `Vodozemac` variant.
+    /// The `Dual` variant.
     Vodozemac,
+    /// The `Dual` variant.
     Dual,
 }
 
+/// (see code)
 impl PickleFormat {
+    /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Legacy => "legacy",
@@ -30,6 +36,7 @@ impl PickleFormat {
     }
 }
 
+/// (see code)
 impl FromStr for PickleFormat {
     type Err = ();
 
@@ -43,16 +50,72 @@ impl FromStr for PickleFormat {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `MegolmSession` type.
 pub struct MegolmSession {
+    /// The `id` field.
+    /// The `session_id` field.
+    /// The `room_id` field.
+    /// The `sender_key` field.
+    /// The `session_key` field.
+    /// The `algorithm` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub id: Uuid,
+    /// The `session_id` field.
+    /// The `room_id` field.
+    /// The `sender_key` field.
+    /// The `session_key` field.
+    /// The `algorithm` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub session_id: String,
+    /// The `room_id` field.
+    /// The `sender_key` field.
+    /// The `session_key` field.
+    /// The `algorithm` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub room_id: String,
+    /// The `sender_key` field.
+    /// The `session_key` field.
+    /// The `algorithm` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub sender_key: String,
+    /// The `session_key` field.
+    /// The `algorithm` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub session_key: String,
+    /// The `algorithm` field.
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub algorithm: String,
+    /// The `message_index` field.
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub message_index: i64,
+    /// The `created_ts` field.
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub created_ts: DateTime<Utc>,
+    /// The `last_used_ts` field.
+    /// The `expires_at` field.
     pub last_used_ts: DateTime<Utc>,
+    /// The `expires_at` field.
     pub expires_at: Option<DateTime<Utc>>,
     /// Pickle 格式（Phase 2 引入，默认 `Legacy`）
     #[serde(default)]
@@ -63,22 +126,70 @@ pub struct MegolmSession {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `EncryptedEvent` type.
 pub struct EncryptedEvent {
+    /// The `room_id` field.
+    /// The `event_id` field.
+    /// The `sender` field.
+    /// The `content` field.
+    /// The `algorithm` field.
+    /// The `session_id` field.
+    /// The `ciphertext` field.
+    /// The `device_id` field.
     pub room_id: String,
+    /// The `event_id` field.
+    /// The `sender` field.
+    /// The `content` field.
+    /// The `algorithm` field.
+    /// The `session_id` field.
+    /// The `ciphertext` field.
+    /// The `device_id` field.
     pub event_id: String,
+    /// The `sender` field.
+    /// The `content` field.
+    /// The `algorithm` field.
+    /// The `session_id` field.
+    /// The `ciphertext` field.
+    /// The `device_id` field.
     pub sender: String,
+    /// The `content` field.
+    /// The `algorithm` field.
+    /// The `session_id` field.
+    /// The `ciphertext` field.
+    /// The `device_id` field.
     pub content: serde_json::Value,
+    /// The `algorithm` field.
+    /// The `session_id` field.
+    /// The `ciphertext` field.
+    /// The `device_id` field.
     pub algorithm: String,
+    /// The `session_id` field.
+    /// The `ciphertext` field.
+    /// The `device_id` field.
     pub session_id: String,
+    /// The `ciphertext` field.
+    /// The `device_id` field.
     pub ciphertext: String,
+    /// The `device_id` field.
     pub device_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `RoomKeyDistributionData` type.
 pub struct RoomKeyDistributionData {
+    /// The `session_id` field.
+    /// The `session_key` field.
+    /// The `algorithm` field.
+    /// The `room_id` field.
     pub session_id: String,
+    /// The `session_key` field.
+    /// The `algorithm` field.
+    /// The `room_id` field.
     pub session_key: String,
+    /// The `algorithm` field.
+    /// The `room_id` field.
     pub algorithm: String,
+    /// The `room_id` field.
     pub room_id: String,
 }
 

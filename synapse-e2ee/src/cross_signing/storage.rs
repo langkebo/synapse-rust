@@ -10,13 +10,29 @@ use synapse_common::ApiError;
 /// DateTime<Utc> in the public model via helper).
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct CrossSigningKeyRow {
+    /// The `user_id` field.
+    /// The `key_type` field.
+    /// The `key_data` field.
+    /// The `signatures` field.
+    /// The `added_ts` field.
     pub user_id: String,
+    /// The `key_type` field.
+    /// The `key_data` field.
+    /// The `signatures` field.
+    /// The `added_ts` field.
     pub key_type: String,
+    /// The `key_data` field.
+    /// The `signatures` field.
+    /// The `added_ts` field.
     pub key_data: String,
+    /// The `signatures` field.
+    /// The `added_ts` field.
     pub signatures: Option<serde_json::Value>,
+    /// The `added_ts` field.
     pub added_ts: i64,
 }
 
+/// (see code)
 impl CrossSigningKeyRow {
     fn into_key(self) -> CrossSigningKey {
         let key_json: Option<serde_json::Value> = serde_json::from_str(&self.key_data).ok();
@@ -56,15 +72,44 @@ impl CrossSigningKeyRow {
 /// Internal row struct for `device_signatures`.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct DeviceSignatureRow {
+    /// The `user_id` field.
+    /// The `device_id` field.
+    /// The `target_user_id` field.
+    /// The `target_device_id` field.
+    /// The `algorithm` field.
+    /// The `signature` field.
+    /// The `created_ts` field.
     pub user_id: String,
+    /// The `device_id` field.
+    /// The `target_user_id` field.
+    /// The `target_device_id` field.
+    /// The `algorithm` field.
+    /// The `signature` field.
+    /// The `created_ts` field.
     pub device_id: String,
+    /// The `target_user_id` field.
+    /// The `target_device_id` field.
+    /// The `algorithm` field.
+    /// The `signature` field.
+    /// The `created_ts` field.
     pub target_user_id: String,
+    /// The `target_device_id` field.
+    /// The `algorithm` field.
+    /// The `signature` field.
+    /// The `created_ts` field.
     pub target_device_id: String,
+    /// The `algorithm` field.
+    /// The `signature` field.
+    /// The `created_ts` field.
     pub algorithm: String,
+    /// The `signature` field.
+    /// The `created_ts` field.
     pub signature: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
+/// (see code)
 impl DeviceSignatureRow {
     fn into_signature(self) -> DeviceSignature {
         DeviceSignature {
@@ -81,15 +126,20 @@ impl DeviceSignatureRow {
 }
 
 #[derive(Clone)]
+/// The `CrossSigningStorage` type.
 pub struct CrossSigningStorage {
+    /// The `pool` field.
     pub pool: Arc<PgPool>,
 }
 
+/// (see code)
 impl CrossSigningStorage {
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_cross_signing_key`].
     pub async fn create_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {
         let added_ts = current_timestamp_millis();
         let key_json_str = key.key_json.as_ref().map(|v| v.to_string()).unwrap_or_default();
@@ -116,6 +166,7 @@ impl CrossSigningStorage {
         Ok(())
     }
 
+    /// See [`get_cross_signing_key`].
     pub async fn get_cross_signing_key(
         &self,
         user_id: &str,
@@ -142,6 +193,7 @@ impl CrossSigningStorage {
         Ok(row.map(CrossSigningKeyRow::into_key))
     }
 
+    /// See [`get_cross_signing_keys`].
     pub async fn get_cross_signing_keys(&self, user_id: &str) -> Result<Vec<CrossSigningKey>, ApiError> {
         let rows: Vec<CrossSigningKeyRow> = sqlx::query_as::<_, CrossSigningKeyRow>(
             r"
@@ -163,6 +215,7 @@ impl CrossSigningStorage {
         Ok(rows.into_iter().map(CrossSigningKeyRow::into_key).collect())
     }
 
+    /// See [`get_cross_signing_keys_batch`].
     pub async fn get_cross_signing_keys_batch(
         &self,
         user_ids: &[String],
@@ -198,6 +251,7 @@ impl CrossSigningStorage {
         Ok(result)
     }
 
+    /// See [`get_device_signatures_batch`].
     pub async fn get_device_signatures_batch(
         &self,
         user_ids: &[String],
@@ -235,6 +289,7 @@ impl CrossSigningStorage {
         Ok(result)
     }
 
+    /// See [`update_cross_signing_key`].
     pub async fn update_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {
         let added_ts = current_timestamp_millis();
         let key_json_str = key.key_json.as_ref().map_or_else(|| key.public_key.clone(), |v| v.to_string());
@@ -257,6 +312,7 @@ impl CrossSigningStorage {
         Ok(())
     }
 
+    /// See [`save_device_key`].
     pub async fn save_device_key(&self, key: &DeviceKeyInfo) -> Result<(), ApiError> {
         let added_ts = current_timestamp_millis();
         let key_id = format!("{}:{}", key.algorithm, key.public_key.split(':').next().unwrap_or(&key.public_key));
@@ -287,6 +343,7 @@ impl CrossSigningStorage {
         Ok(())
     }
 
+    /// See [`save_device_signature`].
     pub async fn save_device_signature(&self, sig: &DeviceSignature) -> Result<(), ApiError> {
         let created_ts = current_timestamp_millis();
         sqlx::query(
@@ -313,6 +370,7 @@ impl CrossSigningStorage {
         Ok(())
     }
 
+    /// See [`get_user_signatures`].
     pub async fn get_user_signatures(&self, user_id: &str) -> Result<Vec<DeviceSignature>, ApiError> {
         let rows: Vec<DeviceSignatureRow> = sqlx::query_as::<_, DeviceSignatureRow>(
             r"
@@ -336,6 +394,7 @@ impl CrossSigningStorage {
         Ok(rows.into_iter().map(DeviceSignatureRow::into_signature).collect())
     }
 
+    /// See [`get_device_signatures`].
     pub async fn get_device_signatures(
         &self,
         user_id: &str,
@@ -364,6 +423,7 @@ impl CrossSigningStorage {
         Ok(rows.into_iter().map(DeviceSignatureRow::into_signature).collect())
     }
 
+    /// See [`get_signature`].
     pub async fn get_signature(
         &self,
         user_id: &str,
@@ -394,6 +454,7 @@ impl CrossSigningStorage {
         Ok(row.map(DeviceSignatureRow::into_signature))
     }
 
+    /// See [`delete_cross_signing_keys`].
     pub async fn delete_cross_signing_keys(&self, user_id: &str) -> Result<(), ApiError> {
         let mut tx = self
             .pool

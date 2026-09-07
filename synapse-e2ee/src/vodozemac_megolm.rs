@@ -136,7 +136,9 @@ pub struct MegolmVodozemacService {
     aes_cipher: crate::crypto::Aes256GcmCipher,
 }
 
+/// (see code)
 impl MegolmVodozemacService {
+    /// See [`new`].
     pub fn new(storage: MegolmSessionStorage, cache: Arc<CacheManager>) -> Self {
         Self {
             storage,
@@ -153,6 +155,7 @@ impl MegolmVodozemacService {
         self
     }
 
+    /// See [`with_server_metrics`].
     pub fn with_server_metrics(mut self, metrics: Arc<ServerMetrics>) -> Self {
         self.server_metrics = Some(metrics);
         self

@@ -9,6 +9,7 @@ use vodozemac::olm::{Account, Session, SessionConfig};
 
 use super::service::get_pickle_key;
 
+/// The `OlmSessionManager` type.
 pub struct OlmSessionManager {
     storage: OlmStorage,
     sessions: RwLock<HashMap<String, OlmSessionEntry>>,
@@ -23,11 +24,14 @@ struct OlmSessionEntry {
     dirty: bool,
 }
 
+/// (see code)
 impl OlmSessionManager {
+    /// See [`new`].
     pub fn new(storage: OlmStorage, user_id: String, device_id: String) -> Self {
         Self { storage, sessions: RwLock::new(HashMap::new()), user_id, device_id }
     }
 
+    /// See [`load_sessions`].
     pub async fn load_sessions(&self) -> Result<(), ApiError> {
         let session_data = self.storage.load_sessions(&self.user_id, &self.device_id).await?;
 
@@ -63,6 +67,7 @@ impl OlmSessionManager {
         Ok(())
     }
 
+    /// See [`persist_sessions`].
     pub async fn persist_sessions(&self) -> Result<(), ApiError> {
         let sessions = self.sessions.read().await;
 
@@ -87,6 +92,7 @@ impl OlmSessionManager {
         Ok(())
     }
 
+    /// See [`create_outbound_session`].
     pub async fn create_outbound_session(
         &self,
         account: &mut Account,
@@ -120,6 +126,7 @@ impl OlmSessionManager {
         Ok(OlmEncryptedMessage { session_id, message_type: OlmMessageType::PreKey, ciphertext })
     }
 
+    /// See [`create_inbound_session`].
     pub async fn create_inbound_session(
         &self,
         account: &mut Account,
@@ -152,6 +159,7 @@ impl OlmSessionManager {
         Ok(OlmDecryptedMessage { plaintext, session_id })
     }
 
+    /// See [`encrypt`].
     pub async fn encrypt(&self, session_id: &str, plaintext: &str) -> Result<OlmEncryptedMessage, ApiError> {
         let mut sessions = self.sessions.write().await;
 
@@ -177,6 +185,7 @@ impl OlmSessionManager {
         Ok(OlmEncryptedMessage { session_id: session_id.to_string(), message_type, ciphertext })
     }
 
+    /// See [`decrypt`].
     pub async fn decrypt(
         &self,
         session_id: &str,
@@ -210,6 +219,7 @@ impl OlmSessionManager {
         Ok(OlmDecryptedMessage { plaintext: plaintext_str, session_id: session_id.to_string() })
     }
 
+    /// See [`get_session`].
     pub async fn get_session(&self, session_id: &str) -> Option<String> {
         let sessions = self.sessions.read().await;
         if sessions.contains_key(session_id) {
@@ -219,6 +229,7 @@ impl OlmSessionManager {
         }
     }
 
+    /// See [`get_session_for_sender`].
     pub async fn get_session_for_sender(&self, sender_key: &str) -> Option<String> {
         let sessions = self.sessions.read().await;
         for (session_id, entry) in sessions.iter() {
@@ -229,11 +240,13 @@ impl OlmSessionManager {
         None
     }
 
+    /// See [`session_exists`].
     pub async fn session_exists(&self, session_id: &str) -> bool {
         let sessions = self.sessions.read().await;
         sessions.contains_key(session_id)
     }
 
+    /// See [`remove_session`].
     pub async fn remove_session(&self, session_id: &str) -> Result<(), ApiError> {
         {
             let mut sessions = self.sessions.write().await;
@@ -245,16 +258,19 @@ impl OlmSessionManager {
         Ok(())
     }
 
+    /// See [`get_session_count`].
     pub async fn get_session_count(&self) -> usize {
         let sessions = self.sessions.read().await;
         sessions.len()
     }
 
+    /// See [`list_sessions`].
     pub async fn list_sessions(&self) -> Vec<String> {
         let sessions = self.sessions.read().await;
         sessions.keys().cloned().collect()
     }
 
+    /// See [`clear_expired_sessions`].
     pub async fn clear_expired_sessions(&self) -> Result<u64, ApiError> {
         let deleted = self.storage.delete_expired_sessions().await?;
 

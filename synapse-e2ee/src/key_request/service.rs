@@ -6,14 +6,27 @@ use synapse_common::map_database;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The `KeyRequestStatusFilter` enum.
 pub enum KeyRequestStatusFilter {
+    /// The `Pending` variant.
+    /// The `Fulfilled` variant.
+    /// The `Cancelled` variant.
+    /// The `All` variant.
     Pending,
+    /// The `Fulfilled` variant.
+    /// The `Cancelled` variant.
+    /// The `All` variant.
     Fulfilled,
+    /// The `Cancelled` variant.
+    /// The `All` variant.
     Cancelled,
+    /// The `All` variant.
     All,
 }
 
+/// (see code)
 impl KeyRequestStatusFilter {
+    /// See [`from_query`].
     pub fn from_query(status: Option<&str>) -> Result<Self, ApiError> {
         match status.unwrap_or("all") {
             "pending" => Ok(Self::Pending),
@@ -26,17 +39,21 @@ impl KeyRequestStatusFilter {
 }
 
 #[derive(Clone)]
+/// The `KeyRequestService` type.
 pub struct KeyRequestService {
     storage: KeyRequestStorage,
     megolm_service: MegolmProvider,
 }
 
+/// (see code)
 impl KeyRequestService {
+    /// See [`new`].
     pub fn new(storage: KeyRequestStorage, megolm_service: MegolmProvider) -> Self {
         Self { storage, megolm_service }
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// See [`create_request`].
     pub async fn create_request(
         &self,
         user_id: &str,
@@ -69,6 +86,7 @@ impl KeyRequestService {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// See [`create_share_request`].
     pub async fn create_share_request(
         &self,
         user_id: &str,
@@ -84,6 +102,7 @@ impl KeyRequestService {
         Ok(request.request_id)
     }
 
+    /// See [`fulfill_request`].
     pub async fn fulfill_request(
         &self,
         request_id: &str,
@@ -137,25 +156,30 @@ impl KeyRequestService {
         Ok(Some(response))
     }
 
+    /// See [`cancel_request`].
     pub async fn cancel_request(&self, request_id: &str) -> Result<(), ApiError> {
         self.storage.cancel_request(request_id).await?;
         Ok(())
     }
 
+    /// See [`delete_request`].
     pub async fn delete_request(&self, request_id: &str) -> Result<(), ApiError> {
         self.storage.delete_request(request_id).await
     }
 
+    /// See [`get_request`].
     pub async fn get_request(&self, request_id: &str) -> Result<Option<KeyRequestInfo>, ApiError> {
         self.storage.get_request(request_id).await
     }
 
+    /// See [`get_requests`].
     pub async fn get_requests(&self, user_id: &str, status: Option<&str>) -> Result<Vec<KeyRequestInfo>, ApiError> {
         let status_filter = KeyRequestStatusFilter::from_query(status)?;
         let requests = self.storage.get_requests_for_user(user_id).await?;
         Ok(requests.into_iter().filter(|request| request_matches_status(request, status_filter)).collect())
     }
 
+    /// See [`get_requests_paginated`].
     pub async fn get_requests_paginated(
         &self,
         pagination: KeyRequestPagination<'_>,
@@ -163,6 +187,7 @@ impl KeyRequestService {
         self.storage.get_requests_paginated(pagination).await
     }
 
+    /// See [`get_pending_requests`].
     pub async fn get_pending_requests(&self, user_id: Option<&str>) -> Result<Vec<KeyRequestInfo>, ApiError> {
         let requests = match user_id {
             Some(uid) => self.storage.get_requests_for_user(uid).await?,
@@ -175,6 +200,7 @@ impl KeyRequestService {
             .collect())
     }
 
+    /// See [`process_outgoing_key_requests`].
     pub async fn process_outgoing_key_requests(&self) -> Result<(), ApiError> {
         let requests = self.get_pending_requests(None).await?;
 
@@ -195,6 +221,7 @@ impl KeyRequestService {
         Ok(())
     }
 
+    /// See [`cleanup_old_requests`].
     pub async fn cleanup_old_requests(&self, max_age_hours: i64) -> Result<u64, ApiError> {
         let cutoff_ts = current_timestamp_millis() - (max_age_hours * 3600 * 1000);
         self.storage.delete_old_requests(cutoff_ts).await

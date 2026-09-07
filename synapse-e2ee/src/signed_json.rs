@@ -20,6 +20,7 @@ const MATRIX_BASE64: GeneralPurpose = GeneralPurpose::new(
     GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
 );
 
+/// See [`verify_signed_json`].
 pub fn verify_signed_json(
     _user_id: &str,
     _key_id: &str,
@@ -48,6 +49,7 @@ pub fn verify_signed_json(
     Ok(public_key.verify(&message, &ed25519_sig).is_ok())
 }
 
+/// See [`verify_device_keys_signature`].
 pub fn verify_device_keys_signature(device_keys: &Value) -> Result<bool, CryptoError> {
     let user_id =
         device_keys.get("user_id").and_then(|v| v.as_str()).ok_or(CryptoError::SignatureVerificationFailed)?;
@@ -86,6 +88,7 @@ pub fn verify_device_keys_signature(device_keys: &Value) -> Result<bool, CryptoE
     Ok(false)
 }
 
+/// See [`verify_one_time_key_signature`].
 pub fn verify_one_time_key_signature(
     user_id: &str,
     device_id: &str,

@@ -8,11 +8,14 @@ use synapse_common::map_database;
 use synapse_common::ApiError;
 
 #[derive(Clone)]
+/// The `SecureBackupService` type.
 pub struct SecureBackupService {
     pool: Arc<PgPool>,
 }
 
+/// (see code)
 impl SecureBackupService {
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }

@@ -5,15 +5,19 @@ use chrono::Utc;
 use ed25519_dalek::VerifyingKey;
 use synapse_common::ApiError;
 
+/// The `SignatureService` type.
 pub struct SignatureService {
     storage: SignatureStorage<'static>,
 }
 
+/// (see code)
 impl SignatureService {
+    /// See [`new`].
     pub fn new(storage: SignatureStorage<'static>) -> Self {
         Self { storage }
     }
 
+    /// See [`sign_event`].
     pub async fn sign_event(
         &self,
         event_id: &str,
@@ -39,6 +43,7 @@ impl SignatureService {
         Ok(())
     }
 
+    /// See [`verify_event`].
     pub fn verify_event(
         &self,
         event_id: &str,
@@ -63,6 +68,7 @@ impl SignatureService {
         Ok(public.verify_strict(message, &sig).is_ok())
     }
 
+    /// See [`sign_key`].
     pub fn sign_key(&self, key: &str, signing_key: &Ed25519KeyPair) -> Result<String, ApiError> {
         let message = key.as_bytes();
         let signature = signing_key.sign(message).map_err(|e| ApiError::crypto(e.to_string()))?;
@@ -70,6 +76,7 @@ impl SignatureService {
         Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, signature.to_bytes()))
     }
 
+    /// See [`verify_key`].
     pub fn verify_key(&self, key: &str, signature: &str, public_key: &[u8; 32]) -> Result<bool, ApiError> {
         let message = key.as_bytes();
         let signature_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, signature)

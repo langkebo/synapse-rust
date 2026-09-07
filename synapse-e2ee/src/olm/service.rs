@@ -123,6 +123,7 @@ fn generate_random_pickle_key() -> [u8; 32] {
     key
 }
 
+/// The `OlmService` type.
 pub struct OlmService {
     account: RwLock<Option<Account>>,
     storage: OlmStorage,
@@ -132,7 +133,9 @@ pub struct OlmService {
     device_id: RwLock<Option<String>>,
 }
 
+/// (see code)
 impl OlmService {
+    /// See [`new`].
     pub fn new(cache: Arc<CacheManager>, storage: OlmStorage) -> Self {
         Self {
             account: RwLock::new(None),
@@ -144,6 +147,7 @@ impl OlmService {
         }
     }
 
+    /// See [`initialize`].
     pub async fn initialize(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         {
             let mut uid = self.user_id.write().await;
@@ -181,6 +185,7 @@ impl OlmService {
         Ok(())
     }
 
+    /// See [`persist`].
     pub async fn persist(&self) -> Result<(), ApiError> {
         let user_id = self.user_id.read().await;
         let device_id = self.device_id.read().await;
@@ -213,6 +218,7 @@ impl OlmService {
         Ok(())
     }
 
+    /// See [`generate_one_time_keys`].
     pub async fn generate_one_time_keys(&self, count: usize) {
         let mut account = self.account.write().await;
         if let Some(ref mut account) = *account {
@@ -220,6 +226,7 @@ impl OlmService {
         }
     }
 
+    /// See [`get_account_info`].
     pub async fn get_account_info(&self) -> OlmAccountInfo {
         let account = self.account.read().await;
 
@@ -245,6 +252,7 @@ impl OlmService {
         }
     }
 
+    /// See [`get_one_time_keys`].
     pub async fn get_one_time_keys(&self) -> Vec<OneTimeKey> {
         let account = self.account.read().await;
 
@@ -262,6 +270,7 @@ impl OlmService {
         }
     }
 
+    /// See [`get_fallback_key`].
     pub async fn get_fallback_key(&self) -> Option<OneTimeKey> {
         let account = self.account.read().await;
 
@@ -275,6 +284,7 @@ impl OlmService {
         }
     }
 
+    /// See [`sign`].
     pub async fn sign(&self, message: &[u8]) -> Result<String, ApiError> {
         let account = self.account.read().await;
 
@@ -286,6 +296,7 @@ impl OlmService {
         }
     }
 
+    /// See [`mark_keys_as_published`].
     pub async fn mark_keys_as_published(&self) {
         let mut account = self.account.write().await;
         if let Some(ref mut account) = *account {
@@ -293,10 +304,12 @@ impl OlmService {
         }
     }
 
+    /// See [`parse_identity_key`].
     pub fn parse_identity_key(key_base64: &str) -> Result<vodozemac::Curve25519PublicKey, String> {
         vodozemac::Curve25519PublicKey::from_base64(key_base64).map_err(|e| format!("Invalid identity key: {e}"))
     }
 
+    /// See [`create_outbound_session`].
     pub async fn create_outbound_session(
         &self,
         their_identity_key: &str,
@@ -320,6 +333,7 @@ impl OlmService {
         }
     }
 
+    /// See [`create_inbound_session`].
     pub async fn create_inbound_session(
         &self,
         their_identity_key: &str,
@@ -340,6 +354,7 @@ impl OlmService {
         }
     }
 
+    /// See [`encrypt`].
     pub async fn encrypt(&self, session_id: &str, plaintext: &str) -> Result<OlmEncryptedMessage, ApiError> {
         let sm = self.session_manager.read().await;
         let session_manager = sm.as_ref().ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
@@ -347,6 +362,7 @@ impl OlmService {
         session_manager.encrypt(session_id, plaintext).await
     }
 
+    /// See [`decrypt`].
     pub async fn decrypt(
         &self,
         session_id: &str,
@@ -359,6 +375,7 @@ impl OlmService {
         session_manager.decrypt(session_id, message_type, ciphertext).await
     }
 
+    /// See [`get_session_for_sender`].
     pub async fn get_session_for_sender(&self, sender_key: &str) -> Option<String> {
         let sm = self.session_manager.read().await;
         if let Some(session_manager) = sm.as_ref() {
@@ -368,6 +385,7 @@ impl OlmService {
         }
     }
 
+    /// See [`session_exists`].
     pub async fn session_exists(&self, session_id: &str) -> bool {
         let sm = self.session_manager.read().await;
         if let Some(session_manager) = sm.as_ref() {
@@ -377,6 +395,7 @@ impl OlmService {
         }
     }
 
+    /// See [`remove_session`].
     pub async fn remove_session(&self, session_id: &str) -> Result<(), ApiError> {
         let sm = self.session_manager.read().await;
         let session_manager = sm.as_ref().ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
@@ -384,6 +403,7 @@ impl OlmService {
         session_manager.remove_session(session_id).await
     }
 
+    /// See [`get_session_count`].
     pub async fn get_session_count(&self) -> usize {
         let sm = self.session_manager.read().await;
         if let Some(session_manager) = sm.as_ref() {
@@ -393,6 +413,7 @@ impl OlmService {
         }
     }
 
+    /// See [`list_sessions`].
     pub async fn list_sessions(&self) -> Vec<String> {
         let sm = self.session_manager.read().await;
         if let Some(session_manager) = sm.as_ref() {
@@ -402,6 +423,7 @@ impl OlmService {
         }
     }
 
+    /// See [`clear_expired_sessions`].
     pub async fn clear_expired_sessions(&self) -> Result<u64, ApiError> {
         let sm = self.session_manager.read().await;
         let session_manager = sm.as_ref().ok_or_else(|| ApiError::internal("OlmService not initialized"))?;
@@ -409,6 +431,7 @@ impl OlmService {
         session_manager.clear_expired_sessions().await
     }
 
+    /// See [`get_identity_key`].
     pub async fn get_identity_key(&self) -> String {
         let account = self.account.read().await;
 

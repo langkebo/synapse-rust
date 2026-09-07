@@ -15,10 +15,12 @@ const MATRIX_BASE64: GeneralPurpose = GeneralPurpose::new(
 );
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `Ed25519PublicKey` type.
 pub struct Ed25519PublicKey {
     bytes: [u8; 32],
 }
 
+/// (see code)
 impl Ed25519PublicKey {
     fn from_bytes(bytes: [u8; 32]) -> Self {
         Self { bytes }
@@ -29,6 +31,7 @@ impl Ed25519PublicKey {
         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, self.bytes)
     }
 
+    /// See [`from_base64`].
     pub fn from_base64(s: &str) -> Result<Self, CryptoError> {
         let bytes = base64::Engine::decode(&MATRIX_BASE64, s).map_err(|_| CryptoError::InvalidBase64)?;
         if bytes.len() != 32 {
@@ -39,6 +42,7 @@ impl Ed25519PublicKey {
         Ok(Self::from_bytes(array))
     }
 
+    /// See [`verify`].
     pub fn verify(&self, message: &[u8], signature: &ed25519_dalek::Signature) -> Result<(), CryptoError> {
         let verifying_key =
             VerifyingKey::from_bytes(&self.bytes).map_err(|_| CryptoError::SignatureVerificationFailed)?;
@@ -51,6 +55,7 @@ struct Ed25519SecretKey {
     bytes: [u8; 32],
 }
 
+/// (see code)
 impl Ed25519SecretKey {
     #[cfg(test)]
     fn generate() -> Self {
@@ -75,6 +80,7 @@ impl Ed25519SecretKey {
         &self.bytes
     }
 
+    /// See [`sign`].
     pub fn sign(&self, message: &[u8]) -> Result<ed25519_dalek::Signature, Error> {
         let signing_key = SigningKey::from_bytes(&self.bytes);
         Ok(signing_key.sign(message))
@@ -82,12 +88,15 @@ impl Ed25519SecretKey {
 }
 
 #[derive(Debug)]
+/// The `Ed25519KeyPair` type.
 pub struct Ed25519KeyPair {
     public: Ed25519PublicKey,
     secret: Ed25519SecretKey,
 }
 
+/// (see code)
 impl Ed25519KeyPair {
+    /// See [`generate`].
     pub fn generate() -> Self {
         let mut key_bytes = [0u8; 32];
         rand::rng().fill_bytes(&mut key_bytes);
@@ -99,10 +108,12 @@ impl Ed25519KeyPair {
         }
     }
 
+    /// See [`public_key`].
     pub fn public_key(&self) -> &Ed25519PublicKey {
         &self.public
     }
 
+    /// See [`sign`].
     pub fn sign(&self, message: &[u8]) -> Result<ed25519_dalek::Signature, Error> {
         self.secret.sign(message)
     }

@@ -8,21 +8,26 @@ use synapse_storage::UserStore;
 const TRANSACTION_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1000;
 
 #[derive(Clone)]
+/// The `ToDeviceService` type.
 pub struct ToDeviceService {
     storage: ToDeviceStorage,
     user_storage: Option<Arc<dyn UserStore>>,
 }
 
+/// (see code)
 impl ToDeviceService {
+    /// See [`new`].
     pub fn new(storage: ToDeviceStorage) -> Self {
         Self { storage, user_storage: None }
     }
 
+    /// See [`with_user_storage`].
     pub fn with_user_storage(mut self, user_storage: Arc<dyn UserStore>) -> Self {
         self.user_storage = Some(user_storage);
         self
     }
 
+    /// See [`send_messages`].
     pub async fn send_messages(
         &self,
         sender_user_id: &str,
@@ -105,6 +110,7 @@ impl ToDeviceService {
         Ok(())
     }
 
+    /// See [`get_messages_for_sync`].
     pub async fn get_messages_for_sync(&self, user_id: &str, device_id: &str) -> Result<Vec<Value>, ApiError> {
         self.storage.get_and_delete_messages(user_id, device_id).await
     }

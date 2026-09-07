@@ -9,11 +9,14 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::map_database;
 use synapse_common::ApiError;
 
+/// The `VerificationStorage` type.
 pub struct VerificationStorage {
     pool: Arc<PgPool>,
 }
 
+/// (see code)
 impl VerificationStorage {
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
@@ -197,6 +200,7 @@ impl VerificationStorage {
             .collect())
     }
 
+    /// See [`get_sas_state`].
     pub async fn get_sas_state(&self, transaction_id: &str) -> Result<Option<SasState>, ApiError> {
         let row = sqlx::query_as::<_, (
             String, String, Option<String>, String, String, serde_json::Value, Option<String>, Option<String>, Option<String>, Option<Vec<u8>>, Option<String>
@@ -240,6 +244,7 @@ impl VerificationStorage {
         }
     }
 
+    /// See [`delete_request`].
     pub async fn delete_request(&self, transaction_id: &str) -> Result<(), ApiError> {
         sqlx::query("DELETE FROM verification_requests WHERE transaction_id = $1")
             .bind(transaction_id)

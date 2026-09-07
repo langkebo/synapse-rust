@@ -1,3 +1,4 @@
+/// The `service` module.
 pub mod service;
 
 pub use service::KeyRotationConfig;

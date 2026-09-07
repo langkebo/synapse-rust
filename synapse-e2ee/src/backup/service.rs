@@ -8,34 +8,76 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone)]
+/// The `BackupKeyUploadParams` type.
 pub struct BackupKeyUploadParams {
+    /// The `user_id` field.
+    /// The `version` field.
+    /// The `room_id` field.
+    /// The `session_id` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub user_id: String,
+    /// The `version` field.
+    /// The `room_id` field.
+    /// The `session_id` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub version: String,
+    /// The `room_id` field.
+    /// The `session_id` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub room_id: String,
+    /// The `session_id` field.
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub session_id: String,
+    /// The `first_message_index` field.
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub first_message_index: i64,
+    /// The `forwarded_count` field.
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub forwarded_count: i64,
+    /// The `is_verified` field.
+    /// The `session_data` field.
     pub is_verified: bool,
+    /// The `session_data` field.
     pub session_data: String,
 }
 
 #[derive(Clone)]
+/// The `KeyBackupService` type.
 pub struct KeyBackupService {
     storage: KeyBackupStorage,
     key_storage: BackupKeyStorage,
     device_key_storage: Option<Arc<dyn DeviceKeyStoreApi>>,
 }
 
+/// (see code)
 impl KeyBackupService {
+    /// See [`new`].
     pub fn new(storage: &KeyBackupStorage) -> Self {
         Self { storage: storage.clone(), key_storage: BackupKeyStorage::new(&storage.pool), device_key_storage: None }
     }
 
+    /// See [`with_device_key_storage`].
     pub fn with_device_key_storage(mut self, storage: Arc<dyn DeviceKeyStoreApi>) -> Self {
         self.device_key_storage = Some(storage);
         self
     }
 
+    /// See [`create_backup`].
     pub async fn create_backup(
         &self,
         user_id: &str,
@@ -76,10 +118,12 @@ impl KeyBackupService {
         Ok(version)
     }
 
+    /// See [`get_backup`].
     pub async fn get_backup(&self, user_id: &str, version: &str) -> Result<Option<KeyBackup>, ApiError> {
         self.storage.get_backup_version(user_id, version).await
     }
 
+    /// See [`update_backup_auth_data`].
     pub async fn update_backup_auth_data(
         &self,
         user_id: &str,
@@ -183,16 +227,19 @@ impl KeyBackupService {
         Ok(())
     }
 
+    /// See [`delete_backup`].
     pub async fn delete_backup(&self, user_id: &str, version: &str) -> Result<(), ApiError> {
         self.storage.delete_backup(user_id, version).await?;
 
         Ok(())
     }
 
+    /// See [`list_backups`].
     pub async fn list_backups(&self, user_id: &str) -> Result<Vec<KeyBackup>, ApiError> {
         self.storage.get_all_backup_versions(user_id).await
     }
 
+    /// See [`upload_backup_key`].
     pub async fn upload_backup_key(&self, params: BackupKeyUploadParams) -> Result<(), ApiError> {
         let backup = self.storage.get_backup_version(&params.user_id, &params.version).await?.ok_or_else(|| {
             ApiError::not_found(format!("Backup version '{}' not found for user '{}'", params.version, params.user_id))
@@ -251,6 +298,7 @@ impl KeyBackupService {
         Ok(())
     }
 
+    /// See [`delete_backup_key`].
     pub async fn delete_backup_key(&self, user_id: &str, room_id: &str, session_id: &str) -> Result<(), ApiError> {
         self.key_storage.delete_backup_key(user_id, room_id, session_id).await?;
 
@@ -278,6 +326,7 @@ impl KeyBackupService {
         self.key_storage.delete_all_for_version(user_id, version).await
     }
 
+    /// See [`upload_room_key`].
     pub async fn upload_room_key(
         &self,
         user_id: &str,
@@ -307,6 +356,7 @@ impl KeyBackupService {
         Ok(())
     }
 
+    /// See [`upload_room_keys_for_room`].
     pub async fn upload_room_keys_for_room(
         &self,
         user_id: &str,
@@ -344,6 +394,7 @@ impl KeyBackupService {
         Ok(())
     }
 
+    /// See [`store_backup_key`].
     pub async fn store_backup_key(
         &self,
         user_id: &str,
@@ -374,14 +425,17 @@ impl KeyBackupService {
         Ok(())
     }
 
+    /// See [`get_backup_version`].
     pub async fn get_backup_version(&self, user_id: &str) -> Result<Option<KeyBackup>, ApiError> {
         self.storage.get_backup(user_id).await
     }
 
+    /// See [`get_all_backups`].
     pub async fn get_all_backups(&self, user_id: &str) -> Result<Vec<KeyBackup>, ApiError> {
         self.storage.get_all_backup_versions(user_id).await
     }
 
+    /// See [`get_backup_key_count`].
     pub async fn get_backup_key_count(&self, user_id: &str) -> Result<i64, ApiError> {
         let row = sqlx::query(
             r"
@@ -398,6 +452,7 @@ impl KeyBackupService {
         Ok(row.try_get::<i64, _>("count")?)
     }
 
+    /// See [`get_all_backup_keys`].
     pub async fn get_all_backup_keys(&self, user_id: &str) -> Result<Vec<BackupKeyInfo>, ApiError> {
         let rows = sqlx::query_as::<_, BackupKeyInfo>(
             r"
@@ -447,6 +502,7 @@ impl KeyBackupService {
         Ok(rows)
     }
 
+    /// See [`get_backup_key_count_for_version`].
     pub async fn get_backup_key_count_for_version(&self, user_id: &str, version: &str) -> Result<i64, ApiError> {
         let row = sqlx::query(
             r"
@@ -465,6 +521,7 @@ impl KeyBackupService {
         Ok(row.try_get::<i64, _>("count")?)
     }
 
+    /// See [`get_backup_count_per_room`].
     pub async fn get_backup_count_per_room(&self, user_id: &str, version: &str) -> Result<serde_json::Value, ApiError> {
         let backup = self
             .storage
@@ -497,6 +554,7 @@ impl KeyBackupService {
         Ok(serde_json::Value::Object(rooms))
     }
 
+    /// See [`get_room_backup_keys`].
     pub async fn get_room_backup_keys(
         &self,
         user_id: &str,
@@ -512,6 +570,7 @@ impl KeyBackupService {
         self.key_storage.get_room_backup_keys_by_backup_id(user_id, &backup.backup_id, room_id).await
     }
 
+    /// See [`get_backup_key`].
     pub async fn get_backup_key(
         &self,
         user_id: &str,
@@ -527,6 +586,7 @@ impl KeyBackupService {
         self.key_storage.get_backup_key_by_backup_id(user_id, &backup.backup_id, room_id, session_id).await
     }
 
+    /// See [`get_room_key`].
     pub async fn get_room_key(
         &self,
         user_id: &str,
@@ -536,6 +596,7 @@ impl KeyBackupService {
         self.key_storage.get_backup_key(user_id, room_id, session_id).await
     }
 
+    /// See [`recover_keys`].
     pub async fn recover_keys(
         &self,
         user_id: &str,
@@ -604,6 +665,7 @@ impl KeyBackupService {
         })
     }
 
+    /// See [`get_recovery_progress`].
     pub async fn get_recovery_progress(&self, user_id: &str, version: &str) -> Result<RecoveryProgress, ApiError> {
         let backup = self
             .storage
@@ -643,6 +705,7 @@ impl KeyBackupService {
         !has_signatures
     }
 
+    /// See [`verify_backup`].
     pub async fn verify_backup(&self, user_id: &str, version: &str) -> Result<BackupVerificationResponse, ApiError> {
         let backup = self
             .storage
@@ -720,6 +783,7 @@ impl KeyBackupService {
         })
     }
 
+    /// See [`batch_recover_keys`].
     pub async fn batch_recover_keys(
         &self,
         user_id: &str,
@@ -777,6 +841,7 @@ impl KeyBackupService {
         })
     }
 
+    /// See [`recover_room_keys`].
     pub async fn recover_room_keys(
         &self,
         user_id: &str,
@@ -807,6 +872,7 @@ impl KeyBackupService {
         Ok(serde_json::Value::Object(sessions))
     }
 
+    /// See [`recover_session_key`].
     pub async fn recover_session_key(
         &self,
         user_id: &str,
