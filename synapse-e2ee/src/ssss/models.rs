@@ -292,3 +292,104 @@ impl SecretStorageSessionKey {
         Self { key: key.to_string(), iv: iv.to_string(), mac: mac.to_string() }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secret_storage_session_key_from_key_parts() {
+        let sk = SecretStorageSessionKey::from_key_parts("k", "iv", "mac");
+        assert_eq!(sk.key, "k");
+        assert_eq!(sk.iv, "iv");
+        assert_eq!(sk.mac, "mac");
+    }
+
+    #[test]
+    fn default_algorithm_is_curve25519_aes_sha2() {
+        let algo = SecretStorageAlgorithm::default();
+        assert_eq!(algo.algorithm, "org.matrix.msc2697.v1.curve25519-aes-sha2");
+        assert!(algo.config.get("rotation_period_ms").is_some());
+        assert!(algo.config.get("rotation_period_steps").is_some());
+    }
+
+    #[test]
+    fn default_encryption_info_is_aes_hmac_sha2() {
+        let info = SecretStorageEncryptionInfo::default();
+        assert_eq!(info.algorithm, "m.secret_storage.v1.aes-hmac-sha2");
+        assert!(info.master_key_id.is_none());
+        assert!(info.key_count.is_empty());
+    }
+
+    #[test]
+    fn serialization_roundtrip_secret_storage_key() {
+        let key = SecretStorageKey {
+            key_id: "key_id".to_string(),
+            user_id: "@user:example.org".to_string(),
+            algorithm: "m.secret_storage.v1.aes-hmac-sha2".to_string(),
+            encrypted_key: "enc".to_string(),
+            public_key: Some("pub".to_string()),
+            signatures: serde_json::json!({}),
+            created_ts: 1000,
+        };
+        let json = serde_json::to_string(&key).unwrap();
+        let rt: SecretStorageKey = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.key_id, "key_id");
+        assert_eq!(rt.algorithm, "m.secret_storage.v1.aes-hmac-sha2");
+        assert_eq!(rt.encrypted_key, "enc");
+        assert_eq!(rt.public_key, Some("pub".to_string()));
+        assert_eq!(rt.created_ts, 1000);
+    }
+
+    #[test]
+    fn creation_key_enum_tagged_variants() {
+        let curve25519 = SecretStorageKeyCreationKey::Curve25519AesSha2(Curve25519Key { key: "ck".to_string() });
+        let json = serde_json::to_string(&curve25519).unwrap();
+        assert!(json.contains("org.matrix.msc2697.v1.curve25519-aes-sha2"));
+
+        let aes = SecretStorageKeyCreationKey::AesHmacSha2(AesHmacSha2Key { key: "ak".to_string(), iv: "iv".to_string(), mac: "mac".to_string() });
+        let json_aes = serde_json::to_string(&aes).unwrap();
+        assert!(json_aes.contains("aes-hmac-sha2"));
+
+        let rt: SecretStorageKeyCreationKey = serde_json::from_str(&json).unwrap();
+        match rt {
+            SecretStorageKeyCreationKey::Curve25519AesSha2(k) => assert_eq!(k.key, "ck"),
+            _ => panic!("expected curve25519 variant"),
+        }
+    }
+
+    #[test]
+    fn secret_result_uses_encrypted_secret_alias() {
+        let result = SecretResult { encrypted: "enc_secret".to_string(), key: "key1".to_string() };
+        let json = serde_json::to_string(&result).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v.get("encrypted_secret").and_then(|x| x.as_str()), Some("enc_secret"));
+        assert_eq!(v.get("key").and_then(|x| x.as_str()), Some("key1"));
+
+        let rt: SecretResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.encrypted, "enc_secret");
+    }
+
+    #[test]
+    fn secret_storage_key_tracks_rename() {
+        let tracks = SecretStorageKeyTracks { self_signing: Some(true), user_signing: Some(false) };
+        let json = serde_json::to_string(&tracks).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v.get("m.cross-signing.self-signing").and_then(|x| x.as_bool()), Some(true));
+        assert_eq!(v.get("m.cross-signing.user-signing").and_then(|x| x.as_bool()), Some(false));
+    }
+
+    #[test]
+    fn stored_secret_roundtrip() {
+        let secret = StoredSecret {
+            secret_name: "m.cross_signing.master".to_string(),
+            encrypted_secret: "enc_data".to_string(),
+            key_id: "key1".to_string(),
+        };
+        let json = serde_json::to_string(&secret).unwrap();
+        let rt: StoredSecret = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.secret_name, "m.cross_signing.master");
+        assert_eq!(rt.encrypted_secret, "enc_data");
+        assert_eq!(rt.key_id, "key1");
+    }
+}

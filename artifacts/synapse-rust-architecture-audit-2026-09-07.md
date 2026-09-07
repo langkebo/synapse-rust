@@ -267,7 +267,7 @@
 | **P0-2** | 巨型文件拆分（`friend_room_service/mod.rs` 3022 行） | 大 | 中 | 提取生产逻辑/测试/bench 为独立模块 | ✅ 2026-09-07 commit 0b92bc1c (tests.rs 1253 lines 提取) |
 | **P0-3** | `transaction.rs` 662 行单函数 | 中 | 低 | 拆为签名校验/持久化/广播子 async fn | ✅ 2026-09-07 commit f3bf66e5 |
 | **P1-1** | Federation `m.receipt` EDU 缺失 | 中 | 低 | 新增 EDU 变体 + 分发 + 出站触发 | ✅ 2026-09-07 commit a334d236 |
-| **P1-2** | E2EE 核心模块单元测试覆盖 | 大 | 低 | 按 `key_request → device_trust → secure_backup → ssss` 优先级补测 | 待办 |
+| **P1-2** | E2EE 核心模块单元测试覆盖 | 大 | 低 | 按 `key_request → device_trust → secure_backup → ssss` 优先级补测 | ✅ 2026-09-07: key_request models +4 tests (7 total), secure_backup models +3 (4 total), ssss models +8 (21 total). device_trust 保持 23 tests (models/service 覆盖完整，storage 需 DB)。device_trust/storage、ssss/storage、secure_backup/service 仍需 DB 集成测试 |
 | **P1-3** | 请求体全面加 `deny_unknown_fields` | 中 | 低 | 脚本扫描所有 `*Request` struct | ✅ 2026-09-07 commit d34eb70f（144 structs / 38 files） |
 | **P1-4** | SSRF 防护 | 中 | 中 | federation HTTP client 注入 private IP 黑名单 | ✅ 2026-09-07 commit aa717fc0 |
 | **P1-5** | `/sync` N+1 + 无缓存 `get_joined_rooms` | 中 | 低 | 复用缓存 joined-rooms 或跳过 `m.direct` 空场景 | ✅ 2026-09-07 commit a334d236 |
@@ -276,7 +276,7 @@
 | **P2-2** | 删除 `user_lock_service.rs` 透传壳 | 小 | 低 | 调用方直接依赖 `Arc<dyn UserStore>` | ✅ 2026-09-07 早前 commit 已删 |
 | **P2-3** | 收敛测试基础设施 | 小 | 低 | 删除 12/16 行重复 test_config；建立统一 mock builder | ✅ 2026-09-07 commit (removed unused facade modules) |
 | **P2-4** | 全局 `in_flight` 锁改 moka 原生 single-flight | 小 | 低 | 替换为 `cache.get_with(key, async { ... })` | ✅ **已缓解** (moka 0.12.16 sync::Cache 无 get_with API，当前 per-key Mutex 已解决全局锁问题) |
-| **P2-5** | 补 107 处 `missing_docs` | 小 | 极低 | 补文档或缩小 pub 可见性 | 部分（之前的 1,880 行 dedup 解决了 107 中的大部分） |
+| **P2-5** | 补 107 处 `missing_docs` | 小 | 极低 | 补文档或缩小 pub 可见性 | ✅ 2026-09-07: 1,880 行 dedup 已解决全部 107；`check_missing_docs_ratchet.sh` 显示 `0 missing docs → READY for #![deny(missing_docs)]` |
 
 ---
 
