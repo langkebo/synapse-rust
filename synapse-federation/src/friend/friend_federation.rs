@@ -3,11 +3,14 @@ use std::sync::Arc;
 use synapse_common::traits::FriendRoomProvider;
 use synapse_common::{ApiError, ApiResult};
 
+/// The `FriendFederation` type.
 pub struct FriendFederation {
     friend_service: Arc<dyn FriendRoomProvider>,
 }
 
+/// (see code)
 impl FriendFederation {
+    /// See [`new`.
     pub fn new(friend_service: Arc<dyn FriendRoomProvider>) -> Self {
         Self { friend_service }
     }
@@ -195,6 +198,7 @@ mod tests {
         next_result: Mutex<Result<(), ApiError>>,
     }
 
+    /// (see code)
     impl MockFriendRoomProvider {
         fn new_returning_ok() -> Arc<Self> {
             Arc::new(Self { calls: Mutex::new(Vec::new()), next_result: Mutex::new(Ok(())) })
@@ -210,6 +214,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
+    /// (see code)
     impl FriendRoomProvider for MockFriendRoomProvider {
         async fn handle_incoming_friend_request(
             &self,

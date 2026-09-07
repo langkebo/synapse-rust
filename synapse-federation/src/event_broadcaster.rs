@@ -11,28 +11,76 @@ use tokio::sync::{mpsc, RwLock};
 use tracing::{info_span, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `FederationEvent` type.
 pub struct FederationEvent {
+    /// The `event_id` field.
+    /// The `room_id` field.
+    /// The `sender` field.
+    /// The `event_type` field.
+    /// The `content` field.
+    /// The `origin` field.
+    /// The `destination` field.
     pub event_id: String,
+    /// The `room_id` field.
+    /// The `sender` field.
+    /// The `event_type` field.
+    /// The `content` field.
+    /// The `origin` field.
+    /// The `destination` field.
     pub room_id: String,
+    /// The `sender` field.
+    /// The `event_type` field.
+    /// The `content` field.
+    /// The `origin` field.
+    /// The `destination` field.
     pub sender: String,
+    /// The `event_type` field.
+    /// The `content` field.
+    /// The `origin` field.
+    /// The `destination` field.
     pub event_type: String,
+    /// The `content` field.
+    /// The `origin` field.
+    /// The `destination` field.
     pub content: serde_json::Value,
+    /// The `origin` field.
+    /// The `destination` field.
     pub origin: String,
+    /// The `destination` field.
     pub destination: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `PendingTransaction` type.
 pub struct PendingTransaction {
+    /// The `destination` field.
+    /// The `transaction` field.
+    /// The `retry_count` field.
+    /// The `next_retry_at` field.
+    /// The `db_id` field.
     pub destination: String,
+    /// The `transaction` field.
+    /// The `retry_count` field.
+    /// The `next_retry_at` field.
+    /// The `db_id` field.
     pub transaction: FederationTransaction,
+    /// The `retry_count` field.
+    /// The `next_retry_at` field.
+    /// The `db_id` field.
     pub retry_count: u32,
+    /// The `next_retry_at` field.
+    /// The `db_id` field.
     pub next_retry_at: i64,
+    /// The `db_id` field.
     pub db_id: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
 enum OutgoingItem {
+    /// The `Pdu` variant.
+    /// The `Edu` variant.
     Pdu(serde_json::Value),
+    /// The `Edu` variant.
     Edu(serde_json::Value),
 }
 
@@ -44,6 +92,7 @@ struct TransactionBatch {
 }
 
 #[derive(Clone)]
+/// The `EventBroadcaster` type.
 pub struct EventBroadcaster {
     server_name: String,
     federation_client: Option<Arc<dyn FederationClientApi>>,
@@ -57,7 +106,9 @@ pub struct EventBroadcaster {
 type DbPendingRow = (i64, String, String, Option<String>, serde_json::Value, i64, i32);
 type BatchSender = mpsc::Sender<(String, OutgoingItem)>;
 
+/// (see code)
 impl EventBroadcaster {
+    /// See [`new`.
     pub fn new(server_name: String) -> Self {
         Self {
             server_name,
@@ -70,33 +121,40 @@ impl EventBroadcaster {
         }
     }
 
+    /// See [`with_client`.
     pub fn with_client(mut self, client: Arc<dyn FederationClientApi>) -> Self {
         self.federation_client = Some(client);
         self
     }
 
+    /// See [`with_pool`.
     pub fn with_pool(mut self, pool: sqlx::PgPool) -> Self {
         self.pool = Some(pool);
         self
     }
 
+    /// See [`with_membership_storage`.
     pub fn with_membership_storage(mut self, storage: Arc<dyn MemberStoreApi>) -> Self {
         self.membership_storage = Some(storage);
         self
     }
 
+    /// See [`set_client`.
     pub fn set_client(&mut self, client: Arc<dyn FederationClientApi>) {
         self.federation_client = Some(client);
     }
 
+    /// See [`set_membership_storage`.
     pub fn set_membership_storage(&mut self, storage: Arc<dyn MemberStoreApi>) {
         self.membership_storage = Some(storage);
     }
 
+    /// See [`set_pool`.
     pub fn set_pool(&mut self, pool: sqlx::PgPool) {
         self.pool = Some(pool);
     }
 
+    /// See [`start_batch_sender`.
     pub async fn start_batch_sender(&self, origin: String, batch_max_size: usize, flush_interval_ms: u64) {
         let (tx, mut rx) = mpsc::channel::<(String, OutgoingItem)>(10000);
         *self.batch_tx.lock().await = Some(tx);
@@ -235,6 +293,7 @@ impl EventBroadcaster {
         }
     }
 
+    /// See [`recover_pending_from_db`.
     pub async fn recover_pending_from_db(&self) -> Result<usize, FederationBroadcastError> {
         let pool = match &self.pool {
             Some(p) => p,
@@ -291,6 +350,7 @@ impl EventBroadcaster {
         Ok(count)
     }
 
+    /// See [`broadcast_event`.
     pub async fn broadcast_event(
         &self,
         room_id: &str,
@@ -352,6 +412,7 @@ impl EventBroadcaster {
         Ok(())
     }
 
+    /// See [`broadcast_edu`.
     pub async fn broadcast_edu(
         &self,
         destination: &str,
@@ -392,6 +453,7 @@ impl EventBroadcaster {
         Ok(())
     }
 
+    /// See [`broadcast_edu_to_room`.
     pub async fn broadcast_edu_to_room(
         &self,
         room_id: &str,
@@ -563,6 +625,7 @@ impl EventBroadcaster {
         );
     }
 
+    /// See [`retry_pending_transactions`.
     pub async fn retry_pending_transactions(&self) -> Result<usize, FederationBroadcastError> {
         let client = match &self.federation_client {
             Some(c) => c.clone(),
@@ -631,10 +694,12 @@ impl EventBroadcaster {
         Ok(retried)
     }
 
+    /// See [`get_pending_count`.
     pub async fn get_pending_count(&self) -> usize {
         self.pending_queue.read().await.len()
     }
 
+    /// See [`cleanup_old_transactions`.
     pub async fn cleanup_old_transactions(&self, older_than_ts: i64) -> Result<u64, FederationBroadcastError> {
         let pool = match &self.pool {
             Some(p) => p,
@@ -741,11 +806,15 @@ async fn send_batch(
 }
 
 #[derive(Debug, thiserror::Error)]
+/// The `FederationBroadcastError` enum.
 pub enum FederationBroadcastError {
+    /// The `SendFailed` variant.
     #[error("Failed to send event: {0}")]
     SendFailed(String),
+    /// The `InvalidEvent` variant.
     #[error("Invalid event data: {0}")]
     InvalidEvent(String),
+    /// The `NetworkError` variant.
     #[error("Network error: {0}")]
     NetworkError(String),
 }
@@ -760,9 +829,11 @@ pub enum FederationBroadcastError {
 /// `EventBroadcaster` interface.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FederationBroadcastMessage {
+    /// The `event` field.
     pub event: FederationEvent,
 }
 
+/// (see code)
 impl synapse_common::traits::EventBroadcaster for EventBroadcaster {
     type Message = FederationBroadcastMessage;
 
@@ -782,6 +853,7 @@ impl synapse_common::traits::EventBroadcaster for EventBroadcaster {
     }
 }
 
+/// (see code)
 impl From<FederationBroadcastError> for synapse_common::traits::BroadcastError {
     fn from(e: FederationBroadcastError) -> Self {
         match e {

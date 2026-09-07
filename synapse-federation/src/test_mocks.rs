@@ -43,7 +43,9 @@ pub struct MockFederationClient {
     backfill_responses: Arc<RwLock<HashMap<String, BackfillResponse>>>,
 }
 
+/// (see code)
 impl MockFederationClient {
+    /// See [`new`.
     pub fn new(server_name: impl Into<String>) -> Self {
         Self {
             server_name: server_name.into(),
@@ -60,30 +62,37 @@ impl MockFederationClient {
 
     // ── Seeding API ───────────────────────────────────────────────────
 
+    /// See [`seed_server_keys`.
     pub async fn seed_server_keys(&self, server_name: impl Into<String>, keys: ServerKeys) {
         self.server_keys.write().await.insert(server_name.into(), keys);
     }
 
+    /// See [`seed_make_join`.
     pub async fn seed_make_join(&self, room_id: impl Into<String>, response: MakeJoinResponse) {
         self.make_join_responses.write().await.insert(room_id.into(), response);
     }
 
+    /// See [`seed_send_join`.
     pub async fn seed_send_join(&self, room_id: impl Into<String>, response: SendJoinResponse) {
         self.send_join_responses.write().await.insert(room_id.into(), response);
     }
 
+    /// See [`seed_make_leave`.
     pub async fn seed_make_leave(&self, room_id: impl Into<String>, response: MakeLeaveResponse) {
         self.make_leave_responses.write().await.insert(room_id.into(), response);
     }
 
+    /// See [`seed_send_leave`.
     pub async fn seed_send_leave(&self, room_id: impl Into<String>, response: SendLeaveResponse) {
         self.send_leave_responses.write().await.insert(room_id.into(), response);
     }
 
+    /// See [`seed_invite`.
     pub async fn seed_invite(&self, room_id: impl Into<String>, response: InviteResponse) {
         self.invite_responses.write().await.insert(room_id.into(), response);
     }
 
+    /// See [`seed_backfill`.
     pub async fn seed_backfill(&self, room_id: impl Into<String>, response: BackfillResponse) {
         self.backfill_responses.write().await.insert(room_id.into(), response);
     }
@@ -105,6 +114,7 @@ impl MockFederationClient {
 // ============================================================================
 
 #[async_trait::async_trait]
+/// (see code)
 impl crate::client_api::FederationClientApi for MockFederationClient {
     fn server_name(&self) -> &str {
         &self.server_name
@@ -381,7 +391,9 @@ pub struct InMemoryKeyRotationManager {
     rotation_status: Arc<RwLock<serde_json::Value>>,
 }
 
+/// (see code)
 impl InMemoryKeyRotationManager {
+    /// See [`new`.
     pub fn new() -> Self {
         Self {
             rotation_enabled: Arc::new(RwLock::new(true)),
@@ -399,15 +411,18 @@ impl InMemoryKeyRotationManager {
         }
     }
 
+    /// See [`seed_current_key`.
     pub async fn seed_current_key(&self, key: SigningKey) {
         *self.current_key.write().await = Some(key);
     }
 
+    /// See [`set_rotation_enabled_state`.
     pub async fn set_rotation_enabled_state(&self, enabled: bool) {
         *self.rotation_enabled.write().await = enabled;
     }
 }
 
+/// (see code)
 impl Default for InMemoryKeyRotationManager {
     fn default() -> Self {
         Self::new()
@@ -415,6 +430,7 @@ impl Default for InMemoryKeyRotationManager {
 }
 
 #[async_trait::async_trait]
+/// (see code)
 impl KeyRotationManagerApi for InMemoryKeyRotationManager {
     async fn get_rotation_status(&self) -> serde_json::Value {
         self.rotation_status.read().await.clone()

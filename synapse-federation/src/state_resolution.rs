@@ -3,14 +3,21 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `ResolutionResult` type.
 pub struct ResolutionResult {
+    /// The `accepted_events` field.
+    /// The `rejected_events` field.
     pub accepted_events: Vec<String>,
+    /// The `rejected_events` field.
     pub rejected_events: Vec<String>,
 }
 
+/// The `StateResolutionService` type.
 pub struct StateResolutionService;
 
+/// (see code)
 impl StateResolutionService {
+    /// See [`new`.
     pub fn new() -> Self {
         Self
     }
@@ -102,6 +109,7 @@ impl StateResolutionService {
     }
 }
 
+/// (see code)
 impl Default for StateResolutionService {
     fn default() -> Self {
         Self::new()
@@ -109,9 +117,12 @@ impl Default for StateResolutionService {
 }
 
 #[derive(Debug, thiserror::Error)]
+/// The `StateResolutionError` enum.
 pub enum StateResolutionError {
+    /// The `InvalidEvent` variant.
     #[error("Invalid event: {0}")]
     InvalidEvent(String),
+    /// The `ResolutionFailed` variant.
     #[error("State resolution failed: {0}")]
     ResolutionFailed(String),
 }

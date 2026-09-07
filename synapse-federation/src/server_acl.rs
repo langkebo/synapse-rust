@@ -36,6 +36,7 @@ fn default_allow_ip_literals() -> bool {
     true
 }
 
+/// (see code)
 impl ServerAclContent {
     /// Parse the ACL content from a `serde_json::Value` (typically the `content`
     /// field of an `m.room.server_acl` state event).

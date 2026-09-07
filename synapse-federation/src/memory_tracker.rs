@@ -8,15 +8,32 @@ use std::sync::RwLock;
 use std::time::Instant;
 
 #[derive(Debug)]
+/// The `MemoryStats` type.
 pub struct MemoryStats {
+    /// The `allocations` field.
+    /// The `deallocations` field.
+    /// The `current_size` field.
+    /// The `peak_size` field.
+    /// The `operation_count` field.
     pub allocations: AtomicUsize,
+    /// The `deallocations` field.
+    /// The `current_size` field.
+    /// The `peak_size` field.
+    /// The `operation_count` field.
     pub deallocations: AtomicUsize,
+    /// The `current_size` field.
+    /// The `peak_size` field.
+    /// The `operation_count` field.
     pub current_size: AtomicUsize,
+    /// The `peak_size` field.
+    /// The `operation_count` field.
     pub peak_size: AtomicUsize,
+    /// The `operation_count` field.
     pub operation_count: AtomicUsize,
     last_operation_time: RwLock<Instant>,
 }
 
+/// (see code)
 impl Default for MemoryStats {
     fn default() -> Self {
         Self {
@@ -30,11 +47,14 @@ impl Default for MemoryStats {
     }
 }
 
+/// (see code)
 impl MemoryStats {
+    /// See [`new`.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// See [`record_allocation`.
     pub fn record_allocation(&self, size: usize) {
         self.allocations.fetch_add(1, Ordering::SeqCst);
         let new_current = self.current_size.fetch_add(size, Ordering::SeqCst) + size;
@@ -53,6 +73,7 @@ impl MemoryStats {
         }
     }
 
+    /// See [`record_deallocation`.
     pub fn record_deallocation(&self, size: usize) {
         self.deallocations.fetch_add(1, Ordering::SeqCst);
         self.operation_count.fetch_add(1, Ordering::SeqCst);
@@ -68,6 +89,7 @@ impl MemoryStats {
         }
     }
 
+    /// See [`get_stats`.
     pub fn get_stats(&self) -> MemoryStatsSnapshot {
         MemoryStatsSnapshot {
             total_allocations: self.allocations.load(Ordering::SeqCst),
@@ -78,6 +100,7 @@ impl MemoryStats {
         }
     }
 
+    /// See [`get_utilization_rate`.
     pub fn get_utilization_rate(&self) -> f64 {
         let current = self.current_size.load(Ordering::SeqCst);
         let peak = self.peak_size.load(Ordering::SeqCst);
@@ -90,19 +113,38 @@ impl MemoryStats {
 }
 
 #[derive(Debug, Clone)]
+/// The `MemoryStatsSnapshot` type.
 pub struct MemoryStatsSnapshot {
+    /// The `total_allocations` field.
+    /// The `total_deallocations` field.
+    /// The `current_size` field.
+    /// The `peak_size` field.
+    /// The `operation_count` field.
     pub total_allocations: usize,
+    /// The `total_deallocations` field.
+    /// The `current_size` field.
+    /// The `peak_size` field.
+    /// The `operation_count` field.
     pub total_deallocations: usize,
+    /// The `current_size` field.
+    /// The `peak_size` field.
+    /// The `operation_count` field.
     pub current_size: usize,
+    /// The `peak_size` field.
+    /// The `operation_count` field.
     pub peak_size: usize,
+    /// The `operation_count` field.
     pub operation_count: usize,
 }
 
+/// (see code)
 impl MemoryStatsSnapshot {
+    /// See [`leak_count`.
     pub fn leak_count(&self) -> usize {
         self.total_allocations.saturating_sub(self.total_deallocations)
     }
 
+    /// See [`leak_percentage`.
     pub fn leak_percentage(&self) -> f64 {
         if self.total_allocations == 0 {
             0.0
@@ -113,6 +155,7 @@ impl MemoryStatsSnapshot {
 }
 
 #[derive(Default)]
+/// The `FederationMemoryTracker` type.
 pub struct FederationMemoryTracker {
     event_cache_stats: MemoryStats,
     auth_chain_stats: MemoryStats,
@@ -120,35 +163,44 @@ pub struct FederationMemoryTracker {
     state_resolution_stats: MemoryStats,
 }
 
+/// (see code)
 impl FederationMemoryTracker {
+    /// See [`new`.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// See [`record_event_cached`.
     pub fn record_event_cached(&self, size: usize) {
         self.event_cache_stats.record_allocation(size);
     }
 
+    /// See [`record_event_removed`.
     pub fn record_event_removed(&self, size: usize) {
         self.event_cache_stats.record_deallocation(size);
     }
 
+    /// See [`record_auth_chain_operation`.
     pub fn record_auth_chain_operation(&self, size: usize) {
         self.auth_chain_stats.record_allocation(size);
     }
 
+    /// See [`record_key_cached`.
     pub fn record_key_cached(&self, size: usize) {
         self.key_cache_stats.record_allocation(size);
     }
 
+    /// See [`record_key_removed`.
     pub fn record_key_removed(&self, size: usize) {
         self.key_cache_stats.record_deallocation(size);
     }
 
+    /// See [`record_state_resolution`.
     pub fn record_state_resolution(&self, size: usize) {
         self.state_resolution_stats.record_allocation(size);
     }
 
+    /// See [`get_report`.
     pub fn get_report(&self) -> FederationMemoryReport {
         FederationMemoryReport {
             event_cache: self.event_cache_stats.get_stats(),
@@ -168,16 +220,40 @@ impl FederationMemoryTracker {
 }
 
 #[derive(Debug, Clone)]
+/// The `FederationMemoryReport` type.
 pub struct FederationMemoryReport {
+    /// The `event_cache` field.
+    /// The `auth_chain` field.
+    /// The `key_cache` field.
+    /// The `state_resolution` field.
+    /// The `total_current` field.
+    /// The `total_peak` field.
     pub event_cache: MemoryStatsSnapshot,
+    /// The `auth_chain` field.
+    /// The `key_cache` field.
+    /// The `state_resolution` field.
+    /// The `total_current` field.
+    /// The `total_peak` field.
     pub auth_chain: MemoryStatsSnapshot,
+    /// The `key_cache` field.
+    /// The `state_resolution` field.
+    /// The `total_current` field.
+    /// The `total_peak` field.
     pub key_cache: MemoryStatsSnapshot,
+    /// The `state_resolution` field.
+    /// The `total_current` field.
+    /// The `total_peak` field.
     pub state_resolution: MemoryStatsSnapshot,
+    /// The `total_current` field.
+    /// The `total_peak` field.
     pub total_current: usize,
+    /// The `total_peak` field.
     pub total_peak: usize,
 }
 
+/// (see code)
 impl FederationMemoryReport {
+    /// See [`format_human_readable`.
     pub fn format_human_readable(&self) -> String {
         format!(
             "=== Federation Memory Report ===

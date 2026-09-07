@@ -1,28 +1,37 @@
+/// The `chain` module.
 pub mod chain;
+/// The `models` module.
 pub mod models;
+/// The `state_resolution` module.
 pub mod state_resolution;
 
 pub use models::*;
 
 use std::collections::{HashMap, VecDeque};
 
+/// (see code)
 impl EventAuthChain {
+    /// See [`get_cached_auth_chain`.
     pub fn get_cached_auth_chain(&self, event_id: &str) -> Option<Vec<String>> {
         self.auth_chain_cache.get(event_id)
     }
 
+    /// See [`cache_auth_chain_result`.
     pub fn cache_auth_chain_result(&self, event_id: &str, chain: Vec<String>) {
         self.auth_chain_cache.insert(event_id.to_string(), chain);
     }
 
+    /// See [`get_cached_depth`.
     pub fn get_cached_depth(&self, event_id: &str) -> Option<i64> {
         self.depth_cache.get(event_id)
     }
 
+    /// See [`cache_depth`.
     pub fn cache_depth(&self, event_id: &str, depth: i64) {
         self.depth_cache.insert(event_id.to_string(), depth);
     }
 
+    /// See [`is_auth_event`.
     pub fn is_auth_event(event_type: &str) -> bool {
         matches!(
             event_type,
@@ -39,6 +48,7 @@ impl EventAuthChain {
         )
     }
 
+    /// See [`calculate_event_depth`.
     pub fn calculate_event_depth(&self, events: &[EventInfo]) -> HashMap<String, i64> {
         let mut event_map: HashMap<String, &EventInfo> = HashMap::new();
         let mut in_degree: HashMap<String, i64> = HashMap::new();
@@ -98,6 +108,7 @@ impl EventAuthChain {
         depth
     }
 
+    /// See [`calculate_event_depth_with_cache`.
     pub fn calculate_event_depth_with_cache(&self, events: &[EventInfo], event_id: &str) -> Option<i64> {
         let cache_key = format!("depth:{event_id}");
 

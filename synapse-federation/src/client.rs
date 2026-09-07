@@ -116,115 +116,249 @@ fn verify_server_keys_self_signature(keys: &ServerKeys) -> Result<(), Federation
 const DEFAULT_FEDERATION_PORT: u16 = 8448;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `ServerKeys` type.
 pub struct ServerKeys {
+    /// The `server_name` field.
+    /// The `verify_keys` field.
+    /// The `old_verify_keys` field.
+    /// The `signatures` field.
+    /// The `valid_until_ts` field.
     pub server_name: String,
+    /// The `verify_keys` field.
+    /// The `old_verify_keys` field.
+    /// The `signatures` field.
+    /// The `valid_until_ts` field.
     pub verify_keys: serde_json::Value,
+    /// The `old_verify_keys` field.
+    /// The `signatures` field.
+    /// The `valid_until_ts` field.
     pub old_verify_keys: serde_json::Value,
+    /// The `signatures` field.
+    /// The `valid_until_ts` field.
     pub signatures: serde_json::Value,
+    /// The `valid_until_ts` field.
     pub valid_until_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `FederationTransaction` type.
 pub struct FederationTransaction {
+    /// The `transaction_id` field.
+    /// The `origin` field.
+    /// The `origin_server_ts` field.
+    /// The `destination` field.
+    /// The `pdus` field.
+    /// The `edus` field.
     pub transaction_id: String,
+    /// The `origin` field.
+    /// The `origin_server_ts` field.
+    /// The `destination` field.
+    /// The `pdus` field.
+    /// The `edus` field.
     pub origin: String,
+    /// The `origin_server_ts` field.
+    /// The `destination` field.
+    /// The `pdus` field.
+    /// The `edus` field.
     pub origin_server_ts: i64,
+    /// The `destination` field.
+    /// The `pdus` field.
+    /// The `edus` field.
     pub destination: String,
+    /// The `pdus` field.
+    /// The `edus` field.
     pub pdus: Vec<serde_json::Value>,
+    /// The `edus` field.
     pub edus: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `MakeJoinResponse` type.
 pub struct MakeJoinResponse {
+    /// The `room_id` field.
+    /// The `event` field.
+    /// The `room_version` field.
     pub room_id: String,
+    /// The `event` field.
+    /// The `room_version` field.
     pub event: serde_json::Value,
+    /// The `room_version` field.
     pub room_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `SendJoinResponse` type.
 pub struct SendJoinResponse {
+    /// The `room_id` field.
+    /// The `origin` field.
+    /// The `state` field.
+    /// The `auth_chain` field.
+    /// The `event` field.
     pub room_id: String,
+    /// The `origin` field.
+    /// The `state` field.
+    /// The `auth_chain` field.
+    /// The `event` field.
     pub origin: String,
+    /// The `state` field.
+    /// The `auth_chain` field.
+    /// The `event` field.
     pub state: Vec<serde_json::Value>,
+    /// The `auth_chain` field.
+    /// The `event` field.
     pub auth_chain: Vec<serde_json::Value>,
+    /// The `event` field.
     pub event: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `MakeLeaveResponse` type.
 pub struct MakeLeaveResponse {
+    /// The `room_id` field.
+    /// The `event` field.
     pub room_id: String,
+    /// The `event` field.
     pub event: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `SendLeaveResponse` type.
 pub struct SendLeaveResponse {
+    /// The `room_id` field.
     pub room_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `InviteResponse` type.
 pub struct InviteResponse {
+    /// The `event` field.
     pub event: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `BackfillResponse` type.
 pub struct BackfillResponse {
+    /// The `origin` field.
+    /// The `origin_server_ts` field.
+    /// The `pdus` field.
+    /// The `auth_chain` field.
     pub origin: String,
+    /// The `origin_server_ts` field.
+    /// The `pdus` field.
+    /// The `auth_chain` field.
     pub origin_server_ts: i64,
+    /// The `pdus` field.
+    /// The `auth_chain` field.
     pub pdus: Vec<serde_json::Value>,
+    /// The `auth_chain` field.
     pub auth_chain: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `StateResponse` type.
 pub struct StateResponse {
+    /// The `room_id` field.
+    /// The `origin` field.
+    /// The `pdus` field.
+    /// The `auth_chain` field.
     pub room_id: String,
+    /// The `origin` field.
+    /// The `pdus` field.
+    /// The `auth_chain` field.
     pub origin: String,
+    /// The `pdus` field.
+    /// The `auth_chain` field.
     pub pdus: Vec<serde_json::Value>,
+    /// The `auth_chain` field.
     pub auth_chain: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `StateIdsResponse` type.
 pub struct StateIdsResponse {
+    /// The `room_id` field.
+    /// The `origin` field.
+    /// The `pdu_ids` field.
+    /// The `auth_chain_ids` field.
     pub room_id: String,
+    /// The `origin` field.
+    /// The `pdu_ids` field.
+    /// The `auth_chain_ids` field.
     pub origin: String,
+    /// The `pdu_ids` field.
+    /// The `auth_chain_ids` field.
     pub pdu_ids: Vec<String>,
+    /// The `auth_chain_ids` field.
     pub auth_chain_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `UserDevicesResponse` type.
 pub struct UserDevicesResponse {
+    /// The `user_id` field.
+    /// The `devices` field.
+    /// The `master_key` field.
+    /// The `self_signing_key` field.
     pub user_id: String,
+    /// The `devices` field.
+    /// The `master_key` field.
+    /// The `self_signing_key` field.
     pub devices: Vec<serde_json::Value>,
+    /// The `master_key` field.
+    /// The `self_signing_key` field.
     pub master_key: Option<serde_json::Value>,
+    /// The `self_signing_key` field.
     pub self_signing_key: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `ProfileResponse` type.
 pub struct ProfileResponse {
+    /// The `displayname` field.
+    /// The `avatar_url` field.
     pub displayname: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `DirectoryResponse` type.
 pub struct DirectoryResponse {
+    /// The `room_id` field.
+    /// The `servers` field.
     pub room_id: String,
+    /// The `servers` field.
     pub servers: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `VersionResponse` type.
 pub struct VersionResponse {
+    /// The `server` field.
     pub server: ServerInfo,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `ServerInfo` type.
 pub struct ServerInfo {
+    /// The `name` field.
+    /// The `version` field.
     pub name: String,
+    /// The `version` field.
     pub version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `ResolvedServer` type.
 pub struct ResolvedServer {
+    /// The `server_name` field.
+    /// The `host` field.
+    /// The `port` field.
     pub server_name: String,
+    /// The `host` field.
+    /// The `port` field.
     pub host: String,
+    /// The `port` field.
     pub port: u16,
 }
 
@@ -245,27 +379,43 @@ struct CachedResolvedServer {
 const SERVER_RESOLUTION_TTL_SECS: u64 = 300;
 
 #[derive(Debug, thiserror::Error)]
+/// The `FederationClientError` enum.
 pub enum FederationClientError {
+    /// The `Connection` variant.
     #[error("Connection error: {0}")]
     Connection(String),
+    /// The `Authentication` variant.
     #[error("Authentication error: {0}")]
     Authentication(String),
+    /// The `Remote` variant.
     #[error("Remote server error: {status} {body}")]
-    Remote { status: u16, body: String },
+    Remote {
+        /// The `status` field.
+        status: u16,
+        /// The `body` field.
+        body: String,
+    },
+    /// The `NoSigningKey` variant.
     #[error("Signing key not available")]
     NoSigningKey,
+    /// The `DiscoveryFailed` variant.
     #[error("Server discovery failed for {0}")]
     DiscoveryFailed(String),
+    /// The `InvalidResponse` variant.
     #[error("Invalid response: {0}")]
     InvalidResponse(String),
+    /// The `RateLimited` variant.
     #[error("Rate limited, retry after {0}ms")]
     RateLimited(u64),
+    /// The `ServerBlocked` variant.
     #[error("Server blocked (possible SSRF): {0}")]
     ServerBlocked(String),
+    /// The `Timeout` variant.
     #[error("Timeout")]
     Timeout,
 }
 
+/// (see code)
 impl From<FederationClientError> for ApiError {
     fn from(e: FederationClientError) -> Self {
         Self::internal(format!("Federation error: {e}"))
@@ -321,6 +471,7 @@ pub(crate) fn validate_federation_host_not_ssrf(host: &str) -> Result<(), String
     Ok(())
 }
 
+/// The `FederationClient` type.
 pub struct FederationClient {
     http_client: Client,
     server_name: String,
@@ -331,13 +482,16 @@ pub struct FederationClient {
     dlq: Option<Arc<dyn DeadLetterQueueApi>>,
 }
 
+/// (see code)
 impl std::fmt::Debug for FederationClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FederationClient").field("server_name", &self.server_name).finish()
     }
 }
 
+/// (see code)
 impl FederationClient {
+    /// See [`new`.
     pub fn new(server_name: String, key_rotation_manager: Arc<KeyRotationManager>) -> Self {
         // F-1/E-1: Use shared HTTP client with connection pool reuse.
         let http_client = http_client::default_client();
@@ -367,6 +521,7 @@ impl FederationClient {
         self.dlq.as_ref()
     }
 
+    /// See [`server_name`.
     pub fn server_name(&self) -> &str {
         &self.server_name
     }
@@ -414,6 +569,7 @@ impl FederationClient {
         ))
     }
 
+    /// See [`resolve_server`.
     pub async fn resolve_server(&self, server_name: &str) -> Result<ResolvedServer, FederationClientError> {
         // FED-06: Check cache with TTL — expired entries are treated as misses
         // so DNS changes are detected within SERVER_RESOLUTION_TTL_SECS.
@@ -613,6 +769,7 @@ impl FederationClient {
         Ok(keys)
     }
 
+    /// See [`query_server_keys`.
     pub async fn query_server_keys(
         &self,
         destination: &str,
@@ -627,12 +784,14 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`get_version`.
     pub async fn get_version(&self, destination: &str) -> Result<VersionResponse, FederationClientError> {
         let path = "/_matrix/federation/v1/version";
         let response = self.send_signed_request("GET", path, destination, None).await?;
         self.handle_response(response).await
     }
 
+    /// See [`send_transaction`.
     pub async fn send_transaction(
         &self,
         destination: &str,
@@ -704,6 +863,7 @@ impl FederationClient {
         result
     }
 
+    /// See [`make_join`.
     pub async fn make_join(
         &self,
         destination: &str,
@@ -719,6 +879,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`send_join`.
     pub async fn send_join(
         &self,
         destination: &str,
@@ -736,6 +897,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`make_leave`.
     pub async fn make_leave(
         &self,
         destination: &str,
@@ -751,6 +913,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`send_leave`.
     pub async fn send_leave(
         &self,
         destination: &str,
@@ -768,6 +931,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`invite`.
     pub async fn invite(
         &self,
         destination: &str,
@@ -782,12 +946,14 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`get_state`.
     pub async fn get_state(&self, destination: &str, room_id: &str) -> Result<StateResponse, FederationClientError> {
         let path = format!("/_matrix/federation/v1/state/{}", urlencoding::encode(room_id));
         let response = self.send_signed_request("GET", &path, destination, None).await?;
         self.handle_response(response).await
     }
 
+    /// See [`get_state_ids`.
     pub async fn get_state_ids(
         &self,
         destination: &str,
@@ -798,6 +964,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`backfill`.
     pub async fn backfill(
         &self,
         destination: &str,
@@ -813,6 +980,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`get_missing_events`.
     pub async fn get_missing_events(
         &self,
         destination: &str,
@@ -835,6 +1003,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`get_user_devices`.
     pub async fn get_user_devices(
         &self,
         destination: &str,
@@ -845,6 +1014,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`query_profile`.
     pub async fn query_profile(
         &self,
         destination: &str,
@@ -855,6 +1025,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`query_directory`.
     pub async fn query_directory(
         &self,
         destination: &str,
@@ -865,6 +1036,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`claim_keys`.
     pub async fn claim_keys(
         &self,
         destination: &str,
@@ -876,6 +1048,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`query_keys`.
     pub async fn query_keys(
         &self,
         destination: &str,
@@ -887,6 +1060,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`timestamp_to_event`.
     pub async fn timestamp_to_event(
         &self,
         destination: &str,
@@ -904,6 +1078,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`get_public_rooms`.
     pub async fn get_public_rooms(
         &self,
         destination: &str,
@@ -925,6 +1100,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`knock_room`.
     pub async fn knock_room(
         &self,
         destination: &str,
@@ -939,6 +1115,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`exchange_third_party_invite`.
     pub async fn exchange_third_party_invite(
         &self,
         destination: &str,
@@ -951,6 +1128,7 @@ impl FederationClient {
         self.handle_response(response).await
     }
 
+    /// See [`media_download`.
     pub async fn media_download(
         &self,
         destination: &str,
@@ -965,6 +1143,7 @@ impl FederationClient {
         self.send_signed_request("GET", &path, destination, None).await
     }
 
+    /// See [`media_thumbnail`.
     pub async fn media_thumbnail(
         &self,
         destination: &str,
@@ -985,6 +1164,7 @@ impl FederationClient {
         self.send_signed_request("GET", &path, destination, None).await
     }
 
+    /// See [`invalidate_key_cache`.
     pub fn invalidate_key_cache(&self, server_name: &str) {
         let cache = self.key_cache.clone();
         let name = server_name.to_string();
@@ -993,11 +1173,13 @@ impl FederationClient {
         });
     }
 
+    /// See [`get_cached_key`.
     pub async fn get_cached_key(&self, server_name: &str) -> Option<ServerKeys> {
         let cache = self.key_cache.read().await;
         cache.get(server_name).map(|c| c.keys.clone())
     }
 
+    /// See [`health_check`.
     pub async fn health_check(&self, destination: &str) -> bool {
         self.get_version(destination).await.is_ok()
     }

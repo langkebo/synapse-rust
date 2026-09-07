@@ -212,6 +212,7 @@ pub trait FederationClientApi: Send + Sync {
 // ============================================================================
 
 #[async_trait]
+/// (see code)
 impl FederationClientApi for FederationClient {
     fn server_name(&self) -> &str {
         FederationClient::server_name(self)

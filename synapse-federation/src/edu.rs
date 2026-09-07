@@ -11,25 +11,36 @@ use std::str::FromStr;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// The `EduType` enum.
 pub enum EduType {
+    /// The `Typing` variant.
+    /// The `Presence` variant.
+    /// The `DeviceListUpdate` variant.
     Typing,
+    /// The `Presence` variant.
+    /// The `DeviceListUpdate` variant.
     Presence,
+    /// The `DeviceListUpdate` variant.
     DeviceListUpdate,
     /// `m.direct_to_device` — to-device messages relayed via federation.
     DirectToDevice,
 }
 
 #[derive(Debug, Clone)]
+/// The `UnknownEduType` type.
 pub struct UnknownEduType(pub String);
 
+/// (see code)
 impl std::fmt::Display for UnknownEduType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "unknown EDU type: {}", self.0)
     }
 }
 
+/// (see code)
 impl std::error::Error for UnknownEduType {}
 
+/// (see code)
 impl FromStr for EduType {
     type Err = UnknownEduType;
 
@@ -49,13 +60,22 @@ impl FromStr for EduType {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Default)]
+/// The `EduProcessResult` type.
 pub struct EduProcessResult {
+    /// The `processed` field.
+    /// The `dropped` field.
+    /// The `errored` field.
     pub processed: usize,
+    /// The `dropped` field.
+    /// The `errored` field.
     pub dropped: usize,
+    /// The `errored` field.
     pub errored: usize,
 }
 
+/// (see code)
 impl EduProcessResult {
+    /// See [`is_empty`.
     pub fn is_empty(&self) -> bool {
         self.processed == 0 && self.dropped == 0 && self.errored == 0
     }

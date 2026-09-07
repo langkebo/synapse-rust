@@ -27,6 +27,7 @@ struct FederationRotationConfig {
     grace_period_minutes: i64,
 }
 
+/// (see code)
 impl Default for FederationRotationConfig {
     fn default() -> Self {
         Self {
@@ -44,46 +45,104 @@ fn new_key_id() -> String {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
+/// The `SigningKey` type.
 pub struct SigningKey {
+    /// The `server_name` field.
+    /// The `key_id` field.
+    /// The `secret_key` field.
+    /// The `public_key` field.
+    /// The `created_ts` field.
+    /// The `expires_at` field.
+    /// The `key_json` field.
+    /// The `ts_added_ms` field.
+    /// The `ts_valid_until_ms` field.
     pub server_name: String,
+    /// The `key_id` field.
+    /// The `secret_key` field.
+    /// The `public_key` field.
+    /// The `created_ts` field.
+    /// The `expires_at` field.
+    /// The `key_json` field.
+    /// The `ts_added_ms` field.
+    /// The `ts_valid_until_ms` field.
     pub key_id: String,
+    /// The `secret_key` field.
+    /// The `public_key` field.
+    /// The `created_ts` field.
+    /// The `expires_at` field.
+    /// The `key_json` field.
+    /// The `ts_added_ms` field.
+    /// The `ts_valid_until_ms` field.
     pub secret_key: String,
+    /// The `public_key` field.
+    /// The `created_ts` field.
+    /// The `expires_at` field.
+    /// The `key_json` field.
+    /// The `ts_added_ms` field.
+    /// The `ts_valid_until_ms` field.
     pub public_key: String,
+    /// The `created_ts` field.
+    /// The `expires_at` field.
+    /// The `key_json` field.
+    /// The `ts_added_ms` field.
+    /// The `ts_valid_until_ms` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
+    /// The `key_json` field.
+    /// The `ts_added_ms` field.
+    /// The `ts_valid_until_ms` field.
     pub expires_at: i64,
+    /// The `key_json` field.
+    /// The `ts_added_ms` field.
+    /// The `ts_valid_until_ms` field.
     pub key_json: serde_json::Value,
+    /// The `ts_added_ms` field.
+    /// The `ts_valid_until_ms` field.
     pub ts_added_ms: i64,
+    /// The `ts_valid_until_ms` field.
     pub ts_valid_until_ms: i64,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct FederationServerName {
+    /// The `server_name` field.
     pub server_name: String,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct FederationKeyRecord {
+    /// The `public_key` field.
+    /// The `expires_at` field.
     pub public_key: String,
+    /// The `expires_at` field.
     pub expires_at: i64,
 }
 
 type CachedKeyEntry = (String, i64);
 
 #[async_trait]
+/// The `KeyRotationManagerApi` trait.
 pub trait KeyRotationManagerApi: Send + Sync {
+    /// See [`get_rotation_status`].
     async fn get_rotation_status(&self) -> serde_json::Value;
+    /// See [`rotate_keys`].
     async fn rotate_keys(&self, requested_key_id: Option<String>) -> Result<(), ApiError>;
+    /// See [`get_current_key`].
     async fn get_current_key(&self) -> Result<Option<SigningKey>, ApiError>;
+    /// See [`revoke_key`].
     async fn revoke_key(
         &self,
         key_id: &str,
         reason: Option<&str>,
     ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>>;
+    /// See [`set_rotation_enabled`].
     async fn set_rotation_enabled(&self, enabled: bool);
+    /// See [`set_rotation_config_value`].
     async fn set_rotation_config_value(&self, key: &str, value: &str) -> Result<(), ApiError>;
 }
 
 #[derive(Debug, Clone)]
+/// The `KeyRotationManager` type.
 pub struct KeyRotationManager {
     pool: Arc<Pool<Postgres>>,
     memory_cache: Arc<RwLock<HashMap<String, CachedKeyEntry>>>,
@@ -99,15 +158,19 @@ pub struct KeyRotationManager {
     signature_cache: Arc<ParkingLotRwLock<Option<Arc<FederationSignatureCache>>>>,
 }
 
+/// (see code)
 impl KeyRotationManager {
+    /// See [`new`.
     pub fn new(pool: &Arc<Pool<Postgres>>, server_name: &str) -> Self {
         Self::with_key_path(pool, server_name, None)
     }
 
+    /// See [`with_key_path`.
     pub fn with_key_path(pool: &Arc<Pool<Postgres>>, server_name: &str, signing_key_path: Option<String>) -> Self {
         Self::with_key_path_and_master_key(pool, server_name, signing_key_path, None)
     }
 
+    /// See [`with_key_path_and_master_key`.
     pub fn with_key_path_and_master_key(
         pool: &Arc<Pool<Postgres>>,
         server_name: &str,
@@ -273,6 +336,7 @@ impl KeyRotationManager {
         Ok(())
     }
 
+    /// See [`load_rotation_config`.
     pub async fn load_rotation_config(&self) -> Result<(), ApiError> {
         self.ensure_key_rotation_config_table().await?;
 
@@ -315,6 +379,7 @@ impl KeyRotationManager {
         Ok(())
     }
 
+    /// See [`set_rotation_config_value`.
     pub async fn set_rotation_config_value(&self, key: &str, value: &str) -> Result<(), ApiError> {
         self.ensure_key_rotation_config_table().await?;
 
@@ -335,6 +400,7 @@ impl KeyRotationManager {
         Ok(())
     }
 
+    /// See [`start_auto_rotation`.
     pub async fn start_auto_rotation(&self) {
         let manager = Arc::new(self.clone());
 
@@ -365,6 +431,7 @@ impl KeyRotationManager {
         tracing::info!("Key rotation scheduler started");
     }
 
+    /// See [`load_or_create_key`.
     pub async fn load_or_create_key(&self) -> Result<(), ApiError> {
         self.ensure_signing_keys_table().await?;
 
@@ -436,6 +503,7 @@ impl KeyRotationManager {
         }
     }
 
+    /// See [`export_signing_key_to_file`.
     pub async fn export_signing_key_to_file(&self, key: &SigningKey) -> Result<(), ApiError> {
         let path = match &self.signing_key_path {
             Some(p) => p.clone(),
@@ -454,6 +522,7 @@ impl KeyRotationManager {
         Ok(())
     }
 
+    /// See [`initialize`.
     pub async fn initialize(&self, secret_key: &str, key_id: &str) -> Result<(), ApiError> {
         self.ensure_signing_keys_table().await?;
 
@@ -519,6 +588,7 @@ impl KeyRotationManager {
         Ok(())
     }
 
+    /// See [`should_rotate_keys`.
     pub async fn should_rotate_keys(&self) -> bool {
         if let Some(key) = &*self.current_key.read().await {
             let now = current_timestamp_millis();
@@ -530,6 +600,7 @@ impl KeyRotationManager {
         }
     }
 
+    /// See [`rotate_keys`.
     pub async fn rotate_keys(&self, requested_key_id: Option<String>) -> Result<(), ApiError> {
         let old_key_id = {
             let current = self.current_key.read().await;
@@ -588,10 +659,12 @@ impl KeyRotationManager {
         Ok(base64::engine::general_purpose::STANDARD_NO_PAD.encode(verifying_key.as_bytes()))
     }
 
+    /// See [`get_current_key`.
     pub async fn get_current_key(&self) -> Result<Option<SigningKey>, ApiError> {
         Ok(self.current_key.read().await.clone())
     }
 
+    /// See [`verify_with_key_rotation`.
     pub async fn verify_with_key_rotation(
         &self,
         _origin: &str,
@@ -685,6 +758,7 @@ impl KeyRotationManager {
         }
     }
 
+    /// See [`cache_historical_key`.
     pub async fn cache_historical_key(&self, origin: &str, key_id: &str, public_key: String) {
         let expires_at = (Utc::now() + Duration::hours(24)).timestamp_millis();
 
@@ -694,6 +768,7 @@ impl KeyRotationManager {
         cache.insert(cache_key, (public_key, expires_at));
     }
 
+    /// See [`get_server_keys_response`.
     pub async fn get_server_keys_response(&self) -> Result<serde_json::Value, ApiError> {
         let current_key = match &*self.current_key.read().await {
             Some(key) => key.clone(),
@@ -731,6 +806,7 @@ impl KeyRotationManager {
         Ok(response)
     }
 
+    /// See [`notify_key_change`.
     pub async fn notify_key_change(&self, remote_server: &str) -> Result<(), ApiError> {
         tracing::info!("Notifying {} about key change for server {}", remote_server, self.server_name);
         let server_keys = self.get_server_keys_response().await?;
@@ -738,6 +814,7 @@ impl KeyRotationManager {
         Ok(())
     }
 
+    /// See [`broadcast_key_change_to_federation`.
     pub async fn broadcast_key_change_to_federation(&self) -> Result<(), ApiError> {
         let known_servers = self.get_known_federation_servers().await?;
         if known_servers.is_empty() {
@@ -768,6 +845,7 @@ impl KeyRotationManager {
         Ok(servers.into_iter().map(|s| s.server_name).collect())
     }
 
+    /// See [`revoke_key`.
     pub async fn revoke_key(
         &self,
         key_id: &str,
@@ -829,11 +907,13 @@ impl KeyRotationManager {
         Ok(revoked)
     }
 
+    /// See [`set_rotation_enabled`.
     pub async fn set_rotation_enabled(&self, enabled: bool) {
         *self.rotation_enabled.write().await = enabled;
         tracing::info!("Key rotation {}", if enabled { "enabled" } else { "disabled" });
     }
 
+    /// See [`get_rotation_status`.
     pub async fn get_rotation_status(&self) -> serde_json::Value {
         let current_key = &*self.current_key.read().await;
         let should_rotate = self.should_rotate_keys().await;
@@ -850,12 +930,14 @@ impl KeyRotationManager {
         })
     }
 
+    /// See [`set_signature_cache`.
     pub fn set_signature_cache(&self, cache: Arc<FederationSignatureCache>) {
         *self.signature_cache.write() = Some(cache);
     }
 }
 
 #[async_trait]
+/// (see code)
 impl KeyRotationManagerApi for KeyRotationManager {
     async fn get_rotation_status(&self) -> serde_json::Value {
         self.get_rotation_status().await

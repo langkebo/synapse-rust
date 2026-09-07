@@ -18,19 +18,39 @@ type DeviceCacheEntry = (Vec<DeviceInfo>, u128);
 type DeviceCache = HashMap<String, DeviceCacheEntry>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The `DeviceInfo` type.
 pub struct DeviceInfo {
+    /// The `device_id` field.
+    /// The `user_id` field.
+    /// The `keys` field.
+    /// The `device_display_name` field.
+    /// The `last_seen_ts` field.
     pub device_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `is_blocked` field.
+    /// The `verified` field.
+    /// The `device_display_name` field.
+    /// The `last_seen_ts` field.
     pub keys: Option<Value>,
+    /// The `device_display_name` field.
     pub device_display_name: Option<String>,
+    /// The `is_blocked` field.
+    /// The `verified` field.
     pub last_seen_ts: Option<i64>,
     #[serde(skip)]
+    /// The `is_blocked` field.
+    /// The `verified` field.
     pub last_seen_ip: Option<String>,
+    /// The `is_blocked` field.
+    /// The `verified` field.
     pub is_blocked: bool,
+    /// The `verified` field.
     pub verified: bool,
 }
 
 #[derive(Clone)]
+/// The `DeviceSyncManager` type.
 pub struct DeviceSyncManager {
     pool: Arc<Pool<Postgres>>,
     http_client: Client,
@@ -39,7 +59,9 @@ pub struct DeviceSyncManager {
     task_queue: Option<Arc<RedisTaskQueue>>,
 }
 
+/// (see code)
 impl DeviceSyncManager {
+    /// See [`new`.
     pub fn new(
         pool: &Arc<Pool<Postgres>>,
         cache_manager: Option<Arc<CacheManager>>,
@@ -107,6 +129,7 @@ impl DeviceSyncManager {
         local.insert(cache_key, (devices.to_vec(), expiry));
     }
 
+    /// See [`sync_devices_from_remote`.
     pub async fn sync_devices_from_remote(&self, origin: &str, user_id: &str) -> Result<Vec<DeviceInfo>, ApiError> {
         if let Some(devices) = self.get_cached_devices(origin, user_id).await {
             return Ok(devices);
@@ -172,6 +195,7 @@ impl DeviceSyncManager {
         Ok(devices)
     }
 
+    /// See [`notify_device_revocation`.
     pub async fn notify_device_revocation(&self, origin: &str, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         if let Some(queue) = &self.task_queue {
             let payload = json!({
@@ -223,6 +247,7 @@ impl DeviceSyncManager {
         Err(ApiError::internal("Failed to notify device revocation to remote server".to_string()))
     }
 
+    /// See [`get_local_devices`.
     pub async fn get_local_devices(&self, user_id: &str) -> Result<Vec<DeviceInfo>, ApiError> {
         let devices: Vec<DeviceRow> = sqlx::query_as(
             r"
@@ -252,6 +277,7 @@ impl DeviceSyncManager {
             .collect())
     }
 
+    /// See [`verify_device_keys_signature`.
     pub fn verify_device_keys_signature(&self, origin: &str, device: &DeviceInfo) -> Result<bool, ApiError> {
         if let Some(ref keys) = device.keys {
             if let Some(user_signatures) = keys.get("user_signatures") {
@@ -266,6 +292,7 @@ impl DeviceSyncManager {
         Ok(false)
     }
 
+    /// See [`is_device_key_expired`.
     pub fn is_device_key_expired(&self, device: &DeviceInfo) -> bool {
         if let Some(last_seen) = device.last_seen_ts {
             let last_seen_time = Utc.timestamp_millis_opt(last_seen).earliest().unwrap_or(Utc::now());
@@ -276,6 +303,7 @@ impl DeviceSyncManager {
         }
     }
 
+    /// See [`cleanup_expired_devices`.
     pub async fn cleanup_expired_devices(&self, user_id: &str) -> Result<u64, ApiError> {
         let expiry_threshold = Utc::now() - Duration::days(DEVICE_KEY_EXPIRY_DAYS);
 
@@ -307,6 +335,7 @@ impl DeviceSyncManager {
         Ok(deleted_count)
     }
 
+    /// See [`sync_device_keys_with_expiry_check`.
     pub async fn sync_device_keys_with_expiry_check(
         &self,
         origin: &str,
@@ -330,6 +359,7 @@ impl DeviceSyncManager {
         Ok(valid_devices)
     }
 
+    /// See [`revoke_device`.
     pub async fn revoke_device(&self, device_id: &str, user_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -356,6 +386,7 @@ impl DeviceSyncManager {
         Ok(())
     }
 
+    /// See [`invalidate_user_devices_cache`.
     pub async fn invalidate_user_devices_cache(&self, user_id: &str) {
         let cache_pattern = format!("remote_devices:*:{user_id}");
         let mut local = self.local_cache.write().await;

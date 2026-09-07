@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use synapse_common::{ApiError, ApiResult};
 
+/// The `FriendFederationClient` type.
 pub struct FriendFederationClient {
     client: Client,
     server_name: String,
@@ -17,7 +18,9 @@ pub struct FriendFederationClient {
     missing_signing_key_logged: AtomicBool,
 }
 
+/// (see code)
 impl FriendFederationClient {
+    /// See [`new`.
     pub fn new(server_name: String, key_rotation_manager: Option<Arc<KeyRotationManager>>) -> Self {
         let signing_key_id = std::env::var("FEDERATION_SIGNING_KEY_ID").unwrap_or_else(|_| "ed25519:0".to_string());
 
@@ -107,6 +110,7 @@ impl FriendFederationClient {
         Err(ApiError::internal("Federation signing key not configured".to_string()))
     }
 
+    /// See [`send_invite`.
     pub async fn send_invite(&self, destination: &str, _room_id: &str, content: &Value) -> ApiResult<()> {
         let path = format!("/_matrix/federation/v1/send/{}", uuid::Uuid::new_v4());
         let url = format!("https://{destination}{path}");
@@ -134,6 +138,7 @@ impl FriendFederationClient {
         Ok(())
     }
 
+    /// See [`query_remote_friends`.
     pub async fn query_remote_friends(&self, destination: &str, user_id: &str) -> ApiResult<Vec<String>> {
         let path = format!("/_matrix/federation/v1/user/friends/{user_id}");
         let url = format!("https://{destination}{path}");
@@ -270,6 +275,7 @@ mod tests {
         original: Option<std::ffi::OsString>,
     }
 
+    /// (see code)
     impl EnvVarGuard {
         fn set(key: &'static str, value: &str) -> Self {
             let original = std::env::var_os(key);
@@ -281,6 +287,7 @@ mod tests {
         }
     }
 
+    /// (see code)
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             match &self.original {

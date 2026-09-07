@@ -2,7 +2,9 @@ use super::models::*;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+/// (see code)
 impl EventAuthChain {
+    /// See [`detect_conflicts`.
     pub fn detect_conflicts(&self, state_events: &[Value]) -> Vec<ConflictInfo> {
         let mut conflicts = Vec::new();
         let mut state_by_key: HashMap<String, Vec<(i64, String)>> = HashMap::new();
@@ -49,6 +51,7 @@ impl EventAuthChain {
         conflicts
     }
 
+    /// See [`resolve_conflicts_power_based`.
     pub fn resolve_conflicts_power_based(
         &self,
         state_events: &[Value],
@@ -99,6 +102,7 @@ impl EventAuthChain {
         conflicts
     }
 
+    /// See [`resolve_state_with_auth_chain`
     pub fn resolve_state_with_auth_chain<'a>(
         &'a self,
         events: &'a HashMap<String, EventData>,
@@ -156,6 +160,7 @@ impl EventAuthChain {
         state
     }
 
+    /// See [`calculate_state_id`.
     pub fn calculate_state_id(&self, _room_id: &str, state: &HashMap<String, &Value>) -> String {
         use sha2::Digest;
         let mut hasher = sha2::Sha256::new();
@@ -181,6 +186,7 @@ impl EventAuthChain {
         )
     }
 
+    /// See [`detect_state_conflicts_advanced`.
     pub fn detect_state_conflicts_advanced(
         &self,
         state_events: &[Value],
@@ -274,6 +280,7 @@ impl EventAuthChain {
         conflicts
     }
 
+    /// See [`calculate_auth_difference`.
     pub fn calculate_auth_difference(
         &self,
         _events: &HashMap<String, EventData>,
@@ -301,6 +308,7 @@ impl EventAuthChain {
         auth_diff
     }
 
+    /// See [`sort_by_reverse_topological_power`.
     pub fn sort_by_reverse_topological_power(
         &self,
         events: &HashMap<String, EventData>,
@@ -355,6 +363,7 @@ impl EventAuthChain {
         sorted
     }
 
+    /// See [`resolve_state_v2`.
     pub fn resolve_state_v2(
         &self,
         state_sets: &[&HashMap<String, &Value>],

@@ -1,7 +1,9 @@
 use super::models::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
+/// (see code)
 impl EventAuthChain {
+    /// See [`build_auth_chain_from_events`.
     pub fn build_auth_chain_from_events(&self, events: &HashMap<String, EventData>, event_id: &str) -> Vec<String> {
         let mut visited = HashSet::new();
         let mut auth_chain = Vec::new();
@@ -32,6 +34,7 @@ impl EventAuthChain {
         auth_chain
     }
 
+    /// See [`verify_auth_chain`.
     pub fn verify_auth_chain(&self, events: &HashMap<String, EventData>, room_id: &str, auth_chain: &[String]) -> bool {
         if auth_chain.is_empty() {
             return false;
@@ -70,6 +73,7 @@ impl EventAuthChain {
         true
     }
 
+    /// See [`build_auth_chain_with_cache`.
     pub fn build_auth_chain_with_cache(&self, events: &HashMap<String, EventData>, event_id: &str) -> Vec<String> {
         let cache_key = format!("auth_chain:{event_id}");
 
@@ -88,6 +92,7 @@ impl EventAuthChain {
         result
     }
 
+    /// See [`verify_event_auth_chain_complete`.
     pub fn verify_event_auth_chain_complete(
         &self,
         events: &HashMap<String, EventData>,
@@ -151,6 +156,7 @@ impl EventAuthChain {
         }
     }
 
+    /// See [`compute_mainline`.
     pub fn compute_mainline(&self, events: &HashMap<String, EventData>, room_create_event_id: &str) -> Vec<String> {
         // MSC1442 主链: 从 m.room.create 开始, 沿 auth_events 链
         // 收集 m.room.power_levels 事件序列 (含 create 作为根).
@@ -182,6 +188,7 @@ impl EventAuthChain {
         mainline
     }
 
+    /// See [`get_mainline_depth`.
     pub fn get_mainline_depth(&self, mainline: &[String], event_id: &str) -> Option<usize> {
         mainline.iter().position(|e| e == event_id)
     }

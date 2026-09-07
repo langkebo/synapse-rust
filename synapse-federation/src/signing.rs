@@ -10,6 +10,7 @@ const MAX_EVENT_KEYS: usize = 100;
 const MAX_CONTENT_KEYS: usize = 100;
 const MAX_STRING_LENGTH: usize = 65536;
 
+/// See [`canonical_federation_request_bytes`.
 pub fn canonical_federation_request_bytes(
     method: &str,
     uri: &str,
@@ -28,6 +29,7 @@ pub fn canonical_federation_request_bytes(
     Ok(canonical_json(&Value::Object(obj))?.into_bytes())
 }
 
+/// See [`sign_json`.
 pub fn sign_json(server_name: &str, key_id: &str, secret_key_base64: &str, value: &mut Value) -> Result<(), String> {
     let canonical = CanonicalEvent::from_event(value).map_err(|e| format!("Canonical JSON error: {e}"))?;
     sign_json_with_canonical(server_name, key_id, secret_key_base64, value, &canonical)
@@ -75,6 +77,7 @@ pub fn sign_json_with_canonical(
     Ok(())
 }
 
+/// See [`compute_event_content_hash`.
 pub fn compute_event_content_hash(event: &Value) -> Option<String> {
     let mut redacted = redact_event_for_hash(event);
     redacted.as_object_mut()?.remove("hashes");
@@ -86,6 +89,7 @@ pub fn compute_event_content_hash(event: &Value) -> Option<String> {
     Some(base64::engine::general_purpose::STANDARD_NO_PAD.encode(hash))
 }
 
+/// See [`verify_event_content_hash`.
 pub fn verify_event_content_hash(event: &Value) -> Result<(), String> {
     let hashes =
         event.get("hashes").and_then(|h| h.as_object()).ok_or_else(|| "Event missing hashes field".to_string())?;
@@ -104,6 +108,7 @@ pub fn verify_event_content_hash(event: &Value) -> Result<(), String> {
     Ok(())
 }
 
+/// See [`check_pdu_size_limits`.
 pub fn check_pdu_size_limits(event: &Value) -> Result<(), String> {
     let event_json = serde_json::to_string(event).map_err(|e| format!("Failed to serialize event: {e}"))?;
 
@@ -168,6 +173,7 @@ fn redact_event_for_hash(event: &Value) -> Value {
     synapse_common::redaction::redact_event_for_hash(event)
 }
 
+/// See [`check_event_federate`.
 pub fn check_event_federate(room_create_event: &Value) -> bool {
     room_create_event.get("content").and_then(|c| c.get("m.federate")).and_then(|f| f.as_bool()).unwrap_or(true)
 }
