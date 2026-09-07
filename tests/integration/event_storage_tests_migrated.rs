@@ -222,12 +222,12 @@ async fn test_encrypted_event_origin_decode_handles_null_boundary_and_malformed_
                 INSERT INTO events (
                     event_id, room_id, user_id, sender, event_type, content,
                     state_key, depth, origin_server_ts, processed_at, not_before,
-                    status, reference_image, origin, unsigned
+                    status, origin, unsigned
                 )
                 VALUES (
                     $1, $2, $3, $4, 'm.room.encrypted', $5,
                     NULL, $6, $7, $7, 0,
-                    'persisted', NULL, $8, '{}'::jsonb
+                    'persisted', $8, '{}'::jsonb
                 )
                 "#,
         )

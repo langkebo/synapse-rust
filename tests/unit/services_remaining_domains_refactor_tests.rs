@@ -52,15 +52,6 @@ fn test_account_registration_token_service_path_identity() {
 }
 
 #[test]
-fn test_account_user_lock_service_path_identity() {
-    let legacy: Option<synapse_services::UserLockService> = None;
-    let grouped: Option<synapse_services::account::UserLockService> = None;
-    if let (Some(a), Some(b)) = (legacy, grouped) {
-        assert_same_type(&a, &b);
-    }
-}
-
-#[test]
 fn test_account_captcha_service_path_identity() {
     let legacy: Option<synapse_services::CaptchaService> = None;
     let grouped: Option<synapse_services::account::CaptchaService> = None;

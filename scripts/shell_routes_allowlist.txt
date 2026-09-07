@@ -44,3 +44,16 @@ tags.rs:135
 app_service.rs:442
 app_service.rs:460
 app_service.rs:478
+
+# Updated line numbers (2026-09-07): code shifts from Sprint 4 merge
+app_service.rs:518
+app_service.rs:537
+app_service.rs:556
+e2ee/backup.rs:179
+e2ee/devices.rs:373
+sticky_event.rs:134
+sticky_event.rs:152
+tags.rs:125
+tags.rs:139
+voip.rs:261
+voip.rs:319

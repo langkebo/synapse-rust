@@ -474,7 +474,7 @@ async fn test_captcha_service_email_enqueues_background_job_when_delivery_is_con
     )
     .await;
 
-    let redis_pool = RedisPoolConfig::from_url(synapse_rust::test_config::test_redis_url())
+    let redis_pool = RedisPoolConfig::from_url(synapse_services::test_config::test_redis_url())
         .create_pool(Some(RedisRuntime::Tokio1))
         .expect("test redis pool should be created");
     let mut redis_conn = redis_pool.get().await.expect("test redis connection should be available");

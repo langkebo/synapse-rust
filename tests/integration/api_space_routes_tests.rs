@@ -513,7 +513,7 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
 
     let public_spaces_request = Request::builder()
         .method("GET")
-        .uri("/_matrix/client/v1/spaces/public?limit=20&offset=0")
+        .uri("/_matrix/client/v1/spaces/public?limit=20")
         .body(Body::empty())
         .unwrap();
     let public_spaces_response =
