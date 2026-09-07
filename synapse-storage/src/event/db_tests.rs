@@ -361,8 +361,10 @@ async fn test_report_event() {
 async fn test_redact_event_content() {
     let pool = test_pool().await;
     let storage = EventStorage::new(&pool, test_server_name());
-    let room_id = format!("!redact_{}:example.com", uuid::Uuid::new_v4());
-    let event_id = format!("$redact_{}:example.com", uuid::Uuid::new_v4());
+    let suffix = uuid::Uuid::new_v4();
+    let room_id = format!("!redact_{}:example.com", suffix);
+    let event_id = format!("$redact_{}:example.com", suffix);
+    let redaction_event_id = format!("$redact_evt_{}:example.com", suffix);
     let user_id = "@redactor:example.com";
 
     let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
@@ -381,7 +383,21 @@ async fn test_redact_event_content() {
     };
     storage.create_event(params, None).await.unwrap();
 
-    storage.redact_event_content(&event_id, Some(user_id)).await.expect("redact_event_content should succeed");
+    // `redacted_by` is a foreign key to events.event_id, so the redaction
+    // event itself must exist before we can record who performed the redact.
+    let redaction_params = CreateEventParams {
+        event_id: redaction_event_id.clone(),
+        room_id: room_id.clone(),
+        user_id: user_id.to_string(),
+        event_type: "m.room.redaction".to_string(),
+        content: serde_json::json!({}),
+        state_key: None,
+        origin_server_ts: current_timestamp_millis(),
+        redacts: Some(event_id.clone()),
+    };
+    storage.create_event(redaction_params, None).await.unwrap();
+
+    storage.redact_event_content(&event_id, Some(&redaction_event_id)).await.expect("redact_event_content should succeed");
 
     let _ = storage.delete_room_events(&room_id).await;
 }
@@ -1933,6 +1949,22 @@ async fn test_p2_14_state_event_stores_prev_state_events() {
     ensure_test_room(&pool, &room_id).await;
     ensure_test_user(&pool, user_id).await;
 
+    // event_edges.prev_event_id has an FK to events.event_id, so the two
+    // prev_state rows must already exist before the state event is created.
+    for prev_state_id in [&prev_state_1, &prev_state_2] {
+        let prev_params = CreateEventParams {
+            event_id: prev_state_id.clone(),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.member".to_string(),
+            content: serde_json::json!({"membership": "join"}),
+            state_key: Some(user_id.to_string()),
+            origin_server_ts: current_timestamp_millis(),
+            redacts: None,
+        };
+        storage.create_event(prev_params, None).await.expect("prev_state event should be created");
+    }
+
     let params = CreateEventParams {
         event_id: event_id.clone(),
         room_id: room_id.clone(),
@@ -2091,29 +2123,40 @@ async fn test_p2_14_find_events_referencing_missing_state() {
     ensure_test_user(&pool, user_id).await;
 
     // Create a state event that references a "missing" event (never inserted).
+    // We cannot use create_state_event_with_dag because event_edges.prev_event_id
+    // has an FK to events.event_id; instead we insert the event directly and
+    // then patch its prev_state_events JSONB column (which is what
+    // find_events_referencing_missing_state actually reads — it does not query
+    // event_edges at all).
     let missing_event = format!("$p214c_missing_{}:example.com", suffix);
     let referencing_event = format!("$p214c_ref_{}:example.com", suffix);
+    let now = current_timestamp_millis();
 
-    storage
-        .create_state_event_with_dag(
-            CreateEventParams {
-                event_id: referencing_event.clone(),
-                room_id: room_id.clone(),
-                user_id: user_id.to_string(),
-                event_type: "m.room.member".to_string(),
-                content: serde_json::json!({"membership": "join"}),
-                state_key: Some(user_id.to_string()),
-                origin_server_ts: 1_000_000,
-                redacts: None,
-            },
-            &[],
-            &[],
-            std::slice::from_ref(&missing_event),
-            1,
-            None,
-        )
+    sqlx::query(
+        r"
+        INSERT INTO events (event_id, room_id, sender, user_id, event_type, content,
+                           origin_server_ts, soft_failed)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, false)
+        ON CONFLICT DO NOTHING
+        ",
+    )
+    .bind(&referencing_event)
+    .bind(&room_id)
+    .bind(&user_id)
+    .bind(&user_id)
+    .bind("m.room.member")
+    .bind(serde_json::json!({"membership": "join"}))
+    .bind(now)
+    .execute(&*pool)
+    .await
+    .expect("referencing event should be inserted");
+
+    sqlx::query("UPDATE events SET prev_state_events = $1 WHERE event_id = $2")
+        .bind(serde_json::json![&missing_event])
+        .bind(&referencing_event)
+        .execute(&*pool)
         .await
-        .unwrap();
+        .expect("prev_state_events should be set");
 
     // Query: which events reference the missing event in prev_state_events?
     let result = storage
