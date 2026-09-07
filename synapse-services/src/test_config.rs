@@ -182,6 +182,10 @@ pub fn build_test_config() -> Config {
             admin_rbac_enabled: true,
             ui_auth_session_timeout: 900,
             csrf_secret: String::new(),
+            audit_async_enabled: false,
+            audit_batch_size: 100,
+            audit_channel_capacity: 1024,
+            audit_flush_interval_ms: 1000,
         },
         search: SearchConfig {
             enabled: false,
