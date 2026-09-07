@@ -14,9 +14,10 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, warn};
 
 /// The `WorkerManager` struct.
+#[allow(dead_code)]
 pub struct WorkerManager {
     storage: Arc<dyn WorkerStoreApi>,
-    #[allow(dead_code)] // P2-DEBT-2: reserved for future cluster rollout; currently unused after remove enable_bus
+    // Reserved for future cluster rollout; currently unused after remove enable_bus.
     server_name: String,
     local_worker_id: Option<String>,
     connections: Arc<RwLock<HashMap<String, ReplicationConnection>>>,

@@ -1464,7 +1464,6 @@ mod db_tests {
         Arc::new(pool)
     }
 
-    #[allow(dead_code)]
     async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str, creator: &str) {
         let now = current_timestamp_millis();
         sqlx::query(

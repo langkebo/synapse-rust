@@ -30,8 +30,7 @@ pub struct MessagingService {
     #[cfg(feature = "beacons")]
     pub(crate) beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
     #[cfg(not(feature = "beacons"))]
-    #[allow(dead_code)]
-    pub(crate) beacon_service: Option<()>,
+    pub(crate) beacon_service: Option<()>,  // Feature-gated placeholder
     pub(crate) task_queue: Option<Arc<RedisTaskQueue>>,
     pub(crate) active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub(crate) event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,

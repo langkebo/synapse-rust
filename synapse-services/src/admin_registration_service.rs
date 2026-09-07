@@ -16,14 +16,14 @@ type HmacSha256 = Hmac<Sha256>;
 
 /// The `AdminRegistrationService` struct.
 #[derive(Clone)]
+#[allow(dead_code)] // Reserved fields for future use; see field-level comments.
 pub struct AdminRegistrationService {
     token_auth: Arc<dyn TokenAuth>,
     credential_auth: Arc<dyn CredentialAuth>,
     server_name: String,
     config: AdminRegistrationConfig,
     user_storage: Arc<dyn UserStore>,
-    #[allow(dead_code)]
-    user_service: Arc<UserService>,
+    user_service: Arc<UserService>,  // Reserved; constructor parity
     cache: Arc<CacheManager>,
     metrics: Arc<MetricsCollector>,
 }

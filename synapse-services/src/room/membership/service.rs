@@ -24,13 +24,14 @@ use crate::room::summary::RoomSummaryService;
 /// Domain service for room membership operations — join, leave, invite,
 /// kick, ban, unban, knock, forget, and federation membership.
 #[derive(Clone)]
+#[allow(dead_code)] // Reserved fields for future use; see field-level comments.
 pub struct MembershipService {
     pub(crate) member_storage: Arc<dyn MemberStoreApi>,
     pub(crate) room_storage: Arc<dyn RoomStoreApi>,
     pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub(crate) event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     pub(crate) user_storage: Arc<dyn UserStore>,
-    #[allow(dead_code)]
+    // Reserved for future use by membership hooks; stored for constructor parity.
     pub(crate) user_service: Arc<UserService>,
     pub(crate) room_auth: Arc<dyn crate::auth::RoomAuth>,
     pub(crate) server_name: String,

@@ -2,7 +2,6 @@
 // E2EE Phase 2: Automatic key rotation for enhanced security
 
 use crate::megolm::{MegolmProvider, MegolmSession};
-use crate::olm::OlmService;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -13,8 +12,6 @@ use synapse_common::ApiError;
 
 /// The `KeyRotationService` type.
 pub struct KeyRotationService {
-    #[allow(dead_code)]
-    olm_service: Arc<OlmService>,
     megolm_service: Arc<MegolmProvider>,
     storage: Arc<KeyRotationStorage>,
     config: Arc<tokio::sync::RwLock<KeyRotationConfig>>,
@@ -170,17 +167,15 @@ pub struct RotationStatus {
 impl KeyRotationService {
     /// See [`new`].
     pub fn new(
-        olm_service: Arc<OlmService>,
         megolm_service: Arc<MegolmProvider>,
         storage: Arc<KeyRotationStorage>,
         config: KeyRotationConfig,
     ) -> Self {
-        Self { olm_service, megolm_service, storage, config: Arc::new(tokio::sync::RwLock::new(config)) }
+        Self { megolm_service, storage, config: Arc::new(tokio::sync::RwLock::new(config)) }
     }
 
     /// See [`new_with_db_config`].
     pub async fn new_with_db_config(
-        olm_service: Arc<OlmService>,
         megolm_service: Arc<MegolmProvider>,
         storage: Arc<KeyRotationStorage>,
         fallback_config: KeyRotationConfig,
@@ -190,7 +185,7 @@ impl KeyRotationService {
             fallback_config
         });
 
-        Self { olm_service, megolm_service, storage, config: Arc::new(tokio::sync::RwLock::new(config)) }
+        Self { megolm_service, storage, config: Arc::new(tokio::sync::RwLock::new(config)) }
     }
 
     /// See [`reload_config`].
@@ -812,7 +807,6 @@ impl KeyRotationStorageApi for KeyRotationStorage {
 mod tests {
     use super::*;
     use crate::megolm::MegolmSessionStorage;
-    use crate::olm::OlmStorage;
     use chrono::Duration;
     use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
     use synapse_cache::CacheConfig;
@@ -821,10 +815,9 @@ mod tests {
         // 懒连接池：should_rotate 只用 config，不真正触达 olm/megolm/storage 的 DB。
         let pool = Arc::new(PgPoolOptions::new().connect_lazy_with(PgConnectOptions::new()));
         let cache = Arc::new(synapse_cache::CacheManager::new(&CacheConfig::default()));
-        let olm = Arc::new(OlmService::new(cache.clone(), OlmStorage::new(&pool)));
         let megolm = Arc::new(MegolmProvider::from_env(MegolmSessionStorage::new(&pool), cache.clone(), [0u8; 32]));
         let storage = Arc::new(KeyRotationStorage::new(pool));
-        KeyRotationService::new(olm, megolm, storage, config)
+        KeyRotationService::new(megolm, storage, config)
     }
 
     fn make_session(

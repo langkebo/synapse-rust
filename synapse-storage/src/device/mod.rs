@@ -1675,23 +1675,6 @@ mod db_tests {
         .expect("failed to create test user");
     }
 
-    #[allow(dead_code)]
-    async fn ensure_test_device(pool: &Pool<Postgres>, user_id: &str, device_id: &str) {
-        let now = current_timestamp_millis();
-        sqlx::query(
-            r#"INSERT INTO devices (device_id, user_id, created_ts, first_seen_ts)
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (device_id) DO NOTHING"#,
-        )
-        .bind(device_id)
-        .bind(user_id)
-        .bind(now)
-        .bind(now)
-        .execute(pool)
-        .await
-        .expect("failed to create test device");
-    }
-
     #[tokio::test]
     async fn test_create_device_returns_valid_record() {
         let pool = test_pool().await;

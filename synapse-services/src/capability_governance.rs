@@ -175,7 +175,7 @@ impl CapabilityFlag {
     }
 
     /// See [`governance`].
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub const fn governance(self) -> GovernanceClass {
         self.governance
     }

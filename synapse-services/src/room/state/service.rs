@@ -11,6 +11,7 @@ use synapse_storage::{MemberStoreApi, RoomStoreApi, UserStore};
 /// Domain service for room state operations — aliases, tags, info queries,
 /// directory listings, block/unblock, encryption status, and admin search.
 #[derive(Clone)]
+#[allow(dead_code)] // Reserved fields for future use; see field-level comments.
 pub struct RoomStateService {
     pub(crate) room_storage: Arc<dyn RoomStoreApi>,
     pub(crate) member_storage: Arc<dyn MemberStoreApi>,
@@ -18,7 +19,7 @@ pub struct RoomStateService {
     pub(crate) event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     pub(crate) room_tag_storage: Arc<dyn RoomTagStoreApi>,
     pub(crate) user_storage: Arc<dyn UserStore>,
-    #[allow(dead_code)]
+    // Reserved for future use by room state hooks; stored for constructor parity.
     pub(crate) user_service: Arc<UserService>,
     pub(crate) server_name: String,
 }

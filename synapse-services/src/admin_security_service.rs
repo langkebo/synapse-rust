@@ -16,10 +16,10 @@ pub struct UserRateLimit {
 }
 
 /// The `AdminSecurityService` struct.
+#[allow(dead_code)] // Reserved fields for future use; see field-level comments.
 pub struct AdminSecurityService {
     user_storage: Arc<dyn UserStore>,
-    #[allow(dead_code)]
-    user_service: Arc<UserService>,
+    user_service: Arc<UserService>,  // Reserved; constructor parity
     rate_limit_storage: Arc<dyn RateLimitStoreApi>,
     cache: Arc<CacheManager>,
 }

@@ -377,10 +377,7 @@ mod db_tests {
         Arc::new(pool)
     }
 
-    /// Insert a minimal room row so foreign-key constraints are satisfied
-    /// when other tables reference rooms. Not needed for `voice_usage_stats`
-    /// (which has no FK to rooms), but provided as a standard helper.
-    #[allow(dead_code)]
+    #[cfg(test)]
     async fn ensure_test_room(pool: &PgPool, room_id: &str) {
         let now = current_timestamp_millis();
         sqlx::query(
@@ -395,11 +392,7 @@ mod db_tests {
         .expect("failed to create test room");
     }
 
-    /// Insert a minimal event row so foreign-key constraints are satisfied
-    /// when other tables reference events. Not needed for `voice_usage_stats`
-    /// (which has no FK to events and no event_id column), but provided as a
-    /// standard helper.
-    #[allow(dead_code)]
+    #[cfg(test)]
     async fn ensure_test_event(pool: &PgPool, event_id: &str, room_id: &str, sender: &str) {
         let now = current_timestamp_millis();
         ensure_test_room(pool, room_id).await;
