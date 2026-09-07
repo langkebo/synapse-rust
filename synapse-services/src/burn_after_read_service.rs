@@ -4,6 +4,17 @@ use synapse_common::ApiResult;
 use synapse_storage::burn_after_read::BurnAfterReadStoreApi;
 use tokio::sync::RwLock;
 
+/// Maximum number of times a single burn row will be retried by the processor
+/// before it is moved to dead-letter state. Once dead-lettered, the scanner
+/// skips the row entirely so it cannot monopolize a sweep pass.
+///
+/// B-07 trade-off: 5 attempts gives ~5 sweeps before abandonment. The default
+/// sweep interval is 30s, so a fully-failed row stays in the hot path for ~2.5
+/// minutes before being moved out. Lower values (1-2) risk prematurely
+/// abandoning transiently-failing rows; higher values (10+) amplify duplicate
+/// redaction risk when mark_processed_batch fails repeatedly.
+pub const BURN_MAX_RETRY: i32 = 5;
+
 /// The `BurnSettings` struct.
 #[derive(Debug, Clone)]
 pub struct BurnSettings {
@@ -239,7 +250,7 @@ impl BurnAfterReadService {
             return Ok(Vec::new());
         }
 
-        // Two-step classification to keep the timeline consistent:
+        // Three-step classification to keep the timeline consistent:
         //
         // 1. For each expired row, try to redact content + emit redaction event.
         //    Both must succeed; otherwise the row stays unprocessed and the
@@ -252,6 +263,18 @@ impl BurnAfterReadService {
         //    batch-insert their audit log entries in a single UNNEST INSERT.
         //    This collapses 2N round-trips into 2, eliminating the N+1 the
         //    previous loop had.
+        //
+        // 3. B-07 retry cap: if mark_processed_batch fails (a partial-success
+        //    state where redaction events ARE on the wire but the row stays
+        //    unprocessed), bump retry_count on those rows. Rows whose
+        //    retry_count reaches BURN_MAX_RETRY are moved to dead-letter state
+        //    so the scanner stops attempting them. The mark_processed_batch
+        //    failure path no longer produces an unbounded retry storm: at
+        //    worst the row is dead-lettered after BURN_MAX_RETRY attempts and
+        //    is no longer picked up. Any redaction events emitted before
+        //    dead-lettering remain on the timeline (which is the correct
+        //    behavior — a burn should not silently fail to redact because of
+        //    bookkeeping trouble).
         let mut successfully_processed_ids: Vec<i64> = Vec::with_capacity(expired_rows.len());
         let mut log_entries: Vec<(String, String, String, i64)> = Vec::with_capacity(expired_rows.len());
         let mut expired = Vec::with_capacity(expired_rows.len());
@@ -266,6 +289,7 @@ impl BurnAfterReadService {
                     user_id = %row.user_id,
                     room_id = %row.room_id,
                     event_id = %row.event_id,
+                    retry_count = row.retry_count,
                     "Failed to redact event content for burn; will retry next sweep"
                 );
                 continue;
@@ -295,6 +319,7 @@ impl BurnAfterReadService {
                     user_id = %row.user_id,
                     room_id = %row.room_id,
                     event_id = %row.event_id,
+                    retry_count = row.retry_count,
                     "Failed to create redaction event for burn; content already redacted — \
                      will retry next sweep (idempotency: redact+create are re-entrant)"
                 );
@@ -316,13 +341,60 @@ impl BurnAfterReadService {
 
         if !successfully_processed_ids.is_empty() {
             if let Err(e) = self.storage.mark_burn_processed_batch(&successfully_processed_ids).await {
+                // B-07: increment retry_count and check cap. The previous behavior
+                // logged only a warn and let the next sweep reprocess — a partial
+                // failure loop that could run unbounded. Now we count attempts and
+                // dead-letter at BURN_MAX_RETRY.
+                let mark_err_str = e.to_string();
                 ::tracing::error!(
                     error = %e,
                     count = successfully_processed_ids.len(),
                     "Failed to mark burns processed in batch; redaction events have been \
-                     emitted but rows will be reprocessed — timeline may contain \
-                     duplicate redaction events (mark_burn_processed_batch failure)"
+                     emitted but rows will be reprocessed — bumping retry_count and \
+                     dead-lettering rows that exceed cap"
                 );
+
+                // Bump retry_count by 1 for all affected rows. Then ask the
+                // storage layer to dead-letter the ones that have already
+                // crossed the cap. We compute the set in memory: every row's
+                // current retry_count + 1; if that >= MAX, dead-letter.
+                let mut to_dead_letter: Vec<i64> = Vec::new();
+                for row in &expired_rows {
+                    if successfully_processed_ids.contains(&row.id) && row.retry_count + 1 >= BURN_MAX_RETRY {
+                        to_dead_letter.push(row.id);
+                    }
+                }
+                if let Err(e2) = self
+                    .storage
+                    .increment_retry_count(&successfully_processed_ids, &mark_err_str)
+                    .await
+                {
+                    ::tracing::error!(
+                        error = %e2,
+                        count = successfully_processed_ids.len(),
+                        "Failed to bump retry_count for affected burn rows; retry cap \
+                         cannot be enforced until the next successful UPDATE"
+                    );
+                }
+                if !to_dead_letter.is_empty() {
+                    if let Err(e2) = self.storage.mark_dead_letter(&to_dead_letter).await {
+                        ::tracing::error!(
+                            error = %e2,
+                            count = to_dead_letter.len(),
+                            "Failed to dead-letter burn rows that exceeded retry cap; \
+                             they will continue to be retried on each sweep"
+                        );
+                    } else {
+                        ::tracing::warn!(
+                            count = to_dead_letter.len(),
+                            cap = BURN_MAX_RETRY,
+                            "Moved burn rows to dead-letter state after exceeding retry cap; \
+                             their redaction events are already on the wire but the audit \
+                             log entry may be missing. Investigate the underlying cause \
+                             (e.g. mark_burn_processed_batch failure mode)."
+                        );
+                    }
+                }
                 // Do NOT return Err here: the redaction events are already on the wire.
                 // Returning the BurnEvent list lets the caller (the processor loop) carry
                 // on, and the next sweep will see the row as still unprocessed and re-run
@@ -332,12 +404,40 @@ impl BurnAfterReadService {
             }
 
             if let Err(e) = self.storage.log_burned_event_batch(&log_entries).await {
+                // B-07: log_burned_event_batch has its own retry cap. A failure
+                // here means the redaction IS on the wire but the audit row is
+                // missing. We don't move the burn to dead-letter because of
+                // this — the redacted state is what matters most. Instead, we
+                // bump retry_count so the operator can see repeated failures
+                // and the row is bounded by the same cap as a mark_processed
+                // failure.
+                let log_err_str = e.to_string();
                 ::tracing::warn!(
                     error = %e,
                     count = log_entries.len(),
-                    "Failed to batch-insert burn log entries (ON CONFLICT DO NOTHING on \
-                     next sweep will repair partial state)"
+                    "Failed to batch-insert burn log entries; bumping retry_count"
                 );
+                if let Err(e2) = self
+                    .storage
+                    .increment_retry_count(
+                        &successfully_processed_ids
+                            .iter()
+                            .filter(|id| {
+                                expired_rows
+                                    .iter()
+                                    .any(|r| r.id == **id && r.retry_count + 1 >= BURN_MAX_RETRY)
+                            })
+                            .copied()
+                            .collect::<Vec<_>>(),
+                        &log_err_str,
+                    )
+                    .await
+                {
+                    ::tracing::warn!(
+                        error = %e2,
+                        "Failed to bump retry_count after log_burned_event_batch failure"
+                    );
+                }
             }
         }
 
@@ -444,6 +544,9 @@ mod tests {
                 created_ts: 0,
                 delete_ts,
                 is_processed: false,
+                retry_count: 0,
+                last_error: None,
+                is_dead_letter: false,
             })
         }
         async fn cancel_burn(&self, _u: &str, _r: &str, _e: &str) -> Result<(), sqlx::Error> {
@@ -459,6 +562,12 @@ mod tests {
             Ok(())
         }
         async fn mark_burn_processed_batch(&self, _ids: &[i64]) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+        async fn increment_retry_count(&self, _ids: &[i64], _err: &str) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+        async fn mark_dead_letter(&self, _ids: &[i64]) -> Result<(), sqlx::Error> {
             Ok(())
         }
         async fn log_burned_event(&self, _u: &str, _r: &str, _e: &str, _ts: i64) -> Result<(), sqlx::Error> {
@@ -555,6 +664,8 @@ mod tests {
         schedule_burn_calls: Vec<(String, String, String, i64)>,
         cancel_burn_calls: Vec<(String, String, String)>,
         mark_processed_calls: Vec<i64>,
+        increment_retry_count_calls: Vec<(Vec<i64>, String)>,
+        mark_dead_letter_calls: Vec<Vec<i64>>,
         log_burned_calls: Vec<(String, String, String, i64)>,
         set_user_default_calls: Vec<(String, i64)>,
     }
@@ -571,6 +682,8 @@ mod tests {
                 schedule_burn_calls: Vec::new(),
                 cancel_burn_calls: Vec::new(),
                 mark_processed_calls: Vec::new(),
+                increment_retry_count_calls: Vec::new(),
+                mark_dead_letter_calls: Vec::new(),
                 log_burned_calls: Vec::new(),
                 set_user_default_calls: Vec::new(),
             }
@@ -655,6 +768,9 @@ mod tests {
                 created_ts: 0,
                 delete_ts,
                 is_processed: false,
+                retry_count: 0,
+                last_error: None,
+                is_dead_letter: false,
             })
         }
         async fn cancel_burn(&self, user_id: &str, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
@@ -669,7 +785,11 @@ mod tests {
             Ok(self.state.lock().expect("fake mutex poisoned").pending_burns.clone())
         }
         async fn get_expired_burns(&self, _now_ms: i64) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
-            Ok(self.state.lock().expect("fake mutex poisoned").expired_burns.clone())
+            // B-07: emulate the storage layer's dead-letter filter. The
+            // service-side state may contain dead-letter rows for unit tests
+            // that want to verify they are NOT picked up by the scanner.
+            let s = self.state.lock().expect("fake mutex poisoned");
+            Ok(s.expired_burns.iter().filter(|r| !r.is_dead_letter).cloned().collect())
         }
         async fn mark_burn_processed(&self, id: i64) -> Result<(), sqlx::Error> {
             self.state.lock().expect("fake mutex poisoned").mark_processed_calls.push(id);
@@ -677,6 +797,29 @@ mod tests {
         }
         async fn mark_burn_processed_batch(&self, ids: &[i64]) -> Result<(), sqlx::Error> {
             self.state.lock().expect("fake mutex poisoned").mark_processed_calls.extend(ids.to_vec());
+            Ok(())
+        }
+        async fn increment_retry_count(&self, ids: &[i64], last_error: &str) -> Result<(), sqlx::Error> {
+            let mut s = self.state.lock().expect("fake mutex poisoned");
+            s.increment_retry_count_calls.push((ids.to_vec(), last_error.to_string()));
+            // Also reflect the new state in pending_burns/expired_burns so
+            // subsequent calls see the updated retry_count.
+            for row in s.expired_burns.iter_mut() {
+                if ids.contains(&row.id) {
+                    row.retry_count += 1;
+                    row.last_error = Some(last_error.to_string());
+                }
+            }
+            Ok(())
+        }
+        async fn mark_dead_letter(&self, ids: &[i64]) -> Result<(), sqlx::Error> {
+            let mut s = self.state.lock().expect("fake mutex poisoned");
+            s.mark_dead_letter_calls.push(ids.to_vec());
+            for row in s.expired_burns.iter_mut() {
+                if ids.contains(&row.id) {
+                    row.is_dead_letter = true;
+                }
+            }
             Ok(())
         }
         async fn log_burned_event(

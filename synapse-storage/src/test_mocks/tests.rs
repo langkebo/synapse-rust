@@ -682,6 +682,9 @@ impl crate::burn_after_read::BurnAfterReadStoreApi for InMemoryBurnAfterReadStor
             created_ts: current_timestamp_millis(),
             delete_ts,
             is_processed: false,
+            retry_count: 0,
+            last_error: None,
+            is_dead_letter: false,
         };
         self.pending.write().await.push(row.clone());
         Ok(row)
@@ -713,7 +716,7 @@ impl crate::burn_after_read::BurnAfterReadStoreApi for InMemoryBurnAfterReadStor
     }
 
     async fn get_expired_burns(&self, now_ms: i64) -> Result<Vec<crate::burn_after_read::BurnPendingRow>, sqlx::Error> {
-        Ok(self.pending.read().await.iter().filter(|p| p.delete_ts <= now_ms && !p.is_processed).cloned().collect())
+        Ok(self.pending.read().await.iter().filter(|p| p.delete_ts <= now_ms && !p.is_processed && !p.is_dead_letter).cloned().collect())
     }
 
     async fn mark_burn_processed(&self, id: i64) -> Result<(), sqlx::Error> {
@@ -802,6 +805,32 @@ impl crate::burn_after_read::BurnAfterReadStoreApi for InMemoryBurnAfterReadStor
                 updated_ts: Some(now),
             },
         );
+        Ok(())
+    }
+
+    async fn increment_retry_count(&self, ids: &[i64], last_error: &str) -> Result<(), sqlx::Error> {
+        let id_set: std::collections::HashSet<i64> = ids.iter().copied().collect();
+        let mut pending = self.pending.write().await;
+        for p in pending.iter_mut() {
+            if id_set.contains(&p.id) && !p.is_processed {
+                p.retry_count += 1;
+                p.last_error = Some(last_error.to_string());
+            }
+        }
+        Ok(())
+    }
+
+    async fn mark_dead_letter(&self, ids: &[i64]) -> Result<(), sqlx::Error> {
+        let id_set: std::collections::HashSet<i64> = ids.iter().copied().collect();
+        let mut pending = self.pending.write().await;
+        for p in pending.iter_mut() {
+            if id_set.contains(&p.id) && !p.is_processed {
+                p.is_dead_letter = true;
+                if let Some(err) = &p.last_error {
+                    p.last_error = Some(format!("{err} [moved to dead-letter]"));
+                }
+            }
+        }
         Ok(())
     }
 }

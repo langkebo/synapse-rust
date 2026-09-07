@@ -37,6 +37,14 @@ pub struct BurnPendingRow {
     pub delete_ts: i64,
     /// The `is_processed` field.
     pub is_processed: bool,
+    /// Number of times this row was attempted (including the current pass).
+    /// Incremented by the processor when redact+create succeed but mark_processed fails.
+    /// After exceeding the dead-letter threshold, the row is moved to dead-letter state.
+    pub retry_count: i32,
+    /// Human-readable description of the last error encountered during processing.
+    pub last_error: Option<String>,
+    /// When TRUE, the scanner skips this row entirely. Set when retry_count >= MAX_RETRY.
+    pub is_dead_letter: bool,
 }
 
 /// The `BurnLogRow` struct.
@@ -113,12 +121,19 @@ pub trait BurnAfterReadStoreApi: Send + Sync {
     /// See [`get_pending_burns`].
     async fn get_pending_burns(&self, user_id: &str, room_id: &str) -> Result<Vec<BurnPendingRow>, sqlx::Error>;
     /// See [`get_expired_burns`].
+    /// Excludes dead-letter rows (`is_dead_letter = TRUE`).
     async fn get_expired_burns(&self, now_ms: i64) -> Result<Vec<BurnPendingRow>, sqlx::Error>;
     /// See [`mark_burn_processed`].
     async fn mark_burn_processed(&self, id: i64) -> Result<(), sqlx::Error>;
     /// Atomically mark multiple burn records as processed in a single query.
     /// Succeeds if at least one row was updated; fails only on DB errors.
     async fn mark_burn_processed_batch(&self, ids: &[i64]) -> Result<(), sqlx::Error>;
+    /// Increment retry_count and set last_error for a list of burn IDs.
+    /// Called when redact+create succeed but mark_processed fails (partial failure).
+    async fn increment_retry_count(&self, ids: &[i64], last_error: &str) -> Result<(), sqlx::Error>;
+    /// Mark a list of burn IDs as dead letters (is_dead_letter = TRUE).
+    /// Called when retry_count >= MAX_RETRY.
+    async fn mark_dead_letter(&self, ids: &[i64]) -> Result<(), sqlx::Error>;
     /// See [`log_burned_event`].
     async fn log_burned_event(
         &self,
@@ -210,7 +225,8 @@ impl BurnAfterReadStorage {
             ON CONFLICT (user_id, room_id, event_id) DO UPDATE SET
                 delete_ts = EXCLUDED.delete_ts,
                 created_ts = EXCLUDED.created_ts
-            RETURNING id, user_id, room_id, event_id, created_ts, delete_ts, is_processed
+            RETURNING id, user_id, room_id, event_id, created_ts, delete_ts, is_processed,
+                      retry_count, last_error, is_dead_letter
             ",
         )
         .bind(user_id)
@@ -248,7 +264,8 @@ impl BurnAfterReadStorage {
     pub async fn get_pending_burns(&self, user_id: &str, room_id: &str) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BurnPendingRow>(
             r"
-            SELECT id, user_id, room_id, event_id, created_ts, delete_ts, is_processed
+            SELECT id, user_id, room_id, event_id, created_ts, delete_ts, is_processed,
+                   retry_count, last_error, is_dead_letter
             FROM burn_after_read_pending
             WHERE user_id = $1 AND room_id = $2 AND is_processed = FALSE
             ORDER BY delete_ts ASC
@@ -264,12 +281,16 @@ impl BurnAfterReadStorage {
 
     /// See [`get_expired_burns`].
     /// See [`get_expired_burns`].
+    /// Excludes dead-letter rows to bound retry storms on persistently-failing rows.
     pub async fn get_expired_burns(&self, now_ms: i64) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BurnPendingRow>(
             r"
-            SELECT id, user_id, room_id, event_id, created_ts, delete_ts, is_processed
+            SELECT id, user_id, room_id, event_id, created_ts, delete_ts, is_processed,
+                   retry_count, last_error, is_dead_letter
             FROM burn_after_read_pending
-            WHERE delete_ts <= $1 AND is_processed = FALSE
+            WHERE delete_ts <= $1
+              AND is_processed = FALSE
+              AND is_dead_letter = FALSE
             ORDER BY delete_ts ASC
             ",
         )
@@ -299,6 +320,49 @@ impl BurnAfterReadStorage {
         }
         sqlx::query(
             "UPDATE burn_after_read_pending SET is_processed = TRUE WHERE id = ANY($1) AND is_processed = FALSE",
+        )
+        .bind(ids)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Increment retry_count by 1 and set last_error for a list of burn IDs.
+    /// Used when the redact+create steps succeed but a subsequent step (mark_processed
+    /// or log_burned) fails: the row is left in unprocessed state for the next sweep
+    /// and we want to count how many times we've already retried it.
+    pub async fn increment_retry_count(&self, ids: &[i64], last_error: &str) -> Result<(), sqlx::Error> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        sqlx::query(
+            r"
+            UPDATE burn_after_read_pending
+            SET retry_count = retry_count + 1,
+                last_error = $2
+            WHERE id = ANY($1) AND is_processed = FALSE
+            ",
+        )
+        .bind(ids)
+        .bind(last_error)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Mark a list of burn IDs as dead letters. The scanner will exclude these rows.
+    /// Called when retry_count has reached the maximum allowed threshold.
+    pub async fn mark_dead_letter(&self, ids: &[i64]) -> Result<(), sqlx::Error> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        sqlx::query(
+            r"
+            UPDATE burn_after_read_pending
+            SET is_dead_letter = TRUE,
+                last_error = COALESCE(last_error, '') || ' [moved to dead-letter]'
+            WHERE id = ANY($1) AND is_processed = FALSE
+            ",
         )
         .bind(ids)
         .execute(&*self.pool)
@@ -465,6 +529,14 @@ impl BurnAfterReadStoreApi for BurnAfterReadStorage {
         self.mark_burn_processed_batch(ids).await
     }
 
+    async fn increment_retry_count(&self, ids: &[i64], last_error: &str) -> Result<(), sqlx::Error> {
+        self.increment_retry_count(ids, last_error).await
+    }
+
+    async fn mark_dead_letter(&self, ids: &[i64]) -> Result<(), sqlx::Error> {
+        self.mark_dead_letter(ids).await
+    }
+
     async fn log_burned_event(
         &self,
         user_id: &str,
@@ -521,10 +593,16 @@ mod tests {
             created_ts: 1234567890,
             delete_ts: 1234567950,
             is_processed: false,
+            retry_count: 0,
+            last_error: None,
+            is_dead_letter: false,
         };
         assert_eq!(row.id, 1);
         assert_eq!(row.event_id, "$event1");
         assert!(!row.is_processed);
+        assert_eq!(row.retry_count, 0);
+        assert!(row.last_error.is_none());
+        assert!(!row.is_dead_letter);
     }
 
     #[test]
@@ -558,6 +636,36 @@ mod tests {
         assert_eq!(row.total_burned, 5);
         assert_eq!(row.total_pending, 2);
         assert_eq!(row.rooms_enabled, 3);
+    }
+
+    /// B-07: BurnPendingRow must expose the new retry-cap fields so the
+    /// service can decide whether to dead-letter without re-querying.
+    #[test]
+    fn test_burn_pending_row_exposes_retry_fields() {
+        let row = BurnPendingRow {
+            id: 7,
+            user_id: "@retry:ex.com".into(),
+            room_id: "!room:ex.com".into(),
+            event_id: "$ev:ex.com".into(),
+            created_ts: 0,
+            delete_ts: 0,
+            is_processed: false,
+            retry_count: 4,
+            last_error: Some("mark_burn_processed_batch: connection refused".into()),
+            is_dead_letter: false,
+        };
+        assert_eq!(row.retry_count, 4);
+        assert_eq!(row.last_error.as_deref(), Some("mark_burn_processed_batch: connection refused"));
+        assert!(!row.is_dead_letter);
+
+        let dead = BurnPendingRow {
+            is_dead_letter: true,
+            retry_count: 5,
+            last_error: Some("cap reached [moved to dead-letter]".into()),
+            ..row.clone()
+        };
+        assert!(dead.is_dead_letter);
+        assert_eq!(dead.retry_count, 5);
     }
 }
 
