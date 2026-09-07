@@ -45,6 +45,8 @@ pub struct InMemoryPushStore {
 }
 
 impl InMemoryPushStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }

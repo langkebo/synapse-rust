@@ -3,35 +3,50 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `RoomTag` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RoomTag {
+    /// The `id` field.
     pub id: i32,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `tag` field.
     pub tag: String,
     #[sqlx(rename = "order_value")]
+    /// The `order` field.
     pub order: Option<f64>,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
 // ── Trait ───────────────────────────────────────────────────────────────
 
+/// The `RoomTagStoreApi` trait.
 #[async_trait]
 pub trait RoomTagStoreApi: Send + Sync {
+    /// See [`get_all_tags`].
     async fn get_all_tags(&self, user_id: &str) -> Result<Vec<RoomTag>, sqlx::Error>;
+    /// See [`get_tags`].
     async fn get_tags(&self, user_id: &str, room_id: &str) -> Result<Vec<RoomTag>, sqlx::Error>;
+    /// See [`add_tag`].
     async fn add_tag(&self, user_id: &str, room_id: &str, tag: &str, order: Option<f64>) -> Result<(), sqlx::Error>;
+    /// See [`remove_tag`].
     async fn remove_tag(&self, user_id: &str, room_id: &str, tag: &str) -> Result<(), sqlx::Error>;
 }
 
 // ── Postgres implementation ─────────────────────────────────────────────
 
+/// The `RoomTagStorage` struct.
 #[derive(Clone)]
 pub struct RoomTagStorage {
     pool: Arc<sqlx::PgPool>,
 }
 
 impl RoomTagStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
         Self { pool }
     }
@@ -41,6 +56,8 @@ impl RoomTagStorage {
         &self.pool
     }
 
+    /// See [`get_all_tags`].
+    /// See [`get_all_tags`].
     pub async fn get_all_tags(&self, user_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
         sqlx::query_as::<_, RoomTag>(
             "SELECT id, user_id, room_id, tag, order_value, created_ts FROM room_tags WHERE user_id = $1 ORDER BY room_id, tag"
@@ -50,6 +67,8 @@ impl RoomTagStorage {
         .await
     }
 
+    /// See [`get_tags`].
+    /// See [`get_tags`].
     pub async fn get_tags(&self, user_id: &str, room_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
         sqlx::query_as::<_, RoomTag>(
             "SELECT id, user_id, room_id, tag, order_value, created_ts FROM room_tags WHERE user_id = $1 AND room_id = $2 ORDER BY tag"
@@ -60,6 +79,7 @@ impl RoomTagStorage {
         .await
     }
 
+    /// See [`add_tag`].
     pub async fn add_tag(
         &self,
         user_id: &str,
@@ -81,6 +101,8 @@ impl RoomTagStorage {
         Ok(())
     }
 
+    /// See [`remove_tag`].
+    /// See [`remove_tag`].
     pub async fn remove_tag(&self, user_id: &str, room_id: &str, tag: &str) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM room_tags WHERE user_id = $1 AND room_id = $2 AND tag = $3")
             .bind(user_id)

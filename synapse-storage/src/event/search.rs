@@ -6,6 +6,7 @@ use super::models::RoomEvent;
 use super::EventStorage;
 
 impl EventStorage {
+    /// See [`search_room_messages_admin`].
     pub async fn search_room_messages_admin(
         &self,
         room_id: &str,
@@ -42,6 +43,7 @@ impl EventStorage {
             .collect())
     }
 
+    /// See [`search_joined_room_events`].
     #[allow(clippy::too_many_arguments)]
     pub async fn search_joined_room_events(
         &self,
@@ -140,6 +142,7 @@ impl EventStorage {
         query_builder.build_query_as().fetch_all(&*self.pool).await
     }
 
+    /// See [`search_postgres_messages`].
     pub async fn search_postgres_messages(
         &self,
         user_id: &str,
@@ -219,6 +222,8 @@ impl EventStorage {
         }
     }
 
+    /// See [`create_postgres_fts_index`].
+    /// See [`create_postgres_fts_index`].
     pub async fn create_postgres_fts_index(&self) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"

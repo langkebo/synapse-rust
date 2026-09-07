@@ -1,12 +1,16 @@
 use async_trait::async_trait;
 use synapse_common::ApiError;
 
+/// The `MediaCursor` struct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediaCursor {
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `media_id` field.
     pub media_id: String,
 }
 
+/// See [`decode_media_cursor`].
 pub fn decode_media_cursor(cursor: Option<&str>) -> Option<MediaCursor> {
     let cursor = cursor?;
     let (created_ts, media_id) = cursor.split_once('|')?;
@@ -17,31 +21,47 @@ pub fn decode_media_cursor(cursor: Option<&str>) -> Option<MediaCursor> {
     Some(MediaCursor { created_ts, media_id: media_id.to_owned() })
 }
 
+/// See [`encode_media_cursor`].
 pub fn encode_media_cursor(cursor: &MediaCursor) -> String {
     format!("{}|{}", cursor.created_ts, cursor.media_id)
 }
 
+/// The `AdminMediaInfo` struct.
 #[derive(Debug, Clone)]
 pub struct AdminMediaInfo {
+    /// The `media_id` field.
     pub media_id: String,
+    /// The `content_type` field.
     pub content_type: Option<String>,
+    /// The `file_name` field.
     pub file_name: Option<String>,
+    /// The `size` field.
     pub size: i64,
+    /// The `uploader_user_id` field.
     pub uploader_user_id: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `last_accessed_at` field.
     pub last_accessed_at: Option<i64>,
+    /// The `quarantined` field.
     pub quarantined: bool,
 }
 
+/// The `AdminMediaPage` struct.
 #[derive(Debug, Clone)]
 pub struct AdminMediaPage {
+    /// The `media` field.
     pub media: Vec<AdminMediaInfo>,
+    /// The `next_batch` field.
     pub next_batch: Option<String>,
 }
 
+/// The `AdminMediaQuotaSummary` struct.
 #[derive(Debug, Clone)]
 pub struct AdminMediaQuotaSummary {
+    /// The `total_size` field.
     pub total_size: i64,
+    /// The `total_count` field.
     pub total_count: i64,
 }
 
@@ -74,26 +94,37 @@ fn map_media_row(row: AdminMediaRow) -> AdminMediaInfo {
     }
 }
 
+/// The `AdminMediaStorage` struct.
 #[derive(Clone)]
 pub struct AdminMediaStorage {
     pool: sqlx::PgPool,
 }
 
+/// The `AdminMediaStoreApi` trait.
 #[async_trait]
 pub trait AdminMediaStoreApi: Send + Sync {
+    /// See [`get_all_media`].
     async fn get_all_media(&self, limit: i64, cursor: Option<MediaCursor>) -> Result<AdminMediaPage, ApiError>;
+    /// See [`get_media_info`].
     async fn get_media_info(&self, media_id: &str) -> Result<Option<AdminMediaInfo>, ApiError>;
+    /// See [`delete_media`].
     async fn delete_media(&self, media_id: &str) -> Result<bool, ApiError>;
+    /// See [`get_media_quota`].
     async fn get_media_quota(&self) -> Result<AdminMediaQuotaSummary, ApiError>;
+    /// See [`get_user_media`].
     async fn get_user_media(&self, user_id: &str) -> Result<Vec<AdminMediaInfo>, ApiError>;
+    /// See [`delete_user_media`].
     async fn delete_user_media(&self, user_id: &str) -> Result<u64, ApiError>;
 }
 
 impl AdminMediaStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &sqlx::PgPool) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`upsert_media_metadata`].
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_media_metadata(
         &self,
@@ -129,6 +160,8 @@ impl AdminMediaStorage {
         Ok(())
     }
 
+    /// See [`get_all_media`].
+    /// See [`get_all_media`].
     pub async fn get_all_media(&self, limit: i64, cursor: Option<MediaCursor>) -> Result<AdminMediaPage, ApiError> {
         let media: Vec<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
             r#"SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts, last_accessed_at, quarantine_status
@@ -157,6 +190,8 @@ impl AdminMediaStorage {
         Ok(AdminMediaPage { media: media.into_iter().map(map_media_row).collect(), next_batch })
     }
 
+    /// See [`get_media_info`].
+    /// See [`get_media_info`].
     pub async fn get_media_info(&self, media_id: &str) -> Result<Option<AdminMediaInfo>, ApiError> {
         let media: Option<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
             r#"SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts, last_accessed_at, quarantine_status
@@ -170,6 +205,8 @@ impl AdminMediaStorage {
         Ok(media.map(map_media_row))
     }
 
+    /// See [`delete_media`].
+    /// See [`delete_media`].
     pub async fn delete_media(&self, media_id: &str) -> Result<bool, ApiError> {
         let result = sqlx::query("DELETE FROM media_metadata WHERE media_id = $1")
             .bind(media_id)
@@ -180,6 +217,8 @@ impl AdminMediaStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// See [`get_media_quota`].
+    /// See [`get_media_quota`].
     pub async fn get_media_quota(&self) -> Result<AdminMediaQuotaSummary, ApiError> {
         let total_size = sqlx::query_scalar::<_, i64>("SELECT COALESCE(SUM(size), 0)::BIGINT FROM media_metadata")
             .fetch_one(&self.pool)
@@ -193,6 +232,8 @@ impl AdminMediaStorage {
         Ok(AdminMediaQuotaSummary { total_size, total_count })
     }
 
+    /// See [`get_user_media`].
+    /// See [`get_user_media`].
     pub async fn get_user_media(&self, user_id: &str) -> Result<Vec<AdminMediaInfo>, ApiError> {
         let media: Vec<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
             r#"SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts,
@@ -207,6 +248,8 @@ impl AdminMediaStorage {
         Ok(media.into_iter().map(map_media_row).collect())
     }
 
+    /// See [`delete_user_media`].
+    /// See [`delete_user_media`].
     pub async fn delete_user_media(&self, user_id: &str) -> Result<u64, ApiError> {
         let result = sqlx::query("DELETE FROM media_metadata WHERE uploader_user_id = $1")
             .bind(user_id)

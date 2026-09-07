@@ -8,6 +8,7 @@ use super::models::RoomEphemeralEvent;
 use super::EventStorage;
 
 impl EventStorage {
+    /// See [`add_ephemeral_event`].
     pub async fn add_ephemeral_event(
         &self,
         room_id: &str,
@@ -20,6 +21,7 @@ impl EventStorage {
         self.upsert_ephemeral_event(room_id, user_id, event_type, content, stream_id, now, None).await
     }
 
+    /// See [`upsert_ephemeral_event`].
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_ephemeral_event(
         &self,
@@ -54,6 +56,7 @@ impl EventStorage {
         Ok(())
     }
 
+    /// See [`delete_ephemeral_event`].
     pub async fn delete_ephemeral_event(
         &self,
         room_id: &str,
@@ -74,6 +77,7 @@ impl EventStorage {
         Ok(())
     }
 
+    /// See [`get_ephemeral_events`].
     pub async fn get_ephemeral_events(
         &self,
         room_id: &str,
@@ -97,6 +101,7 @@ impl EventStorage {
         .await
     }
 
+    /// See [`get_ephemeral_events_batch`].
     pub async fn get_ephemeral_events_batch(
         &self,
         room_ids: &[String],

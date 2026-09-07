@@ -15,6 +15,7 @@ pub trait RoomStoreApi: Send + Sync {
     /// Returns a reference to the database connection pool.
     fn pool(&self) -> &Arc<sqlx::PgPool>;
 
+    /// See [`create_room`].
     async fn create_room(
         &self,
         room_id: &str,
@@ -24,6 +25,7 @@ pub trait RoomStoreApi: Send + Sync {
         is_public: bool,
     ) -> Result<Room, sqlx::Error>;
 
+    /// See [`create_room_in_tx`].
     async fn create_room_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -34,18 +36,25 @@ pub trait RoomStoreApi: Send + Sync {
         is_public: bool,
     ) -> Result<Room, sqlx::Error>;
 
+    /// See [`get_room`].
     async fn get_room(&self, room_id: &str) -> Result<Option<Room>, sqlx::Error>;
 
+    /// See [`room_exists`].
     async fn room_exists(&self, room_id: &str) -> Result<bool, sqlx::Error>;
 
+    /// See [`get_public_rooms`].
     async fn get_public_rooms(&self, limit: i64) -> Result<Vec<Room>, sqlx::Error>;
 
+    /// See [`get_room_count`].
     async fn get_room_count(&self) -> Result<i64, sqlx::Error>;
 
+    /// See [`set_canonical_alias`].
     async fn set_canonical_alias(&self, room_id: &str, alias: Option<&str>) -> Result<(), sqlx::Error>;
 
+    /// See [`set_room_alias`].
     async fn set_room_alias(&self, room_id: &str, alias: &str, created_by: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`update_join_rule_in_tx`].
     async fn update_join_rule_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -53,6 +62,7 @@ pub trait RoomStoreApi: Send + Sync {
         join_rule: &str,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`decrement_member_count`].
     async fn decrement_member_count(
         &self,
         room_id: &str,
@@ -68,8 +78,10 @@ pub trait RoomStoreApi: Send + Sync {
     /// avoid N round-trips.
     async fn decrement_member_counts_batch(&self, room_ids: &[String]) -> Result<u64, sqlx::Error>;
 
+    /// See [`update_room_name`].
     async fn update_room_name(&self, room_id: &str, name: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`update_room_name_in_tx`].
     async fn update_room_name_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -77,8 +89,10 @@ pub trait RoomStoreApi: Send + Sync {
         name: &str,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`update_room_topic`].
     async fn update_room_topic(&self, room_id: &str, topic: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`update_room_topic_in_tx`].
     async fn update_room_topic_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -86,22 +100,30 @@ pub trait RoomStoreApi: Send + Sync {
         topic: &str,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`get_room_aliases`].
     async fn get_room_aliases(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error>;
 
+    /// See [`get_room_by_alias`].
     async fn get_room_by_alias(&self, alias: &str) -> Result<Option<String>, sqlx::Error>;
 
+    /// See [`remove_room_alias`].
     async fn remove_room_alias(&self, room_id: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`remove_room_alias_by_name`].
     async fn remove_room_alias_by_name(&self, alias: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`is_room_in_directory`].
     async fn is_room_in_directory(&self, room_id: &str) -> Result<bool, sqlx::Error>;
 
+    /// See [`set_room_directory`].
     async fn set_room_directory(&self, room_id: &str, is_public: bool) -> Result<(), sqlx::Error>;
 
+    /// See [`remove_room_directory`].
     async fn remove_room_directory(&self, room_id: &str) -> Result<(), sqlx::Error>;
 
     // ── receipts / read markers ──────────────────────────────────────────
 
+    /// See [`add_receipt`].
     async fn add_receipt(
         &self,
         user_id: &str,
@@ -112,6 +134,7 @@ pub trait RoomStoreApi: Send + Sync {
         data: &serde_json::Value,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`get_receipts`].
     async fn get_receipts(
         &self,
         room_id: &str,
@@ -119,6 +142,7 @@ pub trait RoomStoreApi: Send + Sync {
         event_id: &str,
     ) -> Result<Vec<Receipt>, sqlx::Error>;
 
+    /// See [`update_read_marker_with_type`].
     async fn update_read_marker_with_type(
         &self,
         room_id: &str,
@@ -140,10 +164,13 @@ pub trait RoomStoreApi: Send + Sync {
 
     // ── Extended room queries (added for service-layer migration) ──
 
+    /// See [`get_rooms_batch`].
     async fn get_rooms_batch(&self, room_ids: &[String]) -> Result<Vec<Room>, sqlx::Error>;
 
+    /// See [`increment_member_count`].
     async fn increment_member_count(&self, room_id: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`get_user_rooms_paginated`].
     async fn get_user_rooms_paginated(
         &self,
         user_id: &str,
@@ -153,6 +180,7 @@ pub trait RoomStoreApi: Send + Sync {
 
     // ── Admin / directory / stats queries (added for state-service migration) ──
 
+    /// See [`get_public_rooms_paginated`].
     async fn get_public_rooms_paginated(
         &self,
         limit: i64,
@@ -160,8 +188,10 @@ pub trait RoomStoreApi: Send + Sync {
         since_room_id: Option<&str>,
     ) -> Result<Vec<Room>, sqlx::Error>;
 
+    /// See [`count_public_rooms`].
     async fn count_public_rooms(&self) -> Result<i64, sqlx::Error>;
 
+    /// See [`get_all_rooms_with_members`].
     async fn get_all_rooms_with_members(
         &self,
         limit: i64,
@@ -169,15 +199,19 @@ pub trait RoomStoreApi: Send + Sync {
         order_by: RoomSearchOrder,
     ) -> Result<(Vec<(Room, i64)>, Option<String>), sqlx::Error>;
 
+    /// See [`get_user_room_list_summary`].
     async fn get_user_room_list_summary(
         &self,
         user_id: &str,
     ) -> Result<Vec<(String, String, String, String)>, sqlx::Error>;
 
+    /// See [`delete_room`].
     async fn delete_room(&self, room_id: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`shutdown_room`].
     async fn shutdown_room(&self, room_id: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`block_room`].
     async fn block_room(
         &self,
         room_id: &str,
@@ -186,22 +220,31 @@ pub trait RoomStoreApi: Send + Sync {
         reason: Option<&str>,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`get_room_block_status`].
     async fn get_room_block_status(&self, room_id: &str) -> Result<Option<i64>, sqlx::Error>;
 
+    /// See [`unblock_room`].
     async fn unblock_room(&self, room_id: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`get_room_stats_overview`].
     async fn get_room_stats_overview(&self) -> Result<serde_json::Value, sqlx::Error>;
 
+    /// See [`get_single_room_stats`].
     async fn get_single_room_stats(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error>;
 
+    /// See [`get_room_listings_status`].
     async fn get_room_listings_status(&self, room_id: &str) -> Result<Option<(bool, bool)>, sqlx::Error>;
 
+    /// See [`set_room_public_with_directory`].
     async fn set_room_public_with_directory(&self, room_id: &str) -> Result<bool, sqlx::Error>;
 
+    /// See [`set_room_private_with_directory`].
     async fn set_room_private_with_directory(&self, room_id: &str) -> Result<bool, sqlx::Error>;
 
+    /// See [`get_room_version_only`].
     async fn get_room_version_only(&self, room_id: &str) -> Result<Option<String>, sqlx::Error>;
 
+    /// See [`search_all_rooms_admin`].
     async fn search_all_rooms_admin(
         &self,
         search_term: Option<&str>,
@@ -212,6 +255,7 @@ pub trait RoomStoreApi: Send + Sync {
         is_encrypted: Option<bool>,
     ) -> Result<(Vec<serde_json::Value>, i64, Option<String>), sqlx::Error>;
 
+    /// See [`cleanup_abnormal_data`].
     async fn cleanup_abnormal_data(&self, min_age_ms: Option<i64>) -> Result<serde_json::Value, sqlx::Error>;
 }
 

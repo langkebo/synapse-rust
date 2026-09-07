@@ -1,6 +1,7 @@
 use super::*;
 use synapse_common::current_timestamp_millis;
 
+/// The `InMemoryThreadStore` struct.
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
 pub struct InMemoryThreadStore {
@@ -16,6 +17,8 @@ pub struct InMemoryThreadStore {
 }
 
 impl InMemoryThreadStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self {
             roots: Arc::new(tokio::sync::RwLock::new(Vec::new())),

@@ -19,44 +19,65 @@ use synapse_common::ApiError;
 /// until the event is actually sent).
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DelayedEvent {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: String,
     /// Synthetic placeholder event_id (not the real Matrix event_id, which
     /// is unknown until the event is sent). Used as a unique key.
     pub event_id: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `state_key` field.
     pub state_key: Option<String>,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `delay_ms` field.
     pub delay_ms: i64,
     /// When the event is scheduled to be sent (created_ts + delay_ms).
     /// Reset to now+delay_ms on `restart` (heartbeat).
     pub scheduled_ts: i64,
+    /// The `created_ts` field.
     pub created_ts: i64,
     /// One of: "pending", "sent", "cancelled", "failed".
     pub status: String,
+    /// The `retry_count` field.
     pub retry_count: i32,
+    /// The `last_error` field.
     pub last_error: Option<String>,
 }
 
 /// Request to create a new delayed event.
 #[derive(Debug, Clone)]
 pub struct CreateDelayedEventRequest {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `state_key` field.
     pub state_key: Option<String>,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `delay_ms` field.
     pub delay_ms: i64,
 }
 
 /// Actions for the generic management endpoint (MSC4140 Gen 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DelayedEventAction {
+    /// The `Send` variant.
     Send,
+    /// The `Cancel` variant.
     Cancel,
+    /// The `Restart` variant.
     Restart,
 }
 
@@ -71,6 +92,8 @@ impl DelayedEventAction {
         }
     }
 
+    /// See [`as_str`].
+    /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Send => "send",
@@ -112,6 +135,8 @@ pub struct DelayedEventStorage {
 }
 
 impl DelayedEventStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
         Self { pool }
     }

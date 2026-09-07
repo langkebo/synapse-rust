@@ -16,6 +16,8 @@ pub struct FakeUserStore {
 }
 
 impl FakeUserStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         let mut users = HashMap::new();
         // Seed a default test user so admin/security tests have a target.

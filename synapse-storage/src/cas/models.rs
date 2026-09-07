@@ -1,122 +1,208 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+/// The `CasTicket` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct CasTicket {
+    /// The `id` field.
     pub id: i64,
+    /// The `ticket_id` field.
     pub ticket_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `service_url` field.
     pub service_url: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: i64,
+    /// The `consumed_ts` field.
     pub consumed_ts: Option<i64>,
+    /// The `consumed_by` field.
     pub consumed_by: Option<String>,
+    /// The `is_valid` field.
     pub is_valid: bool,
 }
 
+/// The `CasProxyTicket` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct CasProxyTicket {
+    /// The `id` field.
     pub id: i64,
+    /// The `proxy_ticket_id` field.
     pub proxy_ticket_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `service_url` field.
     pub service_url: String,
+    /// The `pgt_url` field.
     pub pgt_url: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: i64,
+    /// The `consumed_ts` field.
     pub consumed_ts: Option<i64>,
+    /// The `is_valid` field.
     pub is_valid: bool,
 }
 
+/// The `CasProxyGrantingTicket` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct CasProxyGrantingTicket {
+    /// The `id` field.
     pub id: i64,
+    /// The `pgt_id` field.
     pub pgt_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `service_url` field.
     pub service_url: String,
+    /// The `iou` field.
     pub iou: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: i64,
+    /// The `is_valid` field.
     pub is_valid: bool,
 }
 
+/// The `CasRegisteredService` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct CasRegisteredService {
+    /// The `id` field.
     pub id: i64,
+    /// The `service_id` field.
     pub service_id: String,
+    /// The `name` field.
     pub name: String,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `service_url_pattern` field.
     pub service_url_pattern: String,
+    /// The `allowed_attributes` field.
     pub allowed_attributes: serde_json::Value,
+    /// The `allowed_proxy_callbacks` field.
     pub allowed_proxy_callbacks: serde_json::Value,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `is_require_secure` field.
     pub is_require_secure: bool,
+    /// The `is_single_logout` field.
     pub is_single_logout: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
+/// The `CasSloSession` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct CasSloSession {
+    /// The `id` field.
     pub id: i64,
+    /// The `session_id` field.
     pub session_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `service_url` field.
     pub service_url: String,
+    /// The `ticket_id` field.
     pub ticket_id: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `logout_sent_ts` field.
     pub logout_sent_ts: Option<i64>,
 }
 
+/// The `CasUserAttribute` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct CasUserAttribute {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `attribute_name` field.
     pub attribute_name: String,
+    /// The `attribute_value` field.
     pub attribute_value: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
+/// The `CreateTicketRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateTicketRequest {
+    /// The `ticket_id` field.
     pub ticket_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `service_url` field.
     pub service_url: String,
+    /// The `expires_in_seconds` field.
     pub expires_in_seconds: i64,
 }
 
+/// The `ValidateTicketRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidateTicketRequest {
+    /// The `ticket_id` field.
     pub ticket_id: String,
+    /// The `service_url` field.
     pub service_url: String,
 }
 
+/// The `CreateProxyTicketRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateProxyTicketRequest {
+    /// The `proxy_ticket_id` field.
     pub proxy_ticket_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `service_url` field.
     pub service_url: String,
+    /// The `pgt_url` field.
     pub pgt_url: Option<String>,
+    /// The `expires_in_seconds` field.
     pub expires_in_seconds: i64,
 }
 
+/// The `CreatePgtRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatePgtRequest {
+    /// The `pgt_id` field.
     pub pgt_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `service_url` field.
     pub service_url: String,
+    /// The `iou` field.
     pub iou: Option<String>,
+    /// The `expires_in_seconds` field.
     pub expires_in_seconds: i64,
 }
 
+/// The `RegisterServiceRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisterServiceRequest {
+    /// The `service_id` field.
     pub service_id: String,
+    /// The `name` field.
     pub name: String,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `service_url_pattern` field.
     pub service_url_pattern: String,
+    /// The `allowed_attributes` field.
     pub allowed_attributes: Option<Vec<String>>,
+    /// The `allowed_proxy_callbacks` field.
     pub allowed_proxy_callbacks: Option<Vec<String>>,
+    /// The `is_require_secure` field.
     pub is_require_secure: Option<bool>,
+    /// The `is_single_logout` field.
     pub is_single_logout: Option<bool>,
 }
 
@@ -127,16 +213,26 @@ pub struct RegisterServiceRequest {
 // These row types bridge the two for sqlx::query_as without changing the
 // public API. The drift itself is tracked in `M3-ISSUE-3`.
 
+/// The `CasTicketRow` struct.
 #[derive(Debug, Clone, FromRow)]
 pub(super) struct CasTicketRow {
+    /// The `id` field.
     pub id: i64,
+    /// The `ticket_id` field.
     pub ticket_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `service_url` field.
     pub service_url: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: i64,
+    /// The `consumed_at` field.
     pub consumed_at: Option<i64>,
+    /// The `consumed_by` field.
     pub consumed_by: Option<String>,
+    /// The `is_valid` field.
     pub is_valid: bool,
 }
 
@@ -156,16 +252,26 @@ impl From<CasTicketRow> for CasTicket {
     }
 }
 
+/// The `CasProxyTicketRow` struct.
 #[derive(Debug, Clone, FromRow)]
 pub(super) struct CasProxyTicketRow {
+    /// The `id` field.
     pub id: i64,
+    /// The `proxy_ticket_id` field.
     pub proxy_ticket_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `service_url` field.
     pub service_url: String,
+    /// The `pgt_url` field.
     pub pgt_url: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: i64,
+    /// The `consumed_at` field.
     pub consumed_at: Option<i64>,
+    /// The `is_valid` field.
     pub is_valid: bool,
 }
 
@@ -185,19 +291,32 @@ impl From<CasProxyTicketRow> for CasProxyTicket {
     }
 }
 
+/// The `CasRegisteredServiceRow` struct.
 #[derive(Debug, Clone, FromRow)]
 pub(super) struct CasRegisteredServiceRow {
+    /// The `id` field.
     pub id: i64,
+    /// The `service_id` field.
     pub service_id: String,
+    /// The `name` field.
     pub name: String,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `service_url_pattern` field.
     pub service_url_pattern: String,
+    /// The `allowed_attributes` field.
     pub allowed_attributes: serde_json::Value,
+    /// The `allowed_proxy_callbacks` field.
     pub allowed_proxy_callbacks: serde_json::Value,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `is_require_secure` field.
     pub is_require_secure: bool,
+    /// The `is_single_logout` field.
     pub is_single_logout: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
 }
 
@@ -220,14 +339,22 @@ impl From<CasRegisteredServiceRow> for CasRegisteredService {
     }
 }
 
+/// The `CasSloSessionRow` struct.
 #[derive(Debug, Clone, FromRow)]
 pub(super) struct CasSloSessionRow {
+    /// The `id` field.
     pub id: i64,
+    /// The `session_id` field.
     pub session_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `service_url` field.
     pub service_url: String,
+    /// The `ticket_id` field.
     pub ticket_id: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `logout_sent_at` field.
     pub logout_sent_at: Option<i64>,
 }
 
@@ -245,13 +372,20 @@ impl From<CasSloSessionRow> for CasSloSession {
     }
 }
 
+/// The `CasUserAttributeRow` struct.
 #[derive(Debug, Clone, FromRow)]
 pub(super) struct CasUserAttributeRow {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `attribute_name` field.
     pub attribute_name: String,
+    /// The `attribute_value` field.
     pub attribute_value: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
 }
 

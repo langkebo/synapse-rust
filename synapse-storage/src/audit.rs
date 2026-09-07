@@ -4,16 +4,21 @@ use serde_json::Value;
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder};
 use std::sync::Arc;
 
+/// The `AuditEventCursor` struct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditEventCursor {
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `event_id` field.
     pub event_id: String,
 }
 
+/// See [`encode_audit_event_cursor`].
 pub fn encode_audit_event_cursor(cursor: &AuditEventCursor) -> String {
     format!("{}|{}", cursor.created_ts, cursor.event_id)
 }
 
+/// See [`decode_audit_event_cursor`].
 pub fn decode_audit_event_cursor(cursor: Option<&str>) -> Option<AuditEventCursor> {
     let cursor = cursor?;
     let (created_ts, event_id) = cursor.split_once('|')?;
@@ -24,48 +29,77 @@ pub fn decode_audit_event_cursor(cursor: Option<&str>) -> Option<AuditEventCurso
     Some(AuditEventCursor { created_ts, event_id: event_id.to_string() })
 }
 
+/// The `AuditEvent` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AuditEvent {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `actor_id` field.
     pub actor_id: String,
+    /// The `action` field.
     pub action: String,
+    /// The `resource_type` field.
     pub resource_type: String,
+    /// The `resource_id` field.
     pub resource_id: String,
+    /// The `result` field.
     pub result: String,
+    /// The `request_id` field.
     pub request_id: String,
+    /// The `details` field.
     pub details: Value,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
+/// The `CreateAuditEventRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateAuditEventRequest {
+    /// The `actor_id` field.
     pub actor_id: String,
+    /// The `action` field.
     pub action: String,
+    /// The `resource_type` field.
     pub resource_type: String,
+    /// The `resource_id` field.
     pub resource_id: String,
+    /// The `result` field.
     pub result: String,
+    /// The `request_id` field.
     pub request_id: String,
+    /// The `details` field.
     pub details: Option<Value>,
 }
 
+/// The `AuditEventFilters` struct.
 #[derive(Debug, Clone, Default)]
 pub struct AuditEventFilters {
+    /// The `actor_id` field.
     pub actor_id: Option<String>,
+    /// The `action` field.
     pub action: Option<String>,
+    /// The `resource_type` field.
     pub resource_type: Option<String>,
+    /// The `resource_id` field.
     pub resource_id: Option<String>,
+    /// The `result` field.
     pub result: Option<String>,
+    /// The `limit` field.
     pub limit: i64,
+    /// The `from` field.
     pub from: Option<AuditEventCursor>,
 }
 
+/// The `AuditEventStorage` struct.
 #[derive(Clone)]
 pub struct AuditEventStorage {
     pool: Arc<PgPool>,
 }
 
+/// The `AuditEventStoreApi` trait.
 #[async_trait]
 pub trait AuditEventStoreApi: Send + Sync {
+    /// See [`create_event`].
     async fn create_event(
         &self,
         event_id: &str,
@@ -73,21 +107,27 @@ pub trait AuditEventStoreApi: Send + Sync {
         request: &CreateAuditEventRequest,
     ) -> Result<AuditEvent, sqlx::Error>;
 
+    /// See [`get_event`].
     async fn get_event(&self, event_id: &str) -> Result<Option<AuditEvent>, sqlx::Error>;
 
+    /// See [`list_events`].
     async fn list_events(
         &self,
         filters: &AuditEventFilters,
     ) -> Result<(Vec<AuditEvent>, i64, Option<String>), sqlx::Error>;
 
+    /// See [`delete_events_before`].
     async fn delete_events_before(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error>;
 }
 
 impl AuditEventStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_event`].
     pub async fn create_event(
         &self,
         event_id: &str,
@@ -97,6 +137,8 @@ impl AuditEventStorage {
         insert_audit_event(&*self.pool, event_id, created_ts, request).await
     }
 
+    /// See [`get_event`].
+    /// See [`get_event`].
     pub async fn get_event(&self, event_id: &str) -> Result<Option<AuditEvent>, sqlx::Error> {
         sqlx::query_as::<_, AuditEvent>(
             r"
@@ -110,6 +152,7 @@ impl AuditEventStorage {
         .await
     }
 
+    /// See [`list_events`].
     pub async fn list_events(
         &self,
         filters: &AuditEventFilters,
@@ -194,6 +237,8 @@ impl AuditEventStorage {
         Ok((events, total, next_batch))
     }
 
+    /// See [`delete_events_before`].
+    /// See [`delete_events_before`].
     pub async fn delete_events_before(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
         // Wrap in a transaction so that set_config (is_local=true) applies to
         // the DELETE statement and bypasses the append-only trigger guard.

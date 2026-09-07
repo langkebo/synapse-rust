@@ -4,35 +4,58 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `DehydratedDevice` struct.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct DehydratedDevice {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `device_data` field.
     pub device_data: Value,
+    /// The `algorithm` field.
     pub algorithm: String,
+    /// The `account` field.
     pub account: Option<Value>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
 }
 
+/// The `UpsertDehydratedDeviceParams` struct.
 #[derive(Debug, Clone)]
 pub struct UpsertDehydratedDeviceParams {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `device_data` field.
     pub device_data: Value,
+    /// The `algorithm` field.
     pub algorithm: String,
+    /// The `account` field.
     pub account: Option<Value>,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
 }
 
+/// The `DehydratedDeviceStoreApi` trait.
 #[async_trait]
 pub trait DehydratedDeviceStoreApi: Send + Sync {
+    /// See [`get_by_user`].
     async fn get_by_user(&self, user_id: &str) -> Result<Option<DehydratedDevice>, sqlx::Error>;
+    /// See [`upsert_for_user`].
     async fn upsert_for_user(&self, params: UpsertDehydratedDeviceParams) -> Result<DehydratedDevice, sqlx::Error>;
+    /// See [`delete_by_user`].
     async fn delete_by_user(&self, user_id: &str) -> Result<u64, sqlx::Error>;
+    /// See [`sweep_expired`].
     async fn sweep_expired(&self) -> Result<u64, sqlx::Error>;
+    /// See [`claim_to_device_events`].
     async fn claim_to_device_events(
         &self,
         user_id: &str,
@@ -40,6 +63,7 @@ pub trait DehydratedDeviceStoreApi: Send + Sync {
         since_stream_id: i64,
         limit: i64,
     ) -> Result<(Vec<Value>, i64), sqlx::Error>;
+    /// See [`claim_one_time_key`].
     async fn claim_one_time_key(
         &self,
         user_id: &str,
@@ -48,16 +72,21 @@ pub trait DehydratedDeviceStoreApi: Send + Sync {
     ) -> Result<Option<(String, Value)>, sqlx::Error>;
 }
 
+/// The `DehydratedDeviceStorage` struct.
 #[derive(Clone)]
 pub struct DehydratedDeviceStorage {
     pool: Arc<Pool<Postgres>>,
 }
 
 impl DehydratedDeviceStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`get_by_user`].
+    /// See [`get_by_user`].
     pub async fn get_by_user(&self, user_id: &str) -> Result<Option<DehydratedDevice>, sqlx::Error> {
         sqlx::query_as::<_, DehydratedDevice>(
             r"
@@ -75,6 +104,8 @@ impl DehydratedDeviceStorage {
         .await
     }
 
+    /// See [`upsert_for_user`].
+    /// See [`upsert_for_user`].
     pub async fn upsert_for_user(&self, params: UpsertDehydratedDeviceParams) -> Result<DehydratedDevice, sqlx::Error> {
         let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
@@ -119,6 +150,8 @@ impl DehydratedDeviceStorage {
         Ok(record)
     }
 
+    /// See [`delete_by_user`].
+    /// See [`delete_by_user`].
     pub async fn delete_by_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
 

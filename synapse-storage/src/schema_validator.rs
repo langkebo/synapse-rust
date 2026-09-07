@@ -2,25 +2,38 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 
+/// The `SchemaValidator` struct.
 pub struct SchemaValidator {
     pool: Arc<Pool<Postgres>>,
 }
 
+/// The `SchemaValidationResult` struct.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct SchemaValidationResult {
+    /// The `is_valid` field.
     pub is_valid: bool,
+    /// The `is_healthy` field.
     pub is_healthy: bool,
+    /// The `missing_tables` field.
     pub missing_tables: Vec<String>,
+    /// The `missing_columns` field.
     pub missing_columns: Vec<String>,
+    /// The `missing_indexes` field.
     pub missing_indexes: Vec<String>,
+    /// The `schema_info` field.
     pub schema_info: Vec<TableSchemaInfo>,
 }
 
+/// The `TableSchemaInfo` struct.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TableSchemaInfo {
+    /// The `table_name` field.
     pub table_name: String,
+    /// The `missing_columns` field.
     pub missing_columns: Vec<String>,
+    /// The `missing_indexes` field.
     pub missing_indexes: Vec<String>,
+    /// The `missing_constraints` field.
     pub missing_constraints: Vec<String>,
 }
 
@@ -55,10 +68,14 @@ const REQUIRED_COLUMNS: &[(&str, &str)] = &[
 ];
 
 impl SchemaValidator {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
 
+    /// See [`validate_table_exists`].
+    /// See [`validate_table_exists`].
     pub async fn validate_table_exists(&self, table_name: &str) -> Result<bool, sqlx::Error> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM information_schema.tables \
@@ -70,6 +87,8 @@ impl SchemaValidator {
         Ok(count > 0)
     }
 
+    /// See [`validate_column_exists`].
+    /// See [`validate_column_exists`].
     pub async fn validate_column_exists(&self, table_name: &str, column_name: &str) -> Result<bool, sqlx::Error> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM information_schema.columns \
@@ -82,6 +101,8 @@ impl SchemaValidator {
         Ok(count > 0)
     }
 
+    /// See [`validate_all`].
+    /// See [`validate_all`].
     pub async fn validate_all(&self) -> Result<SchemaValidationResult, sqlx::Error> {
         let mut missing_tables = Vec::new();
         let mut missing_columns = Vec::new();
@@ -110,12 +131,16 @@ impl SchemaValidator {
         })
     }
 
+    /// See [`validate_indexes`].
+    /// See [`validate_indexes`].
     pub async fn validate_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
         sqlx::query_scalar("SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() ORDER BY indexname")
             .fetch_all(&*self.pool)
             .await
     }
 
+    /// See [`validate_required_tables`].
+    /// See [`validate_required_tables`].
     pub async fn validate_required_tables(&self, tables: &[&str]) -> Result<Vec<String>, sqlx::Error> {
         let mut missing = Vec::new();
         for table in tables {
@@ -126,6 +151,8 @@ impl SchemaValidator {
         Ok(missing)
     }
 
+    /// See [`validate_required_columns`].
+    /// See [`validate_required_columns`].
     pub async fn validate_required_columns(&self, requirements: &[(&str, &str)]) -> Result<Vec<String>, sqlx::Error> {
         let mut missing = Vec::new();
         for (table, column) in requirements {
@@ -142,6 +169,8 @@ impl SchemaValidator {
             && s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '(' || c == ')' || c == ' ' || c == ',')
     }
 
+    /// See [`repair_missing_columns`].
+    /// See [`repair_missing_columns`].
     #[cfg(feature = "runtime-ddl")]
     pub async fn repair_missing_columns(&self) -> Result<Vec<String>, sqlx::Error> {
         let mut repaired = Vec::new();
@@ -164,6 +193,8 @@ impl SchemaValidator {
         Ok(repaired)
     }
 
+    /// See [`create_missing_indexes`].
+    /// See [`create_missing_indexes`].
     #[cfg(feature = "runtime-ddl")]
     pub async fn create_missing_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
         let mut created = Vec::new();

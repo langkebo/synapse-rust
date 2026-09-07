@@ -6,44 +6,72 @@ use sqlx::{Pool, Postgres, Row};
 
 use crate::trigram_ranking::TrigramRanking;
 
+/// The `SearchIndexEntry` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchIndexEntry {
+    /// The `id` field.
     pub id: i64,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `event_type` field.
     pub event_type: String,
     #[serde(rename = "type")]
+    /// The `content_type` field.
     pub content_type: String,
+    /// The `content` field.
     pub content: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
 }
 
+/// The `SearchResult` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `content` field.
     pub content: String,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
 }
 
+/// The `SearchQuery` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchQuery {
+    /// The `search_term` field.
     pub search_term: String,
+    /// The `room_ids` field.
     pub room_ids: Option<Vec<String>>,
+    /// The `not_room_ids` field.
     pub not_room_ids: Option<Vec<String>>,
+    /// The `sender` field.
     pub sender: Option<String>,
+    /// The `event_types` field.
     pub event_types: Option<Vec<String>>,
+    /// The `limit` field.
     pub limit: Option<i64>,
+    /// The `from` field.
     pub from: Option<String>,
 }
 
+/// The `SearchIndexCursor` struct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchIndexCursor {
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `id` field.
     pub id: i32,
 }
 
@@ -63,12 +91,19 @@ fn decode_search_index_cursor(cursor: Option<&str>) -> Option<SearchIndexCursor>
 /// Trait abstraction over [`SearchIndexStorage`] for testability.
 #[async_trait]
 pub trait SearchIndexStoreApi: Send + Sync {
+    /// See [`index_event`].
     async fn index_event(&self, entry: &SearchIndexEntry) -> Result<(), sqlx::Error>;
+    /// See [`index_events`].
     async fn index_events(&self, entries: &[SearchIndexEntry]) -> Result<usize, sqlx::Error>;
+    /// See [`search_events`].
     async fn search_events(&self, query: &SearchQuery) -> Result<(Vec<SearchResult>, Option<String>), sqlx::Error>;
+    /// See [`delete_event`].
     async fn delete_event(&self, event_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`delete_room_index`].
     async fn delete_room_index(&self, room_id: &str) -> Result<u64, sqlx::Error>;
+    /// See [`rebuild_room_index`].
     async fn rebuild_room_index(&self, room_id: &str) -> Result<usize, sqlx::Error>;
+    /// See [`get_stats`].
     async fn get_stats(&self) -> Result<SearchIndexStats, sqlx::Error>;
 }
 
@@ -78,6 +113,8 @@ pub struct SearchIndexStorage {
 }
 
 impl SearchIndexStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Pool<Postgres>) -> Self {
         Self { pool }
     }
@@ -411,9 +448,12 @@ mod cursor_tests {
     }
 }
 
+/// The `SearchIndexStats` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchIndexStats {
+    /// The `total_count` field.
     pub total_count: i64,
+    /// The `by_event_type` field.
     pub by_event_type: std::collections::HashMap<String, i64>,
 }
 

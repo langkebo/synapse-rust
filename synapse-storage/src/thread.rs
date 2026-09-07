@@ -4,158 +4,273 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `ThreadRoot` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ThreadRoot {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `root_event_id` field.
     pub root_event_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `thread_id` field.
     pub thread_id: Option<String>,
+    /// The `reply_count` field.
     pub reply_count: Option<i64>,
+    /// The `last_reply_event_id` field.
     pub last_reply_event_id: Option<String>,
+    /// The `last_reply_sender` field.
     pub last_reply_sender: Option<String>,
+    /// The `last_reply_ts` field.
     pub last_reply_ts: Option<i64>,
+    /// The `participants` field.
     pub participants: Option<serde_json::Value>,
+    /// The `is_fetched` field.
     pub is_fetched: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
 }
 
+/// The `ThreadReply` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ThreadReply {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `thread_id` field.
     pub thread_id: String,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `root_event_id` field.
     pub root_event_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `in_reply_to_event_id` field.
     pub in_reply_to_event_id: Option<String>,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
+    /// The `is_edited` field.
     pub is_edited: bool,
+    /// The `is_redacted` field.
     pub is_redacted: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
+/// The `ThreadSubscription` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ThreadSubscription {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `thread_id` field.
     pub thread_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `notification_level` field.
     pub notification_level: String,
+    /// The `is_muted` field.
     pub is_muted: bool,
+    /// The `is_pinned` field.
     pub is_pinned: bool,
+    /// The `subscribed_ts` field.
     pub subscribed_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
+/// The `ThreadReadReceipt` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ThreadReadReceipt {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `thread_id` field.
     pub thread_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `last_read_event_id` field.
     pub last_read_event_id: Option<String>,
+    /// The `last_read_ts` field.
     pub last_read_ts: i64,
+    /// The `unread_count` field.
     pub unread_count: i32,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
+/// The `ThreadRelation` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ThreadRelation {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `relates_to_event_id` field.
     pub relates_to_event_id: String,
+    /// The `relation_type` field.
     pub relation_type: String,
+    /// The `thread_id` field.
     pub thread_id: Option<String>,
+    /// The `is_falling_back` field.
     pub is_falling_back: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
+/// The `ThreadSummary` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ThreadSummary {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `thread_id` field.
     pub thread_id: String,
+    /// The `root_event_id` field.
     pub root_event_id: String,
+    /// The `root_sender` field.
     pub root_sender: String,
+    /// The `root_content` field.
     pub root_content: serde_json::Value,
+    /// The `root_origin_server_ts` field.
     pub root_origin_server_ts: i64,
+    /// The `latest_event_id` field.
     pub latest_event_id: Option<String>,
+    /// The `latest_sender` field.
     pub latest_sender: Option<String>,
+    /// The `latest_content` field.
     pub latest_content: Option<serde_json::Value>,
+    /// The `latest_origin_server_ts` field.
     pub latest_origin_server_ts: Option<i64>,
+    /// The `reply_count` field.
     pub reply_count: i32,
+    /// The `participants` field.
     pub participants: serde_json::Value,
+    /// The `is_frozen` field.
     pub is_frozen: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
+/// The `ThreadStatistics` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ThreadStatistics {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `thread_id` field.
     pub thread_id: String,
+    /// The `total_replies` field.
     pub total_replies: i32,
+    /// The `total_participants` field.
     pub total_participants: i32,
+    /// The `total_edits` field.
     pub total_edits: i32,
+    /// The `total_redactions` field.
     pub total_redactions: i32,
+    /// The `first_reply_ts` field.
     pub first_reply_ts: Option<i64>,
+    /// The `last_reply_ts` field.
     pub last_reply_ts: Option<i64>,
+    /// The `avg_reply_time_ms` field.
     pub avg_reply_time_ms: Option<i64>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
+/// The `CreateThreadRootParams` struct.
 #[derive(Debug, Clone)]
 pub struct CreateThreadRootParams {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `root_event_id` field.
     pub root_event_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `thread_id` field.
     pub thread_id: Option<String>,
 }
 
+/// The `CreateThreadReplyParams` struct.
 #[derive(Debug, Clone)]
 pub struct CreateThreadReplyParams {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `thread_id` field.
     pub thread_id: String,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `root_event_id` field.
     pub root_event_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `in_reply_to_event_id` field.
     pub in_reply_to_event_id: Option<String>,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
 }
 
+/// The `ThreadListParams` struct.
 #[derive(Debug, Clone)]
 pub struct ThreadListParams {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `limit` field.
     pub limit: Option<i32>,
+    /// The `from` field.
     pub from: Option<String>,
+    /// The `include_all` field.
     pub include_all: bool,
 }
 
+/// The `ThreadWithReplies` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThreadWithReplies {
+    /// The `root` field.
     pub root: ThreadRoot,
+    /// The `replies` field.
     pub replies: Vec<ThreadReply>,
+    /// The `reply_count` field.
     pub reply_count: i32,
+    /// The `participants` field.
     pub participants: Vec<String>,
 }
 
+/// The `ThreadStorage` struct.
 #[derive(Clone)]
 pub struct ThreadStorage {
+    /// The `pool` field.
     pub pool: Arc<Pool<Postgres>>,
 }
 
 impl ThreadStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_thread_root`].
+    /// See [`create_thread_root`].
     pub async fn create_thread_root(&self, params: CreateThreadRootParams) -> Result<ThreadRoot, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -179,6 +294,8 @@ impl ThreadStorage {
         .await
     }
 
+    /// See [`get_thread_root`].
+    /// See [`get_thread_root`].
     pub async fn get_thread_root(&self, room_id: &str, thread_id: &str) -> Result<Option<ThreadRoot>, sqlx::Error> {
         sqlx::query_as::<_, ThreadRoot>(
             r"
@@ -195,6 +312,7 @@ impl ThreadStorage {
         .await
     }
 
+    /// See [`get_thread_root_by_event`].
     pub async fn get_thread_root_by_event(
         &self,
         room_id: &str,
@@ -215,6 +333,8 @@ impl ThreadStorage {
         .await
     }
 
+    /// See [`list_thread_roots`].
+    /// See [`list_thread_roots`].
     pub async fn list_thread_roots(&self, params: ThreadListParams) -> Result<Vec<ThreadRoot>, sqlx::Error> {
         let limit = params.limit.unwrap_or(50);
 
@@ -257,6 +377,7 @@ impl ThreadStorage {
         }
     }
 
+    /// See [`list_all_thread_roots`].
     pub async fn list_all_thread_roots(
         &self,
         limit: Option<i32>,
@@ -299,6 +420,8 @@ impl ThreadStorage {
         }
     }
 
+    /// See [`create_thread_reply`].
+    /// See [`create_thread_reply`].
     pub async fn create_thread_reply(&self, params: CreateThreadReplyParams) -> Result<ThreadReply, sqlx::Error> {
         let now = current_timestamp_millis();
         let mut tx = self.pool.begin().await?;
@@ -361,6 +484,7 @@ impl ThreadStorage {
         Ok(reply)
     }
 
+    /// See [`get_thread_replies`].
     pub async fn get_thread_replies(
         &self,
         room_id: &str,
@@ -406,6 +530,8 @@ impl ThreadStorage {
         }
     }
 
+    /// See [`get_reply_count`].
+    /// See [`get_reply_count`].
     pub async fn get_reply_count(&self, room_id: &str, thread_id: &str) -> Result<i32, sqlx::Error> {
         let result: Option<(i64,)> = sqlx::query_as(
             r"
@@ -421,6 +547,8 @@ impl ThreadStorage {
         Ok(result.map_or(0, |r| r.0 as i32))
     }
 
+    /// See [`get_thread_participants`].
+    /// See [`get_thread_participants`].
     pub async fn get_thread_participants(&self, room_id: &str, thread_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let result: Vec<(String,)> = sqlx::query_as(
             r"
@@ -439,6 +567,7 @@ impl ThreadStorage {
         Ok(result.into_iter().map(|r| r.0).collect())
     }
 
+    /// See [`subscribe_to_thread`].
     pub async fn subscribe_to_thread(
         &self,
         room_id: &str,
@@ -470,6 +599,7 @@ impl ThreadStorage {
         .await
     }
 
+    /// See [`unsubscribe_from_thread`].
     pub async fn unsubscribe_from_thread(
         &self,
         room_id: &str,
@@ -491,6 +621,7 @@ impl ThreadStorage {
         Ok(())
     }
 
+    /// See [`mute_thread`].
     pub async fn mute_thread(
         &self,
         room_id: &str,
@@ -519,6 +650,7 @@ impl ThreadStorage {
         .await
     }
 
+    /// See [`get_thread_subscription`].
     pub async fn get_thread_subscription(
         &self,
         room_id: &str,
@@ -539,6 +671,7 @@ impl ThreadStorage {
         .await
     }
 
+    /// See [`get_user_thread_subscriptions`].
     pub async fn get_user_thread_subscriptions(
         &self,
         user_id: &str,
@@ -585,6 +718,7 @@ impl ThreadStorage {
         }
     }
 
+    /// See [`update_read_receipt`].
     pub async fn update_read_receipt(
         &self,
         room_id: &str,
@@ -619,6 +753,7 @@ impl ThreadStorage {
         .await
     }
 
+    /// See [`get_read_receipt`].
     pub async fn get_read_receipt(
         &self,
         room_id: &str,
@@ -639,6 +774,7 @@ impl ThreadStorage {
         .await
     }
 
+    /// See [`increment_unread_count`].
     pub async fn increment_unread_count(
         &self,
         room_id: &str,
@@ -668,6 +804,7 @@ impl ThreadStorage {
         Ok(())
     }
 
+    /// See [`create_thread_relation`].
     pub async fn create_thread_relation(
         &self,
         room_id: &str,
@@ -700,6 +837,8 @@ impl ThreadStorage {
         .await
     }
 
+    /// See [`mark_reply_edited`].
+    /// See [`mark_reply_edited`].
     pub async fn mark_reply_edited(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -716,6 +855,8 @@ impl ThreadStorage {
         Ok(())
     }
 
+    /// See [`mark_reply_redacted`].
+    /// See [`mark_reply_redacted`].
     pub async fn mark_reply_redacted(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -732,6 +873,8 @@ impl ThreadStorage {
         Ok(())
     }
 
+    /// See [`delete_thread`].
+    /// See [`delete_thread`].
     pub async fn delete_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
         let mut tx = self.pool.begin().await?;
 
@@ -769,6 +912,7 @@ impl ThreadStorage {
         Ok(())
     }
 
+    /// See [`get_threads_with_unread`].
     pub async fn get_threads_with_unread(
         &self,
         user_id: &str,
@@ -802,6 +946,7 @@ impl ThreadStorage {
         }
     }
 
+    /// See [`get_thread_summary`].
     pub async fn get_thread_summary(
         &self,
         room_id: &str,
@@ -885,6 +1030,7 @@ impl ThreadStorage {
         .await
     }
 
+    /// See [`get_thread_statistics`].
     pub async fn get_thread_statistics(
         &self,
         room_id: &str,
@@ -941,6 +1087,7 @@ impl ThreadStorage {
         .await
     }
 
+    /// See [`search_threads`].
     pub async fn search_threads(
         &self,
         room_id: &str,
@@ -1032,6 +1179,8 @@ impl ThreadStorage {
         .await
     }
 
+    /// See [`freeze_thread`].
+    /// See [`freeze_thread`].
     pub async fn freeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
         sqlx::query(
@@ -1050,6 +1199,8 @@ impl ThreadStorage {
         Ok(())
     }
 
+    /// See [`unfreeze_thread`].
+    /// See [`unfreeze_thread`].
     pub async fn unfreeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
         sqlx::query(
@@ -2803,22 +2954,30 @@ mod db_tests {
     }
 }
 
+/// The `ThreadStoreApi` trait.
 #[async_trait]
 pub trait ThreadStoreApi: Send + Sync {
+    /// See [`create_thread_root`].
     async fn create_thread_root(&self, params: CreateThreadRootParams) -> Result<ThreadRoot, sqlx::Error>;
+    /// See [`get_thread_root`].
     async fn get_thread_root(&self, room_id: &str, thread_id: &str) -> Result<Option<ThreadRoot>, sqlx::Error>;
+    /// See [`get_thread_root_by_event`].
     async fn get_thread_root_by_event(
         &self,
         room_id: &str,
         root_event_id: &str,
     ) -> Result<Option<ThreadRoot>, sqlx::Error>;
+    /// See [`list_thread_roots`].
     async fn list_thread_roots(&self, params: ThreadListParams) -> Result<Vec<ThreadRoot>, sqlx::Error>;
+    /// See [`list_all_thread_roots`].
     async fn list_all_thread_roots(
         &self,
         limit: Option<i32>,
         from: Option<String>,
     ) -> Result<Vec<ThreadRoot>, sqlx::Error>;
+    /// See [`create_thread_reply`].
     async fn create_thread_reply(&self, params: CreateThreadReplyParams) -> Result<ThreadReply, sqlx::Error>;
+    /// See [`get_thread_replies`].
     async fn get_thread_replies(
         &self,
         room_id: &str,
@@ -2826,8 +2985,11 @@ pub trait ThreadStoreApi: Send + Sync {
         limit: Option<i32>,
         from: Option<String>,
     ) -> Result<Vec<ThreadReply>, sqlx::Error>;
+    /// See [`get_reply_count`].
     async fn get_reply_count(&self, room_id: &str, thread_id: &str) -> Result<i32, sqlx::Error>;
+    /// See [`get_thread_participants`].
     async fn get_thread_participants(&self, room_id: &str, thread_id: &str) -> Result<Vec<String>, sqlx::Error>;
+    /// See [`subscribe_to_thread`].
     async fn subscribe_to_thread(
         &self,
         room_id: &str,
@@ -2835,25 +2997,30 @@ pub trait ThreadStoreApi: Send + Sync {
         user_id: &str,
         notification_level: &str,
     ) -> Result<ThreadSubscription, sqlx::Error>;
+    /// See [`unsubscribe_from_thread`].
     async fn unsubscribe_from_thread(&self, room_id: &str, thread_id: &str, user_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`mute_thread`].
     async fn mute_thread(
         &self,
         room_id: &str,
         thread_id: &str,
         user_id: &str,
     ) -> Result<ThreadSubscription, sqlx::Error>;
+    /// See [`get_thread_subscription`].
     async fn get_thread_subscription(
         &self,
         room_id: &str,
         thread_id: &str,
         user_id: &str,
     ) -> Result<Option<ThreadSubscription>, sqlx::Error>;
+    /// See [`get_user_thread_subscriptions`].
     async fn get_user_thread_subscriptions(
         &self,
         user_id: &str,
         limit: Option<i32>,
         from: Option<String>,
     ) -> Result<Vec<ThreadSubscription>, sqlx::Error>;
+    /// See [`update_read_receipt`].
     async fn update_read_receipt(
         &self,
         room_id: &str,
@@ -2862,13 +3029,16 @@ pub trait ThreadStoreApi: Send + Sync {
         event_id: &str,
         origin_server_ts: i64,
     ) -> Result<ThreadReadReceipt, sqlx::Error>;
+    /// See [`get_read_receipt`].
     async fn get_read_receipt(
         &self,
         room_id: &str,
         thread_id: &str,
         user_id: &str,
     ) -> Result<Option<ThreadReadReceipt>, sqlx::Error>;
+    /// See [`increment_unread_count`].
     async fn increment_unread_count(&self, room_id: &str, thread_id: &str, user_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`create_thread_relation`].
     async fn create_thread_relation(
         &self,
         room_id: &str,
@@ -2878,27 +3048,36 @@ pub trait ThreadStoreApi: Send + Sync {
         thread_id: Option<&str>,
         is_falling_back: bool,
     ) -> Result<ThreadRelation, sqlx::Error>;
+    /// See [`mark_reply_edited`].
     async fn mark_reply_edited(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`mark_reply_redacted`].
     async fn mark_reply_redacted(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`delete_thread`].
     async fn delete_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`get_threads_with_unread`].
     async fn get_threads_with_unread(
         &self,
         user_id: &str,
         room_id: Option<&str>,
     ) -> Result<Vec<ThreadReadReceipt>, sqlx::Error>;
+    /// See [`get_thread_summary`].
     async fn get_thread_summary(&self, room_id: &str, thread_id: &str) -> Result<Option<ThreadSummary>, sqlx::Error>;
+    /// See [`get_thread_statistics`].
     async fn get_thread_statistics(
         &self,
         room_id: &str,
         thread_id: &str,
     ) -> Result<Option<ThreadStatistics>, sqlx::Error>;
+    /// See [`search_threads`].
     async fn search_threads(
         &self,
         room_id: &str,
         query: &str,
         limit: Option<i32>,
     ) -> Result<Vec<ThreadSummary>, sqlx::Error>;
+    /// See [`freeze_thread`].
     async fn freeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`unfreeze_thread`].
     async fn unfreeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error>;
 }
 

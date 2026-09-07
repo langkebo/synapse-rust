@@ -9,18 +9,27 @@ use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `LoginToken` struct.
 #[derive(Debug, Clone, FromRow)]
 pub struct LoginToken {
+    /// The `id` field.
     pub id: i64,
+    /// The `token` field.
     pub token: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: i64,
 }
 
+/// The `LoginTokenStoreApi` trait.
 #[async_trait]
 pub trait LoginTokenStoreApi: Send + Sync {
+    /// See [`create_login_token`].
     async fn create_login_token(
         &self,
         token: &str,
@@ -28,20 +37,26 @@ pub trait LoginTokenStoreApi: Send + Sync {
         device_id: Option<&str>,
         expires_at: i64,
     ) -> Result<(), sqlx::Error>;
+    /// See [`consume_login_token`].
     async fn consume_login_token(&self, token: &str) -> Result<Option<LoginToken>, sqlx::Error>;
+    /// See [`cleanup_expired_tokens`].
     async fn cleanup_expired_tokens(&self, now_ts: i64) -> Result<u64, sqlx::Error>;
 }
 
+/// The `LoginTokenStorage` struct.
 #[derive(Clone)]
 pub struct LoginTokenStorage {
     pool: Arc<PgPool>,
 }
 
 impl LoginTokenStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_login_token`].
     pub async fn create_login_token(
         &self,
         token: &str,
@@ -83,6 +98,8 @@ impl LoginTokenStorage {
         Ok(row)
     }
 
+    /// See [`cleanup_expired_tokens`].
+    /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self, now_ts: i64) -> Result<u64, sqlx::Error> {
         let result =
             sqlx::query("DELETE FROM login_tokens WHERE expires_at < $1").bind(now_ts).execute(&*self.pool).await?;

@@ -7,139 +7,232 @@ use synapse_common::error::ApiError;
 use tracing::info;
 use uuid::Uuid;
 
+/// The `RegistrationCaptcha` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RegistrationCaptcha {
+    /// The `id` field.
     pub id: i64,
+    /// The `captcha_id` field.
     pub captcha_id: String,
+    /// The `captcha_type` field.
     pub captcha_type: String,
+    /// The `target` field.
     pub target: String,
+    /// The `code` field.
     pub code: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: i64,
     #[sqlx(rename = "used_at")]
+    /// The `used_ts` field.
     pub used_ts: Option<i64>,
     #[sqlx(rename = "verified_at")]
+    /// The `verified_ts` field.
     pub verified_ts: Option<i64>,
+    /// The `ip_address` field.
     pub ip_address: Option<String>,
+    /// The `user_agent` field.
     pub user_agent: Option<String>,
+    /// The `attempt_count` field.
     pub attempt_count: i32,
+    /// The `max_attempts` field.
     pub max_attempts: i32,
+    /// The `status` field.
     pub status: String,
+    /// The `metadata` field.
     pub metadata: serde_json::Value,
 }
 
+/// The `CaptchaSendLog` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct CaptchaSendLog {
+    /// The `id` field.
     pub id: i64,
+    /// The `captcha_id` field.
     pub captcha_id: Option<String>,
+    /// The `captcha_type` field.
     pub captcha_type: String,
+    /// The `target` field.
     pub target: String,
+    /// The `sent_ts` field.
     pub sent_ts: i64,
+    /// The `ip_address` field.
     pub ip_address: Option<String>,
+    /// The `user_agent` field.
     pub user_agent: Option<String>,
+    /// The `is_success` field.
     pub is_success: Option<bool>,
+    /// The `error_message` field.
     pub error_message: Option<String>,
+    /// The `provider` field.
     pub provider: Option<String>,
+    /// The `provider_response` field.
     pub provider_response: Option<String>,
 }
 
+/// The `CaptchaRateLimit` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct CaptchaRateLimit {
+    /// The `id` field.
     pub id: i64,
+    /// The `target` field.
     pub target: String,
+    /// The `ip_address` field.
     pub ip_address: Option<String>,
+    /// The `captcha_type` field.
     pub captcha_type: String,
+    /// The `request_count` field.
     pub request_count: i32,
+    /// The `first_request_at` field.
     pub first_request_at: i64,
+    /// The `last_request_at` field.
     pub last_request_at: i64,
+    /// The `blocked_until` field.
     pub blocked_until: Option<i64>,
 }
 
+/// The `CaptchaTemplate` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct CaptchaTemplate {
+    /// The `id` field.
     pub id: i64,
+    /// The `template_name` field.
     pub template_name: String,
+    /// The `captcha_type` field.
     pub captcha_type: String,
+    /// The `subject` field.
     pub subject: Option<String>,
+    /// The `content` field.
     pub content: String,
+    /// The `variables` field.
     pub variables: serde_json::Value,
+    /// The `is_default` field.
     pub is_default: bool,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
 }
 
+/// The `CaptchaConfig` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct CaptchaConfig {
+    /// The `id` field.
     pub id: i64,
+    /// The `config_key` field.
     pub config_key: String,
+    /// The `config_value` field.
     pub config_value: String,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
+/// The `CreateCaptchaRequest` struct.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateCaptchaRequest {
+    /// The `captcha_type` field.
     pub captcha_type: String,
+    /// The `target` field.
     pub target: String,
+    /// The `code` field.
     pub code: String,
+    /// The `expires_in_seconds` field.
     pub expires_in_seconds: i64,
+    /// The `ip_address` field.
     pub ip_address: Option<String>,
+    /// The `user_agent` field.
     pub user_agent: Option<String>,
+    /// The `max_attempts` field.
     pub max_attempts: i32,
+    /// The `metadata` field.
     pub metadata: Option<serde_json::Value>,
 }
 
+/// The `CreateSendLogRequest` struct.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateSendLogRequest {
+    /// The `captcha_id` field.
     pub captcha_id: Option<String>,
+    /// The `captcha_type` field.
     pub captcha_type: String,
+    /// The `target` field.
     pub target: String,
+    /// The `ip_address` field.
     pub ip_address: Option<String>,
+    /// The `user_agent` field.
     pub user_agent: Option<String>,
     #[serde(rename = "success")]
+    /// The `is_success` field.
     pub is_success: bool,
+    /// The `error_message` field.
     pub error_message: Option<String>,
+    /// The `provider` field.
     pub provider: Option<String>,
+    /// The `provider_response` field.
     pub provider_response: Option<String>,
 }
 
 // ── Trait ───────────────────────────────────────────────────────────────
 
+/// The `CaptchaStoreApi` trait.
 #[async_trait]
 pub trait CaptchaStoreApi: Send + Sync {
+    /// See [`create_captcha`].
     async fn create_captcha(&self, request: CreateCaptchaRequest) -> Result<RegistrationCaptcha, ApiError>;
+    /// See [`get_captcha`].
     async fn get_captcha(&self, captcha_id: &str) -> Result<Option<RegistrationCaptcha>, ApiError>;
+    /// See [`get_latest_captcha`].
     async fn get_latest_captcha(
         &self,
         target: &str,
         captcha_type: &str,
     ) -> Result<Option<RegistrationCaptcha>, ApiError>;
+    /// See [`verify_captcha`].
     async fn verify_captcha(&self, captcha_id: &str, code: &str) -> Result<bool, ApiError>;
+    /// See [`invalidate_captcha`].
     async fn invalidate_captcha(&self, captcha_id: &str) -> Result<(), ApiError>;
+    /// See [`create_send_log`].
     async fn create_send_log(&self, request: CreateSendLogRequest) -> Result<CaptchaSendLog, ApiError>;
+    /// See [`check_rate_limit`].
     async fn check_rate_limit(&self, target: &str, captcha_type: &str, max_per_hour: i32) -> Result<bool, ApiError>;
+    /// See [`check_ip_rate_limit`].
     async fn check_ip_rate_limit(&self, ip_address: &str, max_per_hour: i32) -> Result<bool, ApiError>;
+    /// See [`get_template`].
     async fn get_template(&self, template_name: &str) -> Result<Option<CaptchaTemplate>, ApiError>;
+    /// See [`get_default_template`].
     async fn get_default_template(&self, captcha_type: &str) -> Result<Option<CaptchaTemplate>, ApiError>;
+    /// See [`get_config`].
     async fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError>;
+    /// See [`get_config_as_int`].
     async fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError>;
+    /// See [`cleanup_expired_captchas`].
     async fn cleanup_expired_captchas(&self) -> Result<u64, ApiError>;
 }
 
 // ── Postgres implementation ─────────────────────────────────────────────
 
+/// The `CaptchaStorage` struct.
 #[derive(Debug, Clone)]
 pub struct CaptchaStorage {
     pool: Arc<PgPool>,
 }
 
 impl CaptchaStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_captcha`].
+    /// See [`create_captcha`].
     pub async fn create_captcha(&self, request: CreateCaptchaRequest) -> Result<RegistrationCaptcha, ApiError> {
         let captcha_id = Uuid::new_v4().to_string();
         let now = current_timestamp_millis();
@@ -174,6 +267,8 @@ impl CaptchaStorage {
         Ok(row)
     }
 
+    /// See [`get_captcha`].
+    /// See [`get_captcha`].
     pub async fn get_captcha(&self, captcha_id: &str) -> Result<Option<RegistrationCaptcha>, ApiError> {
         let row = sqlx::query_as::<_, RegistrationCaptcha>("SELECT id, captcha_id, captcha_type, target, code, created_ts, expires_at, used_at, verified_at, ip_address, user_agent, attempt_count, max_attempts, status, metadata FROM registration_captcha WHERE captcha_id = $1")
             .bind(captcha_id)
@@ -184,6 +279,7 @@ impl CaptchaStorage {
         Ok(row)
     }
 
+    /// See [`get_latest_captcha`].
     pub async fn get_latest_captcha(
         &self,
         target: &str,
@@ -208,6 +304,8 @@ impl CaptchaStorage {
         Ok(row)
     }
 
+    /// See [`verify_captcha`].
+    /// See [`verify_captcha`].
     pub async fn verify_captcha(&self, captcha_id: &str, code: &str) -> Result<bool, ApiError> {
         let now = current_timestamp_millis();
 
@@ -264,6 +362,8 @@ impl CaptchaStorage {
         }
     }
 
+    /// See [`invalidate_captcha`].
+    /// See [`invalidate_captcha`].
     pub async fn invalidate_captcha(&self, captcha_id: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
@@ -278,6 +378,8 @@ impl CaptchaStorage {
         Ok(())
     }
 
+    /// See [`create_send_log`].
+    /// See [`create_send_log`].
     pub async fn create_send_log(&self, request: CreateSendLogRequest) -> Result<CaptchaSendLog, ApiError> {
         let sent_ts = current_timestamp_millis();
         let row = sqlx::query_as::<_, CaptchaSendLog>(
@@ -307,6 +409,7 @@ impl CaptchaStorage {
         Ok(row)
     }
 
+    /// See [`check_rate_limit`].
     pub async fn check_rate_limit(
         &self,
         target: &str,
@@ -331,6 +434,8 @@ impl CaptchaStorage {
         Ok(count.0 < max_per_hour as i64)
     }
 
+    /// See [`check_ip_rate_limit`].
+    /// See [`check_ip_rate_limit`].
     pub async fn check_ip_rate_limit(&self, ip_address: &str, max_per_hour: i32) -> Result<bool, ApiError> {
         let one_hour_ago_ts = current_timestamp_millis() - chrono::Duration::hours(1).num_milliseconds();
 
@@ -349,6 +454,8 @@ impl CaptchaStorage {
         Ok(count.0 < max_per_hour as i64)
     }
 
+    /// See [`get_template`].
+    /// See [`get_template`].
     pub async fn get_template(&self, template_name: &str) -> Result<Option<CaptchaTemplate>, ApiError> {
         let row = sqlx::query_as::<_, CaptchaTemplate>(
             "SELECT id, template_name, captcha_type, subject, content, variables, is_default, is_enabled, created_ts, updated_ts FROM captcha_template WHERE template_name = $1 AND is_enabled = true",
@@ -361,6 +468,8 @@ impl CaptchaStorage {
         Ok(row)
     }
 
+    /// See [`get_default_template`].
+    /// See [`get_default_template`].
     pub async fn get_default_template(&self, captcha_type: &str) -> Result<Option<CaptchaTemplate>, ApiError> {
         let row = sqlx::query_as::<_, CaptchaTemplate>(
             "SELECT id, template_name, captcha_type, subject, content, variables, is_default, is_enabled, created_ts, updated_ts FROM captcha_template WHERE captcha_type = $1 AND is_default = true AND is_enabled = true",
@@ -373,6 +482,8 @@ impl CaptchaStorage {
         Ok(row)
     }
 
+    /// See [`get_config`].
+    /// See [`get_config`].
     pub async fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError> {
         let row: Option<(String,)> = sqlx::query_as("SELECT config_value FROM captcha_config WHERE config_key = $1")
             .bind(config_key)
@@ -383,6 +494,8 @@ impl CaptchaStorage {
         Ok(row.map(|r| r.0))
     }
 
+    /// See [`get_config_as_int`].
+    /// See [`get_config_as_int`].
     pub async fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError> {
         let value = self.get_config(config_key).await?;
 
@@ -392,6 +505,8 @@ impl CaptchaStorage {
         })
     }
 
+    /// See [`cleanup_expired_captchas`].
+    /// See [`cleanup_expired_captchas`].
     pub async fn cleanup_expired_captchas(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();
         let result = sqlx::query("DELETE FROM registration_captcha WHERE expires_at < $1 AND status = 'pending'")

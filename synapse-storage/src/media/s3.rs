@@ -3,16 +3,21 @@ use super::models::*;
 use async_trait::async_trait;
 use synapse_common::error::ApiError;
 
+/// The `S3Backend` struct.
 pub struct S3Backend {
     config: S3Config,
     _client: Option<()>,
 }
 
 impl S3Backend {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: S3Config) -> Self {
         Self { config, _client: None }
     }
 
+    /// See [`object_key`].
+    /// See [`object_key`].
     pub(crate) fn object_key(&self, media_id: &str) -> String {
         if let Some(ref prefix) = self.config.prefix {
             format!("{prefix}/{media_id}")
@@ -21,6 +26,8 @@ impl S3Backend {
         }
     }
 
+    /// See [`thumbnail_key`].
+    /// See [`thumbnail_key`].
     pub(crate) fn thumbnail_key(&self, media_id: &str, width: u32, height: u32, method: &str) -> String {
         let base = self.object_key(media_id);
         format!("thumbnails/{base}_{width}x{height}_{method}.jpg")

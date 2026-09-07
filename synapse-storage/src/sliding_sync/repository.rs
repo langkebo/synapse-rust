@@ -19,16 +19,20 @@ const DEFAULT_BUMP_EVENT_TYPES: &[&str] = &[
     "org.matrix.msc3489.beacon_info",
 ];
 
+/// The `SlidingSyncStorage` struct.
 #[derive(Clone)]
 pub struct SlidingSyncStorage {
     pool: Arc<Pool<Postgres>>,
 }
 
 impl SlidingSyncStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
 
+    /// See [`create_or_update_token`].
     pub async fn create_or_update_token(
         &self,
         user_id: &str,
@@ -65,6 +69,7 @@ impl SlidingSyncStorage {
         .await
     }
 
+    /// See [`get_token`].
     pub async fn get_token(
         &self,
         user_id: &str,
@@ -84,6 +89,7 @@ impl SlidingSyncStorage {
         .await
     }
 
+    /// See [`validate_pos`].
     pub async fn validate_pos(
         &self,
         user_id: &str,
@@ -107,6 +113,7 @@ impl SlidingSyncStorage {
         Ok(result.is_some_and(|r| r.0))
     }
 
+    /// See [`save_list`].
     #[allow(clippy::too_many_arguments)]
     pub async fn save_list(
         &self,
@@ -152,6 +159,7 @@ impl SlidingSyncStorage {
         .await
     }
 
+    /// See [`get_lists`].
     pub async fn get_lists(
         &self,
         user_id: &str,
@@ -172,6 +180,7 @@ impl SlidingSyncStorage {
         .await
     }
 
+    /// See [`delete_list`].
     pub async fn delete_list(
         &self,
         user_id: &str,
@@ -195,6 +204,7 @@ impl SlidingSyncStorage {
         Ok(())
     }
 
+    /// See [`upsert_room`].
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_room(
         &self,
@@ -258,6 +268,7 @@ impl SlidingSyncStorage {
         .await
     }
 
+    /// See [`get_rooms_for_list`].
     pub async fn get_rooms_for_list(
         &self,
         query_params: SlidingSyncListQuery<'_>,
@@ -284,6 +295,7 @@ impl SlidingSyncStorage {
         query.build_query_as::<SlidingSyncRoom>().fetch_all(&*self.pool).await
     }
 
+    /// See [`count_rooms_for_list`].
     pub async fn count_rooms_for_list(
         &self,
         user_id: &str,
@@ -329,6 +341,7 @@ impl SlidingSyncStorage {
         query.push(" OR list_key IS NULL)");
     }
 
+    /// See [`get_room`].
     pub async fn get_room(
         &self,
         user_id: &str,
@@ -350,6 +363,7 @@ impl SlidingSyncStorage {
         .await
     }
 
+    /// See [`materialize_room_from_activity`].
     pub async fn materialize_room_from_activity(
         &self,
         user_id: &str,
@@ -442,6 +456,8 @@ impl SlidingSyncStorage {
         Ok(Some(room))
     }
 
+    /// See [`push_room_filters`].
+    /// See [`push_room_filters`].
     pub(crate) fn push_room_filters(query: &mut QueryBuilder<Postgres>, filters: Option<&SlidingSyncFilters>) {
         let Some(filters) = filters else {
             return;
@@ -473,6 +489,7 @@ impl SlidingSyncStorage {
         }
     }
 
+    /// See [`delete_room`].
     pub async fn delete_room(
         &self,
         user_id: &str,
@@ -534,6 +551,7 @@ impl SlidingSyncStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`update_notification_counts`].
     pub async fn update_notification_counts(
         &self,
         user_id: &str,
@@ -565,6 +583,7 @@ impl SlidingSyncStorage {
         Ok(())
     }
 
+    /// See [`bump_room`].
     pub async fn bump_room(
         &self,
         user_id: &str,
@@ -594,6 +613,8 @@ impl SlidingSyncStorage {
         Ok(())
     }
 
+    /// See [`cleanup_expired_tokens`].
+    /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -610,6 +631,7 @@ impl SlidingSyncStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`list_room_token_sync`].
     pub async fn list_room_token_sync(
         &self,
         room_id: &str,
@@ -724,6 +746,8 @@ impl SlidingSyncStorage {
         Ok(rows)
     }
 
+    /// See [`count_room_token_sync`].
+    /// See [`count_room_token_sync`].
     pub async fn count_room_token_sync(&self, room_id: &str) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar("SELECT COUNT(*) FROM sliding_sync_rooms WHERE room_id = $1")
             .bind(room_id)
@@ -731,6 +755,8 @@ impl SlidingSyncStorage {
             .await
     }
 
+    /// See [`get_global_account_data`].
+    /// See [`get_global_account_data`].
     pub async fn get_global_account_data(&self, user_id: &str) -> Result<serde_json::Value, sqlx::Error> {
         let rows = sqlx::query(
             r"
@@ -752,6 +778,7 @@ impl SlidingSyncStorage {
         Ok(serde_json::Value::Object(map))
     }
 
+    /// See [`get_room_account_data`].
     pub async fn get_room_account_data(
         &self,
         user_id: &str,
@@ -788,6 +815,8 @@ impl SlidingSyncStorage {
         Ok(serde_json::Value::Object(rooms_map))
     }
 
+    /// See [`get_receipts_for_rooms`].
+    /// See [`get_receipts_for_rooms`].
     #[allow(clippy::expect_used)]
     pub async fn get_receipts_for_rooms(&self, room_ids: &[String]) -> Result<serde_json::Value, sqlx::Error> {
         if room_ids.is_empty() {
@@ -844,6 +873,7 @@ impl SlidingSyncStorage {
         Ok(serde_json::Value::Object(rooms_map))
     }
 
+    /// See [`delete_connection_data`].
     pub async fn delete_connection_data(
         &self,
         user_id: &str,

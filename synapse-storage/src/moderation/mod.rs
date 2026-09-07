@@ -9,50 +9,80 @@ use synapse_common::current_timestamp_millis;
 // over the flat `synapse_storage::InviteBlocklistStorage`.
 pub use crate::invite_blocklist::{InviteBlocklistStorage, InviteBlocklistStoreApi};
 
+/// The `ModerationRule` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ModerationRule {
+    /// The `id` field.
     pub id: i64,
+    /// The `rule_id` field.
     pub rule_id: String,
+    /// The `server_id` field.
     pub server_id: Option<String>,
+    /// The `rule_type` field.
     pub rule_type: String,
+    /// The `pattern` field.
     pub pattern: String,
+    /// The `action` field.
     pub action: String,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `created_by` field.
     pub created_by: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
+    /// The `is_active` field.
     pub is_active: bool,
+    /// The `priority` field.
     pub priority: i32,
 }
 
+/// The `CreateModerationRuleParams` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateModerationRuleParams {
+    /// The `rule_type` field.
     pub rule_type: ModerationRuleType,
+    /// The `pattern` field.
     pub pattern: String,
+    /// The `action` field.
     pub action: ModerationAction,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `created_by` field.
     pub created_by: String,
+    /// The `server_id` field.
     pub server_id: Option<String>,
+    /// The `priority` field.
     pub priority: Option<i32>,
 }
 
+/// The `ModerationRuleType` enum.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ModerationRuleType {
     #[serde(rename = "regex")]
+    /// The `Regex` variant.
     Regex,
     #[serde(rename = "keyword")]
+    /// The `Keyword` variant.
     Keyword,
     #[serde(rename = "domain")]
+    /// The `Domain` variant.
     Domain,
     #[serde(rename = "user")]
+    /// The `User` variant.
     User,
     #[serde(rename = "room")]
+    /// The `Room` variant.
     Room,
     #[serde(rename = "media_hash")]
+    /// The `MediaHash` variant.
     MediaHash,
 }
 
 impl ModerationRuleType {
+    /// See [`as_str`].
+    /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Regex => "regex",
@@ -65,21 +95,29 @@ impl ModerationRuleType {
     }
 }
 
+/// The `ModerationAction` enum.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ModerationAction {
     #[serde(rename = "block")]
+    /// The `Block` variant.
     Block,
     #[serde(rename = "redact")]
+    /// The `Redact` variant.
     Redact,
     #[serde(rename = "flag")]
+    /// The `Flag` variant.
     Flag,
     #[serde(rename = "quarantine")]
+    /// The `Quarantine` variant.
     Quarantine,
     #[serde(rename = "notify")]
+    /// The `Notify` variant.
     Notify,
 }
 
 impl ModerationAction {
+    /// See [`as_str`].
+    /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Block => "block",
@@ -91,54 +129,83 @@ impl ModerationAction {
     }
 }
 
+/// The `ContentScanResult` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentScanResult {
+    /// The `is_violation` field.
     pub is_violation: bool,
+    /// The `matched_rules` field.
     pub matched_rules: Vec<MatchedRule>,
+    /// The `action` field.
     pub action: Option<ModerationAction>,
+    /// The `confidence` field.
     pub confidence: f32,
+    /// The `scan_duration_ms` field.
     pub scan_duration_ms: u64,
 }
 
+/// The `MatchedRule` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MatchedRule {
+    /// The `rule_id` field.
     pub rule_id: String,
+    /// The `rule_type` field.
     pub rule_type: String,
+    /// The `pattern` field.
     pub pattern: String,
+    /// The `matched_text` field.
     pub matched_text: String,
+    /// The `confidence` field.
     pub confidence: f32,
 }
 
+/// The `ScanContentRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanContentRequest {
+    /// The `content` field.
     pub content: String,
+    /// The `content_type` field.
     pub content_type: ContentType,
+    /// The `sender` field.
     pub sender: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `event_id` field.
     pub event_id: String,
 }
 
+/// The `ContentType` enum.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ContentType {
     #[serde(rename = "text")]
+    /// The `Text` variant.
     Text,
     #[serde(rename = "image")]
+    /// The `Image` variant.
     Image,
     #[serde(rename = "video")]
+    /// The `Video` variant.
     Video,
     #[serde(rename = "audio")]
+    /// The `Audio` variant.
     Audio,
     #[serde(rename = "file")]
+    /// The `File` variant.
     File,
 }
 
 /// Store API for moderation rules.
 #[async_trait]
 pub trait ModerationStoreApi: Send + Sync {
+    /// See [`create_rule`].
     async fn create_rule(&self, params: CreateModerationRuleParams) -> Result<ModerationRule, sqlx::Error>;
+    /// See [`get_rule`].
     async fn get_rule(&self, rule_id: &str) -> Result<Option<ModerationRule>, sqlx::Error>;
+    /// See [`get_all_rules`].
     async fn get_all_rules(&self) -> Result<Vec<ModerationRule>, sqlx::Error>;
+    /// See [`get_rules_by_type`].
     async fn get_rules_by_type(&self, rule_type: &str) -> Result<Vec<ModerationRule>, sqlx::Error>;
+    /// See [`update_rule`].
     async fn update_rule(
         &self,
         rule_id: &str,
@@ -147,19 +214,25 @@ pub trait ModerationStoreApi: Send + Sync {
         reason: Option<&str>,
         priority: Option<i32>,
     ) -> Result<ModerationRule, sqlx::Error>;
+    /// See [`delete_rule`].
     async fn delete_rule(&self, rule_id: &str) -> Result<bool, sqlx::Error>;
 }
 
+/// The `ModerationStorage` struct.
 #[derive(Clone)]
 pub struct ModerationStorage {
     pool: Arc<Pool<Postgres>>,
 }
 
 impl ModerationStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
 
+    /// See [`create_rule`].
+    /// See [`create_rule`].
     pub async fn create_rule(&self, params: CreateModerationRuleParams) -> Result<ModerationRule, sqlx::Error> {
         let now = current_timestamp_millis();
         let rule_id = format!("mod_{}", uuid::Uuid::new_v4().simple());
@@ -185,6 +258,8 @@ impl ModerationStorage {
         .await
     }
 
+    /// See [`get_rule`].
+    /// See [`get_rule`].
     pub async fn get_rule(&self, rule_id: &str) -> Result<Option<ModerationRule>, sqlx::Error> {
         sqlx::query_as::<_, ModerationRule>(
             r"
@@ -196,6 +271,8 @@ impl ModerationStorage {
         .await
     }
 
+    /// See [`get_all_rules`].
+    /// See [`get_all_rules`].
     pub async fn get_all_rules(&self) -> Result<Vec<ModerationRule>, sqlx::Error> {
         sqlx::query_as::<_, ModerationRule>(
             r"
@@ -208,6 +285,8 @@ impl ModerationStorage {
         .await
     }
 
+    /// See [`get_rules_by_type`].
+    /// See [`get_rules_by_type`].
     pub async fn get_rules_by_type(&self, rule_type: &str) -> Result<Vec<ModerationRule>, sqlx::Error> {
         sqlx::query_as::<_, ModerationRule>(
             r"
@@ -221,6 +300,7 @@ impl ModerationStorage {
         .await
     }
 
+    /// See [`update_rule`].
     pub async fn update_rule(
         &self,
         rule_id: &str,
@@ -254,6 +334,8 @@ impl ModerationStorage {
         .await
     }
 
+    /// See [`delete_rule`].
+    /// See [`delete_rule`].
     pub async fn delete_rule(&self, rule_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r"
@@ -304,16 +386,26 @@ impl ModerationStoreApi for ModerationStorage {
     }
 }
 
+/// The `ModerationLog` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ModerationLog {
+    /// The `id` field.
     pub id: i64,
+    /// The `rule_id` field.
     pub rule_id: String,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `content_hash` field.
     pub content_hash: String,
+    /// The `action_taken` field.
     pub action_taken: String,
+    /// The `confidence` field.
     pub confidence: f32,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
@@ -321,6 +413,7 @@ pub struct ModerationLog {
 #[async_trait]
 #[allow(clippy::too_many_arguments)]
 pub trait ModerationLogStoreApi: Send + Sync {
+    /// See [`log_action`].
     async fn log_action(
         &self,
         rule_id: &str,
@@ -331,22 +424,30 @@ pub trait ModerationLogStoreApi: Send + Sync {
         action_taken: &str,
         confidence: f32,
     ) -> Result<(), sqlx::Error>;
+    /// See [`get_logs_for_event`].
     async fn get_logs_for_event(&self, event_id: &str) -> Result<Vec<ModerationLog>, sqlx::Error>;
+    /// See [`get_logs_for_room`].
     async fn get_logs_for_room(&self, room_id: &str, limit: i32) -> Result<Vec<ModerationLog>, sqlx::Error>;
+    /// See [`get_logs_for_sender`].
     async fn get_logs_for_sender(&self, sender: &str, limit: i32) -> Result<Vec<ModerationLog>, sqlx::Error>;
+    /// See [`cleanup_old_logs`].
     async fn cleanup_old_logs(&self, older_than_days: i32) -> Result<u64, sqlx::Error>;
 }
 
+/// The `ModerationLogStorage` struct.
 #[derive(Clone)]
 pub struct ModerationLogStorage {
     pool: Arc<Pool<Postgres>>,
 }
 
 impl ModerationLogStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
 
+    /// See [`log_action`].
     #[allow(clippy::too_many_arguments)]
     pub async fn log_action(
         &self,
@@ -381,6 +482,8 @@ impl ModerationLogStorage {
         Ok(())
     }
 
+    /// See [`get_logs_for_event`].
+    /// See [`get_logs_for_event`].
     pub async fn get_logs_for_event(&self, event_id: &str) -> Result<Vec<ModerationLog>, sqlx::Error> {
         sqlx::query_as::<_, ModerationLog>(
             r"
@@ -392,6 +495,8 @@ impl ModerationLogStorage {
         .await
     }
 
+    /// See [`get_logs_for_room`].
+    /// See [`get_logs_for_room`].
     pub async fn get_logs_for_room(&self, room_id: &str, limit: i32) -> Result<Vec<ModerationLog>, sqlx::Error> {
         sqlx::query_as::<_, ModerationLog>(
             r"
@@ -405,6 +510,8 @@ impl ModerationLogStorage {
         .await
     }
 
+    /// See [`get_logs_for_sender`].
+    /// See [`get_logs_for_sender`].
     pub async fn get_logs_for_sender(&self, sender: &str, limit: i32) -> Result<Vec<ModerationLog>, sqlx::Error> {
         sqlx::query_as::<_, ModerationLog>(
             r"
@@ -418,6 +525,8 @@ impl ModerationLogStorage {
         .await
     }
 
+    /// See [`cleanup_old_logs`].
+    /// See [`cleanup_old_logs`].
     pub async fn cleanup_old_logs(&self, older_than_days: i32) -> Result<u64, sqlx::Error> {
         let cutoff_ts = current_timestamp_millis() - (older_than_days as i64 * 24 * 3600 * 1000);
 

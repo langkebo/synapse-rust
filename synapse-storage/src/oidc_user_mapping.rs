@@ -9,23 +9,31 @@ use std::sync::Arc;
 /// [`crate::test_mocks::InMemoryOidcUserMappingStore`] (in-memory).
 #[async_trait]
 pub trait OidcUserMappingStoreApi: Send + Sync {
+    /// See [`get_bound_user_id`].
     async fn get_bound_user_id(&self, issuer: &str, subject: &str) -> Result<Option<String>, sqlx::Error>;
+    /// See [`update_last_authenticated`].
     async fn update_last_authenticated(&self, issuer: &str, subject: &str, now_ts: i64) -> Result<(), sqlx::Error>;
+    /// See [`insert_mapping`].
     async fn insert_mapping(&self, issuer: &str, subject: &str, user_id: &str, now_ts: i64) -> Result<(), sqlx::Error>;
 }
 
 // ── Postgres implementation ─────────────────────────────────────────────
 
+/// The `OidcUserMappingStorage` struct.
 #[derive(Clone)]
 pub struct OidcUserMappingStorage {
     pool: Arc<sqlx::PgPool>,
 }
 
 impl OidcUserMappingStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
         Self { pool }
     }
 
+    /// See [`get_bound_user_id`].
+    /// See [`get_bound_user_id`].
     pub async fn get_bound_user_id(&self, issuer: &str, subject: &str) -> Result<Option<String>, sqlx::Error> {
         sqlx::query_scalar("SELECT user_id FROM oidc_user_mapping WHERE issuer = $1 AND subject = $2")
             .bind(issuer)
@@ -34,6 +42,8 @@ impl OidcUserMappingStorage {
             .await
     }
 
+    /// See [`update_last_authenticated`].
+    /// See [`update_last_authenticated`].
     pub async fn update_last_authenticated(&self, issuer: &str, subject: &str, now_ts: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
             "UPDATE oidc_user_mapping SET last_authenticated_ts = $1, \
@@ -48,6 +58,7 @@ impl OidcUserMappingStorage {
         Ok(())
     }
 
+    /// See [`insert_mapping`].
     pub async fn insert_mapping(
         &self,
         issuer: &str,

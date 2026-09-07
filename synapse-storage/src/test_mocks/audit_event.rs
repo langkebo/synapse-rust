@@ -1,11 +1,14 @@
 use super::*;
 
+/// The `InMemoryAuditEventStore` struct.
 #[derive(Clone, Default)]
 pub struct InMemoryAuditEventStore {
     events: Arc<tokio::sync::RwLock<HashMap<String, AuditEvent>>>,
 }
 
 impl InMemoryAuditEventStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self { events: Arc::new(tokio::sync::RwLock::new(HashMap::new())) }
     }

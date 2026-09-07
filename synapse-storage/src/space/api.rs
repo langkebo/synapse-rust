@@ -3,18 +3,30 @@ use super::SpaceStorage;
 use async_trait::async_trait;
 use std::collections::HashMap;
 
+/// The `SpaceStoreApi` trait.
 #[async_trait]
 pub trait SpaceStoreApi: Send + Sync {
+    /// See [`create_space`].
     async fn create_space(&self, request: CreateSpaceRequest) -> Result<Space, sqlx::Error>;
+    /// See [`get_space`].
     async fn get_space(&self, space_id: &str) -> Result<Option<Space>, sqlx::Error>;
+    /// See [`get_space_by_room`].
     async fn get_space_by_room(&self, room_id: &str) -> Result<Option<Space>, sqlx::Error>;
+    /// See [`get_spaces_by_rooms_batch`].
     async fn get_spaces_by_rooms_batch(&self, room_ids: &[String]) -> Result<HashMap<String, Space>, sqlx::Error>;
+    /// See [`update_space`].
     async fn update_space(&self, space_id: &str, request: &UpdateSpaceRequest) -> Result<Space, sqlx::Error>;
+    /// See [`delete_space`].
     async fn delete_space(&self, space_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`add_child`].
     async fn add_child(&self, request: AddChildRequest) -> Result<SpaceChild, sqlx::Error>;
+    /// See [`remove_child`].
     async fn remove_child(&self, space_id: &str, room_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`get_space_children`].
     async fn get_space_children(&self, space_id: &str) -> Result<Vec<SpaceChild>, sqlx::Error>;
+    /// See [`get_child_spaces`].
     async fn get_child_spaces(&self, room_id: &str) -> Result<Vec<SpaceChild>, sqlx::Error>;
+    /// See [`add_space_member`].
     async fn add_space_member(
         &self,
         space_id: &str,
@@ -22,19 +34,28 @@ pub trait SpaceStoreApi: Send + Sync {
         membership: &str,
         inviter: Option<&str>,
     ) -> Result<SpaceMember, sqlx::Error>;
+    /// See [`remove_space_member`].
     async fn remove_space_member(&self, space_id: &str, user_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`get_space_members`].
     async fn get_space_members(&self, space_id: &str) -> Result<Vec<SpaceMember>, sqlx::Error>;
+    /// See [`get_space_member`].
     async fn get_space_member(&self, space_id: &str, user_id: &str) -> Result<Option<SpaceMember>, sqlx::Error>;
+    /// See [`get_user_spaces`].
     async fn get_user_spaces(&self, user_id: &str) -> Result<Vec<Space>, sqlx::Error>;
+    /// See [`get_public_spaces`].
     async fn get_public_spaces(
         &self,
         limit: i64,
         cursor_created_ts: Option<i64>,
         cursor_space_id: Option<&str>,
     ) -> Result<Vec<Space>, sqlx::Error>;
+    /// See [`get_space_hierarchy`].
     async fn get_space_hierarchy(&self, space_id: &str, max_depth: i32) -> Result<SpaceHierarchy, sqlx::Error>;
+    /// See [`get_space_summary`].
     async fn get_space_summary(&self, space_id: &str) -> Result<Option<SpaceSummary>, sqlx::Error>;
+    /// See [`update_space_summary`].
     async fn update_space_summary(&self, space_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`add_space_event`].
     async fn add_space_event(
         &self,
         event_id: &str,
@@ -44,21 +65,27 @@ pub trait SpaceStoreApi: Send + Sync {
         content: serde_json::Value,
         state_key: Option<&str>,
     ) -> Result<SpaceEvent, sqlx::Error>;
+    /// See [`get_space_events`].
     async fn get_space_events(
         &self,
         space_id: &str,
         event_type: Option<&str>,
         limit: i64,
     ) -> Result<Vec<SpaceEvent>, sqlx::Error>;
+    /// See [`search_spaces`].
     async fn search_spaces(&self, query: &str, limit: i64, user_id: Option<&str>) -> Result<Vec<Space>, sqlx::Error>;
+    /// See [`is_space_member`].
     async fn is_space_member(&self, space_id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
+    /// See [`get_space_statistics`].
     async fn get_space_statistics(&self, limit: i64) -> Result<Vec<serde_json::Value>, sqlx::Error>;
+    /// See [`get_recursive_hierarchy`].
     async fn get_recursive_hierarchy(
         &self,
         space_id: &str,
         max_depth: i32,
         suggested_only: bool,
     ) -> Result<Vec<SpaceChildInfo>, sqlx::Error>;
+    /// See [`get_space_hierarchy_paginated`].
     async fn get_space_hierarchy_paginated(
         &self,
         space_id: &str,
@@ -67,16 +94,27 @@ pub trait SpaceStoreApi: Send + Sync {
         limit: Option<i32>,
         from: Option<&str>,
     ) -> Result<SpaceHierarchyResponse, sqlx::Error>;
+    /// See [`check_user_can_see_space`].
     async fn check_user_can_see_space(&self, space_id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
+    /// See [`get_parent_spaces`].
     async fn get_parent_spaces(&self, room_id: &str) -> Result<Vec<Space>, sqlx::Error>;
+    /// See [`get_space_tree_path`].
     async fn get_space_tree_path(&self, space_id: &str) -> Result<Vec<Space>, sqlx::Error>;
+    /// See [`resolve_space_id`].
     async fn resolve_space_id(&self, identifier: &str) -> Result<Option<String>, sqlx::Error>;
+    /// See [`get_all_spaces_for_admin`].
     async fn get_all_spaces_for_admin(&self) -> Result<Vec<Space>, sqlx::Error>;
+    /// See [`get_space_by_identifier`].
     async fn get_space_by_identifier(&self, identifier: &str) -> Result<Option<Space>, sqlx::Error>;
+    /// See [`get_space_user_ids`].
     async fn get_space_user_ids(&self, space_id: &str) -> Result<Vec<String>, sqlx::Error>;
+    /// See [`get_space_room_ids`].
     async fn get_space_room_ids(&self, space_id: &str) -> Result<Vec<String>, sqlx::Error>;
+    /// See [`get_space_member_and_child_count`].
     async fn get_space_member_and_child_count(&self, space_id: &str) -> Result<(i64, i64), sqlx::Error>;
+    /// See [`delete_space_returning_count`].
     async fn delete_space_returning_count(&self, space_id: &str) -> Result<u64, sqlx::Error>;
+    /// See [`get_space_children_paginated`].
     async fn get_space_children_paginated(
         &self,
         space_id: &str,
@@ -84,6 +122,7 @@ pub trait SpaceStoreApi: Send + Sync {
         from_added_ts: Option<i64>,
         from_id: Option<i64>,
     ) -> Result<Vec<SpaceChild>, sqlx::Error>;
+    /// See [`get_space_members_paginated`].
     async fn get_space_members_paginated(
         &self,
         space_id: &str,

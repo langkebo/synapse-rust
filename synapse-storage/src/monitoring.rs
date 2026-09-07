@@ -4,85 +4,138 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use tracing::{debug, error};
 
+/// The `DatabaseHealthStatus` struct.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DatabaseHealthStatus {
+    /// The `is_healthy` field.
     pub is_healthy: bool,
+    /// The `connection_pool_status` field.
     pub connection_pool_status: ConnectionPoolStatus,
+    /// The `performance_metrics` field.
     pub performance_metrics: PerformanceMetrics,
+    /// The `last_checked` field.
     pub last_checked: chrono::DateTime<Utc>,
 }
 
+/// The `ConnectionPoolStatus` struct.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConnectionPoolStatus {
+    /// The `total_connections` field.
     pub total_connections: u32,
+    /// The `idle_connections` field.
     pub idle_connections: u32,
+    /// The `busy_connections` field.
     pub busy_connections: u32,
+    /// The `max_connections` field.
     pub max_connections: u32,
+    /// The `connection_utilization` field.
     pub connection_utilization: f64,
 }
 
+/// The `PerformanceMetrics` struct.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PerformanceMetrics {
+    /// The `average_query_time_ms` field.
     pub average_query_time_ms: f64,
+    /// The `slow_queries_count` field.
     pub slow_queries_count: u64,
+    /// The `total_queries` field.
     pub total_queries: u64,
+    /// The `transactions_per_second` field.
     pub transactions_per_second: f64,
+    /// The `cache_hit_ratio` field.
     pub cache_hit_ratio: f64,
+    /// The `deadlock_count` field.
     pub deadlock_count: u64,
+    /// The `redis_latency_ms` field.
     pub redis_latency_ms: f64,
+    /// The `redis_slow_commands_count` field.
     pub redis_slow_commands_count: u64,
 }
 
+/// The `DataIntegrityReport` struct.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DataIntegrityReport {
+    /// The `check_timestamp` field.
     pub check_timestamp: chrono::DateTime<Utc>,
+    /// The `foreign_key_violations` field.
     pub foreign_key_violations: Vec<ForeignKeyViolation>,
+    /// The `orphaned_records` field.
     pub orphaned_records: Vec<OrphanedRecord>,
+    /// The `duplicate_entries` field.
     pub duplicate_entries: Vec<DuplicateEntry>,
+    /// The `null_constraint_violations` field.
     pub null_constraint_violations: Vec<NullConstraintViolation>,
+    /// The `overall_integrity_score` field.
     pub overall_integrity_score: f64,
 }
 
+/// The `ForeignKeyViolation` struct.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ForeignKeyViolation {
+    /// The `table_name` field.
     pub table_name: String,
+    /// The `column_name` field.
     pub column_name: String,
+    /// The `violating_row_id` field.
     pub violating_row_id: i64,
+    /// The `referenced_table` field.
     pub referenced_table: String,
 }
 
+/// The `OrphanedRecord` struct.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OrphanedRecord {
+    /// The `table_name` field.
     pub table_name: String,
+    /// The `column_name` field.
     pub column_name: String,
+    /// The `orphan_count` field.
     pub orphan_count: i64,
+    /// The `sample_orphans` field.
     pub sample_orphans: Vec<String>,
 }
 
+/// The `DuplicateEntry` struct.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DuplicateEntry {
+    /// The `table_name` field.
     pub table_name: String,
+    /// The `column_name` field.
     pub column_name: String,
+    /// The `duplicate_count` field.
     pub duplicate_count: i64,
+    /// The `sample_duplicates` field.
     pub sample_duplicates: Vec<String>,
 }
 
+/// The `NullConstraintViolation` struct.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NullConstraintViolation {
+    /// The `table_name` field.
     pub table_name: String,
+    /// The `column_name` field.
     pub column_name: String,
+    /// The `null_count` field.
     pub null_count: i64,
 }
 
+/// The `VacuumStats` struct.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct VacuumStats {
+    /// The `table_name` field.
     pub table_name: String,
+    /// The `last_vacuum` field.
     pub last_vacuum: Option<chrono::NaiveDateTime>,
+    /// The `last_analyze` field.
     pub last_analyze: Option<chrono::NaiveDateTime>,
+    /// The `dead_tuple_count` field.
     pub dead_tuple_count: i64,
+    /// The `dead_tuple_ratio` field.
     pub dead_tuple_ratio: f64,
 }
 
+/// The `DatabaseMonitor` struct.
 pub struct DatabaseMonitor {
     pool: Pool<Postgres>,
     redis_pool: Option<RedisPool>,
@@ -90,10 +143,14 @@ pub struct DatabaseMonitor {
 }
 
 impl DatabaseMonitor {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Pool<Postgres>, redis_pool: Option<RedisPool>, max_connections: u32) -> Self {
         Self { pool, redis_pool, max_connections }
     }
 
+    /// See [`check_connection`].
+    /// See [`check_connection`].
     pub async fn check_connection(&self) -> Result<bool, sqlx::Error> {
         let result = sqlx::query("SELECT 1").fetch_one(&self.pool).await;
 
@@ -109,6 +166,8 @@ impl DatabaseMonitor {
         }
     }
 
+    /// See [`get_connection_pool_status`].
+    /// See [`get_connection_pool_status`].
     pub fn get_connection_pool_status(&self) -> Result<ConnectionPoolStatus, sqlx::Error> {
         let pool_size = self.pool.size();
         let idle_connections = self.pool.num_idle() as u32;
@@ -126,6 +185,8 @@ impl DatabaseMonitor {
         })
     }
 
+    /// See [`get_full_health_status`].
+    /// See [`get_full_health_status`].
     pub async fn get_full_health_status(&self) -> Result<DatabaseHealthStatus, sqlx::Error> {
         let is_healthy = self.check_connection().await?;
         let pool_status = self.get_connection_pool_status()?;
@@ -139,6 +200,8 @@ impl DatabaseMonitor {
         })
     }
 
+    /// See [`get_performance_metrics`].
+    /// See [`get_performance_metrics`].
     pub async fn get_performance_metrics(&self) -> Result<PerformanceMetrics, sqlx::Error> {
         let db_stats = sqlx::query_as::<_, (i64, i64, i64, i64, i64, Option<chrono::DateTime<Utc>>)>(
             "SELECT COALESCE(xact_commit, 0), COALESCE(xact_rollback, 0), \
@@ -204,6 +267,8 @@ impl DatabaseMonitor {
         })
     }
 
+    /// See [`verify_data_integrity`].
+    /// See [`verify_data_integrity`].
     pub async fn verify_data_integrity(&self) -> Result<DataIntegrityReport, sqlx::Error> {
         let mut foreign_key_violations = Vec::new();
         let mut orphaned_records = Vec::new();

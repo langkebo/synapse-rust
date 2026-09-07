@@ -10,15 +10,20 @@ fn is_active_transaction_error(e: &sqlx::Error) -> bool {
     e.as_database_error().is_some_and(|db_err| db_err.code().is_some_and(|c| c == "25P11"))
 }
 
+/// The `DatabaseMaintenance` struct.
 pub struct DatabaseMaintenance {
     pool: Pool<Postgres>,
 }
 
 impl DatabaseMaintenance {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Pool<Postgres>) -> Self {
         Self { pool }
     }
 
+    /// See [`perform_maintenance`].
+    /// See [`perform_maintenance`].
     pub async fn perform_maintenance(&self) -> Result<MaintenanceReport, sqlx::Error> {
         let start_time = Instant::now();
         let mut report = MaintenanceReport::new();
@@ -184,14 +189,22 @@ impl DatabaseMaintenance {
     }
 }
 
+/// The `MaintenanceReport` struct.
 #[derive(Debug, Clone)]
 pub struct MaintenanceReport {
+    /// The `started_at` field.
     pub started_at: chrono::DateTime<Utc>,
+    /// The `completed_at` field.
     pub completed_at: chrono::DateTime<Utc>,
+    /// The `duration_ms` field.
     pub duration_ms: i64,
+    /// The `vacuum_results` field.
     pub vacuum_results: VacuumResult,
+    /// The `reindexed_tables` field.
     pub reindexed_tables: Vec<String>,
+    /// The `table_stats` field.
     pub table_stats: Vec<TableStats>,
+    /// The `errors` field.
     pub errors: Vec<String>,
 }
 
@@ -209,9 +222,12 @@ impl MaintenanceReport {
     }
 }
 
+/// The `VacuumResult` struct.
 #[derive(Debug, Clone)]
 pub struct VacuumResult {
+    /// The `tables_processed` field.
     pub tables_processed: Vec<String>,
+    /// The `execution_time_ms` field.
     pub execution_time_ms: i64,
 }
 
@@ -221,11 +237,16 @@ impl VacuumResult {
     }
 }
 
+/// The `TableStats` struct.
 #[derive(Debug, Clone)]
 pub struct TableStats {
+    /// The `table_name` field.
     pub table_name: String,
+    /// The `live_tuples` field.
     pub live_tuples: i64,
+    /// The `dead_tuples` field.
     pub dead_tuples: i64,
+    /// The `modifications` field.
     pub modifications: i64,
 }
 

@@ -5,46 +5,72 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 
+/// The `OpenIdToken` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct OpenIdToken {
+    /// The `id` field.
     pub id: i64,
+    /// The `token` field.
     pub token: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: i64,
+    /// The `is_valid` field.
     pub is_valid: bool,
 }
 
+/// The `CreateOpenIdTokenRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateOpenIdTokenRequest {
+    /// The `token` field.
     pub token: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `expires_at` field.
     pub expires_at: i64,
 }
 
+/// The `OpenIdTokenStoreApi` trait.
 #[async_trait]
 pub trait OpenIdTokenStoreApi: Send + Sync {
+    /// See [`create_token`].
     async fn create_token(&self, request: CreateOpenIdTokenRequest) -> Result<OpenIdToken, ApiError>;
+    /// See [`get_token`].
     async fn get_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError>;
+    /// See [`validate_token`].
     async fn validate_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError>;
+    /// See [`revoke_token`].
     async fn revoke_token(&self, token: &str) -> Result<bool, ApiError>;
+    /// See [`revoke_user_tokens`].
     async fn revoke_user_tokens(&self, user_id: &str) -> Result<u64, ApiError>;
+    /// See [`cleanup_expired_tokens`].
     async fn cleanup_expired_tokens(&self) -> Result<u64, ApiError>;
+    /// See [`get_tokens_by_user`].
     async fn get_tokens_by_user(&self, user_id: &str) -> Result<Vec<OpenIdToken>, ApiError>;
 }
 
+/// The `OpenIdTokenStorage` struct.
 #[derive(Clone)]
 pub struct OpenIdTokenStorage {
     pool: Arc<PgPool>,
 }
 
 impl OpenIdTokenStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_token`].
+    /// See [`create_token`].
     pub async fn create_token(&self, request: CreateOpenIdTokenRequest) -> Result<OpenIdToken, ApiError> {
         let now = current_timestamp_millis();
 
@@ -67,6 +93,8 @@ impl OpenIdTokenStorage {
         Ok(token)
     }
 
+    /// See [`get_token`].
+    /// See [`get_token`].
     pub async fn get_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError> {
         let token_data = sqlx::query_as::<_, OpenIdToken>(
             r"
@@ -83,6 +111,8 @@ impl OpenIdTokenStorage {
         Ok(token_data)
     }
 
+    /// See [`validate_token`].
+    /// See [`validate_token`].
     pub async fn validate_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError> {
         let now = current_timestamp_millis();
 
@@ -102,6 +132,8 @@ impl OpenIdTokenStorage {
         Ok(token_data)
     }
 
+    /// See [`revoke_token`].
+    /// See [`revoke_token`].
     pub async fn revoke_token(&self, token: &str) -> Result<bool, ApiError> {
         let result = sqlx::query(
             r"
@@ -118,6 +150,8 @@ impl OpenIdTokenStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// See [`revoke_user_tokens`].
+    /// See [`revoke_user_tokens`].
     pub async fn revoke_user_tokens(&self, user_id: &str) -> Result<u64, ApiError> {
         let result = sqlx::query(
             r"
@@ -134,6 +168,8 @@ impl OpenIdTokenStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`cleanup_expired_tokens`].
+    /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();
 
@@ -151,6 +187,8 @@ impl OpenIdTokenStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`get_tokens_by_user`].
+    /// See [`get_tokens_by_user`].
     pub async fn get_tokens_by_user(&self, user_id: &str) -> Result<Vec<OpenIdToken>, ApiError> {
         let tokens = sqlx::query_as::<_, OpenIdToken>(
             r"

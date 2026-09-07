@@ -1,3 +1,4 @@
+/// The `api` module.
 pub(crate) mod api;
 pub use api::PresenceStoreApi;
 
@@ -19,11 +20,16 @@ fn is_undefined_column_error(e: &sqlx::Error) -> bool {
 /// SELECT for a single user's presence row (shared by all read paths).
 const PRESENCE_SELECT_BY_USER: &str = "SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1";
 
+/// The `PresenceSnapshot` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct PresenceSnapshot {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `presence` field.
     pub presence: String,
+    /// The `status_msg` field.
     pub status_msg: Option<String>,
+    /// The `last_active_ts` field.
     pub last_active_ts: Option<i64>,
 }
 
@@ -139,6 +145,7 @@ mod tests {
     }
 }
 
+/// The `PresenceStorage` struct.
 #[derive(Clone)]
 pub struct PresenceStorage {
     pool: Arc<Pool<Postgres>>,
@@ -146,10 +153,13 @@ pub struct PresenceStorage {
 }
 
 impl PresenceStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>, cache: Arc<CacheManager>) -> Self {
         Self { pool, cache }
     }
 
+    /// See [`set_presence`].
     pub async fn set_presence(
         &self,
         user_id: &str,
@@ -254,6 +264,8 @@ impl PresenceStorage {
         Ok(())
     }
 
+    /// See [`get_presence`].
+    /// See [`get_presence`].
     pub async fn get_presence(&self, user_id: &str) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
         tracing::debug!(user_id = %user_id, "Querying presence");
         let key = CacheKeyBuilder::user_presence(user_id);
@@ -282,6 +294,7 @@ impl PresenceStorage {
         Ok(result.map(|(presence, status_msg, _)| (presence, status_msg)))
     }
 
+    /// See [`get_presence_with_meta`].
     pub async fn get_presence_with_meta(
         &self,
         user_id: &str,
@@ -312,6 +325,7 @@ impl PresenceStorage {
         Ok(result)
     }
 
+    /// See [`get_presences`].
     pub async fn get_presences(
         &self,
         user_ids: &[String],
@@ -375,6 +389,8 @@ impl PresenceStorage {
         Ok(map)
     }
 
+    /// See [`set_typing`].
+    /// See [`set_typing`].
     pub async fn set_typing(&self, room_id: &str, user_id: &str, typing: bool) -> Result<(), sqlx::Error> {
         if typing {
             let now = current_timestamp_millis();
@@ -406,6 +422,8 @@ impl PresenceStorage {
         Ok(())
     }
 
+    /// See [`add_subscription`].
+    /// See [`add_subscription`].
     pub async fn add_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
         let result = sqlx::query(
@@ -444,6 +462,8 @@ impl PresenceStorage {
         }
     }
 
+    /// See [`remove_subscription`].
+    /// See [`remove_subscription`].
     pub async fn remove_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error> {
         let result = sqlx::query(
             r"
@@ -477,6 +497,8 @@ impl PresenceStorage {
         }
     }
 
+    /// See [`get_subscriptions`].
+    /// See [`get_subscriptions`].
     pub async fn get_subscriptions(&self, subscriber_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let result = sqlx::query_as::<_, (String,)>(
             r"
@@ -512,6 +534,8 @@ impl PresenceStorage {
         }
     }
 
+    /// See [`get_subscribers`].
+    /// See [`get_subscribers`].
     pub async fn get_subscribers(&self, target_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let result = sqlx::query_as::<_, (String,)>(
             r"
@@ -546,6 +570,7 @@ impl PresenceStorage {
         }
     }
 
+    /// See [`get_presence_batch`].
     pub async fn get_presence_batch(
         &self,
         user_ids: &[String],
@@ -608,6 +633,7 @@ impl PresenceStorage {
         Ok(results)
     }
 
+    /// See [`get_presence_batch_with_meta`].
     pub async fn get_presence_batch_with_meta(
         &self,
         user_ids: &[String],
@@ -668,6 +694,7 @@ impl PresenceStorage {
         Ok(results)
     }
 
+    /// See [`get_presence_snapshots`].
     pub async fn get_presence_snapshots(
         &self,
         user_ids: &[String],

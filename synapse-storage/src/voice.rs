@@ -3,36 +3,55 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `VoiceUsageRecord` struct.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct VoiceUsageRecord {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `media_id` field.
     pub media_id: String,
+    /// The `content_type` field.
     pub content_type: String,
+    /// The `duration_ms` field.
     pub duration_ms: i32,
+    /// The `size_bytes` field.
     pub size_bytes: i64,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
+/// The `VoiceAggregatedStats` struct.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct VoiceAggregatedStats {
+    /// The `total_uploads` field.
     pub total_uploads: i64,
+    /// The `total_duration_ms` field.
     pub total_duration_ms: i64,
+    /// The `total_size_bytes` field.
     pub total_size_bytes: i64,
 }
 
+/// The `VoiceUserAggregatedStats` struct.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct VoiceUserAggregatedStats {
+    /// The `total_uploads` field.
     pub total_uploads: i64,
+    /// The `total_duration_ms` field.
     pub total_duration_ms: i64,
+    /// The `total_size_bytes` field.
     pub total_size_bytes: i64,
+    /// The `uploads_today` field.
     pub uploads_today: i64,
 }
 
 /// Trait abstraction over [`VoiceStorage`] for testability and service wiring.
 #[async_trait]
 pub trait VoiceStoreApi {
+    /// See [`record_upload`].
     async fn record_upload(
         &self,
         user_id: &str,
@@ -43,16 +62,22 @@ pub trait VoiceStoreApi {
         size_bytes: i64,
     ) -> Result<i64, sqlx::Error>;
 
+    /// See [`get_user_stats`].
     async fn get_user_stats(&self, user_id: &str) -> Result<VoiceUserAggregatedStats, sqlx::Error>;
 
+    /// See [`get_room_stats`].
     async fn get_room_stats(&self, room_id: &str) -> Result<VoiceAggregatedStats, sqlx::Error>;
 
+    /// See [`get_global_user_stats`].
     async fn get_global_user_stats(&self, user_id: &str) -> Result<VoiceUserAggregatedStats, sqlx::Error>;
 
+    /// See [`delete_user_stats`].
     async fn delete_user_stats(&self, user_id: &str) -> Result<u64, sqlx::Error>;
 
+    /// See [`delete_room_stats`].
     async fn delete_room_stats(&self, room_id: &str) -> Result<u64, sqlx::Error>;
 
+    /// See [`get_room_messages`].
     async fn get_room_messages(
         &self,
         room_id: &str,
@@ -60,6 +85,7 @@ pub trait VoiceStoreApi {
         from_ts: Option<i64>,
     ) -> Result<Vec<VoiceUsageRecord>, sqlx::Error>;
 
+    /// See [`get_user_messages`].
     async fn get_user_messages(
         &self,
         user_id: &str,
@@ -67,19 +93,24 @@ pub trait VoiceStoreApi {
         from_ts: Option<i64>,
     ) -> Result<Vec<VoiceUsageRecord>, sqlx::Error>;
 
+    /// See [`get_by_media_id`].
     async fn get_by_media_id(&self, media_id: &str) -> Result<Option<VoiceUsageRecord>, sqlx::Error>;
 }
 
+/// The `VoiceStorage` struct.
 #[derive(Clone)]
 pub struct VoiceStorage {
     pool: Arc<PgPool>,
 }
 
 impl VoiceStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<PgPool>) -> Self {
         Self { pool }
     }
 
+    /// See [`record_upload`].
     pub async fn record_upload(
         &self,
         user_id: &str,
@@ -109,6 +140,8 @@ impl VoiceStorage {
         Ok(row.0)
     }
 
+    /// See [`get_user_stats`].
+    /// See [`get_user_stats`].
     #[allow(clippy::expect_used)]
     pub async fn get_user_stats(&self, user_id: &str) -> Result<VoiceUserAggregatedStats, sqlx::Error> {
         let today_start = chrono::Utc::now()
@@ -136,6 +169,8 @@ impl VoiceStorage {
         Ok(row)
     }
 
+    /// See [`get_room_stats`].
+    /// See [`get_room_stats`].
     pub async fn get_room_stats(&self, room_id: &str) -> Result<VoiceAggregatedStats, sqlx::Error> {
         let row = sqlx::query_as::<_, VoiceAggregatedStats>(
             r#"
@@ -153,22 +188,29 @@ impl VoiceStorage {
         Ok(row)
     }
 
+    /// See [`get_global_user_stats`].
+    /// See [`get_global_user_stats`].
     pub async fn get_global_user_stats(&self, user_id: &str) -> Result<VoiceUserAggregatedStats, sqlx::Error> {
         self.get_user_stats(user_id).await
     }
 
+    /// See [`delete_user_stats`].
+    /// See [`delete_user_stats`].
     pub async fn delete_user_stats(&self, user_id: &str) -> Result<u64, sqlx::Error> {
         let result =
             sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(user_id).execute(&*self.pool).await?;
         Ok(result.rows_affected())
     }
 
+    /// See [`delete_room_stats`].
+    /// See [`delete_room_stats`].
     pub async fn delete_room_stats(&self, room_id: &str) -> Result<u64, sqlx::Error> {
         let result =
             sqlx::query("DELETE FROM voice_usage_stats WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
         Ok(result.rows_affected())
     }
 
+    /// See [`get_room_messages`].
     pub async fn get_room_messages(
         &self,
         room_id: &str,
@@ -209,6 +251,7 @@ impl VoiceStorage {
         Ok(rows)
     }
 
+    /// See [`get_user_messages`].
     pub async fn get_user_messages(
         &self,
         user_id: &str,
@@ -249,6 +292,8 @@ impl VoiceStorage {
         Ok(rows)
     }
 
+    /// See [`get_by_media_id`].
+    /// See [`get_by_media_id`].
     pub async fn get_by_media_id(&self, media_id: &str) -> Result<Option<VoiceUsageRecord>, sqlx::Error> {
         let row = sqlx::query_as::<_, VoiceUsageRecord>(
             r#"

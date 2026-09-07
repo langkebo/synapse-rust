@@ -1,6 +1,7 @@
 use super::*;
 use synapse_common::current_timestamp_millis;
 
+/// The `InMemoryBackgroundUpdateStore` struct.
 pub struct InMemoryBackgroundUpdateStore {
     updates: tokio::sync::RwLock<HashMap<String, BackgroundUpdate>>,
     locks: tokio::sync::RwLock<HashMap<String, bool>>,
@@ -15,6 +16,8 @@ impl Default for InMemoryBackgroundUpdateStore {
 }
 
 impl InMemoryBackgroundUpdateStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self {
             updates: tokio::sync::RwLock::new(HashMap::new()),

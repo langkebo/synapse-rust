@@ -9,135 +9,238 @@ use tracing::info;
 /// `PushDevice` 结构体映射数据库 push_devices 表。
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PushDevice {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `push_token` field.
     pub push_token: String,
+    /// The `push_type` field.
     pub push_type: String,
+    /// The `app_id` field.
     pub app_id: Option<String>,
+    /// The `platform` field.
     pub platform: Option<String>,
+    /// The `platform_version` field.
     pub platform_version: Option<String>,
+    /// The `app_version` field.
     pub app_version: Option<String>,
+    /// The `locale` field.
     pub locale: Option<String>,
+    /// The `timezone` field.
     pub timezone: Option<String>,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
     #[sqlx(rename = "last_used_at")]
+    /// The `last_used_ts` field.
     pub last_used_ts: Option<i64>,
+    /// The `last_error` field.
     pub last_error: Option<String>,
+    /// The `error_count` field.
     pub error_count: i32,
+    /// The `metadata` field.
     pub metadata: serde_json::Value,
 }
 
 /// `PushRule` 结构体映射数据库 push_rules 表。
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PushRule {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `rule_id` field.
     pub rule_id: String,
+    /// The `scope` field.
     pub scope: String,
+    /// The `kind` field.
     pub kind: String,
+    /// The `priority` field.
     pub priority: i32,
+    /// The `priority_class` field.
     pub priority_class: i32,
+    /// The `conditions` field.
     pub conditions: serde_json::Value,
+    /// The `actions` field.
     pub actions: serde_json::Value,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `is_default` field.
     pub is_default: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
+    /// The `pattern` field.
     pub pattern: Option<String>,
 }
 
+/// The `PushNotificationQueue` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PushNotificationQueue {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `event_id` field.
     pub event_id: Option<String>,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `notification_type` field.
     pub notification_type: Option<String>,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `priority` field.
     pub priority: i32,
+    /// The `status` field.
     pub status: String,
+    /// The `attempts` field.
     pub attempts: i32,
+    /// The `max_attempts` field.
     pub max_attempts: i32,
+    /// The `next_attempt_at` field.
     pub next_attempt_at: Option<i64>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `sent_at` field.
     pub sent_at: Option<i64>,
+    /// The `error_message` field.
     pub error_message: Option<String>,
 }
 
+/// The `PushNotificationLog` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PushNotificationLog {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `event_id` field.
     pub event_id: Option<String>,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `notification_type` field.
     pub notification_type: Option<String>,
+    /// The `push_type` field.
     pub push_type: String,
+    /// The `sent_at` field.
     pub sent_at: Option<i64>,
+    /// The `is_success` field.
     pub is_success: bool,
+    /// The `error_message` field.
     pub error_message: Option<String>,
+    /// The `provider_response` field.
     pub provider_response: Option<String>,
+    /// The `response_time_ms` field.
     pub response_time_ms: Option<i32>,
+    /// The `metadata` field.
     pub metadata: serde_json::Value,
 }
 
+/// The `RegisterDeviceRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisterDeviceRequest {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `push_token` field.
     pub push_token: String,
+    /// The `push_type` field.
     pub push_type: String,
+    /// The `app_id` field.
     pub app_id: Option<String>,
+    /// The `platform` field.
     pub platform: Option<String>,
+    /// The `platform_version` field.
     pub platform_version: Option<String>,
+    /// The `app_version` field.
     pub app_version: Option<String>,
+    /// The `locale` field.
     pub locale: Option<String>,
+    /// The `timezone` field.
     pub timezone: Option<String>,
+    /// The `metadata` field.
     pub metadata: Option<serde_json::Value>,
 }
 
+/// The `CreatePushRuleRequest` struct.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreatePushRuleRequest {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `rule_id` field.
     pub rule_id: String,
+    /// The `scope` field.
     pub scope: String,
+    /// The `kind` field.
     pub kind: String,
+    /// The `priority` field.
     pub priority: i32,
+    /// The `conditions` field.
     pub conditions: serde_json::Value,
+    /// The `actions` field.
     pub actions: serde_json::Value,
+    /// The `enabled` field.
     pub enabled: bool,
 }
 
+/// The `QueueNotificationRequest` struct.
 #[derive(Debug, Clone, Deserialize)]
 pub struct QueueNotificationRequest {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `event_id` field.
     pub event_id: Option<String>,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `notification_type` field.
     pub notification_type: Option<String>,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `priority` field.
     pub priority: i32,
 }
 
+/// The `CreateNotificationLogRequest` struct.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct CreateNotificationLogRequest {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `event_id` field.
     pub event_id: Option<String>,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `notification_type` field.
     pub notification_type: Option<String>,
+    /// The `push_type` field.
     pub push_type: String,
+    /// The `is_success` field.
     pub is_success: bool,
+    /// The `error_message` field.
     pub error_message: Option<String>,
+    /// The `provider_response` field.
     pub provider_response: Option<String>,
+    /// The `response_time_ms` field.
     pub response_time_ms: Option<i32>,
 }
 
 impl CreateNotificationLogRequest {
+    /// See [`new`].
     pub fn new(
         user_id: impl Into<String>,
         device_id: impl Into<String>,
@@ -153,48 +256,71 @@ impl CreateNotificationLogRequest {
         }
     }
 
+    /// See [`event_id`].
+    /// See [`event_id`].
     pub fn event_id(mut self, event_id: impl Into<String>) -> Self {
         self.event_id = Some(event_id.into());
         self
     }
 
+    /// See [`room_id`].
+    /// See [`room_id`].
     pub fn room_id(mut self, room_id: impl Into<String>) -> Self {
         self.room_id = Some(room_id.into());
         self
     }
 
+    /// See [`notification_type`].
+    /// See [`notification_type`].
     pub fn notification_type(mut self, notification_type: impl Into<String>) -> Self {
         self.notification_type = Some(notification_type.into());
         self
     }
 
+    /// See [`error_message`].
+    /// See [`error_message`].
     pub fn error_message(mut self, error_message: impl Into<String>) -> Self {
         self.error_message = Some(error_message.into());
         self
     }
 
+    /// See [`provider_response`].
+    /// See [`provider_response`].
     pub fn provider_response(mut self, provider_response: impl Into<String>) -> Self {
         self.provider_response = Some(provider_response.into());
         self
     }
 
+    /// See [`response_time_ms`].
+    /// See [`response_time_ms`].
     pub fn response_time_ms(mut self, response_time_ms: i32) -> Self {
         self.response_time_ms = Some(response_time_ms);
         self
     }
 }
 
+/// The `PushNotificationStoreApi` trait.
 #[async_trait]
 pub trait PushNotificationStoreApi: Send + Sync {
+    /// See [`register_device`].
     async fn register_device(&self, request: RegisterDeviceRequest) -> Result<PushDevice, ApiError>;
+    /// See [`unregister_device`].
     async fn unregister_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError>;
+    /// See [`get_user_devices`].
     async fn get_user_devices(&self, user_id: &str) -> Result<Vec<PushDevice>, ApiError>;
+    /// See [`get_device`].
     async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<PushDevice>, ApiError>;
+    /// See [`update_device_last_used`].
     async fn update_device_last_used(&self, user_id: &str, device_id: &str) -> Result<(), ApiError>;
+    /// See [`record_device_error`].
     async fn record_device_error(&self, user_id: &str, device_id: &str, error: &str) -> Result<(), ApiError>;
+    /// See [`create_push_rule`].
     async fn create_push_rule(&self, request: CreatePushRuleRequest) -> Result<PushRule, ApiError>;
+    /// See [`get_user_push_rules`].
     async fn get_user_push_rules(&self, user_id: &str) -> Result<Vec<PushRule>, ApiError>;
+    /// See [`delete_push_rule`].
     async fn delete_push_rule(&self, user_id: &str, scope: &str, kind: &str, rule_id: &str) -> Result<(), ApiError>;
+    /// See [`queue_notification`].
     async fn queue_notification(&self, request: QueueNotificationRequest) -> Result<PushNotificationQueue, ApiError>;
     /// P2: Batch-insert multiple push notifications in a single SQL statement.
     /// Reduces N DB round-trips to 1 for multi-device notification delivery.
@@ -202,17 +328,26 @@ pub trait PushNotificationStoreApi: Send + Sync {
         &self,
         requests: &[QueueNotificationRequest],
     ) -> Result<Vec<PushNotificationQueue>, ApiError>;
+    /// See [`get_pending_notifications`].
     async fn get_pending_notifications(&self, limit: i32) -> Result<Vec<PushNotificationQueue>, ApiError>;
+    /// See [`mark_notification_sent`].
     async fn mark_notification_sent(&self, id: i64) -> Result<(), ApiError>;
+    /// See [`mark_notification_failed`].
     async fn mark_notification_failed(&self, id: i64, error: &str, retry: bool) -> Result<(), ApiError>;
+    /// See [`create_notification_log`].
     async fn create_notification_log(
         &self,
         request: &CreateNotificationLogRequest,
     ) -> Result<PushNotificationLog, ApiError>;
+    /// See [`get_config`].
     async fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError>;
+    /// See [`get_config_as_bool`].
     async fn get_config_as_bool(&self, config_key: &str, default: bool) -> Result<bool, ApiError>;
+    /// See [`get_config_as_int`].
     async fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError>;
+    /// See [`cleanup_old_logs`].
     async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError>;
+    /// See [`get_room_notifications`].
     async fn get_room_notifications(
         &self,
         user_id: &str,
@@ -221,16 +356,21 @@ pub trait PushNotificationStoreApi: Send + Sync {
     ) -> Result<Vec<RoomNotification>, sqlx::Error>;
 }
 
+/// The `PushNotificationStorage` struct.
 #[derive(Debug, Clone)]
 pub struct PushNotificationStorage {
     pool: Arc<PgPool>,
 }
 
 impl PushNotificationStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`register_device`].
+    /// See [`register_device`].
     pub async fn register_device(&self, request: RegisterDeviceRequest) -> Result<PushDevice, ApiError> {
         let now = current_timestamp_millis();
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
@@ -277,6 +417,8 @@ impl PushNotificationStorage {
         Ok(row)
     }
 
+    /// See [`unregister_device`].
+    /// See [`unregister_device`].
     pub async fn unregister_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             "UPDATE push_device SET is_enabled = false WHERE user_id = $1 AND device_id = $2 AND is_enabled = TRUE",
@@ -291,6 +433,8 @@ impl PushNotificationStorage {
         Ok(())
     }
 
+    /// See [`get_user_devices`].
+    /// See [`get_user_devices`].
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<PushDevice>, ApiError> {
         let rows = sqlx::query_as::<_, PushDevice>(
             r"
@@ -308,6 +452,8 @@ impl PushNotificationStorage {
         Ok(rows)
     }
 
+    /// See [`get_device`].
+    /// See [`get_device`].
     pub async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<PushDevice>, ApiError> {
         let row = sqlx::query_as::<_, PushDevice>(
             "SELECT id, user_id, device_id, push_token, push_type, app_id, platform, platform_version, app_version, locale, timezone, is_enabled, created_ts, updated_ts, last_used_at, last_error, error_count, metadata FROM push_device WHERE user_id = $1 AND device_id = $2 AND is_enabled = true",
@@ -321,6 +467,8 @@ impl PushNotificationStorage {
         Ok(row)
     }
 
+    /// See [`update_device_last_used`].
+    /// See [`update_device_last_used`].
     pub async fn update_device_last_used(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
@@ -335,6 +483,8 @@ impl PushNotificationStorage {
         Ok(())
     }
 
+    /// See [`record_device_error`].
+    /// See [`record_device_error`].
     pub async fn record_device_error(&self, user_id: &str, device_id: &str, error: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
         sqlx::query(
@@ -355,6 +505,8 @@ impl PushNotificationStorage {
         Ok(())
     }
 
+    /// See [`create_push_rule`].
+    /// See [`create_push_rule`].
     pub async fn create_push_rule(&self, request: CreatePushRuleRequest) -> Result<PushRule, ApiError> {
         let now = current_timestamp_millis();
 
@@ -390,6 +542,8 @@ impl PushNotificationStorage {
         Ok(row)
     }
 
+    /// See [`get_user_push_rules`].
+    /// See [`get_user_push_rules`].
     pub async fn get_user_push_rules(&self, user_id: &str) -> Result<Vec<PushRule>, ApiError> {
         let rows = sqlx::query_as::<_, PushRule>(
             r"
@@ -406,6 +560,7 @@ impl PushNotificationStorage {
         Ok(rows)
     }
 
+    /// See [`delete_push_rule`].
     pub async fn delete_push_rule(
         &self,
         user_id: &str,
@@ -425,6 +580,7 @@ impl PushNotificationStorage {
         Ok(())
     }
 
+    /// See [`queue_notification`].
     pub async fn queue_notification(
         &self,
         request: QueueNotificationRequest,
@@ -528,6 +684,8 @@ impl PushNotificationStorage {
         Ok(rows)
     }
 
+    /// See [`get_pending_notifications`].
+    /// See [`get_pending_notifications`].
     pub async fn get_pending_notifications(&self, limit: i32) -> Result<Vec<PushNotificationQueue>, ApiError> {
         let now_ms = current_timestamp_millis();
 
@@ -552,6 +710,8 @@ impl PushNotificationStorage {
         Ok(rows)
     }
 
+    /// See [`mark_notification_sent`].
+    /// See [`mark_notification_sent`].
     pub async fn mark_notification_sent(&self, id: i64) -> Result<(), ApiError> {
         let now_ms = current_timestamp_millis();
 
@@ -565,6 +725,8 @@ impl PushNotificationStorage {
         Ok(())
     }
 
+    /// See [`mark_notification_failed`].
+    /// See [`mark_notification_failed`].
     pub async fn mark_notification_failed(&self, id: i64, error: &str, retry: bool) -> Result<(), ApiError> {
         let now_ms = current_timestamp_millis();
 
@@ -595,6 +757,7 @@ impl PushNotificationStorage {
         Ok(())
     }
 
+    /// See [`create_notification_log`].
     pub async fn create_notification_log(
         &self,
         request: &CreateNotificationLogRequest,
@@ -626,6 +789,8 @@ impl PushNotificationStorage {
         Ok(row)
     }
 
+    /// See [`get_config`].
+    /// See [`get_config`].
     pub async fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError> {
         let row: Option<(String,)> = sqlx::query_as("SELECT config_value FROM push_config WHERE config_key = $1")
             .bind(config_key)
@@ -636,6 +801,8 @@ impl PushNotificationStorage {
         Ok(row.map(|r| r.0))
     }
 
+    /// See [`get_config_as_bool`].
+    /// See [`get_config_as_bool`].
     pub async fn get_config_as_bool(&self, config_key: &str, default: bool) -> Result<bool, ApiError> {
         let value = self.get_config(config_key).await?;
 
@@ -645,6 +812,8 @@ impl PushNotificationStorage {
         })
     }
 
+    /// See [`get_config_as_int`].
+    /// See [`get_config_as_int`].
     pub async fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError> {
         let value = self.get_config(config_key).await?;
 
@@ -654,6 +823,8 @@ impl PushNotificationStorage {
         })
     }
 
+    /// See [`cleanup_old_logs`].
+    /// See [`cleanup_old_logs`].
     pub async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError> {
         let cutoff_ms = current_timestamp_millis() - (days as i64 * 86_400_000);
 
@@ -695,12 +866,18 @@ impl PushNotificationStorage {
 // Room notification model
 // ---------------------------------------------------------------------------
 
+/// The `RoomNotification` struct.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct RoomNotification {
+    /// The `event_id` field.
     pub event_id: Option<String>,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `ts` field.
     pub ts: Option<i64>,
+    /// The `notification_type` field.
     pub notification_type: Option<String>,
+    /// The `is_read` field.
     pub is_read: Option<bool>,
 }
 

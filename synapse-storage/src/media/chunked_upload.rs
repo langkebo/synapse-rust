@@ -6,106 +6,169 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use tracing::{info, warn};
 
+/// The `UploadProgress` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct UploadProgress {
+    /// The `upload_id` field.
     pub upload_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `filename` field.
     pub filename: Option<String>,
+    /// The `content_type` field.
     pub content_type: Option<String>,
+    /// The `total_size` field.
     pub total_size: Option<i64>,
+    /// The `uploaded_size` field.
     pub uploaded_size: i64,
+    /// The `total_chunks` field.
     pub total_chunks: i32,
+    /// The `uploaded_chunks` field.
     pub uploaded_chunks: i32,
+    /// The `status` field.
     pub status: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
 }
 
+/// The `ChunkUploadRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkUploadRequest {
+    /// The `upload_id` field.
     pub upload_id: Option<String>,
+    /// The `chunk_index` field.
     pub chunk_index: i32,
+    /// The `total_chunks` field.
     pub total_chunks: i32,
+    /// The `chunk_data` field.
     pub chunk_data: Vec<u8>,
+    /// The `filename` field.
     pub filename: Option<String>,
+    /// The `content_type` field.
     pub content_type: Option<String>,
+    /// The `total_size` field.
     pub total_size: Option<i64>,
 }
 
+/// The `ChunkUploadResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkUploadResponse {
+    /// The `upload_id` field.
     pub upload_id: String,
+    /// The `chunk_index` field.
     pub chunk_index: i32,
+    /// The `uploaded_chunks` field.
     pub uploaded_chunks: i32,
+    /// The `total_chunks` field.
     pub total_chunks: i32,
+    /// The `uploaded_size` field.
     pub uploaded_size: i64,
+    /// The `status` field.
     pub status: String,
 }
 
+/// The `CompletedUploadData` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompletedUploadData {
+    /// The `filename` field.
     pub filename: Option<String>,
+    /// The `content_type` field.
     pub content_type: Option<String>,
+    /// The `data` field.
     pub data: Vec<u8>,
 }
 
+/// The `CreateChunkedUploadRequest` struct.
 #[derive(Debug, Clone)]
 pub struct CreateChunkedUploadRequest {
+    /// The `upload_id` field.
     pub upload_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `filename` field.
     pub filename: Option<String>,
+    /// The `content_type` field.
     pub content_type: Option<String>,
+    /// The `total_size` field.
     pub total_size: Option<i64>,
+    /// The `total_chunks` field.
     pub total_chunks: i32,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: i64,
 }
 
+/// The `StoreUploadChunkRequest` struct.
 #[derive(Debug, Clone)]
 pub struct StoreUploadChunkRequest {
+    /// The `upload_id` field.
     pub upload_id: String,
+    /// The `chunk_index` field.
     pub chunk_index: i32,
+    /// The `chunk_data` field.
     pub chunk_data: Vec<u8>,
+    /// The `chunk_size` field.
     pub chunk_size: i64,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
 // ── Trait ───────────────────────────────────────────────────────────────
 
+/// The `ChunkedUploadStoreApi` trait.
 #[async_trait]
 pub trait ChunkedUploadStoreApi: Send + Sync {
+    /// See [`create_upload`].
     async fn create_upload(&self, request: CreateChunkedUploadRequest) -> Result<(), ApiError>;
 
+    /// See [`store_chunk`].
     async fn store_chunk(&self, request: StoreUploadChunkRequest) -> Result<(), ApiError>;
 
+    /// See [`increment_upload_progress`].
     async fn increment_upload_progress(&self, upload_id: &str, chunk_size: i64, now_ts: i64) -> Result<(), ApiError>;
 
+    /// See [`get_progress`].
     async fn get_progress(&self, upload_id: &str) -> Result<Option<UploadProgress>, ApiError>;
 
+    /// See [`load_chunk_data`].
     async fn load_chunk_data(&self, upload_id: &str) -> Result<Vec<Vec<u8>>, ApiError>;
 
+    /// See [`finalize_upload`].
     async fn finalize_upload(&self, upload_id: &str, now_ts: i64) -> Result<(), ApiError>;
 
+    /// See [`delete_upload`].
     async fn delete_upload(&self, upload_id: &str) -> Result<(), ApiError>;
 
+    /// See [`list_expired_upload_ids`].
     async fn list_expired_upload_ids(&self, now_ts: i64) -> Result<Vec<String>, ApiError>;
 
+    /// See [`list_user_uploads`].
     async fn list_user_uploads(&self, user_id: &str) -> Result<Vec<UploadProgress>, ApiError>;
 
+    /// See [`cleanup_expired`].
     async fn cleanup_expired(&self) -> Result<u64, ApiError>;
 }
 
+/// The `ChunkedUploadStorage` struct.
 #[derive(Clone)]
 pub struct ChunkedUploadStorage {
     pool: PgPool,
 }
 
 impl ChunkedUploadStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: (**pool).clone() }
     }
 
+    /// See [`create_upload`].
+    /// See [`create_upload`].
     pub async fn create_upload(&self, request: CreateChunkedUploadRequest) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -129,6 +192,8 @@ impl ChunkedUploadStorage {
         Ok(())
     }
 
+    /// See [`store_chunk`].
+    /// See [`store_chunk`].
     pub async fn store_chunk(&self, request: StoreUploadChunkRequest) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -151,6 +216,7 @@ impl ChunkedUploadStorage {
         Ok(())
     }
 
+    /// See [`increment_upload_progress`].
     pub async fn increment_upload_progress(
         &self,
         upload_id: &str,
@@ -177,6 +243,8 @@ impl ChunkedUploadStorage {
         Ok(())
     }
 
+    /// See [`get_progress`].
+    /// See [`get_progress`].
     pub async fn get_progress(&self, upload_id: &str) -> Result<Option<UploadProgress>, ApiError> {
         sqlx::query_as::<_, UploadProgress>(
             "SELECT upload_id, user_id, filename, content_type, total_size, uploaded_size, total_chunks, uploaded_chunks, status, created_ts, updated_ts, expires_at FROM upload_progress WHERE upload_id = $1",
@@ -187,6 +255,8 @@ impl ChunkedUploadStorage {
         .map_err(|e| ApiError::internal_with_context("Failed to get progress", &e))
     }
 
+    /// See [`load_chunk_data`].
+    /// See [`load_chunk_data`].
     pub async fn load_chunk_data(&self, upload_id: &str) -> Result<Vec<Vec<u8>>, ApiError> {
         let rows = sqlx::query("SELECT chunk_data FROM upload_chunks WHERE upload_id = $1 ORDER BY chunk_index")
             .bind(upload_id)
@@ -197,6 +267,8 @@ impl ChunkedUploadStorage {
         Ok(rows.into_iter().map(|row| sqlx::Row::get::<Vec<u8>, _>(&row, "chunk_data")).collect())
     }
 
+    /// See [`finalize_upload`].
+    /// See [`finalize_upload`].
     pub async fn finalize_upload(&self, upload_id: &str, now_ts: i64) -> Result<(), ApiError> {
         let mut tx = self
             .pool
@@ -228,6 +300,8 @@ impl ChunkedUploadStorage {
         Ok(())
     }
 
+    /// See [`delete_upload`].
+    /// See [`delete_upload`].
     pub async fn delete_upload(&self, upload_id: &str) -> Result<(), ApiError> {
         let mut tx = self
             .pool
@@ -252,6 +326,8 @@ impl ChunkedUploadStorage {
         Ok(())
     }
 
+    /// See [`list_expired_upload_ids`].
+    /// See [`list_expired_upload_ids`].
     pub async fn list_expired_upload_ids(&self, now_ts: i64) -> Result<Vec<String>, ApiError> {
         sqlx::query_scalar("SELECT upload_id FROM upload_progress WHERE expires_at < $1")
             .bind(now_ts)
@@ -260,6 +336,8 @@ impl ChunkedUploadStorage {
             .map_err(|e| ApiError::internal_with_context("Failed to find expired uploads", &e))
     }
 
+    /// See [`list_user_uploads`].
+    /// See [`list_user_uploads`].
     pub async fn list_user_uploads(&self, user_id: &str) -> Result<Vec<UploadProgress>, ApiError> {
         sqlx::query_as::<_, UploadProgress>(
             "SELECT upload_id, user_id, filename, content_type, total_size, uploaded_size, total_chunks, uploaded_chunks, status, created_ts, updated_ts, expires_at FROM upload_progress WHERE user_id = $1 AND status != 'finalized' ORDER BY created_ts DESC",

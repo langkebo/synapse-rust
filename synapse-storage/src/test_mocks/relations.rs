@@ -19,6 +19,8 @@ pub struct InMemoryRelationsStore {
 }
 
 impl InMemoryRelationsStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self {
             relations: Arc::new(tokio::sync::RwLock::new(Vec::new())),

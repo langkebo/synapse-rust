@@ -4,6 +4,7 @@ use super::models::{CreateEventParams, RoomEvent};
 use super::EventStorage;
 
 impl EventStorage {
+    /// See [`create_event`].
     pub async fn create_event(
         &self,
         params: CreateEventParams,
@@ -279,6 +280,7 @@ impl EventStorage {
         Ok(event)
     }
 
+    /// See [`upsert_power_levels_event`].
     pub async fn upsert_power_levels_event(
         &self,
         event_id: &str,
@@ -306,6 +308,8 @@ impl EventStorage {
         Ok(())
     }
 
+    /// See [`get_room_create_event`].
+    /// See [`get_room_create_event`].
     pub async fn get_room_create_event(&self, room_id: &str) -> Result<Option<RoomEvent>, sqlx::Error> {
         sqlx::query_as::<_, RoomEvent>(
             r"

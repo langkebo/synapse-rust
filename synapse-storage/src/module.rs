@@ -39,272 +39,450 @@ mod cursor_tests {
     }
 }
 
+/// The `Module` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Module {
+    /// The `id` field.
     pub id: i64,
+    /// The `module_name` field.
     pub module_name: String,
+    /// The `module_type` field.
     pub module_type: String,
+    /// The `version` field.
     pub version: String,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `priority` field.
     pub priority: i32,
+    /// The `config` field.
     pub config: Option<serde_json::Value>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
+    /// The `last_executed_ts` field.
     pub last_executed_ts: Option<i64>,
+    /// The `execution_count` field.
     pub execution_count: i32,
+    /// The `error_count` field.
     pub error_count: i32,
+    /// The `last_error` field.
     pub last_error: Option<String>,
 }
 
+/// The `CreateModuleRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateModuleRequest {
+    /// The `module_name` field.
     pub module_name: String,
+    /// The `module_type` field.
     pub module_type: String,
+    /// The `version` field.
     pub version: String,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `is_enabled` field.
     pub is_enabled: Option<bool>,
+    /// The `priority` field.
     pub priority: Option<i32>,
+    /// The `config` field.
     pub config: Option<serde_json::Value>,
 }
 
+/// The `SpamCheckResult` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct SpamCheckResult {
+    /// The `id` field.
     pub id: i64,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `content` field.
     pub content: Option<serde_json::Value>,
+    /// The `result` field.
     pub result: String,
+    /// The `score` field.
     pub score: i32,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `checker_module` field.
     pub checker_module: String,
+    /// The `checked_ts` field.
     pub checked_ts: i64,
+    /// The `action_taken` field.
     pub action_taken: Option<String>,
 }
 
+/// The `CreateSpamCheckRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSpamCheckRequest {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `result` field.
     pub result: String,
+    /// The `score` field.
     pub score: Option<i32>,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `checker_module` field.
     pub checker_module: String,
+    /// The `action_taken` field.
     pub action_taken: Option<String>,
 }
 
+/// The `ThirdPartyRuleResult` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ThirdPartyRuleResult {
+    /// The `id` field.
     pub id: i64,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `rule_name` field.
     pub rule_name: String,
     #[serde(rename = "allowed")]
     #[sqlx(rename = "is_allowed")]
+    /// The `is_allowed` field.
     pub is_allowed: bool,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `modified_content` field.
     pub modified_content: Option<serde_json::Value>,
+    /// The `checked_ts` field.
     pub checked_ts: i64,
 }
 
+/// The `CreateThirdPartyRuleRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateThirdPartyRuleRequest {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `rule_name` field.
     pub rule_name: String,
     #[serde(rename = "allowed")]
+    /// The `is_allowed` field.
     pub is_allowed: bool,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `modified_content` field.
     pub modified_content: Option<serde_json::Value>,
 }
 
+/// The `ModuleExecutionLog` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ModuleExecutionLog {
+    /// The `id` field.
     pub id: i64,
+    /// The `module_name` field.
     pub module_name: String,
+    /// The `module_type` field.
     pub module_type: String,
+    /// The `event_id` field.
     pub event_id: Option<String>,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `execution_time_ms` field.
     pub execution_time_ms: Option<i64>,
+    /// The `is_success` field.
     pub is_success: bool,
+    /// The `error_message` field.
     pub error_message: Option<String>,
+    /// The `metadata` field.
     pub metadata: Option<serde_json::Value>,
+    /// The `executed_ts` field.
     pub executed_ts: i64,
 }
 
+/// The `CreateExecutionLogRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateExecutionLogRequest {
+    /// The `module_name` field.
     pub module_name: String,
+    /// The `module_type` field.
     pub module_type: String,
+    /// The `event_id` field.
     pub event_id: Option<String>,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `execution_time_ms` field.
     pub execution_time_ms: i64,
+    /// The `is_success` field.
     pub is_success: bool,
+    /// The `error_message` field.
     pub error_message: Option<String>,
+    /// The `metadata` field.
     pub metadata: Option<serde_json::Value>,
 }
 
+/// The `AccountValidity` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AccountValidity {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `expiration_at` field.
     pub expiration_at: Option<i64>,
+    /// The `last_check_at` field.
     pub last_check_at: Option<i64>,
+    /// The `renewal_token` field.
     pub renewal_token: Option<String>,
     /// 内存中的临时状态，不持久化到数据库。记录 renewal_token 的生成时间，
     /// 用于判断 token 是否过期，服务重启后会丢失。
     #[sqlx(skip)]
+    /// The `renewal_token_ts` field.
     pub renewal_token_ts: Option<i64>,
+    /// The `is_valid` field.
     pub is_valid: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
+/// The `CreateAccountValidityRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateAccountValidityRequest {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `expiration_at` field.
     pub expiration_at: i64,
+    /// The `is_valid` field.
     pub is_valid: Option<bool>,
 }
 
+/// The `PasswordAuthProvider` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PasswordAuthProvider {
+    /// The `id` field.
     pub id: i64,
+    /// The `provider_name` field.
     pub provider_name: String,
+    /// The `provider_type` field.
     pub provider_type: String,
+    /// The `config` field.
     pub config: Option<serde_json::Value>,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `priority` field.
     pub priority: i32,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
+/// The `CreatePasswordAuthProviderRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatePasswordAuthProviderRequest {
+    /// The `provider_name` field.
     pub provider_name: String,
+    /// The `provider_type` field.
     pub provider_type: String,
+    /// The `config` field.
     pub config: serde_json::Value,
+    /// The `is_enabled` field.
     pub is_enabled: Option<bool>,
+    /// The `priority` field.
     pub priority: Option<i32>,
 }
 
+/// The `MediaCallback` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct MediaCallback {
+    /// The `id` field.
     pub id: i64,
+    /// The `callback_type` field.
     pub callback_type: String,
+    /// The `media_id` field.
     pub media_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `status` field.
     pub status: String,
+    /// The `result` field.
     pub result: Option<serde_json::Value>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `completed_ts` field.
     pub completed_ts: Option<i64>,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
 }
 
+/// The `CreateMediaCallbackRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateMediaCallbackRequest {
+    /// The `callback_name` field.
     pub callback_name: String,
+    /// The `callback_type` field.
     pub callback_type: String,
+    /// The `url` field.
     pub url: String,
+    /// The `method` field.
     pub method: Option<String>,
+    /// The `headers` field.
     pub headers: Option<serde_json::Value>,
+    /// The `is_enabled` field.
     pub is_enabled: Option<bool>,
+    /// The `timeout_ms` field.
     pub timeout_ms: Option<i32>,
+    /// The `retry_count` field.
     pub retry_count: Option<i32>,
 }
 
+/// The `AccountDataCallback` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AccountDataCallback {
+    /// The `id` field.
     pub id: i64,
+    /// The `callback_name` field.
     pub callback_name: String,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `data_types` field.
     pub data_types: Option<Vec<String>>,
+    /// The `config` field.
     pub config: Option<serde_json::Value>,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
+/// The `CreateAccountDataCallbackRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateAccountDataCallbackRequest {
+    /// The `callback_name` field.
     pub callback_name: String,
+    /// The `config` field.
     pub config: serde_json::Value,
+    /// The `is_enabled` field.
     pub is_enabled: Option<bool>,
+    /// The `data_types` field.
     pub data_types: Option<Vec<String>>,
 }
 
+/// The `ModuleStorage` struct.
 #[derive(Clone)]
 pub struct ModuleStorage {
     pool: Arc<PgPool>,
 }
 
+/// The `ModuleStoreApi` trait.
 #[async_trait]
 pub trait ModuleStoreApi: Send + Sync {
+    /// See [`register_module`].
     async fn register_module(&self, request: CreateModuleRequest) -> Result<Module, sqlx::Error>;
+    /// See [`get_module`].
     async fn get_module(&self, module_name: &str) -> Result<Option<Module>, sqlx::Error>;
+    /// See [`get_modules_by_type`].
     async fn get_modules_by_type(&self, module_type: &str) -> Result<Vec<Module>, sqlx::Error>;
+    /// See [`get_all_modules`].
     async fn get_all_modules(
         &self,
         limit: i64,
         from: Option<String>,
     ) -> Result<(Vec<Module>, Option<String>), sqlx::Error>;
+    /// See [`update_module_config`].
     async fn update_module_config(&self, module_name: &str, config: serde_json::Value) -> Result<Module, sqlx::Error>;
+    /// See [`enable_module`].
     async fn enable_module(&self, module_name: &str, is_enabled: bool) -> Result<Module, sqlx::Error>;
+    /// See [`delete_module`].
     async fn delete_module(&self, module_name: &str) -> Result<(), sqlx::Error>;
+    /// See [`record_execution`].
     async fn record_execution(&self, module_name: &str, success: bool, error: Option<&str>) -> Result<(), sqlx::Error>;
+    /// See [`create_spam_check_result`].
     async fn create_spam_check_result(&self, request: CreateSpamCheckRequest) -> Result<SpamCheckResult, sqlx::Error>;
+    /// See [`get_spam_check_result`].
     async fn get_spam_check_result(&self, event_id: &str) -> Result<Option<SpamCheckResult>, sqlx::Error>;
+    /// See [`get_spam_check_results_by_sender`].
     async fn get_spam_check_results_by_sender(
         &self,
         sender: &str,
         limit: i64,
     ) -> Result<Vec<SpamCheckResult>, sqlx::Error>;
+    /// See [`create_third_party_rule_result`].
     async fn create_third_party_rule_result(
         &self,
         request: CreateThirdPartyRuleRequest,
     ) -> Result<ThirdPartyRuleResult, sqlx::Error>;
+    /// See [`get_third_party_rule_results`].
     async fn get_third_party_rule_results(&self, event_id: &str) -> Result<Vec<ThirdPartyRuleResult>, sqlx::Error>;
+    /// See [`create_execution_log`].
     async fn create_execution_log(&self, request: CreateExecutionLogRequest)
         -> Result<ModuleExecutionLog, sqlx::Error>;
+    /// See [`get_execution_logs`].
     async fn get_execution_logs(&self, module_name: &str, limit: i64) -> Result<Vec<ModuleExecutionLog>, sqlx::Error>;
+    /// See [`create_account_validity`].
     async fn create_account_validity(
         &self,
         request: CreateAccountValidityRequest,
     ) -> Result<AccountValidity, sqlx::Error>;
+    /// See [`get_account_validity`].
     async fn get_account_validity(&self, user_id: &str) -> Result<Option<AccountValidity>, sqlx::Error>;
+    /// See [`renew_account`].
     async fn renew_account(
         &self,
         user_id: &str,
         renewal_token: &str,
         new_expiration_at: i64,
     ) -> Result<AccountValidity, sqlx::Error>;
+    /// See [`set_renewal_token`].
     async fn set_renewal_token(&self, user_id: &str, token: &str) -> Result<(), sqlx::Error>;
+    /// See [`get_expired_accounts`].
     async fn get_expired_accounts(&self, before_ts: i64) -> Result<Vec<AccountValidity>, sqlx::Error>;
+    /// See [`create_password_auth_provider`].
     async fn create_password_auth_provider(
         &self,
         _request: CreatePasswordAuthProviderRequest,
     ) -> Result<PasswordAuthProvider, sqlx::Error>;
+    /// See [`get_password_auth_providers`].
     async fn get_password_auth_providers(&self) -> Result<Vec<PasswordAuthProvider>, sqlx::Error>;
+    /// See [`create_media_callback`].
     async fn create_media_callback(&self, request: CreateMediaCallbackRequest) -> Result<MediaCallback, sqlx::Error>;
+    /// See [`get_media_callbacks`].
     async fn get_media_callbacks(&self, callback_type: Option<&str>) -> Result<Vec<MediaCallback>, sqlx::Error>;
+    /// See [`create_account_data_callback`].
     async fn create_account_data_callback(
         &self,
         request: CreateAccountDataCallbackRequest,
     ) -> Result<AccountDataCallback, sqlx::Error>;
+    /// See [`get_account_data_callbacks`].
     async fn get_account_data_callbacks(&self) -> Result<Vec<AccountDataCallback>, sqlx::Error>;
 }
 
 impl ModuleStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`register_module`].
+    /// See [`register_module`].
     #[instrument(skip(self))]
     pub async fn register_module(&self, request: CreateModuleRequest) -> Result<Module, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -333,6 +511,8 @@ impl ModuleStorage {
         Ok(row)
     }
 
+    /// See [`get_module`].
+    /// See [`get_module`].
     #[instrument(skip(self))]
     pub async fn get_module(&self, module_name: &str) -> Result<Option<Module>, sqlx::Error> {
         let row = sqlx::query_as::<_, Module>("SELECT id, module_name, module_type, version, description, is_enabled, priority, config, created_ts, updated_ts, last_executed_ts, execution_count, error_count, last_error FROM modules WHERE module_name = $1")
@@ -343,6 +523,8 @@ impl ModuleStorage {
         Ok(row)
     }
 
+    /// See [`get_modules_by_type`].
+    /// See [`get_modules_by_type`].
     #[instrument(skip(self))]
     pub async fn get_modules_by_type(&self, module_type: &str) -> Result<Vec<Module>, sqlx::Error> {
         let rows = sqlx::query_as::<_, Module>(
@@ -355,6 +537,7 @@ impl ModuleStorage {
         Ok(rows)
     }
 
+    /// See [`get_all_modules`].
     #[instrument(skip(self))]
     pub async fn get_all_modules(
         &self,
@@ -390,6 +573,7 @@ impl ModuleStorage {
         Ok((rows, next_from))
     }
 
+    /// See [`update_module_config`].
     #[instrument(skip(self))]
     pub async fn update_module_config(
         &self,
@@ -411,6 +595,8 @@ impl ModuleStorage {
         Ok(row)
     }
 
+    /// See [`enable_module`].
+    /// See [`enable_module`].
     #[instrument(skip(self))]
     pub async fn enable_module(&self, module_name: &str, is_enabled: bool) -> Result<Module, sqlx::Error> {
         let row = sqlx::query_as::<_, Module>(
@@ -428,6 +614,8 @@ impl ModuleStorage {
         Ok(row)
     }
 
+    /// See [`delete_module`].
+    /// See [`delete_module`].
     #[instrument(skip(self))]
     pub async fn delete_module(&self, module_name: &str) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM modules WHERE module_name = $1").bind(module_name).execute(&*self.pool).await?;
@@ -436,6 +624,7 @@ impl ModuleStorage {
         Ok(())
     }
 
+    /// See [`record_execution`].
     #[instrument(skip(self))]
     pub async fn record_execution(
         &self,
@@ -465,6 +654,7 @@ impl ModuleStorage {
         Ok(())
     }
 
+    /// See [`create_spam_check_result`].
     #[instrument(skip(self))]
     pub async fn create_spam_check_result(
         &self,
@@ -501,6 +691,8 @@ impl ModuleStorage {
         Ok(row)
     }
 
+    /// See [`get_spam_check_result`].
+    /// See [`get_spam_check_result`].
     #[instrument(skip(self))]
     pub async fn get_spam_check_result(&self, event_id: &str) -> Result<Option<SpamCheckResult>, sqlx::Error> {
         sqlx::query_as::<_, SpamCheckResult>(
@@ -518,6 +710,7 @@ impl ModuleStorage {
         .await
     }
 
+    /// See [`get_spam_check_results_by_sender`].
     #[instrument(skip(self))]
     pub async fn get_spam_check_results_by_sender(
         &self,
@@ -540,6 +733,7 @@ impl ModuleStorage {
         .await
     }
 
+    /// See [`create_third_party_rule_result`].
     #[instrument(skip(self))]
     pub async fn create_third_party_rule_result(
         &self,
@@ -573,6 +767,8 @@ impl ModuleStorage {
         Ok(row)
     }
 
+    /// See [`get_third_party_rule_results`].
+    /// See [`get_third_party_rule_results`].
     #[instrument(skip(self))]
     pub async fn get_third_party_rule_results(&self, event_id: &str) -> Result<Vec<ThirdPartyRuleResult>, sqlx::Error> {
         sqlx::query_as::<_, ThirdPartyRuleResult>(
@@ -589,6 +785,7 @@ impl ModuleStorage {
         .await
     }
 
+    /// See [`create_execution_log`].
     #[instrument(skip(self))]
     pub async fn create_execution_log(
         &self,
@@ -620,6 +817,7 @@ impl ModuleStorage {
         Ok(row)
     }
 
+    /// See [`get_execution_logs`].
     #[instrument(skip(self))]
     pub async fn get_execution_logs(
         &self,
@@ -641,6 +839,7 @@ impl ModuleStorage {
         Ok(rows)
     }
 
+    /// See [`create_account_validity`].
     #[instrument(skip(self))]
     pub async fn create_account_validity(
         &self,
@@ -676,6 +875,8 @@ impl ModuleStorage {
         Ok(row)
     }
 
+    /// See [`get_account_validity`].
+    /// See [`get_account_validity`].
     #[instrument(skip(self))]
     pub async fn get_account_validity(&self, user_id: &str) -> Result<Option<AccountValidity>, sqlx::Error> {
         let row = sqlx::query_as::<_, AccountValidity>(
@@ -699,6 +900,7 @@ impl ModuleStorage {
         Ok(row)
     }
 
+    /// See [`renew_account`].
     #[instrument(skip(self))]
     pub async fn renew_account(
         &self,
@@ -732,6 +934,8 @@ impl ModuleStorage {
         row.ok_or_else(|| sqlx::Error::RowNotFound)
     }
 
+    /// See [`set_renewal_token`].
+    /// See [`set_renewal_token`].
     #[instrument(skip(self))]
     pub async fn set_renewal_token(&self, user_id: &str, token: &str) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE account_validity SET renewal_token = $2 WHERE user_id = $1")
@@ -743,6 +947,8 @@ impl ModuleStorage {
         Ok(())
     }
 
+    /// See [`get_expired_accounts`].
+    /// See [`get_expired_accounts`].
     #[instrument(skip(self))]
     pub async fn get_expired_accounts(&self, before_ts: i64) -> Result<Vec<AccountValidity>, sqlx::Error> {
         let rows = sqlx::query_as::<_, AccountValidity>(
@@ -766,6 +972,7 @@ impl ModuleStorage {
         Ok(rows)
     }
 
+    /// See [`create_password_auth_provider`].
     #[instrument(skip(self))]
     pub async fn create_password_auth_provider(
         &self,
@@ -774,11 +981,14 @@ impl ModuleStorage {
         Err(sqlx::Error::RowNotFound)
     }
 
+    /// See [`get_password_auth_providers`].
+    /// See [`get_password_auth_providers`].
     #[instrument(skip(self))]
     pub async fn get_password_auth_providers(&self) -> Result<Vec<PasswordAuthProvider>, sqlx::Error> {
         Ok(vec![])
     }
 
+    /// See [`create_media_callback`].
     #[instrument(skip(self))]
     pub async fn create_media_callback(
         &self,
@@ -810,6 +1020,8 @@ impl ModuleStorage {
         Ok(row)
     }
 
+    /// See [`get_media_callbacks`].
+    /// See [`get_media_callbacks`].
     #[instrument(skip(self))]
     pub async fn get_media_callbacks(&self, callback_type: Option<&str>) -> Result<Vec<MediaCallback>, sqlx::Error> {
         let rows = if let Some(cb_type) = callback_type {
@@ -828,6 +1040,7 @@ impl ModuleStorage {
         Ok(rows)
     }
 
+    /// See [`create_account_data_callback`].
     #[instrument(skip(self))]
     pub async fn create_account_data_callback(
         &self,
@@ -855,6 +1068,8 @@ impl ModuleStorage {
         Ok(row)
     }
 
+    /// See [`get_account_data_callbacks`].
+    /// See [`get_account_data_callbacks`].
     #[instrument(skip(self))]
     pub async fn get_account_data_callbacks(&self) -> Result<Vec<AccountDataCallback>, sqlx::Error> {
         let rows = sqlx::query_as::<_, AccountDataCallback>(

@@ -1,3 +1,4 @@
+/// The `api` module.
 pub(crate) mod api;
 
 pub use api::MemberStoreApi;
@@ -8,46 +9,73 @@ use std::sync::Arc;
 use synapse_common::crypto::generate_event_id;
 use synapse_common::current_timestamp_millis;
 
+/// The `RoomMember` struct.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct RoomMember {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `sender` field.
     pub sender: Option<String>,
+    /// The `membership` field.
     pub membership: String,
+    /// The `event_id` field.
     pub event_id: Option<String>,
+    /// The `event_type` field.
     pub event_type: Option<String>,
+    /// The `display_name` field.
     pub display_name: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `is_banned` field.
     pub is_banned: Option<bool>,
+    /// The `invite_token` field.
     pub invite_token: Option<String>,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
+    /// The `joined_ts` field.
     pub joined_ts: Option<i64>,
+    /// The `left_ts` field.
     pub left_ts: Option<i64>,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `banned_by` field.
     pub banned_by: Option<String>,
+    /// The `ban_reason` field.
     pub ban_reason: Option<String>,
+    /// The `banned_ts` field.
     pub banned_ts: Option<i64>,
+    /// The `join_reason` field.
     pub join_reason: Option<String>,
 }
 
+/// The `UserRoomMembership` struct.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct UserRoomMembership {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `membership` field.
     pub membership: String,
 }
 
+/// The `RoomMemberStorage` struct.
 #[derive(Clone)]
 pub struct RoomMemberStorage {
+    /// The `pool` field.
     pub pool: Arc<Pool<Postgres>>,
     /// 服务器名称，用于生成事件 ID
     pub server_name: String,
 }
 
 impl RoomMemberStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>, server_name: &str) -> Self {
         Self { pool: pool.clone(), server_name: server_name.to_string() }
     }
 
+    /// See [`add_member`].
     #[allow(clippy::too_many_arguments)]
     pub async fn add_member(
         &self,
@@ -115,6 +143,8 @@ impl RoomMemberStorage {
         }
     }
 
+    /// See [`get_member`].
+    /// See [`get_member`].
     pub async fn get_member(&self, room_id: &str, user_id: &str) -> Result<Option<RoomMember>, sqlx::Error> {
         sqlx::query_as::<_, RoomMember>(
             r"
@@ -128,6 +158,8 @@ impl RoomMemberStorage {
         .await
     }
 
+    /// See [`get_room_members`].
+    /// See [`get_room_members`].
     pub async fn get_room_members(&self, room_id: &str, membership_type: &str) -> Result<Vec<RoomMember>, sqlx::Error> {
         sqlx::query_as::<_, RoomMember>(
             r"
@@ -168,6 +200,8 @@ impl RoomMemberStorage {
         Ok(exists.unwrap_or(false))
     }
 
+    /// See [`get_room_member_count`].
+    /// See [`get_room_member_count`].
     pub async fn get_room_member_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
         let count = sqlx::query_scalar::<_, i64>(
             r"
@@ -180,6 +214,7 @@ impl RoomMemberStorage {
         Ok(count)
     }
 
+    /// See [`get_room_members_paginated`].
     pub async fn get_room_members_paginated(
         &self,
         room_id: &str,
@@ -282,6 +317,8 @@ impl RoomMemberStorage {
         Ok(())
     }
 
+    /// See [`is_forgotten`].
+    /// See [`is_forgotten`].
     pub async fn is_forgotten(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_scalar::<_, i32>(
             r#"
@@ -297,6 +334,8 @@ impl RoomMemberStorage {
         Ok(result.is_some())
     }
 
+    /// See [`get_shared_room_users`].
+    /// See [`get_shared_room_users`].
     pub async fn get_shared_room_users(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
         sqlx::query_scalar::<_, String>(
             r"
@@ -313,6 +352,8 @@ impl RoomMemberStorage {
         .await
     }
 
+    /// See [`remove_all_members`].
+    /// See [`remove_all_members`].
     pub async fn remove_all_members(&self, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -325,6 +366,8 @@ impl RoomMemberStorage {
         Ok(())
     }
 
+    /// See [`ban_member`].
+    /// See [`ban_member`].
     pub async fn ban_member(&self, room_id: &str, user_id: &str, banned_by: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -343,6 +386,8 @@ impl RoomMemberStorage {
         Ok(())
     }
 
+    /// See [`unban_member`].
+    /// See [`unban_member`].
     pub async fn unban_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -357,6 +402,8 @@ impl RoomMemberStorage {
         Ok(())
     }
 
+    /// See [`get_joined_rooms`].
+    /// See [`get_joined_rooms`].
     pub async fn get_joined_rooms(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows: Vec<String> = sqlx::query_scalar::<_, String>(
             r"
@@ -401,6 +448,7 @@ impl RoomMemberStorage {
         Ok(rows)
     }
 
+    /// See [`get_sync_rooms`].
     pub async fn get_sync_rooms(
         &self,
         user_id: &str,
@@ -435,6 +483,8 @@ impl RoomMemberStorage {
         Ok(memberships)
     }
 
+    /// See [`get_membership_state`].
+    /// See [`get_membership_state`].
     pub async fn get_membership_state(&self, room_id: &str, user_id: &str) -> Result<Option<String>, sqlx::Error> {
         let result: Option<(String,)> = sqlx::query_as(
             r"
@@ -448,6 +498,8 @@ impl RoomMemberStorage {
         Ok(result.map(|r| r.0))
     }
 
+    /// See [`get_joined_room_count`].
+    /// See [`get_joined_room_count`].
     pub async fn get_joined_room_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {
         let count = sqlx::query_scalar::<_, i64>(
             r"
@@ -460,6 +512,8 @@ impl RoomMemberStorage {
         Ok(count)
     }
 
+    /// See [`is_member`].
+    /// See [`is_member`].
     pub async fn is_member(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_scalar::<_, i32>(
             r#"
@@ -473,6 +527,8 @@ impl RoomMemberStorage {
         Ok(result.is_some())
     }
 
+    /// See [`get_room_member`].
+    /// See [`get_room_member`].
     pub async fn get_room_member(&self, room_id: &str, user_id: &str) -> Result<Option<RoomMember>, sqlx::Error> {
         let result = sqlx::query_as::<_, RoomMember>(
             r"
@@ -510,6 +566,8 @@ impl RoomMemberStorage {
         Ok(members.into_iter().map(|m| (m.user_id.clone(), m)).collect())
     }
 
+    /// See [`get_joined_members`].
+    /// See [`get_joined_members`].
     pub async fn get_joined_members(&self, room_id: &str) -> Result<Vec<RoomMember>, sqlx::Error> {
         let members = sqlx::query_as::<_, RoomMember>(
             r"
@@ -523,6 +581,8 @@ impl RoomMemberStorage {
         Ok(members)
     }
 
+    /// See [`get_joined_member`].
+    /// See [`get_joined_member`].
     pub async fn get_joined_member(&self, room_id: &str, user_id: &str) -> Result<Option<RoomMember>, sqlx::Error> {
         let result = sqlx::query_as::<_, RoomMember>(
             r"
@@ -537,6 +597,8 @@ impl RoomMemberStorage {
         Ok(result)
     }
 
+    /// See [`share_common_room`].
+    /// See [`share_common_room`].
     pub async fn share_common_room(&self, user_id_1: &str, user_id_2: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_scalar::<_, i32>(
             r"
@@ -555,6 +617,7 @@ impl RoomMemberStorage {
         Ok(result.is_some())
     }
 
+    /// See [`share_common_rooms_batch`].
     pub async fn share_common_rooms_batch(
         &self,
         user_id: &str,
@@ -580,6 +643,8 @@ impl RoomMemberStorage {
         Ok(rows.into_iter().map(|(uid,)| uid).collect())
     }
 
+    /// See [`get_membership_history`].
+    /// See [`get_membership_history`].
     pub async fn get_membership_history(&self, room_id: &str, limit: i64) -> Result<Vec<RoomMember>, sqlx::Error> {
         let memberships = sqlx::query_as::<_, RoomMember>(
             r"
@@ -596,6 +661,7 @@ impl RoomMemberStorage {
         Ok(memberships)
     }
 
+    /// See [`get_joined_rooms_with_details`].
     pub async fn get_joined_rooms_with_details(
         &self,
         user_id: &str,
@@ -615,6 +681,7 @@ impl RoomMemberStorage {
         Ok(rows)
     }
 
+    /// See [`get_room_members_with_profiles`].
     pub async fn get_room_members_with_profiles(
         &self,
         room_id: &str,
@@ -667,6 +734,7 @@ impl RoomMemberStorage {
             .collect())
     }
 
+    /// See [`get_members_batch`].
     pub async fn get_members_batch(
         &self,
         room_ids: &[String],
@@ -700,6 +768,7 @@ impl RoomMemberStorage {
         Ok(result)
     }
 
+    /// See [`get_joined_members_batch`].
     pub async fn get_joined_members_batch(
         &self,
         room_ids: &[String],
@@ -707,6 +776,7 @@ impl RoomMemberStorage {
         self.get_members_batch(room_ids, "join").await
     }
 
+    /// See [`check_membership_batch`].
     pub async fn check_membership_batch(
         &self,
         room_id: &str,
@@ -792,6 +862,8 @@ impl RoomMemberStorage {
         Ok(rows.into_iter().collect())
     }
 
+    /// See [`set_ban_reason`].
+    /// See [`set_ban_reason`].
     pub async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -808,6 +880,8 @@ impl RoomMemberStorage {
         Ok(())
     }
 
+    /// See [`force_leave_membership`].
+    /// See [`force_leave_membership`].
     pub async fn force_leave_membership(&self, room_id: &str, user_id: &str, now: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"

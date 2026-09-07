@@ -5,10 +5,14 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
 impl EventStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>, server_name: String) -> Self {
         Self { pool: pool.clone(), server_name }
     }
 
+    /// See [`get_event`].
+    /// See [`get_event`].
     pub async fn get_event(&self, event_id: &str) -> Result<Option<RoomEvent>, sqlx::Error> {
         let event = sqlx::query_as::<_, RoomEvent>(
             r"
@@ -79,6 +83,8 @@ impl EventStorage {
         Ok(count)
     }
 
+    /// See [`get_room_events`].
+    /// See [`get_room_events`].
     pub async fn get_room_events(&self, room_id: &str, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {
         let events = sqlx::query_as(&format!(
             "SELECT {ROOM_EVENT_COLS}
@@ -94,6 +100,7 @@ impl EventStorage {
         Ok(events)
     }
 
+    /// See [`get_room_events_by_type`].
     pub async fn get_room_events_by_type(
         &self,
         room_id: &str,
@@ -115,6 +122,8 @@ impl EventStorage {
         Ok(events)
     }
 
+    /// See [`get_sender_events`].
+    /// See [`get_sender_events`].
     pub async fn get_sender_events(&self, user_id: &str, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {
         let events = sqlx::query_as(&format!(
             "SELECT {ROOM_EVENT_COLS}
@@ -130,6 +139,8 @@ impl EventStorage {
         Ok(events)
     }
 
+    /// See [`get_room_message_count`].
+    /// See [`get_room_message_count`].
     pub async fn get_room_message_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
         let count = sqlx::query_scalar::<_, i64>(
             r"
@@ -142,6 +153,8 @@ impl EventStorage {
         Ok(count)
     }
 
+    /// See [`get_total_message_count`].
+    /// See [`get_total_message_count`].
     pub async fn get_total_message_count(&self) -> Result<i64, sqlx::Error> {
         let count = sqlx::query_scalar::<_, i64>(
             r"
@@ -168,6 +181,8 @@ impl EventStorage {
         Ok(count)
     }
 
+    /// See [`delete_room_events`].
+    /// See [`delete_room_events`].
     pub async fn delete_room_events(&self, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -184,6 +199,8 @@ impl EventStorage {
     // Power levels
     // -----------------------------------------------------------------------
 
+    /// See [`count_room_events`].
+    /// See [`count_room_events`].
     pub async fn count_room_events(&self, room_id: &str) -> Result<i64, sqlx::Error> {
         let count = sqlx::query_scalar::<_, i64>(
             r"

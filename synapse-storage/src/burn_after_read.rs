@@ -3,51 +3,82 @@ use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `BurnSettingsRow` struct.
 #[derive(Debug, Clone, FromRow)]
 pub struct BurnSettingsRow {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `burn_after_ms` field.
     pub burn_after_ms: i64,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
 }
 
+/// The `BurnPendingRow` struct.
 #[derive(Debug, Clone, FromRow)]
 pub struct BurnPendingRow {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `delete_ts` field.
     pub delete_ts: i64,
+    /// The `is_processed` field.
     pub is_processed: bool,
 }
 
+/// The `BurnLogRow` struct.
 #[derive(Debug, Clone, FromRow)]
 pub struct BurnLogRow {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `burned_ts` field.
     pub burned_ts: i64,
 }
 
+/// The `BurnUserDefaultsRow` struct.
 #[derive(Debug, Clone, FromRow)]
 pub struct BurnUserDefaultsRow {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `default_burn_ms` field.
     pub default_burn_ms: i64,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
 }
 
+/// The `BurnStatsRow` struct.
 #[derive(Debug, Clone, FromRow)]
 pub struct BurnStatsRow {
+    /// The `total_burned` field.
     pub total_burned: i64,
+    /// The `total_pending` field.
     pub total_pending: i64,
+    /// The `rooms_enabled` field.
     pub rooms_enabled: i64,
 }
 
+/// The `BurnAfterReadStorage` struct.
 #[derive(Clone)]
 pub struct BurnAfterReadStorage {
     pool: Arc<PgPool>,
@@ -59,7 +90,9 @@ pub struct BurnAfterReadStorage {
 /// [`crate::test_mocks::InMemoryBurnAfterReadStore`] (in-memory).
 #[async_trait]
 pub trait BurnAfterReadStoreApi: Send + Sync {
+    /// See [`get_settings`].
     async fn get_settings(&self, user_id: &str, room_id: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error>;
+    /// See [`set_settings`].
     async fn set_settings(
         &self,
         user_id: &str,
@@ -67,6 +100,7 @@ pub trait BurnAfterReadStoreApi: Send + Sync {
         is_enabled: bool,
         burn_after_ms: i64,
     ) -> Result<BurnSettingsRow, sqlx::Error>;
+    /// See [`schedule_burn`].
     async fn schedule_burn(
         &self,
         user_id: &str,
@@ -74,13 +108,18 @@ pub trait BurnAfterReadStoreApi: Send + Sync {
         event_id: &str,
         delete_ts: i64,
     ) -> Result<BurnPendingRow, sqlx::Error>;
+    /// See [`cancel_burn`].
     async fn cancel_burn(&self, user_id: &str, room_id: &str, event_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`get_pending_burns`].
     async fn get_pending_burns(&self, user_id: &str, room_id: &str) -> Result<Vec<BurnPendingRow>, sqlx::Error>;
+    /// See [`get_expired_burns`].
     async fn get_expired_burns(&self, now_ms: i64) -> Result<Vec<BurnPendingRow>, sqlx::Error>;
+    /// See [`mark_burn_processed`].
     async fn mark_burn_processed(&self, id: i64) -> Result<(), sqlx::Error>;
     /// Atomically mark multiple burn records as processed in a single query.
     /// Succeeds if at least one row was updated; fails only on DB errors.
     async fn mark_burn_processed_batch(&self, ids: &[i64]) -> Result<(), sqlx::Error>;
+    /// See [`log_burned_event`].
     async fn log_burned_event(
         &self,
         user_id: &str,
@@ -91,16 +130,23 @@ pub trait BurnAfterReadStoreApi: Send + Sync {
     /// Batch-insert burned event log entries. Uses ON CONFLICT DO NOTHING so
     /// retries are safe even when some rows were already inserted.
     async fn log_burned_event_batch(&self, entries: &[(String, String, String, i64)]) -> Result<(), sqlx::Error>;
+    /// See [`get_user_stats`].
     async fn get_user_stats(&self, user_id: &str) -> Result<BurnStatsRow, sqlx::Error>;
+    /// See [`get_user_default`].
     async fn get_user_default(&self, user_id: &str) -> Result<Option<BurnUserDefaultsRow>, sqlx::Error>;
+    /// See [`set_user_default`].
     async fn set_user_default(&self, user_id: &str, default_burn_ms: i64) -> Result<(), sqlx::Error>;
 }
 
 impl BurnAfterReadStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`get_settings`].
+    /// See [`get_settings`].
     pub async fn get_settings(&self, user_id: &str, room_id: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error> {
         sqlx::query_as::<_, BurnSettingsRow>(
             r"
@@ -115,6 +161,7 @@ impl BurnAfterReadStorage {
         .await
     }
 
+    /// See [`set_settings`].
     pub async fn set_settings(
         &self,
         user_id: &str,
@@ -146,6 +193,7 @@ impl BurnAfterReadStorage {
         Ok(row)
     }
 
+    /// See [`schedule_burn`].
     pub async fn schedule_burn(
         &self,
         user_id: &str,
@@ -176,6 +224,8 @@ impl BurnAfterReadStorage {
         Ok(row)
     }
 
+    /// See [`cancel_burn`].
+    /// See [`cancel_burn`].
     pub async fn cancel_burn(&self, user_id: &str, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -193,6 +243,8 @@ impl BurnAfterReadStorage {
         Ok(())
     }
 
+    /// See [`get_pending_burns`].
+    /// See [`get_pending_burns`].
     pub async fn get_pending_burns(&self, user_id: &str, room_id: &str) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BurnPendingRow>(
             r"
@@ -210,6 +262,8 @@ impl BurnAfterReadStorage {
         Ok(rows)
     }
 
+    /// See [`get_expired_burns`].
+    /// See [`get_expired_burns`].
     pub async fn get_expired_burns(&self, now_ms: i64) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BurnPendingRow>(
             r"
@@ -226,6 +280,8 @@ impl BurnAfterReadStorage {
         Ok(rows)
     }
 
+    /// See [`mark_burn_processed`].
+    /// See [`mark_burn_processed`].
     pub async fn mark_burn_processed(&self, id: i64) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE burn_after_read_pending SET is_processed = TRUE WHERE id = $1 AND is_processed = FALSE")
             .bind(id)
@@ -235,6 +291,8 @@ impl BurnAfterReadStorage {
         Ok(())
     }
 
+    /// See [`mark_burn_processed_batch`].
+    /// See [`mark_burn_processed_batch`].
     pub async fn mark_burn_processed_batch(&self, ids: &[i64]) -> Result<(), sqlx::Error> {
         if ids.is_empty() {
             return Ok(());
@@ -248,6 +306,7 @@ impl BurnAfterReadStorage {
         Ok(())
     }
 
+    /// See [`log_burned_event`].
     pub async fn log_burned_event(
         &self,
         user_id: &str,
@@ -271,6 +330,8 @@ impl BurnAfterReadStorage {
         Ok(())
     }
 
+    /// See [`log_burned_event_batch`].
+    /// See [`log_burned_event_batch`].
     pub async fn log_burned_event_batch(&self, entries: &[(String, String, String, i64)]) -> Result<(), sqlx::Error> {
         if entries.is_empty() {
             return Ok(());
@@ -297,6 +358,8 @@ impl BurnAfterReadStorage {
         Ok(())
     }
 
+    /// See [`get_user_stats`].
+    /// See [`get_user_stats`].
     pub async fn get_user_stats(&self, user_id: &str) -> Result<BurnStatsRow, sqlx::Error> {
         let row = sqlx::query_as::<_, BurnStatsRow>(
             r"
@@ -313,6 +376,8 @@ impl BurnAfterReadStorage {
         Ok(row)
     }
 
+    /// See [`get_user_default`].
+    /// See [`get_user_default`].
     pub async fn get_user_default(&self, user_id: &str) -> Result<Option<BurnUserDefaultsRow>, sqlx::Error> {
         let row = sqlx::query_as::<_, BurnUserDefaultsRow>(
             r"
@@ -328,6 +393,8 @@ impl BurnAfterReadStorage {
         Ok(row)
     }
 
+    /// See [`set_user_default`].
+    /// See [`set_user_default`].
     pub async fn set_user_default(&self, user_id: &str, default_burn_ms: i64) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 

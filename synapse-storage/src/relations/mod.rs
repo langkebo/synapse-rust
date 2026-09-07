@@ -4,53 +4,86 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `EventRelation` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct EventRelation {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `relates_to_event_id` field.
     pub relates_to_event_id: String,
+    /// The `relation_type` field.
     pub relation_type: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `is_redacted` field.
     pub is_redacted: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
+/// The `CreateRelationParams` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateRelationParams {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `relates_to_event_id` field.
     pub relates_to_event_id: String,
+    /// The `relation_type` field.
     pub relation_type: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
+    /// The `content` field.
     pub content: serde_json::Value,
 }
 
+/// The `RelationQueryParams` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelationQueryParams {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `relates_to_event_id` field.
     pub relates_to_event_id: String,
+    /// The `relation_type` field.
     pub relation_type: Option<String>,
+    /// The `limit` field.
     pub limit: Option<i32>,
+    /// The `from` field.
     pub from: Option<String>,
+    /// The `direction` field.
     pub direction: Option<String>,
 }
 
+/// The `AggregationResult` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AggregationResult {
+    /// The `relation_type` field.
     pub relation_type: String,
+    /// The `key` field.
     pub key: Option<String>,
+    /// The `count` field.
     pub count: i64,
+    /// The `sender` field.
     pub sender: Option<String>,
 }
 
 // ── Trait ───────────────────────────────────────────────────────────────
 
+/// The `RelationsStoreApi` trait.
 #[async_trait]
 pub trait RelationsStoreApi: Send + Sync {
+    /// See [`create_relation`].
     async fn create_relation(&self, params: CreateRelationParams) -> Result<EventRelation, sqlx::Error>;
     /// DB-03-a: transactional variant of `create_relation` for use within a
     /// caller-managed transaction (e.g. `send_message` writes both an event
@@ -60,26 +93,33 @@ pub trait RelationsStoreApi: Send + Sync {
         params: CreateRelationParams,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ) -> Result<EventRelation, sqlx::Error>;
+    /// See [`get_relation`].
     async fn get_relation(&self, room_id: &str, event_id: &str) -> Result<Option<EventRelation>, sqlx::Error>;
+    /// See [`get_relations`].
     async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<EventRelation>, sqlx::Error>;
+    /// See [`count_relations`].
     async fn count_relations(
         &self,
         room_id: &str,
         relates_to_event_id: &str,
         relation_type: Option<&str>,
     ) -> Result<i64, sqlx::Error>;
+    /// See [`get_replacement`].
     async fn get_replacement(
         &self,
         room_id: &str,
         relates_to_event_id: &str,
         sender: &str,
     ) -> Result<Option<EventRelation>, sqlx::Error>;
+    /// See [`aggregate_annotations`].
     async fn aggregate_annotations(
         &self,
         room_id: &str,
         relates_to_event_id: &str,
     ) -> Result<Vec<AggregationResult>, sqlx::Error>;
+    /// See [`redact_relation`].
     async fn redact_relation(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`relation_exists`].
     async fn relation_exists(
         &self,
         room_id: &str,
@@ -89,16 +129,22 @@ pub trait RelationsStoreApi: Send + Sync {
     ) -> Result<bool, sqlx::Error>;
 }
 
+/// The `RelationsStorage` struct.
 #[derive(Clone)]
 pub struct RelationsStorage {
+    /// The `pool` field.
     pub pool: Arc<Pool<Postgres>>,
 }
 
 impl RelationsStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_relation`].
+    /// See [`create_relation`].
     pub async fn create_relation(&self, params: CreateRelationParams) -> Result<EventRelation, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -165,6 +211,8 @@ impl RelationsStorage {
         .await
     }
 
+    /// See [`get_relation`].
+    /// See [`get_relation`].
     pub async fn get_relation(&self, room_id: &str, event_id: &str) -> Result<Option<EventRelation>, sqlx::Error> {
         sqlx::query_as::<_, EventRelation>(
             r"
@@ -180,6 +228,7 @@ impl RelationsStorage {
         .await
     }
 
+    /// See [`count_relations`].
     pub async fn count_relations(
         &self,
         room_id: &str,
@@ -204,6 +253,8 @@ impl RelationsStorage {
         Ok(count.0)
     }
 
+    /// See [`get_relations`].
+    /// See [`get_relations`].
     pub async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<EventRelation>, sqlx::Error> {
         let limit = params.limit.unwrap_or(50).min(100);
         let direction = params.direction.as_deref().unwrap_or("f");
@@ -302,6 +353,7 @@ impl RelationsStorage {
         query
     }
 
+    /// See [`get_annotations`].
     pub async fn get_annotations(
         &self,
         room_id: &str,
@@ -329,6 +381,7 @@ impl RelationsStorage {
         .await
     }
 
+    /// See [`get_references`].
     pub async fn get_references(
         &self,
         room_id: &str,
@@ -356,6 +409,7 @@ impl RelationsStorage {
         .await
     }
 
+    /// See [`get_replacement`].
     pub async fn get_replacement(
         &self,
         room_id: &str,
@@ -382,6 +436,7 @@ impl RelationsStorage {
         .await
     }
 
+    /// See [`aggregate_annotations`].
     pub async fn aggregate_annotations(
         &self,
         room_id: &str,
@@ -408,6 +463,8 @@ impl RelationsStorage {
         .await
     }
 
+    /// See [`redact_relation`].
+    /// See [`redact_relation`].
     pub async fn redact_relation(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -424,6 +481,8 @@ impl RelationsStorage {
         Ok(())
     }
 
+    /// See [`delete_relation`].
+    /// See [`delete_relation`].
     pub async fn delete_relation(&self, room_id: &str, event_id: &str, sender: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r"
@@ -440,6 +499,7 @@ impl RelationsStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// See [`relation_exists`].
     pub async fn relation_exists(
         &self,
         room_id: &str,

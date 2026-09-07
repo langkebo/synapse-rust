@@ -17,101 +17,173 @@ fn escape_like_pattern(input: &str) -> String {
     input.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
+/// The `User` struct.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct User {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `username` field.
     pub username: String,
     #[serde(skip_serializing)]
+    /// The `password_hash` field.
     pub password_hash: Option<String>,
+    /// The `is_admin` field.
     pub is_admin: bool,
+    /// The `is_guest` field.
     pub is_guest: bool,
+    /// The `is_shadow_banned` field.
     pub is_shadow_banned: bool,
+    /// The `is_deactivated` field.
     pub is_deactivated: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
+    /// The `displayname` field.
     pub displayname: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `email` field.
     pub email: Option<String>,
+    /// The `phone` field.
     pub phone: Option<String>,
+    /// The `generation` field.
     pub generation: Option<i64>,
+    /// The `consent_version` field.
     pub consent_version: Option<String>,
+    /// The `appservice_id` field.
     pub appservice_id: Option<String>,
+    /// The `user_type` field.
     pub user_type: Option<String>,
+    /// The `invalid_update_at` field.
     pub invalid_update_at: Option<i64>,
+    /// The `migration_state` field.
     pub migration_state: Option<String>,
+    /// The `password_changed_ts` field.
     pub password_changed_ts: Option<i64>,
+    /// The `is_password_change_required` field.
     pub is_password_change_required: bool,
+    /// The `password_expires_at` field.
     pub password_expires_at: Option<i64>,
+    /// The `failed_login_attempts` field.
     pub failed_login_attempts: i32,
+    /// The `locked_until` field.
     pub locked_until: Option<i64>,
+    /// The `must_change_password` field.
     pub must_change_password: bool,
 }
 
 impl User {
+    /// See [`user_id`].
+    /// See [`user_id`].
     pub fn user_id(&self) -> String {
         self.user_id.clone()
     }
 }
 
+/// The `UserProfile` struct.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct UserProfile {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `username` field.
     pub username: String,
+    /// The `displayname` field.
     pub displayname: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
+/// The `UserSearchResult` struct.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct UserSearchResult {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `username` field.
     pub username: String,
+    /// The `displayname` field.
     pub displayname: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
+/// The `UserSearchResultWithPresence` struct.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct UserSearchResultWithPresence {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `username` field.
     pub username: String,
+    /// The `displayname` field.
     pub displayname: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `presence` field.
     pub presence: Option<String>,
+    /// The `last_active_ts` field.
     pub last_active_ts: Option<i64>,
 }
 
+/// The `UserStatsSummary` struct.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct UserStatsSummary {
+    /// The `total_users` field.
     pub total_users: i64,
+    /// The `active_users` field.
     pub active_users: i64,
+    /// The `admin_users` field.
     pub admin_users: i64,
+    /// The `deactivated_users` field.
     pub deactivated_users: i64,
+    /// The `guest_users` field.
     pub guest_users: i64,
 }
 
+/// The `UserDirectorySearchResult` struct.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct UserDirectorySearchResult {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `username` field.
     pub username: String,
+    /// The `displayname` field.
     pub displayname: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `presence` field.
     pub presence: Option<String>,
+    /// The `last_active_ts` field.
     pub last_active_ts: Option<i64>,
+    /// The `match_score` field.
     pub match_score: i32,
+    /// The `match_type` field.
     pub match_type: String,
 }
 
+/// The `LockedUser` struct.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct LockedUser {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `locked_by` field.
     pub locked_by: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `unlocked_ts` field.
     pub unlocked_ts: Option<i64>,
+    /// The `is_active` field.
     pub is_active: bool,
 }
 
@@ -126,6 +198,7 @@ pub trait UserStore: Send + Sync {
 
     // ---- lock operations ----
 
+    /// See [`lock_user`].
     async fn lock_user(
         &self,
         user_id: &str,
@@ -134,24 +207,33 @@ pub trait UserStore: Send + Sync {
         now_ts: i64,
     ) -> Result<LockedUser, sqlx::Error>;
 
+    /// See [`unlock_user`].
     async fn unlock_user(&self, user_id: &str, now_ts: i64) -> Result<(), sqlx::Error>;
 
+    /// See [`is_user_locked`].
     async fn is_user_locked(&self, user_id: &str) -> Result<bool, sqlx::Error>;
 
+    /// See [`get_active_user_lock`].
     async fn get_active_user_lock(&self, user_id: &str) -> Result<Option<LockedUser>, sqlx::Error>;
 
+    /// See [`get_locked_users`].
     async fn get_locked_users(&self, limit: i64, offset: i64) -> Result<Vec<LockedUser>, sqlx::Error>;
 
     // ---- query methods ----
 
+    /// See [`get_user_by_id`].
     async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, sqlx::Error>;
 
+    /// See [`get_user_by_username`].
     async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, sqlx::Error>;
 
+    /// See [`get_user_by_email`].
     async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, sqlx::Error>;
 
+    /// See [`get_user_by_identifier`].
     async fn get_user_by_identifier(&self, identifier: &str) -> Result<Option<User>, sqlx::Error>;
 
+    /// See [`get_users_paginated`].
     async fn get_users_paginated(
         &self,
         limit: i64,
@@ -159,6 +241,7 @@ pub trait UserStore: Send + Sync {
         since_user_id: Option<&str>,
     ) -> Result<Vec<User>, sqlx::Error>;
 
+    /// See [`list_users`].
     async fn list_users(
         &self,
         limit: i64,
@@ -167,10 +250,13 @@ pub trait UserStore: Send + Sync {
         name_filter: Option<&str>,
     ) -> Result<Vec<User>, sqlx::Error>;
 
+    /// See [`user_exists`].
     async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error>;
 
+    /// See [`filter_existing_users`].
     async fn filter_existing_users(&self, user_ids: &[String]) -> Result<Vec<String>, sqlx::Error>;
 
+    /// See [`get_user_count`].
     async fn get_user_count(&self) -> Result<i64, sqlx::Error>;
 
     /// B-6 fix: Count users that match an optional substring filter on
@@ -196,14 +282,18 @@ pub trait UserStore: Send + Sync {
     /// string key `""`. Groups with zero non-deactivated users are omitted.
     async fn count_non_deactivated_users_by_app_service(&self) -> Result<HashMap<String, i64>, sqlx::Error>;
 
+    /// See [`get_daily_active_users`].
     async fn get_daily_active_users(&self) -> Result<i64, sqlx::Error>;
 
+    /// See [`get_monthly_active_users`].
     async fn get_monthly_active_users(&self) -> Result<i64, sqlx::Error>;
 
+    /// See [`get_r30_users`].
     async fn get_r30_users(&self) -> Result<i64, sqlx::Error>;
 
     // ---- mutation methods ----
 
+    /// See [`create_user`].
     async fn create_user(
         &self,
         user_id: &str,
@@ -212,12 +302,16 @@ pub trait UserStore: Send + Sync {
         is_admin: bool,
     ) -> Result<User, sqlx::Error>;
 
+    /// See [`update_password`].
     async fn update_password(&self, user_id: &str, password_hash: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`update_displayname`].
     async fn update_displayname(&self, user_id: &str, displayname: Option<&str>) -> Result<(), sqlx::Error>;
 
+    /// See [`update_avatar_url`].
     async fn update_avatar_url(&self, user_id: &str, avatar_url: Option<&str>) -> Result<(), sqlx::Error>;
 
+    /// See [`set_deactivation_status`].
     async fn set_deactivation_status(&self, user_id: &str, is_deactivated: bool) -> Result<bool, sqlx::Error>;
 
     /// B-1.2: Batch counterpart of [`set_deactivation_status`]. Returns the set
@@ -229,16 +323,22 @@ pub trait UserStore: Send + Sync {
         is_deactivated: bool,
     ) -> Result<HashSet<String>, sqlx::Error>;
 
+    /// See [`set_admin_status`].
     async fn set_admin_status(&self, user_id: &str, is_admin: bool) -> Result<(), sqlx::Error>;
 
+    /// See [`set_shadow_ban`].
     async fn set_shadow_ban(&self, user_id: &str, is_shadow_banned: bool) -> Result<bool, sqlx::Error>;
 
+    /// See [`delete_user`].
     async fn delete_user(&self, user_id: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`set_guest_status`].
     async fn set_guest_status(&self, user_id: &str, is_guest: bool) -> Result<(), sqlx::Error>;
 
+    /// See [`set_user_type`].
     async fn set_user_type(&self, user_id: &str, user_type: Option<&str>) -> Result<(), sqlx::Error>;
 
+    /// See [`upgrade_guest_account`].
     async fn upgrade_guest_account(
         &self,
         user_id: &str,
@@ -248,12 +348,16 @@ pub trait UserStore: Send + Sync {
 
     // ---- stats / search methods ----
 
+    /// See [`get_user_stats_summary`].
     async fn get_user_stats_summary(&self) -> Result<UserStatsSummary, sqlx::Error>;
 
+    /// See [`count_sent_messages`].
     async fn count_sent_messages(&self, user_id: &str) -> Result<i64, sqlx::Error>;
 
+    /// See [`search_users`].
     async fn search_users(&self, query: &str, limit: i64) -> Result<Vec<UserSearchResult>, sqlx::Error>;
 
+    /// See [`search_directory_users`].
     async fn search_directory_users(
         &self,
         query: &str,
@@ -261,24 +365,31 @@ pub trait UserStore: Send + Sync {
         exact_only: bool,
     ) -> Result<Vec<UserDirectorySearchResult>, sqlx::Error>;
 
+    /// See [`get_user_profile`].
     async fn get_user_profile(&self, user_id: &str) -> Result<Option<UserProfile>, sqlx::Error>;
 
+    /// See [`get_user_profiles_batch`].
     async fn get_user_profiles_batch(&self, user_ids: &[String]) -> Result<Vec<UserProfile>, sqlx::Error>;
 
+    /// See [`get_user_profiles_map`].
     async fn get_user_profiles_map(&self, user_ids: &[String]) -> Result<HashMap<String, UserProfile>, sqlx::Error>;
 
+    /// See [`get_users_batch`].
     async fn get_users_batch(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error>;
 
+    /// See [`get_users_map`].
     async fn get_users_map(&self, user_ids: &[String]) -> Result<HashMap<String, User>, sqlx::Error>;
 
     // ---- account_data methods ----
 
+    /// See [`get_account_data_content`].
     async fn get_account_data_content(
         &self,
         user_id: &str,
         data_type: &str,
     ) -> Result<Option<serde_json::Value>, sqlx::Error>;
 
+    /// See [`upsert_account_data_content`].
     async fn upsert_account_data_content(
         &self,
         user_id: &str,
@@ -365,6 +476,8 @@ impl UserStorage {
         .await
     }
 
+    /// See [`get_user_by_id`].
+    /// See [`get_user_by_id`].
     pub async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, sqlx::Error> {
         tracing::debug!(user_id = %user_id, "Querying user by id");
         sqlx::query_as::<_, User>(
@@ -382,6 +495,8 @@ impl UserStorage {
         .await
     }
 
+    /// See [`get_user_by_username`].
+    /// See [`get_user_by_username`].
     pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
             r"
@@ -398,6 +513,8 @@ impl UserStorage {
         .await
     }
 
+    /// See [`get_user_by_email`].
+    /// See [`get_user_by_email`].
     pub async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
             r"
@@ -414,6 +531,8 @@ impl UserStorage {
         .await
     }
 
+    /// See [`get_user_by_identifier`].
+    /// See [`get_user_by_identifier`].
     pub async fn get_user_by_identifier(&self, identifier: &str) -> Result<Option<User>, sqlx::Error> {
         if identifier.starts_with('@') && identifier.contains(':') {
             self.get_user_by_id(identifier).await
@@ -422,6 +541,8 @@ impl UserStorage {
         }
     }
 
+    /// See [`get_all_users`].
+    /// See [`get_all_users`].
     pub async fn get_all_users(&self, limit: i64) -> Result<Vec<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
             r"
@@ -440,6 +561,7 @@ impl UserStorage {
         .await
     }
 
+    /// See [`get_users_paginated`].
     pub async fn get_users_paginated(
         &self,
         limit: i64,
@@ -484,6 +606,7 @@ impl UserStorage {
         }
     }
 
+    /// See [`list_users`].
     pub async fn list_users(
         &self,
         limit: i64,
@@ -522,6 +645,8 @@ impl UserStorage {
         query.build_query_as::<User>().fetch_all(&*self.pool).await
     }
 
+    /// See [`get_user_count`].
+    /// See [`get_user_count`].
     pub async fn get_user_count(&self) -> Result<i64, sqlx::Error> {
         let row = sqlx::query(
             r"
@@ -654,6 +779,8 @@ impl UserStorage {
         .await
     }
 
+    /// See [`get_user_stats_summary`].
+    /// See [`get_user_stats_summary`].
     pub async fn get_user_stats_summary(&self) -> Result<UserStatsSummary, sqlx::Error> {
         sqlx::query_as::<_, UserStatsSummary>(
             r"
@@ -670,6 +797,8 @@ impl UserStorage {
         .await
     }
 
+    /// See [`count_sent_messages`].
+    /// See [`count_sent_messages`].
     pub async fn count_sent_messages(&self, user_id: &str) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar::<_, i64>(
             r"
@@ -683,6 +812,8 @@ impl UserStorage {
         .await
     }
 
+    /// See [`user_exists`].
+    /// See [`user_exists`].
     pub async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r"
@@ -695,6 +826,8 @@ impl UserStorage {
         Ok(result.is_some())
     }
 
+    /// See [`filter_existing_users`].
+    /// See [`filter_existing_users`].
     pub async fn filter_existing_users(&self, user_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {
         if user_ids.is_empty() {
             return Ok(Vec::new());
@@ -708,6 +841,8 @@ impl UserStorage {
         Ok(rows)
     }
 
+    /// See [`update_password`].
+    /// See [`update_password`].
     pub async fn update_password(&self, user_id: &str, password_hash: &str) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Updating user password");
         let now = current_timestamp_millis();
@@ -722,6 +857,8 @@ impl UserStorage {
         Ok(())
     }
 
+    /// See [`update_displayname`].
+    /// See [`update_displayname`].
     pub async fn update_displayname(&self, user_id: &str, displayname: Option<&str>) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Updating user displayname");
         sqlx::query(r"UPDATE users SET displayname = $1 WHERE user_id = $2")
@@ -740,6 +877,8 @@ impl UserStorage {
         Ok(())
     }
 
+    /// See [`update_avatar_url`].
+    /// See [`update_avatar_url`].
     pub async fn update_avatar_url(&self, user_id: &str, avatar_url: Option<&str>) -> Result<(), sqlx::Error> {
         sqlx::query(r"UPDATE users SET avatar_url = $1 WHERE user_id = $2")
             .bind(avatar_url)
@@ -757,6 +896,8 @@ impl UserStorage {
         Ok(())
     }
 
+    /// See [`set_deactivation_status`].
+    /// See [`set_deactivation_status`].
     pub async fn set_deactivation_status(&self, user_id: &str, is_deactivated: bool) -> Result<bool, sqlx::Error> {
         tracing::info!(user_id = %user_id, is_deactivated, "Updating user deactivation status");
         let result = sqlx::query(r"UPDATE users SET is_deactivated = $1 WHERE user_id = $2")
@@ -793,11 +934,15 @@ impl UserStorage {
         Ok(rows.into_iter().map(|(uid,)| uid).collect())
     }
 
+    /// See [`deactivate_user`].
+    /// See [`deactivate_user`].
     pub async fn deactivate_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
         let _ = self.set_deactivation_status(user_id, true).await?;
         Ok(())
     }
 
+    /// See [`set_admin_status`].
+    /// See [`set_admin_status`].
     pub async fn set_admin_status(&self, user_id: &str, is_admin: bool) -> Result<(), sqlx::Error> {
         sqlx::query(r"UPDATE users SET is_admin = $1 WHERE user_id = $2")
             .bind(is_admin)
@@ -807,6 +952,8 @@ impl UserStorage {
         Ok(())
     }
 
+    /// See [`set_shadow_ban`].
+    /// See [`set_shadow_ban`].
     pub async fn set_shadow_ban(&self, user_id: &str, is_shadow_banned: bool) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(r"UPDATE users SET is_shadow_banned = $1 WHERE user_id = $2")
             .bind(is_shadow_banned)
@@ -816,6 +963,7 @@ impl UserStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// See [`set_account_data`].
     pub async fn set_account_data(
         &self,
         user_id: &str,
@@ -840,6 +988,7 @@ impl UserStorage {
         Ok(())
     }
 
+    /// See [`get_account_data_content`].
     pub async fn get_account_data_content(
         &self,
         user_id: &str,
@@ -861,6 +1010,7 @@ impl UserStorage {
         }
     }
 
+    /// See [`upsert_account_data_content`].
     pub async fn upsert_account_data_content(
         &self,
         user_id: &str,
@@ -884,6 +1034,8 @@ impl UserStorage {
         Ok(())
     }
 
+    /// See [`search_users`].
+    /// See [`search_users`].
     pub async fn search_users(&self, query: &str, limit: i64) -> Result<Vec<UserSearchResult>, sqlx::Error> {
         let normalized = query.trim();
         if normalized.is_empty() {
@@ -944,6 +1096,8 @@ impl UserStorage {
             .await
     }
 
+    /// See [`get_user_profile`].
+    /// See [`get_user_profile`].
     pub async fn get_user_profile(&self, user_id: &str) -> Result<Option<UserProfile>, sqlx::Error> {
         tracing::debug!(user_id = %user_id, "Querying user profile");
         let key = format!("user:profile:{user_id}");
@@ -972,6 +1126,8 @@ impl UserStorage {
         Ok(result)
     }
 
+    /// See [`get_user_profiles_batch`].
+    /// See [`get_user_profiles_batch`].
     pub async fn get_user_profiles_batch(&self, user_ids: &[String]) -> Result<Vec<UserProfile>, sqlx::Error> {
         if user_ids.is_empty() {
             return Ok(vec![]);
@@ -1016,6 +1172,7 @@ impl UserStorage {
         Ok(all_profiles)
     }
 
+    /// See [`get_user_profiles_map`].
     pub async fn get_user_profiles_map(
         &self,
         user_ids: &[String],
@@ -1029,6 +1186,8 @@ impl UserStorage {
         Ok(profiles.into_iter().map(|p| (p.user_id.clone(), p)).collect())
     }
 
+    /// See [`get_users_batch`].
+    /// See [`get_users_batch`].
     pub async fn get_users_batch(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error> {
         if user_ids.is_empty() {
             return Ok(vec![]);
@@ -1050,6 +1209,7 @@ impl UserStorage {
         .await
     }
 
+    /// See [`get_users_map`].
     pub async fn get_users_map(
         &self,
         user_ids: &[String],
@@ -1063,6 +1223,8 @@ impl UserStorage {
         Ok(users.into_iter().map(|u| (u.user_id.clone(), u)).collect())
     }
 
+    /// See [`update_displayname_batch`].
+    /// See [`update_displayname_batch`].
     pub async fn update_displayname_batch(&self, updates: &[(String, Option<String>)]) -> Result<u64, sqlx::Error> {
         if updates.is_empty() {
             return Ok(0);
@@ -1081,6 +1243,7 @@ impl UserStorage {
         Ok(count)
     }
 
+    /// See [`search_users_with_presence`].
     pub async fn search_users_with_presence(
         &self,
         query: &str,
@@ -1148,6 +1311,7 @@ impl UserStorage {
             .await
     }
 
+    /// See [`search_directory_users`].
     pub async fn search_directory_users(
         &self,
         query: &str,
@@ -1345,6 +1509,8 @@ impl UserStorage {
         Ok(rows)
     }
 
+    /// See [`delete_user`].
+    /// See [`delete_user`].
     pub async fn delete_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Deleting user");
         sqlx::query(r"DELETE FROM users WHERE user_id = $1").bind(user_id).execute(&*self.pool).await?;
@@ -1447,6 +1613,8 @@ impl UserStorage {
         .await
     }
 
+    /// See [`set_guest_status`].
+    /// See [`set_guest_status`].
     pub async fn set_guest_status(&self, user_id: &str, is_guest: bool) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE users SET is_guest = $1 WHERE user_id = $2")
             .bind(is_guest)
@@ -1459,6 +1627,8 @@ impl UserStorage {
         Ok(())
     }
 
+    /// See [`set_user_type`].
+    /// See [`set_user_type`].
     pub async fn set_user_type(&self, user_id: &str, user_type: Option<&str>) -> Result<(), sqlx::Error> {
         sqlx::query!(r"UPDATE users SET user_type = $1 WHERE user_id = $2", user_type, user_id)
             .execute(&*self.pool)
@@ -1466,6 +1636,7 @@ impl UserStorage {
         Ok(())
     }
 
+    /// See [`upgrade_guest_account`].
     pub async fn upgrade_guest_account(
         &self,
         user_id: &str,

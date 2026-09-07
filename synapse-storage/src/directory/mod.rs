@@ -93,6 +93,8 @@ pub struct DirectoryStorage {
 }
 
 impl DirectoryStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
     }

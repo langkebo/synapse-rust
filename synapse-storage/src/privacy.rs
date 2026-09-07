@@ -4,30 +4,48 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `UserPrivacySettings` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct UserPrivacySettings {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `profile_visibility` field.
     pub profile_visibility: String,
+    /// The `avatar_visibility` field.
     pub avatar_visibility: String,
+    /// The `displayname_visibility` field.
     pub displayname_visibility: String,
+    /// The `presence_visibility` field.
     pub presence_visibility: String,
+    /// The `room_membership_visibility` field.
     pub room_membership_visibility: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
 }
 
+/// The `PrivacySettingsUpdate` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrivacySettingsUpdate {
+    /// The `profile_visibility` field.
     pub profile_visibility: Option<String>,
+    /// The `avatar_visibility` field.
     pub avatar_visibility: Option<String>,
+    /// The `displayname_visibility` field.
     pub displayname_visibility: Option<String>,
+    /// The `presence_visibility` field.
     pub presence_visibility: Option<String>,
+    /// The `room_membership_visibility` field.
     pub room_membership_visibility: Option<String>,
 }
 
+/// The `CreatePrivacySettingsParams` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatePrivacySettingsParams {
+    /// The `user_id` field.
     pub user_id: String,
 }
 
@@ -50,18 +68,26 @@ impl Default for UserPrivacySettings {
 
 // ── Trait ───────────────────────────────────────────────────────────────
 
+/// The `PrivacyStoreApi` trait.
 #[async_trait]
 pub trait PrivacyStoreApi: Send + Sync {
+    /// See [`create_tables`].
     async fn create_tables(&self) -> Result<(), sqlx::Error>;
+    /// See [`get_settings`].
     async fn get_settings(&self, user_id: &str) -> Result<Option<UserPrivacySettings>, sqlx::Error>;
+    /// See [`get_or_create_settings`].
     async fn get_or_create_settings(&self, user_id: &str) -> Result<UserPrivacySettings, sqlx::Error>;
+    /// See [`update_settings`].
     async fn update_settings(
         &self,
         user_id: &str,
         update: PrivacySettingsUpdate,
     ) -> Result<UserPrivacySettings, sqlx::Error>;
+    /// See [`can_view_profile`].
     async fn can_view_profile(&self, viewer_id: Option<&str>, target_user_id: &str) -> Result<bool, sqlx::Error>;
+    /// See [`can_view_presence`].
     async fn can_view_presence(&self, viewer_id: Option<&str>, target_user_id: &str) -> Result<bool, sqlx::Error>;
+    /// See [`batch_can_view_profile`].
     async fn batch_can_view_profile(
         &self,
         requester_id: Option<&str>,
@@ -71,16 +97,21 @@ pub trait PrivacyStoreApi: Send + Sync {
 
 // ── Postgres implementation ─────────────────────────────────────────────
 
+/// The `PrivacyStorage` struct.
 #[derive(Clone)]
 pub struct PrivacyStorage {
     pool: Arc<Pool<Postgres>>,
 }
 
 impl PrivacyStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
 
+    /// See [`create_tables`].
+    /// See [`create_tables`].
     pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
@@ -108,6 +139,8 @@ impl PrivacyStorage {
         Ok(())
     }
 
+    /// See [`get_settings`].
+    /// See [`get_settings`].
     pub async fn get_settings(&self, user_id: &str) -> Result<Option<UserPrivacySettings>, sqlx::Error> {
         let row = sqlx::query_as::<_, UserPrivacySettings>(
             r#"
@@ -121,6 +154,8 @@ impl PrivacyStorage {
         Ok(row)
     }
 
+    /// See [`get_or_create_settings`].
+    /// See [`get_or_create_settings`].
     pub async fn get_or_create_settings(&self, user_id: &str) -> Result<UserPrivacySettings, sqlx::Error> {
         if let Some(settings) = self.get_settings(user_id).await? {
             return Ok(settings);
@@ -154,6 +189,7 @@ impl PrivacyStorage {
         Ok(row)
     }
 
+    /// See [`update_settings`].
     pub async fn update_settings(
         &self,
         user_id: &str,
@@ -189,6 +225,8 @@ impl PrivacyStorage {
         Ok(row)
     }
 
+    /// See [`can_view_profile`].
+    /// See [`can_view_profile`].
     pub async fn can_view_profile(&self, viewer_id: Option<&str>, target_user_id: &str) -> Result<bool, sqlx::Error> {
         let settings = self.get_or_create_settings(target_user_id).await?;
 
@@ -208,6 +246,8 @@ impl PrivacyStorage {
         Ok(can_view)
     }
 
+    /// See [`can_view_presence`].
+    /// See [`can_view_presence`].
     pub async fn can_view_presence(&self, viewer_id: Option<&str>, target_user_id: &str) -> Result<bool, sqlx::Error> {
         let settings = self.get_or_create_settings(target_user_id).await?;
 
@@ -248,6 +288,7 @@ impl PrivacyStorage {
         Ok(in_same_room)
     }
 
+    /// See [`batch_can_view_profile`].
     pub async fn batch_can_view_profile(
         &self,
         requester_id: Option<&str>,

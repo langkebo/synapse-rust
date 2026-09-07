@@ -8,61 +8,104 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `Widget` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Widget {
+    /// The `id` field.
     pub id: i64,
+    /// The `widget_id` field.
     pub widget_id: String,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `widget_type` field.
     pub widget_type: String,
+    /// The `url` field.
     pub url: String,
+    /// The `name` field.
     pub name: String,
+    /// The `data` field.
     pub data: serde_json::Value,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
+    /// The `is_active` field.
     pub is_active: bool,
 }
 
+/// The `CreateWidgetParams` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateWidgetParams {
+    /// The `widget_id` field.
     pub widget_id: String,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `widget_type` field.
     pub widget_type: String,
+    /// The `url` field.
     pub url: String,
+    /// The `name` field.
     pub name: String,
+    /// The `data` field.
     pub data: serde_json::Value,
 }
 
+/// The `WidgetPermission` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct WidgetPermission {
+    /// The `id` field.
     pub id: i64,
+    /// The `widget_id` field.
     pub widget_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `permissions` field.
     pub permissions: serde_json::Value,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
 }
 
+/// The `WidgetSession` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct WidgetSession {
+    /// The `id` field.
     pub id: i64,
+    /// The `session_id` field.
     pub session_id: String,
+    /// The `widget_id` field.
     pub widget_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `last_active_ts` field.
     pub last_active_ts: Option<i64>,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `is_active` field.
     pub is_active: bool,
 }
 
+/// The `WidgetStoreApi` trait.
 #[async_trait]
 pub trait WidgetStoreApi: Send + Sync {
+    /// See [`create_widget`].
     async fn create_widget(&self, params: CreateWidgetParams) -> Result<Widget, sqlx::Error>;
+    /// See [`get_widget`].
     async fn get_widget(&self, widget_id: &str) -> Result<Option<Widget>, sqlx::Error>;
+    /// See [`get_room_widgets`].
     async fn get_room_widgets(&self, room_id: &str) -> Result<Vec<Widget>, sqlx::Error>;
+    /// See [`get_user_widgets`].
     async fn get_user_widgets(&self, user_id: &str) -> Result<Vec<Widget>, sqlx::Error>;
+    /// See [`update_widget`].
     async fn update_widget(
         &self,
         widget_id: &str,
@@ -70,20 +113,26 @@ pub trait WidgetStoreApi: Send + Sync {
         name: Option<&str>,
         data: Option<&serde_json::Value>,
     ) -> Result<Option<Widget>, sqlx::Error>;
+    /// See [`delete_widget`].
     async fn delete_widget(&self, widget_id: &str) -> Result<bool, sqlx::Error>;
+    /// See [`set_widget_permission`].
     async fn set_widget_permission(
         &self,
         widget_id: &str,
         user_id: &str,
         permissions: serde_json::Value,
     ) -> Result<WidgetPermission, sqlx::Error>;
+    /// See [`get_widget_permissions`].
     async fn get_widget_permissions(&self, widget_id: &str) -> Result<Vec<WidgetPermission>, sqlx::Error>;
+    /// See [`get_user_widget_permission`].
     async fn get_user_widget_permission(
         &self,
         widget_id: &str,
         user_id: &str,
     ) -> Result<Option<WidgetPermission>, sqlx::Error>;
+    /// See [`delete_widget_permission`].
     async fn delete_widget_permission(&self, widget_id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
+    /// See [`create_session`].
     async fn create_session(
         &self,
         session_id: &str,
@@ -92,23 +141,33 @@ pub trait WidgetStoreApi: Send + Sync {
         device_id: Option<&str>,
         expires_in_ms: Option<i64>,
     ) -> Result<WidgetSession, sqlx::Error>;
+    /// See [`get_session`].
     async fn get_session(&self, session_id: &str) -> Result<Option<WidgetSession>, sqlx::Error>;
+    /// See [`update_session_activity`].
     async fn update_session_activity(&self, session_id: &str) -> Result<bool, sqlx::Error>;
+    /// See [`terminate_session`].
     async fn terminate_session(&self, session_id: &str) -> Result<bool, sqlx::Error>;
+    /// See [`get_widget_sessions`].
     async fn get_widget_sessions(&self, widget_id: &str) -> Result<Vec<WidgetSession>, sqlx::Error>;
+    /// See [`cleanup_expired_sessions`].
     async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error>;
 }
 
+/// The `WidgetStorage` struct.
 #[derive(Clone)]
 pub struct WidgetStorage {
     pool: Arc<PgPool>,
 }
 
 impl WidgetStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<PgPool>) -> Self {
         Self { pool }
     }
 
+    /// See [`create_widget`].
+    /// See [`create_widget`].
     pub async fn create_widget(&self, params: CreateWidgetParams) -> Result<Widget, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -133,6 +192,8 @@ impl WidgetStorage {
         Ok(row)
     }
 
+    /// See [`get_widget`].
+    /// See [`get_widget`].
     pub async fn get_widget(&self, widget_id: &str) -> Result<Option<Widget>, sqlx::Error> {
         let row = sqlx::query_as::<_, Widget>(
             r#"
@@ -146,6 +207,8 @@ impl WidgetStorage {
         Ok(row)
     }
 
+    /// See [`get_room_widgets`].
+    /// See [`get_room_widgets`].
     pub async fn get_room_widgets(&self, room_id: &str) -> Result<Vec<Widget>, sqlx::Error> {
         let rows = sqlx::query_as::<_, Widget>(
             r#"
@@ -159,6 +222,8 @@ impl WidgetStorage {
         Ok(rows)
     }
 
+    /// See [`get_user_widgets`].
+    /// See [`get_user_widgets`].
     pub async fn get_user_widgets(&self, user_id: &str) -> Result<Vec<Widget>, sqlx::Error> {
         let rows = sqlx::query_as::<_, Widget>(
             r#"
@@ -172,6 +237,7 @@ impl WidgetStorage {
         Ok(rows)
     }
 
+    /// See [`update_widget`].
     pub async fn update_widget(
         &self,
         widget_id: &str,
@@ -203,6 +269,8 @@ impl WidgetStorage {
         Ok(row)
     }
 
+    /// See [`delete_widget`].
+    /// See [`delete_widget`].
     pub async fn delete_widget(&self, widget_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"
@@ -217,6 +285,7 @@ impl WidgetStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// See [`set_widget_permission`].
     pub async fn set_widget_permission(
         &self,
         widget_id: &str,
@@ -245,6 +314,8 @@ impl WidgetStorage {
         Ok(row)
     }
 
+    /// See [`get_widget_permissions`].
+    /// See [`get_widget_permissions`].
     pub async fn get_widget_permissions(&self, widget_id: &str) -> Result<Vec<WidgetPermission>, sqlx::Error> {
         let rows = sqlx::query_as::<_, WidgetPermission>(
             r#"
@@ -258,6 +329,7 @@ impl WidgetStorage {
         Ok(rows)
     }
 
+    /// See [`get_user_widget_permission`].
     pub async fn get_user_widget_permission(
         &self,
         widget_id: &str,
@@ -276,6 +348,8 @@ impl WidgetStorage {
         Ok(row)
     }
 
+    /// See [`delete_widget_permission`].
+    /// See [`delete_widget_permission`].
     pub async fn delete_widget_permission(&self, widget_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"
@@ -290,6 +364,7 @@ impl WidgetStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// See [`create_session`].
     pub async fn create_session(
         &self,
         session_id: &str,
@@ -320,6 +395,8 @@ impl WidgetStorage {
         Ok(row)
     }
 
+    /// See [`get_session`].
+    /// See [`get_session`].
     pub async fn get_session(&self, session_id: &str) -> Result<Option<WidgetSession>, sqlx::Error> {
         let row = sqlx::query_as::<_, WidgetSession>(
             r#"
@@ -333,6 +410,8 @@ impl WidgetStorage {
         Ok(row)
     }
 
+    /// See [`update_session_activity`].
+    /// See [`update_session_activity`].
     pub async fn update_session_activity(&self, session_id: &str) -> Result<bool, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -349,6 +428,8 @@ impl WidgetStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// See [`terminate_session`].
+    /// See [`terminate_session`].
     pub async fn terminate_session(&self, session_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"
@@ -362,6 +443,8 @@ impl WidgetStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// See [`get_widget_sessions`].
+    /// See [`get_widget_sessions`].
     pub async fn get_widget_sessions(&self, widget_id: &str) -> Result<Vec<WidgetSession>, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -380,6 +463,8 @@ impl WidgetStorage {
         Ok(rows)
     }
 
+    /// See [`cleanup_expired_sessions`].
+    /// See [`cleanup_expired_sessions`].
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error> {
         let now = current_timestamp_millis();
 

@@ -6,6 +6,7 @@ use tracing;
 use synapse_common::room_versions::DEFAULT_ROOM_VERSION;
 
 impl RoomStorage {
+    /// See [`check_rooms_exist_batch`].
     pub async fn check_rooms_exist_batch(
         &self,
         room_ids: &[String],
@@ -121,6 +122,7 @@ impl RoomStorage {
         Ok(serde_json::Value::Object(results))
     }
 
+    /// See [`get_public_rooms_with_aliases`].
     pub async fn get_public_rooms_with_aliases(
         &self,
         limit: i64,
@@ -195,6 +197,7 @@ impl RoomStorage {
             .collect())
     }
 
+    /// See [`get_room_aliases_batch`].
     pub async fn get_room_aliases_batch(
         &self,
         room_ids: &[String],
@@ -224,6 +227,7 @@ impl RoomStorage {
         Ok(result)
     }
 
+    /// See [`get_rooms_by_aliases_batch`].
     pub async fn get_rooms_by_aliases_batch(
         &self,
         aliases: &[String],
@@ -244,6 +248,8 @@ impl RoomStorage {
         Ok(rows.into_iter().collect())
     }
 
+    /// See [`increment_member_counts_batch`].
+    /// See [`increment_member_counts_batch`].
     pub async fn increment_member_counts_batch(&self, room_ids: &[String]) -> Result<u64, sqlx::Error> {
         if room_ids.is_empty() {
             return Ok(0);
@@ -266,6 +272,8 @@ impl RoomStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`decrement_member_counts_batch`].
+    /// See [`decrement_member_counts_batch`].
     pub async fn decrement_member_counts_batch(&self, room_ids: &[String]) -> Result<u64, sqlx::Error> {
         if room_ids.is_empty() {
             return Ok(0);
@@ -287,6 +295,7 @@ impl RoomStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`block_room`].
     pub async fn block_room(
         &self,
         room_id: &str,
@@ -310,6 +319,8 @@ impl RoomStorage {
         Ok(())
     }
 
+    /// See [`get_room_block_status`].
+    /// See [`get_room_block_status`].
     pub async fn get_room_block_status(&self, room_id: &str) -> Result<Option<i64>, sqlx::Error> {
         let result: Option<(i64,)> = sqlx::query_as(r"SELECT blocked_at FROM blocked_rooms WHERE room_id = $1")
             .bind(room_id)
@@ -318,11 +329,15 @@ impl RoomStorage {
         Ok(result.map(|r| r.0))
     }
 
+    /// See [`unblock_room`].
+    /// See [`unblock_room`].
     pub async fn unblock_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(r"DELETE FROM blocked_rooms WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
         Ok(())
     }
 
+    /// See [`get_room_stats_overview`].
+    /// See [`get_room_stats_overview`].
     pub async fn get_room_stats_overview(&self) -> Result<serde_json::Value, sqlx::Error> {
         let total_rooms: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rooms").fetch_one(&*self.pool).await?;
 
@@ -359,6 +374,8 @@ impl RoomStorage {
         }))
     }
 
+    /// See [`get_single_room_stats`].
+    /// See [`get_single_room_stats`].
     pub async fn get_single_room_stats(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error> {
         let room_exists: Option<(String,)> = sqlx::query_as(r"SELECT room_id FROM rooms WHERE room_id = $1")
             .bind(room_id)
@@ -412,6 +429,8 @@ impl RoomStorage {
         })))
     }
 
+    /// See [`get_room_listings_status`].
+    /// See [`get_room_listings_status`].
     pub async fn get_room_listings_status(&self, room_id: &str) -> Result<Option<(bool, bool)>, sqlx::Error> {
         let is_public: Option<bool> = sqlx::query_scalar("SELECT is_public FROM rooms WHERE room_id = $1")
             .bind(room_id)
@@ -430,6 +449,8 @@ impl RoomStorage {
         Ok(Some((is_public, in_directory)))
     }
 
+    /// See [`set_room_public_with_directory`].
+    /// See [`set_room_public_with_directory`].
     pub async fn set_room_public_with_directory(&self, room_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query("UPDATE rooms SET is_public = true WHERE room_id = $1")
             .bind(room_id)
@@ -452,6 +473,8 @@ impl RoomStorage {
         Ok(true)
     }
 
+    /// See [`set_room_private_with_directory`].
+    /// See [`set_room_private_with_directory`].
     pub async fn set_room_private_with_directory(&self, room_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query("UPDATE rooms SET is_public = false WHERE room_id = $1")
             .bind(room_id)
@@ -467,6 +490,8 @@ impl RoomStorage {
         Ok(true)
     }
 
+    /// See [`get_room_version_only`].
+    /// See [`get_room_version_only`].
     pub async fn get_room_version_only(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
         let result: Option<(String,)> = sqlx::query_as(r"SELECT room_version FROM rooms WHERE room_id = $1")
             .bind(room_id)
@@ -475,6 +500,7 @@ impl RoomStorage {
         Ok(result.map(|r| r.0))
     }
 
+    /// See [`search_all_rooms_admin`].
     pub async fn search_all_rooms_admin(
         &self,
         search_term: Option<&str>,

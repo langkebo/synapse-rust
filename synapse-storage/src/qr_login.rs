@@ -7,26 +7,35 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `QrLoginStoreApi` trait.
 #[async_trait]
 pub trait QrLoginStoreApi: Send + Sync {
+    /// See [`create_qr_login`].
     async fn create_qr_login(
         &self,
         transaction_id: &str,
         user_id: &str,
         device_id: Option<&str>,
     ) -> Result<(), sqlx::Error>;
+    /// See [`get_qr_transaction`].
     async fn get_qr_transaction(&self, transaction_id: &str) -> Result<Option<QrTransaction>, sqlx::Error>;
+    /// See [`update_qr_status`].
     async fn update_qr_status(&self, transaction_id: &str, status: &str) -> Result<(), sqlx::Error>;
+    /// See [`delete_qr_transaction`].
     async fn delete_qr_transaction(&self, transaction_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`cleanup_expired`].
     async fn cleanup_expired(&self) -> Result<u64, sqlx::Error>;
 }
 
+/// The `QrLoginStorage` struct.
 #[derive(Clone)]
 pub struct QrLoginStorage {
     pool: Arc<PgPool>,
 }
 
 impl QrLoginStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<PgPool>) -> Self {
         Self { pool }
     }
@@ -138,12 +147,19 @@ impl QrLoginStorage {
 /// - expires_at: NOT NULL, milliseconds timestamp
 #[derive(Debug, Clone)]
 pub struct QrTransaction {
+    /// The `transaction_id` field.
     pub transaction_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `status` field.
     pub status: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
+    /// The `expires_at` field.
     pub expires_at: i64,
 }
 

@@ -14,6 +14,8 @@ pub struct InMemoryDirectoryStore {
 }
 
 impl InMemoryDirectoryStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self { entries: Arc::new(RwLock::new(HashMap::new())) }
     }

@@ -610,6 +610,7 @@ async fn room_tag_empty_for_unknown_user() {
 
 // ── InMemoryBurnAfterReadStore ───────────────────────────────────────
 
+/// The `InMemoryBurnAfterReadStore` struct.
 #[cfg(feature = "burn-after-read")]
 #[derive(Clone, Default)]
 #[allow(clippy::type_complexity)]
@@ -627,6 +628,8 @@ pub struct InMemoryBurnAfterReadStore {
 
 #[cfg(feature = "burn-after-read")]
 impl InMemoryBurnAfterReadStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }

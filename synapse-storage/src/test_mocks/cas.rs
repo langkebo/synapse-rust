@@ -2,6 +2,7 @@ use super::*;
 #[cfg(feature = "cas-sso")]
 use synapse_common::current_timestamp_millis;
 
+/// The `InMemoryCasStore` struct.
 #[cfg(feature = "cas-sso")]
 #[derive(Clone, Default)]
 #[allow(clippy::type_complexity)]
@@ -17,6 +18,8 @@ pub struct InMemoryCasStore {
 
 #[cfg(feature = "cas-sso")]
 impl InMemoryCasStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self {
             tickets: Arc::new(tokio::sync::RwLock::new(HashMap::new())),

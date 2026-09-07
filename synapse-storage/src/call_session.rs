@@ -4,52 +4,85 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `CallSession` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct CallSession {
+    /// The `id` field.
     pub id: i64,
+    /// The `call_id` field.
     pub call_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `caller_id` field.
     pub caller_id: String,
+    /// The `callee_id` field.
     pub callee_id: Option<String>,
+    /// The `state` field.
     pub state: String,
+    /// The `offer_sdp` field.
     pub offer_sdp: Option<String>,
+    /// The `answer_sdp` field.
     pub answer_sdp: Option<String>,
+    /// The `lifetime` field.
     pub lifetime: i64,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
+    /// The `ended_ts` field.
     pub ended_ts: Option<i64>,
 }
 
+/// The `CallCandidate` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct CallCandidate {
+    /// The `id` field.
     pub id: i64,
+    /// The `call_id` field.
     pub call_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender_id` field.
     pub sender_id: String,
+    /// The `candidate` field.
     pub candidate: serde_json::Value,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
+/// The `CreateCallSessionParams` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateCallSessionParams {
+    /// The `call_id` field.
     pub call_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `caller_id` field.
     pub caller_id: String,
+    /// The `callee_id` field.
     pub callee_id: Option<String>,
+    /// The `offer_sdp` field.
     pub offer_sdp: Option<String>,
+    /// The `lifetime` field.
     pub lifetime: Option<i64>,
 }
 
+/// The `CallSessionStoreApi` trait.
 #[async_trait]
 pub trait CallSessionStoreApi: Send + Sync {
+    /// See [`create_session`].
     async fn create_session(&self, params: CreateCallSessionParams) -> Result<CallSession, sqlx::Error>;
 
+    /// See [`get_session`].
     async fn get_session(&self, call_id: &str, room_id: &str) -> Result<Option<CallSession>, sqlx::Error>;
 
+    /// See [`update_state`].
     async fn update_state(&self, call_id: &str, room_id: &str, state: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`set_answer`].
     async fn set_answer(&self, call_id: &str, room_id: &str, answer_sdp: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`add_candidate`].
     async fn add_candidate(
         &self,
         call_id: &str,
@@ -58,18 +91,24 @@ pub trait CallSessionStoreApi: Send + Sync {
         candidate: serde_json::Value,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`get_candidates`].
     async fn get_candidates(&self, call_id: &str, room_id: &str) -> Result<Vec<CallCandidate>, sqlx::Error>;
 
+    /// See [`end_session`].
     async fn end_session(&self, call_id: &str, room_id: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`cleanup_expired`].
     async fn cleanup_expired(&self) -> Result<u64, sqlx::Error>;
 }
 
+/// The `CallSessionStorage` struct.
 pub struct CallSessionStorage {
     pool: Arc<Pool<Postgres>>,
 }
 
 impl CallSessionStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }

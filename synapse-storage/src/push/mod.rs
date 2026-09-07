@@ -16,6 +16,7 @@ pub use crate::push_notification::{
 /// Trait abstraction over [`PushStorage`] for testability and service wiring.
 #[async_trait]
 pub trait PushStoreApi: Send + Sync {
+    /// See [`get_pushers`].
     async fn get_pushers(
         &self,
         user_id: &str,
@@ -23,6 +24,7 @@ pub trait PushStoreApi: Send + Sync {
     ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error>;
 
     #[allow(clippy::too_many_arguments)]
+    /// See [`upsert_pusher`].
     async fn upsert_pusher(
         &self,
         user_id: &str,
@@ -38,9 +40,11 @@ pub trait PushStoreApi: Send + Sync {
         now: i64,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`delete_pusher`].
     async fn delete_pusher(&self, user_id: &str, device_id: &str, pushkey: &str) -> Result<(), sqlx::Error>;
 
     #[allow(clippy::too_many_arguments)]
+    /// See [`upsert_push_rule`].
     async fn upsert_push_rule(
         &self,
         user_id: &str,
@@ -53,9 +57,11 @@ pub trait PushStoreApi: Send + Sync {
         now: i64,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`delete_push_rule`].
     async fn delete_push_rule(&self, user_id: &str, scope: &str, kind: &str, rule_id: &str)
         -> Result<u64, sqlx::Error>;
 
+    /// See [`update_push_rule_actions`].
     async fn update_push_rule_actions(
         &self,
         user_id: &str,
@@ -65,6 +71,7 @@ pub trait PushStoreApi: Send + Sync {
         actions: &Value,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`get_push_rule_enabled`].
     async fn get_push_rule_enabled(
         &self,
         user_id: &str,
@@ -73,6 +80,7 @@ pub trait PushStoreApi: Send + Sync {
         rule_id: &str,
     ) -> Result<Option<bool>, sqlx::Error>;
 
+    /// See [`set_push_rule_enabled`].
     async fn set_push_rule_enabled(
         &self,
         user_id: &str,
@@ -82,6 +90,7 @@ pub trait PushStoreApi: Send + Sync {
         enabled: bool,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`get_user_push_rules`].
     async fn get_user_push_rules(
         &self,
         user_id: &str,
@@ -89,8 +98,10 @@ pub trait PushStoreApi: Send + Sync {
         kind: &str,
     ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error>;
 
+    /// See [`get_notifications`].
     async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error>;
 
+    /// See [`ack_notification`].
     async fn ack_notification(
         &self,
         id: i64,
@@ -99,18 +110,22 @@ pub trait PushStoreApi: Send + Sync {
     ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error>;
 }
 
+/// The `PushStorage` struct.
 #[derive(Clone)]
 pub struct PushStorage {
     pool: Arc<sqlx::PgPool>,
 }
 
 impl PushStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
         Self { pool }
     }
 
     // ── pushers ──────────────────────────────────────────────────────────
 
+    /// See [`get_pushers`].
     pub async fn get_pushers(
         &self,
         user_id: &str,
@@ -127,6 +142,7 @@ impl PushStorage {
         .await
     }
 
+    /// See [`upsert_pusher`].
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_pusher(
         &self,
@@ -168,6 +184,8 @@ impl PushStorage {
         Ok(())
     }
 
+    /// See [`delete_pusher`].
+    /// See [`delete_pusher`].
     pub async fn delete_pusher(&self, user_id: &str, device_id: &str, pushkey: &str) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2 AND device_id = $3")
             .bind(user_id)
@@ -180,6 +198,7 @@ impl PushStorage {
 
     // ── push_rules ───────────────────────────────────────────────────────
 
+    /// See [`upsert_push_rule`].
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_push_rule(
         &self,
@@ -212,6 +231,7 @@ impl PushStorage {
         Ok(())
     }
 
+    /// See [`delete_push_rule`].
     pub async fn delete_push_rule(
         &self,
         user_id: &str,
@@ -230,6 +250,7 @@ impl PushStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`update_push_rule_actions`].
     pub async fn update_push_rule_actions(
         &self,
         user_id: &str,
@@ -251,6 +272,7 @@ impl PushStorage {
         Ok(())
     }
 
+    /// See [`get_push_rule_enabled`].
     pub async fn get_push_rule_enabled(
         &self,
         user_id: &str,
@@ -269,6 +291,7 @@ impl PushStorage {
         .await
     }
 
+    /// See [`set_push_rule_enabled`].
     pub async fn set_push_rule_enabled(
         &self,
         user_id: &str,
@@ -290,6 +313,7 @@ impl PushStorage {
         Ok(())
     }
 
+    /// See [`get_user_push_rules`].
     pub async fn get_user_push_rules(
         &self,
         user_id: &str,
@@ -311,6 +335,7 @@ impl PushStorage {
 
     // ── notifications ────────────────────────────────────────────────────
 
+    /// See [`get_notifications`].
     pub async fn get_notifications(
         &self,
         user_id: &str,
@@ -326,6 +351,7 @@ impl PushStorage {
         .await
     }
 
+    /// See [`ack_notification`].
     pub async fn ack_notification(
         &self,
         id: i64,

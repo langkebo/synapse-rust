@@ -5,16 +5,20 @@ use sqlx::PgPool;
 
 use super::models::*;
 
+/// The `RegistrationTokenStorage` struct.
 #[derive(Clone)]
 pub struct RegistrationTokenStorage {
     pool: Arc<PgPool>,
 }
 
 impl RegistrationTokenStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_token`].
     pub async fn create_token(
         &self,
         request: CreateRegistrationTokenRequest,
@@ -52,6 +56,8 @@ impl RegistrationTokenStorage {
         Ok(row)
     }
 
+    /// See [`generate_token`].
+    /// See [`generate_token`].
     pub fn generate_token() -> String {
         use rand::Rng;
         let mut rng = rand::rng();
@@ -60,6 +66,8 @@ impl RegistrationTokenStorage {
         token
     }
 
+    /// See [`get_token`].
+    /// See [`get_token`].
     pub async fn get_token(&self, token: &str) -> Result<Option<RegistrationToken>, sqlx::Error> {
         let row = sqlx::query_as::<_, RegistrationToken>("SELECT id, token, token_type, description, max_uses, uses_count, is_used, is_enabled, expires_at, created_by, created_ts, updated_ts, last_used_ts, allowed_email_domains, allowed_user_ids, auto_join_rooms, display_name, email FROM registration_tokens WHERE token = $1")
             .bind(token)
@@ -69,6 +77,8 @@ impl RegistrationTokenStorage {
         Ok(row)
     }
 
+    /// See [`get_token_by_id`].
+    /// See [`get_token_by_id`].
     pub async fn get_token_by_id(&self, id: i64) -> Result<Option<RegistrationToken>, sqlx::Error> {
         let row = sqlx::query_as::<_, RegistrationToken>("SELECT id, token, token_type, description, max_uses, uses_count, is_used, is_enabled, expires_at, created_by, created_ts, updated_ts, last_used_ts, allowed_email_domains, allowed_user_ids, auto_join_rooms, display_name, email FROM registration_tokens WHERE id = $1")
             .bind(id)
@@ -78,6 +88,7 @@ impl RegistrationTokenStorage {
         Ok(row)
     }
 
+    /// See [`update_token`].
     pub async fn update_token(
         &self,
         id: i64,
@@ -105,12 +116,16 @@ impl RegistrationTokenStorage {
         Ok(row)
     }
 
+    /// See [`delete_token`].
+    /// See [`delete_token`].
     pub async fn delete_token(&self, id: i64) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM registration_tokens WHERE id = $1").bind(id).execute(&*self.pool).await?;
 
         Ok(())
     }
 
+    /// See [`validate_token`].
+    /// See [`validate_token`].
     pub async fn validate_token(&self, token: &str) -> Result<TokenValidationResult, sqlx::Error> {
         let token_record = self.get_token(token).await?;
 
@@ -161,6 +176,7 @@ impl RegistrationTokenStorage {
         }
     }
 
+    /// See [`use_token`].
     pub async fn use_token(
         &self,
         token: &str,
@@ -220,6 +236,7 @@ impl RegistrationTokenStorage {
         Ok(true)
     }
 
+    /// See [`get_all_tokens`].
     pub async fn get_all_tokens(
         &self,
         limit: i64,
@@ -265,6 +282,8 @@ impl RegistrationTokenStorage {
     }
 }
 impl RegistrationTokenStorage {
+    /// See [`get_active_tokens`].
+    /// See [`get_active_tokens`].
     pub async fn get_active_tokens(&self) -> Result<Vec<RegistrationToken>, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -284,6 +303,8 @@ impl RegistrationTokenStorage {
         Ok(rows)
     }
 
+    /// See [`get_token_usage`].
+    /// See [`get_token_usage`].
     pub async fn get_token_usage(&self, token_id: i64) -> Result<Vec<RegistrationTokenUsage>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RegistrationTokenUsage>(
             "SELECT id, token_id, token, user_id, username, email, ip_address, user_agent, used_ts, is_success, error_message FROM registration_token_usage WHERE token_id = $1 ORDER BY used_ts DESC",
@@ -295,6 +316,8 @@ impl RegistrationTokenStorage {
         Ok(rows)
     }
 
+    /// See [`deactivate_token`].
+    /// See [`deactivate_token`].
     pub async fn deactivate_token(&self, id: i64) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE registration_tokens SET is_enabled = FALSE WHERE id = $1 AND is_enabled = TRUE")
             .bind(id)
@@ -304,6 +327,8 @@ impl RegistrationTokenStorage {
         Ok(())
     }
 
+    /// See [`cleanup_expired_tokens`].
+    /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -317,6 +342,8 @@ impl RegistrationTokenStorage {
         Ok(result.rows_affected() as i64)
     }
 
+    /// See [`create_room_invite`].
+    /// See [`create_room_invite`].
     pub async fn create_room_invite(&self, request: CreateRoomInviteRequest) -> Result<RoomInvite, sqlx::Error> {
         let now = current_timestamp_millis();
         let invite_code = Self::generate_token();
@@ -342,6 +369,8 @@ impl RegistrationTokenStorage {
         Ok(row)
     }
 
+    /// See [`get_room_invite`].
+    /// See [`get_room_invite`].
     pub async fn get_room_invite(&self, invite_code: &str) -> Result<Option<RoomInvite>, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomInvite>("SELECT id, invite_code, room_id, inviter_user_id, invitee_email, invitee_user_id, is_used, is_revoked, expires_at, created_ts, used_ts, revoked_at, revoked_reason FROM room_invites WHERE invite_code = $1")
             .bind(invite_code)
@@ -351,6 +380,8 @@ impl RegistrationTokenStorage {
         Ok(row)
     }
 
+    /// See [`use_room_invite`].
+    /// See [`use_room_invite`].
     pub async fn use_room_invite(&self, invite_code: &str, invitee_user_id: &str) -> Result<bool, sqlx::Error> {
         let invite = self.get_room_invite(invite_code).await?;
 
@@ -390,6 +421,8 @@ impl RegistrationTokenStorage {
         }
     }
 
+    /// See [`revoke_room_invite`].
+    /// See [`revoke_room_invite`].
     pub async fn revoke_room_invite(&self, invite_code: &str, reason: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -411,6 +444,8 @@ impl RegistrationTokenStorage {
         Ok(())
     }
 
+    /// See [`create_batch`].
+    /// See [`create_batch`].
     pub async fn create_batch(&self, batch: &RegistrationTokenBatch, tokens: &[String]) -> Result<i64, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -458,6 +493,8 @@ impl RegistrationTokenStorage {
         Ok(row.id)
     }
 
+    /// See [`get_batch`].
+    /// See [`get_batch`].
     pub async fn get_batch(&self, batch_id: &str) -> Result<Option<RegistrationTokenBatch>, sqlx::Error> {
         let row =
             sqlx::query_as::<_, RegistrationTokenBatch>("SELECT id, batch_id, description, token_count, tokens_used, created_by, created_ts, expires_at, is_enabled, allowed_email_domains, auto_join_rooms FROM registration_token_batches WHERE batch_id = $1")

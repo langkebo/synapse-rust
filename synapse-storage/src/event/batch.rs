@@ -3,6 +3,7 @@ use super::ROOM_EVENT_COLS;
 use sqlx::{Postgres, QueryBuilder};
 
 impl EventStorage {
+    /// See [`get_room_events_since`].
     pub async fn get_room_events_since(
         &self,
         room_id: &str,
@@ -24,6 +25,8 @@ impl EventStorage {
         Ok(events)
     }
 
+    /// See [`get_events_since`].
+    /// See [`get_events_since`].
     pub async fn get_events_since(&self, since: i64, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {
         let events = sqlx::query_as(&format!(
             "SELECT {ROOM_EVENT_COLS}
@@ -39,6 +42,7 @@ impl EventStorage {
         Ok(events)
     }
 
+    /// See [`get_room_events_batch`].
     pub async fn get_room_events_batch(
         &self,
         room_ids: &[String],
@@ -47,6 +51,7 @@ impl EventStorage {
         self.get_room_events_batch_inner(room_ids, None, None, limit_per_room, None).await
     }
 
+    /// See [`get_room_events_batch_filtered`].
     pub async fn get_room_events_batch_filtered(
         &self,
         room_ids: &[String],
@@ -56,6 +61,7 @@ impl EventStorage {
         self.get_room_events_batch_inner(room_ids, None, None, limit_per_room, Some(filter)).await
     }
 
+    /// See [`get_room_events_batch_since`].
     pub async fn get_room_events_batch_since(
         &self,
         room_ids: &[String],
@@ -72,6 +78,7 @@ impl EventStorage {
         }
     }
 
+    /// See [`get_room_events_batch_since_filtered`].
     pub async fn get_room_events_batch_since_filtered(
         &self,
         room_ids: &[String],
@@ -184,6 +191,8 @@ impl EventStorage {
         Ok(Self::group_room_events(room_ids, events, limit_per_room))
     }
 
+    /// See [`get_events_batch`].
+    /// See [`get_events_batch`].
     pub async fn get_events_batch(&self, event_ids: &[String]) -> Result<Vec<RoomEvent>, sqlx::Error> {
         if event_ids.is_empty() {
             return Ok(Vec::new());
@@ -203,6 +212,7 @@ impl EventStorage {
         .await
     }
 
+    /// See [`get_events_map`].
     pub async fn get_events_map(
         &self,
         event_ids: &[String],
@@ -216,6 +226,8 @@ impl EventStorage {
         Ok(events.into_iter().map(|e| (e.event_id.clone(), e)).collect())
     }
 
+    /// See [`has_room_events_since`].
+    /// See [`has_room_events_since`].
     pub async fn has_room_events_since(&self, room_ids: &[String], since: i64) -> Result<bool, sqlx::Error> {
         if room_ids.is_empty() {
             return Ok(false);
@@ -238,6 +250,7 @@ impl EventStorage {
         Ok(row.is_some())
     }
 
+    /// See [`get_latest_events_for_rooms`].
     pub async fn get_latest_events_for_rooms(
         &self,
         room_ids: &[String],
@@ -266,6 +279,7 @@ impl EventStorage {
         Ok(events.into_iter().map(|e| (e.room_id.clone(), e)).collect())
     }
 
+    /// See [`get_room_message_counts_batch`].
     pub async fn get_room_message_counts_batch(
         &self,
         room_ids: &[String],
@@ -295,12 +309,16 @@ impl EventStorage {
         Ok(result)
     }
 
+    /// See [`get_max_stream_ordering`].
+    /// See [`get_max_stream_ordering`].
     pub async fn get_max_stream_ordering(&self) -> Result<i64, sqlx::Error> {
         let result: Option<(i64,)> =
             sqlx::query_as("SELECT COALESCE(MAX(stream_ordering), 0) FROM events").fetch_optional(&*self.pool).await?;
         Ok(result.map_or(0, |r| r.0))
     }
 
+    /// See [`get_max_origin_server_ts_for_room`].
+    /// See [`get_max_origin_server_ts_for_room`].
     pub async fn get_max_origin_server_ts_for_room(&self, room_id: &str) -> Result<i64, sqlx::Error> {
         let result: Option<(i64,)> =
             sqlx::query_as("SELECT COALESCE(MAX(origin_server_ts), 0) FROM events WHERE room_id = $1")
@@ -310,6 +328,7 @@ impl EventStorage {
         Ok(result.map_or(0, |r| r.0))
     }
 
+    /// See [`get_events_since_stream_ordering`].
     pub async fn get_events_since_stream_ordering(
         &self,
         room_id: &str,
@@ -337,6 +356,7 @@ impl EventStorage {
         .await
     }
 
+    /// See [`get_room_events_by_stream_range`].
     pub async fn get_room_events_by_stream_range(
         &self,
         room_id: &str,

@@ -9,16 +9,21 @@ fn escape_like_pattern(input: &str) -> String {
     input.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
+/// The `SpaceStorage` struct.
 #[derive(Clone)]
 pub struct SpaceStorage {
     pool: Arc<PgPool>,
 }
 
 impl SpaceStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_space`].
+    /// See [`create_space`].
     pub async fn create_space(&self, request: CreateSpaceRequest) -> Result<Space, sqlx::Error> {
         let now = current_timestamp_millis();
         let space_id = format!(
@@ -56,6 +61,8 @@ impl SpaceStorage {
         Ok(space)
     }
 
+    /// See [`get_space`].
+    /// See [`get_space`].
     pub async fn get_space(&self, space_id: &str) -> Result<Option<Space>, sqlx::Error> {
         sqlx::query_as::<_, Space>(r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE space_id = $1")
             .bind(space_id)
@@ -63,6 +70,8 @@ impl SpaceStorage {
             .await
     }
 
+    /// See [`get_space_by_room`].
+    /// See [`get_space_by_room`].
     pub async fn get_space_by_room(&self, room_id: &str) -> Result<Option<Space>, sqlx::Error> {
         sqlx::query_as::<_, Space>(r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE room_id = $1")
             .bind(room_id)
@@ -70,6 +79,8 @@ impl SpaceStorage {
             .await
     }
 
+    /// See [`get_spaces_by_rooms_batch`].
+    /// See [`get_spaces_by_rooms_batch`].
     pub async fn get_spaces_by_rooms_batch(&self, room_ids: &[String]) -> Result<HashMap<String, Space>, sqlx::Error> {
         if room_ids.is_empty() {
             return Ok(HashMap::new());
@@ -87,6 +98,8 @@ impl SpaceStorage {
         Ok(map)
     }
 
+    /// See [`update_space`].
+    /// See [`update_space`].
     pub async fn update_space(&self, space_id: &str, request: &UpdateSpaceRequest) -> Result<Space, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -116,11 +129,15 @@ impl SpaceStorage {
         .await
     }
 
+    /// See [`delete_space`].
+    /// See [`delete_space`].
     pub async fn delete_space(&self, space_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(r"DELETE FROM spaces WHERE space_id = $1").bind(space_id).execute(&*self.pool).await?;
         Ok(())
     }
 
+    /// See [`add_child`].
+    /// See [`add_child`].
     pub async fn add_child(&self, request: AddChildRequest) -> Result<SpaceChild, sqlx::Error> {
         let now = current_timestamp_millis();
         let via_servers =
@@ -161,6 +178,8 @@ impl SpaceStorage {
         .await
     }
 
+    /// See [`remove_child`].
+    /// See [`remove_child`].
     pub async fn remove_child(&self, space_id: &str, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(r"DELETE FROM space_children WHERE space_id = $1 AND room_id = $2")
             .bind(space_id)
@@ -171,6 +190,8 @@ impl SpaceStorage {
         Ok(())
     }
 
+    /// See [`get_space_children`].
+    /// See [`get_space_children`].
     pub async fn get_space_children(&self, space_id: &str) -> Result<Vec<SpaceChild>, sqlx::Error> {
         sqlx::query_as::<_, SpaceChild>(
             r#"
@@ -196,6 +217,8 @@ impl SpaceStorage {
         .await
     }
 
+    /// See [`get_child_spaces`].
+    /// See [`get_child_spaces`].
     pub async fn get_child_spaces(&self, room_id: &str) -> Result<Vec<SpaceChild>, sqlx::Error> {
         sqlx::query_as::<_, SpaceChild>(
             r#"
@@ -220,6 +243,7 @@ impl SpaceStorage {
         .await
     }
 
+    /// See [`add_space_member`].
     pub async fn add_space_member(
         &self,
         space_id: &str,
@@ -251,6 +275,8 @@ impl SpaceStorage {
         .await
     }
 
+    /// See [`remove_space_member`].
+    /// See [`remove_space_member`].
     pub async fn remove_space_member(&self, space_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -266,6 +292,8 @@ impl SpaceStorage {
         Ok(())
     }
 
+    /// See [`get_space_members`].
+    /// See [`get_space_members`].
     pub async fn get_space_members(&self, space_id: &str) -> Result<Vec<SpaceMember>, sqlx::Error> {
         sqlx::query_as::<_, SpaceMember>(r"SELECT space_id, user_id, membership, joined_ts, updated_ts, left_ts, inviter FROM space_members WHERE space_id = $1 AND membership = 'join'")
             .bind(space_id)
@@ -273,6 +301,8 @@ impl SpaceStorage {
             .await
     }
 
+    /// See [`get_space_member`].
+    /// See [`get_space_member`].
     pub async fn get_space_member(&self, space_id: &str, user_id: &str) -> Result<Option<SpaceMember>, sqlx::Error> {
         sqlx::query_as::<_, SpaceMember>(r"SELECT space_id, user_id, membership, joined_ts, updated_ts, left_ts, inviter FROM space_members WHERE space_id = $1 AND user_id = $2")
             .bind(space_id)
@@ -281,6 +311,8 @@ impl SpaceStorage {
             .await
     }
 
+    /// See [`get_user_spaces`].
+    /// See [`get_user_spaces`].
     pub async fn get_user_spaces(&self, user_id: &str) -> Result<Vec<Space>, sqlx::Error> {
         sqlx::query_as::<_, Space>(
             r"
@@ -295,6 +327,7 @@ impl SpaceStorage {
         .await
     }
 
+    /// See [`get_public_spaces`].
     pub async fn get_public_spaces(
         &self,
         limit: i64,
@@ -316,6 +349,8 @@ impl SpaceStorage {
         .await
     }
 
+    /// See [`get_space_hierarchy`].
+    /// See [`get_space_hierarchy`].
     pub async fn get_space_hierarchy(&self, space_id: &str, _max_depth: i32) -> Result<SpaceHierarchy, sqlx::Error> {
         let space = self.get_space(space_id).await?.ok_or_else(|| sqlx::Error::RowNotFound)?;
 
@@ -325,6 +360,8 @@ impl SpaceStorage {
         Ok(SpaceHierarchy { space, children, members })
     }
 
+    /// See [`get_space_summary`].
+    /// See [`get_space_summary`].
     pub async fn get_space_summary(&self, space_id: &str) -> Result<Option<SpaceSummary>, sqlx::Error> {
         sqlx::query_as::<_, SpaceSummary>(r"SELECT id, space_id, summary, children_count, member_count, updated_ts FROM space_summaries WHERE space_id = $1")
             .bind(space_id)
@@ -332,6 +369,8 @@ impl SpaceStorage {
             .await
     }
 
+    /// See [`update_space_summary`].
+    /// See [`update_space_summary`].
     pub async fn update_space_summary(&self, space_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -373,6 +412,7 @@ impl SpaceStorage {
         Ok(())
     }
 
+    /// See [`add_space_event`].
     pub async fn add_space_event(
         &self,
         event_id: &str,
@@ -402,6 +442,7 @@ impl SpaceStorage {
         .await
     }
 
+    /// See [`get_space_events`].
     pub async fn get_space_events(
         &self,
         space_id: &str,
@@ -431,6 +472,7 @@ impl SpaceStorage {
         }
     }
 
+    /// See [`search_spaces`].
     pub async fn search_spaces(
         &self,
         query: &str,
@@ -583,6 +625,8 @@ impl SpaceStorage {
         }
     }
 
+    /// See [`is_space_member`].
+    /// See [`is_space_member`].
     pub async fn is_space_member(&self, space_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let count: i64 = sqlx::query_scalar(
             r"SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND user_id = $2 AND membership = 'join'",
@@ -595,6 +639,8 @@ impl SpaceStorage {
         Ok(count > 0)
     }
 
+    /// See [`get_space_statistics`].
+    /// See [`get_space_statistics`].
     pub async fn get_space_statistics(&self, limit: i64) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         sqlx::query(r"SELECT space_id, name, is_public, child_room_count, member_count, created_ts, updated_ts FROM space_statistics ORDER BY member_count DESC LIMIT $1")
             .bind(limit)
@@ -619,6 +665,7 @@ impl SpaceStorage {
             )
     }
 
+    /// See [`get_recursive_hierarchy`].
     pub async fn get_recursive_hierarchy(
         &self,
         space_id: &str,
@@ -707,6 +754,7 @@ impl SpaceStorage {
         Ok(())
     }
 
+    /// See [`get_space_hierarchy_paginated`].
     pub async fn get_space_hierarchy_paginated(
         &self,
         space_id: &str,
@@ -815,6 +863,8 @@ impl SpaceStorage {
         Ok(count)
     }
 
+    /// See [`check_user_can_see_space`].
+    /// See [`check_user_can_see_space`].
     pub async fn check_user_can_see_space(&self, space_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let space = self.get_space(space_id).await?;
 
@@ -828,6 +878,8 @@ impl SpaceStorage {
         }
     }
 
+    /// See [`get_parent_spaces`].
+    /// See [`get_parent_spaces`].
     pub async fn get_parent_spaces(&self, room_id: &str) -> Result<Vec<Space>, sqlx::Error> {
         let children = self.get_child_spaces(room_id).await?;
         let mut parent_spaces = Vec::new();
@@ -841,6 +893,8 @@ impl SpaceStorage {
         Ok(parent_spaces)
     }
 
+    /// See [`get_space_tree_path`].
+    /// See [`get_space_tree_path`].
     pub async fn get_space_tree_path(&self, space_id: &str) -> Result<Vec<Space>, sqlx::Error> {
         let mut path = Vec::new();
         let mut current_id = Some(space_id.to_string());
@@ -858,6 +912,8 @@ impl SpaceStorage {
         Ok(path)
     }
 
+    /// See [`resolve_space_id`].
+    /// See [`resolve_space_id`].
     pub async fn resolve_space_id(&self, identifier: &str) -> Result<Option<String>, sqlx::Error> {
         let result: Option<(String,)> = sqlx::query_as(
             r"SELECT space_id FROM spaces WHERE space_id = $1 OR room_id = $1 ORDER BY CASE WHEN space_id = $1 THEN 0 ELSE 1 END LIMIT 1",
@@ -868,6 +924,8 @@ impl SpaceStorage {
         Ok(result.map(|r| r.0))
     }
 
+    /// See [`get_all_spaces_for_admin`].
+    /// See [`get_all_spaces_for_admin`].
     pub async fn get_all_spaces_for_admin(&self) -> Result<Vec<Space>, sqlx::Error> {
         sqlx::query_as::<_, Space>(
             r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces ORDER BY created_ts DESC",
@@ -876,6 +934,8 @@ impl SpaceStorage {
         .await
     }
 
+    /// See [`get_space_by_identifier`].
+    /// See [`get_space_by_identifier`].
     pub async fn get_space_by_identifier(&self, identifier: &str) -> Result<Option<Space>, sqlx::Error> {
         sqlx::query_as::<_, Space>(
             r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE space_id = $1 OR room_id = $1 ORDER BY CASE WHEN space_id = $1 THEN 0 ELSE 1 END LIMIT 1",
@@ -885,6 +945,8 @@ impl SpaceStorage {
         .await
     }
 
+    /// See [`get_space_user_ids`].
+    /// See [`get_space_user_ids`].
     pub async fn get_space_user_ids(&self, space_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows: Vec<(String,)> =
             sqlx::query_as(r"SELECT user_id FROM space_members WHERE space_id = $1 AND membership = 'join'")
@@ -894,6 +956,8 @@ impl SpaceStorage {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
+    /// See [`get_space_room_ids`].
+    /// See [`get_space_room_ids`].
     pub async fn get_space_room_ids(&self, space_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows: Vec<(String,)> = sqlx::query_as(r"SELECT room_id FROM space_children WHERE space_id = $1")
             .bind(space_id)
@@ -902,6 +966,8 @@ impl SpaceStorage {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
+    /// See [`get_space_member_and_child_count`].
+    /// See [`get_space_member_and_child_count`].
     pub async fn get_space_member_and_child_count(&self, space_id: &str) -> Result<(i64, i64), sqlx::Error> {
         let member_count: i64 =
             sqlx::query_scalar(r"SELECT COUNT(*) FROM space_members WHERE space_id = $1 AND membership = 'join'")
@@ -917,11 +983,14 @@ impl SpaceStorage {
         Ok((member_count, child_count))
     }
 
+    /// See [`delete_space_returning_count`].
+    /// See [`delete_space_returning_count`].
     pub async fn delete_space_returning_count(&self, space_id: &str) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(r"DELETE FROM spaces WHERE space_id = $1").bind(space_id).execute(&*self.pool).await?;
         Ok(result.rows_affected())
     }
 
+    /// See [`get_space_children_paginated`].
     pub async fn get_space_children_paginated(
         &self,
         space_id: &str,
@@ -984,6 +1053,7 @@ impl SpaceStorage {
         }
     }
 
+    /// See [`get_space_members_paginated`].
     pub async fn get_space_members_paginated(
         &self,
         space_id: &str,

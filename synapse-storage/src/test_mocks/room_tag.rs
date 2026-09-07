@@ -1,6 +1,7 @@
 use super::*;
 use synapse_common::current_timestamp_millis;
 
+/// The `InMemoryRoomTagStore` struct.
 pub struct InMemoryRoomTagStore {
     tags: Arc<RwLock<Vec<crate::room_tag::RoomTag>>>,
     next_id: Arc<RwLock<i32>>,
@@ -13,6 +14,8 @@ impl Default for InMemoryRoomTagStore {
 }
 
 impl InMemoryRoomTagStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self { tags: Arc::new(RwLock::new(Vec::new())), next_id: Arc::new(RwLock::new(1)) }
     }

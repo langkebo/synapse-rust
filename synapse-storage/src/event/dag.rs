@@ -126,6 +126,8 @@ impl EventStorage {
         Ok(events)
     }
 
+    /// See [`get_forward_extremities_count`].
+    /// See [`get_forward_extremities_count`].
     pub async fn get_forward_extremities_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
         let count: i64 = sqlx::query_scalar(
             r"

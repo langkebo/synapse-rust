@@ -5,6 +5,7 @@ use super::EventStorage;
 use synapse_common::current_timestamp_millis;
 
 impl EventStorage {
+    /// See [`report_event`].
     pub async fn report_event(
         &self,
         event_id: &str,
@@ -33,6 +34,8 @@ impl EventStorage {
         Ok(row.id)
     }
 
+    /// See [`update_event_report_score`].
+    /// See [`update_event_report_score`].
     pub async fn update_event_report_score(&self, report_id: i64, score: i32) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -46,6 +49,8 @@ impl EventStorage {
         Ok(())
     }
 
+    /// See [`update_event_report_score_by_event`].
+    /// See [`update_event_report_score_by_event`].
     pub async fn update_event_report_score_by_event(&self, event_id: &str, score: i32) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -59,6 +64,8 @@ impl EventStorage {
         Ok(())
     }
 
+    /// See [`get_event_report`].
+    /// See [`get_event_report`].
     pub async fn get_event_report(&self, event_id: &str) -> Result<Vec<EventReport>, sqlx::Error> {
         sqlx::query_as::<_, EventReport>(
             r"

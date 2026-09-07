@@ -3,56 +3,87 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgQueryResult;
 use sqlx::PgPool;
 
+/// The `FederationQueueEntry` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct FederationQueueEntry {
+    /// The `id` field.
     pub id: i64,
+    /// The `destination` field.
     pub destination: String,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `sent_at` field.
     pub sent_at: Option<i64>,
+    /// The `retry_count` field.
     pub retry_count: i32,
+    /// The `status` field.
     pub status: String,
 }
 
+/// The `InsertFederationQueueRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InsertFederationQueueRequest {
+    /// The `destination` field.
     pub destination: String,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
 /// Trait abstraction over [`FederationQueueStorage`] for testability.
 #[async_trait]
 pub trait FederationQueueStoreApi: Send + Sync {
+    /// See [`insert`].
     async fn insert(&self, req: &InsertFederationQueueRequest) -> Result<i64, sqlx::Error>;
+    /// See [`mark_sent`].
     async fn mark_sent(&self, id: i64, sent_at: i64) -> Result<PgQueryResult, sqlx::Error>;
+    /// See [`increment_retry`].
     async fn increment_retry(&self, id: i64) -> Result<PgQueryResult, sqlx::Error>;
+    /// See [`mark_failed`].
     async fn mark_failed(&self, id: i64) -> Result<PgQueryResult, sqlx::Error>;
+    /// See [`get_pending_by_destination`].
     async fn get_pending_by_destination(
         &self,
         destination: &str,
         limit: i64,
     ) -> Result<Vec<FederationQueueEntry>, sqlx::Error>;
+    /// See [`get_all_pending`].
     async fn get_all_pending(&self) -> Result<Vec<FederationQueueEntry>, sqlx::Error>;
+    /// See [`delete_completed`].
     async fn delete_completed(&self, older_than_ts: i64) -> Result<u64, sqlx::Error>;
+    /// See [`count_pending`].
     async fn count_pending(&self) -> Result<i64, sqlx::Error>;
 }
 
+/// The `FederationQueueStorage` struct.
 pub struct FederationQueueStorage {
     pool: PgPool,
 }
 
 impl FederationQueueStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
+    /// See [`insert`].
+    /// See [`insert`].
     pub async fn insert(&self, req: &InsertFederationQueueRequest) -> Result<i64, sqlx::Error> {
         let row = sqlx::query_as::<_, (i64,)>(
             r"
@@ -73,6 +104,8 @@ impl FederationQueueStorage {
         Ok(row.0)
     }
 
+    /// See [`mark_sent`].
+    /// See [`mark_sent`].
     pub async fn mark_sent(&self, id: i64, sent_at: i64) -> Result<PgQueryResult, sqlx::Error> {
         sqlx::query(
             r"
@@ -87,6 +120,8 @@ impl FederationQueueStorage {
         .await
     }
 
+    /// See [`increment_retry`].
+    /// See [`increment_retry`].
     pub async fn increment_retry(&self, id: i64) -> Result<PgQueryResult, sqlx::Error> {
         sqlx::query(
             r"
@@ -100,6 +135,8 @@ impl FederationQueueStorage {
         .await
     }
 
+    /// See [`mark_failed`].
+    /// See [`mark_failed`].
     pub async fn mark_failed(&self, id: i64) -> Result<PgQueryResult, sqlx::Error> {
         sqlx::query(
             r"
@@ -113,6 +150,7 @@ impl FederationQueueStorage {
         .await
     }
 
+    /// See [`get_pending_by_destination`].
     pub async fn get_pending_by_destination(
         &self,
         destination: &str,
@@ -133,6 +171,8 @@ impl FederationQueueStorage {
         .await
     }
 
+    /// See [`get_all_pending`].
+    /// See [`get_all_pending`].
     pub async fn get_all_pending(&self) -> Result<Vec<FederationQueueEntry>, sqlx::Error> {
         sqlx::query_as::<_, FederationQueueEntry>(
             r"
@@ -147,6 +187,8 @@ impl FederationQueueStorage {
         .await
     }
 
+    /// See [`delete_completed`].
+    /// See [`delete_completed`].
     pub async fn delete_completed(&self, older_than_ts: i64) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
             r"
@@ -161,6 +203,8 @@ impl FederationQueueStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`count_pending`].
+    /// See [`count_pending`].
     pub async fn count_pending(&self) -> Result<i64, sqlx::Error> {
         let row =
             sqlx::query_as::<_, (Option<i64>,)>(r"SELECT COUNT(*) FROM federation_queue WHERE status = 'pending'")

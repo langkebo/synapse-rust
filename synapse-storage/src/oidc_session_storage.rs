@@ -13,51 +13,90 @@ use tracing::instrument;
 
 // ============ 数据模型 ============
 
+/// The `OidcAuthSession` struct.
 #[derive(Debug, Clone, FromRow)]
 pub struct OidcAuthSession {
+    /// The `id` field.
     pub id: i64,
+    /// The `session_key` field.
     pub session_key: String,
+    /// The `session_type` field.
     pub session_type: String,
+    /// The `client_id` field.
     pub client_id: String,
+    /// The `redirect_uri` field.
     pub redirect_uri: String,
+    /// The `scope` field.
     pub scope: String,
+    /// The `state` field.
     pub state: String,
+    /// The `nonce` field.
     pub nonce: Option<String>,
+    /// The `code_verifier` field.
     pub code_verifier: Option<String>,
+    /// The `code_challenge` field.
     pub code_challenge: Option<String>,
+    /// The `code_challenge_method` field.
     pub code_challenge_method: Option<String>,
+    /// The `user_id` field.
     pub user_id: Option<String>,
+    /// The `consent_given` field.
     pub consent_given: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: i64,
 }
 
+/// The `OidcRefreshToken` struct.
 #[derive(Debug, Clone, FromRow)]
 pub struct OidcRefreshToken {
+    /// The `id` field.
     pub id: i64,
+    /// The `token_hash` field.
     pub token_hash: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `client_id` field.
     pub client_id: String,
+    /// The `scope` field.
     pub scope: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `is_revoked` field.
     pub is_revoked: bool,
+    /// The `revoked_at` field.
     pub revoked_at: Option<i64>,
 }
 
+/// The `OidcConsentSession` struct.
 #[derive(Debug, Clone, FromRow)]
 pub struct OidcConsentSession {
+    /// The `id` field.
     pub id: i64,
+    /// The `session_id` field.
     pub session_id: String,
+    /// The `client_id` field.
     pub client_id: String,
+    /// The `client_name` field.
     pub client_name: Option<String>,
+    /// The `redirect_uri` field.
     pub redirect_uri: String,
+    /// The `scope` field.
     pub scope: String,
+    /// The `state` field.
     pub state: String,
+    /// The `nonce` field.
     pub nonce: Option<String>,
+    /// The `code_challenge` field.
     pub code_challenge: Option<String>,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: i64,
 }
 
@@ -66,32 +105,48 @@ pub struct OidcConsentSession {
 /// Trait abstraction over [`OidcSessionStorage`] for testability.
 #[async_trait]
 pub trait OidcSessionStoreApi: Send + Sync {
+    /// See [`save_auth_session`].
     async fn save_auth_session(&self, session: &OidcAuthSession) -> Result<(), sqlx::Error>;
+    /// See [`get_and_delete_auth_session`].
     async fn get_and_delete_auth_session(&self, session_key: &str) -> Result<Option<OidcAuthSession>, sqlx::Error>;
+    /// See [`save_refresh_token`].
     async fn save_refresh_token(&self, token: &OidcRefreshToken) -> Result<(), sqlx::Error>;
+    /// See [`get_refresh_token`].
     async fn get_refresh_token(&self, token_hash: &str) -> Result<Option<OidcRefreshToken>, sqlx::Error>;
+    /// See [`revoke_refresh_token`].
     async fn revoke_refresh_token(&self, token_hash: &str, now_ts: i64) -> Result<bool, sqlx::Error>;
+    /// See [`revoke_user_refresh_tokens`].
     async fn revoke_user_refresh_tokens(&self, user_id: &str, now_ts: i64) -> Result<u64, sqlx::Error>;
+    /// See [`save_consent_session`].
     async fn save_consent_session(&self, session: &OidcConsentSession) -> Result<(), sqlx::Error>;
+    /// See [`get_and_delete_consent_session`].
     async fn get_and_delete_consent_session(&self, session_id: &str)
         -> Result<Option<OidcConsentSession>, sqlx::Error>;
+    /// See [`get_consent_session`].
     async fn get_consent_session(&self, session_id: &str) -> Result<Option<OidcConsentSession>, sqlx::Error>;
+    /// See [`delete_consent_session`].
     async fn delete_consent_session(&self, session_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`cleanup_expired_sessions`].
     async fn cleanup_expired_sessions(&self, now_ts: i64) -> Result<u64, sqlx::Error>;
 }
 
+/// The `OidcSessionStorage` struct.
 #[derive(Clone)]
 pub struct OidcSessionStorage {
     pool: Arc<PgPool>,
 }
 
 impl OidcSessionStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
     // ── Auth Session ─────────────────────────────────────────────────────
 
+    /// See [`save_auth_session`].
+    /// See [`save_auth_session`].
     #[instrument(skip(self, session), fields(key = %session.session_key))]
     pub async fn save_auth_session(&self, session: &OidcAuthSession) -> Result<(), sqlx::Error> {
         sqlx::query(
@@ -156,6 +211,8 @@ impl OidcSessionStorage {
 
     // ── Refresh Token ────────────────────────────────────────────────────
 
+    /// See [`save_refresh_token`].
+    /// See [`save_refresh_token`].
     #[instrument(skip(self, token), fields(hash = %token.token_hash))]
     pub async fn save_refresh_token(&self, token: &OidcRefreshToken) -> Result<(), sqlx::Error> {
         sqlx::query(
@@ -186,6 +243,8 @@ impl OidcSessionStorage {
         Ok(())
     }
 
+    /// See [`get_refresh_token`].
+    /// See [`get_refresh_token`].
     #[instrument(skip(self), fields(hash = %token_hash))]
     pub async fn get_refresh_token(&self, token_hash: &str) -> Result<Option<OidcRefreshToken>, sqlx::Error> {
         let row = sqlx::query_as::<_, OidcRefreshToken>(
@@ -202,6 +261,8 @@ impl OidcSessionStorage {
         Ok(row)
     }
 
+    /// See [`revoke_refresh_token`].
+    /// See [`revoke_refresh_token`].
     #[instrument(skip(self), fields(hash = %token_hash))]
     pub async fn revoke_refresh_token(&self, token_hash: &str, now_ts: i64) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
@@ -218,6 +279,8 @@ impl OidcSessionStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// See [`revoke_user_refresh_tokens`].
+    /// See [`revoke_user_refresh_tokens`].
     #[instrument(skip(self), fields(user_id = %user_id))]
     pub async fn revoke_user_refresh_tokens(&self, user_id: &str, now_ts: i64) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
@@ -236,6 +299,8 @@ impl OidcSessionStorage {
 
     // ── Consent Session ──────────────────────────────────────────────────
 
+    /// See [`save_consent_session`].
+    /// See [`save_consent_session`].
     #[instrument(skip(self, session), fields(id = %session.session_id))]
     pub async fn save_consent_session(&self, session: &OidcConsentSession) -> Result<(), sqlx::Error> {
         sqlx::query(

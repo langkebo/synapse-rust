@@ -1,6 +1,7 @@
 use super::*;
 use synapse_common::current_timestamp_millis;
 
+/// The `InMemoryRegistrationTokenStore` struct.
 #[derive(Clone, Default)]
 pub struct InMemoryRegistrationTokenStore {
     tokens: Arc<RwLock<HashMap<String, crate::registration_token::RegistrationToken>>>,
@@ -12,6 +13,8 @@ pub struct InMemoryRegistrationTokenStore {
 }
 
 impl InMemoryRegistrationTokenStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self { next_id: Arc::new(std::sync::atomic::AtomicI64::new(1)), ..Default::default() }
     }

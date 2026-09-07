@@ -4,35 +4,58 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
+/// The `KeyEvent` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyEvent {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `operation` field.
     pub operation: String,
+    /// The `key_id` field.
     pub key_id: Option<String>,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `details` field.
     pub details: Option<serde_json::Value>,
+    /// The `ip_address` field.
     pub ip_address: Option<String>,
+    /// The `timestamp` field.
     pub timestamp: i64,
 }
 
+/// The `KeyAuditEntry` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct KeyAuditEntry {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `operation` field.
     pub operation: String,
+    /// The `key_id` field.
     pub key_id: Option<String>,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `details` field.
     pub details: Option<serde_json::Value>,
+    /// The `ip_address` field.
     pub ip_address: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
+/// The `E2eeAuditStoreApi` trait.
 #[async_trait]
 pub trait E2eeAuditStoreApi: Send + Sync {
+    /// See [`log_key_operation`].
     async fn log_key_operation(&self, event: &KeyEvent) -> Result<(), ApiError>;
+    /// See [`get_key_history`].
     async fn get_key_history(&self, user_id: &str) -> Result<Vec<KeyAuditEntry>, ApiError>;
+    /// See [`get_key_history_paginated`].
     async fn get_key_history_paginated(
         &self,
         user_id: &str,
@@ -40,21 +63,29 @@ pub trait E2eeAuditStoreApi: Send + Sync {
         from_ts: Option<i64>,
         from_id: Option<i64>,
     ) -> Result<Vec<KeyAuditEntry>, ApiError>;
+    /// See [`get_operations_by_type`].
     async fn get_operations_by_type(&self, operation: &str, limit: i64) -> Result<Vec<KeyAuditEntry>, ApiError>;
+    /// See [`get_user_device_history`].
     async fn get_user_device_history(&self, user_id: &str, device_id: &str) -> Result<Vec<KeyAuditEntry>, ApiError>;
+    /// See [`cleanup_old_logs`].
     async fn cleanup_old_logs(&self, days_to_keep: i64) -> Result<u64, ApiError>;
 }
 
+/// The `E2eeAuditStorage` struct.
 #[derive(Clone)]
 pub struct E2eeAuditStorage {
     pool: Arc<sqlx::PgPool>,
 }
 
 impl E2eeAuditStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<sqlx::PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`log_key_operation`].
+    /// See [`log_key_operation`].
     pub async fn log_key_operation(&self, event: &KeyEvent) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -79,6 +110,8 @@ impl E2eeAuditStorage {
         Ok(())
     }
 
+    /// See [`get_key_history`].
+    /// See [`get_key_history`].
     pub async fn get_key_history(&self, user_id: &str) -> Result<Vec<KeyAuditEntry>, ApiError> {
         sqlx::query_as::<_, KeyAuditEntry>(
             r"
@@ -95,6 +128,7 @@ impl E2eeAuditStorage {
         .map_err(|e| ApiError::internal_with_context("Failed to get key history", &e))
     }
 
+    /// See [`get_key_history_paginated`].
     pub async fn get_key_history_paginated(
         &self,
         user_id: &str,
@@ -137,6 +171,8 @@ impl E2eeAuditStorage {
         }
     }
 
+    /// See [`get_operations_by_type`].
+    /// See [`get_operations_by_type`].
     pub async fn get_operations_by_type(&self, operation: &str, limit: i64) -> Result<Vec<KeyAuditEntry>, ApiError> {
         sqlx::query_as::<_, KeyAuditEntry>(
             r"
@@ -154,6 +190,7 @@ impl E2eeAuditStorage {
         .map_err(|e| ApiError::internal_with_context("Failed to get operations", &e))
     }
 
+    /// See [`get_user_device_history`].
     pub async fn get_user_device_history(
         &self,
         user_id: &str,
@@ -175,6 +212,8 @@ impl E2eeAuditStorage {
         .map_err(|e| ApiError::internal_with_context("Failed to get device history", &e))
     }
 
+    /// See [`cleanup_old_logs`].
+    /// See [`cleanup_old_logs`].
     pub async fn cleanup_old_logs(&self, days_to_keep: i64) -> Result<u64, ApiError> {
         let cutoff_ts = current_timestamp_millis() - (days_to_keep * 24 * 60 * 60 * 1000);
         let result = sqlx::query("DELETE FROM e2ee_audit_log WHERE created_ts < $1")

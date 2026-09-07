@@ -5,6 +5,7 @@ use super::EventStorage;
 use super::ROOM_EVENT_COLS;
 
 impl EventStorage {
+    /// See [`get_room_events_paginated`].
     pub async fn get_room_events_paginated(
         &self,
         room_id: &str,
@@ -158,6 +159,7 @@ impl EventStorage {
         Ok(None)
     }
 
+    /// See [`find_event_id_by_timestamp`].
     pub async fn find_event_id_by_timestamp(
         &self,
         room_id: &str,
@@ -199,6 +201,7 @@ impl EventStorage {
         }
     }
 
+    /// See [`get_events_before_context`].
     pub async fn get_events_before_context(
         &self,
         room_id: &str,
@@ -235,6 +238,7 @@ impl EventStorage {
             .collect())
     }
 
+    /// See [`get_events_after_context`].
     pub async fn get_events_after_context(
         &self,
         room_id: &str,
@@ -359,6 +363,7 @@ impl EventStorage {
         Ok(events)
     }
 
+    /// See [`get_room_events_paginated_with_filter`].
     pub async fn get_room_events_paginated_with_filter(
         &self,
         room_id: &str,

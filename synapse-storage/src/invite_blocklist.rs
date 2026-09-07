@@ -7,25 +7,38 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `InviteBlocklistStoreApi` trait.
 #[async_trait]
 pub trait InviteBlocklistStoreApi: Send + Sync {
+    /// See [`set_invite_blocklist`].
     async fn set_invite_blocklist(&self, room_id: &str, user_ids: Vec<String>) -> Result<(), sqlx::Error>;
+    /// See [`get_invite_blocklist`].
     async fn get_invite_blocklist(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error>;
+    /// See [`is_user_blocked`].
     async fn is_user_blocked(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
+    /// See [`set_invite_allowlist`].
     async fn set_invite_allowlist(&self, room_id: &str, user_ids: Vec<String>) -> Result<(), sqlx::Error>;
+    /// See [`get_invite_allowlist`].
     async fn get_invite_allowlist(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error>;
+    /// See [`is_user_allowed`].
     async fn is_user_allowed(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
+    /// See [`has_any_invite_restriction`].
     async fn has_any_invite_restriction(&self, room_id: &str) -> Result<bool, sqlx::Error>;
+    /// See [`get_global_invite_blocklist`].
     async fn get_global_invite_blocklist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error>;
+    /// See [`get_global_invite_allowlist`].
     async fn get_global_invite_allowlist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error>;
 }
 
+/// The `InviteBlocklistStorage` struct.
 #[derive(Clone)]
 pub struct InviteBlocklistStorage {
     pool: Arc<PgPool>,
 }
 
 impl InviteBlocklistStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<PgPool>) -> Self {
         Self { pool }
     }

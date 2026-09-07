@@ -1,17 +1,32 @@
+/// The `basic` module.
 pub(crate) mod basic;
+/// The `batch` module.
 pub mod batch;
+/// The `create` module.
 pub(crate) mod create;
+/// The `dag` module.
 pub(crate) mod dag;
+/// The `ephemeral` module.
 pub(crate) mod ephemeral;
+/// The `models` module.
 pub(crate) mod models;
+/// The `pagination` module.
 pub(crate) mod pagination;
+/// The `reader` module.
 pub mod reader;
+/// The `redaction` module.
 pub(crate) mod redaction;
+/// The `search` module.
 pub(crate) mod search;
+/// The `signature` module.
 pub(crate) mod signature;
+/// The `state` module.
 pub mod state;
+/// The `txn_dedup` module.
 pub(crate) mod txn_dedup;
+/// The `unread` module.
 pub(crate) mod unread;
+/// The `writer` module.
 pub(crate) mod writer;
 
 pub use models::*;

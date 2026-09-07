@@ -1,6 +1,7 @@
 use super::*;
 use synapse_common::current_timestamp_millis;
 
+/// The `InMemorySpaceStore` struct.
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
 pub struct InMemorySpaceStore {
@@ -13,6 +14,8 @@ pub struct InMemorySpaceStore {
 }
 
 impl InMemorySpaceStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self {
             spaces: Arc::new(tokio::sync::RwLock::new(HashMap::new())),

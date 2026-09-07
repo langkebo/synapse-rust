@@ -6,21 +6,50 @@ use std::sync::Arc;
 
 use synapse_common::room_versions::DEFAULT_ROOM_VERSION;
 
+/// The `RoomSearchOrder` enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoomSearchOrder {
+    /// The `Created` variant.
     Created,
+    /// The `Name` variant.
     Name,
+    /// The `Size` variant.
     Size,
 }
 
+/// The `RoomSearchCursor` enum.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RoomSearchCursor {
-    Created { created_ts: i64, room_id: String },
-    Name { name: Option<String>, created_ts: i64, room_id: String },
-    Size { member_count: i64, created_ts: i64, room_id: String },
+    /// The `Created` variant.
+    Created {
+        /// The `created_ts` field.
+        created_ts: i64,
+        /// The `room_id` field.
+        room_id: String,
+    },
+    /// The `Name` variant.
+    Name {
+        /// The `name` field.
+        name: Option<String>,
+        /// The `created_ts` field.
+        created_ts: i64,
+        /// The `room_id` field.
+        room_id: String,
+    },
+    /// The `Size` variant.
+    Size {
+        /// The `member_count` field.
+        member_count: i64,
+        /// The `created_ts` field.
+        created_ts: i64,
+        /// The `room_id` field.
+        room_id: String,
+    },
 }
 
 impl RoomSearchOrder {
+    /// See [`from_query`].
+    /// See [`from_query`].
     pub fn from_query(order_by: Option<&str>) -> Self {
         match order_by {
             Some("name") => Self::Name,
@@ -31,6 +60,7 @@ impl RoomSearchOrder {
     }
 }
 
+/// See [`encode_room_search_cursor`].
 pub fn encode_room_search_cursor(cursor: &RoomSearchCursor) -> String {
     match cursor {
         RoomSearchCursor::Created { created_ts, room_id } => format!("created|{created_ts}|{room_id}"),
@@ -45,6 +75,7 @@ pub fn encode_room_search_cursor(cursor: &RoomSearchCursor) -> String {
     }
 }
 
+/// See [`decode_room_search_cursor`].
 pub fn decode_room_search_cursor(cursor: Option<&str>) -> Option<RoomSearchCursor> {
     let cursor = cursor?;
     let mut parts = cursor.split('|');
@@ -144,38 +175,64 @@ mod cursor_tests {
     }
 }
 
+/// Constant `DEFAULT_JOIN_RULE`.
 pub const DEFAULT_JOIN_RULE: &str = "invite";
+/// Constant `DEFAULT_HISTORY_VISIBILITY`.
 pub const DEFAULT_HISTORY_VISIBILITY: &str = "joined";
 
+/// The `Room` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Room {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `name` field.
     pub name: Option<String>,
+    /// The `topic` field.
     pub topic: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `canonical_alias` field.
     pub canonical_alias: Option<String>,
+    /// The `join_rule` field.
     pub join_rule: String,
+    /// The `creator_user_id` field.
     pub creator_user_id: Option<String>,
+    /// The `room_version` field.
     pub room_version: String,
+    /// The `encryption` field.
     pub encryption: Option<String>,
+    /// The `is_public` field.
     pub is_public: bool,
+    /// The `member_count` field.
     pub member_count: i64,
+    /// The `history_visibility` field.
     pub history_visibility: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `is_federatable` field.
     pub is_federatable: bool,
+    /// The `is_spotlight` field.
     pub is_spotlight: bool,
+    /// The `is_flagged` field.
     pub is_flagged: bool,
 }
 
+/// The `RoomEncryptionStatus` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoomEncryptionStatus {
+    /// The `is_encrypted` field.
     pub is_encrypted: bool,
+    /// The `algorithm` field.
     pub algorithm: Option<String>,
+    /// The `rotation_period_ms` field.
     pub rotation_period_ms: Option<i64>,
+    /// The `rotation_period_msgs` field.
     pub rotation_period_msgs: Option<i64>,
 }
 
 impl RoomEncryptionStatus {
+    /// See [`from_room`].
+    /// See [`from_room`].
     pub fn from_room(room: &Room) -> Self {
         Self {
             is_encrypted: room.encryption.is_some(),
@@ -185,6 +242,7 @@ impl RoomEncryptionStatus {
         }
     }
 
+    /// See [`from_encryption_event`].
     pub fn from_encryption_event(
         is_encrypted: bool,
         algorithm: Option<String>,
@@ -195,22 +253,33 @@ impl RoomEncryptionStatus {
     }
 }
 
+/// The `Receipt` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Receipt {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `receipt_type` field.
     pub receipt_type: String,
+    /// The `ts` field.
     pub ts: i64,
+    /// The `data` field.
     pub data: serde_json::Value,
 }
 
+/// The `RoomUnreadCounts` struct.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct RoomUnreadCounts {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `highlight_count` field.
     pub highlight_count: i64,
+    /// The `notification_count` field.
     pub notification_count: i64,
 }
 
+/// The `RoomRecord` struct.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct RoomRecord {
     pub(crate) room_id: String,
@@ -230,6 +299,7 @@ pub(crate) struct RoomRecord {
     pub(crate) created_ts: i64,
 }
 
+/// The `RoomWithMembersRecord` struct.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct RoomWithMembersRecord {
     pub(crate) room_id: String,
@@ -250,8 +320,10 @@ pub(crate) struct RoomWithMembersRecord {
     pub(crate) joined_members: Option<i64>,
 }
 
+/// The `RoomStorage` struct.
 #[derive(Clone)]
 pub struct RoomStorage {
+    /// The `pool` field.
     pub pool: Arc<Pool<Postgres>>,
 }
 

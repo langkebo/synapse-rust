@@ -4,32 +4,49 @@ use synapse_common::ApiError;
 use super::models::*;
 use super::repository::CasStorage;
 
+/// The `CasStoreApi` trait.
 #[async_trait]
 pub trait CasStoreApi: Send + Sync {
+    /// See [`create_ticket`].
     async fn create_ticket(&self, request: CreateTicketRequest) -> Result<CasTicket, ApiError>;
+    /// See [`validate_ticket`].
     async fn validate_ticket(&self, ticket_id: &str, service_url: &str) -> Result<Option<CasTicket>, ApiError>;
+    /// See [`get_ticket`].
     async fn get_ticket(&self, ticket_id: &str) -> Result<Option<CasTicket>, ApiError>;
+    /// See [`get_user_attributes`].
     async fn get_user_attributes(&self, user_id: &str) -> Result<Vec<CasUserAttribute>, ApiError>;
+    /// See [`create_pgt`].
     async fn create_pgt(&self, request: CreatePgtRequest) -> Result<CasProxyGrantingTicket, ApiError>;
+    /// See [`get_pgt`].
     async fn get_pgt(&self, pgt_id: &str) -> Result<Option<CasProxyGrantingTicket>, ApiError>;
+    /// See [`create_proxy_ticket`].
     async fn create_proxy_ticket(&self, request: CreateProxyTicketRequest) -> Result<CasProxyTicket, ApiError>;
+    /// See [`validate_proxy_ticket`].
     async fn validate_proxy_ticket(
         &self,
         proxy_ticket_id: &str,
         service_url: &str,
     ) -> Result<Option<CasProxyTicket>, ApiError>;
+    /// See [`register_service`].
     async fn register_service(&self, request: RegisterServiceRequest) -> Result<CasRegisteredService, ApiError>;
+    /// See [`get_service`].
     async fn get_service(&self, service_id: &str) -> Result<Option<CasRegisteredService>, ApiError>;
+    /// See [`get_service_by_url`].
     async fn get_service_by_url(&self, service_url: &str) -> Result<Option<CasRegisteredService>, ApiError>;
+    /// See [`list_services`].
     async fn list_services(&self) -> Result<Vec<CasRegisteredService>, ApiError>;
+    /// See [`delete_service`].
     async fn delete_service(&self, service_id: &str) -> Result<bool, ApiError>;
+    /// See [`set_user_attribute`].
     async fn set_user_attribute(
         &self,
         user_id: &str,
         attribute_name: &str,
         attribute_value: &str,
     ) -> Result<CasUserAttribute, ApiError>;
+    /// See [`get_active_slo_sessions`].
     async fn get_active_slo_sessions(&self, user_id: &str) -> Result<Vec<CasSloSession>, ApiError>;
+    /// See [`cleanup_expired_tickets`].
     async fn cleanup_expired_tickets(&self) -> Result<u64, ApiError>;
 }
 

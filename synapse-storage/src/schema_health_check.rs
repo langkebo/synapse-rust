@@ -202,11 +202,17 @@ const REQUIRED_INDEXES: &[RequiredIndex] = &[
 /// 健康检查结果
 #[derive(Debug)]
 pub struct HealthCheckResult {
+    /// The `passed` field.
     pub passed: bool,
+    /// The `missing_tables` field.
     pub missing_tables: Vec<String>,
+    /// The `missing_columns` field.
     pub missing_columns: Vec<String>,
+    /// The `missing_indexes` field.
     pub missing_indexes: Vec<String>,
+    /// The `repaired_indexes` field.
     pub repaired_indexes: Vec<String>,
+    /// The `warnings` field.
     pub warnings: Vec<String>,
     /// DB-02 新增：baseline 与实际表数的差异（正值 = 数据库多了，负值 = 少了）
     pub baseline_drift: i64,

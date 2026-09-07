@@ -1,11 +1,14 @@
 use super::*;
 
+/// The `InMemoryRateLimitStore` struct.
 #[derive(Default)]
 pub struct InMemoryRateLimitStore {
     limits: Arc<RwLock<HashMap<String, crate::rate_limit::RateLimitRecord>>>,
 }
 
 impl InMemoryRateLimitStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self { limits: Arc::new(RwLock::new(HashMap::new())) }
     }

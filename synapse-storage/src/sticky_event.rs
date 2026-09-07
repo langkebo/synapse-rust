@@ -7,8 +7,10 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `StickyEventStoreApi` trait.
 #[async_trait]
 pub trait StickyEventStoreApi: Send + Sync {
+    /// See [`set_is_sticky_event`].
     async fn set_is_sticky_event(
         &self,
         room_id: &str,
@@ -17,23 +19,30 @@ pub trait StickyEventStoreApi: Send + Sync {
         event_type: &str,
         is_sticky: bool,
     ) -> Result<(), sqlx::Error>;
+    /// See [`get_is_sticky_event`].
     async fn get_is_sticky_event(
         &self,
         room_id: &str,
         user_id: &str,
         event_type: &str,
     ) -> Result<Option<StickyEvent>, sqlx::Error>;
+    /// See [`get_all_is_sticky_events`].
     async fn get_all_is_sticky_events(&self, room_id: &str, user_id: &str) -> Result<Vec<StickyEvent>, sqlx::Error>;
+    /// See [`clear_is_sticky_event`].
     async fn clear_is_sticky_event(&self, room_id: &str, user_id: &str, event_type: &str) -> Result<(), sqlx::Error>;
+    /// See [`get_rooms_with_is_sticky_events`].
     async fn get_rooms_with_is_sticky_events(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error>;
 }
 
+/// The `StickyEventStorage` struct.
 #[derive(Clone)]
 pub struct StickyEventStorage {
     pool: Arc<PgPool>,
 }
 
 impl StickyEventStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<PgPool>) -> Self {
         Self { pool }
     }
@@ -181,12 +190,19 @@ impl StickyEventStorage {
 /// - updated_ts: NOT NULL (or NULLABLE if appropriate), milliseconds timestamp
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StickyEvent {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `is_sticky` field.
     pub is_sticky: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 

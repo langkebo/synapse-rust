@@ -4,100 +4,166 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `RTCSession` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RTCSession {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `session_id` field.
     pub session_id: String,
+    /// The `application` field.
     pub application: String,
+    /// The `call_id` field.
     pub call_id: Option<String>,
+    /// The `creator` field.
     pub creator: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
+    /// The `is_active` field.
     pub is_active: bool,
+    /// The `config` field.
     pub config: serde_json::Value,
 }
 
+/// The `RTCMembership` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RTCMembership {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `session_id` field.
     pub session_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `membership_id` field.
     pub membership_id: String,
+    /// The `application` field.
     pub application: String,
+    /// The `call_id` field.
     pub call_id: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `foci_active` field.
     pub foci_active: Option<String>,
+    /// The `foci_preferred` field.
     pub foci_preferred: Option<serde_json::Value>,
+    /// The `application_data` field.
     pub application_data: Option<serde_json::Value>,
+    /// The `is_active` field.
     pub is_active: bool,
 }
 
+/// The `RTCEncryptionKey` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RTCEncryptionKey {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `session_id` field.
     pub session_id: String,
+    /// The `key_index` field.
     pub key_index: i32,
+    /// The `key` field.
     pub key: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `sender_user_id` field.
     pub sender_user_id: String,
+    /// The `sender_device_id` field.
     pub sender_device_id: String,
 }
 
+/// The `CreateSessionParams` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSessionParams {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `session_id` field.
     pub session_id: String,
+    /// The `application` field.
     pub application: String,
+    /// The `call_id` field.
     pub call_id: Option<String>,
+    /// The `creator` field.
     pub creator: String,
+    /// The `config` field.
     pub config: serde_json::Value,
 }
 
+/// The `CreateMembershipParams` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateMembershipParams {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `session_id` field.
     pub session_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `membership_id` field.
     pub membership_id: String,
+    /// The `application` field.
     pub application: String,
+    /// The `call_id` field.
     pub call_id: Option<String>,
+    /// The `foci_active` field.
     pub foci_active: Option<String>,
+    /// The `foci_preferred` field.
     pub foci_preferred: Option<serde_json::Value>,
+    /// The `application_data` field.
     pub application_data: Option<serde_json::Value>,
 }
 
+/// The `SessionWithMemberships` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionWithMemberships {
+    /// The `session` field.
     pub session: RTCSession,
+    /// The `memberships` field.
     pub memberships: Vec<RTCMembership>,
 }
 
+/// The `MatrixRTCStoreApi` trait.
 #[async_trait]
 pub trait MatrixRTCStoreApi {
+    /// See [`create_session`].
     async fn create_session(&self, params: CreateSessionParams) -> Result<RTCSession, sqlx::Error>;
 
+    /// See [`get_session`].
     async fn get_session(&self, room_id: &str, session_id: &str) -> Result<Option<RTCSession>, sqlx::Error>;
 
+    /// See [`get_active_sessions_for_room`].
     async fn get_active_sessions_for_room(&self, room_id: &str) -> Result<Vec<RTCSession>, sqlx::Error>;
 
+    /// See [`end_session`].
     async fn end_session(&self, room_id: &str, session_id: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`create_membership`].
     async fn create_membership(&self, params: CreateMembershipParams) -> Result<RTCMembership, sqlx::Error>;
 
+    /// See [`get_memberships_for_session`].
     async fn get_memberships_for_session(
         &self,
         room_id: &str,
         session_id: &str,
     ) -> Result<Vec<RTCMembership>, sqlx::Error>;
 
+    /// See [`get_user_membership`].
     async fn get_user_membership(
         &self,
         room_id: &str,
@@ -106,6 +172,7 @@ pub trait MatrixRTCStoreApi {
         device_id: &str,
     ) -> Result<Option<RTCMembership>, sqlx::Error>;
 
+    /// See [`end_membership`].
     async fn end_membership(
         &self,
         room_id: &str,
@@ -114,8 +181,10 @@ pub trait MatrixRTCStoreApi {
         device_id: &str,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`cleanup_expired_memberships`].
     async fn cleanup_expired_memberships(&self) -> Result<u64, sqlx::Error>;
 
+    /// See [`store_encryption_key`].
     async fn store_encryption_key(
         &self,
         room_id: &str,
@@ -126,8 +195,10 @@ pub trait MatrixRTCStoreApi {
         sender_device_id: &str,
     ) -> Result<RTCEncryptionKey, sqlx::Error>;
 
+    /// See [`get_encryption_keys`].
     async fn get_encryption_keys(&self, room_id: &str, session_id: &str) -> Result<Vec<RTCEncryptionKey>, sqlx::Error>;
 
+    /// See [`get_session_with_memberships`].
     async fn get_session_with_memberships(
         &self,
         room_id: &str,
@@ -135,16 +206,21 @@ pub trait MatrixRTCStoreApi {
     ) -> Result<Option<SessionWithMemberships>, sqlx::Error>;
 }
 
+/// The `MatrixRTCStorage` struct.
 #[derive(Clone)]
 pub struct MatrixRTCStorage {
     pool: Arc<Pool<Postgres>>,
 }
 
 impl MatrixRTCStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
 
+    /// See [`create_session`].
+    /// See [`create_session`].
     pub async fn create_session(&self, params: CreateSessionParams) -> Result<RTCSession, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -172,6 +248,8 @@ impl MatrixRTCStorage {
         .await
     }
 
+    /// See [`get_session`].
+    /// See [`get_session`].
     pub async fn get_session(&self, room_id: &str, session_id: &str) -> Result<Option<RTCSession>, sqlx::Error> {
         sqlx::query_as::<_, RTCSession>(
             r#"
@@ -185,6 +263,8 @@ impl MatrixRTCStorage {
         .await
     }
 
+    /// See [`get_active_sessions_for_room`].
+    /// See [`get_active_sessions_for_room`].
     pub async fn get_active_sessions_for_room(&self, room_id: &str) -> Result<Vec<RTCSession>, sqlx::Error> {
         sqlx::query_as::<_, RTCSession>(
             r#"
@@ -198,6 +278,8 @@ impl MatrixRTCStorage {
         .await
     }
 
+    /// See [`end_session`].
+    /// See [`end_session`].
     pub async fn end_session(&self, room_id: &str, session_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -217,6 +299,8 @@ impl MatrixRTCStorage {
         Ok(())
     }
 
+    /// See [`create_membership`].
+    /// See [`create_membership`].
     pub async fn create_membership(&self, params: CreateMembershipParams) -> Result<RTCMembership, sqlx::Error> {
         let now = current_timestamp_millis();
         let expires_at = now + 3600 * 1000;
@@ -255,6 +339,7 @@ impl MatrixRTCStorage {
         .await
     }
 
+    /// See [`get_memberships_for_session`].
     pub async fn get_memberships_for_session(
         &self,
         room_id: &str,
@@ -277,6 +362,7 @@ impl MatrixRTCStorage {
         .await
     }
 
+    /// See [`get_user_membership`].
     pub async fn get_user_membership(
         &self,
         room_id: &str,
@@ -298,6 +384,7 @@ impl MatrixRTCStorage {
         .await
     }
 
+    /// See [`end_membership`].
     pub async fn end_membership(
         &self,
         room_id: &str,
@@ -325,6 +412,8 @@ impl MatrixRTCStorage {
         Ok(())
     }
 
+    /// See [`cleanup_expired_memberships`].
+    /// See [`cleanup_expired_memberships`].
     pub async fn cleanup_expired_memberships(&self) -> Result<u64, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -342,6 +431,7 @@ impl MatrixRTCStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`store_encryption_key`].
     pub async fn store_encryption_key(
         &self,
         room_id: &str,
@@ -380,6 +470,7 @@ impl MatrixRTCStorage {
         .await
     }
 
+    /// See [`get_encryption_keys`].
     pub async fn get_encryption_keys(
         &self,
         room_id: &str,
@@ -402,6 +493,7 @@ impl MatrixRTCStorage {
         .await
     }
 
+    /// See [`get_session_with_memberships`].
     pub async fn get_session_with_memberships(
         &self,
         room_id: &str,

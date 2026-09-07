@@ -4,112 +4,193 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `RefreshToken` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RefreshToken {
+    /// The `id` field.
     pub id: i64,
+    /// The `token_hash` field.
     pub token_hash: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `access_token_id` field.
     pub access_token_id: Option<String>,
+    /// The `scope` field.
     pub scope: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `last_used_ts` field.
     pub last_used_ts: Option<i64>,
+    /// The `use_count` field.
     pub use_count: i32,
+    /// The `is_revoked` field.
     pub is_revoked: bool,
+    /// The `revoked_reason` field.
     pub revoked_reason: Option<String>,
+    /// The `client_info` field.
     pub client_info: Option<serde_json::Value>,
+    /// The `ip_address` field.
     pub ip_address: Option<String>,
+    /// The `user_agent` field.
     pub user_agent: Option<String>,
 }
 
+/// The `RefreshTokenUsage` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RefreshTokenUsage {
+    /// The `id` field.
     pub id: i64,
+    /// The `refresh_token_id` field.
     pub refresh_token_id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `old_access_token_id` field.
     pub old_access_token_id: Option<String>,
+    /// The `new_access_token_id` field.
     pub new_access_token_id: Option<String>,
+    /// The `used_ts` field.
     pub used_ts: i64,
+    /// The `ip_address` field.
     pub ip_address: Option<String>,
+    /// The `user_agent` field.
     pub user_agent: Option<String>,
+    /// The `is_success` field.
     pub is_success: bool,
+    /// The `error_message` field.
     pub error_message: Option<String>,
 }
 
+/// The `RefreshTokenFamily` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RefreshTokenFamily {
+    /// The `id` field.
     pub id: i64,
+    /// The `family_id` field.
     pub family_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `last_refresh_ts` field.
     pub last_refresh_ts: Option<i64>,
+    /// The `refresh_count` field.
     pub refresh_count: i32,
+    /// The `is_compromised` field.
     pub is_compromised: bool,
+    /// The `compromised_ts` field.
     pub compromised_ts: Option<i64>,
 }
 
+/// The `RefreshTokenRotation` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RefreshTokenRotation {
+    /// The `id` field.
     pub id: i64,
+    /// The `family_id` field.
     pub family_id: String,
+    /// The `old_token_hash` field.
     pub old_token_hash: Option<String>,
+    /// The `new_token_hash` field.
     pub new_token_hash: String,
+    /// The `rotated_ts` field.
     pub rotated_ts: i64,
+    /// The `rotation_reason` field.
     pub rotation_reason: Option<String>,
 }
 
+/// The `TokenBlacklistEntry` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct TokenBlacklistEntry {
+    /// The `id` field.
     pub id: i64,
+    /// The `token_hash` field.
     pub token_hash: String,
+    /// The `token_type` field.
     pub token_type: Option<String>,
+    /// The `user_id` field.
     pub user_id: Option<String>,
+    /// The `is_revoked` field.
     pub is_revoked: bool,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `reason` field.
     pub reason: Option<String>,
 }
 
+/// The `CreateRefreshTokenRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateRefreshTokenRequest {
+    /// The `token_hash` field.
     pub token_hash: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `access_token_id` field.
     pub access_token_id: Option<String>,
+    /// The `scope` field.
     pub scope: Option<String>,
+    /// The `expires_at` field.
     pub expires_at: i64,
+    /// The `client_info` field.
     pub client_info: Option<serde_json::Value>,
+    /// The `ip_address` field.
     pub ip_address: Option<String>,
+    /// The `user_agent` field.
     pub user_agent: Option<String>,
 }
 
+/// The `RotateRefreshTokenRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RotateRefreshTokenRequest {
+    /// The `old_token_hash` field.
     pub old_token_hash: String,
+    /// The `new_token_hash` field.
     pub new_token_hash: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `family_id` field.
     pub family_id: Option<String>,
+    /// The `expires_at` field.
     pub expires_at: i64,
+    /// The `ip_address` field.
     pub ip_address: Option<String>,
+    /// The `user_agent` field.
     pub user_agent: Option<String>,
 }
 
+/// The `RecordUsageRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RecordUsageRequest {
+    /// The `refresh_token_id` field.
     pub refresh_token_id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `old_access_token_id` field.
     pub old_access_token_id: Option<String>,
+    /// The `new_access_token_id` field.
     pub new_access_token_id: String,
+    /// The `ip_address` field.
     pub ip_address: Option<String>,
+    /// The `user_agent` field.
     pub user_agent: Option<String>,
     #[serde(rename = "success")]
+    /// The `is_success` field.
     pub is_success: bool,
+    /// The `error_message` field.
     pub error_message: Option<String>,
 }
 
 impl RecordUsageRequest {
+    /// See [`new`].
     pub fn new(
         refresh_token_id: i64,
         user_id: impl Into<String>,
@@ -125,58 +206,88 @@ impl RecordUsageRequest {
         }
     }
 
+    /// See [`old_access_token_id`].
+    /// See [`old_access_token_id`].
     pub fn old_access_token_id(mut self, old_access_token_id: impl Into<String>) -> Self {
         self.old_access_token_id = Some(old_access_token_id.into());
         self
     }
 
+    /// See [`ip_address`].
+    /// See [`ip_address`].
     pub fn ip_address(mut self, ip_address: impl Into<String>) -> Self {
         self.ip_address = Some(ip_address.into());
         self
     }
 
+    /// See [`user_agent`].
+    /// See [`user_agent`].
     pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
         self.user_agent = Some(user_agent.into());
         self
     }
 
+    /// See [`error_message`].
+    /// See [`error_message`].
     pub fn error_message(mut self, error_message: impl Into<String>) -> Self {
         self.error_message = Some(error_message.into());
         self
     }
 }
 
+/// The `RefreshTokenStats` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RefreshTokenStats {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `total_tokens` field.
     pub total_tokens: i64,
+    /// The `active_tokens` field.
     pub active_tokens: i64,
+    /// The `revoked_tokens` field.
     pub revoked_tokens: i64,
+    /// The `expired_tokens` field.
     pub expired_tokens: i64,
+    /// The `total_uses` field.
     pub total_uses: i64,
 }
 
+/// The `RefreshTokenStoreApi` trait.
 #[async_trait]
 pub trait RefreshTokenStoreApi: Send + Sync {
+    /// See [`get_user_tokens`].
     async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, sqlx::Error>;
+    /// See [`get_token_by_id`].
     async fn get_token_by_id(&self, id: i64) -> Result<Option<RefreshToken>, sqlx::Error>;
+    /// See [`delete_token`].
     async fn delete_token(&self, token_hash: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`create_token`].
     async fn create_token(&self, request: CreateRefreshTokenRequest) -> Result<RefreshToken, sqlx::Error>;
+    /// See [`get_token`].
     async fn get_token(&self, token_hash: &str) -> Result<Option<RefreshToken>, sqlx::Error>;
+    /// See [`get_active_tokens`].
     async fn get_active_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, sqlx::Error>;
+    /// See [`revoke_token`].
     async fn revoke_token(&self, token_hash: &str, reason: &str) -> Result<(), sqlx::Error>;
+    /// See [`revoke_token_cas`].
     async fn revoke_token_cas(&self, token_hash: &str, reason: &str) -> Result<bool, sqlx::Error>;
+    /// See [`revoke_token_by_id`].
     async fn revoke_token_by_id(&self, id: i64, reason: &str) -> Result<(), sqlx::Error>;
+    /// See [`revoke_all_user_tokens`].
     async fn revoke_all_user_tokens(&self, user_id: &str, reason: &str) -> Result<i64, sqlx::Error>;
+    /// See [`record_usage`].
     async fn record_usage(&self, request: &RecordUsageRequest) -> Result<(), sqlx::Error>;
+    /// See [`create_family`].
     async fn create_family(
         &self,
         family_id: &str,
         user_id: &str,
         device_id: Option<&str>,
     ) -> Result<RefreshTokenFamily, sqlx::Error>;
+    /// See [`mark_family_compromised`].
     async fn mark_family_compromised(&self, family_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`record_rotation`].
     async fn record_rotation(
         &self,
         family_id: &str,
@@ -184,7 +295,9 @@ pub trait RefreshTokenStoreApi: Send + Sync {
         new_token_hash: &str,
         reason: &str,
     ) -> Result<(), sqlx::Error>;
+    /// See [`get_rotations`].
     async fn get_rotations(&self, family_id: &str) -> Result<Vec<RefreshTokenRotation>, sqlx::Error>;
+    /// See [`add_to_blacklist`].
     async fn add_to_blacklist(
         &self,
         token_hash: &str,
@@ -193,14 +306,21 @@ pub trait RefreshTokenStoreApi: Send + Sync {
         expires_at: i64,
         reason: Option<&str>,
     ) -> Result<(), sqlx::Error>;
+    /// See [`is_blacklisted`].
     async fn is_blacklisted(&self, token_hash: &str) -> Result<bool, sqlx::Error>;
+    /// See [`cleanup_expired_tokens`].
     async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error>;
+    /// See [`cleanup_blacklist`].
     async fn cleanup_blacklist(&self) -> Result<i64, sqlx::Error>;
+    /// See [`get_user_stats`].
     async fn get_user_stats(&self, user_id: &str) -> Result<Option<RefreshTokenStats>, sqlx::Error>;
+    /// See [`get_usage_history`].
     async fn get_usage_history(&self, user_id: &str, limit: i64) -> Result<Vec<RefreshTokenUsage>, sqlx::Error>;
 
+    /// See [`revoke_device_tokens`].
     async fn revoke_device_tokens(&self, user_id: &str, device_id: &str, reason: &str) -> Result<i64, sqlx::Error>;
 
+    /// See [`revoke_all_user_tokens_except_device`].
     async fn revoke_all_user_tokens_except_device(
         &self,
         user_id: &str,
@@ -209,16 +329,21 @@ pub trait RefreshTokenStoreApi: Send + Sync {
     ) -> Result<i64, sqlx::Error>;
 }
 
+/// The `RefreshTokenStorage` struct.
 #[derive(Clone)]
 pub struct RefreshTokenStorage {
     pool: Arc<PgPool>,
 }
 
 impl RefreshTokenStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_token`].
+    /// See [`create_token`].
     pub async fn create_token(&self, request: CreateRefreshTokenRequest) -> Result<RefreshToken, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -264,6 +389,8 @@ impl RefreshTokenStorage {
         Ok(row)
     }
 
+    /// See [`get_token`].
+    /// See [`get_token`].
     pub async fn get_token(&self, token_hash: &str) -> Result<Option<RefreshToken>, sqlx::Error> {
         let row = sqlx::query_as!(
             RefreshToken,
@@ -294,6 +421,8 @@ impl RefreshTokenStorage {
         Ok(row)
     }
 
+    /// See [`get_token_by_id`].
+    /// See [`get_token_by_id`].
     pub async fn get_token_by_id(&self, id: i64) -> Result<Option<RefreshToken>, sqlx::Error> {
         let row = sqlx::query_as!(
             RefreshToken,
@@ -324,6 +453,8 @@ impl RefreshTokenStorage {
         Ok(row)
     }
 
+    /// See [`get_user_tokens`].
+    /// See [`get_user_tokens`].
     pub async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, sqlx::Error> {
         let rows = sqlx::query_as!(
             RefreshToken,
@@ -354,6 +485,8 @@ impl RefreshTokenStorage {
         Ok(rows)
     }
 
+    /// See [`get_active_tokens`].
+    /// See [`get_active_tokens`].
     pub async fn get_active_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -391,6 +524,8 @@ impl RefreshTokenStorage {
         Ok(rows)
     }
 
+    /// See [`revoke_token`].
+    /// See [`revoke_token`].
     pub async fn revoke_token(&self, token_hash: &str, reason: &str) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
@@ -408,6 +543,8 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
+    /// See [`revoke_token_cas`].
+    /// See [`revoke_token_cas`].
     pub async fn revoke_token_cas(&self, token_hash: &str, reason: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
@@ -425,6 +562,8 @@ impl RefreshTokenStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// See [`revoke_token_by_id`].
+    /// See [`revoke_token_by_id`].
     pub async fn revoke_token_by_id(&self, id: i64, reason: &str) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
@@ -442,6 +581,8 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
+    /// See [`revoke_all_user_tokens`].
+    /// See [`revoke_all_user_tokens`].
     pub async fn revoke_all_user_tokens(&self, user_id: &str, reason: &str) -> Result<i64, sqlx::Error> {
         let result = sqlx::query!(
             r#"
@@ -459,6 +600,7 @@ impl RefreshTokenStorage {
         Ok(result.rows_affected() as i64)
     }
 
+    /// See [`revoke_all_user_tokens_except_device`].
     pub async fn revoke_all_user_tokens_except_device(
         &self,
         user_id: &str,
@@ -503,6 +645,8 @@ impl RefreshTokenStorage {
         Ok(result.rows_affected() as i64)
     }
 
+    /// See [`update_token_usage`].
+    /// See [`update_token_usage`].
     pub async fn update_token_usage(&self, token_hash: &str, access_token_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -524,6 +668,8 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
+    /// See [`record_usage`].
+    /// See [`record_usage`].
     pub async fn record_usage(&self, request: &RecordUsageRequest) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -551,6 +697,7 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
+    /// See [`create_family`].
     pub async fn create_family(
         &self,
         family_id: &str,
@@ -586,6 +733,8 @@ impl RefreshTokenStorage {
         Ok(row)
     }
 
+    /// See [`get_family`].
+    /// See [`get_family`].
     pub async fn get_family(&self, family_id: &str) -> Result<Option<RefreshTokenFamily>, sqlx::Error> {
         let row = sqlx::query_as!(
             RefreshTokenFamily,
@@ -610,6 +759,8 @@ impl RefreshTokenStorage {
         Ok(row)
     }
 
+    /// See [`mark_family_compromised`].
+    /// See [`mark_family_compromised`].
     pub async fn mark_family_compromised(&self, family_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -629,6 +780,7 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
+    /// See [`record_rotation`].
     pub async fn record_rotation(
         &self,
         family_id: &str,
@@ -668,6 +820,8 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
+    /// See [`get_rotations`].
+    /// See [`get_rotations`].
     pub async fn get_rotations(&self, family_id: &str) -> Result<Vec<RefreshTokenRotation>, sqlx::Error> {
         let rows = sqlx::query_as!(
             RefreshTokenRotation,
@@ -689,6 +843,7 @@ impl RefreshTokenStorage {
         Ok(rows)
     }
 
+    /// See [`add_to_blacklist`].
     pub async fn add_to_blacklist(
         &self,
         token_hash: &str,
@@ -715,6 +870,8 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
+    /// See [`is_blacklisted`].
+    /// See [`is_blacklisted`].
     pub async fn is_blacklisted(&self, token_hash: &str) -> Result<bool, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -731,6 +888,8 @@ impl RefreshTokenStorage {
         Ok(result > 0)
     }
 
+    /// See [`cleanup_expired_tokens`].
+    /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -746,6 +905,8 @@ impl RefreshTokenStorage {
         Ok(result.rows_affected() as i64)
     }
 
+    /// See [`cleanup_blacklist`].
+    /// See [`cleanup_blacklist`].
     pub async fn cleanup_blacklist(&self) -> Result<i64, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -761,6 +922,8 @@ impl RefreshTokenStorage {
         Ok(result.rows_affected() as i64)
     }
 
+    /// See [`get_user_stats`].
+    /// See [`get_user_stats`].
     pub async fn get_user_stats(&self, user_id: &str) -> Result<Option<RefreshTokenStats>, sqlx::Error> {
         let row = sqlx::query_as!(
             RefreshTokenStats,
@@ -784,6 +947,8 @@ impl RefreshTokenStorage {
         Ok(row)
     }
 
+    /// See [`get_usage_history`].
+    /// See [`get_usage_history`].
     pub async fn get_usage_history(&self, user_id: &str, limit: i64) -> Result<Vec<RefreshTokenUsage>, sqlx::Error> {
         let rows = sqlx::query_as!(
             RefreshTokenUsage,
@@ -810,6 +975,8 @@ impl RefreshTokenStorage {
         Ok(rows)
     }
 
+    /// See [`delete_token`].
+    /// See [`delete_token`].
     pub async fn delete_token(&self, token_hash: &str) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
@@ -823,6 +990,8 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
+    /// See [`delete_user_tokens`].
+    /// See [`delete_user_tokens`].
     pub async fn delete_user_tokens(&self, user_id: &str) -> Result<i64, sqlx::Error> {
         let result = sqlx::query!(
             r#"

@@ -19,6 +19,8 @@ pub struct InMemoryAdminFederationStore {
 }
 
 impl InMemoryAdminFederationStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }

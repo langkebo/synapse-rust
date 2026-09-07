@@ -3,33 +3,47 @@ use async_trait::async_trait;
 use super::models::*;
 use super::repository::ApplicationServiceStorage;
 
+/// The `ApplicationServiceStoreApi` trait.
 #[async_trait]
 pub trait ApplicationServiceStoreApi: Send + Sync {
+    /// See [`register`].
     async fn register(&self, request: RegisterApplicationServiceRequest) -> Result<ApplicationService, sqlx::Error>;
+    /// See [`upsert_registration`].
     async fn upsert_registration(
         &self,
         request: RegisterApplicationServiceRequest,
     ) -> Result<ApplicationService, sqlx::Error>;
+    /// See [`get_by_id`].
     async fn get_by_id(&self, as_id: &str) -> Result<Option<ApplicationService>, sqlx::Error>;
+    /// See [`get_by_token`].
     async fn get_by_token(&self, as_token: &str) -> Result<Option<ApplicationService>, sqlx::Error>;
+    /// See [`get_by_hs_token`].
     async fn get_by_hs_token(&self, hs_token: &str) -> Result<Option<ApplicationService>, sqlx::Error>;
+    /// See [`get_all_active`].
     async fn get_all_active(&self) -> Result<Vec<ApplicationService>, sqlx::Error>;
+    /// See [`update`].
     async fn update(
         &self,
         as_id: &str,
         request: &UpdateApplicationServiceRequest,
     ) -> Result<Option<ApplicationService>, sqlx::Error>;
+    /// See [`update_timestamp`].
     async fn update_timestamp(&self, as_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`unregister`].
     async fn unregister(&self, as_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`set_state`].
     async fn set_state(
         &self,
         as_id: &str,
         state_key: &str,
         state_value: &str,
     ) -> Result<ApplicationServiceState, sqlx::Error>;
+    /// See [`get_state`].
     async fn get_state(&self, as_id: &str, state_key: &str) -> Result<Option<ApplicationServiceState>, sqlx::Error>;
+    /// See [`get_all_states`].
     async fn get_all_states(&self, as_id: &str) -> Result<Vec<ApplicationServiceState>, sqlx::Error>;
     #[allow(clippy::too_many_arguments)]
+    /// See [`add_event`].
     async fn add_event(
         &self,
         event_id: &str,
@@ -40,24 +54,33 @@ pub trait ApplicationServiceStoreApi: Send + Sync {
         _content: serde_json::Value,
         _state_key: Option<&str>,
     ) -> Result<ApplicationServiceEvent, sqlx::Error>;
+    /// See [`get_pending_events`].
     async fn get_pending_events(&self, as_id: &str, limit: i64) -> Result<Vec<ApplicationServiceEvent>, sqlx::Error>;
+    /// See [`count_pending_events`].
     async fn count_pending_events(&self, as_id: &str) -> Result<i64, sqlx::Error>;
+    /// See [`mark_event_processed`].
     async fn mark_event_processed(&self, event_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`create_transaction`].
     async fn create_transaction(
         &self,
         as_id: &str,
         transaction_id: &str,
         events: &[serde_json::Value],
     ) -> Result<ApplicationServiceTransaction, sqlx::Error>;
+    /// See [`complete_transaction`].
     async fn complete_transaction(&self, as_id: &str, transaction_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`fail_transaction`].
     async fn fail_transaction(
         &self,
         as_id: &str,
         transaction_id: &str,
         error: &str,
     ) -> Result<ApplicationServiceTransaction, sqlx::Error>;
+    /// See [`get_pending_transactions`].
     async fn get_pending_transactions(&self, as_id: &str) -> Result<Vec<ApplicationServiceTransaction>, sqlx::Error>;
+    /// See [`count_pending_transactions`].
     async fn count_pending_transactions(&self, as_id: &str) -> Result<i64, sqlx::Error>;
+    /// See [`register_virtual_user`].
     async fn register_virtual_user(
         &self,
         as_id: &str,
@@ -65,30 +88,43 @@ pub trait ApplicationServiceStoreApi: Send + Sync {
         displayname: Option<&str>,
         avatar_url: Option<&str>,
     ) -> Result<ApplicationServiceUser, sqlx::Error>;
+    /// See [`get_virtual_users`].
     async fn get_virtual_users(&self, as_id: &str) -> Result<Vec<ApplicationServiceUser>, sqlx::Error>;
+    /// See [`has_exclusive_user_namespace_match`].
     async fn has_exclusive_user_namespace_match(&self, as_id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
+    /// See [`find_user_namespace_conflict`].
     async fn find_user_namespace_conflict(
         &self,
         as_id: &str,
         namespace_pattern: &str,
     ) -> Result<Option<String>, sqlx::Error>;
+    /// See [`find_room_alias_namespace_conflict`].
     async fn find_room_alias_namespace_conflict(
         &self,
         as_id: &str,
         namespace_pattern: &str,
     ) -> Result<Option<String>, sqlx::Error>;
+    /// See [`find_room_namespace_conflict`].
     async fn find_room_namespace_conflict(
         &self,
         as_id: &str,
         namespace_pattern: &str,
     ) -> Result<Option<String>, sqlx::Error>;
+    /// See [`is_user_in_namespace`].
     async fn is_user_in_namespace(&self, user_id: &str) -> Result<Option<String>, sqlx::Error>;
+    /// See [`is_room_alias_in_namespace`].
     async fn is_room_alias_in_namespace(&self, alias: &str) -> Result<Option<String>, sqlx::Error>;
+    /// See [`is_room_id_in_namespace`].
     async fn is_room_id_in_namespace(&self, room_id: &str) -> Result<Option<String>, sqlx::Error>;
+    /// See [`get_user_namespaces`].
     async fn get_user_namespaces(&self, as_id: &str) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error>;
+    /// See [`get_room_alias_namespaces`].
     async fn get_room_alias_namespaces(&self, as_id: &str) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error>;
+    /// See [`get_room_namespaces`].
     async fn get_room_namespaces(&self, as_id: &str) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error>;
+    /// See [`get_statistics`].
     async fn get_statistics(&self) -> Result<Vec<serde_json::Value>, sqlx::Error>;
+    /// See [`update_last_seen`].
     async fn update_last_seen(&self, as_id: &str) -> Result<(), sqlx::Error>;
 }
 

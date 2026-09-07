@@ -15,6 +15,8 @@ pub struct InMemoryOpenIdTokenStore {
 }
 
 impl InMemoryOpenIdTokenStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }

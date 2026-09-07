@@ -92,37 +92,68 @@ use synapse_common::ApiError;
 
 // ── Sub-modules ──
 
+/// The `access_token` module.
 pub mod access_token;
+/// The `account_data` module.
 pub mod account_data;
+/// The `admin_federation` module.
 pub mod admin_federation;
+/// The `admin_media` module.
 pub mod admin_media;
+/// The `audit_event` module.
 pub mod audit_event;
+/// The `background_update` module.
 pub mod background_update;
+/// The `cas` module.
 #[cfg(feature = "cas-sso")]
 pub mod cas;
+/// The `dehydrated_device` module.
 pub mod dehydrated_device;
+/// The `device_list` module.
 pub mod device_list;
+/// The `directory` module.
 pub mod directory;
+/// The `event` module.
 pub mod event;
+/// The `filter` module.
 pub mod filter;
+/// The `member` module.
 pub mod member;
+/// The `oidc_user_mapping` module.
 pub mod oidc_user_mapping;
+/// The `openid_token` module.
 pub mod openid_token;
+/// The `presence` module.
 pub mod presence;
+/// The `push` module.
 pub mod push;
+/// The `quarantine_media` module.
 pub mod quarantine_media;
+/// The `rate_limit` module.
 pub mod rate_limit;
+/// The `refresh_token` module.
 pub mod refresh_token;
+/// The `registration_token` module.
 pub mod registration_token;
+/// The `relations` module.
 pub mod relations;
+/// The `room` module.
 pub mod room;
+/// The `room_account_data` module.
 pub mod room_account_data;
+/// The `room_summary` module.
 pub mod room_summary;
+/// The `room_tag` module.
 pub mod room_tag;
+/// The `sliding_sync` module.
 pub mod sliding_sync;
+/// The `space` module.
 pub mod space;
+/// The `thread` module.
 pub mod thread;
+/// The `threepid` module.
 pub mod threepid;
+/// The `worker` module.
 pub mod worker;
 
 // ── Re-exports ──

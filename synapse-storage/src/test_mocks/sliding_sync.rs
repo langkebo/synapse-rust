@@ -1,5 +1,6 @@
 use synapse_common::current_timestamp_millis;
 
+/// The `InMemorySlidingSyncStore` struct.
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
 pub struct InMemorySlidingSyncStore {
@@ -29,6 +30,8 @@ pub struct InMemorySlidingSyncStore {
 }
 
 impl InMemorySlidingSyncStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }

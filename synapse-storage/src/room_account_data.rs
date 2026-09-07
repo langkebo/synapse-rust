@@ -5,41 +5,49 @@ use sqlx::Row;
 use std::sync::Arc;
 use synapse_common::ApiError;
 
+/// The `RoomAccountDataStoreApi` trait.
 #[async_trait]
 pub trait RoomAccountDataStoreApi: Send + Sync {
+    /// See [`get_room_account_data_content`].
     async fn get_room_account_data_content(
         &self,
         user_id: &str,
         room_id: &str,
         data_type: &str,
     ) -> Result<Option<serde_json::Value>, ApiError>;
+    /// See [`get_room_account_data_with_ts`].
     async fn get_room_account_data_with_ts(
         &self,
         user_id: &str,
         room_id: &str,
         data_type: &str,
     ) -> Result<Option<(serde_json::Value, Option<i64>)>, ApiError>;
+    /// See [`get_room_account_data`].
     async fn get_room_account_data(
         &self,
         user_id: &str,
         room_id: &str,
         data_type: &str,
     ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error>;
+    /// See [`list_room_account_data`].
     async fn list_room_account_data(
         &self,
         user_id: &str,
         room_id: &str,
     ) -> Result<Vec<RoomAccountDataRecord>, ApiError>;
+    /// See [`list_room_account_data_batch`].
     async fn list_room_account_data_batch(
         &self,
         user_id: &str,
         room_ids: &[String],
     ) -> Result<Vec<RoomAccountDataRecord>, ApiError>;
+    /// See [`get_room_vault_data`].
     async fn get_room_vault_data(
         &self,
         user_id: &str,
         room_id: &str,
     ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error>;
+    /// See [`upsert_room_account_data`].
     async fn upsert_room_account_data(
         &self,
         user_id: &str,
@@ -48,25 +56,34 @@ pub trait RoomAccountDataStoreApi: Send + Sync {
         data: &serde_json::Value,
         now: i64,
     ) -> Result<(), sqlx::Error>;
+    /// See [`delete_room_account_data`].
     async fn delete_room_account_data(&self, user_id: &str, room_id: &str, data_type: &str) -> Result<bool, ApiError>;
 }
 
+/// The `RoomAccountDataStorage` struct.
 pub struct RoomAccountDataStorage {
     pool: Arc<sqlx::PgPool>,
 }
 
+/// The `RoomAccountDataRecord` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RoomAccountDataRecord {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `data_type` field.
     pub data_type: String,
+    /// The `content` field.
     pub content: Value,
 }
 
 impl RoomAccountDataStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<sqlx::PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`get_room_account_data_content`].
     pub async fn get_room_account_data_content(
         &self,
         user_id: &str,
@@ -80,6 +97,7 @@ impl RoomAccountDataStorage {
         Ok(row.map(|row| row.get::<Value, _>("data")))
     }
 
+    /// See [`get_room_account_data_with_ts`].
     pub async fn get_room_account_data_with_ts(
         &self,
         user_id: &str,
@@ -103,6 +121,7 @@ impl RoomAccountDataStorage {
         }))
     }
 
+    /// See [`get_room_account_data`].
     pub async fn get_room_account_data(
         &self,
         user_id: &str,
@@ -117,6 +136,7 @@ impl RoomAccountDataStorage {
             .await
     }
 
+    /// See [`list_room_account_data`].
     pub async fn list_room_account_data(
         &self,
         user_id: &str,
@@ -135,6 +155,7 @@ impl RoomAccountDataStorage {
         .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
+    /// See [`list_room_account_data_batch`].
     pub async fn list_room_account_data_batch(
         &self,
         user_id: &str,
@@ -157,6 +178,7 @@ impl RoomAccountDataStorage {
         .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
+    /// See [`get_room_vault_data`].
     pub async fn get_room_vault_data(
         &self,
         user_id: &str,
@@ -172,6 +194,7 @@ impl RoomAccountDataStorage {
         .await
     }
 
+    /// See [`upsert_room_account_data`].
     pub async fn upsert_room_account_data(
         &self,
         user_id: &str,
@@ -196,6 +219,7 @@ impl RoomAccountDataStorage {
         Ok(())
     }
 
+    /// See [`delete_room_account_data`].
     pub async fn delete_room_account_data(
         &self,
         user_id: &str,

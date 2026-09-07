@@ -26,14 +26,17 @@ pub trait MemberStoreApi: Send + Sync {
     /// Returns a reference to the database connection pool.
     fn pool(&self) -> &Arc<sqlx::PgPool>;
 
+    /// See [`get_room_members`].
     async fn get_room_members(&self, room_id: &str, membership_type: &str) -> Result<Vec<RoomMember>, sqlx::Error>;
 
+    /// See [`get_members_batch`].
     async fn get_members_batch(
         &self,
         room_ids: &[String],
         membership_type: &str,
     ) -> Result<HashMap<String, Vec<RoomMember>>, sqlx::Error>;
 
+    /// See [`get_joined_rooms`].
     async fn get_joined_rooms(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error>;
 
     /// Cursor-paginated variant of [`Self::get_joined_rooms`].
@@ -55,10 +58,13 @@ pub trait MemberStoreApi: Send + Sync {
         self.get_joined_rooms(user_id).await
     }
 
+    /// See [`get_joined_room_count`].
     async fn get_joined_room_count(&self, user_id: &str) -> Result<i64, sqlx::Error>;
 
+    /// See [`get_shared_room_users`].
     async fn get_shared_room_users(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error>;
 
+    /// See [`get_sync_rooms`].
     async fn get_sync_rooms(&self, user_id: &str, include_leave: bool) -> Result<Vec<UserRoomMembership>, sqlx::Error>;
 
     /// Remove (leave) a member from a room. When `tx` is supplied the
@@ -72,8 +78,10 @@ pub trait MemberStoreApi: Send + Sync {
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`is_member`].
     async fn is_member(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
 
+    /// See [`get_room_member`].
     async fn get_room_member(&self, room_id: &str, user_id: &str) -> Result<Option<RoomMember>, sqlx::Error>;
 
     /// Fetch members for a set of users in a single room, keyed by user id.
@@ -96,6 +104,7 @@ pub trait MemberStoreApi: Send + Sync {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// See [`add_member`].
     async fn add_member(
         &self,
         room_id: &str,
@@ -109,18 +118,23 @@ pub trait MemberStoreApi: Send + Sync {
 
     // ── Extended membership queries (added for service-layer migration) ──
 
+    /// See [`get_joined_members`].
     async fn get_joined_members(&self, room_id: &str) -> Result<Vec<RoomMember>, sqlx::Error>;
 
+    /// See [`get_room_members_with_profiles`].
     async fn get_room_members_with_profiles(
         &self,
         room_id: &str,
         membership_type: &str,
     ) -> Result<Vec<(RoomMember, Option<String>, Option<String>)>, sqlx::Error>;
 
+    /// See [`get_membership_history`].
     async fn get_membership_history(&self, room_id: &str, limit: i64) -> Result<Vec<RoomMember>, sqlx::Error>;
 
+    /// See [`get_membership_state`].
     async fn get_membership_state(&self, room_id: &str, user_id: &str) -> Result<Option<String>, sqlx::Error>;
 
+    /// See [`get_room_members_paginated`].
     async fn get_room_members_paginated(
         &self,
         room_id: &str,
@@ -129,36 +143,46 @@ pub trait MemberStoreApi: Send + Sync {
         from_user_id: Option<&str>,
     ) -> Result<Vec<RoomMember>, sqlx::Error>;
 
+    /// See [`get_room_member_count`].
     async fn get_room_member_count(&self, room_id: &str) -> Result<i64, sqlx::Error>;
 
+    /// See [`share_common_room`].
     async fn share_common_room(&self, user_id_1: &str, user_id_2: &str) -> Result<bool, sqlx::Error>;
 
+    /// See [`share_common_rooms_batch`].
     async fn share_common_rooms_batch(
         &self,
         user_id: &str,
         other_user_ids: &[String],
     ) -> Result<Vec<String>, sqlx::Error>;
 
+    /// See [`has_any_non_banned_member_from_server`].
     async fn has_any_non_banned_member_from_server(
         &self,
         room_id: &str,
         server_name: &str,
     ) -> Result<bool, sqlx::Error>;
 
+    /// See [`user_shares_room_with_server`].
     async fn user_shares_room_with_server(&self, user_id: &str, server_name: &str) -> Result<bool, sqlx::Error>;
 
+    /// See [`filter_users_sharing_room_with_server`].
     async fn filter_users_sharing_room_with_server(
         &self,
         user_ids: &[String],
         server_name: &str,
     ) -> Result<std::collections::HashSet<String>, sqlx::Error>;
 
+    /// See [`ban_member`].
     async fn ban_member(&self, room_id: &str, user_id: &str, banned_by: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`unban_member`].
     async fn unban_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`set_ban_reason`].
     async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`force_leave_membership`].
     async fn force_leave_membership(&self, room_id: &str, user_id: &str, now: i64) -> Result<(), sqlx::Error>;
 
     // ── Additional membership queries (added for state-service migration) ──
@@ -174,8 +198,10 @@ pub trait MemberStoreApi: Send + Sync {
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`remove_all_members`].
     async fn remove_all_members(&self, room_id: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`get_joined_servers_in_room`].
     async fn get_joined_servers_in_room(
         &self,
         room_id: &str,

@@ -12,6 +12,8 @@ pub struct InMemoryRoomAccountDataStore {
 }
 
 impl InMemoryRoomAccountDataStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }

@@ -9,100 +9,156 @@ const FEATURE_FLAG_CACHE_TTL_SECS: u64 = 60;
 const FEATURE_FLAG_LIST_CACHE_TTL_SECS: u64 = 30;
 const FEATURE_FLAG_LIST_CACHE_PREFIX: &str = "feature_flag:list:";
 
+/// The `FeatureFlagRecord` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct FeatureFlagRecord {
+    /// The `flag_key` field.
     pub flag_key: String,
+    /// The `target_scope` field.
     pub target_scope: String,
+    /// The `rollout_percent` field.
     pub rollout_percent: i32,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `reason` field.
     pub reason: String,
+    /// The `status` field.
     pub status: String,
+    /// The `created_by` field.
     pub created_by: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
+/// The `FeatureFlagTargetRecord` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct FeatureFlagTargetRecord {
+    /// The `id` field.
     pub id: i64,
+    /// The `flag_key` field.
     pub flag_key: String,
+    /// The `subject_type` field.
     pub subject_type: String,
+    /// The `subject_id` field.
     pub subject_id: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
+/// The `FeatureFlag` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureFlag {
+    /// The `flag_key` field.
     pub flag_key: String,
+    /// The `target_scope` field.
     pub target_scope: String,
+    /// The `rollout_percent` field.
     pub rollout_percent: i32,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `reason` field.
     pub reason: String,
+    /// The `status` field.
     pub status: String,
+    /// The `created_by` field.
     pub created_by: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
+    /// The `targets` field.
     pub targets: Vec<FeatureFlagTargetRecord>,
 }
 
+/// The `FeatureFlagTargetInput` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureFlagTargetInput {
+    /// The `subject_type` field.
     pub subject_type: String,
+    /// The `subject_id` field.
     pub subject_id: String,
 }
 
+/// The `CreateFeatureFlagRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateFeatureFlagRequest {
+    /// The `flag_key` field.
     pub flag_key: String,
+    /// The `target_scope` field.
     pub target_scope: String,
+    /// The `rollout_percent` field.
     pub rollout_percent: i32,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `reason` field.
     pub reason: String,
+    /// The `status` field.
     pub status: Option<String>,
     #[serde(default)]
+    /// The `targets` field.
     pub targets: Vec<FeatureFlagTargetInput>,
 }
 
+/// The `UpdateFeatureFlagRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateFeatureFlagRequest {
+    /// The `rollout_percent` field.
     pub rollout_percent: Option<i32>,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `status` field.
     pub status: Option<String>,
+    /// The `targets` field.
     pub targets: Option<Vec<FeatureFlagTargetInput>>,
 }
 
+/// The `FeatureFlagFilters` struct.
 #[derive(Debug, Clone, Default)]
 pub struct FeatureFlagFilters {
+    /// The `target_scope` field.
     pub target_scope: Option<String>,
+    /// The `status` field.
     pub status: Option<String>,
+    /// The `limit` field.
     pub limit: i64,
+    /// The `cursor_updated_ts` field.
     pub cursor_updated_ts: Option<i64>,
+    /// The `cursor_flag_key` field.
     pub cursor_flag_key: Option<String>,
 }
 
 // ── Trait ───────────────────────────────────────────────────────────────
 
+/// The `FeatureFlagStoreApi` trait.
 #[async_trait]
 pub trait FeatureFlagStoreApi: Send + Sync {
+    /// See [`create_flag`].
     async fn create_flag(
         &self,
         request: &CreateFeatureFlagRequest,
         created_by: &str,
         created_ts: i64,
     ) -> Result<FeatureFlag, sqlx::Error>;
+    /// See [`update_flag`].
     async fn update_flag(
         &self,
         flag_key: &str,
         request: &UpdateFeatureFlagRequest,
         updated_ts: i64,
     ) -> Result<Option<FeatureFlag>, sqlx::Error>;
+    /// See [`get_flag`].
     async fn get_flag(&self, flag_key: &str) -> Result<Option<FeatureFlag>, sqlx::Error>;
+    /// See [`list_flags`].
     async fn list_flags(&self, filters: &FeatureFlagFilters) -> Result<(Vec<FeatureFlag>, i64), sqlx::Error>;
 }
 
 // ── Postgres implementation ─────────────────────────────────────────────
 
+/// The `FeatureFlagStorage` struct.
 #[derive(Clone)]
 pub struct FeatureFlagStorage {
     pool: Arc<PgPool>,
@@ -110,10 +166,13 @@ pub struct FeatureFlagStorage {
 }
 
 impl FeatureFlagStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>, cache: Arc<CacheManager>) -> Self {
         Self { pool: pool.clone(), cache }
     }
 
+    /// See [`create_flag`].
     pub async fn create_flag(
         &self,
         request: &CreateFeatureFlagRequest,
@@ -164,6 +223,7 @@ impl FeatureFlagStorage {
         Ok(flag)
     }
 
+    /// See [`update_flag`].
     pub async fn update_flag(
         &self,
         flag_key: &str,
@@ -222,6 +282,8 @@ impl FeatureFlagStorage {
         Ok(Some(flag))
     }
 
+    /// See [`get_flag`].
+    /// See [`get_flag`].
     pub async fn get_flag(&self, flag_key: &str) -> Result<Option<FeatureFlag>, sqlx::Error> {
         let cache_key = Self::flag_cache_key(flag_key);
         if let Ok(Some(flag)) = self.cache.get::<FeatureFlag>(&cache_key).await {
@@ -252,6 +314,8 @@ impl FeatureFlagStorage {
         Ok(Some(flag))
     }
 
+    /// See [`list_flags`].
+    /// See [`list_flags`].
     pub async fn list_flags(&self, filters: &FeatureFlagFilters) -> Result<(Vec<FeatureFlag>, i64), sqlx::Error> {
         let cache_key = Self::flag_list_cache_key(filters);
         if let Ok(Some(cached)) = self.cache.get::<(Vec<FeatureFlag>, i64)>(&cache_key).await {

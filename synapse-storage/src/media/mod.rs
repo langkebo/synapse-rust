@@ -1,8 +1,14 @@
+/// The `backend` module.
 pub mod backend;
+/// The `chunked_upload` module.
 pub mod chunked_upload;
+/// The `filesystem` module.
 pub mod filesystem;
+/// The `models` module.
 pub mod models;
+/// The `quarantine_stream` module.
 pub mod quarantine_stream;
+/// The `s3` module.
 pub mod s3;
 
 pub use backend::*;

@@ -34,107 +34,181 @@ mod cursor_tests {
     }
 }
 
+/// The `BackgroundUpdate` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct BackgroundUpdate {
+    /// The `job_name` field.
     pub job_name: String,
+    /// The `job_type` field.
     pub job_type: String,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `table_name` field.
     pub table_name: Option<String>,
+    /// The `column_name` field.
     pub column_name: Option<String>,
+    /// The `status` field.
     pub status: String,
+    /// The `progress` field.
     pub progress: serde_json::Value,
+    /// The `total_items` field.
     pub total_items: i32,
+    /// The `processed_items` field.
     pub processed_items: i32,
+    /// The `created_ts` field.
     pub created_ts: Option<i64>,
+    /// The `started_ts` field.
     pub started_ts: Option<i64>,
+    /// The `completed_ts` field.
     pub completed_ts: Option<i64>,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
+    /// The `error_message` field.
     pub error_message: Option<String>,
+    /// The `retry_count` field.
     pub retry_count: i32,
+    /// The `max_retries` field.
     pub max_retries: i32,
+    /// The `batch_size` field.
     pub batch_size: i32,
+    /// The `sleep_ms` field.
     pub sleep_ms: i32,
+    /// The `depends_on` field.
     pub depends_on: Option<serde_json::Value>,
+    /// The `metadata` field.
     pub metadata: Option<serde_json::Value>,
 }
 
+/// The `BackgroundUpdateHistory` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct BackgroundUpdateHistory {
+    /// The `id` field.
     pub id: i64,
+    /// The `job_name` field.
     pub job_name: String,
+    /// The `execution_start_ts` field.
     pub execution_start_ts: i64,
+    /// The `execution_end_ts` field.
     pub execution_end_ts: Option<i64>,
+    /// The `status` field.
     pub status: String,
+    /// The `items_processed` field.
     pub items_processed: i32,
+    /// The `error_message` field.
     pub error_message: Option<String>,
+    /// The `metadata` field.
     pub metadata: Option<serde_json::Value>,
 }
 
+/// The `BackgroundUpdateLock` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct BackgroundUpdateLock {
+    /// The `lock_name` field.
     pub lock_name: String,
+    /// The `owner` field.
     pub owner: Option<String>,
+    /// The `acquired_ts` field.
     pub acquired_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: i64,
 }
 
+/// The `BackgroundUpdateStats` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct BackgroundUpdateStats {
+    /// The `id` field.
     pub id: i64,
+    /// The `job_name` field.
     pub job_name: String,
+    /// The `total_updates` field.
     pub total_updates: i32,
+    /// The `completed_updates` field.
     pub completed_updates: i32,
+    /// The `failed_updates` field.
     pub failed_updates: i32,
+    /// The `last_run_ts` field.
     pub last_run_ts: Option<i64>,
+    /// The `next_run_ts` field.
     pub next_run_ts: Option<i64>,
+    /// The `average_duration_ms` field.
     pub average_duration_ms: i64,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
+/// The `CreateBackgroundUpdateRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateBackgroundUpdateRequest {
+    /// The `job_name` field.
     pub job_name: String,
+    /// The `job_type` field.
     pub job_type: String,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `table_name` field.
     pub table_name: Option<String>,
+    /// The `column_name` field.
     pub column_name: Option<String>,
+    /// The `total_items` field.
     pub total_items: Option<i32>,
+    /// The `batch_size` field.
     pub batch_size: Option<i32>,
+    /// The `sleep_ms` field.
     pub sleep_ms: Option<i32>,
+    /// The `depends_on` field.
     pub depends_on: Option<Vec<String>>,
+    /// The `metadata` field.
     pub metadata: Option<serde_json::Value>,
 }
 
+/// The `UpdateBackgroundUpdateRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateBackgroundUpdateRequest {
+    /// The `status` field.
     pub status: Option<String>,
+    /// The `progress` field.
     pub progress: Option<i32>,
+    /// The `total_items` field.
     pub total_items: Option<i32>,
+    /// The `processed_items` field.
     pub processed_items: Option<i32>,
+    /// The `error_message` field.
     pub error_message: Option<String>,
 }
 
+/// The `BackgroundUpdateStoreApi` trait.
 #[async_trait]
 pub trait BackgroundUpdateStoreApi: Send + Sync {
+    /// See [`create_update`].
     async fn create_update(&self, request: CreateBackgroundUpdateRequest) -> Result<BackgroundUpdate, sqlx::Error>;
+    /// See [`get_update`].
     async fn get_update(&self, job_name: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error>;
+    /// See [`get_all_updates`].
     async fn get_all_updates(
         &self,
         limit: i64,
         from: Option<String>,
     ) -> Result<(Vec<BackgroundUpdate>, Option<String>), sqlx::Error>;
+    /// See [`get_pending_updates`].
     async fn get_pending_updates(&self) -> Result<Vec<BackgroundUpdate>, sqlx::Error>;
+    /// See [`get_running_updates`].
     async fn get_running_updates(&self) -> Result<Vec<BackgroundUpdate>, sqlx::Error>;
+    /// See [`update_status`].
     async fn update_status(&self, job_name: &str, status: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error>;
+    /// See [`update_progress`].
     async fn update_progress(
         &self,
         job_name: &str,
         items_processed: i32,
         total_items: Option<i32>,
     ) -> Result<Option<BackgroundUpdate>, sqlx::Error>;
+    /// See [`set_error`].
     async fn set_error(&self, job_name: &str, error_message: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error>;
+    /// See [`delete_update`].
     async fn delete_update(&self, job_name: &str) -> Result<(), sqlx::Error>;
+    /// See [`acquire_lock_with_retry`].
     async fn acquire_lock_with_retry(
         &self,
         job_name: &str,
@@ -143,9 +217,13 @@ pub trait BackgroundUpdateStoreApi: Send + Sync {
         max_retries: u32,
         max_retry_interval_ms: u64,
     ) -> Result<bool, sqlx::Error>;
+    /// See [`release_lock`].
     async fn release_lock(&self, job_name: &str) -> Result<(), sqlx::Error>;
+    /// See [`is_locked`].
     async fn is_locked(&self, job_name: &str) -> Result<bool, sqlx::Error>;
+    /// See [`cleanup_expired_locks`].
     async fn cleanup_expired_locks(&self) -> Result<i64, sqlx::Error>;
+    /// See [`add_history`].
     async fn add_history(
         &self,
         job_name: &str,
@@ -154,23 +232,33 @@ pub trait BackgroundUpdateStoreApi: Send + Sync {
         error_message: Option<&str>,
         metadata: Option<serde_json::Value>,
     ) -> Result<BackgroundUpdateHistory, sqlx::Error>;
+    /// See [`get_history`].
     async fn get_history(&self, job_name: &str, limit: i64) -> Result<Vec<BackgroundUpdateHistory>, sqlx::Error>;
+    /// See [`retry_failed`].
     async fn retry_failed(&self) -> Result<i64, sqlx::Error>;
+    /// See [`count_by_status`].
     async fn count_by_status(&self, status: &str) -> Result<i64, sqlx::Error>;
+    /// See [`count_all`].
     async fn count_all(&self) -> Result<i64, sqlx::Error>;
+    /// See [`get_stats`].
     async fn get_stats(&self, limit: i32) -> Result<Vec<BackgroundUpdateStats>, sqlx::Error>;
 }
 
+/// The `BackgroundUpdateStorage` struct.
 #[derive(Clone)]
 pub struct BackgroundUpdateStorage {
     pool: Arc<PgPool>,
 }
 
 impl BackgroundUpdateStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_update`].
+    /// See [`create_update`].
     pub async fn create_update(&self, request: CreateBackgroundUpdateRequest) -> Result<BackgroundUpdate, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -210,6 +298,8 @@ impl BackgroundUpdateStorage {
         Ok(row)
     }
 
+    /// See [`get_update`].
+    /// See [`get_update`].
     pub async fn get_update(&self, job_name: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         let row = sqlx::query_as::<_, BackgroundUpdate>("SELECT job_name, job_type, description, table_name, column_name, status, progress, total_items, processed_items, created_ts, started_ts, completed_ts, updated_ts, error_message, retry_count, max_retries, batch_size, sleep_ms, depends_on, metadata FROM background_updates WHERE update_name = $1")
             .bind(job_name)
@@ -219,6 +309,7 @@ impl BackgroundUpdateStorage {
         Ok(row)
     }
 
+    /// See [`get_all_updates`].
     pub async fn get_all_updates(
         &self,
         limit: i64,
@@ -248,6 +339,8 @@ impl BackgroundUpdateStorage {
         Ok((rows, next_from))
     }
 
+    /// See [`get_updates_by_status`].
+    /// See [`get_updates_by_status`].
     pub async fn get_updates_by_status(&self, status: &str) -> Result<Vec<BackgroundUpdate>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BackgroundUpdate>(
             "SELECT job_name, job_type, description, table_name, column_name, status, progress, total_items, processed_items, created_ts, started_ts, completed_ts, updated_ts, error_message, retry_count, max_retries, batch_size, sleep_ms, depends_on, metadata FROM background_updates WHERE status = $1 ORDER BY created_ts ASC",
@@ -259,14 +352,20 @@ impl BackgroundUpdateStorage {
         Ok(rows)
     }
 
+    /// See [`get_pending_updates`].
+    /// See [`get_pending_updates`].
     pub async fn get_pending_updates(&self) -> Result<Vec<BackgroundUpdate>, sqlx::Error> {
         self.get_updates_by_status("pending").await
     }
 
+    /// See [`get_running_updates`].
+    /// See [`get_running_updates`].
     pub async fn get_running_updates(&self) -> Result<Vec<BackgroundUpdate>, sqlx::Error> {
         self.get_updates_by_status("running").await
     }
 
+    /// See [`update_status`].
+    /// See [`update_status`].
     pub async fn update_status(&self, job_name: &str, status: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -296,6 +395,7 @@ impl BackgroundUpdateStorage {
         Ok(row)
     }
 
+    /// See [`update_progress`].
     pub async fn update_progress(
         &self,
         job_name: &str,
@@ -332,6 +432,7 @@ impl BackgroundUpdateStorage {
         Ok(row)
     }
 
+    /// See [`set_error`].
     pub async fn set_error(
         &self,
         job_name: &str,
@@ -359,6 +460,8 @@ impl BackgroundUpdateStorage {
         Ok(row)
     }
 
+    /// See [`delete_update`].
+    /// See [`delete_update`].
     pub async fn delete_update(&self, job_name: &str) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM background_updates WHERE update_name = $1")
             .bind(job_name)
@@ -368,6 +471,7 @@ impl BackgroundUpdateStorage {
         Ok(())
     }
 
+    /// See [`acquire_lock`].
     pub async fn acquire_lock(
         &self,
         job_name: &str,
@@ -438,6 +542,8 @@ impl BackgroundUpdateStorage {
         Ok(false)
     }
 
+    /// See [`release_lock`].
+    /// See [`release_lock`].
     pub async fn release_lock(&self, job_name: &str) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM background_update_locks WHERE lock_name = $1")
             .bind(job_name)
@@ -447,6 +553,8 @@ impl BackgroundUpdateStorage {
         Ok(())
     }
 
+    /// See [`is_locked`].
+    /// See [`is_locked`].
     pub async fn is_locked(&self, job_name: &str) -> Result<bool, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -460,6 +568,8 @@ impl BackgroundUpdateStorage {
         Ok(count > 0)
     }
 
+    /// See [`cleanup_expired_locks`].
+    /// See [`cleanup_expired_locks`].
     pub async fn cleanup_expired_locks(&self) -> Result<i64, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -471,6 +581,7 @@ impl BackgroundUpdateStorage {
         Ok(result.rows_affected() as i64)
     }
 
+    /// See [`add_history`].
     pub async fn add_history(
         &self,
         job_name: &str,
@@ -503,6 +614,8 @@ impl BackgroundUpdateStorage {
         Ok(row)
     }
 
+    /// See [`get_history`].
+    /// See [`get_history`].
     pub async fn get_history(&self, job_name: &str, limit: i64) -> Result<Vec<BackgroundUpdateHistory>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BackgroundUpdateHistory>(
             "SELECT id, job_name, execution_start_ts, execution_end_ts, status, items_processed, error_message, metadata FROM background_update_history WHERE job_name = $1 ORDER BY execution_start_ts DESC, id DESC LIMIT $2",
@@ -515,6 +628,8 @@ impl BackgroundUpdateStorage {
         Ok(rows)
     }
 
+    /// See [`retry_failed`].
+    /// See [`retry_failed`].
     pub async fn retry_failed(&self) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
             r"
@@ -531,6 +646,8 @@ impl BackgroundUpdateStorage {
         Ok(result.rows_affected() as i64)
     }
 
+    /// See [`count_by_status`].
+    /// See [`count_by_status`].
     pub async fn count_by_status(&self, status: &str) -> Result<i64, sqlx::Error> {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM background_updates WHERE status = $1")
             .bind(status)
@@ -540,12 +657,16 @@ impl BackgroundUpdateStorage {
         Ok(count)
     }
 
+    /// See [`count_all`].
+    /// See [`count_all`].
     pub async fn count_all(&self) -> Result<i64, sqlx::Error> {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM background_updates").fetch_one(&*self.pool).await?;
 
         Ok(count)
     }
 
+    /// See [`get_stats`].
+    /// See [`get_stats`].
     pub async fn get_stats(&self, limit: i32) -> Result<Vec<BackgroundUpdateStats>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BackgroundUpdateStats>(
             "SELECT id, job_name, total_updates, completed_updates, failed_updates, last_run_ts, next_run_ts, average_duration_ms, created_ts, updated_ts FROM background_update_stats ORDER BY created_ts DESC LIMIT $1",

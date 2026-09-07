@@ -5,37 +5,47 @@ use std::sync::Arc;
 /// Storage-agnostic API for presence persistence.
 #[async_trait]
 pub trait PresenceStoreApi: Send + Sync {
+    /// See [`pool`].
     fn pool(&self) -> &Arc<sqlx::PgPool>;
 
+    /// See [`set_presence`].
     async fn set_presence(&self, user_id: &str, presence: &str, status_msg: Option<&str>) -> Result<(), sqlx::Error>;
 
     /// C-3: Batch set presence for multiple users in a single SQL statement.
     /// Each entry is `(user_id, presence, status_msg)`.
     async fn set_presence_batch(&self, entries: &[(String, String, Option<String>)]) -> Result<(), sqlx::Error>;
 
+    /// See [`set_typing`].
     async fn set_typing(&self, room_id: &str, user_id: &str, typing: bool) -> Result<(), sqlx::Error>;
 
+    /// See [`get_presences`].
     async fn get_presences(
         &self,
         user_ids: &[String],
     ) -> Result<HashMap<String, (String, Option<String>)>, sqlx::Error>;
 
+    /// See [`get_presence_with_meta`].
     async fn get_presence_with_meta(
         &self,
         user_id: &str,
     ) -> Result<Option<(String, Option<String>, Option<i64>)>, sqlx::Error>;
 
+    /// See [`remove_subscription`].
     async fn remove_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`add_subscription`].
     async fn add_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error>;
 
+    /// See [`get_subscriptions`].
     async fn get_subscriptions(&self, subscriber_id: &str) -> Result<Vec<String>, sqlx::Error>;
 
+    /// See [`get_presence_batch_with_meta`].
     async fn get_presence_batch_with_meta(
         &self,
         user_ids: &[String],
     ) -> Result<Vec<(String, String, Option<String>, Option<i64>)>, sqlx::Error>;
 
+    /// See [`get_presence_snapshots`].
     async fn get_presence_snapshots(
         &self,
         user_ids: &[String],

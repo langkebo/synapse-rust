@@ -2,9 +2,11 @@ use super::models::*;
 use super::repository::SlidingSyncStorage;
 use async_trait::async_trait;
 
+/// The `SlidingSyncStoreApi` trait.
 #[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait SlidingSyncStoreApi: Send + Sync {
+    /// See [`create_or_update_token`].
     async fn create_or_update_token(
         &self,
         user_id: &str,
@@ -12,12 +14,14 @@ pub trait SlidingSyncStoreApi: Send + Sync {
         conn_id: Option<&str>,
         event_stream_pos: i64,
     ) -> Result<SlidingSyncToken, sqlx::Error>;
+    /// See [`get_token`].
     async fn get_token(
         &self,
         user_id: &str,
         device_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Option<SlidingSyncToken>, sqlx::Error>;
+    /// See [`validate_pos`].
     async fn validate_pos(
         &self,
         user_id: &str,
@@ -25,6 +29,7 @@ pub trait SlidingSyncStoreApi: Send + Sync {
         conn_id: Option<&str>,
         pos: &str,
     ) -> Result<bool, sqlx::Error>;
+    /// See [`save_list`].
     async fn save_list(
         &self,
         user_id: &str,
@@ -36,12 +41,14 @@ pub trait SlidingSyncStoreApi: Send + Sync {
         room_subscription: Option<&serde_json::Value>,
         ranges: &[(u32, u32)],
     ) -> Result<SlidingSyncList, sqlx::Error>;
+    /// See [`get_lists`].
     async fn get_lists(
         &self,
         user_id: &str,
         device_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Vec<SlidingSyncList>, sqlx::Error>;
+    /// See [`delete_list`].
     async fn delete_list(
         &self,
         user_id: &str,
@@ -49,6 +56,7 @@ pub trait SlidingSyncStoreApi: Send + Sync {
         conn_id: Option<&str>,
         list_key: &str,
     ) -> Result<(), sqlx::Error>;
+    /// See [`upsert_room`].
     async fn upsert_room(
         &self,
         user_id: &str,
@@ -67,10 +75,12 @@ pub trait SlidingSyncStoreApi: Send + Sync {
         avatar: Option<&str>,
         timestamp: i64,
     ) -> Result<SlidingSyncRoom, sqlx::Error>;
+    /// See [`get_rooms_for_list`].
     async fn get_rooms_for_list(
         &self,
         query_params: SlidingSyncListQuery<'_>,
     ) -> Result<Vec<SlidingSyncRoom>, sqlx::Error>;
+    /// See [`count_rooms_for_list`].
     async fn count_rooms_for_list(
         &self,
         user_id: &str,
@@ -79,6 +89,7 @@ pub trait SlidingSyncStoreApi: Send + Sync {
         list_key: &str,
         filters: Option<&SlidingSyncFilters>,
     ) -> Result<i64, sqlx::Error>;
+    /// See [`get_room`].
     async fn get_room(
         &self,
         user_id: &str,
@@ -86,6 +97,7 @@ pub trait SlidingSyncStoreApi: Send + Sync {
         room_id: &str,
         conn_id: Option<&str>,
     ) -> Result<Option<SlidingSyncRoom>, sqlx::Error>;
+    /// See [`materialize_room_from_activity`].
     async fn materialize_room_from_activity(
         &self,
         user_id: &str,
@@ -94,6 +106,7 @@ pub trait SlidingSyncStoreApi: Send + Sync {
         conn_id: Option<&str>,
         bump_event_types: Option<&[String]>,
     ) -> Result<Option<SlidingSyncRoom>, sqlx::Error>;
+    /// See [`delete_room`].
     async fn delete_room(
         &self,
         user_id: &str,
@@ -125,6 +138,7 @@ pub trait SlidingSyncStoreApi: Send + Sync {
         Ok(affected)
     }
 
+    /// See [`update_notification_counts`].
     async fn update_notification_counts(
         &self,
         user_id: &str,
@@ -134,6 +148,7 @@ pub trait SlidingSyncStoreApi: Send + Sync {
         highlight_count: i32,
         notification_count: i32,
     ) -> Result<(), sqlx::Error>;
+    /// See [`bump_room`].
     async fn bump_room(
         &self,
         user_id: &str,
@@ -142,18 +157,25 @@ pub trait SlidingSyncStoreApi: Send + Sync {
         conn_id: Option<&str>,
         bump_stamp: i64,
     ) -> Result<(), sqlx::Error>;
+    /// See [`cleanup_expired_tokens`].
     async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error>;
+    /// See [`list_room_token_sync`].
     async fn list_room_token_sync(
         &self,
         room_id: &str,
         limit: i64,
         from: Option<&RoomTokenSyncCursor>,
     ) -> Result<Vec<AdminRoomTokenSyncEntry>, sqlx::Error>;
+    /// See [`count_room_token_sync`].
     async fn count_room_token_sync(&self, room_id: &str) -> Result<i64, sqlx::Error>;
+    /// See [`get_global_account_data`].
     async fn get_global_account_data(&self, user_id: &str) -> Result<serde_json::Value, sqlx::Error>;
+    /// See [`get_room_account_data`].
     async fn get_room_account_data(&self, user_id: &str, room_ids: &[String])
         -> Result<serde_json::Value, sqlx::Error>;
+    /// See [`get_receipts_for_rooms`].
     async fn get_receipts_for_rooms(&self, room_ids: &[String]) -> Result<serde_json::Value, sqlx::Error>;
+    /// See [`delete_connection_data`].
     async fn delete_connection_data(
         &self,
         user_id: &str,

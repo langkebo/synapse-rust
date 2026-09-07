@@ -6,16 +6,21 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 use tracing::info;
 
+/// The `FederationBlacklistCursor` struct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FederationBlacklistCursor {
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `server_name` field.
     pub server_name: String,
 }
 
+/// See [`encode_federation_blacklist_cursor`].
 pub fn encode_federation_blacklist_cursor(cursor: &FederationBlacklistCursor) -> String {
     format!("{}|{}", cursor.created_ts, cursor.server_name)
 }
 
+/// See [`decode_federation_blacklist_cursor`].
 pub fn decode_federation_blacklist_cursor(cursor: Option<&str>) -> Option<FederationBlacklistCursor> {
     let cursor = cursor?;
     let (created_ts, server_name) = cursor.split_once('|')?;
@@ -26,141 +31,239 @@ pub fn decode_federation_blacklist_cursor(cursor: Option<&str>) -> Option<Federa
     Some(FederationBlacklistCursor { created_ts, server_name: server_name.to_string() })
 }
 
+/// The `FederationBlacklist` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct FederationBlacklist {
+    /// The `id` field.
     pub id: i64,
+    /// The `server_name` field.
     pub server_name: String,
+    /// The `block_type` field.
     pub block_type: String,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `blocked_by` field.
     pub blocked_by: String,
+    /// The `created_ts` field.
     pub created_ts: Option<i64>,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `metadata` field.
     pub metadata: serde_json::Value,
 }
 
+/// The `FederationBlacklistLog` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct FederationBlacklistLog {
+    /// The `id` field.
     pub id: i64,
+    /// The `server_name` field.
     pub server_name: String,
+    /// The `action` field.
     pub action: String,
+    /// The `old_status` field.
     pub old_status: Option<String>,
+    /// The `new_status` field.
     pub new_status: Option<String>,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `performed_by` field.
     pub performed_by: String,
+    /// The `performed_ts` field.
     pub performed_ts: i64,
+    /// The `ip_address` field.
     pub ip_address: Option<String>,
+    /// The `user_agent` field.
     pub user_agent: Option<String>,
+    /// The `metadata` field.
     pub metadata: serde_json::Value,
 }
 
+/// The `FederationAccessStats` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct FederationAccessStats {
+    /// The `id` field.
     pub id: i64,
+    /// The `server_name` field.
     pub server_name: String,
+    /// The `total_requests` field.
     pub total_requests: i64,
+    /// The `successful_requests` field.
     pub successful_requests: i64,
+    /// The `failed_requests` field.
     pub failed_requests: i64,
+    /// The `last_request_ts` field.
     pub last_request_ts: Option<i64>,
+    /// The `last_success_ts` field.
     pub last_success_ts: Option<i64>,
+    /// The `last_failure_ts` field.
     pub last_failure_ts: Option<i64>,
+    /// The `average_response_time_ms` field.
     pub average_response_time_ms: f64,
+    /// The `error_rate` field.
     pub error_rate: f64,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
+/// The `FederationBlacklistRule` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct FederationBlacklistRule {
+    /// The `id` field.
     pub id: i64,
+    /// The `rule_name` field.
     pub rule_name: String,
+    /// The `rule_type` field.
     pub rule_type: String,
+    /// The `pattern` field.
     pub pattern: String,
+    /// The `action` field.
     pub action: String,
+    /// The `priority` field.
     pub priority: i32,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
+    /// The `created_by` field.
     pub created_by: String,
 }
 
+/// The `AddBlacklistRequest` struct.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AddBlacklistRequest {
+    /// The `server_name` field.
     pub server_name: String,
+    /// The `block_type` field.
     pub block_type: String,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `blocked_by` field.
     pub blocked_by: String,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `metadata` field.
     pub metadata: Option<serde_json::Value>,
 }
 
+/// The `CreateLogRequest` struct.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateLogRequest {
+    /// The `server_name` field.
     pub server_name: String,
+    /// The `action` field.
     pub action: String,
+    /// The `old_status` field.
     pub old_status: Option<String>,
+    /// The `new_status` field.
     pub new_status: Option<String>,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `performed_by` field.
     pub performed_by: String,
+    /// The `ip_address` field.
     pub ip_address: Option<String>,
+    /// The `user_agent` field.
     pub user_agent: Option<String>,
+    /// The `metadata` field.
     pub metadata: Option<serde_json::Value>,
 }
 
+/// The `UpdateStatsRequest` struct.
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateStatsRequest {
+    /// The `server_name` field.
     pub server_name: String,
     #[serde(rename = "success")]
+    /// The `is_success` field.
     pub is_success: bool,
+    /// The `response_time_ms` field.
     pub response_time_ms: Option<f64>,
 }
 
+/// The `CreateRuleRequest` struct.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateRuleRequest {
+    /// The `rule_name` field.
     pub rule_name: String,
+    /// The `rule_type` field.
     pub rule_type: String,
+    /// The `pattern` field.
     pub pattern: String,
+    /// The `action` field.
     pub action: String,
+    /// The `priority` field.
     pub priority: i32,
+    /// The `description` field.
     pub description: Option<String>,
+    /// The `created_by` field.
     pub created_by: String,
 }
 
+/// The `FederationBlacklistStoreApi` trait.
 #[async_trait]
 pub trait FederationBlacklistStoreApi: Send + Sync + std::fmt::Debug {
+    /// See [`add_to_blacklist`].
     async fn add_to_blacklist(&self, request: AddBlacklistRequest) -> Result<FederationBlacklist, ApiError>;
+    /// See [`remove_from_blacklist`].
     async fn remove_from_blacklist(&self, server_name: &str, performed_by: &str) -> Result<(), ApiError>;
+    /// See [`get_blacklist_entry`].
     async fn get_blacklist_entry(&self, server_name: &str) -> Result<Option<FederationBlacklist>, ApiError>;
+    /// See [`is_server_blocked`].
     async fn is_server_blocked(&self, server_name: &str) -> Result<bool, ApiError>;
+    /// See [`is_server_whitelisted`].
     async fn is_server_whitelisted(&self, server_name: &str) -> Result<bool, ApiError>;
+    /// See [`get_all_blacklist`].
     async fn get_all_blacklist(
         &self,
         limit: i32,
         from: Option<FederationBlacklistCursor>,
     ) -> Result<(Vec<FederationBlacklist>, Option<String>), ApiError>;
+    /// See [`create_log`].
     async fn create_log(&self, request: CreateLogRequest) -> Result<FederationBlacklistLog, ApiError>;
+    /// See [`update_access_stats`].
     async fn update_access_stats(&self, request: UpdateStatsRequest) -> Result<FederationAccessStats, ApiError>;
+    /// See [`get_access_stats`].
     async fn get_access_stats(&self, server_name: &str) -> Result<Option<FederationAccessStats>, ApiError>;
+    /// See [`create_rule`].
     async fn create_rule(&self, request: CreateRuleRequest) -> Result<FederationBlacklistRule, ApiError>;
+    /// See [`get_all_rules`].
     async fn get_all_rules(&self) -> Result<Vec<FederationBlacklistRule>, ApiError>;
+    /// See [`cleanup_expired_entries`].
     async fn cleanup_expired_entries(&self) -> Result<u64, ApiError>;
+    /// See [`get_config`].
     fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError>;
+    /// See [`get_config_as_bool`].
     fn get_config_as_bool(&self, config_key: &str, default: bool) -> Result<bool, ApiError>;
+    /// See [`get_config_as_int`].
     fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError>;
 }
 
+/// The `FederationBlacklistStorage` struct.
 #[derive(Debug, Clone)]
 pub struct FederationBlacklistStorage {
     pool: Arc<PgPool>,
 }
 
 impl FederationBlacklistStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`add_to_blacklist`].
+    /// See [`add_to_blacklist`].
     pub async fn add_to_blacklist(&self, request: AddBlacklistRequest) -> Result<FederationBlacklist, ApiError> {
         let now = current_timestamp_millis();
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
@@ -201,6 +304,8 @@ impl FederationBlacklistStorage {
         Ok(row)
     }
 
+    /// See [`remove_from_blacklist`].
+    /// See [`remove_from_blacklist`].
     pub async fn remove_from_blacklist(&self, server_name: &str, performed_by: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
@@ -234,6 +339,8 @@ impl FederationBlacklistStorage {
         Ok(())
     }
 
+    /// See [`get_blacklist_entry`].
+    /// See [`get_blacklist_entry`].
     pub async fn get_blacklist_entry(&self, server_name: &str) -> Result<Option<FederationBlacklist>, ApiError> {
         let row = sqlx::query_as::<_, FederationBlacklist>(
             r#"
@@ -260,6 +367,8 @@ impl FederationBlacklistStorage {
         Ok(row)
     }
 
+    /// See [`is_server_blocked`].
+    /// See [`is_server_blocked`].
     pub async fn is_server_blocked(&self, server_name: &str) -> Result<bool, ApiError> {
         let entry = self.get_blacklist_entry(server_name).await?;
 
@@ -276,6 +385,8 @@ impl FederationBlacklistStorage {
         Ok(false)
     }
 
+    /// See [`is_server_whitelisted`].
+    /// See [`is_server_whitelisted`].
     pub async fn is_server_whitelisted(&self, server_name: &str) -> Result<bool, ApiError> {
         let row = sqlx::query_as::<_, FederationBlacklist>(
             r#"
@@ -296,6 +407,7 @@ impl FederationBlacklistStorage {
         Ok(row.is_some())
     }
 
+    /// See [`get_all_blacklist`].
     pub async fn get_all_blacklist(
         &self,
         limit: i32,
@@ -367,6 +479,8 @@ impl FederationBlacklistStorage {
         Ok((rows.into_iter().take(limit as usize).collect(), next_batch))
     }
 
+    /// See [`create_log`].
+    /// See [`create_log`].
     pub async fn create_log(&self, request: CreateLogRequest) -> Result<FederationBlacklistLog, ApiError> {
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
         let now = current_timestamp_millis();
@@ -397,6 +511,8 @@ impl FederationBlacklistStorage {
         Ok(row)
     }
 
+    /// See [`update_access_stats`].
+    /// See [`update_access_stats`].
     pub async fn update_access_stats(&self, request: UpdateStatsRequest) -> Result<FederationAccessStats, ApiError> {
         let now = current_timestamp_millis();
 
@@ -436,6 +552,8 @@ impl FederationBlacklistStorage {
         Ok(row)
     }
 
+    /// See [`get_access_stats`].
+    /// See [`get_access_stats`].
     pub async fn get_access_stats(&self, server_name: &str) -> Result<Option<FederationAccessStats>, ApiError> {
         let row = sqlx::query_as!(
             FederationAccessStats,
@@ -453,6 +571,8 @@ impl FederationBlacklistStorage {
         Ok(row)
     }
 
+    /// See [`create_rule`].
+    /// See [`create_rule`].
     pub async fn create_rule(&self, request: CreateRuleRequest) -> Result<FederationBlacklistRule, ApiError> {
         let now = current_timestamp_millis();
 
@@ -482,6 +602,8 @@ impl FederationBlacklistStorage {
         Ok(row)
     }
 
+    /// See [`get_all_rules`].
+    /// See [`get_all_rules`].
     pub async fn get_all_rules(&self) -> Result<Vec<FederationBlacklistRule>, ApiError> {
         let rows = sqlx::query_as!(
             FederationBlacklistRule,
@@ -495,6 +617,8 @@ impl FederationBlacklistStorage {
         Ok(rows)
     }
 
+    /// See [`cleanup_expired_entries`].
+    /// See [`cleanup_expired_entries`].
     pub async fn cleanup_expired_entries(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();
         let result = sqlx::query!(
@@ -509,14 +633,20 @@ impl FederationBlacklistStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`get_config`].
+    /// See [`get_config`].
     pub fn get_config(&self, _config_key: &str) -> Result<Option<String>, ApiError> {
         Ok(None)
     }
 
+    /// See [`get_config_as_bool`].
+    /// See [`get_config_as_bool`].
     pub fn get_config_as_bool(&self, _config_key: &str, default: bool) -> Result<bool, ApiError> {
         Ok(default)
     }
 
+    /// See [`get_config_as_int`].
+    /// See [`get_config_as_int`].
     pub fn get_config_as_int(&self, _config_key: &str, default: i32) -> Result<i32, ApiError> {
         Ok(default)
     }

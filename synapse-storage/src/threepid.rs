@@ -6,60 +6,94 @@ use synapse_common::crypto::hash_token;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 
+/// The `UserThreepid` struct.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct UserThreepid {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `medium` field.
     pub medium: String,
+    /// The `address` field.
     pub address: String,
+    /// The `validated_at` field.
     pub validated_at: Option<i64>,
+    /// The `added_ts` field.
     pub added_ts: i64,
+    /// The `is_verified` field.
     pub is_verified: bool,
+    /// The `verification_token` field.
     pub verification_token: Option<String>,
+    /// The `verification_expires_at` field.
     pub verification_expires_at: Option<i64>,
 }
 
+/// The `CreateThreepidRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateThreepidRequest {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `medium` field.
     pub medium: String,
+    /// The `address` field.
     pub address: String,
+    /// The `verification_token` field.
     pub verification_token: Option<String>,
     #[serde(rename = "verification_expires_ts")]
+    /// The `verification_expires_at` field.
     pub verification_expires_at: Option<i64>,
 }
 
+/// The `ThreepidValidationSession` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ThreepidValidationSession {
+    /// The `id` field.
     pub id: i64,
+    /// The `session_id` field.
     pub session_id: String,
+    /// The `medium` field.
     pub medium: String,
+    /// The `address` field.
     pub address: String,
+    /// The `client_secret` field.
     pub client_secret: String,
+    /// The `token` field.
     pub token: String,
+    /// The `send_attempt` field.
     pub send_attempt: i32,
+    /// The `next_link` field.
     pub next_link: Option<String>,
+    /// The `is_validated` field.
     pub is_validated: bool,
+    /// The `validated_at` field.
     pub validated_at: Option<i64>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: i64,
 }
 
+/// The `ThreepidStorage` struct.
 #[derive(Clone)]
 pub struct ThreepidStorage {
     pool: Arc<PgPool>,
 }
 
+/// The `ThreepidStoreApi` trait.
 #[async_trait]
 pub trait ThreepidStoreApi: Send + Sync {
+    /// See [`get_verified_threepid_by_address`].
     async fn get_verified_threepid_by_address(
         &self,
         medium: &str,
         address: &str,
     ) -> Result<Option<UserThreepid>, ApiError>;
 
+    /// See [`get_threepids_by_user`].
     async fn get_threepids_by_user(&self, user_id: &str) -> Result<Vec<UserThreepid>, ApiError>;
 
+    /// See [`add_verified_threepid`].
     async fn add_verified_threepid(
         &self,
         user_id: &str,
@@ -69,14 +103,18 @@ pub trait ThreepidStoreApi: Send + Sync {
         added_ts: i64,
     ) -> Result<u64, ApiError>;
 
+    /// See [`remove_threepid`].
     async fn remove_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError>;
 
+    /// See [`add_threepid`].
     async fn add_threepid(&self, request: CreateThreepidRequest) -> Result<UserThreepid, ApiError>;
 
+    /// See [`verify_threepid`].
     async fn verify_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError>;
 
     // Validation session methods (used by route handlers)
     #[allow(clippy::too_many_arguments)]
+    /// See [`create_validation_session`].
     async fn create_validation_session(
         &self,
         session_id: &str,
@@ -89,6 +127,7 @@ pub trait ThreepidStoreApi: Send + Sync {
         expires_at: i64,
     ) -> Result<i64, ApiError>;
 
+    /// See [`get_validation_session`].
     async fn get_validation_session(
         &self,
         session_id: &str,
@@ -96,14 +135,19 @@ pub trait ThreepidStoreApi: Send + Sync {
         token: &str,
     ) -> Result<Option<ThreepidValidationSession>, ApiError>;
 
+    /// See [`mark_validation_validated`].
     async fn mark_validation_validated(&self, id: i64) -> Result<(), ApiError>;
 }
 
 impl ThreepidStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &PgPool) -> Self {
         Self { pool: Arc::new(pool.clone()) }
     }
 
+    /// See [`add_threepid`].
+    /// See [`add_threepid`].
     pub async fn add_threepid(&self, request: CreateThreepidRequest) -> Result<UserThreepid, ApiError> {
         let now = current_timestamp_millis();
 
@@ -136,6 +180,7 @@ impl ThreepidStorage {
         Ok(threepid)
     }
 
+    /// See [`get_threepid`].
     pub async fn get_threepid(
         &self,
         user_id: &str,
@@ -168,6 +213,8 @@ impl ThreepidStorage {
         Ok(threepid)
     }
 
+    /// See [`get_threepids_by_user`].
+    /// See [`get_threepids_by_user`].
     pub async fn get_threepids_by_user(&self, user_id: &str) -> Result<Vec<UserThreepid>, ApiError> {
         let threepids = sqlx::query_as::<_, UserThreepid>(
             r"
@@ -194,6 +241,8 @@ impl ThreepidStorage {
         Ok(threepids)
     }
 
+    /// See [`get_pending_threepids`].
+    /// See [`get_pending_threepids`].
     pub async fn get_pending_threepids(&self, limit: i64) -> Result<Vec<UserThreepid>, ApiError> {
         let threepids = sqlx::query_as::<_, UserThreepid>(
             r"
@@ -221,6 +270,8 @@ impl ThreepidStorage {
         Ok(threepids)
     }
 
+    /// See [`get_threepid_by_address`].
+    /// See [`get_threepid_by_address`].
     pub async fn get_threepid_by_address(&self, medium: &str, address: &str) -> Result<Option<UserThreepid>, ApiError> {
         let threepid = sqlx::query_as::<_, UserThreepid>(
             r"
@@ -247,6 +298,7 @@ impl ThreepidStorage {
         Ok(threepid)
     }
 
+    /// See [`get_verified_threepid_by_address`].
     pub async fn get_verified_threepid_by_address(
         &self,
         medium: &str,
@@ -277,6 +329,8 @@ impl ThreepidStorage {
         Ok(threepid)
     }
 
+    /// See [`verify_threepid`].
+    /// See [`verify_threepid`].
     pub async fn verify_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError> {
         let now = current_timestamp_millis();
 
@@ -298,6 +352,8 @@ impl ThreepidStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// See [`verify_threepid_by_token`].
+    /// See [`verify_threepid_by_token`].
     pub async fn verify_threepid_by_token(&self, token: &str) -> Result<Option<UserThreepid>, ApiError> {
         let now = current_timestamp_millis();
 
@@ -327,6 +383,8 @@ impl ThreepidStorage {
         Ok(threepid)
     }
 
+    /// See [`remove_threepid`].
+    /// See [`remove_threepid`].
     pub async fn remove_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError> {
         let result = sqlx::query(
             r"
@@ -344,6 +402,7 @@ impl ThreepidStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// See [`add_verified_threepid`].
     pub async fn add_verified_threepid(
         &self,
         user_id: &str,
@@ -374,6 +433,8 @@ impl ThreepidStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`remove_threepids_by_user`].
+    /// See [`remove_threepids_by_user`].
     pub async fn remove_threepids_by_user(&self, user_id: &str) -> Result<u64, ApiError> {
         let result = sqlx::query(
             r"
@@ -389,6 +450,8 @@ impl ThreepidStorage {
         Ok(result.rows_affected())
     }
 
+    /// See [`cleanup_expired_verifications`].
+    /// See [`cleanup_expired_verifications`].
     pub async fn cleanup_expired_verifications(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();
 
@@ -408,6 +471,7 @@ impl ThreepidStorage {
 
     // === Validation Session Methods (Architecture Gap #2: 3PID Verification) ===
 
+    /// See [`create_validation_session`].
     #[allow(clippy::too_many_arguments)]
     pub async fn create_validation_session(
         &self,
@@ -445,6 +509,7 @@ impl ThreepidStorage {
         .map_err(|e| ApiError::internal_with_context("Failed to create validation session", &e))
     }
 
+    /// See [`get_validation_session`].
     pub async fn get_validation_session(
         &self,
         session_id: &str,
@@ -470,6 +535,7 @@ impl ThreepidStorage {
         .map_err(|e| ApiError::internal_with_context("Failed to get validation session", &e))
     }
 
+    /// See [`get_validation_session_by_token`].
     pub async fn get_validation_session_by_token(
         &self,
         token: &str,
@@ -488,6 +554,8 @@ impl ThreepidStorage {
         .map_err(|e| ApiError::internal_with_context("Failed to get validation session by token", &e))
     }
 
+    /// See [`mark_validation_validated`].
+    /// See [`mark_validation_validated`].
     pub async fn mark_validation_validated(&self, id: i64) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -505,6 +573,8 @@ impl ThreepidStorage {
         Ok(())
     }
 
+    /// See [`increment_validation_send_attempt`].
+    /// See [`increment_validation_send_attempt`].
     pub async fn increment_validation_send_attempt(&self, id: i64) -> Result<(), ApiError> {
         sqlx::query("UPDATE threepid_validation_session SET send_attempt = send_attempt + 1 WHERE id = $1")
             .bind(id)
@@ -515,6 +585,8 @@ impl ThreepidStorage {
         Ok(())
     }
 
+    /// See [`cleanup_expired_validation_sessions`].
+    /// See [`cleanup_expired_validation_sessions`].
     pub async fn cleanup_expired_validation_sessions(&self) -> Result<u64, ApiError> {
         sqlx::query("DELETE FROM threepid_validation_session WHERE expires_at < $1")
             .bind(current_timestamp_millis())

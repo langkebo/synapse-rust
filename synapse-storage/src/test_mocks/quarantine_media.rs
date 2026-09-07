@@ -2,6 +2,7 @@ use super::*;
 use crate::media::models::QuarantinedMediaChange;
 use crate::media::QuarantinedMediaChangeStoreApi;
 
+/// The `InMemoryQuarantineMediaChangeStore` struct.
 #[derive(Clone, Default)]
 pub struct InMemoryQuarantineMediaChangeStore {
     changes: Arc<RwLock<Vec<QuarantinedMediaChange>>>,
@@ -9,6 +10,8 @@ pub struct InMemoryQuarantineMediaChangeStore {
 }
 
 impl InMemoryQuarantineMediaChangeStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self { changes: Arc::new(RwLock::new(Vec::new())), next_stream_id: Arc::new(RwLock::new(0)) }
     }

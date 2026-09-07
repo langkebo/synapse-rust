@@ -1,11 +1,14 @@
 use super::*;
 
+/// The `InMemoryAdminMediaStore` struct.
 #[derive(Clone, Default)]
 pub struct InMemoryAdminMediaStore {
     media: Arc<tokio::sync::RwLock<HashMap<String, AdminMediaInfo>>>,
 }
 
 impl InMemoryAdminMediaStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self { media: Arc::new(tokio::sync::RwLock::new(HashMap::new())) }
     }

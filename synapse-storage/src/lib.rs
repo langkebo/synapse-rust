@@ -1,11 +1,14 @@
+//! The `synapse-storage` crate: storage-layer (Postgres + Redis) implementations
+//! of all Matrix homeserver data access traits. Provides typed query APIs, event
+//! persistence, and account/device/room/transactional state backed by sqlx.
+
 // ROUND2-ISSUE-1: test code may use unwrap/expect/unwrap_err per Rust testing idiom.
 // Production lib code is still held to the strict clippy lint config in [lints.clippy].
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-// B2-TODO: ratchet in progress — see scripts/quality/check_missing_docs_ratchet.sh
-// (current baseline 0, ticket 04 sets up the ratchet; ticket 05 will switch to deny).
-// Currently emits a large volume of missing-docs warnings that drown out real
-// warnings; doc debt is tracked separately in the B2 backlog.
-#![warn(missing_docs)]
+// B-3.1-b-6: synapse-storage fully documented + deny(missing_docs).
+// ratchet baseline tracked in scripts/quality/check_missing_docs_ratchet.sh;
+// this crate is now at zero missing-doc warnings under `cargo doc`.
+#![deny(missing_docs)]
 
 use deadpool_redis::Pool as RedisPool;
 use sqlx::{Pool, Postgres};
@@ -17,72 +20,125 @@ use tokio::sync::RwLock;
 // =============================================================================
 /// Account storage domain group — re-exports account modules under `account::`.
 pub mod account;
+/// The `account_data` module.
 pub mod account_data;
 /// Admin storage domain group — re-exports admin modules under `admin::`.
 pub mod admin;
+/// The `admin_federation` module.
 pub mod admin_federation;
+/// The `admin_media` module.
 pub mod admin_media;
 /// Application service storage domain group — re-exports application modules under `application::`.
 pub mod application;
+/// The `application_service` module.
 pub mod application_service;
+/// The `audit` module.
 pub mod audit;
+/// The `auth` module.
 pub mod auth;
+/// The `background_update` module.
 pub mod background_update;
+/// The `baseline_tables` module.
 pub mod baseline_tables;
+/// The `dehydrated_device` module.
 pub mod dehydrated_device;
+/// The `delayed_events` module.
 pub mod delayed_events;
+/// The `device` module.
 pub mod device;
 /// Directory storage domain — public-room directory persistence (ARCH-06).
 pub mod directory;
 /// E2EE storage domain group — re-exports e2ee modules under `e2ee::`.
 pub mod e2ee;
+/// The `e2ee_audit` module.
 pub mod e2ee_audit;
+/// The `email_verification` module.
 pub mod email_verification;
+/// The `event` module.
 pub mod event;
+/// The `event_report` module.
 pub mod event_report;
+/// The `feature_flags` module.
 pub mod feature_flags;
+/// The `federation_blacklist` module.
 pub mod federation_blacklist;
+/// The `federation_queue` module.
 pub mod federation_queue;
+/// The `filter` module.
 pub mod filter;
 /// Infrastructure storage domain group — re-exports infra modules under `infra::`.
 pub mod infra;
+/// The `invite_blocklist` module.
 pub mod invite_blocklist;
+/// The `login_token` module.
 pub mod login_token;
+/// The `maintenance` module.
 pub mod maintenance;
+/// The `media` module.
 pub mod media;
+/// The `media_quota` module.
 pub mod media_quota;
+/// The `membership` module.
 pub mod membership;
+/// The `migration_checks` module.
 pub mod migration_checks;
+/// The `moderation` module.
 pub mod moderation;
+/// The `module` module.
 pub mod module;
+/// The `monitoring` module.
 pub mod monitoring;
 /// OIDC storage domain group — re-exports oidc modules under `oidc::`.
 pub mod oidc;
+/// The `openid_token` module.
 pub mod openid_token;
+/// The `performance` module.
 pub mod performance;
 /// Backward-compatibility prelude — glob-import point for domain-grouped types.
 pub mod prelude;
+/// The `presence` module.
 pub mod presence;
+/// The `pruning` module.
 pub mod pruning;
+/// The `push` module.
 pub mod push;
+/// The `push_notification` module.
 pub mod push_notification;
+/// The `qr_login` module.
 pub mod qr_login;
+/// The `rate_limit` module.
 pub mod rate_limit;
+/// The `refresh_token` module.
 pub mod refresh_token;
+/// The `registration_token` module.
 pub mod registration_token;
+/// The `relations` module.
 pub mod relations;
+/// The `rendezvous` module.
 pub mod rendezvous;
+/// The `retention` module.
 pub mod retention;
+/// The `room` module.
 pub mod room;
+/// The `room_account_data` module.
 pub mod room_account_data;
+/// The `room_summary` module.
 pub mod room_summary;
+/// The `room_tag` module.
 pub mod room_tag;
+/// The `schema_health_check` module.
 pub mod schema_health_check;
+/// The `schema_validator` module.
 pub mod schema_validator;
+/// The `search_index` module.
 pub mod search_index;
+/// The `sliding_sync` module.
 pub mod sliding_sync;
+/// The `space` module.
 pub mod space;
+/// The `state_groups` module.
 pub mod state_groups;
+/// The `sticky_event` module.
 pub mod sticky_event;
 /// Sync storage domain group — re-exports sync modules under `sync::`.
 pub mod sync;
@@ -90,36 +146,51 @@ pub mod sync;
 /// Only available under `cfg(test)`.
 #[cfg(test)]
 pub mod test_isolation;
+/// The `test_mocks` module.
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_mocks;
+/// The `thread` module.
 pub mod thread;
+/// The `threepid` module.
 pub mod threepid;
+/// The `token` module.
 pub mod token;
+/// The `trigram_ranking` module.
 pub mod trigram_ranking;
+/// The `user` module.
 pub mod user;
+/// The `user_store_fake` module.
 pub mod user_store_fake;
+/// The `worker` module.
 pub mod worker;
 
 // =============================================================================
 // L3 — Feature-gated extension storage modules (off by default in core builds)
 // =============================================================================
+/// The `friend_room` module.
 #[cfg(feature = "friends")]
 pub mod friend_room;
 
+/// The `voice` module.
 #[cfg(feature = "voice-extended")]
 pub mod voice;
 
+/// The `saml` module.
 #[cfg(feature = "saml-sso")]
 pub mod saml;
 
+/// The `cas` module.
 #[cfg(feature = "cas-sso")]
 pub mod cas;
 
+/// The `beacon` module.
 #[cfg(feature = "beacons")]
 pub mod beacon;
 
+/// The `call_session` module.
 #[cfg(feature = "voip-tracking")]
 pub mod call_session;
+/// The `matrixrtc` module.
 #[cfg(feature = "voip-tracking")]
 pub mod matrixrtc;
 /// RTC storage domain group — re-exports RTC modules (`call_session`,
@@ -127,24 +198,33 @@ pub mod matrixrtc;
 #[cfg(feature = "voip-tracking")]
 pub mod rtc;
 
+/// The `widget` module.
 #[cfg(feature = "widgets")]
 pub mod widget;
 
+/// The `server_notification` module.
 #[cfg(feature = "server-notifications")]
 pub mod server_notification;
 
+/// The `privacy` module.
 #[cfg(feature = "privacy-ext")]
 pub mod privacy;
 
+/// The `burn_after_read` module.
 #[cfg(feature = "burn-after-read")]
 pub mod burn_after_read;
 
 // L0 — Captcha is used by registration flow — keep unconditional
+/// The `captcha` module.
 pub mod captcha;
 
+/// The `oauth_client_storage` module.
 pub mod oauth_client_storage;
+/// The `oidc_session_storage` module.
 pub mod oidc_session_storage;
+/// The `oidc_user_mapping` module.
 pub mod oidc_user_mapping;
+/// The `url_preview_storage` module.
 pub mod url_preview_storage;
 
 // auth domain types (user, device, token, threepid, captcha, openid_token) are

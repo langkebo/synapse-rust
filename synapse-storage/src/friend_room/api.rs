@@ -3,9 +3,12 @@ use async_trait::async_trait;
 use super::models::*;
 use super::repository::FriendRoomStorage;
 
+/// The `FriendRoomStoreApi` trait.
 #[async_trait]
 pub trait FriendRoomStoreApi: Send + Sync {
+    /// See [`get_friend_list_room_id`].
     async fn get_friend_list_room_id(&self, user_id: &str) -> Result<Option<String>, sqlx::Error>;
+    /// See [`get_friend_list_content`].
     async fn get_friend_list_content(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error>;
     /// v5 sharding：读单个 shard（按 state_key 定位）
     async fn get_friend_list_shard(
@@ -29,28 +32,40 @@ pub trait FriendRoomStoreApi: Send + Sync {
         &self,
         room_ids: &[String],
     ) -> Result<std::collections::HashMap<String, Vec<(String, serde_json::Value)>>, sqlx::Error>;
+    /// See [`find_friend_lists_by_dm_room_id`].
     async fn find_friend_lists_by_dm_room_id(&self, dm_room_id: &str) -> Result<Vec<FriendDmLink>, sqlx::Error>;
+    /// See [`get_effective_direct_links_fallback`].
     async fn get_effective_direct_links_fallback(
         &self,
         user_id: &str,
     ) -> Result<Vec<DirectRoomFallbackLink>, sqlx::Error>;
+    /// See [`get_existing_direct_room_id`].
     async fn get_existing_direct_room_id(&self, user_id: &str, friend_id: &str) -> Result<Option<String>, sqlx::Error>;
+    /// See [`get_dm_partner_for_room`].
     async fn get_dm_partner_for_room(
         &self,
         room_id: &str,
         user_id: &str,
     ) -> Result<Option<DmPartnerRecord>, sqlx::Error>;
+    /// See [`get_friend_requests`].
     async fn get_friend_requests(
         &self,
         room_id: &str,
         request_type: &str,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error>;
+    /// See [`is_friend`].
     async fn is_friend(&self, room_id: &str, friend_id: &str) -> Result<bool, sqlx::Error>;
+    /// See [`get_friend_info`].
     async fn get_friend_info(&self, room_id: &str, friend_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error>;
+    /// See [`get_friend_groups`].
     async fn get_friend_groups(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error>;
+    /// See [`get_friend_groups_for_user`].
     async fn get_friend_groups_for_user(&self, room_id: &str, friend_id: &str) -> Result<Vec<String>, sqlx::Error>;
+    /// See [`create_friend_group`].
     async fn create_friend_group(&self, room_id: &str, user_id: &str, group_name: &str) -> Result<(), sqlx::Error>;
+    /// See [`delete_friend_group`].
     async fn delete_friend_group(&self, room_id: &str, user_id: &str, group_name: &str) -> Result<bool, sqlx::Error>;
+    /// See [`rename_friend_group`].
     async fn rename_friend_group(
         &self,
         room_id: &str,
@@ -58,6 +73,7 @@ pub trait FriendRoomStoreApi: Send + Sync {
         old_name: &str,
         new_name: &str,
     ) -> Result<bool, sqlx::Error>;
+    /// See [`add_friend_to_group`].
     async fn add_friend_to_group(
         &self,
         room_id: &str,
@@ -65,6 +81,7 @@ pub trait FriendRoomStoreApi: Send + Sync {
         group_name: &str,
         friend_id: &str,
     ) -> Result<bool, sqlx::Error>;
+    /// See [`remove_friend_from_group`].
     async fn remove_friend_from_group(
         &self,
         room_id: &str,
@@ -72,48 +89,64 @@ pub trait FriendRoomStoreApi: Send + Sync {
         group_name: &str,
         friend_id: &str,
     ) -> Result<bool, sqlx::Error>;
+    /// See [`create_friend_request`].
     async fn create_friend_request(
         &self,
         sender_id: &str,
         receiver_id: &str,
         message: Option<&str>,
     ) -> Result<i64, sqlx::Error>;
+    /// See [`get_friend_request`].
     async fn get_friend_request(
         &self,
         sender_id: &str,
         receiver_id: &str,
     ) -> Result<Option<FriendRequestRecord>, sqlx::Error>;
+    /// See [`get_pending_friend_request`].
     async fn get_pending_friend_request(
         &self,
         sender_id: &str,
         receiver_id: &str,
     ) -> Result<Option<FriendRequestRecord>, sqlx::Error>;
+    /// See [`get_incoming_friend_requests`].
     async fn get_incoming_friend_requests(&self, receiver_id: &str) -> Result<Vec<FriendRequestRecord>, sqlx::Error>;
+    /// See [`get_outgoing_friend_requests`].
     async fn get_outgoing_friend_requests(&self, sender_id: &str) -> Result<Vec<FriendRequestRecord>, sqlx::Error>;
+    /// See [`update_friend_request_status`].
     async fn update_friend_request_status(
         &self,
         sender_id: &str,
         receiver_id: &str,
         status: &str,
     ) -> Result<bool, sqlx::Error>;
+    /// See [`delete_friend_request`].
     async fn delete_friend_request(&self, sender_id: &str, receiver_id: &str) -> Result<bool, sqlx::Error>;
+    /// See [`has_pending_request`].
     async fn has_pending_request(&self, sender_id: &str, receiver_id: &str) -> Result<bool, sqlx::Error>;
+    /// See [`has_any_pending_request`].
     async fn has_any_pending_request(&self, user_a: &str, user_b: &str) -> Result<bool, sqlx::Error>;
+    /// See [`ensure_user_exists`].
     async fn ensure_user_exists(&self, user_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`create_friend_request_with_user_ensure`].
     async fn create_friend_request_with_user_ensure(
         &self,
         sender_id: &str,
         receiver_id: &str,
         message: Option<&str>,
     ) -> Result<i64, sqlx::Error>;
+    /// See [`get_mutual_friends`].
     async fn get_mutual_friends(&self, user_id: &str, target_user_id: &str) -> Result<Vec<String>, sqlx::Error>;
+    /// See [`get_user_friend_ids`].
     async fn get_user_friend_ids(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error>;
+    /// See [`get_shared_rooms`].
     async fn get_shared_rooms(&self, user_id: &str, target_user_id: &str) -> Result<Vec<String>, sqlx::Error>;
+    /// See [`get_friend_suggestions_from_mutual_friends`].
     async fn get_friend_suggestions_from_mutual_friends(
         &self,
         user_id: &str,
         limit: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error>;
+    /// See [`get_friend_suggestions_from_shared_rooms`].
     async fn get_friend_suggestions_from_shared_rooms(
         &self,
         user_id: &str,

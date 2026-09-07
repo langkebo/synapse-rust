@@ -1,6 +1,7 @@
 use super::*;
 use synapse_common::current_timestamp_millis;
 
+/// The `InMemoryThreepidStore` struct.
 #[derive(Clone, Default)]
 pub struct InMemoryThreepidStore {
     threepids: Arc<tokio::sync::RwLock<Vec<UserThreepid>>>,
@@ -8,6 +9,8 @@ pub struct InMemoryThreepidStore {
 }
 
 impl InMemoryThreepidStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self {
             threepids: Arc::new(tokio::sync::RwLock::new(Vec::new())),

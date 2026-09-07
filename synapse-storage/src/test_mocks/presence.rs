@@ -19,6 +19,8 @@ pub struct InMemoryPresenceStore {
 }
 
 impl InMemoryPresenceStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }

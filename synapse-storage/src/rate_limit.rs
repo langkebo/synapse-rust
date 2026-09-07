@@ -3,38 +3,50 @@ use std::sync::Arc;
 
 use sqlx::PgPool;
 
+/// The `RateLimitRecord` struct.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct RateLimitRecord {
+    /// The `messages_per_second` field.
     pub messages_per_second: Option<f64>,
+    /// The `burst_count` field.
     pub burst_count: Option<i32>,
 }
 
 // ── Trait ───────────────────────────────────────────────────────────────
 
+/// The `RateLimitStoreApi` trait.
 #[async_trait]
 pub trait RateLimitStoreApi: Send + Sync {
+    /// See [`get_user_rate_limit`].
     async fn get_user_rate_limit(&self, user_id: &str) -> Result<Option<RateLimitRecord>, sqlx::Error>;
+    /// See [`upsert_user_rate_limit`].
     async fn upsert_user_rate_limit(
         &self,
         user_id: &str,
         messages_per_second: f64,
         burst_count: i32,
     ) -> Result<(), sqlx::Error>;
+    /// See [`delete_user_rate_limit`].
     async fn delete_user_rate_limit(&self, user_id: &str) -> Result<(), sqlx::Error>;
 }
 
 // ── Postgres implementation ─────────────────────────────────────────────
 
+/// The `RateLimitStorage` struct.
 #[derive(Clone)]
 pub struct RateLimitStorage {
     pool: Arc<PgPool>,
 }
 
 impl RateLimitStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`get_user_rate_limit`].
+    /// See [`get_user_rate_limit`].
     pub async fn get_user_rate_limit(&self, user_id: &str) -> Result<Option<RateLimitRecord>, sqlx::Error> {
         sqlx::query_as::<_, RateLimitRecord>(
             r"
@@ -48,6 +60,7 @@ impl RateLimitStorage {
         .await
     }
 
+    /// See [`upsert_user_rate_limit`].
     pub async fn upsert_user_rate_limit(
         &self,
         user_id: &str,
@@ -71,6 +84,8 @@ impl RateLimitStorage {
         Ok(())
     }
 
+    /// See [`delete_user_rate_limit`].
+    /// See [`delete_user_rate_limit`].
     pub async fn delete_user_rate_limit(&self, user_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"

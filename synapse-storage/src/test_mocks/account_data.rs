@@ -1,5 +1,6 @@
 use super::*;
 
+/// The `InMemoryAccountDataStore` struct.
 #[derive(Clone, Debug, Default)]
 pub struct InMemoryAccountDataStore {
     #[allow(clippy::type_complexity)]
@@ -7,6 +8,8 @@ pub struct InMemoryAccountDataStore {
 }
 
 impl InMemoryAccountDataStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }

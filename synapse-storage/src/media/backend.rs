@@ -2,13 +2,20 @@ use super::models::*;
 use async_trait::async_trait;
 use synapse_common::error::ApiError;
 
+/// The `MediaStorageBackend` trait.
 #[async_trait]
 pub trait MediaStorageBackend: Send + Sync {
+    /// See [`store`].
     async fn store(&self, media_id: &str, data: &[u8], content_type: &str) -> Result<(), ApiError>;
+    /// See [`retrieve`].
     async fn retrieve(&self, media_id: &str) -> Result<Option<Vec<u8>>, ApiError>;
+    /// See [`delete`].
     async fn delete(&self, media_id: &str) -> Result<bool, ApiError>;
+    /// See [`exists`].
     async fn exists(&self, media_id: &str) -> Result<bool, ApiError>;
+    /// See [`get_size`].
     async fn get_size(&self, media_id: &str) -> Result<Option<u64>, ApiError>;
+    /// See [`store_thumbnail`].
     async fn store_thumbnail(
         &self,
         media_id: &str,
@@ -17,6 +24,7 @@ pub trait MediaStorageBackend: Send + Sync {
         method: &str,
         data: &[u8],
     ) -> Result<(), ApiError>;
+    /// See [`retrieve_thumbnail`].
     async fn retrieve_thumbnail(
         &self,
         media_id: &str,
@@ -24,14 +32,20 @@ pub trait MediaStorageBackend: Send + Sync {
         height: u32,
         method: &str,
     ) -> Result<Option<Vec<u8>>, ApiError>;
+    /// See [`delete_thumbnails`].
     async fn delete_thumbnails(&self, media_id: &str) -> Result<u64, ApiError>;
+    /// See [`get_stats`].
     async fn get_stats(&self) -> Result<MediaStorageStats, ApiError>;
+    /// See [`health_check`].
     async fn health_check(&self) -> Result<bool, ApiError>;
 }
 
+/// The `MediaStorageBackendFactory` struct.
 pub struct MediaStorageBackendFactory;
 
 impl MediaStorageBackendFactory {
+    /// See [`create`].
+    /// See [`create`].
     pub fn create(config: &StorageBackendConfig) -> Result<Box<dyn MediaStorageBackend>, ApiError> {
         match config.backend_type {
             StorageBackendType::Filesystem => {
@@ -54,12 +68,15 @@ impl MediaStorageBackendFactory {
     }
 }
 
+/// The `MemoryBackend` struct.
 pub struct MemoryBackend {
     storage: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, Vec<u8>>>>,
     thumbnails: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, Vec<u8>>>>,
 }
 
 impl MemoryBackend {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self {
             storage: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),

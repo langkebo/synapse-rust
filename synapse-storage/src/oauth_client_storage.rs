@@ -4,21 +4,32 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use synapse_common::current_timestamp_millis;
 
+/// The `OAuthClient` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct OAuthClient {
+    /// The `client_id` field.
     pub client_id: String,
+    /// The `client_secret` field.
     pub client_secret: String,
+    /// The `client_name` field.
     pub client_name: Option<String>,
     /// JSONB array stored as String; deserialized on read.
     pub redirect_uris: serde_json::Value,
+    /// The `grant_types` field.
     pub grant_types: serde_json::Value,
+    /// The `response_types` field.
     pub response_types: serde_json::Value,
+    /// The `scope` field.
     pub scope: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `is_confidential` field.
     pub is_confidential: bool,
 }
 
 impl OAuthClient {
+    /// See [`redirect_uris_vec`].
+    /// See [`redirect_uris_vec`].
     pub fn redirect_uris_vec(&self) -> Vec<String> {
         self.redirect_uris
             .as_array()
@@ -26,6 +37,8 @@ impl OAuthClient {
             .unwrap_or_default()
     }
 
+    /// See [`grant_types_vec`].
+    /// See [`grant_types_vec`].
     pub fn grant_types_vec(&self) -> Vec<String> {
         self.grant_types
             .as_array()
@@ -33,6 +46,8 @@ impl OAuthClient {
             .unwrap_or_default()
     }
 
+    /// See [`response_types_vec`].
+    /// See [`response_types_vec`].
     pub fn response_types_vec(&self) -> Vec<String> {
         self.response_types
             .as_array()
@@ -41,6 +56,7 @@ impl OAuthClient {
     }
 }
 
+/// The `OAuthClientStorage` struct.
 #[derive(Clone)]
 pub struct OAuthClientStorage {
     pool: std::sync::Arc<sqlx::PgPool>,
@@ -49,9 +65,13 @@ pub struct OAuthClientStorage {
 /// Trait abstraction over [`OAuthClientStorage`] for testability.
 #[async_trait]
 pub trait OAuthClientStoreApi: Send + Sync {
+    /// See [`register_client`].
     async fn register_client(&self, client: &OAuthClient) -> Result<(), sqlx::Error>;
+    /// See [`get_client`].
     async fn get_client(&self, client_id: &str) -> Result<Option<OAuthClient>, sqlx::Error>;
+    /// See [`validate_client`].
     async fn validate_client(&self, client_id: &str, redirect_uri: &str) -> Result<bool, sqlx::Error>;
+    /// See [`create_dynamic_client`].
     async fn create_dynamic_client(
         &self,
         client_name: Option<&str>,
@@ -64,10 +84,14 @@ pub trait OAuthClientStoreApi: Send + Sync {
 }
 
 impl OAuthClientStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &std::sync::Arc<sqlx::PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`register_client`].
+    /// See [`register_client`].
     pub async fn register_client(&self, client: &OAuthClient) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
@@ -91,6 +115,8 @@ impl OAuthClientStorage {
         Ok(())
     }
 
+    /// See [`get_client`].
+    /// See [`get_client`].
     pub async fn get_client(&self, client_id: &str) -> Result<Option<OAuthClient>, sqlx::Error> {
         sqlx::query_as::<_, OAuthClient>(
             r#"
@@ -104,6 +130,8 @@ impl OAuthClientStorage {
         .await
     }
 
+    /// See [`validate_client`].
+    /// See [`validate_client`].
     pub async fn validate_client(&self, client_id: &str, redirect_uri: &str) -> Result<bool, sqlx::Error> {
         let client = self.get_client(client_id).await?;
         match client {

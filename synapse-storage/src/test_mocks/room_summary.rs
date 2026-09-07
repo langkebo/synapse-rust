@@ -1,6 +1,7 @@
 use super::*;
 use synapse_common::current_timestamp_millis;
 
+/// The `InMemoryRoomSummaryStore` struct.
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
 pub struct InMemoryRoomSummaryStore {
@@ -13,6 +14,8 @@ pub struct InMemoryRoomSummaryStore {
 }
 
 impl InMemoryRoomSummaryStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self {
             summaries: Arc::new(tokio::sync::RwLock::new(HashMap::new())),

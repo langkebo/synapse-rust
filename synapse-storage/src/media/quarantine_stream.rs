@@ -10,6 +10,7 @@ use synapse_common::ApiError;
 /// incremental changes for stream replication between workers.
 #[async_trait]
 pub trait QuarantinedMediaChangeStoreApi: Send + Sync {
+    /// See [`record_media_quarantine_change`].
     async fn record_media_quarantine_change(
         &self,
         media_id: &str,
@@ -19,6 +20,7 @@ pub trait QuarantinedMediaChangeStoreApi: Send + Sync {
         now_ts: i64,
     ) -> Result<i64, ApiError>;
 
+    /// See [`get_quarantined_media_changes`].
     async fn get_quarantined_media_changes(
         &self,
         since_stream_id: i64,
@@ -36,6 +38,7 @@ pub trait QuarantinedMediaChangeStoreApi: Send + Sync {
         limit: i64,
     ) -> Result<Vec<QuarantinedMediaChange>, ApiError>;
 
+    /// See [`set_media_quarantine_status`].
     async fn set_media_quarantine_status(
         &self,
         media_id: &str,
@@ -43,6 +46,7 @@ pub trait QuarantinedMediaChangeStoreApi: Send + Sync {
         quarantine_status: &str,
     ) -> Result<bool, ApiError>;
 
+    /// See [`get_current_stream_id`].
     async fn get_current_stream_id(&self) -> Result<i64, ApiError>;
 }
 
@@ -56,6 +60,8 @@ pub struct QuarantinedMediaChangeStorage {
 }
 
 impl QuarantinedMediaChangeStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: (**pool).clone() }
     }

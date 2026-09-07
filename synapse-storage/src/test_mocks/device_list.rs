@@ -18,6 +18,8 @@ pub struct InMemoryDeviceListStore {
 }
 
 impl InMemoryDeviceListStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self {
             devices: Arc::new(tokio::sync::RwLock::new(HashMap::new())),

@@ -5,22 +5,33 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 
+/// The `EmailVerificationToken` struct.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct EmailVerificationToken {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: Option<String>,
+    /// The `email` field.
     pub email: String,
+    /// The `token` field.
     pub token: String,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `is_used` field.
     pub is_used: bool,
+    /// The `session_data` field.
     pub session_data: Option<serde_json::Value>,
 }
 
 // ── Trait ───────────────────────────────────────────────────────────────
 
+/// The `EmailVerificationStoreApi` trait.
 #[async_trait]
 pub trait EmailVerificationStoreApi: Send + Sync {
+    /// See [`create_verification_token`].
     async fn create_verification_token(
         &self,
         email: &str,
@@ -29,33 +40,46 @@ pub trait EmailVerificationStoreApi: Send + Sync {
         user_id: Option<&str>,
         session_data: Option<serde_json::Value>,
     ) -> Result<i64, sqlx::Error>;
+    /// See [`verify_token`].
     async fn verify_token(&self, email: &str, token: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error>;
+    /// See [`mark_token_used`].
     async fn mark_token_used(&self, token_id: i64) -> Result<(), sqlx::Error>;
+    /// See [`validate_and_consume_token`].
     async fn validate_and_consume_token(
         &self,
         token_id: i64,
         submitted_token: &str,
         client_secret: &str,
     ) -> Result<EmailVerificationToken, ApiError>;
+    /// See [`get_verification_token_by_id`].
     async fn get_verification_token_by_id(&self, token_id: i64) -> Result<Option<EmailVerificationToken>, sqlx::Error>;
+    /// See [`delete_token_by_id`].
     async fn delete_token_by_id(&self, token_id: i64) -> Result<(), sqlx::Error>;
+    /// See [`claim_used_token`].
     async fn claim_used_token(&self, token_id: i64) -> Result<Option<EmailVerificationToken>, sqlx::Error>;
+    /// See [`cleanup_expired_tokens`].
     async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error>;
+    /// See [`get_token_by_email`].
     async fn get_token_by_email(&self, email: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error>;
 }
 
 // ── Postgres implementation ─────────────────────────────────────────────
 
+/// The `EmailVerificationStorage` struct.
 #[derive(Clone)]
 pub struct EmailVerificationStorage {
+    /// The `pool` field.
     pub pool: Arc<Pool<Postgres>>,
 }
 
 impl EmailVerificationStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_verification_token`].
     pub async fn create_verification_token(
         &self,
         email: &str,
@@ -86,6 +110,8 @@ impl EmailVerificationStorage {
         Ok(row.id)
     }
 
+    /// See [`verify_token`].
+    /// See [`verify_token`].
     pub async fn verify_token(&self, email: &str, token: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -105,6 +131,8 @@ impl EmailVerificationStorage {
         Ok(token_record)
     }
 
+    /// See [`mark_token_used`].
+    /// See [`mark_token_used`].
     pub async fn mark_token_used(&self, token_id: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -163,6 +191,7 @@ impl EmailVerificationStorage {
         Ok(verification_token)
     }
 
+    /// See [`get_verification_token_by_id`].
     pub async fn get_verification_token_by_id(
         &self,
         token_id: i64,
@@ -181,6 +210,8 @@ impl EmailVerificationStorage {
         Ok(token_record)
     }
 
+    /// See [`delete_token_by_id`].
+    /// See [`delete_token_by_id`].
     pub async fn delete_token_by_id(&self, token_id: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -218,6 +249,8 @@ impl EmailVerificationStorage {
         Ok(row)
     }
 
+    /// See [`cleanup_expired_tokens`].
+    /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
         let now = current_timestamp_millis();
         let result = sqlx::query(
@@ -231,6 +264,8 @@ impl EmailVerificationStorage {
         Ok(result.rows_affected() as i64)
     }
 
+    /// See [`get_token_by_email`].
+    /// See [`get_token_by_email`].
     pub async fn get_token_by_email(&self, email: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
         let now = current_timestamp_millis();
 

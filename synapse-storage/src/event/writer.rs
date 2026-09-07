@@ -12,12 +12,14 @@ pub trait EventWriter: Send + Sync {
 
     // ── mutation ──────────────────────────────────────────────────────
 
+    /// See [`create_event`].
     async fn create_event(
         &self,
         params: CreateEventParams,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomEvent, sqlx::Error>;
 
+    /// See [`update_event_signatures_and_hashes`].
     async fn update_event_signatures_and_hashes(
         &self,
         event_id: &str,
@@ -25,11 +27,13 @@ pub trait EventWriter: Send + Sync {
         hashes: &serde_json::Value,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`redact_event_content`].
     async fn redact_event_content(&self, event_id: &str, redacted_by: Option<&str>) -> Result<(), sqlx::Error>;
 
     // ── mutation: graph / signatures / reports ─────────────────────────
 
     #[allow(clippy::too_many_arguments)]
+    /// See [`create_event_with_graph`].
     async fn create_event_with_graph(
         &self,
         params: CreateEventParams,
@@ -40,6 +44,7 @@ pub trait EventWriter: Send + Sync {
     ) -> Result<RoomEvent, sqlx::Error>;
 
     #[allow(clippy::too_many_arguments)]
+    /// See [`save_event_signature`].
     async fn save_event_signature(
         &self,
         event_id: &str,
@@ -51,6 +56,7 @@ pub trait EventWriter: Send + Sync {
         created_ts: i64,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`report_event`].
     async fn report_event(
         &self,
         event_id: &str,
@@ -63,6 +69,7 @@ pub trait EventWriter: Send + Sync {
 
     // ── ephemeral mutations ─────────────────────────────────────────────
 
+    /// See [`add_ephemeral_event`].
     async fn add_ephemeral_event(
         &self,
         room_id: &str,
@@ -73,6 +80,7 @@ pub trait EventWriter: Send + Sync {
     ) -> Result<(), sqlx::Error>;
 
     #[allow(clippy::too_many_arguments)]
+    /// See [`upsert_ephemeral_event`].
     async fn upsert_ephemeral_event(
         &self,
         room_id: &str,
@@ -84,12 +92,15 @@ pub trait EventWriter: Send + Sync {
         expires_at: Option<i64>,
     ) -> Result<(), sqlx::Error>;
 
+    /// See [`delete_ephemeral_event`].
     async fn delete_ephemeral_event(&self, room_id: &str, event_type: &str, user_id: &str) -> Result<(), sqlx::Error>;
 
     // ── encryption / retention ─────────────────────────────────────────────
 
+    /// See [`delete_events_before`].
     async fn delete_events_before(&self, room_id: &str, timestamp: i64, dry_run: bool) -> Result<u64, sqlx::Error>;
 
+    /// See [`upsert_power_levels_event`].
     async fn upsert_power_levels_event(
         &self,
         event_id: &str,

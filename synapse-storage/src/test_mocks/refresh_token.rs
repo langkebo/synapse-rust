@@ -15,10 +15,14 @@ pub struct InMemoryRefreshTokenStore {
 }
 
 impl InMemoryRefreshTokenStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// See [`seed_token`].
+    /// See [`seed_token`].
     pub async fn seed_token(&self, user_id: &str, token_id: i64, token_hash: &str, device_id: Option<&str>) {
         let mut tokens = self.tokens.write().await;
         tokens.insert(

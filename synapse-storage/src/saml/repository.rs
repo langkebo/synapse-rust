@@ -7,15 +7,20 @@ use tracing::{debug, info};
 
 use super::models::*;
 
+/// The `SamlStorage` struct.
 pub struct SamlStorage {
     pool: Arc<sqlx::PgPool>,
 }
 
 impl SamlStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<sqlx::PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_session`].
+    /// See [`create_session`].
     pub async fn create_session(&self, request: CreateSamlSessionRequest) -> Result<SamlSession, ApiError> {
         let now = current_timestamp_millis();
         let expires_at = current_timestamp_millis() + request.expires_in_seconds * 1000;
@@ -47,6 +52,8 @@ impl SamlStorage {
         Ok(row)
     }
 
+    /// See [`get_session`].
+    /// See [`get_session`].
     pub async fn get_session(&self, session_id: &str) -> Result<Option<SamlSession>, ApiError> {
         let row =
             sqlx::query_as::<_, SamlSession>("SELECT id, session_id, user_id, name_id, issuer, session_index, attributes, created_ts, expires_at, last_used_ts, status FROM saml_sessions WHERE session_id = $1 AND status = 'active'")
@@ -58,6 +65,8 @@ impl SamlStorage {
         Ok(row)
     }
 
+    /// See [`get_session_by_user`].
+    /// See [`get_session_by_user`].
     pub async fn get_session_by_user(&self, user_id: &str) -> Result<Option<SamlSession>, ApiError> {
         let now = current_timestamp_millis();
         let row = sqlx::query_as::<_, SamlSession>(
@@ -77,6 +86,8 @@ impl SamlStorage {
         Ok(row)
     }
 
+    /// See [`update_session_last_used`].
+    /// See [`update_session_last_used`].
     pub async fn update_session_last_used(&self, session_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             "UPDATE saml_sessions SET last_used_ts = (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) WHERE session_id = $1",
@@ -89,6 +100,8 @@ impl SamlStorage {
         Ok(())
     }
 
+    /// See [`invalidate_session`].
+    /// See [`invalidate_session`].
     pub async fn invalidate_session(&self, session_id: &str) -> Result<(), ApiError> {
         sqlx::query("UPDATE saml_sessions SET status = 'invalidated' WHERE session_id = $1")
             .bind(session_id)
@@ -100,6 +113,8 @@ impl SamlStorage {
         Ok(())
     }
 
+    /// See [`cleanup_expired_sessions`].
+    /// See [`cleanup_expired_sessions`].
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();
         let result = sqlx::query("DELETE FROM saml_sessions WHERE expires_at < $1 OR status = 'invalidated'")
@@ -115,6 +130,7 @@ impl SamlStorage {
         Ok(count)
     }
 
+    /// See [`create_user_mapping`].
     pub async fn create_user_mapping(
         &self,
         request: CreateSamlUserMappingRequest,
@@ -149,6 +165,7 @@ impl SamlStorage {
         Ok(row)
     }
 
+    /// See [`get_user_mapping_by_name_id`].
     pub async fn get_user_mapping_by_name_id(
         &self,
         name_id: &str,
@@ -165,6 +182,8 @@ impl SamlStorage {
         Ok(row)
     }
 
+    /// See [`get_user_mapping_by_user_id`].
+    /// See [`get_user_mapping_by_user_id`].
     pub async fn get_user_mapping_by_user_id(&self, user_id: &str) -> Result<Option<SamlUserMapping>, ApiError> {
         let row = sqlx::query_as::<_, SamlUserMapping>("SELECT id, name_id, user_id, issuer, first_seen_ts, last_authenticated_ts, authentication_count, attributes FROM saml_user_mapping WHERE user_id = $1")
             .bind(user_id)
@@ -175,6 +194,8 @@ impl SamlStorage {
         Ok(row)
     }
 
+    /// See [`delete_user_mapping`].
+    /// See [`delete_user_mapping`].
     pub async fn delete_user_mapping(&self, name_id: &str, issuer: &str) -> Result<(), ApiError> {
         sqlx::query("DELETE FROM saml_user_mapping WHERE name_id = $1 AND issuer = $2")
             .bind(name_id)
@@ -306,6 +327,7 @@ impl SamlStorage {
         Ok(count)
     }
 
+    /// See [`create_identity_provider`].
     pub async fn create_identity_provider(
         &self,
         request: CreateSamlIdentityProviderRequest,
@@ -349,6 +371,8 @@ impl SamlStorage {
         Ok(row)
     }
 
+    /// See [`get_identity_provider`].
+    /// See [`get_identity_provider`].
     pub async fn get_identity_provider(&self, entity_id: &str) -> Result<Option<SamlIdentityProvider>, ApiError> {
         let row =
             sqlx::query_as::<_, SamlIdentityProvider>("SELECT id, entity_id, display_name, description, metadata_url, metadata_xml, is_enabled, priority, attribute_mapping, created_ts, updated_ts, last_metadata_refresh_at, metadata_valid_until_at FROM saml_identity_providers WHERE entity_id = $1")
@@ -360,6 +384,8 @@ impl SamlStorage {
         Ok(row)
     }
 
+    /// See [`get_all_identity_providers`].
+    /// See [`get_all_identity_providers`].
     pub async fn get_all_identity_providers(&self) -> Result<Vec<SamlIdentityProvider>, ApiError> {
         let rows =
             sqlx::query_as::<_, SamlIdentityProvider>("SELECT id, entity_id, display_name, description, metadata_url, metadata_xml, is_enabled, priority, attribute_mapping, created_ts, updated_ts, last_metadata_refresh_at, metadata_valid_until_at FROM saml_identity_providers ORDER BY priority ASC")
@@ -370,6 +396,8 @@ impl SamlStorage {
         Ok(rows)
     }
 
+    /// See [`get_enabled_identity_providers`].
+    /// See [`get_enabled_identity_providers`].
     pub async fn get_enabled_identity_providers(&self) -> Result<Vec<SamlIdentityProvider>, ApiError> {
         let rows = sqlx::query_as::<_, SamlIdentityProvider>(
             "SELECT id, entity_id, display_name, description, metadata_url, metadata_xml, is_enabled, priority, attribute_mapping, created_ts, updated_ts, last_metadata_refresh_at, metadata_valid_until_at FROM saml_identity_providers WHERE is_enabled = true ORDER BY priority ASC",
@@ -381,6 +409,7 @@ impl SamlStorage {
         Ok(rows)
     }
 
+    /// See [`update_idp_metadata`].
     pub async fn update_idp_metadata(
         &self,
         entity_id: &str,
@@ -410,6 +439,8 @@ impl SamlStorage {
         Ok(())
     }
 
+    /// See [`delete_identity_provider`].
+    /// See [`delete_identity_provider`].
     pub async fn delete_identity_provider(&self, entity_id: &str) -> Result<(), ApiError> {
         sqlx::query("DELETE FROM saml_identity_providers WHERE entity_id = $1")
             .bind(entity_id)
@@ -421,6 +452,8 @@ impl SamlStorage {
         Ok(())
     }
 
+    /// See [`create_auth_event`].
+    /// See [`create_auth_event`].
     pub async fn create_auth_event(&self, request: CreateSamlAuthEventRequest) -> Result<SamlAuthEvent, ApiError> {
         let now = current_timestamp_millis();
         let attributes_json = serde_json::to_value(&request.attributes).unwrap_or(serde_json::json!({}));
@@ -455,6 +488,8 @@ impl SamlStorage {
         Ok(row)
     }
 
+    /// See [`get_auth_events_by_user`].
+    /// See [`get_auth_events_by_user`].
     pub async fn get_auth_events_by_user(&self, user_id: &str, limit: i64) -> Result<Vec<SamlAuthEvent>, ApiError> {
         let rows = sqlx::query_as::<_, SamlAuthEvent>(
             r#"
@@ -473,6 +508,7 @@ impl SamlStorage {
         Ok(rows)
     }
 
+    /// See [`create_logout_request`].
     pub async fn create_logout_request(
         &self,
         request: CreateSamlLogoutRequestRequest,
@@ -502,6 +538,8 @@ impl SamlStorage {
         Ok(row)
     }
 
+    /// See [`get_logout_request`].
+    /// See [`get_logout_request`].
     pub async fn get_logout_request(&self, request_id: &str) -> Result<Option<SamlLogoutRequest>, ApiError> {
         let row = sqlx::query_as::<_, SamlLogoutRequest>("SELECT id, request_id, session_id, user_id, name_id, issuer, reason, status, created_ts, processed_at FROM saml_logout_requests WHERE request_id = $1")
             .bind(request_id)
@@ -512,6 +550,8 @@ impl SamlStorage {
         Ok(row)
     }
 
+    /// See [`process_logout_request`].
+    /// See [`process_logout_request`].
     pub async fn process_logout_request(&self, request_id: &str) -> Result<(), ApiError> {
         let now_ts = current_timestamp_millis();
         sqlx::query("UPDATE saml_logout_requests SET status = 'processed', processed_ts = $2 WHERE request_id = $1")
@@ -525,6 +565,8 @@ impl SamlStorage {
         Ok(())
     }
 
+    /// See [`cleanup_old_auth_events`].
+    /// See [`cleanup_old_auth_events`].
     pub async fn cleanup_old_auth_events(&self, days: i64) -> Result<u64, ApiError> {
         let result = sqlx::query(
             "DELETE FROM saml_auth_events WHERE created_ts < (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) - $1 * 86400000",

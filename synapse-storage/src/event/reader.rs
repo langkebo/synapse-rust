@@ -13,12 +13,15 @@ pub trait EventReader: Send + Sync {
 
     // ── single-event ──────────────────────────────────────────────────
 
+    /// See [`get_event`].
     async fn get_event(&self, event_id: &str) -> Result<Option<RoomEvent>, sqlx::Error>;
 
     // ── bulk-read ─────────────────────────────────────────────────────
 
+    /// See [`get_room_events`].
     async fn get_room_events(&self, room_id: &str, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error>;
 
+    /// See [`get_room_events_paginated`].
     async fn get_room_events_paginated(
         &self,
         room_id: &str,
@@ -39,12 +42,14 @@ pub trait EventReader: Send + Sync {
         direction: &str,
     ) -> Result<Vec<RoomEvent>, sqlx::Error>;
 
+    /// See [`get_room_events_batch`].
     async fn get_room_events_batch(
         &self,
         room_ids: &[String],
         limit_per_room: i64,
     ) -> Result<HashMap<String, Vec<RoomEvent>>, sqlx::Error>;
 
+    /// See [`get_room_events_batch_since`].
     async fn get_room_events_batch_since(
         &self,
         room_ids: &[String],
@@ -52,6 +57,7 @@ pub trait EventReader: Send + Sync {
         limit_per_room: i64,
     ) -> Result<HashMap<String, Vec<RoomEvent>>, sqlx::Error>;
 
+    /// See [`get_room_events_batch_since_filtered`].
     async fn get_room_events_batch_since_filtered(
         &self,
         room_ids: &[String],
@@ -62,6 +68,7 @@ pub trait EventReader: Send + Sync {
 
     // ── state events ──────────────────────────────────────────────────
 
+    /// See [`get_state_event`].
     async fn get_state_event(
         &self,
         room_id: &str,
@@ -69,10 +76,13 @@ pub trait EventReader: Send + Sync {
         state_key: &str,
     ) -> Result<Option<StateEvent>, sqlx::Error>;
 
+    /// See [`get_state_events`].
     async fn get_state_events(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error>;
 
+    /// See [`get_state_events_by_type`].
     async fn get_state_events_by_type(&self, room_id: &str, event_type: &str) -> Result<Vec<StateEvent>, sqlx::Error>;
 
+    /// See [`get_state_events_at_or_before`].
     async fn get_state_events_at_or_before(
         &self,
         room_id: &str,
@@ -81,16 +91,21 @@ pub trait EventReader: Send + Sync {
 
     // ── helpers ───────────────────────────────────────────────────────
 
+    /// See [`get_events_map`].
     async fn get_events_map(&self, event_ids: &[String]) -> Result<HashMap<String, RoomEvent>, sqlx::Error>;
 
+    /// See [`get_max_origin_server_ts_for_room`].
     async fn get_max_origin_server_ts_for_room(&self, room_id: &str) -> Result<i64, sqlx::Error>;
 
+    /// See [`get_latest_event_ids_in_room`].
     async fn get_latest_event_ids_in_room(&self, room_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error>;
 
+    /// See [`count_room_events_by_status`].
     async fn count_room_events_by_status(&self, room_id: &str, status: &str) -> Result<i64, sqlx::Error>;
 
     // ── ephemeral ───────────────────────────────────────────────────────
 
+    /// See [`get_ephemeral_events`].
     async fn get_ephemeral_events(
         &self,
         room_id: &str,
@@ -98,6 +113,7 @@ pub trait EventReader: Send + Sync {
         limit: i64,
     ) -> Result<Vec<RoomEphemeralEvent>, sqlx::Error>;
 
+    /// See [`get_ephemeral_events_batch`].
     async fn get_ephemeral_events_batch(
         &self,
         room_ids: &[String],
@@ -107,29 +123,34 @@ pub trait EventReader: Send + Sync {
 
     // ── state-batch ─────────────────────────────────────────────────────
 
+    /// See [`get_state_events_batch`].
     async fn get_state_events_batch(
         &self,
         room_ids: &[String],
     ) -> Result<HashMap<String, Vec<StateEvent>>, sqlx::Error>;
 
+    /// See [`get_state_events_by_type_batch`].
     async fn get_state_events_by_type_batch(
         &self,
         room_ids: &[String],
         event_type: &str,
     ) -> Result<HashMap<String, Vec<StateEvent>>, sqlx::Error>;
 
+    /// See [`get_state_events_since_batch`].
     async fn get_state_events_since_batch(
         &self,
         room_ids: &[String],
         since: SinceFilter,
     ) -> Result<HashMap<String, Vec<StateEvent>>, sqlx::Error>;
 
+    /// See [`get_membership_state_keys_since_batch`].
     async fn get_membership_state_keys_since_batch(
         &self,
         room_ids: &[String],
         since: SinceFilter,
     ) -> Result<HashMap<String, HashSet<String>>, sqlx::Error>;
 
+    /// See [`get_state_change_timestamps_batch`].
     async fn get_state_change_timestamps_batch(
         &self,
         room_ids: &[String],
@@ -138,6 +159,7 @@ pub trait EventReader: Send + Sync {
 
     // ── filtered-batch ──────────────────────────────────────────────────
 
+    /// See [`get_room_events_batch_filtered`].
     async fn get_room_events_batch_filtered(
         &self,
         room_ids: &[String],
@@ -147,6 +169,7 @@ pub trait EventReader: Send + Sync {
 
     // ── misc ────────────────────────────────────────────────────────────
 
+    /// See [`has_room_events_since`].
     async fn has_room_events_since(&self, room_ids: &[String], since: i64) -> Result<bool, sqlx::Error>;
 
     // ── unread counts / room state copy ────────────────────────────────
@@ -154,24 +177,29 @@ pub trait EventReader: Send + Sync {
     // These queries read from the `events` table and were moved here from
     // `RoomStorage` to enforce the storage-layer boundary (project rules §7.1).
 
+    /// See [`get_unread_counts`].
     async fn get_unread_counts(
         &self,
         room_id: &str,
         user_id: &str,
     ) -> Result<crate::room::RoomUnreadCounts, sqlx::Error>;
 
+    /// See [`get_unread_counts_batch`].
     async fn get_unread_counts_batch(
         &self,
         room_ids: &[String],
         user_id: &str,
     ) -> Result<Vec<crate::room::RoomUnreadCounts>, sqlx::Error>;
 
+    /// See [`copy_room_state`].
     async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error>;
 
     // ── graph / dag ──────────────────────────────────────────────────────
 
+    /// See [`find_missing_event_ids`].
     async fn find_missing_event_ids(&self, event_ids: &[String]) -> Result<Vec<String>, sqlx::Error>;
 
+    /// See [`get_missing_events_between`].
     async fn get_missing_events_between(
         &self,
         room_id: &str,
@@ -180,10 +208,12 @@ pub trait EventReader: Send + Sync {
         limit: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error>;
 
+    /// See [`get_forward_extremities_count`].
     async fn get_forward_extremities_count(&self, room_id: &str) -> Result<i64, sqlx::Error>;
 
     // ── context / pagination ────────────────────────────────────────────
 
+    /// See [`find_event_id_by_timestamp`].
     async fn find_event_id_by_timestamp(
         &self,
         room_id: &str,
@@ -191,6 +221,7 @@ pub trait EventReader: Send + Sync {
         forward: bool,
     ) -> Result<Option<(String, i64)>, sqlx::Error>;
 
+    /// See [`get_events_before_context`].
     async fn get_events_before_context(
         &self,
         room_id: &str,
@@ -198,6 +229,7 @@ pub trait EventReader: Send + Sync {
         limit: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error>;
 
+    /// See [`get_events_after_context`].
     async fn get_events_after_context(
         &self,
         room_id: &str,
@@ -207,6 +239,7 @@ pub trait EventReader: Send + Sync {
 
     // ── by-type / pending / counts ──────────────────────────────────────
 
+    /// See [`get_room_events_by_type`].
     async fn get_room_events_by_type(
         &self,
         room_id: &str,
@@ -214,14 +247,18 @@ pub trait EventReader: Send + Sync {
         limit: i64,
     ) -> Result<Vec<RoomEvent>, sqlx::Error>;
 
+    /// See [`get_pending_room_events`].
     async fn get_pending_room_events(&self, room_id: &str, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error>;
 
+    /// See [`get_daily_message_count`].
     async fn get_daily_message_count(&self) -> Result<i64, sqlx::Error>;
 
     // ── signatures / search / encryption ──────────────────────────────────
 
+    /// See [`get_event_signatures`].
     async fn get_event_signatures(&self, event_id: &str) -> Result<Vec<EventSignature>, sqlx::Error>;
 
+    /// See [`search_room_messages_admin`].
     async fn search_room_messages_admin(
         &self,
         room_id: &str,
@@ -229,6 +266,7 @@ pub trait EventReader: Send + Sync {
         limit: i64,
     ) -> Result<Vec<serde_json::Value>, sqlx::Error>;
 
+    /// See [`check_room_has_encryption`].
     async fn check_room_has_encryption(&self, room_id: &str) -> Result<bool, sqlx::Error>;
 
     // ── incremental-sync watermarks (S14) ────────────────────────────────

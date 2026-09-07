@@ -6,14 +6,19 @@ use synapse_common::ApiError;
 use super::models::*;
 use super::repository::ServerNotificationStorage;
 
+/// The `ServerNotificationStoreApi` trait.
 #[async_trait]
 pub trait ServerNotificationStoreApi: Send + Sync {
+    /// See [`create_notification`].
     async fn create_notification(&self, request: CreateNotificationRequest) -> Result<ServerNotification, ApiError>;
 
+    /// See [`get_notification`].
     async fn get_notification(&self, notification_id: i64) -> Result<Option<ServerNotification>, ApiError>;
 
+    /// See [`list_active_notifications`].
     async fn list_active_notifications(&self) -> Result<Vec<ServerNotification>, ApiError>;
 
+    /// See [`list_all_notifications`].
     async fn list_all_notifications(
         &self,
         audience: Option<&str>,
@@ -21,44 +26,58 @@ pub trait ServerNotificationStoreApi: Send + Sync {
         from: Option<ServerNotificationCursor>,
     ) -> Result<(Vec<ServerNotification>, Option<String>), ApiError>;
 
+    /// See [`update_notification`].
     async fn update_notification(
         &self,
         notification_id: i64,
         request: CreateNotificationRequest,
     ) -> Result<ServerNotification, ApiError>;
 
+    /// See [`delete_notification`].
     async fn delete_notification(&self, notification_id: i64) -> Result<bool, ApiError>;
 
+    /// See [`deactivate_notification`].
     async fn deactivate_notification(&self, notification_id: i64) -> Result<bool, ApiError>;
 
+    /// See [`get_user_notifications`].
     async fn get_user_notifications(&self, user_id: &str) -> Result<Vec<NotificationWithStatus>, ApiError>;
 
+    /// See [`get_or_create_status`].
     async fn get_or_create_status(
         &self,
         user_id: &str,
         notification_id: i64,
     ) -> Result<UserNotificationStatus, ApiError>;
 
+    /// See [`get_or_create_statuses_batch`].
     async fn get_or_create_statuses_batch(
         &self,
         user_id: &str,
         notification_ids: &[i64],
     ) -> Result<HashMap<i64, UserNotificationStatus>, ApiError>;
 
+    /// See [`mark_as_read`].
     async fn mark_as_read(&self, user_id: &str, notification_id: i64) -> Result<bool, ApiError>;
 
+    /// See [`mark_as_dismissed`].
     async fn mark_as_dismissed(&self, user_id: &str, notification_id: i64) -> Result<bool, ApiError>;
 
+    /// See [`mark_all_as_read`].
     async fn mark_all_as_read(&self, user_id: &str) -> Result<i64, ApiError>;
 
+    /// See [`create_template`].
     async fn create_template(&self, request: CreateTemplateRequest) -> Result<NotificationTemplate, ApiError>;
 
+    /// See [`get_template`].
     async fn get_template(&self, name: &str) -> Result<Option<NotificationTemplate>, ApiError>;
 
+    /// See [`list_templates`].
     async fn list_templates(&self) -> Result<Vec<NotificationTemplate>, ApiError>;
 
+    /// See [`delete_template`].
     async fn delete_template(&self, name: &str) -> Result<bool, ApiError>;
 
+    /// See [`log_delivery`].
     async fn log_delivery(
         &self,
         notification_id: i64,
@@ -68,46 +87,61 @@ pub trait ServerNotificationStoreApi: Send + Sync {
         error_message: Option<&str>,
     ) -> Result<(), ApiError>;
 
+    /// See [`schedule_notification`].
     async fn schedule_notification(
         &self,
         notification_id: i64,
         scheduled_for: i64,
     ) -> Result<ScheduledNotification, ApiError>;
 
+    /// See [`get_pending_scheduled_notifications`].
     async fn get_pending_scheduled_notifications(&self) -> Result<Vec<ScheduledNotification>, ApiError>;
 
+    /// See [`mark_scheduled_sent`].
     async fn mark_scheduled_sent(&self, scheduled_id: i64) -> Result<bool, ApiError>;
 
+    /// See [`get_user_notification_setting`].
     async fn get_user_notification_setting(&self, user_id: &str) -> Result<Option<bool>, ApiError>;
 
+    /// See [`upsert_user_notification_setting`].
     async fn upsert_user_notification_setting(&self, user_id: &str, enabled: bool) -> Result<(), ApiError>;
 
+    /// See [`get_user_pushers`].
     async fn get_user_pushers(&self, user_id: &str) -> Result<Vec<serde_json::Value>, ApiError>;
 
+    /// See [`delete_user_pusher`].
     async fn delete_user_pusher(&self, user_id: &str, pushkey: &str) -> Result<bool, ApiError>;
 
+    /// See [`get_server_notices_count`].
     async fn get_server_notices_count(&self) -> Result<i64, ApiError>;
 
+    /// See [`get_server_notices_paginated`].
     async fn get_server_notices_paginated(
         &self,
         cursor: Option<(i64, i64)>,
         limit: i64,
     ) -> Result<(Vec<serde_json::Value>, i64, Option<String>), ApiError>;
 
+    /// See [`get_server_notice_by_id`].
     async fn get_server_notice_by_id(&self, notice_id: i64) -> Result<Option<serde_json::Value>, ApiError>;
 
+    /// See [`get_server_notice_with_room`].
     async fn get_server_notice_with_room(
         &self,
         notice_id: i64,
     ) -> Result<Option<(Option<String>, Option<String>)>, ApiError>;
 
+    /// See [`delete_server_notice_by_id`].
     async fn delete_server_notice_by_id(&self, notice_id: i64) -> Result<bool, ApiError>;
 
+    /// See [`delete_room_cascade`].
     async fn delete_room_cascade(&self, room_id: &str) -> Result<(), ApiError>;
 
+    /// See [`delete_event_by_id`].
     async fn delete_event_by_id(&self, event_id: &str) -> Result<(), ApiError>;
 
     #[allow(clippy::too_many_arguments)]
+    /// See [`send_server_notice`].
     async fn send_server_notice(
         &self,
         room_id: &str,

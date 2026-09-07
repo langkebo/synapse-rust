@@ -4,146 +4,234 @@ use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `RoomRetentionPolicy` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RoomRetentionPolicy {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `max_lifetime` field.
     pub max_lifetime: Option<i64>,
+    /// The `min_lifetime` field.
     pub min_lifetime: i64,
+    /// The `is_expire_on_clients` field.
     pub is_expire_on_clients: bool,
+    /// The `is_server_default` field.
     pub is_server_default: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
+/// The `ServerRetentionPolicy` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ServerRetentionPolicy {
+    /// The `id` field.
     pub id: i64,
+    /// The `max_lifetime` field.
     pub max_lifetime: Option<i64>,
+    /// The `min_lifetime` field.
     pub min_lifetime: i64,
+    /// The `is_expire_on_clients` field.
     pub is_expire_on_clients: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
+/// The `RetentionCleanupQueueItem` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RetentionCleanupQueueItem {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `event_id` field.
     pub event_id: Option<String>,
+    /// The `event_type` field.
     pub event_type: Option<String>,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
+    /// The `scheduled_ts` field.
     pub scheduled_ts: i64,
+    /// The `status` field.
     pub status: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `processed_ts` field.
     pub processed_ts: Option<i64>,
+    /// The `error_message` field.
     pub error_message: Option<String>,
+    /// The `retry_count` field.
     pub retry_count: i32,
 }
 
+/// The `RetentionCleanupLog` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RetentionCleanupLog {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `events_deleted` field.
     pub events_deleted: i64,
+    /// The `state_events_deleted` field.
     pub state_events_deleted: i64,
+    /// The `media_deleted` field.
     pub media_deleted: i64,
+    /// The `bytes_freed` field.
     pub bytes_freed: i64,
+    /// The `started_ts` field.
     pub started_ts: i64,
+    /// The `completed_ts` field.
     pub completed_ts: Option<i64>,
+    /// The `status` field.
     pub status: String,
+    /// The `error_message` field.
     pub error_message: Option<String>,
 }
 
+/// The `DeletedEventIndex` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DeletedEventIndex {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `deletion_ts` field.
     pub deletion_ts: i64,
+    /// The `reason` field.
     pub reason: String,
 }
 
+/// The `RetentionStats` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RetentionStats {
+    /// The `id` field.
     pub id: i64,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `total_events` field.
     pub total_events: i64,
+    /// The `events_in_retention` field.
     pub events_in_retention: i64,
+    /// The `events_expired` field.
     pub events_expired: i64,
+    /// The `last_cleanup_ts` field.
     pub last_cleanup_ts: Option<i64>,
+    /// The `next_cleanup_ts` field.
     pub next_cleanup_ts: Option<i64>,
 }
 
+/// The `CreateRoomRetentionPolicyRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateRoomRetentionPolicyRequest {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `max_lifetime` field.
     pub max_lifetime: Option<i64>,
+    /// The `min_lifetime` field.
     pub min_lifetime: Option<i64>,
+    /// The `is_expire_on_clients` field.
     pub is_expire_on_clients: Option<bool>,
 }
 
+/// The `UpdateRoomRetentionPolicyRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdateRoomRetentionPolicyRequest {
+    /// The `max_lifetime` field.
     pub max_lifetime: Option<i64>,
+    /// The `min_lifetime` field.
     pub min_lifetime: Option<i64>,
+    /// The `is_expire_on_clients` field.
     pub is_expire_on_clients: Option<bool>,
 }
 
+/// The `UpdateServerRetentionPolicyRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateServerRetentionPolicyRequest {
+    /// The `max_lifetime` field.
     pub max_lifetime: Option<i64>,
+    /// The `min_lifetime` field.
     pub min_lifetime: Option<i64>,
+    /// The `is_expire_on_clients` field.
     pub is_expire_on_clients: Option<bool>,
 }
 
+/// The `EffectiveRetentionPolicy` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EffectiveRetentionPolicy {
+    /// The `max_lifetime` field.
     pub max_lifetime: Option<i64>,
+    /// The `min_lifetime` field.
     pub min_lifetime: i64,
+    /// The `is_expire_on_clients` field.
     pub is_expire_on_clients: bool,
 }
 
+/// The `RetentionStorage` struct.
 #[derive(Clone)]
 pub struct RetentionStorage {
     pool: Arc<PgPool>,
 }
 
+/// The `RetentionStoreApi` trait.
 #[async_trait]
 pub trait RetentionStoreApi: Send + Sync {
+    /// See [`create_room_policy`].
     async fn create_room_policy(
         &self,
         request: CreateRoomRetentionPolicyRequest,
     ) -> Result<RoomRetentionPolicy, sqlx::Error>;
+    /// See [`get_room_policy`].
     async fn get_room_policy(&self, room_id: &str) -> Result<Option<RoomRetentionPolicy>, sqlx::Error>;
+    /// See [`update_room_policy`].
     async fn update_room_policy(
         &self,
         room_id: &str,
         request: UpdateRoomRetentionPolicyRequest,
     ) -> Result<RoomRetentionPolicy, sqlx::Error>;
+    /// See [`delete_room_policy`].
     async fn delete_room_policy(&self, room_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`get_server_policy`].
     async fn get_server_policy(&self) -> Result<ServerRetentionPolicy, sqlx::Error>;
+    /// See [`update_server_policy`].
     async fn update_server_policy(
         &self,
         request: UpdateServerRetentionPolicyRequest,
     ) -> Result<ServerRetentionPolicy, sqlx::Error>;
+    /// See [`get_effective_policy`].
     async fn get_effective_policy(&self, room_id: &str) -> Result<EffectiveRetentionPolicy, sqlx::Error>;
+    /// See [`delete_events_before`].
     async fn delete_events_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error>;
+    /// See [`get_rooms_with_policies`].
     async fn get_rooms_with_policies(&self) -> Result<Vec<RoomRetentionPolicy>, sqlx::Error>;
+    /// See [`get_server_policy_optional`].
     async fn get_server_policy_optional(&self) -> Result<Option<ServerRetentionPolicy>, sqlx::Error>;
+    /// See [`upsert_server_policy`].
     async fn upsert_server_policy(
         &self,
         request: UpdateServerRetentionPolicyRequest,
     ) -> Result<ServerRetentionPolicy, sqlx::Error>;
+    /// See [`count_room_policies`].
     async fn count_room_policies(&self) -> Result<i64, sqlx::Error>;
+    /// See [`has_server_policy`].
     async fn has_server_policy(&self) -> Result<bool, sqlx::Error>;
 }
 
 impl RetentionStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_room_policy`].
     pub async fn create_room_policy(
         &self,
         request: CreateRoomRetentionPolicyRequest,
@@ -175,6 +263,8 @@ impl RetentionStorage {
         Ok(row)
     }
 
+    /// See [`get_room_policy`].
+    /// See [`get_room_policy`].
     pub async fn get_room_policy(&self, room_id: &str) -> Result<Option<RoomRetentionPolicy>, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomRetentionPolicy>(
             "SELECT id, room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts FROM room_retention_policies WHERE room_id = $1",
@@ -186,6 +276,7 @@ impl RetentionStorage {
         Ok(row)
     }
 
+    /// See [`update_room_policy`].
     pub async fn update_room_policy(
         &self,
         room_id: &str,
@@ -211,6 +302,8 @@ impl RetentionStorage {
         Ok(row)
     }
 
+    /// See [`delete_room_policy`].
+    /// See [`delete_room_policy`].
     pub async fn delete_room_policy(&self, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM room_retention_policies WHERE room_id = $1")
             .bind(room_id)
@@ -220,6 +313,8 @@ impl RetentionStorage {
         Ok(())
     }
 
+    /// See [`get_server_policy`].
+    /// See [`get_server_policy`].
     pub async fn get_server_policy(&self) -> Result<ServerRetentionPolicy, sqlx::Error> {
         let row = sqlx::query_as::<_, ServerRetentionPolicy>(
             "SELECT id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts FROM server_retention_policy ORDER BY id LIMIT 1",
@@ -230,6 +325,7 @@ impl RetentionStorage {
         Ok(row)
     }
 
+    /// See [`update_server_policy`].
     pub async fn update_server_policy(
         &self,
         request: UpdateServerRetentionPolicyRequest,
@@ -253,6 +349,8 @@ impl RetentionStorage {
         Ok(row)
     }
 
+    /// See [`get_effective_policy`].
+    /// See [`get_effective_policy`].
     pub async fn get_effective_policy(&self, room_id: &str) -> Result<EffectiveRetentionPolicy, sqlx::Error> {
         let room_policy = self.get_room_policy(room_id).await?;
         let server_policy = self.get_server_policy().await?;
@@ -266,6 +364,8 @@ impl RetentionStorage {
         })
     }
 
+    /// See [`delete_events_before`].
+    /// See [`delete_events_before`].
     pub async fn delete_events_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
             r"
@@ -284,6 +384,8 @@ impl RetentionStorage {
         Ok(result.rows_affected() as i64)
     }
 
+    /// See [`get_rooms_with_policies`].
+    /// See [`get_rooms_with_policies`].
     pub async fn get_rooms_with_policies(&self) -> Result<Vec<RoomRetentionPolicy>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomRetentionPolicy>(
             "SELECT id, room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts FROM room_retention_policies ORDER BY room_id",
@@ -294,6 +396,8 @@ impl RetentionStorage {
         Ok(rows)
     }
 
+    /// See [`get_server_policy_optional`].
+    /// See [`get_server_policy_optional`].
     pub async fn get_server_policy_optional(&self) -> Result<Option<ServerRetentionPolicy>, sqlx::Error> {
         let row = sqlx::query_as::<_, ServerRetentionPolicy>(
             r"SELECT id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts
@@ -305,6 +409,7 @@ impl RetentionStorage {
         Ok(row)
     }
 
+    /// See [`upsert_server_policy`].
     pub async fn upsert_server_policy(
         &self,
         request: UpdateServerRetentionPolicyRequest,
@@ -336,6 +441,8 @@ impl RetentionStorage {
         Ok(row)
     }
 
+    /// See [`count_room_policies`].
+    /// See [`count_room_policies`].
     pub async fn count_room_policies(&self) -> Result<i64, sqlx::Error> {
         let count =
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM room_retention_policies").fetch_one(&*self.pool).await?;
@@ -343,6 +450,8 @@ impl RetentionStorage {
         Ok(count)
     }
 
+    /// See [`has_server_policy`].
+    /// See [`has_server_policy`].
     pub async fn has_server_policy(&self) -> Result<bool, sqlx::Error> {
         let exists = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM server_retention_policy)")
             .fetch_one(&*self.pool)

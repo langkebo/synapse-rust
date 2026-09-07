@@ -5,41 +5,62 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::error::ApiError;
 
+/// The `Filter` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Filter {
+    /// The `id` field.
     pub id: i64,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `filter_id` field.
     pub filter_id: String,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
+/// The `CreateFilterRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateFilterRequest {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `filter_id` field.
     pub filter_id: String,
+    /// The `content` field.
     pub content: serde_json::Value,
 }
 
+/// The `FilterStoreApi` trait.
 #[async_trait]
 pub trait FilterStoreApi: Send + Sync {
+    /// See [`create_filter`].
     async fn create_filter(&self, request: CreateFilterRequest) -> Result<Filter, ApiError>;
+    /// See [`get_filter`].
     async fn get_filter(&self, user_id: &str, filter_id: &str) -> Result<Option<Filter>, ApiError>;
+    /// See [`get_filters_by_user`].
     async fn get_filters_by_user(&self, user_id: &str) -> Result<Vec<Filter>, ApiError>;
+    /// See [`delete_filter`].
     async fn delete_filter(&self, user_id: &str, filter_id: &str) -> Result<bool, ApiError>;
+    /// See [`delete_filters_by_user`].
     async fn delete_filters_by_user(&self, user_id: &str) -> Result<u64, ApiError>;
 }
 
+/// The `FilterStorage` struct.
 #[derive(Clone)]
 pub struct FilterStorage {
     pool: Arc<PgPool>,
 }
 
 impl FilterStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
+    /// See [`create_filter`].
+    /// See [`create_filter`].
     pub async fn create_filter(&self, request: CreateFilterRequest) -> Result<Filter, ApiError> {
         let now = current_timestamp_millis();
 
@@ -61,6 +82,8 @@ impl FilterStorage {
         Ok(filter)
     }
 
+    /// See [`get_filter`].
+    /// See [`get_filter`].
     pub async fn get_filter(&self, user_id: &str, filter_id: &str) -> Result<Option<Filter>, ApiError> {
         let filter = sqlx::query_as::<_, Filter>(
             r"
@@ -78,6 +101,8 @@ impl FilterStorage {
         Ok(filter)
     }
 
+    /// See [`get_filters_by_user`].
+    /// See [`get_filters_by_user`].
     pub async fn get_filters_by_user(&self, user_id: &str) -> Result<Vec<Filter>, ApiError> {
         let filters = sqlx::query_as::<_, Filter>(
             r"
@@ -95,6 +120,8 @@ impl FilterStorage {
         Ok(filters)
     }
 
+    /// See [`delete_filter`].
+    /// See [`delete_filter`].
     pub async fn delete_filter(&self, user_id: &str, filter_id: &str) -> Result<bool, ApiError> {
         let result = sqlx::query(
             r"
@@ -111,6 +138,8 @@ impl FilterStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// See [`delete_filters_by_user`].
+    /// See [`delete_filters_by_user`].
     pub async fn delete_filters_by_user(&self, user_id: &str) -> Result<u64, ApiError> {
         let result = sqlx::query(
             r"

@@ -1,6 +1,7 @@
 use super::*;
 use synapse_common::current_timestamp_millis;
 
+/// The `InMemoryWorkerStore` struct.
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
 pub struct InMemoryWorkerStore {
@@ -13,6 +14,8 @@ pub struct InMemoryWorkerStore {
 }
 
 impl InMemoryWorkerStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self {
             workers: Arc::new(RwLock::new(HashMap::new())),

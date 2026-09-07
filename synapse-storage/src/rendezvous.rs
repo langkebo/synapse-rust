@@ -5,30 +5,47 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
+/// The `RendezvousSession` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RendezvousSession {
+    /// The `id` field.
     pub id: i64,
+    /// The `session_id` field.
     pub session_id: String,
+    /// The `user_id` field.
     pub user_id: Option<String>,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `intent` field.
     pub intent: Option<String>,
+    /// The `transport` field.
     pub transport: Option<String>,
+    /// The `transport_data` field.
     pub transport_data: Option<serde_json::Value>,
+    /// The `key` field.
     pub key: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: i64,
+    /// The `status` field.
     pub status: Option<String>,
 }
 
+/// The `RendezvousIntent` enum.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RendezvousIntent {
     #[serde(rename = "login.reciprocate")]
+    /// The `LoginReciprocate` variant.
     LoginReciprocate,
     #[serde(rename = "login.start")]
+    /// The `LoginStart` variant.
     LoginStart,
 }
 
 impl RendezvousIntent {
+    /// See [`as_str`].
+    /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::LoginReciprocate => "login.reciprocate",
@@ -37,15 +54,20 @@ impl RendezvousIntent {
     }
 }
 
+/// The `RendezvousTransport` enum.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RendezvousTransport {
     #[serde(rename = "http.v1")]
+    /// The `HttpV1` variant.
     HttpV1,
     #[serde(rename = "http.v2")]
+    /// The `HttpV2` variant.
     HttpV2,
 }
 
 impl RendezvousTransport {
+    /// See [`as_str`].
+    /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::HttpV1 => "http.v1",
@@ -54,63 +76,96 @@ impl RendezvousTransport {
     }
 }
 
+/// The `CreateRendezvousSessionParams` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateRendezvousSessionParams {
+    /// The `intent` field.
     pub intent: RendezvousIntent,
+    /// The `transport` field.
     pub transport: RendezvousTransport,
+    /// The `transport_data` field.
     pub transport_data: Option<serde_json::Value>,
+    /// The `expires_in_ms` field.
     pub expires_in_ms: Option<i64>,
 }
 
+/// The `RendezvousCode` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RendezvousCode {
+    /// The `url` field.
     pub url: String,
+    /// The `session_id` field.
     pub session_id: String,
+    /// The `key` field.
     pub key: String,
 }
 
+/// The `RendezvousMessage` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RendezvousMessage {
     #[serde(rename = "type")]
+    /// The `message_type` field.
     pub message_type: String,
+    /// The `content` field.
     pub content: serde_json::Value,
 }
 
+/// The `RendezvousLoginStart` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RendezvousLoginStart {
+    /// The `homeserver` field.
     pub homeserver: String,
+    /// The `user` field.
     pub user: Option<RendezvousLoginUser>,
 }
 
+/// The `RendezvousLoginUser` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RendezvousLoginUser {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `display_name` field.
     pub display_name: Option<String>,
+    /// The `device_id` field.
     pub device_id: String,
 }
 
+/// The `RendezvousLoginFinish` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RendezvousLoginFinish {
+    /// The `access_token` field.
     pub access_token: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `user_id` field.
     pub user_id: String,
 }
 
+/// The `RendezvousStoreApi` trait.
 #[async_trait]
 pub trait RendezvousStoreApi: Send + Sync {
+    /// See [`create_session`].
     async fn create_session(&self, params: CreateRendezvousSessionParams) -> Result<RendezvousSession, sqlx::Error>;
+    /// See [`get_session`].
     async fn get_session(&self, session_id: &str) -> Result<Option<RendezvousSession>, sqlx::Error>;
+    /// See [`update_session_status`].
     async fn update_session_status(&self, session_id: &str, status: &str) -> Result<(), sqlx::Error>;
+    /// See [`bind_user_to_session`].
     async fn bind_user_to_session(&self, session_id: &str, user_id: &str, device_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`complete_session`].
     async fn complete_session(&self, session_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`delete_session`].
     async fn delete_session(&self, session_id: &str) -> Result<(), sqlx::Error>;
+    /// See [`cleanup_expired_sessions`].
     async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error>;
+    /// See [`store_message`].
     async fn store_message(
         &self,
         session_id: &str,
         direction: &str,
         message: &RendezvousMessage,
     ) -> Result<(), sqlx::Error>;
+    /// See [`get_messages`].
     async fn get_messages(
         &self,
         session_id: &str,
@@ -118,31 +173,40 @@ pub trait RendezvousStoreApi: Send + Sync {
     ) -> Result<Vec<StoredRendezvousMessage>, sqlx::Error>;
 
     // ── MSC4108 methods ──
+    /// See [`create_msc4108_session`].
     async fn create_msc4108_session(
         &self,
         initial_data: &str,
         ttl_ms: i64,
     ) -> Result<(String, String, i64), sqlx::Error>;
+    /// See [`get_msc4108_data`].
     async fn get_msc4108_data(&self, session_id: &str) -> Result<Option<(String, String)>, sqlx::Error>;
+    /// See [`update_msc4108_data`].
     async fn update_msc4108_data(
         &self,
         session_id: &str,
         data: &str,
         if_match: Option<&str>,
     ) -> Result<Option<String>, sqlx::Error>;
+    /// See [`delete_msc4108_session`].
     async fn delete_msc4108_session(&self, session_id: &str) -> Result<(), sqlx::Error>;
 }
 
+/// The `RendezvousStorage` struct.
 #[derive(Clone)]
 pub struct RendezvousStorage {
+    /// The `pool` field.
     pub pool: Arc<Pool<Postgres>>,
 }
 
 impl RendezvousStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
 
+    /// See [`create_session`].
     pub async fn create_session(
         &self,
         params: CreateRendezvousSessionParams,
@@ -171,6 +235,8 @@ impl RendezvousStorage {
         .await
     }
 
+    /// See [`get_session`].
+    /// See [`get_session`].
     pub async fn get_session(&self, session_id: &str) -> Result<Option<RendezvousSession>, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -186,6 +252,8 @@ impl RendezvousStorage {
         .await
     }
 
+    /// See [`update_session_status`].
+    /// See [`update_session_status`].
     pub async fn update_session_status(&self, session_id: &str, status: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -202,6 +270,7 @@ impl RendezvousStorage {
         Ok(())
     }
 
+    /// See [`bind_user_to_session`].
     pub async fn bind_user_to_session(
         &self,
         session_id: &str,
@@ -224,6 +293,8 @@ impl RendezvousStorage {
         Ok(())
     }
 
+    /// See [`complete_session`].
+    /// See [`complete_session`].
     pub async fn complete_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -239,6 +310,8 @@ impl RendezvousStorage {
         Ok(())
     }
 
+    /// See [`delete_session`].
+    /// See [`delete_session`].
     pub async fn delete_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -252,6 +325,8 @@ impl RendezvousStorage {
         Ok(())
     }
 
+    /// See [`cleanup_expired_sessions`].
+    /// See [`cleanup_expired_sessions`].
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -274,6 +349,7 @@ impl RendezvousStorage {
         URL_SAFE_NO_PAD.encode(key_bytes)
     }
 
+    /// See [`store_message`].
     pub async fn store_message(
         &self,
         session_id: &str,
@@ -283,6 +359,7 @@ impl RendezvousStorage {
         RendezvousMessageStorage::new(self.pool.clone()).store_message(session_id, direction, message).await
     }
 
+    /// See [`get_messages`].
     pub async fn get_messages(
         &self,
         session_id: &str,
@@ -473,42 +550,57 @@ impl RendezvousStoreApi for RendezvousStorage {
     }
 }
 
+/// The `RendezvousMessageStoreApi` trait.
 #[async_trait]
 pub trait RendezvousMessageStoreApi: Send + Sync {
+    /// See [`store_message`].
     async fn store_message(
         &self,
         session_id: &str,
         direction: &str,
         message: &RendezvousMessage,
     ) -> Result<(), sqlx::Error>;
+    /// See [`get_messages`].
     async fn get_messages(
         &self,
         session_id: &str,
         after_id: Option<i64>,
     ) -> Result<Vec<StoredRendezvousMessage>, sqlx::Error>;
+    /// See [`delete_messages`].
     async fn delete_messages(&self, session_id: &str) -> Result<(), sqlx::Error>;
 }
 
+/// The `RendezvousMessageStorage` struct.
 #[derive(Clone)]
 pub struct RendezvousMessageStorage {
     pool: Arc<Pool<Postgres>>,
 }
 
+/// The `StoredRendezvousMessage` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct StoredRendezvousMessage {
+    /// The `id` field.
     pub id: i64,
+    /// The `session_id` field.
     pub session_id: String,
+    /// The `direction` field.
     pub direction: String,
+    /// The `message_type` field.
     pub message_type: String,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `created_ts` field.
     pub created_ts: i64,
 }
 
 impl RendezvousMessageStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
 
+    /// See [`store_message`].
     pub async fn store_message(
         &self,
         session_id: &str,
@@ -535,6 +627,7 @@ impl RendezvousMessageStorage {
         Ok(())
     }
 
+    /// See [`get_messages`].
     pub async fn get_messages(
         &self,
         session_id: &str,
@@ -569,6 +662,8 @@ impl RendezvousMessageStorage {
         }
     }
 
+    /// See [`delete_messages`].
+    /// See [`delete_messages`].
     pub async fn delete_messages(&self, session_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"

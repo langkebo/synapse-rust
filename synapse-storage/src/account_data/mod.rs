@@ -5,26 +5,37 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 
+/// The `AccountDataRecord` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AccountDataRecord {
+    /// The `data_type` field.
     pub data_type: String,
+    /// The `content` field.
     pub content: Value,
 }
 
+/// The `AccountDataStoreApi` trait.
 #[async_trait::async_trait]
 pub trait AccountDataStoreApi: Send + Sync + std::fmt::Debug {
+    /// See [`get_account_data_content`].
     async fn get_account_data_content(&self, user_id: &str, data_type: &str) -> Result<Option<Value>, ApiError>;
+    /// See [`list_account_data`].
     async fn list_account_data(&self, user_id: &str) -> Result<Vec<AccountDataRecord>, ApiError>;
+    /// See [`delete_account_data`].
     async fn delete_account_data(&self, user_id: &str, data_type: &str) -> Result<bool, ApiError>;
+    /// See [`upsert_account_data`].
     async fn upsert_account_data(&self, user_id: &str, data_type: &str, content: Value) -> Result<(), ApiError>;
 }
 
+/// The `AccountDataStorage` struct.
 #[derive(Clone, Debug)]
 pub struct AccountDataStorage {
     pool: Arc<PgPool>,
 }
 
 impl AccountDataStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }

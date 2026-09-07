@@ -16,6 +16,7 @@ const STATE_EVENT_INNER_COLS: &str =
      unsigned, is_redacted, origin_server_ts, depth, not_before, status, origin, user_id, stream_ordering";
 
 impl EventStorage {
+    /// See [`get_state_event`].
     pub async fn get_state_event(
         &self,
         room_id: &str,
@@ -39,6 +40,8 @@ impl EventStorage {
         .await
     }
 
+    /// See [`get_state_events`].
+    /// See [`get_state_events`].
     pub async fn get_state_events(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error> {
         sqlx::query_as::<_, StateEvent>(&format!(
             "SELECT {STATE_EVENT_OUTER_COLS} \
@@ -57,6 +60,7 @@ impl EventStorage {
         .await
     }
 
+    /// See [`get_state_events_at_or_before`].
     pub async fn get_state_events_at_or_before(
         &self,
         room_id: &str,
@@ -81,6 +85,7 @@ impl EventStorage {
         .await
     }
 
+    /// See [`get_state_events_by_type`].
     pub async fn get_state_events_by_type(
         &self,
         room_id: &str,
@@ -106,6 +111,7 @@ impl EventStorage {
         .await
     }
 
+    /// See [`get_state_events_by_type_batch`].
     pub async fn get_state_events_by_type_batch(
         &self,
         room_ids: &[String],
@@ -137,6 +143,7 @@ impl EventStorage {
         Ok(Self::group_state_events(room_ids, events))
     }
 
+    /// See [`get_state_events_since_batch`].
     pub async fn get_state_events_since_batch(
         &self,
         room_ids: &[String],
@@ -169,6 +176,7 @@ impl EventStorage {
         Ok(Self::group_state_events(room_ids, events))
     }
 
+    /// See [`get_state_change_timestamps_batch`].
     pub async fn get_state_change_timestamps_batch(
         &self,
         room_ids: &[String],
@@ -195,6 +203,7 @@ impl EventStorage {
         Ok(rows.into_iter().collect())
     }
 
+    /// See [`get_state_events_batch`].
     pub async fn get_state_events_batch(
         &self,
         room_ids: &[String],
@@ -238,6 +247,7 @@ impl EventStorage {
     // Membership state keys
     // -----------------------------------------------------------------------
 
+    /// See [`get_membership_state_keys_since_batch`].
     pub async fn get_membership_state_keys_since_batch(
         &self,
         room_ids: &[String],

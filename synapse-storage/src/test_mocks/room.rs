@@ -9,6 +9,8 @@ pub struct InMemoryRoomStore {
 }
 
 impl InMemoryRoomStore {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self {
             rooms: Arc::new(RwLock::new(HashMap::new())),
@@ -17,6 +19,7 @@ impl InMemoryRoomStore {
         }
     }
 
+    /// See [`create_room`].
     pub async fn create_room(
         &self,
         room_id: &str,
@@ -47,30 +50,42 @@ impl InMemoryRoomStore {
         Ok(room)
     }
 
+    /// See [`get_room`].
+    /// See [`get_room`].
     pub async fn get_room(&self, room_id: &str) -> Result<Option<crate::room::Room>, String> {
         Ok(self.rooms.read().await.get(room_id).cloned())
     }
 
+    /// See [`get_rooms_batch`].
+    /// See [`get_rooms_batch`].
     pub async fn get_rooms_batch(&self, room_ids: &[String]) -> Result<Vec<crate::room::Room>, String> {
         let rooms = self.rooms.read().await;
         Ok(room_ids.iter().filter_map(|id| rooms.get(id).cloned()).collect())
     }
 
+    /// See [`room_exists`].
+    /// See [`room_exists`].
     pub async fn room_exists(&self, room_id: &str) -> Result<bool, String> {
         Ok(self.rooms.read().await.contains_key(room_id))
     }
 
+    /// See [`get_user_rooms`].
+    /// See [`get_user_rooms`].
     pub async fn get_user_rooms(&self, _user_id: &str) -> Result<Vec<String>, String> {
         // This data lives in InMemoryMemberStore — stub returns all rooms.
         // Real implementation would join with membership data.
         Ok(self.rooms.read().await.keys().cloned().collect())
     }
 
+    /// See [`get_rooms_map`].
+    /// See [`get_rooms_map`].
     pub async fn get_rooms_map(&self, room_ids: &[String]) -> Result<HashMap<String, crate::room::Room>, String> {
         let rooms = self.rooms.read().await;
         Ok(room_ids.iter().filter_map(|id| rooms.get(id).map(|r| (id.clone(), r.clone()))).collect())
     }
 
+    /// See [`update_room_name`].
+    /// See [`update_room_name`].
     pub async fn update_room_name(&self, room_id: &str, name: &str) -> Result<(), String> {
         self.rooms
             .write()
@@ -80,6 +95,8 @@ impl InMemoryRoomStore {
             .ok_or_else(|| format!("room {room_id} not found"))
     }
 
+    /// See [`set_room_alias`].
+    /// See [`set_room_alias`].
     pub async fn set_room_alias(&self, room_id: &str, alias: &str, _created_by: &str) -> Result<(), String> {
         if !self.rooms.read().await.contains_key(room_id) {
             return Err(format!("room {room_id} not found"));
@@ -88,10 +105,14 @@ impl InMemoryRoomStore {
         Ok(())
     }
 
+    /// See [`get_room_by_alias`].
+    /// See [`get_room_by_alias`].
     pub async fn get_room_by_alias(&self, alias: &str) -> Result<Option<String>, String> {
         Ok(self.aliases.read().await.get(alias).cloned())
     }
 
+    /// See [`delete_room`].
+    /// See [`delete_room`].
     pub async fn delete_room(&self, room_id: &str) -> Result<(), String> {
         self.rooms.write().await.remove(room_id);
         Ok(())
