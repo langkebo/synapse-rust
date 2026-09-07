@@ -4,9 +4,18 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done — implemented by commit `87ef15c0` on 2026-09-01
 
 **审计条目：** #3（🟠 High）— 本地限流 token bucket 的 TOCTOU 竞态
+
+## 验收（2026-09-07）
+
+**实现（commit `87ef15c0` 2026-09-01）**：
+- `87ef15c0`: `fix(cache): atomize local rate-limit token bucket with moka and_compute_with`
+- `synapse-cache/src/lib.rs:1824`：`rate_limit_local.entry_by_ref(key).and_compute_with(|existing| {...})`
+- `and_compute_with` 用 key 级锁把同一 key 的 compute 串行化，读改写原子化
+- 多线程 Tokio runtime 并发请求不再全部读到 tokens=1.0 放行
+- `cargo test -p synapse-cache --lib` → 110 passed, 0 failed
 
 - [ ] 令牌桶的「读状态 → 补充 → 判定 → 扣减 → 写回」在单次原子操作内完成
 - [ ] 并发单测可验证：N 个线程同时对同一 key 请求，放行总数不超过配置的突发上限（回归前会显著超出）

@@ -4,9 +4,18 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done — implemented by commit `b10f34b3` on 2026-09-01
 
 **审计条目：** #4（🟡 Medium）性能部分 — burn-after-read 逐行串行 DB 写
+
+## 验收（2026-09-07）
+
+**实现（commit `b10f34b3` 2026-09-01）**：
+- `b10f34b3`: `perf(services): batch Redis deletes & burn-after-read processing, rate-limit config by reference`
+- `synapse-storage/src/burn_after_read.rs`：新增 `mark_processed_batch` 批量更新
+- 新增 unique index migration：`20260901000001_burn_log_unique_index.sql`（user_id, event_id）
+- ON CONFLICT DO NOTHING 幂等支持
+- 往返次数从 4N 降到 ~2（redact+create per row，然后 batch mark_processed + batch log_burned）
 
 **范围说明：** 本票只做**性能**改造，不改变任何失败语义。重复 redaction 的正确性问题由 07 单独处理，本票不得顺带改动判定逻辑。
 

@@ -4,9 +4,16 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done — implemented by commit `b10f34b3` on 2026-09-01
 
 **审计条目：** #6（🟡 Medium）— 限流中间件每请求深拷贝整个配置
+
+## 验收（2026-09-07）
+
+**实现（commit `b10f34b3` 2026-09-01）**：
+- `b10f34b3`: `perf(services): batch Redis deletes & burn-after-read processing, rate-limit config by reference`
+- `src/web/middleware/rate_limit.rs`：RateLimitConfig 从 clone 改为 `&RateLimitConfig` 借用
+- 每请求不再深拷贝配置（消除多个字符串列表与映射字段的每请求堆分配）
 
 - [ ] 中间件不再克隆限流配置，改为借用（可验证：相关克隆调用消失）
 - [ ] 启用状态、豁免路径、IP 头优先级、失败开放等行为判定与改动前完全一致

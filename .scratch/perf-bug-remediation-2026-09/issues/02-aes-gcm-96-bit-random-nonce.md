@@ -4,9 +4,17 @@
 
 **Blocked by:** 01（追踪器重构：本票改的是 nonce 构造方式，登记/检查仍走重构后的追踪器，先改好追踪器可避免二次返工）
 
-**Status:** ready-for-agent
+**Status:** done — pre-implemented by commit `f09304e5` on 2026-09-01 (5 days before this audit ticket was filed)
 
 **审计条目：** #2（🟠 High）— AES-GCM nonce 计数器在实例重建时归零
+
+## 验收（2026-09-07）
+
+**Pre-existing 实现（commit `f09304e5` 2026-09-01）**：
+- `f09304e5`: `fix(e2ee): draw AES-GCM nonces fully at random (96-bit), drop the counter`
+- AES-GCM 12 字节 nonce 全随机，不再用 4 字节前缀 + 8 字节计数器
+- XChaCha20Poly1305 24 字节 nonce 保持不变
+- ticket 的"被 01 阻塞"已失效：01 nonce tracker 早已支持 12/24 字节双长度，`f09304e5` 无需依赖 NonceTracker 重构
 
 - [ ] AES-GCM nonce 的 12 字节全部由 CSPRNG 填充，不再包含进程内计数器
 - [ ] 进程重启 / 服务实例重建后，nonce 唯一性不依赖任何跨进程的持久状态

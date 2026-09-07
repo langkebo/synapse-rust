@@ -4,9 +4,17 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done — pre-implemented by commit `f0cd2546` on 2026-09-01
 
 **审计条目：** #1（🟠 High）— Megolm session key 双写 `Vec<u8>` 走 JSON 数组序列化
+
+## 验收（2026-09-07）
+
+**实现（commit `f0cd2546` 2026-09-01）**：
+- `f0cd2546`: `fix(e2ee): megolm session-key base64 de-bloat, store_session_keys type fix, AES test cleanup`
+- `synapse-e2ee/src/vodozemac_megolm.rs`：`session_key` 列直接从密文字节做 base64（不再经过 JSON 十进制数组序列化）
+- session_key 存储从 ~280 字节缩小到 ~88 字节（理论 60→88，接近 1.5x 而非 4.7x）
+- `cargo test -p synapse-e2ee --lib --features test-utils` → 全绿（49 passed）
 
 **已核实的前置事实（决定了本票无兼容性风险）：**
 - 注释中提到的兼容对象（legacy 加密入口）在当前代码库中已不存在，注释已过时

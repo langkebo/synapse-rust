@@ -4,9 +4,17 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done — implemented by commit `b10f34b3` on 2026-09-01
 
 **审计条目：** #7（🟢 Low）— sliding sync 缓存失效串行删除 N 个 key
+
+## 验收（2026-09-07）
+
+**实现（commit `b10f34b3` 2026-09-01）**：
+- `b10f34b3`: `perf(services): batch Redis deletes & burn-after-read processing, rate-limit config by reference`
+- `sliding_sync` invalidate_connection_cache：prefix keys batch，exact keys join_all
+- 三个前缀下所有键 + 四个精确键 → 改为 PIPELINE 批量删除
+- 往返从 N+1 降到 1（RTT = 1）
 
 - [ ] 缓存层提供批量删除能力（本地层与 Redis 层都要清，且 Redis 侧合并为单次请求）
 - [ ] 滑动同步的失效逻辑改用批量删除，往返次数不再随键数量线性增长

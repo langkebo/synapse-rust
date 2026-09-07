@@ -4,7 +4,9 @@
 🟡 **P0** — 已知限制，非稳定性问题
 
 ## 状态
-⚠️ **未修复** — multi-instance cluster 阶段未完成功能
+⚠️ **known limitation** — multi-instance cluster 阶段功能未实现
+
+**审计结论（2026-09-07）**：ticket 自创建以来无新 commit，代码路径仍未引用。这是多实例 cluster 阶段的功能预留，非稳定性阻塞。短期不需要修复；如果 cluster 部署前不实现 multi-instance pub/sub，需要给 `connect()` / `start_periodic_checks()` 加 `#[allow(dead_code /* TODO: cluster integration */)]` 抑制 lint（已通过 deny(missing_docs) + clippy 0 警告验证当前未触发是因为文件本身未被引用到 lint 严格路径）。
 
 ## 问题描述
 

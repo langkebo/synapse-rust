@@ -4,9 +4,21 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** pending — 部分字段仍缺 `#[serde(default)]`
 
 **审计条目：** #8（🟢 Low）— 原报告结论已修正
+
+## 现状（2026-09-07）
+
+**已修复**：`max_lifetime_secs` / `idle_timeout_secs` / `statement_timeout_secs` / `lock_timeout_secs` / `idle_in_transaction_timeout_secs` 全部有 `#[serde(default = "...")]` ✅
+
+**仍缺**（`DatabaseConfig` line 50-101）：
+- `max_size: u32` — 无 `#[serde(default)]`，`Default` 是 `0`（生产通过 config file 有值，程序化构造会得 0 连接池）
+- `connection_timeout: u64` — 无 `#[serde(default)]`，`Default` 是 `0`（连接永不超时）
+- `min_idle: Option<u32>` — `None` 是合理默认值 ✅
+- `host/port/username/password/name` — 有默认值（空字符串或 5432）✅
+
+**修复方案**：给 `max_size` 加 `#[serde(default = "default_database_max_size")]` → 返回 50（对齐 Synapse）；给 `connection_timeout` 加 `#[serde(default = "default_database_connection_timeout")]` → 返回 30（秒）
 
 **对原审计结论的修正：** 原报告称「连接池 max_size 默认 20」，该数值取自测试夹具而非常规默认值。已核实生产配置实际使用最大连接数 50、最小空闲 10、超时 60 秒，并不存在「默认 20 偏紧」的问题。真实隐患是**缺少缺省值兜底**——程序化构造会得到 0。本票按修正后的结论处理。
 
