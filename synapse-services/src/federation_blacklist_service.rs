@@ -49,7 +49,6 @@ pub struct CheckServerRequest {
 
 impl FederationBlacklistService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: Arc<dyn FederationBlacklistStoreApi>) -> Self {
         Self { storage, regex_cache: RegexCache::default() }
     }
@@ -105,12 +104,10 @@ impl FederationBlacklistService {
     }
 
     /// See [`remove_from_blacklist`].
-    /// See [`remove_from_blacklist`].
     pub async fn remove_from_blacklist(&self, server_name: &str, performed_by: &str) -> Result<(), ApiError> {
         self.storage.remove_from_blacklist(server_name, performed_by).await
     }
 
-    /// See [`check_server`].
     /// See [`check_server`].
     pub async fn check_server(&self, server_name: &str) -> Result<CheckResult, ApiError> {
         let is_whitelisted = self.storage.is_server_whitelisted(server_name).await?;
@@ -271,12 +268,10 @@ impl FederationBlacklistService {
     }
 
     /// See [`get_stats`].
-    /// See [`get_stats`].
     pub async fn get_stats(&self, server_name: &str) -> Result<Option<FederationAccessStats>, ApiError> {
         self.storage.get_access_stats(server_name).await
     }
 
-    /// See [`cleanup_expired`].
     /// See [`cleanup_expired`].
     pub async fn cleanup_expired(&self) -> Result<u64, ApiError> {
         self.storage.cleanup_expired_entries().await
@@ -298,7 +293,6 @@ impl FederationBlacklistService {
         self.storage.create_rule(request).await
     }
 
-    /// See [`get_rules`].
     /// See [`get_rules`].
     pub async fn get_rules(&self) -> Result<Vec<FederationBlacklistRule>, ApiError> {
         self.storage.get_all_rules().await

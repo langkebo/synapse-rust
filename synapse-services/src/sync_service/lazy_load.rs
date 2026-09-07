@@ -52,7 +52,6 @@ impl SyncService {
     }
 
     /// See [`apply_lazy_load_members`].
-    /// See [`apply_lazy_load_members`].
     pub(crate) async fn apply_lazy_load_members(&self, request: LazyLoadMembersRequest<'_>) -> Vec<Value> {
         let LazyLoadMembersRequest {
             state_events,

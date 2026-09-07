@@ -97,7 +97,6 @@ pub struct RateLimitConfigFile {
     /// - `redis`: require Redis; log an error and refuse requests if Redis is down.
     /// - `local`: always use in-memory (single-worker deployments only).
     #[serde(default)]
-    /// `backend` field.
     pub backend: RateLimitBackend,
     #[serde(default)]
     /// Default rate-limit rule applied to any endpoint not matched by `endpoints`.

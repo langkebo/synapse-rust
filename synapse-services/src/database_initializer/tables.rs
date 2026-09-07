@@ -8,7 +8,6 @@ use tracing::warn;
 #[cfg(feature = "runtime-ddl")]
 impl DatabaseInitService {
     /// See [`step_create_e2ee_tables`].
-    /// See [`step_create_e2ee_tables`].
     pub(crate) async fn step_create_e2ee_tables(&self) -> Result<String, sqlx::Error> {
         sqlx::query(
             r#"
@@ -1234,7 +1233,6 @@ impl DatabaseInitService {
         Ok(())
     }
 
-    /// See [`step_ensure_additional_tables`].
     /// See [`step_ensure_additional_tables`].
     pub(crate) async fn step_ensure_additional_tables(&self) -> Result<String, sqlx::Error> {
         // Dispatcher: 945-line monolith split into 8 sub-methods (P1-5/6 refactor).

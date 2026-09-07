@@ -138,14 +138,12 @@ pub struct OidcSessionStorage {
 
 impl OidcSessionStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
     // ── Auth Session ─────────────────────────────────────────────────────
 
-    /// See [`save_auth_session`].
     /// See [`save_auth_session`].
     #[instrument(skip(self, session), fields(key = %session.session_key))]
     pub async fn save_auth_session(&self, session: &OidcAuthSession) -> Result<(), sqlx::Error> {
@@ -212,7 +210,6 @@ impl OidcSessionStorage {
     // ── Refresh Token ────────────────────────────────────────────────────
 
     /// See [`save_refresh_token`].
-    /// See [`save_refresh_token`].
     #[instrument(skip(self, token), fields(hash = %token.token_hash))]
     pub async fn save_refresh_token(&self, token: &OidcRefreshToken) -> Result<(), sqlx::Error> {
         sqlx::query(
@@ -244,7 +241,6 @@ impl OidcSessionStorage {
     }
 
     /// See [`get_refresh_token`].
-    /// See [`get_refresh_token`].
     #[instrument(skip(self), fields(hash = %token_hash))]
     pub async fn get_refresh_token(&self, token_hash: &str) -> Result<Option<OidcRefreshToken>, sqlx::Error> {
         let row = sqlx::query_as::<_, OidcRefreshToken>(
@@ -262,7 +258,6 @@ impl OidcSessionStorage {
     }
 
     /// See [`revoke_refresh_token`].
-    /// See [`revoke_refresh_token`].
     #[instrument(skip(self), fields(hash = %token_hash))]
     pub async fn revoke_refresh_token(&self, token_hash: &str, now_ts: i64) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
@@ -279,7 +274,6 @@ impl OidcSessionStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    /// See [`revoke_user_refresh_tokens`].
     /// See [`revoke_user_refresh_tokens`].
     #[instrument(skip(self), fields(user_id = %user_id))]
     pub async fn revoke_user_refresh_tokens(&self, user_id: &str, now_ts: i64) -> Result<u64, sqlx::Error> {
@@ -299,7 +293,6 @@ impl OidcSessionStorage {
 
     // ── Consent Session ──────────────────────────────────────────────────
 
-    /// See [`save_consent_session`].
     /// See [`save_consent_session`].
     #[instrument(skip(self, session), fields(id = %session.session_id))]
     pub async fn save_consent_session(&self, session: &OidcConsentSession) -> Result<(), sqlx::Error> {

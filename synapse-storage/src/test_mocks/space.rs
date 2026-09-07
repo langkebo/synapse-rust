@@ -15,7 +15,6 @@ pub struct InMemorySpaceStore {
 
 impl InMemorySpaceStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self {
             spaces: Arc::new(tokio::sync::RwLock::new(HashMap::new())),

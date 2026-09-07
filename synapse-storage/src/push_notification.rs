@@ -257,13 +257,11 @@ impl CreateNotificationLogRequest {
     }
 
     /// See [`event_id`].
-    /// See [`event_id`].
     pub fn event_id(mut self, event_id: impl Into<String>) -> Self {
         self.event_id = Some(event_id.into());
         self
     }
 
-    /// See [`room_id`].
     /// See [`room_id`].
     pub fn room_id(mut self, room_id: impl Into<String>) -> Self {
         self.room_id = Some(room_id.into());
@@ -271,13 +269,11 @@ impl CreateNotificationLogRequest {
     }
 
     /// See [`notification_type`].
-    /// See [`notification_type`].
     pub fn notification_type(mut self, notification_type: impl Into<String>) -> Self {
         self.notification_type = Some(notification_type.into());
         self
     }
 
-    /// See [`error_message`].
     /// See [`error_message`].
     pub fn error_message(mut self, error_message: impl Into<String>) -> Self {
         self.error_message = Some(error_message.into());
@@ -285,13 +281,11 @@ impl CreateNotificationLogRequest {
     }
 
     /// See [`provider_response`].
-    /// See [`provider_response`].
     pub fn provider_response(mut self, provider_response: impl Into<String>) -> Self {
         self.provider_response = Some(provider_response.into());
         self
     }
 
-    /// See [`response_time_ms`].
     /// See [`response_time_ms`].
     pub fn response_time_ms(mut self, response_time_ms: i32) -> Self {
         self.response_time_ms = Some(response_time_ms);
@@ -364,12 +358,10 @@ pub struct PushNotificationStorage {
 
 impl PushNotificationStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`register_device`].
     /// See [`register_device`].
     pub async fn register_device(&self, request: RegisterDeviceRequest) -> Result<PushDevice, ApiError> {
         let now = current_timestamp_millis();
@@ -418,7 +410,6 @@ impl PushNotificationStorage {
     }
 
     /// See [`unregister_device`].
-    /// See [`unregister_device`].
     pub async fn unregister_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             "UPDATE push_device SET is_enabled = false WHERE user_id = $1 AND device_id = $2 AND is_enabled = TRUE",
@@ -433,7 +424,6 @@ impl PushNotificationStorage {
         Ok(())
     }
 
-    /// See [`get_user_devices`].
     /// See [`get_user_devices`].
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<PushDevice>, ApiError> {
         let rows = sqlx::query_as::<_, PushDevice>(
@@ -453,7 +443,6 @@ impl PushNotificationStorage {
     }
 
     /// See [`get_device`].
-    /// See [`get_device`].
     pub async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<PushDevice>, ApiError> {
         let row = sqlx::query_as::<_, PushDevice>(
             "SELECT id, user_id, device_id, push_token, push_type, app_id, platform, platform_version, app_version, locale, timezone, is_enabled, created_ts, updated_ts, last_used_at, last_error, error_count, metadata FROM push_device WHERE user_id = $1 AND device_id = $2 AND is_enabled = true",
@@ -467,7 +456,6 @@ impl PushNotificationStorage {
         Ok(row)
     }
 
-    /// See [`update_device_last_used`].
     /// See [`update_device_last_used`].
     pub async fn update_device_last_used(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
@@ -483,7 +471,6 @@ impl PushNotificationStorage {
         Ok(())
     }
 
-    /// See [`record_device_error`].
     /// See [`record_device_error`].
     pub async fn record_device_error(&self, user_id: &str, device_id: &str, error: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
@@ -505,7 +492,6 @@ impl PushNotificationStorage {
         Ok(())
     }
 
-    /// See [`create_push_rule`].
     /// See [`create_push_rule`].
     pub async fn create_push_rule(&self, request: CreatePushRuleRequest) -> Result<PushRule, ApiError> {
         let now = current_timestamp_millis();
@@ -542,7 +528,6 @@ impl PushNotificationStorage {
         Ok(row)
     }
 
-    /// See [`get_user_push_rules`].
     /// See [`get_user_push_rules`].
     pub async fn get_user_push_rules(&self, user_id: &str) -> Result<Vec<PushRule>, ApiError> {
         let rows = sqlx::query_as::<_, PushRule>(
@@ -685,7 +670,6 @@ impl PushNotificationStorage {
     }
 
     /// See [`get_pending_notifications`].
-    /// See [`get_pending_notifications`].
     pub async fn get_pending_notifications(&self, limit: i32) -> Result<Vec<PushNotificationQueue>, ApiError> {
         let now_ms = current_timestamp_millis();
 
@@ -711,7 +695,6 @@ impl PushNotificationStorage {
     }
 
     /// See [`mark_notification_sent`].
-    /// See [`mark_notification_sent`].
     pub async fn mark_notification_sent(&self, id: i64) -> Result<(), ApiError> {
         let now_ms = current_timestamp_millis();
 
@@ -725,7 +708,6 @@ impl PushNotificationStorage {
         Ok(())
     }
 
-    /// See [`mark_notification_failed`].
     /// See [`mark_notification_failed`].
     pub async fn mark_notification_failed(&self, id: i64, error: &str, retry: bool) -> Result<(), ApiError> {
         let now_ms = current_timestamp_millis();
@@ -790,7 +772,6 @@ impl PushNotificationStorage {
     }
 
     /// See [`get_config`].
-    /// See [`get_config`].
     pub async fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError> {
         let row: Option<(String,)> = sqlx::query_as("SELECT config_value FROM push_config WHERE config_key = $1")
             .bind(config_key)
@@ -802,7 +783,6 @@ impl PushNotificationStorage {
     }
 
     /// See [`get_config_as_bool`].
-    /// See [`get_config_as_bool`].
     pub async fn get_config_as_bool(&self, config_key: &str, default: bool) -> Result<bool, ApiError> {
         let value = self.get_config(config_key).await?;
 
@@ -813,7 +793,6 @@ impl PushNotificationStorage {
     }
 
     /// See [`get_config_as_int`].
-    /// See [`get_config_as_int`].
     pub async fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError> {
         let value = self.get_config(config_key).await?;
 
@@ -823,7 +802,6 @@ impl PushNotificationStorage {
         })
     }
 
-    /// See [`cleanup_old_logs`].
     /// See [`cleanup_old_logs`].
     pub async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError> {
         let cutoff_ms = current_timestamp_millis() - (days as i64 * 86_400_000);

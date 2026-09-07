@@ -461,7 +461,6 @@ impl MessagingService {
     }
 
     /// See [`clear_typing_ephemeral_event`].
-    /// See [`clear_typing_ephemeral_event`].
     pub async fn clear_typing_ephemeral_event(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         self.event_writer
             .delete_ephemeral_event(room_id, "m.typing", user_id)

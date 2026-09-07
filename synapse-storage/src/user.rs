@@ -75,7 +75,6 @@ pub struct User {
 
 impl User {
     /// See [`user_id`].
-    /// See [`user_id`].
     pub fn user_id(&self) -> String {
         self.user_id.clone()
     }
@@ -477,7 +476,6 @@ impl UserStorage {
     }
 
     /// See [`get_user_by_id`].
-    /// See [`get_user_by_id`].
     pub async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, sqlx::Error> {
         tracing::debug!(user_id = %user_id, "Querying user by id");
         sqlx::query_as::<_, User>(
@@ -496,7 +494,6 @@ impl UserStorage {
     }
 
     /// See [`get_user_by_username`].
-    /// See [`get_user_by_username`].
     pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
             r"
@@ -513,7 +510,6 @@ impl UserStorage {
         .await
     }
 
-    /// See [`get_user_by_email`].
     /// See [`get_user_by_email`].
     pub async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
@@ -532,7 +528,6 @@ impl UserStorage {
     }
 
     /// See [`get_user_by_identifier`].
-    /// See [`get_user_by_identifier`].
     pub async fn get_user_by_identifier(&self, identifier: &str) -> Result<Option<User>, sqlx::Error> {
         if identifier.starts_with('@') && identifier.contains(':') {
             self.get_user_by_id(identifier).await
@@ -541,7 +536,6 @@ impl UserStorage {
         }
     }
 
-    /// See [`get_all_users`].
     /// See [`get_all_users`].
     pub async fn get_all_users(&self, limit: i64) -> Result<Vec<User>, sqlx::Error> {
         sqlx::query_as::<_, User>(
@@ -645,7 +639,6 @@ impl UserStorage {
         query.build_query_as::<User>().fetch_all(&*self.pool).await
     }
 
-    /// See [`get_user_count`].
     /// See [`get_user_count`].
     pub async fn get_user_count(&self) -> Result<i64, sqlx::Error> {
         let row = sqlx::query(
@@ -780,7 +773,6 @@ impl UserStorage {
     }
 
     /// See [`get_user_stats_summary`].
-    /// See [`get_user_stats_summary`].
     pub async fn get_user_stats_summary(&self) -> Result<UserStatsSummary, sqlx::Error> {
         sqlx::query_as::<_, UserStatsSummary>(
             r"
@@ -798,7 +790,6 @@ impl UserStorage {
     }
 
     /// See [`count_sent_messages`].
-    /// See [`count_sent_messages`].
     pub async fn count_sent_messages(&self, user_id: &str) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar::<_, i64>(
             r"
@@ -813,7 +804,6 @@ impl UserStorage {
     }
 
     /// See [`user_exists`].
-    /// See [`user_exists`].
     pub async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r"
@@ -826,7 +816,6 @@ impl UserStorage {
         Ok(result.is_some())
     }
 
-    /// See [`filter_existing_users`].
     /// See [`filter_existing_users`].
     pub async fn filter_existing_users(&self, user_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {
         if user_ids.is_empty() {
@@ -842,7 +831,6 @@ impl UserStorage {
     }
 
     /// See [`update_password`].
-    /// See [`update_password`].
     pub async fn update_password(&self, user_id: &str, password_hash: &str) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Updating user password");
         let now = current_timestamp_millis();
@@ -857,7 +845,6 @@ impl UserStorage {
         Ok(())
     }
 
-    /// See [`update_displayname`].
     /// See [`update_displayname`].
     pub async fn update_displayname(&self, user_id: &str, displayname: Option<&str>) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Updating user displayname");
@@ -878,7 +865,6 @@ impl UserStorage {
     }
 
     /// See [`update_avatar_url`].
-    /// See [`update_avatar_url`].
     pub async fn update_avatar_url(&self, user_id: &str, avatar_url: Option<&str>) -> Result<(), sqlx::Error> {
         sqlx::query(r"UPDATE users SET avatar_url = $1 WHERE user_id = $2")
             .bind(avatar_url)
@@ -896,7 +882,6 @@ impl UserStorage {
         Ok(())
     }
 
-    /// See [`set_deactivation_status`].
     /// See [`set_deactivation_status`].
     pub async fn set_deactivation_status(&self, user_id: &str, is_deactivated: bool) -> Result<bool, sqlx::Error> {
         tracing::info!(user_id = %user_id, is_deactivated, "Updating user deactivation status");
@@ -935,13 +920,11 @@ impl UserStorage {
     }
 
     /// See [`deactivate_user`].
-    /// See [`deactivate_user`].
     pub async fn deactivate_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
         let _ = self.set_deactivation_status(user_id, true).await?;
         Ok(())
     }
 
-    /// See [`set_admin_status`].
     /// See [`set_admin_status`].
     pub async fn set_admin_status(&self, user_id: &str, is_admin: bool) -> Result<(), sqlx::Error> {
         sqlx::query(r"UPDATE users SET is_admin = $1 WHERE user_id = $2")
@@ -952,7 +935,6 @@ impl UserStorage {
         Ok(())
     }
 
-    /// See [`set_shadow_ban`].
     /// See [`set_shadow_ban`].
     pub async fn set_shadow_ban(&self, user_id: &str, is_shadow_banned: bool) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(r"UPDATE users SET is_shadow_banned = $1 WHERE user_id = $2")
@@ -1035,7 +1017,6 @@ impl UserStorage {
     }
 
     /// See [`search_users`].
-    /// See [`search_users`].
     pub async fn search_users(&self, query: &str, limit: i64) -> Result<Vec<UserSearchResult>, sqlx::Error> {
         let normalized = query.trim();
         if normalized.is_empty() {
@@ -1097,7 +1078,6 @@ impl UserStorage {
     }
 
     /// See [`get_user_profile`].
-    /// See [`get_user_profile`].
     pub async fn get_user_profile(&self, user_id: &str) -> Result<Option<UserProfile>, sqlx::Error> {
         tracing::debug!(user_id = %user_id, "Querying user profile");
         let key = format!("user:profile:{user_id}");
@@ -1126,7 +1106,6 @@ impl UserStorage {
         Ok(result)
     }
 
-    /// See [`get_user_profiles_batch`].
     /// See [`get_user_profiles_batch`].
     pub async fn get_user_profiles_batch(&self, user_ids: &[String]) -> Result<Vec<UserProfile>, sqlx::Error> {
         if user_ids.is_empty() {
@@ -1187,7 +1166,6 @@ impl UserStorage {
     }
 
     /// See [`get_users_batch`].
-    /// See [`get_users_batch`].
     pub async fn get_users_batch(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error> {
         if user_ids.is_empty() {
             return Ok(vec![]);
@@ -1223,7 +1201,6 @@ impl UserStorage {
         Ok(users.into_iter().map(|u| (u.user_id.clone(), u)).collect())
     }
 
-    /// See [`update_displayname_batch`].
     /// See [`update_displayname_batch`].
     pub async fn update_displayname_batch(&self, updates: &[(String, Option<String>)]) -> Result<u64, sqlx::Error> {
         if updates.is_empty() {
@@ -1510,7 +1487,6 @@ impl UserStorage {
     }
 
     /// See [`delete_user`].
-    /// See [`delete_user`].
     pub async fn delete_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Deleting user");
         sqlx::query(r"DELETE FROM users WHERE user_id = $1").bind(user_id).execute(&*self.pool).await?;
@@ -1614,7 +1590,6 @@ impl UserStorage {
     }
 
     /// See [`set_guest_status`].
-    /// See [`set_guest_status`].
     pub async fn set_guest_status(&self, user_id: &str, is_guest: bool) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE users SET is_guest = $1 WHERE user_id = $2")
             .bind(is_guest)
@@ -1627,7 +1602,6 @@ impl UserStorage {
         Ok(())
     }
 
-    /// See [`set_user_type`].
     /// See [`set_user_type`].
     pub async fn set_user_type(&self, user_id: &str, user_type: Option<&str>) -> Result<(), sqlx::Error> {
         sqlx::query!(r"UPDATE users SET user_type = $1 WHERE user_id = $2", user_type, user_id)

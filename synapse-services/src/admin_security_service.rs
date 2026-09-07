@@ -36,7 +36,6 @@ impl AdminSecurityService {
     }
 
     /// See [`set_shadow_ban`].
-    /// See [`set_shadow_ban`].
     #[instrument(skip(self))]
     pub async fn set_shadow_ban(&self, user_id: &str, is_shadow_banned: bool) -> Result<(), ApiError> {
         let updated = self
@@ -53,7 +52,6 @@ impl AdminSecurityService {
         Ok(())
     }
 
-    /// See [`get_user_rate_limit`].
     /// See [`get_user_rate_limit`].
     #[instrument(skip(self))]
     pub async fn get_user_rate_limit(&self, user_id: &str) -> Result<UserRateLimit, ApiError> {
@@ -88,7 +86,6 @@ impl AdminSecurityService {
         Ok(UserRateLimit { messages_per_second, burst_count })
     }
 
-    /// See [`delete_user_rate_limit`].
     /// See [`delete_user_rate_limit`].
     #[instrument(skip(self))]
     pub async fn delete_user_rate_limit(&self, user_id: &str) -> Result<(), ApiError> {

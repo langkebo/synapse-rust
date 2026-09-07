@@ -72,7 +72,6 @@ pub struct AccountServicesDeps {
 
 impl AccountServices {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(deps: AccountServicesDeps) -> Self {
         Self {
             account_device_list_service: deps.account_device_list_service,

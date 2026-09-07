@@ -66,7 +66,6 @@ impl SyncService {
     const TIMESTAMP_TOKEN_MIN: i64 = 1_000_000_000_000;
 
     /// See [`from_deps`].
-    /// See [`from_deps`].
     pub fn from_deps(deps: SyncServiceDeps) -> Self {
         Self {
             presence_storage: deps.presence_storage,
@@ -152,7 +151,6 @@ impl SyncService {
         .await
     }
 
-    /// See [`sync_with_request`].
     /// See [`sync_with_request`].
     pub async fn sync_with_request(&self, request: SyncServiceRequest<'_>) -> ApiResult<serde_json::Value> {
         let SyncServiceRequest { user_id, device_id, timeout, is_full_state, set_presence, filter_id, since } = request;
@@ -363,7 +361,6 @@ impl SyncService {
     }
 
     /// See [`room_unread_counts`].
-    /// See [`room_unread_counts`].
     pub async fn room_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)> {
         let (highlight_count, notification_count) = self.get_unread_counts(room_id, user_id).await?;
         Ok((notification_count, highlight_count))
@@ -437,7 +434,6 @@ impl SyncService {
             .collect()
     }
 
-    /// See [`event_since_ts`].
     /// See [`event_since_ts`].
     pub(crate) fn event_since_ts(since_token: &Option<SyncToken>) -> i64 {
         match since_token {

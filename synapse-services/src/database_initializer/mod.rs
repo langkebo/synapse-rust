@@ -50,7 +50,6 @@ impl DatabaseInitService {
     }
 
     /// See [`with_mode`].
-    /// See [`with_mode`].
     pub fn with_mode(mut self, mode: DatabaseInitMode) -> Self {
         self.mode = mode;
         self

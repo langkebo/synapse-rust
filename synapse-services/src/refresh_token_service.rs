@@ -12,36 +12,30 @@ pub struct RefreshTokenService {
 
 impl RefreshTokenService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi>, default_expiry_ms: i64) -> Self {
         Self { storage, default_expiry_ms }
     }
 
-    /// See [`hash_token`].
     /// See [`hash_token`].
     pub fn hash_token(token: &str) -> String {
         synapse_common::crypto::hash_token(token)
     }
 
     /// See [`hash_token_legacy`].
-    /// See [`hash_token_legacy`].
     pub fn hash_token_legacy(token: &str) -> String {
         synapse_common::crypto::hash_token_legacy(token)
     }
 
-    /// See [`generate_token`].
     /// See [`generate_token`].
     pub fn generate_token() -> String {
         synapse_common::crypto::generate_token(32)
     }
 
     /// See [`generate_family_id`].
-    /// See [`generate_family_id`].
     pub fn generate_family_id() -> String {
         synapse_common::crypto::generate_token(16)
     }
 
-    /// See [`create_token`].
     /// See [`create_token`].
     #[instrument(skip(self))]
     pub async fn create_token(&self, request: CreateRefreshTokenRequest) -> Result<RefreshToken, ApiError> {
@@ -56,7 +50,6 @@ impl RefreshTokenService {
         Ok(token)
     }
 
-    /// See [`validate_token`].
     /// See [`validate_token`].
     #[instrument(skip(self))]
     pub async fn validate_token(&self, token: &str) -> Result<RefreshToken, ApiError> {
@@ -270,7 +263,6 @@ impl RefreshTokenService {
     }
 
     /// See [`revoke_token`].
-    /// See [`revoke_token`].
     #[instrument(skip(self))]
     pub async fn revoke_token(&self, token: &str, reason: &str) -> Result<(), ApiError> {
         let token_hash = Self::hash_token(token);
@@ -292,7 +284,6 @@ impl RefreshTokenService {
     }
 
     /// See [`revoke_token_by_id`].
-    /// See [`revoke_token_by_id`].
     #[instrument(skip(self))]
     pub async fn revoke_token_by_id(&self, id: i64, reason: &str) -> Result<(), ApiError> {
         self.storage
@@ -305,7 +296,6 @@ impl RefreshTokenService {
         Ok(())
     }
 
-    /// See [`revoke_all_user_tokens`].
     /// See [`revoke_all_user_tokens`].
     #[instrument(skip(self))]
     pub async fn revoke_all_user_tokens(&self, user_id: &str, reason: &str) -> Result<i64, ApiError> {
@@ -321,7 +311,6 @@ impl RefreshTokenService {
     }
 
     /// See [`get_user_tokens`].
-    /// See [`get_user_tokens`].
     #[instrument(skip(self))]
     pub async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, ApiError> {
         let tokens = self
@@ -333,7 +322,6 @@ impl RefreshTokenService {
         Ok(tokens)
     }
 
-    /// See [`get_active_tokens`].
     /// See [`get_active_tokens`].
     #[instrument(skip(self))]
     pub async fn get_active_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, ApiError> {
@@ -347,7 +335,6 @@ impl RefreshTokenService {
     }
 
     /// See [`get_user_stats`].
-    /// See [`get_user_stats`].
     #[instrument(skip(self))]
     pub async fn get_user_stats(&self, user_id: &str) -> Result<Option<RefreshTokenStats>, ApiError> {
         let stats = self
@@ -359,7 +346,6 @@ impl RefreshTokenService {
         Ok(stats)
     }
 
-    /// See [`get_usage_history`].
     /// See [`get_usage_history`].
     #[instrument(skip(self))]
     pub async fn get_usage_history(&self, user_id: &str, limit: i64) -> Result<Vec<RefreshTokenUsage>, ApiError> {
@@ -399,7 +385,6 @@ impl RefreshTokenService {
     }
 
     /// See [`cleanup_expired_tokens`].
-    /// See [`cleanup_expired_tokens`].
     #[instrument(skip(self))]
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, ApiError> {
         info!("Cleaning up expired refresh tokens");
@@ -426,7 +411,6 @@ impl RefreshTokenService {
     }
 
     /// See [`delete_token`].
-    /// See [`delete_token`].
     #[instrument(skip(self))]
     pub async fn delete_token(&self, token: &str) -> Result<(), ApiError> {
         let token_hash = Self::hash_token(token);
@@ -445,7 +429,6 @@ impl RefreshTokenService {
         Ok(())
     }
 
-    /// See [`get_default_expiry_ms`].
     /// See [`get_default_expiry_ms`].
     pub fn get_default_expiry_ms(&self) -> i64 {
         self.default_expiry_ms

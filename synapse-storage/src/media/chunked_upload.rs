@@ -162,12 +162,10 @@ pub struct ChunkedUploadStorage {
 
 impl ChunkedUploadStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: (**pool).clone() }
     }
 
-    /// See [`create_upload`].
     /// See [`create_upload`].
     pub async fn create_upload(&self, request: CreateChunkedUploadRequest) -> Result<(), ApiError> {
         sqlx::query(
@@ -192,7 +190,6 @@ impl ChunkedUploadStorage {
         Ok(())
     }
 
-    /// See [`store_chunk`].
     /// See [`store_chunk`].
     pub async fn store_chunk(&self, request: StoreUploadChunkRequest) -> Result<(), ApiError> {
         sqlx::query(
@@ -244,7 +241,6 @@ impl ChunkedUploadStorage {
     }
 
     /// See [`get_progress`].
-    /// See [`get_progress`].
     pub async fn get_progress(&self, upload_id: &str) -> Result<Option<UploadProgress>, ApiError> {
         sqlx::query_as::<_, UploadProgress>(
             "SELECT upload_id, user_id, filename, content_type, total_size, uploaded_size, total_chunks, uploaded_chunks, status, created_ts, updated_ts, expires_at FROM upload_progress WHERE upload_id = $1",
@@ -256,7 +252,6 @@ impl ChunkedUploadStorage {
     }
 
     /// See [`load_chunk_data`].
-    /// See [`load_chunk_data`].
     pub async fn load_chunk_data(&self, upload_id: &str) -> Result<Vec<Vec<u8>>, ApiError> {
         let rows = sqlx::query("SELECT chunk_data FROM upload_chunks WHERE upload_id = $1 ORDER BY chunk_index")
             .bind(upload_id)
@@ -267,7 +262,6 @@ impl ChunkedUploadStorage {
         Ok(rows.into_iter().map(|row| sqlx::Row::get::<Vec<u8>, _>(&row, "chunk_data")).collect())
     }
 
-    /// See [`finalize_upload`].
     /// See [`finalize_upload`].
     pub async fn finalize_upload(&self, upload_id: &str, now_ts: i64) -> Result<(), ApiError> {
         let mut tx = self
@@ -301,7 +295,6 @@ impl ChunkedUploadStorage {
     }
 
     /// See [`delete_upload`].
-    /// See [`delete_upload`].
     pub async fn delete_upload(&self, upload_id: &str) -> Result<(), ApiError> {
         let mut tx = self
             .pool
@@ -327,7 +320,6 @@ impl ChunkedUploadStorage {
     }
 
     /// See [`list_expired_upload_ids`].
-    /// See [`list_expired_upload_ids`].
     pub async fn list_expired_upload_ids(&self, now_ts: i64) -> Result<Vec<String>, ApiError> {
         sqlx::query_scalar("SELECT upload_id FROM upload_progress WHERE expires_at < $1")
             .bind(now_ts)
@@ -336,7 +328,6 @@ impl ChunkedUploadStorage {
             .map_err(|e| ApiError::internal_with_context("Failed to find expired uploads", &e))
     }
 
-    /// See [`list_user_uploads`].
     /// See [`list_user_uploads`].
     pub async fn list_user_uploads(&self, user_id: &str) -> Result<Vec<UploadProgress>, ApiError> {
         sqlx::query_as::<_, UploadProgress>(

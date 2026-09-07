@@ -28,12 +28,10 @@ pub struct RegistrationTokenService {
 
 impl RegistrationTokenService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: Arc<dyn RegistrationTokenStoreApi>) -> Self {
         Self { storage }
     }
 
-    /// See [`create_token`].
     /// See [`create_token`].
     #[instrument(skip(self))]
     pub async fn create_token(&self, request: CreateRegistrationTokenRequest) -> Result<RegistrationToken, ApiError> {
@@ -64,7 +62,6 @@ impl RegistrationTokenService {
     }
 
     /// See [`get_token`].
-    /// See [`get_token`].
     #[instrument(skip(self))]
     pub async fn get_token(&self, token: &str) -> Result<Option<RegistrationToken>, ApiError> {
         let token = self
@@ -77,7 +74,6 @@ impl RegistrationTokenService {
     }
 
     /// See [`get_token_by_id`].
-    /// See [`get_token_by_id`].
     #[instrument(skip(self))]
     pub async fn get_token_by_id(&self, id: i64) -> Result<Option<RegistrationToken>, ApiError> {
         let token = self
@@ -89,7 +85,6 @@ impl RegistrationTokenService {
         Ok(token)
     }
 
-    /// See [`validate_token`].
     /// See [`validate_token`].
     #[instrument(skip(self))]
     pub async fn validate_token(&self, token: &str) -> Result<TokenValidationResult, ApiError> {
@@ -160,7 +155,6 @@ impl RegistrationTokenService {
     }
 
     /// See [`delete_token`].
-    /// See [`delete_token`].
     #[instrument(skip(self))]
     pub async fn delete_token(&self, id: i64) -> Result<(), ApiError> {
         let _existing = self
@@ -180,7 +174,6 @@ impl RegistrationTokenService {
         Ok(())
     }
 
-    /// See [`deactivate_token`].
     /// See [`deactivate_token`].
     #[instrument(skip(self))]
     pub async fn deactivate_token(&self, id: i64) -> Result<(), ApiError> {
@@ -211,7 +204,6 @@ impl RegistrationTokenService {
     }
 
     /// See [`get_active_tokens`].
-    /// See [`get_active_tokens`].
     #[instrument(skip(self))]
     pub async fn get_active_tokens(&self) -> Result<Vec<RegistrationToken>, ApiError> {
         let tokens = self
@@ -224,7 +216,6 @@ impl RegistrationTokenService {
     }
 
     /// See [`get_token_usage`].
-    /// See [`get_token_usage`].
     #[instrument(skip(self))]
     pub async fn get_token_usage(&self, token_id: i64) -> Result<Vec<RegistrationTokenUsage>, ApiError> {
         let usage = self
@@ -236,7 +227,6 @@ impl RegistrationTokenService {
         Ok(usage)
     }
 
-    /// See [`cleanup_expired_tokens`].
     /// See [`cleanup_expired_tokens`].
     #[instrument(skip(self))]
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, ApiError> {
@@ -254,7 +244,6 @@ impl RegistrationTokenService {
     }
 
     /// See [`create_room_invite`].
-    /// See [`create_room_invite`].
     #[instrument(skip(self))]
     pub async fn create_room_invite(&self, request: CreateRoomInviteRequest) -> Result<RoomInvite, ApiError> {
         info!(room_id = %request.room_id, "Creating room invite");
@@ -269,7 +258,6 @@ impl RegistrationTokenService {
     }
 
     /// See [`get_room_invite`].
-    /// See [`get_room_invite`].
     #[instrument(skip(self))]
     pub async fn get_room_invite(&self, invite_code: &str) -> Result<Option<RoomInvite>, ApiError> {
         let invite = self
@@ -281,7 +269,6 @@ impl RegistrationTokenService {
         Ok(invite)
     }
 
-    /// See [`use_room_invite`].
     /// See [`use_room_invite`].
     #[instrument(skip(self))]
     pub async fn use_room_invite(&self, invite_code: &str, invitee_user_id: &str) -> Result<bool, ApiError> {
@@ -300,7 +287,6 @@ impl RegistrationTokenService {
         Ok(true)
     }
 
-    /// See [`revoke_room_invite`].
     /// See [`revoke_room_invite`].
     #[instrument(skip(self))]
     pub async fn revoke_room_invite(&self, invite_code: &str, reason: &str) -> Result<(), ApiError> {
@@ -364,7 +350,6 @@ impl RegistrationTokenService {
     }
 
     /// See [`get_batch`].
-    /// See [`get_batch`].
     #[instrument(skip(self))]
     pub async fn get_batch(&self, batch_id: &str) -> Result<Option<RegistrationTokenBatch>, ApiError> {
         let batch = self
@@ -376,7 +361,6 @@ impl RegistrationTokenService {
         Ok(batch)
     }
 
-    /// See [`check_email_domain_allowed`].
     /// See [`check_email_domain_allowed`].
     pub async fn check_email_domain_allowed(&self, token: &str, email: &str) -> Result<bool, ApiError> {
         let token_record = self

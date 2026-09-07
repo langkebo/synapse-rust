@@ -20,7 +20,6 @@ pub struct CasService {
 
 impl CasService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: Arc<dyn CasStoreApi>, server_name: String) -> Self {
         Self { storage, server_name, ticket_prefix: "ST".to_string(), ticket_validity_seconds: 300 }
     }
@@ -50,7 +49,6 @@ impl CasService {
         format!("{}-{}-{}", prefix, self.server_name, random_str)
     }
 
-    /// See [`create_service_ticket`].
     /// See [`create_service_ticket`].
     #[instrument(skip(self))]
     pub async fn create_service_ticket(&self, user_id: &str, service_url: &str) -> Result<CasTicket, ApiError> {
@@ -186,7 +184,6 @@ impl CasService {
     }
 
     /// See [`create_proxy_ticket`].
-    /// See [`create_proxy_ticket`].
     #[instrument(skip(self))]
     pub async fn create_proxy_ticket(&self, pgt_id: &str, target_service: &str) -> Result<CasProxyTicket, ApiError> {
         info!(pgt_id = %pgt_id, has_target_service = !target_service.is_empty(), "Creating proxy ticket");
@@ -230,7 +227,6 @@ impl CasService {
     }
 
     /// See [`register_service`].
-    /// See [`register_service`].
     #[instrument(skip(self))]
     pub async fn register_service(&self, request: RegisterServiceRequest) -> Result<CasRegisteredService, ApiError> {
         info!(
@@ -242,13 +238,11 @@ impl CasService {
     }
 
     /// See [`get_service`].
-    /// See [`get_service`].
     #[instrument(skip(self))]
     pub async fn get_service(&self, service_id: &str) -> Result<Option<CasRegisteredService>, ApiError> {
         self.storage.get_service(service_id).await
     }
 
-    /// See [`get_service_by_url`].
     /// See [`get_service_by_url`].
     #[instrument(skip(self))]
     pub async fn get_service_by_url(&self, service_url: &str) -> Result<Option<CasRegisteredService>, ApiError> {
@@ -256,13 +250,11 @@ impl CasService {
     }
 
     /// See [`list_services`].
-    /// See [`list_services`].
     #[instrument(skip(self))]
     pub async fn list_services(&self) -> Result<Vec<CasRegisteredService>, ApiError> {
         self.storage.list_services().await
     }
 
-    /// See [`delete_service`].
     /// See [`delete_service`].
     #[instrument(skip(self))]
     pub async fn delete_service(&self, service_id: &str) -> Result<bool, ApiError> {
@@ -282,13 +274,11 @@ impl CasService {
     }
 
     /// See [`get_user_attributes`].
-    /// See [`get_user_attributes`].
     #[instrument(skip(self))]
     pub async fn get_user_attributes(&self, user_id: &str) -> Result<Vec<CasUserAttribute>, ApiError> {
         self.storage.get_user_attributes(user_id).await
     }
 
-    /// See [`initiate_single_logout`].
     /// See [`initiate_single_logout`].
     #[instrument(skip(self))]
     pub async fn initiate_single_logout(&self, user_id: &str) -> Result<Vec<CasSloSession>, ApiError> {
@@ -297,7 +287,6 @@ impl CasService {
         Ok(sessions)
     }
 
-    /// See [`cleanup_expired_tickets`].
     /// See [`cleanup_expired_tickets`].
     #[instrument(skip(self))]
     pub async fn cleanup_expired_tickets(&self) -> Result<u64, ApiError> {
@@ -329,7 +318,6 @@ pub enum CasValidationResponse {
 }
 
 impl CasValidationResponse {
-    /// See [`to_xml`].
     /// See [`to_xml`].
     pub fn to_xml(&self) -> String {
         match self {

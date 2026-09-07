@@ -55,7 +55,6 @@ pub struct HttpSmsProvider {
 
 impl HttpSmsProvider {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: &SmsConfig) -> Self {
         Self {
             // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()

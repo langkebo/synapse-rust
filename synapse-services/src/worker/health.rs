@@ -92,7 +92,6 @@ pub struct HealthChecker {
 
 impl HealthChecker {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: HealthCheckConfig) -> Self {
         Self {
             config,
@@ -102,7 +101,6 @@ impl HealthChecker {
         }
     }
 
-    /// See [`register_worker`].
     /// See [`register_worker`].
     pub async fn register_worker(&self, worker_id: &str) {
         let mut status = self.health_status.write().await;
@@ -126,7 +124,6 @@ impl HealthChecker {
     }
 
     /// See [`unregister_worker`].
-    /// See [`unregister_worker`].
     pub async fn unregister_worker(&self, worker_id: &str) {
         let mut status = self.health_status.write().await;
         status.remove(worker_id);
@@ -136,7 +133,6 @@ impl HealthChecker {
         debug!("Worker unregistered from health checks: {}", worker_id);
     }
 
-    /// See [`check_health`].
     /// See [`check_health`].
     pub async fn check_health(&self, worker_id: &str) -> HealthCheckResult {
         let start = std::time::Instant::now();
@@ -236,13 +232,11 @@ impl HealthChecker {
     }
 
     /// See [`get_health`].
-    /// See [`get_health`].
     pub async fn get_health(&self, worker_id: &str) -> Option<HealthCheckResult> {
         let status = self.health_status.read().await;
         status.get(worker_id).cloned()
     }
 
-    /// See [`get_all_health`].
     /// See [`get_all_health`].
     pub async fn get_all_health(&self) -> HashMap<String, HealthCheckResult> {
         let status = self.health_status.read().await;
@@ -250,13 +244,11 @@ impl HealthChecker {
     }
 
     /// See [`get_healthy_workers`].
-    /// See [`get_healthy_workers`].
     pub async fn get_healthy_workers(&self) -> Vec<String> {
         let status = self.health_status.read().await;
         status.iter().filter(|(_, r)| r.status == HealthStatus::Healthy).map(|(id, _)| id.clone()).collect()
     }
 
-    /// See [`get_unhealthy_workers`].
     /// See [`get_unhealthy_workers`].
     pub async fn get_unhealthy_workers(&self) -> Vec<String> {
         let status = self.health_status.read().await;
@@ -264,20 +256,17 @@ impl HealthChecker {
     }
 
     /// See [`is_healthy`].
-    /// See [`is_healthy`].
     pub async fn is_healthy(&self, worker_id: &str) -> bool {
         let status = self.health_status.read().await;
         status.get(worker_id).is_some_and(|r| r.status == HealthStatus::Healthy || r.status == HealthStatus::Degraded)
     }
 
     /// See [`register_callback`].
-    /// See [`register_callback`].
     pub fn register_callback(&self, callback: HealthCallback) {
         let mut callbacks = self.callbacks.blocking_write();
         callbacks.push(callback);
     }
 
-    /// See [`start_periodic_checks`].
     /// See [`start_periodic_checks`].
     pub async fn start_periodic_checks(&self, mut shutdown_rx: mpsc::Receiver<()>) {
         let config = self.config.clone();
@@ -318,7 +307,6 @@ impl HealthChecker {
         }
     }
 
-    /// See [`get_stats`].
     /// See [`get_stats`].
     pub async fn get_stats(&self) -> HealthCheckStats {
         let status = self.health_status.read().await;

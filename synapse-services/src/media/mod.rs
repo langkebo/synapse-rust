@@ -355,7 +355,6 @@ impl MediaDomainService {
     }
 
     /// See [`cancel_chunked_upload`].
-    /// See [`cancel_chunked_upload`].
     pub async fn cancel_chunked_upload(&self, upload_id: &str, user_id: &str) -> Result<(), ApiError> {
         self.chunked_upload_service.cancel_upload(upload_id, user_id).await
     }
@@ -485,7 +484,6 @@ impl MediaDomainService {
     }
 
     /// See [`preview_url`].
-    /// See [`preview_url`].
     pub fn preview_url(&self, url: &str, ts: i64) -> Result<Value, ApiError> {
         self.media_service.preview_url(url, ts)
     }
@@ -526,12 +524,10 @@ impl MediaDomainService {
     }
 
     /// See [`get_user_quota`].
-    /// See [`get_user_quota`].
     pub async fn get_user_quota(&self, user_id: &str) -> Result<crate::media_quota_service::UserQuotaInfo, ApiError> {
         self.media_quota_service.get_user_quota(user_id).await
     }
 
-    /// See [`get_usage_stats`].
     /// See [`get_usage_stats`].
     pub async fn get_usage_stats(&self, user_id: &str) -> Result<Value, ApiError> {
         self.media_quota_service.get_usage_stats(user_id).await

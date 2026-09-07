@@ -191,7 +191,6 @@ impl AuthService {
     }
 
     /// See [`verify_user_password`].
-    /// See [`verify_user_password`].
     pub(crate) async fn verify_user_password(&self, password: &str, password_hash: &str) -> ApiResult<bool> {
         let auth = Arc::new(self.clone());
         let password_str = password.to_string();
@@ -325,7 +324,6 @@ impl AuthService {
         Ok(device_id)
     }
 
-    /// See [`increment_counter`].
     /// See [`increment_counter`].
     pub(crate) fn increment_counter(&self, name: &str) {
         if let Some(counter) = self.metrics.get_counter(name) {

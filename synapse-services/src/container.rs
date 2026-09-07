@@ -527,12 +527,10 @@ impl ServiceContainer {
     // -------------------------------------------------------------------------
 
     /// See [`voip_service`].
-    /// See [`voip_service`].
     pub fn voip_service(&self) -> &Arc<crate::rtc::RtcInfraService> {
         &self.extensions.rtc_domain_service.infra
     }
 
-    /// See [`call_service`].
     /// See [`call_service`].
     #[cfg(feature = "voip-tracking")]
     pub fn call_service(&self) -> &Arc<crate::rtc::CallOrchestrationService> {
@@ -543,7 +541,6 @@ impl ServiceContainer {
     // Test constructors
     // -------------------------------------------------------------------------
 
-    /// See [`new_test`].
     /// See [`new_test`].
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn new_test() -> Self {
@@ -570,7 +567,6 @@ impl ServiceContainer {
     }
 
     /// See [`new_test_with_pool`].
-    /// See [`new_test_with_pool`].
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn new_test_with_pool(pool: Arc<sqlx::PgPool>) -> Self {
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -578,7 +574,6 @@ impl ServiceContainer {
         Self::new(&pool, cache, config, None).await
     }
 
-    /// See [`new_test_with_pool_and_cache`].
     /// See [`new_test_with_pool_and_cache`].
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn new_test_with_pool_and_cache(pool: Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Self {

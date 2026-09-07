@@ -96,7 +96,6 @@ pub struct ExtensionServicesDeps<'a> {
 
 impl ExtensionServices {
     /// See [`new`].
-    /// See [`new`].
     pub async fn new(deps: ExtensionServicesDeps<'_>) -> Self {
         let ExtensionServicesDeps {
             infra,

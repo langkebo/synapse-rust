@@ -452,7 +452,6 @@ impl ApplicationServiceScheduler {
     }
 
     /// See [`run_once`].
-    /// See [`run_once`].
     pub async fn run_once(&self) -> Result<(), String> {
         self.tick().await
     }

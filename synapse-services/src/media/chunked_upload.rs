@@ -143,12 +143,10 @@ impl ChunkedUploadService {
     }
 
     /// See [`get_progress`].
-    /// See [`get_progress`].
     pub async fn get_progress(&self, upload_id: &str) -> Result<UploadProgress, ApiError> {
         self.storage.get_progress(upload_id).await?.ok_or_else(|| ApiError::not_found("Upload not found".to_string()))
     }
 
-    /// See [`load_completed_upload`].
     /// See [`load_completed_upload`].
     pub async fn load_completed_upload(&self, upload_id: &str, user_id: &str) -> Result<CompletedUploadData, ApiError> {
         let progress = self.get_progress(upload_id).await?;
@@ -185,7 +183,6 @@ impl ChunkedUploadService {
     }
 
     /// See [`mark_upload_finalized`].
-    /// See [`mark_upload_finalized`].
     pub async fn mark_upload_finalized(&self, upload_id: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
         self.storage.finalize_upload(upload_id, now).await?;
@@ -195,7 +192,6 @@ impl ChunkedUploadService {
         Ok(())
     }
 
-    /// See [`cancel_upload`].
     /// See [`cancel_upload`].
     pub async fn cancel_upload(&self, upload_id: &str, user_id: &str) -> Result<(), ApiError> {
         let progress = self.get_progress(upload_id).await?;
@@ -213,12 +209,10 @@ impl ChunkedUploadService {
     }
 
     /// See [`cleanup_expired`].
-    /// See [`cleanup_expired`].
     pub async fn cleanup_expired(&self) -> Result<u64, ApiError> {
         self.storage.cleanup_expired().await
     }
 
-    /// See [`list_user_uploads`].
     /// See [`list_user_uploads`].
     pub async fn list_user_uploads(&self, user_id: &str) -> Result<Vec<UploadProgress>, ApiError> {
         self.storage.list_user_uploads(user_id).await

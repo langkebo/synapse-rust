@@ -81,19 +81,16 @@ pub struct RouteEntry {
 
 impl RouteEntry {
     /// See [`new`].
-    /// See [`new`].
     pub const fn new(method: Method, path: &'static str, registered_by: &'static str) -> Self {
         Self { method, path, registered_by, query_params: &[], auth: None, rate_limit_exempt: false }
     }
 
-    /// See [`with_auth`].
     /// See [`with_auth`].
     pub const fn with_auth(mut self, auth: &'static str) -> Self {
         self.auth = Some(auth);
         self
     }
 
-    /// See [`with_query_params`].
     /// See [`with_query_params`].
     pub const fn with_query_params(mut self, query_params: &'static [&'static str]) -> Self {
         self.query_params = query_params;
@@ -157,7 +154,6 @@ pub struct RegisteredByCount {
 
 impl RouteLedger {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }
@@ -171,18 +167,15 @@ impl RouteLedger {
     }
 
     /// See [`iter`].
-    /// See [`iter`].
     pub fn iter(&self) -> impl Iterator<Item = &RouteEntry> {
         self.entries.iter()
     }
 
     /// See [`len`].
-    /// See [`len`].
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
-    /// See [`is_empty`].
     /// See [`is_empty`].
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()

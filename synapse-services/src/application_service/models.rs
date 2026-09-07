@@ -384,7 +384,6 @@ impl ApplicationServiceManager {
     }
 
     /// See [`is_local_user_id`].
-    /// See [`is_local_user_id`].
     pub(super) fn is_local_user_id(user_id: &str, server_name: &str) -> bool {
         user_id
             .strip_prefix('@')

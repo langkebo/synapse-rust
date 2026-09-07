@@ -42,7 +42,6 @@ pub struct StickyEventStorage {
 
 impl StickyEventStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<PgPool>) -> Self {
         Self { pool }
     }

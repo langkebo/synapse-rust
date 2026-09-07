@@ -31,12 +31,10 @@ const REPORT_RATE_LIMIT_SELECT_FOR_UPDATE: &str = r"
 
 impl EventReportStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`create_report`].
     /// See [`create_report`].
     pub async fn create_report(&self, request: CreateEventReportRequest) -> Result<EventReport, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -67,7 +65,6 @@ impl EventReportStorage {
     }
 
     /// See [`get_report`].
-    /// See [`get_report`].
     pub async fn get_report(&self, id: i64) -> Result<Option<EventReport>, sqlx::Error> {
         let row = sqlx::query_as::<_, EventReport>("SELECT id, event_id, room_id, reporter_user_id, reported_user_id, event_json, reason, description, status, score, received_ts, resolved_at, resolved_by, resolution_reason FROM event_reports WHERE id = $1")
             .bind(id)
@@ -77,7 +74,6 @@ impl EventReportStorage {
         Ok(row)
     }
 
-    /// See [`get_reports_by_event`].
     /// See [`get_reports_by_event`].
     pub async fn get_reports_by_event(&self, event_id: &str) -> Result<Vec<EventReport>, sqlx::Error> {
         let rows = sqlx::query_as::<_, EventReport>(
@@ -232,7 +228,6 @@ impl EventReportStorage {
     }
 
     /// See [`update_report`].
-    /// See [`update_report`].
     pub async fn update_report(&self, id: i64, request: UpdateEventReportRequest) -> Result<EventReport, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -267,7 +262,6 @@ impl EventReportStorage {
         Ok(row)
     }
 
-    /// See [`delete_report`].
     /// See [`delete_report`].
     pub async fn delete_report(&self, id: i64) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM event_reports WHERE id = $1").bind(id).execute(&*self.pool).await?;
@@ -312,12 +306,10 @@ impl EventReportStorage {
     }
 
     /// See [`get_report_history`].
-    /// See [`get_report_history`].
     pub fn get_report_history(&self, _report_id: i64) -> Result<Vec<EventReportHistory>, sqlx::Error> {
         Ok(vec![])
     }
 
-    /// See [`check_rate_limit`].
     /// See [`check_rate_limit`].
     pub async fn check_rate_limit(&self, user_id: &str) -> Result<ReportRateLimitCheck, sqlx::Error> {
         // STO-05: SELECT→UPDATE 包在事务里并 FOR UPDATE 行锁，
@@ -399,7 +391,6 @@ impl EventReportStorage {
     }
 
     /// See [`record_report`].
-    /// See [`record_report`].
     pub async fn record_report(&self, user_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
         let one_day_ago = now - 86_400_000;
@@ -430,7 +421,6 @@ impl EventReportStorage {
     }
 
     /// See [`block_user_reports`].
-    /// See [`block_user_reports`].
     pub async fn block_user_reports(&self, user_id: &str, blocked_until: i64, reason: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -456,7 +446,6 @@ impl EventReportStorage {
     }
 
     /// See [`unblock_user_reports`].
-    /// See [`unblock_user_reports`].
     pub async fn unblock_user_reports(&self, user_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
         sqlx::query(
@@ -471,12 +460,10 @@ impl EventReportStorage {
     }
 
     /// See [`get_stats`].
-    /// See [`get_stats`].
     pub fn get_stats(&self, _days: i32) -> Result<Vec<EventReportStats>, sqlx::Error> {
         Ok(vec![])
     }
 
-    /// See [`count_reports_by_status`].
     /// See [`count_reports_by_status`].
     pub async fn count_reports_by_status(&self, status: &str) -> Result<i64, sqlx::Error> {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM event_reports WHERE status = $1")
@@ -487,7 +474,6 @@ impl EventReportStorage {
         Ok(count)
     }
 
-    /// See [`count_all_reports`].
     /// See [`count_all_reports`].
     pub async fn count_all_reports(&self) -> Result<i64, sqlx::Error> {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM event_reports").fetch_one(&*self.pool).await?;

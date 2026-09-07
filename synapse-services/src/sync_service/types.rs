@@ -26,7 +26,6 @@ pub struct SyncToken {
 
 impl SyncToken {
     /// See [`parse`].
-    /// See [`parse`].
     pub fn parse(token: &str) -> Option<Self> {
         if let Some(stripped) = token.strip_prefix('s') {
             if let Some((event_stream_id, rest)) = stripped.split_once('_') {
@@ -59,7 +58,6 @@ impl SyncToken {
         }
     }
 
-    /// See [`encode`].
     /// See [`encode`].
     pub fn encode(&self) -> String {
         match (self.to_device_stream_id, self.device_list_stream_id) {
@@ -436,7 +434,6 @@ pub struct LazyLoadedMembersCacheKey {
 }
 
 impl LazyLoadedMembersCacheKey {
-    /// See [`new`].
     /// See [`new`].
     pub fn new(user_id: &str, device_id: Option<&str>, room_id: &str) -> Self {
         Self { user_id: user_id.to_string(), device_id: device_id.map(str::to_string), room_id: room_id.to_string() }

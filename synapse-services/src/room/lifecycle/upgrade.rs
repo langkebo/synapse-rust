@@ -6,7 +6,6 @@ use super::service::LifecycleService;
 
 impl LifecycleService {
     /// See [`get_tombstone_event`].
-    /// See [`get_tombstone_event`].
     pub async fn get_tombstone_event(&self, room_id: &str) -> ApiResult<Option<serde_json::Value>> {
         let state_events = self
             .event_reader
@@ -54,7 +53,6 @@ impl LifecycleService {
         Ok(())
     }
 
-    /// See [`is_room_upgrade_allowed`].
     /// See [`is_room_upgrade_allowed`].
     pub async fn is_room_upgrade_allowed(&self, room_id: &str, user_id: &str) -> ApiResult<bool> {
         let room = self

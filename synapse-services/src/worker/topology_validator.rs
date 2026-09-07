@@ -213,7 +213,6 @@ pub enum RouteOwnerProbe {
 
 impl RouteOwnerProbe {
     /// See [`as_str`].
-    /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Sync => "sync",
@@ -222,7 +221,6 @@ impl RouteOwnerProbe {
         }
     }
 
-    /// See [`path`].
     /// See [`path`].
     pub fn path(&self) -> &'static str {
         match self {

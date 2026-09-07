@@ -76,7 +76,6 @@ pub struct WebPushProvider {
 
 impl WebPushProvider {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: WebPushProviderConfig) -> Self {
         let enabled = !config.vapid_public_key.is_empty() && !config.vapid_private_key.is_empty();
 
@@ -89,7 +88,6 @@ impl WebPushProvider {
         Self { config, client, enabled }
     }
 
-    /// See [`with_vapid_keys`].
     /// See [`with_vapid_keys`].
     pub fn with_vapid_keys(public_key: String, private_key: String) -> Self {
         let config = WebPushProviderConfig {
@@ -172,7 +170,6 @@ impl WebPushProvider {
         Err(format!("WebPush error: {status} - {body}"))
     }
 
-    /// See [`parse_subscription`].
     /// See [`parse_subscription`].
     pub fn parse_subscription(&self, data: &str) -> Result<WebPushSubscription, String> {
         serde_json::from_str(data).map_err(|e| format!("Invalid subscription: {e}"))

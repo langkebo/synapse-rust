@@ -197,7 +197,6 @@ impl RegistrationService {
     }
 
     /// See [`deactivate_account`].
-    /// See [`deactivate_account`].
     #[::tracing::instrument(skip_all, fields(user_id = %user_id))]
     pub async fn deactivate_account(&self, user_id: &str) -> ApiResult<()> {
         self.credential_auth.deactivate_user(user_id).await?;
@@ -205,13 +204,11 @@ impl RegistrationService {
     }
 
     /// See [`get_profile`].
-    /// See [`get_profile`].
     #[::tracing::instrument(skip_all, fields(user_id = %user_id))]
     pub async fn get_profile(&self, user_id: &str) -> ApiResult<serde_json::Value> {
         self.user_service.get_profile(user_id).await
     }
 
-    /// See [`get_profiles`].
     /// See [`get_profiles`].
     #[::tracing::instrument(skip_all, fields(batch_size = user_ids.len()))]
     pub async fn get_profiles(&self, user_ids: &[String]) -> ApiResult<Vec<serde_json::Value>> {
@@ -219,13 +216,11 @@ impl RegistrationService {
     }
 
     /// See [`set_displayname`].
-    /// See [`set_displayname`].
     #[::tracing::instrument(skip_all, fields(user_id = %user_id, displayname_len = displayname.len()))]
     pub async fn set_displayname(&self, user_id: &str, displayname: &str) -> ApiResult<()> {
         self.user_service.update_displayname(user_id, Some(displayname)).await
     }
 
-    /// See [`set_avatar_url`].
     /// See [`set_avatar_url`].
     #[::tracing::instrument(skip_all, fields(user_id = %user_id, avatar_url_len = avatar_url.len()))]
     pub async fn set_avatar_url(&self, user_id: &str, avatar_url: &str) -> ApiResult<()> {

@@ -66,12 +66,10 @@ pub struct WorkerLoadBalancer {
 
 impl WorkerLoadBalancer {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(strategy: LoadBalanceStrategy) -> Self {
         Self { workers: RwLock::new(HashMap::new()), strategy, round_robin_index: RwLock::new(0) }
     }
 
-    /// See [`register_worker`].
     /// See [`register_worker`].
     pub async fn register_worker(&self, worker: WorkerInfo) {
         let worker_id = worker.worker_id.clone();
@@ -97,7 +95,6 @@ impl WorkerLoadBalancer {
     }
 
     /// See [`unregister_worker`].
-    /// See [`unregister_worker`].
     pub async fn unregister_worker(&self, worker_id: &str) {
         let mut workers = self.workers.write().await;
         workers.remove(worker_id);
@@ -105,7 +102,6 @@ impl WorkerLoadBalancer {
         info!(worker_id = %worker_id, "Worker unregistered");
     }
 
-    /// See [`update_worker_load`].
     /// See [`update_worker_load`].
     pub async fn update_worker_load(&self, worker_id: &str, stats: WorkerLoadStats) {
         let mut workers = self.workers.write().await;
@@ -116,7 +112,6 @@ impl WorkerLoadBalancer {
         }
     }
 
-    /// See [`select_worker`].
     /// See [`select_worker`].
     pub async fn select_worker(&self, task_type: &str) -> Option<String> {
         let workers = self.workers.read().await;
@@ -217,13 +212,11 @@ impl WorkerLoadBalancer {
     }
 
     /// See [`get_worker_count`].
-    /// See [`get_worker_count`].
     pub async fn get_worker_count(&self) -> usize {
         let workers = self.workers.read().await;
         workers.len()
     }
 
-    /// See [`get_active_worker_count`].
     /// See [`get_active_worker_count`].
     pub async fn get_active_worker_count(&self) -> usize {
         let workers = self.workers.read().await;
@@ -231,13 +224,11 @@ impl WorkerLoadBalancer {
     }
 
     /// See [`get_worker_stats`].
-    /// See [`get_worker_stats`].
     pub async fn get_worker_stats(&self, worker_id: &str) -> Option<WorkerLoadStats> {
         let workers = self.workers.read().await;
         workers.get(worker_id).map(|w| w.load_stats.clone())
     }
 
-    /// See [`get_all_stats`].
     /// See [`get_all_stats`].
     pub async fn get_all_stats(&self) -> HashMap<String, WorkerLoadStats> {
         let workers = self.workers.read().await;
@@ -245,13 +236,11 @@ impl WorkerLoadBalancer {
     }
 
     /// See [`get_total_capacity`].
-    /// See [`get_total_capacity`].
     pub async fn get_total_capacity(&self) -> u32 {
         let workers = self.workers.read().await;
         workers.values().filter(|w| w.info.status == "running").map(|w| w.weight).sum()
     }
 
-    /// See [`set_strategy`].
     /// See [`set_strategy`].
     pub fn set_strategy(&mut self, strategy: LoadBalanceStrategy) {
         self.strategy = strategy;

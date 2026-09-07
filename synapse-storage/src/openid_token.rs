@@ -64,12 +64,10 @@ pub struct OpenIdTokenStorage {
 
 impl OpenIdTokenStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`create_token`].
     /// See [`create_token`].
     pub async fn create_token(&self, request: CreateOpenIdTokenRequest) -> Result<OpenIdToken, ApiError> {
         let now = current_timestamp_millis();
@@ -94,7 +92,6 @@ impl OpenIdTokenStorage {
     }
 
     /// See [`get_token`].
-    /// See [`get_token`].
     pub async fn get_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError> {
         let token_data = sqlx::query_as::<_, OpenIdToken>(
             r"
@@ -111,7 +108,6 @@ impl OpenIdTokenStorage {
         Ok(token_data)
     }
 
-    /// See [`validate_token`].
     /// See [`validate_token`].
     pub async fn validate_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError> {
         let now = current_timestamp_millis();
@@ -133,7 +129,6 @@ impl OpenIdTokenStorage {
     }
 
     /// See [`revoke_token`].
-    /// See [`revoke_token`].
     pub async fn revoke_token(&self, token: &str) -> Result<bool, ApiError> {
         let result = sqlx::query(
             r"
@@ -150,7 +145,6 @@ impl OpenIdTokenStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    /// See [`revoke_user_tokens`].
     /// See [`revoke_user_tokens`].
     pub async fn revoke_user_tokens(&self, user_id: &str) -> Result<u64, ApiError> {
         let result = sqlx::query(
@@ -169,7 +163,6 @@ impl OpenIdTokenStorage {
     }
 
     /// See [`cleanup_expired_tokens`].
-    /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();
 
@@ -187,7 +180,6 @@ impl OpenIdTokenStorage {
         Ok(result.rows_affected())
     }
 
-    /// See [`get_tokens_by_user`].
     /// See [`get_tokens_by_user`].
     pub async fn get_tokens_by_user(&self, user_id: &str) -> Result<Vec<OpenIdToken>, ApiError> {
         let tokens = sqlx::query_as::<_, OpenIdToken>(

@@ -257,12 +257,10 @@ pub struct FederationBlacklistStorage {
 
 impl FederationBlacklistStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`add_to_blacklist`].
     /// See [`add_to_blacklist`].
     pub async fn add_to_blacklist(&self, request: AddBlacklistRequest) -> Result<FederationBlacklist, ApiError> {
         let now = current_timestamp_millis();
@@ -305,7 +303,6 @@ impl FederationBlacklistStorage {
     }
 
     /// See [`remove_from_blacklist`].
-    /// See [`remove_from_blacklist`].
     pub async fn remove_from_blacklist(&self, server_name: &str, performed_by: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
@@ -340,7 +337,6 @@ impl FederationBlacklistStorage {
     }
 
     /// See [`get_blacklist_entry`].
-    /// See [`get_blacklist_entry`].
     pub async fn get_blacklist_entry(&self, server_name: &str) -> Result<Option<FederationBlacklist>, ApiError> {
         let row = sqlx::query_as::<_, FederationBlacklist>(
             r#"
@@ -368,7 +364,6 @@ impl FederationBlacklistStorage {
     }
 
     /// See [`is_server_blocked`].
-    /// See [`is_server_blocked`].
     pub async fn is_server_blocked(&self, server_name: &str) -> Result<bool, ApiError> {
         let entry = self.get_blacklist_entry(server_name).await?;
 
@@ -385,7 +380,6 @@ impl FederationBlacklistStorage {
         Ok(false)
     }
 
-    /// See [`is_server_whitelisted`].
     /// See [`is_server_whitelisted`].
     pub async fn is_server_whitelisted(&self, server_name: &str) -> Result<bool, ApiError> {
         let row = sqlx::query_as::<_, FederationBlacklist>(
@@ -480,7 +474,6 @@ impl FederationBlacklistStorage {
     }
 
     /// See [`create_log`].
-    /// See [`create_log`].
     pub async fn create_log(&self, request: CreateLogRequest) -> Result<FederationBlacklistLog, ApiError> {
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
         let now = current_timestamp_millis();
@@ -511,7 +504,6 @@ impl FederationBlacklistStorage {
         Ok(row)
     }
 
-    /// See [`update_access_stats`].
     /// See [`update_access_stats`].
     pub async fn update_access_stats(&self, request: UpdateStatsRequest) -> Result<FederationAccessStats, ApiError> {
         let now = current_timestamp_millis();
@@ -553,7 +545,6 @@ impl FederationBlacklistStorage {
     }
 
     /// See [`get_access_stats`].
-    /// See [`get_access_stats`].
     pub async fn get_access_stats(&self, server_name: &str) -> Result<Option<FederationAccessStats>, ApiError> {
         let row = sqlx::query_as!(
             FederationAccessStats,
@@ -571,7 +562,6 @@ impl FederationBlacklistStorage {
         Ok(row)
     }
 
-    /// See [`create_rule`].
     /// See [`create_rule`].
     pub async fn create_rule(&self, request: CreateRuleRequest) -> Result<FederationBlacklistRule, ApiError> {
         let now = current_timestamp_millis();
@@ -603,7 +593,6 @@ impl FederationBlacklistStorage {
     }
 
     /// See [`get_all_rules`].
-    /// See [`get_all_rules`].
     pub async fn get_all_rules(&self) -> Result<Vec<FederationBlacklistRule>, ApiError> {
         let rows = sqlx::query_as!(
             FederationBlacklistRule,
@@ -617,7 +606,6 @@ impl FederationBlacklistStorage {
         Ok(rows)
     }
 
-    /// See [`cleanup_expired_entries`].
     /// See [`cleanup_expired_entries`].
     pub async fn cleanup_expired_entries(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();
@@ -634,18 +622,15 @@ impl FederationBlacklistStorage {
     }
 
     /// See [`get_config`].
-    /// See [`get_config`].
     pub fn get_config(&self, _config_key: &str) -> Result<Option<String>, ApiError> {
         Ok(None)
     }
 
     /// See [`get_config_as_bool`].
-    /// See [`get_config_as_bool`].
     pub fn get_config_as_bool(&self, _config_key: &str, default: bool) -> Result<bool, ApiError> {
         Ok(default)
     }
 
-    /// See [`get_config_as_int`].
     /// See [`get_config_as_int`].
     pub fn get_config_as_int(&self, _config_key: &str, default: i32) -> Result<i32, ApiError> {
         Ok(default)

@@ -30,7 +30,6 @@ impl AccountIdentityService {
     }
 
     /// See [`new`].
-    /// See [`new`].
     #[cfg(not(feature = "privacy-ext"))]
     pub fn new(user_service: Arc<UserService>, threepid_storage: Arc<dyn ThreepidStoreApi>) -> Self {
         Self { user_service, threepid_storage }
@@ -60,7 +59,6 @@ impl AccountIdentityService {
     }
 
     /// See [`ensure_active_user_exists`].
-    /// See [`ensure_active_user_exists`].
     pub async fn ensure_active_user_exists(&self, user_id: &str) -> Result<(), ApiError> {
         let user_exists = self.user_service.user_exists(user_id).await?;
         if !user_exists {
@@ -70,24 +68,20 @@ impl AccountIdentityService {
     }
 
     /// See [`user_exists`].
-    /// See [`user_exists`].
     pub async fn user_exists(&self, user_id: &str) -> Result<bool, ApiError> {
         self.user_service.user_exists(user_id).await
     }
 
-    /// See [`get_user_by_id`].
     /// See [`get_user_by_id`].
     pub async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, ApiError> {
         self.user_service.get_user(user_id).await
     }
 
     /// See [`get_user_by_identifier`].
-    /// See [`get_user_by_identifier`].
     pub async fn get_user_by_identifier(&self, identifier: &str) -> Result<Option<User>, ApiError> {
         self.user_service.get_user_by_identifier(identifier).await
     }
 
-    /// See [`get_user_by_username`].
     /// See [`get_user_by_username`].
     pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, ApiError> {
         self.user_service.get_user_by_username(username).await
@@ -113,18 +107,15 @@ impl AccountIdentityService {
     }
 
     /// See [`get_user_count`].
-    /// See [`get_user_count`].
     pub async fn get_user_count(&self) -> Result<i64, ApiError> {
         self.user_service.get_user_count().await
     }
 
     /// See [`get_non_deactivated_user_count`].
-    /// See [`get_non_deactivated_user_count`].
     pub async fn get_non_deactivated_user_count(&self) -> Result<i64, ApiError> {
         self.user_service.get_non_deactivated_user_count().await
     }
 
-    /// See [`get_non_deactivated_user_count_by_app_service`].
     /// See [`get_non_deactivated_user_count_by_app_service`].
     pub async fn get_non_deactivated_user_count_by_app_service(&self) -> Result<HashMap<String, i64>, ApiError> {
         self.user_service.get_non_deactivated_user_count_by_app_service().await
@@ -142,7 +133,6 @@ impl AccountIdentityService {
     }
 
     /// See [`get_daily_active_users`].
-    /// See [`get_daily_active_users`].
     #[tracing::instrument(skip(self))]
     pub async fn get_daily_active_users(&self) -> Result<i64, ApiError> {
         self.user_service
@@ -152,7 +142,6 @@ impl AccountIdentityService {
             .map_err(|e| ApiError::internal_with_context("Failed to get daily active users", &e))
     }
 
-    /// See [`get_monthly_active_users`].
     /// See [`get_monthly_active_users`].
     #[tracing::instrument(skip(self))]
     pub async fn get_monthly_active_users(&self) -> Result<i64, ApiError> {
@@ -164,7 +153,6 @@ impl AccountIdentityService {
     }
 
     /// See [`get_r30_users`].
-    /// See [`get_r30_users`].
     #[tracing::instrument(skip(self))]
     pub async fn get_r30_users(&self) -> Result<i64, ApiError> {
         self.user_service
@@ -174,7 +162,6 @@ impl AccountIdentityService {
             .map_err(|e| ApiError::internal_with_context("Failed to get r30 users", &e))
     }
 
-    /// See [`resolve_password_reset_user_id_by_email`].
     /// See [`resolve_password_reset_user_id_by_email`].
     pub async fn resolve_password_reset_user_id_by_email(&self, email: &str, request_id: &str) -> Option<String> {
         match self.threepid_storage.get_verified_threepid_by_address("email", email).await {
@@ -250,7 +237,6 @@ impl AccountIdentityService {
     }
 
     /// See [`get_user_threepids`].
-    /// See [`get_user_threepids`].
     pub async fn get_user_threepids(&self, user_id: &str) -> Result<Vec<UserThreepid>, ApiError> {
         self.threepid_storage.get_threepids_by_user(user_id).await
     }
@@ -267,7 +253,6 @@ impl AccountIdentityService {
         self.threepid_storage.add_verified_threepid(user_id, medium, address, validated_at, added_ts).await
     }
 
-    /// See [`remove_threepid`].
     /// See [`remove_threepid`].
     pub async fn remove_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError> {
         self.threepid_storage.remove_threepid(user_id, medium, address).await

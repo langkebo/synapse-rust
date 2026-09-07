@@ -79,12 +79,10 @@ pub struct E2eeAuditStorage {
 
 impl E2eeAuditStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<sqlx::PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`log_key_operation`].
     /// See [`log_key_operation`].
     pub async fn log_key_operation(&self, event: &KeyEvent) -> Result<(), ApiError> {
         sqlx::query(
@@ -110,7 +108,6 @@ impl E2eeAuditStorage {
         Ok(())
     }
 
-    /// See [`get_key_history`].
     /// See [`get_key_history`].
     pub async fn get_key_history(&self, user_id: &str) -> Result<Vec<KeyAuditEntry>, ApiError> {
         sqlx::query_as::<_, KeyAuditEntry>(
@@ -172,7 +169,6 @@ impl E2eeAuditStorage {
     }
 
     /// See [`get_operations_by_type`].
-    /// See [`get_operations_by_type`].
     pub async fn get_operations_by_type(&self, operation: &str, limit: i64) -> Result<Vec<KeyAuditEntry>, ApiError> {
         sqlx::query_as::<_, KeyAuditEntry>(
             r"
@@ -212,7 +208,6 @@ impl E2eeAuditStorage {
         .map_err(|e| ApiError::internal_with_context("Failed to get device history", &e))
     }
 
-    /// See [`cleanup_old_logs`].
     /// See [`cleanup_old_logs`].
     pub async fn cleanup_old_logs(&self, days_to_keep: i64) -> Result<u64, ApiError> {
         let cutoff_ts = current_timestamp_millis() - (days_to_keep * 24 * 60 * 60 * 1000);

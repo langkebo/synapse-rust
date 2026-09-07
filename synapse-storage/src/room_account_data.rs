@@ -78,7 +78,6 @@ pub struct RoomAccountDataRecord {
 
 impl RoomAccountDataStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<sqlx::PgPool>) -> Self {
         Self { pool: pool.clone() }
     }

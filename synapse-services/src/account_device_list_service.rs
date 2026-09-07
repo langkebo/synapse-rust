@@ -57,7 +57,6 @@ pub struct AccountDeviceListService {
 
 impl AccountDeviceListService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(device_storage: Arc<dyn DeviceListStoreApi>) -> Self {
         Self { device_storage }
     }
@@ -76,7 +75,6 @@ impl AccountDeviceListService {
     }
 
     /// See [`delete_device`].
-    /// See [`delete_device`].
     pub async fn delete_device(&self, device_id: &str) -> Result<(), ApiError> {
         self.device_storage
             .delete_device(device_id)
@@ -85,7 +83,6 @@ impl AccountDeviceListService {
     }
 
     /// See [`get_user_devices`].
-    /// See [`get_user_devices`].
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, ApiError> {
         self.device_storage
             .get_user_devices(user_id)
@@ -93,7 +90,6 @@ impl AccountDeviceListService {
             .map_err(|e| ApiError::internal_with_context("Failed to get devices", &e))
     }
 
-    /// See [`get_device`].
     /// See [`get_device`].
     pub async fn get_device(&self, device_id: &str) -> Result<Option<Device>, ApiError> {
         self.device_storage
@@ -116,7 +112,6 @@ impl AccountDeviceListService {
     }
 
     /// See [`get_max_stream_id`].
-    /// See [`get_max_stream_id`].
     pub async fn get_max_stream_id(&self) -> Result<i64, ApiError> {
         self.device_storage.get_max_device_list_stream_id().await.map_err(|e| {
             tracing::error!("Failed to get device list stream position: {e}");
@@ -124,7 +119,6 @@ impl AccountDeviceListService {
         })
     }
 
-    /// See [`get_changed_user_ids`].
     /// See [`get_changed_user_ids`].
     pub async fn get_changed_user_ids(&self, from: i64, to: i64, requester_id: &str) -> Result<Vec<String>, ApiError> {
         self.device_storage.get_device_list_changed_users(from, to, requester_id).await.map_err(|e| {
@@ -134,7 +128,6 @@ impl AccountDeviceListService {
     }
 
     /// See [`get_left_user_ids`].
-    /// See [`get_left_user_ids`].
     pub async fn get_left_user_ids(&self, from: i64, to: i64, requester_id: &str) -> Result<Vec<String>, ApiError> {
         self.device_storage.get_device_list_left_users(from, to, requester_id).await.map_err(|e| {
             tracing::error!("Failed to get key changes left: {e}");
@@ -142,7 +135,6 @@ impl AccountDeviceListService {
         })
     }
 
-    /// See [`get_device_list_snapshot`].
     /// See [`get_device_list_snapshot`].
     pub async fn get_device_list_snapshot(&self, users: &[String]) -> Result<DeviceListSnapshot, ApiError> {
         let devices_by_user = self.device_storage.get_users_devices_batch(users).await.map_err(|e| {

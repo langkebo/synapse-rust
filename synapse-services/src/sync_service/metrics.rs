@@ -5,12 +5,10 @@ use std::collections::HashMap;
 
 impl SyncService {
     /// See [`count_events_by_room`].
-    /// See [`count_events_by_room`].
     pub(crate) fn count_events_by_room(room_events: &HashMap<String, Vec<RoomEvent>>) -> usize {
         room_events.values().map(Vec::len).sum()
     }
 
-    /// See [`observe_histogram`].
     /// See [`observe_histogram`].
     pub(crate) fn observe_histogram(&self, name: &str, value: f64) {
         if let Some(histogram) = self.metrics.get_histogram(name) {
@@ -20,7 +18,6 @@ impl SyncService {
         }
     }
 
-    /// See [`increment_counter`].
     /// See [`increment_counter`].
     pub(crate) fn increment_counter(&self, name: &str) {
         if let Some(counter) = self.metrics.get_counter(name) {
@@ -56,18 +53,15 @@ impl SyncService {
     }
 
     /// See [`is_slow_request`].
-    /// See [`is_slow_request`].
     pub(crate) fn is_slow_request(&self, total_ms: f64) -> bool {
         Self::is_slow_request_for(total_ms, self.performance.sync_slow_request_threshold_ms)
     }
 
     /// See [`is_slow_request_for`].
-    /// See [`is_slow_request_for`].
     pub(crate) fn is_slow_request_for(total_ms: f64, threshold_ms: u64) -> bool {
         total_ms >= threshold_ms as f64
     }
 
-    /// See [`log_slow_sync_request`].
     /// See [`log_slow_sync_request`].
     pub(crate) fn log_slow_sync_request(&self, snapshot: &SyncPerformanceSnapshot<'_>) {
         if self.is_slow_request(snapshot.total_ms) {
@@ -92,24 +86,20 @@ impl SyncService {
     }
 
     /// See [`sync_event_limit`].
-    /// See [`sync_event_limit`].
     pub(crate) fn sync_event_limit(&self) -> i64 {
         i64::from(self.performance.sync_event_limit)
     }
 
-    /// See [`sync_to_device_limit`].
     /// See [`sync_to_device_limit`].
     pub(crate) fn sync_to_device_limit(&self) -> i64 {
         i64::from(self.performance.sync_to_device_limit)
     }
 
     /// See [`sync_ephemeral_limit`].
-    /// See [`sync_ephemeral_limit`].
     pub(crate) fn sync_ephemeral_limit(&self) -> i64 {
         i64::from(self.performance.sync_ephemeral_limit)
     }
 
-    /// See [`sync_poll_interval`].
     /// See [`sync_poll_interval`].
     pub(crate) fn sync_poll_interval(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.performance.sync_poll_interval_ms)

@@ -54,7 +54,6 @@ pub struct TranslationService {
 
 impl TranslationService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: TranslateConfig) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs))

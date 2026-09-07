@@ -23,36 +23,30 @@ pub struct TelemetryService {
 
 impl TelemetryService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: Arc<OpenTelemetryConfig>, prometheus_config: Arc<PrometheusConfig>) -> Self {
         Self { config, prometheus_config }
     }
 
-    /// See [`is_enabled`].
     /// See [`is_enabled`].
     pub fn is_enabled(&self) -> bool {
         self.config.is_enabled() || self.prometheus_config.enabled
     }
 
     /// See [`is_trace_enabled`].
-    /// See [`is_trace_enabled`].
     pub fn is_trace_enabled(&self) -> bool {
         self.config.is_trace_enabled()
     }
 
-    /// See [`is_metrics_enabled`].
     /// See [`is_metrics_enabled`].
     pub fn is_metrics_enabled(&self) -> bool {
         self.config.is_metrics_enabled() || self.prometheus_config.enabled
     }
 
     /// See [`get_service_name`].
-    /// See [`get_service_name`].
     pub fn get_service_name(&self) -> &str {
         &self.config.service_name
     }
 
-    /// See [`get_sampling_ratio`].
     /// See [`get_sampling_ratio`].
     pub fn get_sampling_ratio(&self) -> f64 {
         if self.config.is_trace_enabled() {
@@ -62,7 +56,6 @@ impl TelemetryService {
         }
     }
 
-    /// See [`get_export_config`].
     /// See [`get_export_config`].
     pub fn get_export_config(&self) -> ExportConfig {
         ExportConfig {
@@ -82,12 +75,10 @@ impl TelemetryService {
     }
 
     /// See [`get_resource_attributes`].
-    /// See [`get_resource_attributes`].
     pub fn get_resource_attributes(&self) -> std::collections::HashMap<String, String> {
         self.config.get_resource_attributes()
     }
 
-    /// See [`initialize`].
     /// See [`initialize`].
     pub fn initialize(&self) -> Result<Option<SdkTracerProvider>, Box<dyn std::error::Error + Send + Sync>> {
         if !self.is_enabled() {
@@ -187,7 +178,6 @@ impl TelemetryService {
     }
 
     /// See [`shutdown`].
-    /// See [`shutdown`].
     pub fn shutdown(&self) {
         if self.is_enabled() {
             info!(
@@ -231,12 +221,10 @@ pub struct TelemetryBuilder {
 
 impl TelemetryBuilder {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self { config: OpenTelemetryConfig::default(), prometheus_config: PrometheusConfig::default() }
     }
 
-    /// See [`with_service_name`].
     /// See [`with_service_name`].
     pub fn with_service_name(mut self, name: impl Into<String>) -> Self {
         self.config.service_name = name.into();
@@ -244,13 +232,11 @@ impl TelemetryBuilder {
     }
 
     /// See [`with_service_version`].
-    /// See [`with_service_version`].
     pub fn with_service_version(mut self, version: impl Into<String>) -> Self {
         self.config.service_version = version.into();
         self
     }
 
-    /// See [`with_otlp_endpoint`].
     /// See [`with_otlp_endpoint`].
     pub fn with_otlp_endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.config.otlp_endpoint = Some(endpoint.into());
@@ -258,7 +244,6 @@ impl TelemetryBuilder {
         self
     }
 
-    /// See [`with_prometheus`].
     /// See [`with_prometheus`].
     pub fn with_prometheus(mut self, port: u16, path: impl Into<String>) -> Self {
         self.prometheus_config.enabled = true;
@@ -268,13 +253,11 @@ impl TelemetryBuilder {
     }
 
     /// See [`with_sampling_ratio`].
-    /// See [`with_sampling_ratio`].
     pub fn with_sampling_ratio(mut self, ratio: f64) -> Self {
         self.config.sampling_ratio = ratio;
         self
     }
 
-    /// See [`with_trace_enabled`].
     /// See [`with_trace_enabled`].
     pub fn with_trace_enabled(mut self, enabled: bool) -> Self {
         self.config.trace_enabled = enabled;
@@ -282,13 +265,11 @@ impl TelemetryBuilder {
     }
 
     /// See [`with_metrics_enabled`].
-    /// See [`with_metrics_enabled`].
     pub fn with_metrics_enabled(mut self, enabled: bool) -> Self {
         self.config.metrics_enabled = enabled;
         self
     }
 
-    /// See [`build`].
     /// See [`build`].
     pub fn build(self) -> TelemetryService {
         TelemetryService::new(Arc::new(self.config), Arc::new(self.prometheus_config))
@@ -383,12 +364,10 @@ pub struct TelemetryAlertService {
 
 impl TelemetryAlertService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<PgPool>, max_connections: u32) -> Self {
         Self { pool, max_connections, alerts: Arc::new(RwLock::new(HashMap::new())) }
     }
 
-    /// See [`sync_with_health`].
     /// See [`sync_with_health`].
     pub async fn sync_with_health(&self) -> Result<(DatabaseHealthStatus, Vec<TelemetryAlert>), ApiError> {
         let monitor = DatabaseMonitor::new((*self.pool).clone(), None, self.max_connections);
@@ -512,7 +491,6 @@ impl TelemetryAlertService {
     }
 
     /// See [`list_alerts`].
-    /// See [`list_alerts`].
     pub fn list_alerts(&self, filters: &TelemetryAlertFilters) -> Result<Vec<TelemetryAlert>, ApiError> {
         Self::validate_filters(filters)?;
         let alerts = match self.alerts.read() {
@@ -532,7 +510,6 @@ impl TelemetryAlertService {
         Ok(entries)
     }
 
-    /// See [`acknowledge_alert`].
     /// See [`acknowledge_alert`].
     pub fn acknowledge_alert(&self, alert_id: &str, acknowledged_by: &str) -> Result<TelemetryAlert, ApiError> {
         let mut alerts = match self.alerts.write() {

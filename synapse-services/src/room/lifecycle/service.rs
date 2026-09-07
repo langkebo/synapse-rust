@@ -60,7 +60,6 @@ pub struct LifecycleServiceConfig {
 
 impl LifecycleService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: LifecycleServiceConfig) -> Self {
         Self {
             room_storage: config.room_storage,

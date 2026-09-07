@@ -144,12 +144,10 @@ pub struct DatabaseMonitor {
 
 impl DatabaseMonitor {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Pool<Postgres>, redis_pool: Option<RedisPool>, max_connections: u32) -> Self {
         Self { pool, redis_pool, max_connections }
     }
 
-    /// See [`check_connection`].
     /// See [`check_connection`].
     pub async fn check_connection(&self) -> Result<bool, sqlx::Error> {
         let result = sqlx::query("SELECT 1").fetch_one(&self.pool).await;
@@ -166,7 +164,6 @@ impl DatabaseMonitor {
         }
     }
 
-    /// See [`get_connection_pool_status`].
     /// See [`get_connection_pool_status`].
     pub fn get_connection_pool_status(&self) -> Result<ConnectionPoolStatus, sqlx::Error> {
         let pool_size = self.pool.size();
@@ -186,7 +183,6 @@ impl DatabaseMonitor {
     }
 
     /// See [`get_full_health_status`].
-    /// See [`get_full_health_status`].
     pub async fn get_full_health_status(&self) -> Result<DatabaseHealthStatus, sqlx::Error> {
         let is_healthy = self.check_connection().await?;
         let pool_status = self.get_connection_pool_status()?;
@@ -200,7 +196,6 @@ impl DatabaseMonitor {
         })
     }
 
-    /// See [`get_performance_metrics`].
     /// See [`get_performance_metrics`].
     pub async fn get_performance_metrics(&self) -> Result<PerformanceMetrics, sqlx::Error> {
         let db_stats = sqlx::query_as::<_, (i64, i64, i64, i64, i64, Option<chrono::DateTime<Utc>>)>(
@@ -267,7 +262,6 @@ impl DatabaseMonitor {
         })
     }
 
-    /// See [`verify_data_integrity`].
     /// See [`verify_data_integrity`].
     pub async fn verify_data_integrity(&self) -> Result<DataIntegrityReport, sqlx::Error> {
         let mut foreign_key_violations = Vec::new();

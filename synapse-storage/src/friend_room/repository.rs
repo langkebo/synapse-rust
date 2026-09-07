@@ -14,7 +14,6 @@ pub struct FriendRoomStorage {
 
 impl FriendRoomStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
@@ -757,7 +756,6 @@ impl FriendRoomStorage {
     }
 
     /// See [`get_outgoing_friend_requests`].
-    /// See [`get_outgoing_friend_requests`].
     pub async fn get_outgoing_friend_requests(&self, sender_id: &str) -> Result<Vec<FriendRequestRecord>, sqlx::Error> {
         let rows = sqlx::query_as::<_, FriendRequestRecord>(
             r"
@@ -801,7 +799,6 @@ impl FriendRoomStorage {
     }
 
     /// See [`delete_friend_request`].
-    /// See [`delete_friend_request`].
     pub async fn delete_friend_request(&self, sender_id: &str, receiver_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r"
@@ -817,7 +814,6 @@ impl FriendRoomStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    /// See [`has_pending_request`].
     /// See [`has_pending_request`].
     pub async fn has_pending_request(&self, sender_id: &str, receiver_id: &str) -> Result<bool, sqlx::Error> {
         let row = sqlx::query(
@@ -835,7 +831,6 @@ impl FriendRoomStorage {
     }
 
     /// See [`has_any_pending_request`].
-    /// See [`has_any_pending_request`].
     pub async fn has_any_pending_request(&self, user_a: &str, user_b: &str) -> Result<bool, sqlx::Error> {
         let row = sqlx::query(
             r"
@@ -852,7 +847,6 @@ impl FriendRoomStorage {
         Ok(row.is_some())
     }
 
-    /// See [`ensure_user_exists`].
     /// See [`ensure_user_exists`].
     pub async fn ensure_user_exists(&self, user_id: &str) -> Result<(), sqlx::Error> {
         let existing =
@@ -880,7 +874,6 @@ impl FriendRoomStorage {
     }
 
     /// See [`get_mutual_friends`].
-    /// See [`get_mutual_friends`].
     pub async fn get_mutual_friends(&self, user_id: &str, target_user_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let user_friends = self.get_user_friend_ids(user_id).await?;
         let target_friends = self.get_user_friend_ids(target_user_id).await?;
@@ -890,7 +883,6 @@ impl FriendRoomStorage {
         Ok(mutual)
     }
 
-    /// See [`get_user_friend_ids`].
     /// See [`get_user_friend_ids`].
     pub async fn get_user_friend_ids(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let room_id = self.get_friend_list_room_id(user_id).await?;
@@ -911,7 +903,6 @@ impl FriendRoomStorage {
         Ok(Vec::new())
     }
 
-    /// See [`get_shared_rooms`].
     /// See [`get_shared_rooms`].
     pub async fn get_shared_rooms(&self, user_id: &str, target_user_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows = sqlx::query(

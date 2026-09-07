@@ -45,7 +45,6 @@ pub struct MediaStorageBackendFactory;
 
 impl MediaStorageBackendFactory {
     /// See [`create`].
-    /// See [`create`].
     pub fn create(config: &StorageBackendConfig) -> Result<Box<dyn MediaStorageBackend>, ApiError> {
         match config.backend_type {
             StorageBackendType::Filesystem => {
@@ -75,7 +74,6 @@ pub struct MemoryBackend {
 }
 
 impl MemoryBackend {
-    /// See [`new`].
     /// See [`new`].
     pub fn new() -> Self {
         Self {

@@ -86,7 +86,6 @@ impl std::fmt::Debug for EventNotifier {
 
 impl EventNotifier {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self {
             room_notifiers: Arc::new(DashMap::new()),
@@ -100,14 +99,12 @@ impl EventNotifier {
     }
 
     /// See [`with_redis`].
-    /// See [`with_redis`].
     pub fn with_redis(mut self, pool: Pool, redis_url: String) -> Self {
         self.redis_pool = Some(pool);
         self.redis_url = Some(redis_url);
         self
     }
 
-    /// See [`with_instance_id`].
     /// See [`with_instance_id`].
     pub fn with_instance_id(mut self, instance_id: String) -> Self {
         self.instance_id = instance_id;

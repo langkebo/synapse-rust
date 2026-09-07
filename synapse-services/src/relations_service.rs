@@ -119,12 +119,10 @@ pub struct RelationsService {
 
 impl RelationsService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: Arc<dyn RelationsStoreApi>, server_name: String) -> Self {
         Self { storage, server_name }
     }
 
-    /// See [`send_annotation`].
     /// See [`send_annotation`].
     pub async fn send_annotation(&self, request: SendAnnotationRequest) -> Result<EventRelation, ApiError> {
         info!(
@@ -161,7 +159,6 @@ impl RelationsService {
             .map_err(|e| ApiError::internal_with_context("Failed to create annotation", &e))
     }
 
-    /// See [`send_reference`].
     /// See [`send_reference`].
     pub async fn send_reference(&self, request: SendReferenceRequest) -> Result<EventRelation, ApiError> {
         info!(
@@ -209,7 +206,6 @@ impl RelationsService {
             .map_err(|e| ApiError::internal_with_context("Failed to create reference", &e))
     }
 
-    /// See [`send_replacement`].
     /// See [`send_replacement`].
     pub async fn send_replacement(&self, request: SendReplacementRequest) -> Result<EventRelation, ApiError> {
         info!(
@@ -348,7 +344,6 @@ impl RelationsService {
         Ok(AggregationResponse { chunk })
     }
 
-    /// See [`redact_relation`].
     /// See [`redact_relation`].
     pub async fn redact_relation(&self, room_id: &str, event_id: &str, sender: &str) -> Result<(), ApiError> {
         let relation = self

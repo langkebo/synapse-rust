@@ -9,7 +9,6 @@ use super::SpaceService;
 
 impl SpaceService {
     /// See [`get_space_members`].
-    /// See [`get_space_members`].
     #[instrument(skip(self))]
     pub async fn get_space_members(&self, space_id: &str) -> Result<Vec<SpaceMember>, ApiError> {
         self.space_storage
@@ -33,7 +32,6 @@ impl SpaceService {
             .map_err(|e| ApiError::internal_with_context("Failed to get paginated space members", &e))
     }
 
-    /// See [`invite_user`].
     /// See [`invite_user`].
     #[instrument(skip(self))]
     pub async fn invite_user(&self, space_id: &str, user_id: &str, inviter: &str) -> Result<SpaceMember, ApiError> {
@@ -72,7 +70,6 @@ impl SpaceService {
         Ok(member)
     }
 
-    /// See [`join_space`].
     /// See [`join_space`].
     #[instrument(skip(self))]
     pub async fn join_space(&self, space_id: &str, user_id: &str) -> Result<SpaceMember, ApiError> {
@@ -133,7 +130,6 @@ impl SpaceService {
         Ok(member)
     }
 
-    /// See [`leave_space`].
     /// See [`leave_space`].
     #[instrument(skip(self))]
     pub async fn leave_space(&self, space_id: &str, user_id: &str) -> Result<(), ApiError> {

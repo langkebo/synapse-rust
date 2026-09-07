@@ -80,12 +80,10 @@ pub struct DehydratedDeviceStorage {
 
 impl DehydratedDeviceStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`get_by_user`].
     /// See [`get_by_user`].
     pub async fn get_by_user(&self, user_id: &str) -> Result<Option<DehydratedDevice>, sqlx::Error> {
         sqlx::query_as::<_, DehydratedDevice>(
@@ -104,7 +102,6 @@ impl DehydratedDeviceStorage {
         .await
     }
 
-    /// See [`upsert_for_user`].
     /// See [`upsert_for_user`].
     pub async fn upsert_for_user(&self, params: UpsertDehydratedDeviceParams) -> Result<DehydratedDevice, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -150,7 +147,6 @@ impl DehydratedDeviceStorage {
         Ok(record)
     }
 
-    /// See [`delete_by_user`].
     /// See [`delete_by_user`].
     pub async fn delete_by_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
         let mut tx = self.pool.begin().await?;

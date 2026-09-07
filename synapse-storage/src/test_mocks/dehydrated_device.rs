@@ -19,7 +19,6 @@ pub struct InMemoryDehydratedDeviceStore {
 
 impl InMemoryDehydratedDeviceStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }

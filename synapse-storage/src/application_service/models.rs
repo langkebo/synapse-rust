@@ -182,12 +182,10 @@ pub struct UpdateApplicationServiceRequest {
 
 impl UpdateApplicationServiceRequest {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// See [`url`].
     /// See [`url`].
     pub fn url(mut self, url: impl Into<String>) -> Self {
         self.url = Some(url.into());
@@ -195,13 +193,11 @@ impl UpdateApplicationServiceRequest {
     }
 
     /// See [`description`].
-    /// See [`description`].
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
         self
     }
 
-    /// See [`is_rate_limited`].
     /// See [`is_rate_limited`].
     pub fn is_rate_limited(mut self, is_rate_limited: bool) -> Self {
         self.is_rate_limited = Some(is_rate_limited);
@@ -209,13 +205,11 @@ impl UpdateApplicationServiceRequest {
     }
 
     /// See [`protocols`].
-    /// See [`protocols`].
     pub fn protocols(mut self, protocols: Vec<String>) -> Self {
         self.protocols = Some(protocols);
         self
     }
 
-    /// See [`is_enabled`].
     /// See [`is_enabled`].
     pub fn is_enabled(mut self, is_enabled: bool) -> Self {
         self.is_enabled = Some(is_enabled);
@@ -223,13 +217,11 @@ impl UpdateApplicationServiceRequest {
     }
 
     /// See [`api_key`].
-    /// See [`api_key`].
     pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
         self.api_key = Some(api_key.into());
         self
     }
 
-    /// See [`config`].
     /// See [`config`].
     pub fn config(mut self, config: serde_json::Value) -> Self {
         self.config = Some(config);

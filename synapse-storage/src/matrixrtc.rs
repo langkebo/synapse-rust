@@ -214,12 +214,10 @@ pub struct MatrixRTCStorage {
 
 impl MatrixRTCStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
 
-    /// See [`create_session`].
     /// See [`create_session`].
     pub async fn create_session(&self, params: CreateSessionParams) -> Result<RTCSession, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -249,7 +247,6 @@ impl MatrixRTCStorage {
     }
 
     /// See [`get_session`].
-    /// See [`get_session`].
     pub async fn get_session(&self, room_id: &str, session_id: &str) -> Result<Option<RTCSession>, sqlx::Error> {
         sqlx::query_as::<_, RTCSession>(
             r#"
@@ -264,7 +261,6 @@ impl MatrixRTCStorage {
     }
 
     /// See [`get_active_sessions_for_room`].
-    /// See [`get_active_sessions_for_room`].
     pub async fn get_active_sessions_for_room(&self, room_id: &str) -> Result<Vec<RTCSession>, sqlx::Error> {
         sqlx::query_as::<_, RTCSession>(
             r#"
@@ -278,7 +274,6 @@ impl MatrixRTCStorage {
         .await
     }
 
-    /// See [`end_session`].
     /// See [`end_session`].
     pub async fn end_session(&self, room_id: &str, session_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
@@ -299,7 +294,6 @@ impl MatrixRTCStorage {
         Ok(())
     }
 
-    /// See [`create_membership`].
     /// See [`create_membership`].
     pub async fn create_membership(&self, params: CreateMembershipParams) -> Result<RTCMembership, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -412,7 +406,6 @@ impl MatrixRTCStorage {
         Ok(())
     }
 
-    /// See [`cleanup_expired_memberships`].
     /// See [`cleanup_expired_memberships`].
     pub async fn cleanup_expired_memberships(&self) -> Result<u64, sqlx::Error> {
         let now = current_timestamp_millis();

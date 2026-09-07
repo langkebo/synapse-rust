@@ -48,12 +48,10 @@ pub struct UrlPreviewStorage {
 
 impl UrlPreviewStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`get_cached_preview`].
     /// See [`get_cached_preview`].
     pub async fn get_cached_preview(&self, url: &str, now_ts: i64) -> Result<Option<UrlPreviewCache>, sqlx::Error> {
         sqlx::query_as::<_, UrlPreviewCache>(
@@ -71,7 +69,6 @@ impl UrlPreviewStorage {
         .await
     }
 
-    /// See [`save_preview`].
     /// See [`save_preview`].
     pub async fn save_preview(&self, preview: &UrlPreviewCache) -> Result<(), sqlx::Error> {
         sqlx::query(
@@ -111,7 +108,6 @@ impl UrlPreviewStorage {
         Ok(())
     }
 
-    /// See [`cleanup_expired_previews`].
     /// See [`cleanup_expired_previews`].
     pub async fn cleanup_expired_previews(&self, now_ts: i64) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(

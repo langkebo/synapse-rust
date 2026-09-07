@@ -108,7 +108,6 @@ pub struct CallSessionStorage {
 
 impl CallSessionStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }

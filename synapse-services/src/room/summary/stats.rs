@@ -10,7 +10,6 @@ use super::service::RoomSummaryService;
 
 impl RoomSummaryService {
     /// See [`get_stats`].
-    /// See [`get_stats`].
     #[instrument(skip(self))]
     pub async fn get_stats(&self, room_id: &str) -> Result<Option<RoomSummaryStats>, ApiError> {
         let stats_res = self.storage.get_stats(room_id).await;
@@ -21,7 +20,6 @@ impl RoomSummaryService {
         }
     }
 
-    /// See [`recalculate_stats`].
     /// See [`recalculate_stats`].
     #[instrument(skip(self))]
     pub async fn recalculate_stats(&self, room_id: &str) -> Result<RoomSummaryStats, ApiError> {
@@ -74,7 +72,6 @@ impl RoomSummaryService {
         }
     }
 
-    /// See [`process_pending_updates`].
     /// See [`process_pending_updates`].
     pub async fn process_pending_updates(&self, limit: i64) -> ApiResult<usize> {
         let updates_res = self.storage.get_pending_updates(limit).await;
@@ -142,7 +139,6 @@ impl RoomSummaryService {
     }
 
     /// See [`increment_unread`].
-    /// See [`increment_unread`].
     #[instrument(skip(self))]
     pub async fn increment_unread(&self, room_id: &str, highlight: bool) -> Result<(), ApiError> {
         let result = self.storage.increment_unread_notifications(room_id, highlight).await;
@@ -154,7 +150,6 @@ impl RoomSummaryService {
     }
 
     /// See [`clear_unread`].
-    /// See [`clear_unread`].
     #[instrument(skip(self))]
     pub async fn clear_unread(&self, room_id: &str) -> Result<(), ApiError> {
         let result = self.storage.clear_unread_notifications(room_id).await;
@@ -165,7 +160,6 @@ impl RoomSummaryService {
         }
     }
 
-    /// See [`recalculate_heroes`].
     /// See [`recalculate_heroes`].
     #[instrument(skip(self))]
     pub async fn recalculate_heroes(&self, room_id: &str) -> Result<Vec<String>, ApiError> {

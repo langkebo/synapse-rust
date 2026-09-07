@@ -55,7 +55,6 @@ impl ApplicationServiceManager {
     }
 
     /// See [`load_from_config_files`].
-    /// See [`load_from_config_files`].
     #[instrument(skip(self, config_files))]
     pub async fn load_from_config_files(&self, config_files: &[String]) -> Result<Vec<ApplicationService>, ApiError> {
         let mut imported_services = Vec::with_capacity(config_files.len());
@@ -69,7 +68,6 @@ impl ApplicationServiceManager {
         Ok(imported_services)
     }
 
-    /// See [`load_from_config_file`].
     /// See [`load_from_config_file`].
     #[instrument(skip(self))]
     pub async fn load_from_config_file(&self, config_path: &Path) -> Result<ApplicationService, ApiError> {
@@ -89,7 +87,6 @@ impl ApplicationServiceManager {
         Ok(service)
     }
 
-    /// See [`register`].
     /// See [`register`].
     #[instrument(skip(self, request))]
     pub async fn register(&self, request: RegisterApplicationServiceRequest) -> Result<ApplicationService, ApiError> {
@@ -117,7 +114,6 @@ impl ApplicationServiceManager {
     }
 
     /// See [`get`].
-    /// See [`get`].
     #[instrument(skip(self))]
     pub async fn get(&self, as_id: &str) -> Result<Option<ApplicationService>, ApiError> {
         self.storage
@@ -126,7 +122,6 @@ impl ApplicationServiceManager {
             .map_err(|e| ApiError::internal_with_context("Failed to get application service", &e))
     }
 
-    /// See [`get_by_token`].
     /// See [`get_by_token`].
     #[instrument(skip(self))]
     pub async fn get_by_token(&self, as_token: &str) -> Result<Option<ApplicationService>, ApiError> {
@@ -145,7 +140,6 @@ impl ApplicationServiceManager {
         Ok(service)
     }
 
-    /// See [`get_all_active`].
     /// See [`get_all_active`].
     #[instrument(skip(self))]
     pub async fn get_all_active(&self) -> Result<Vec<ApplicationService>, ApiError> {
@@ -176,7 +170,6 @@ impl ApplicationServiceManager {
     }
 
     /// See [`unregister`].
-    /// See [`unregister`].
     #[instrument(skip(self))]
     pub async fn unregister(&self, as_id: &str) -> Result<(), ApiError> {
         info!(as_id = %as_id, "Unregistering application service");
@@ -190,7 +183,6 @@ impl ApplicationServiceManager {
         Ok(())
     }
 
-    /// See [`validate_token`].
     /// See [`validate_token`].
     #[instrument(skip(self))]
     pub async fn validate_token(&self, as_token: &str) -> Result<ApplicationService, ApiError> {
@@ -212,7 +204,6 @@ impl ApplicationServiceManager {
     }
 
     /// See [`get_state`].
-    /// See [`get_state`].
     #[instrument(skip(self))]
     pub async fn get_state(&self, as_id: &str, state_key: &str) -> Result<Option<ApplicationServiceState>, ApiError> {
         self.storage
@@ -221,7 +212,6 @@ impl ApplicationServiceManager {
             .map_err(|e| ApiError::internal_with_context("Failed to get state", &e))
     }
 
-    /// See [`get_all_states`].
     /// See [`get_all_states`].
     #[instrument(skip(self))]
     pub async fn get_all_states(&self, as_id: &str) -> Result<Vec<ApplicationServiceState>, ApiError> {
@@ -298,7 +288,6 @@ impl ApplicationServiceManager {
     }
 
     /// See [`get_pending_events`].
-    /// See [`get_pending_events`].
     #[instrument(skip(self))]
     pub async fn get_pending_events(&self, as_id: &str, limit: i64) -> Result<Vec<ApplicationServiceEvent>, ApiError> {
         self.storage
@@ -307,7 +296,6 @@ impl ApplicationServiceManager {
             .map_err(|e| ApiError::internal_with_context("Failed to get pending events", &e))
     }
 
-    /// See [`count_pending_events`].
     /// See [`count_pending_events`].
     #[instrument(skip(self))]
     pub async fn count_pending_events(&self, as_id: &str) -> Result<i64, ApiError> {
@@ -318,7 +306,6 @@ impl ApplicationServiceManager {
     }
 
     /// See [`count_pending_transactions`].
-    /// See [`count_pending_transactions`].
     #[instrument(skip(self))]
     pub async fn count_pending_transactions(&self, as_id: &str) -> Result<i64, ApiError> {
         self.storage
@@ -327,7 +314,6 @@ impl ApplicationServiceManager {
             .map_err(|e| ApiError::internal_with_context("Failed to count pending transactions", &e))
     }
 
-    /// See [`start_sender`].
     /// See [`start_sender`].
     pub async fn start_sender(self: Arc<Self>, batch_limit: i64, flush_interval_secs: u64) {
         let scheduler = Arc::new(ApplicationServiceScheduler::with_options(
@@ -339,7 +325,6 @@ impl ApplicationServiceManager {
     }
 
     /// See [`query_user`].
-    /// See [`query_user`].
     #[instrument(skip(self))]
     pub async fn query_user(&self, user_id: &str) -> Result<Option<String>, ApiError> {
         self.storage
@@ -349,7 +334,6 @@ impl ApplicationServiceManager {
     }
 
     /// See [`query_room_alias`].
-    /// See [`query_room_alias`].
     #[instrument(skip(self))]
     pub async fn query_room_alias(&self, alias: &str) -> Result<Option<String>, ApiError> {
         self.storage
@@ -358,7 +342,6 @@ impl ApplicationServiceManager {
             .map_err(|e| ApiError::internal_with_context("Failed to query room alias namespace", &e))
     }
 
-    /// See [`query_room_id`].
     /// See [`query_room_id`].
     #[instrument(skip(self))]
     pub async fn query_room_id(&self, room_id: &str) -> Result<Option<String>, ApiError> {
@@ -410,7 +393,6 @@ impl ApplicationServiceManager {
     }
 
     /// See [`get_virtual_users`].
-    /// See [`get_virtual_users`].
     #[instrument(skip(self))]
     pub async fn get_virtual_users(&self, as_id: &str) -> Result<Vec<ApplicationServiceUser>, ApiError> {
         self.storage
@@ -419,7 +401,6 @@ impl ApplicationServiceManager {
             .map_err(|e| ApiError::internal_with_context("Failed to get virtual users", &e))
     }
 
-    /// See [`get_namespaces`].
     /// See [`get_namespaces`].
     #[instrument(skip(self))]
     pub async fn get_namespaces(&self, as_id: &str) -> Result<NamespacesInfo, ApiError> {
@@ -442,7 +423,6 @@ impl ApplicationServiceManager {
         Ok(NamespacesInfo { users, aliases, rooms })
     }
 
-    /// See [`get_statistics`].
     /// See [`get_statistics`].
     #[instrument(skip(self))]
     pub async fn get_statistics(&self) -> Result<Vec<serde_json::Value>, ApiError> {
@@ -474,7 +454,6 @@ impl ApplicationServiceManager {
         Ok(enriched)
     }
 
-    /// See [`ping`].
     /// See [`ping`].
     pub async fn ping(&self, as_id: &str) -> Result<bool, ApiError> {
         let service = self

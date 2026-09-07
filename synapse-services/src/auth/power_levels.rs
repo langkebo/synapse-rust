@@ -4,7 +4,6 @@ use synapse_common::*;
 
 impl AuthService {
     /// See [`get_user_power_level`].
-    /// See [`get_user_power_level`].
     pub async fn get_user_power_level(&self, room_id: &str, user_id: &str) -> ApiResult<i64> {
         let membership = self
             .member_storage
@@ -42,7 +41,6 @@ impl AuthService {
     }
 
     /// See [`get_joined_user_power_level`].
-    /// See [`get_joined_user_power_level`].
     pub(crate) async fn get_joined_user_power_level(&self, room_id: &str, user_id: &str) -> ApiResult<i64> {
         let membership = self
             .member_storage
@@ -56,7 +54,6 @@ impl AuthService {
         }
     }
 
-    /// See [`get_room_power_levels_content`].
     /// See [`get_room_power_levels_content`].
     pub(crate) async fn get_room_power_levels_content(&self, room_id: &str) -> ApiResult<Option<serde_json::Value>> {
         let events = self
@@ -112,7 +109,6 @@ impl AuthService {
     }
 
     /// See [`get_required_state_event_power_level`].
-    /// See [`get_required_state_event_power_level`].
     pub async fn get_required_state_event_power_level(&self, room_id: &str, event_type: &str) -> ApiResult<i64> {
         let power_levels_content = self.get_room_power_levels_content(room_id).await?;
         if let Some(content) = power_levels_content {
@@ -135,7 +131,6 @@ impl AuthService {
     }
 
     /// See [`get_required_message_event_power_level`].
-    /// See [`get_required_message_event_power_level`].
     pub async fn get_required_message_event_power_level(&self, room_id: &str, event_type: &str) -> ApiResult<i64> {
         let power_levels_content = self.get_room_power_levels_content(room_id).await?;
         if let Some(content) = power_levels_content {
@@ -153,7 +148,6 @@ impl AuthService {
         Ok(0)
     }
 
-    /// See [`verify_message_event_write`].
     /// See [`verify_message_event_write`].
     pub async fn verify_message_event_write(&self, room_id: &str, user_id: &str, event_type: &str) -> ApiResult<()> {
         let power_level = self.get_joined_user_power_level(room_id, user_id).await?;
@@ -176,7 +170,6 @@ impl AuthService {
         Ok(())
     }
 
-    /// See [`verify_state_event_write`].
     /// See [`verify_state_event_write`].
     pub async fn verify_state_event_write(&self, room_id: &str, user_id: &str, event_type: &str) -> ApiResult<()> {
         let power_level = self.get_joined_user_power_level(room_id, user_id).await?;
@@ -333,7 +326,6 @@ impl AuthService {
     }
 
     /// See [`verify_room_moderator`].
-    /// See [`verify_room_moderator`].
     pub async fn verify_room_moderator(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         let power_level = self.get_user_power_level(room_id, user_id).await?;
 
@@ -360,7 +352,6 @@ impl AuthService {
     }
 
     /// See [`verify_room_admin`].
-    /// See [`verify_room_admin`].
     pub async fn verify_room_admin(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         let power_level = self.get_user_power_level(room_id, user_id).await?;
 
@@ -373,7 +364,6 @@ impl AuthService {
         Ok(())
     }
 
-    /// See [`can_kick_user`].
     /// See [`can_kick_user`].
     pub async fn can_kick_user(&self, room_id: &str, actor_user_id: &str, target_user_id: &str) -> ApiResult<()> {
         let actor_power = self.get_joined_user_power_level(room_id, actor_user_id).await?;
@@ -431,7 +421,6 @@ impl AuthService {
         Ok(())
     }
 
-    /// See [`can_ban_user`].
     /// See [`can_ban_user`].
     pub async fn can_ban_user(&self, room_id: &str, actor_user_id: &str, target_user_id: &str) -> ApiResult<()> {
         let actor_power = self.get_joined_user_power_level(room_id, actor_user_id).await?;
@@ -491,7 +480,6 @@ impl AuthService {
     }
 
     /// See [`can_unban_user`].
-    /// See [`can_unban_user`].
     pub async fn can_unban_user(&self, room_id: &str, actor_user_id: &str, target_user_id: &str) -> ApiResult<()> {
         let actor_power = self.get_joined_user_power_level(room_id, actor_user_id).await?;
         let target_power = self.get_user_power_level(room_id, target_user_id).await?;
@@ -532,7 +520,6 @@ impl AuthService {
         Ok(())
     }
 
-    /// See [`can_invite_user`].
     /// See [`can_invite_user`].
     pub async fn can_invite_user(&self, room_id: &str, actor_user_id: &str) -> ApiResult<()> {
         let actor_power = self.get_joined_user_power_level(room_id, actor_user_id).await?;

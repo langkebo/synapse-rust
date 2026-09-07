@@ -69,12 +69,10 @@ const REQUIRED_COLUMNS: &[(&str, &str)] = &[
 
 impl SchemaValidator {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
 
-    /// See [`validate_table_exists`].
     /// See [`validate_table_exists`].
     pub async fn validate_table_exists(&self, table_name: &str) -> Result<bool, sqlx::Error> {
         let count: i64 = sqlx::query_scalar(
@@ -88,7 +86,6 @@ impl SchemaValidator {
     }
 
     /// See [`validate_column_exists`].
-    /// See [`validate_column_exists`].
     pub async fn validate_column_exists(&self, table_name: &str, column_name: &str) -> Result<bool, sqlx::Error> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM information_schema.columns \
@@ -101,7 +98,6 @@ impl SchemaValidator {
         Ok(count > 0)
     }
 
-    /// See [`validate_all`].
     /// See [`validate_all`].
     pub async fn validate_all(&self) -> Result<SchemaValidationResult, sqlx::Error> {
         let mut missing_tables = Vec::new();
@@ -132,14 +128,12 @@ impl SchemaValidator {
     }
 
     /// See [`validate_indexes`].
-    /// See [`validate_indexes`].
     pub async fn validate_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
         sqlx::query_scalar("SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() ORDER BY indexname")
             .fetch_all(&*self.pool)
             .await
     }
 
-    /// See [`validate_required_tables`].
     /// See [`validate_required_tables`].
     pub async fn validate_required_tables(&self, tables: &[&str]) -> Result<Vec<String>, sqlx::Error> {
         let mut missing = Vec::new();
@@ -151,7 +145,6 @@ impl SchemaValidator {
         Ok(missing)
     }
 
-    /// See [`validate_required_columns`].
     /// See [`validate_required_columns`].
     pub async fn validate_required_columns(&self, requirements: &[(&str, &str)]) -> Result<Vec<String>, sqlx::Error> {
         let mut missing = Vec::new();
@@ -169,7 +162,6 @@ impl SchemaValidator {
             && s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '(' || c == ')' || c == ' ' || c == ',')
     }
 
-    /// See [`repair_missing_columns`].
     /// See [`repair_missing_columns`].
     #[cfg(feature = "runtime-ddl")]
     pub async fn repair_missing_columns(&self) -> Result<Vec<String>, sqlx::Error> {
@@ -193,7 +185,6 @@ impl SchemaValidator {
         Ok(repaired)
     }
 
-    /// See [`create_missing_indexes`].
     /// See [`create_missing_indexes`].
     #[cfg(feature = "runtime-ddl")]
     pub async fn create_missing_indexes(&self) -> Result<Vec<String>, sqlx::Error> {

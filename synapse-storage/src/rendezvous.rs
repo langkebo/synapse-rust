@@ -45,7 +45,6 @@ pub enum RendezvousIntent {
 
 impl RendezvousIntent {
     /// See [`as_str`].
-    /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::LoginReciprocate => "login.reciprocate",
@@ -66,7 +65,6 @@ pub enum RendezvousTransport {
 }
 
 impl RendezvousTransport {
-    /// See [`as_str`].
     /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -201,7 +199,6 @@ pub struct RendezvousStorage {
 
 impl RendezvousStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
@@ -236,7 +233,6 @@ impl RendezvousStorage {
     }
 
     /// See [`get_session`].
-    /// See [`get_session`].
     pub async fn get_session(&self, session_id: &str) -> Result<Option<RendezvousSession>, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -252,7 +248,6 @@ impl RendezvousStorage {
         .await
     }
 
-    /// See [`update_session_status`].
     /// See [`update_session_status`].
     pub async fn update_session_status(&self, session_id: &str, status: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
@@ -294,7 +289,6 @@ impl RendezvousStorage {
     }
 
     /// See [`complete_session`].
-    /// See [`complete_session`].
     pub async fn complete_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -311,7 +305,6 @@ impl RendezvousStorage {
     }
 
     /// See [`delete_session`].
-    /// See [`delete_session`].
     pub async fn delete_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -325,7 +318,6 @@ impl RendezvousStorage {
         Ok(())
     }
 
-    /// See [`cleanup_expired_sessions`].
     /// See [`cleanup_expired_sessions`].
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -595,7 +587,6 @@ pub struct StoredRendezvousMessage {
 
 impl RendezvousMessageStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
@@ -662,7 +653,6 @@ impl RendezvousMessageStorage {
         }
     }
 
-    /// See [`delete_messages`].
     /// See [`delete_messages`].
     pub async fn delete_messages(&self, session_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(

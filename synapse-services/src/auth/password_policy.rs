@@ -59,7 +59,6 @@ pub struct PasswordValidationResult {
 
 impl PasswordPolicy {
     /// See [`validate`].
-    /// See [`validate`].
     pub fn validate(&self, password: &str) -> PasswordValidationResult {
         let mut errors = Vec::new();
         let mut score: u8 = 0;
@@ -106,7 +105,6 @@ impl PasswordPolicy {
     }
 
     /// See [`is_password_expired`].
-    /// See [`is_password_expired`].
     pub fn is_password_expired(&self, password_changed_ts: Option<i64>) -> bool {
         if self.max_age_days == 0 {
             return false;
@@ -123,7 +121,6 @@ impl PasswordPolicy {
     }
 
     /// See [`calculate_password_expires_at`].
-    /// See [`calculate_password_expires_at`].
     pub fn calculate_password_expires_at(&self) -> i64 {
         if self.max_age_days == 0 {
             return 0;
@@ -133,7 +130,6 @@ impl PasswordPolicy {
         now + max_age_ms
     }
 
-    /// See [`calculate_lockout_until`].
     /// See [`calculate_lockout_until`].
     pub fn calculate_lockout_until(&self) -> i64 {
         let now = current_timestamp_millis();
@@ -149,18 +145,15 @@ pub struct PasswordPolicyService {
 
 impl PasswordPolicyService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(_pool: sqlx::PgPool) -> Self {
         Self { policy: PasswordPolicy::default() }
     }
 
     /// See [`from_policy`].
-    /// See [`from_policy`].
     pub fn from_policy(policy: PasswordPolicy) -> Self {
         Self { policy }
     }
 
-    /// See [`policy`].
     /// See [`policy`].
     pub fn policy(&self) -> &PasswordPolicy {
         &self.policy

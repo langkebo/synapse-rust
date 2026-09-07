@@ -10,7 +10,6 @@ pub struct InMemoryThreepidStore {
 
 impl InMemoryThreepidStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self {
             threepids: Arc::new(tokio::sync::RwLock::new(Vec::new())),

@@ -91,7 +91,6 @@ pub struct MembershipServiceConfig {
 
 impl MembershipService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: MembershipServiceConfig) -> Self {
         Self {
             member_storage: config.member_storage,

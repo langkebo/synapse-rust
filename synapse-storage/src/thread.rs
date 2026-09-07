@@ -264,12 +264,10 @@ pub struct ThreadStorage {
 
 impl ThreadStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`create_thread_root`].
     /// See [`create_thread_root`].
     pub async fn create_thread_root(&self, params: CreateThreadRootParams) -> Result<ThreadRoot, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -294,7 +292,6 @@ impl ThreadStorage {
         .await
     }
 
-    /// See [`get_thread_root`].
     /// See [`get_thread_root`].
     pub async fn get_thread_root(&self, room_id: &str, thread_id: &str) -> Result<Option<ThreadRoot>, sqlx::Error> {
         sqlx::query_as::<_, ThreadRoot>(
@@ -333,7 +330,6 @@ impl ThreadStorage {
         .await
     }
 
-    /// See [`list_thread_roots`].
     /// See [`list_thread_roots`].
     pub async fn list_thread_roots(&self, params: ThreadListParams) -> Result<Vec<ThreadRoot>, sqlx::Error> {
         let limit = params.limit.unwrap_or(50);
@@ -420,7 +416,6 @@ impl ThreadStorage {
         }
     }
 
-    /// See [`create_thread_reply`].
     /// See [`create_thread_reply`].
     pub async fn create_thread_reply(&self, params: CreateThreadReplyParams) -> Result<ThreadReply, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -531,7 +526,6 @@ impl ThreadStorage {
     }
 
     /// See [`get_reply_count`].
-    /// See [`get_reply_count`].
     pub async fn get_reply_count(&self, room_id: &str, thread_id: &str) -> Result<i32, sqlx::Error> {
         let result: Option<(i64,)> = sqlx::query_as(
             r"
@@ -547,7 +541,6 @@ impl ThreadStorage {
         Ok(result.map_or(0, |r| r.0 as i32))
     }
 
-    /// See [`get_thread_participants`].
     /// See [`get_thread_participants`].
     pub async fn get_thread_participants(&self, room_id: &str, thread_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let result: Vec<(String,)> = sqlx::query_as(
@@ -838,7 +831,6 @@ impl ThreadStorage {
     }
 
     /// See [`mark_reply_edited`].
-    /// See [`mark_reply_edited`].
     pub async fn mark_reply_edited(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -856,7 +848,6 @@ impl ThreadStorage {
     }
 
     /// See [`mark_reply_redacted`].
-    /// See [`mark_reply_redacted`].
     pub async fn mark_reply_redacted(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -873,7 +864,6 @@ impl ThreadStorage {
         Ok(())
     }
 
-    /// See [`delete_thread`].
     /// See [`delete_thread`].
     pub async fn delete_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
         let mut tx = self.pool.begin().await?;
@@ -1180,7 +1170,6 @@ impl ThreadStorage {
     }
 
     /// See [`freeze_thread`].
-    /// See [`freeze_thread`].
     pub async fn freeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
         sqlx::query(
@@ -1199,7 +1188,6 @@ impl ThreadStorage {
         Ok(())
     }
 
-    /// See [`unfreeze_thread`].
     /// See [`unfreeze_thread`].
     pub async fn unfreeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();

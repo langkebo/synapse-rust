@@ -46,18 +46,15 @@ pub struct RtcInfraService {
 
 impl RtcInfraService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: Arc<VoipConfig>) -> Self {
         Self { config }
     }
 
     /// See [`is_enabled`].
-    /// See [`is_enabled`].
     pub fn is_enabled(&self) -> bool {
         self.config.is_enabled()
     }
 
-    /// See [`get_settings`].
     /// See [`get_settings`].
     pub fn get_settings(&self) -> RtcInfraSettings {
         RtcInfraSettings {
@@ -68,7 +65,6 @@ impl RtcInfraService {
         }
     }
 
-    /// See [`generate_turn_credentials`].
     /// See [`generate_turn_credentials`].
     pub fn generate_turn_credentials(&self, user_id: &str) -> Result<TurnCredentials, ApiError> {
         if !self.is_enabled() {
@@ -115,18 +111,15 @@ impl RtcInfraService {
     }
 
     /// See [`can_guest_use_turn`].
-    /// See [`can_guest_use_turn`].
     pub fn can_guest_use_turn(&self) -> bool {
         self.config.turn_allow_guests
     }
 
     /// See [`get_turn_uris`].
-    /// See [`get_turn_uris`].
     pub fn get_turn_uris(&self) -> Vec<String> {
         self.config.turn_uris.clone()
     }
 
-    /// See [`get_stun_uris`].
     /// See [`get_stun_uris`].
     pub fn get_stun_uris(&self) -> Vec<String> {
         self.config.stun_uris.clone()

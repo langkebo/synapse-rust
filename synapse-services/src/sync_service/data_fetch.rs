@@ -12,13 +12,11 @@ type PresenceCanonical = HashMap<String, (String, Option<String>, Option<i64>)>;
 
 impl SyncService {
     /// See [`update_presence`].
-    /// See [`update_presence`].
     pub(crate) async fn update_presence(&self, user_id: &str, set_presence: &str) -> ApiResult<()> {
         self.presence_storage.set_presence(user_id, set_presence, None).await.ok();
         Ok(())
     }
 
-    /// See [`aggregate_ephemeral_events`].
     /// See [`aggregate_ephemeral_events`].
     pub(crate) fn aggregate_ephemeral_events(events: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
         let events_len = events.len();
@@ -333,7 +331,6 @@ impl SyncService {
     }
 
     /// See [`get_account_data_events`].
-    /// See [`get_account_data_events`].
     pub(crate) async fn get_account_data_events(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         // Cache-through: account data changes infrequently, so a 600 s TTL
         // with write-through invalidation is safe (OPT-015-b, audit 04 §5).
@@ -610,12 +607,10 @@ impl SyncService {
     }
 
     /// See [`to_device_since_stream_id`].
-    /// See [`to_device_since_stream_id`].
     pub(crate) fn to_device_since_stream_id(since: &Option<SyncToken>) -> i64 {
         since.as_ref().and_then(|token| token.to_device_stream_id).unwrap_or(0)
     }
 
-    /// See [`device_list_since_stream_id`].
     /// See [`device_list_since_stream_id`].
     pub(crate) fn device_list_since_stream_id(since: &Option<SyncToken>) -> i64 {
         since.as_ref().and_then(|token| token.device_list_stream_id).unwrap_or(0)
@@ -740,7 +735,6 @@ impl SyncService {
         Ok(result)
     }
 
-    /// See [`get_unread_counts`].
     /// See [`get_unread_counts`].
     pub(crate) async fn get_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)> {
         let counts = self

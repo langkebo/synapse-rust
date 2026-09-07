@@ -35,7 +35,6 @@ pub struct QrLoginStorage {
 
 impl QrLoginStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<PgPool>) -> Self {
         Self { pool }
     }

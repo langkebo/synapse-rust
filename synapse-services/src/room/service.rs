@@ -154,7 +154,6 @@ pub struct RoomService {
 
 impl RoomService {
     /// See [`new`].
-    /// See [`new`].
     #[allow(clippy::expect_used)]
     pub fn new(config: RoomServiceConfig) -> Self {
         // Build shared infrastructure FIRST so its handles can be cloned into
@@ -255,12 +254,10 @@ impl RoomService {
     }
 
     /// See [`room_summary_service`].
-    /// See [`room_summary_service`].
     pub fn room_summary_service(&self) -> &RoomSummaryService {
         &self.room_summary_service
     }
 
-    /// See [`cleanup_completed_tasks`].
     /// See [`cleanup_completed_tasks`].
     pub async fn cleanup_completed_tasks(&self) -> usize {
         let mut tasks = self.active_tasks.write().await;
@@ -268,7 +265,6 @@ impl RoomService {
         tasks.len()
     }
 
-    /// See [`abort_task`].
     /// See [`abort_task`].
     pub async fn abort_task(&self, task_id: &str) -> bool {
         let mut tasks = self.active_tasks.write().await;
@@ -280,7 +276,6 @@ impl RoomService {
         }
     }
 
-    /// See [`shutdown`].
     /// See [`shutdown`].
     pub async fn shutdown(&self) {
         let mut tasks = self.active_tasks.write().await;
@@ -318,7 +313,6 @@ impl RoomService {
     }
 
     /// See [`get_room`].
-    /// See [`get_room`].
     pub async fn get_room(&self, room_id: &str) -> ApiResult<serde_json::Value> {
         let room = self
             .room_storage
@@ -340,7 +334,6 @@ impl RoomService {
         }
     }
 
-    /// See [`get_room_state`].
     /// See [`get_room_state`].
     pub async fn get_room_state(&self, room_id: &str, user_id: &str) -> ApiResult<serde_json::Value> {
         if !self
@@ -372,7 +365,6 @@ impl RoomService {
         }
     }
 
-    /// See [`get_user_rooms`].
     /// See [`get_user_rooms`].
     pub async fn get_user_rooms(&self, user_id: &str) -> ApiResult<serde_json::Value> {
         let room_ids = self
@@ -459,7 +451,6 @@ impl RoomService {
         Ok(child_rooms)
     }
 
-    /// See [`upgrade_room`].
     /// See [`upgrade_room`].
     pub async fn upgrade_room(&self, old_room_id: &str, new_version: &str, user_id: &str) -> ApiResult<String> {
         let old_room = self
@@ -691,7 +682,6 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_context("Failed to get all sticky events", &e))
     }
 
-    /// See [`clear_is_sticky_event`].
     /// See [`clear_is_sticky_event`].
     pub async fn clear_is_sticky_event(&self, room_id: &str, user_id: &str, event_type: &str) -> ApiResult<()> {
         self.sticky_event_storage

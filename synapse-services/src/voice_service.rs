@@ -35,12 +35,10 @@ pub struct VoiceService {
 
 impl VoiceService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(media_service: MediaService, voice_storage: VoiceStorage, server_name: &str) -> Self {
         Self { media_service, voice_storage, server_name: server_name.to_string() }
     }
 
-    /// See [`validate_audio_content_type`].
     /// See [`validate_audio_content_type`].
     pub fn validate_audio_content_type(content_type: &str) -> Result<(), ApiError> {
         if !ALLOWED_AUDIO_TYPES.iter().any(|t| content_type.starts_with(t)) {
@@ -78,7 +76,6 @@ impl VoiceService {
         room_id.is_some() && is_room_member
     }
 
-    /// See [`upload_voice_message`].
     /// See [`upload_voice_message`].
     pub async fn upload_voice_message(&self, params: VoiceMessageUploadParams) -> ApiResult<serde_json::Value> {
         Self::validate_audio_content_type(&params.content_type)?;
@@ -140,18 +137,15 @@ impl VoiceService {
     }
 
     /// See [`get_voice_media`].
-    /// See [`get_voice_media`].
     pub async fn get_voice_media(&self, media_id: &str) -> ApiResult<Option<Vec<u8>>> {
         Ok(self.media_service.get_media(&self.server_name, media_id).await)
     }
 
     /// See [`delete_voice_media`].
-    /// See [`delete_voice_media`].
     pub async fn delete_voice_media(&self, media_id: &str) -> ApiResult<()> {
         self.media_service.delete_media(&self.server_name, media_id).await
     }
 
-    /// See [`get_voice_stats`].
     /// See [`get_voice_stats`].
     pub async fn get_voice_stats(&self, user_id: &str) -> ApiResult<serde_json::Value> {
         match self.voice_storage.get_user_stats(user_id).await {
@@ -176,7 +170,6 @@ impl VoiceService {
     }
 
     /// See [`get_room_voice_stats`].
-    /// See [`get_room_voice_stats`].
     pub async fn get_room_voice_stats(&self, room_id: &str) -> ApiResult<serde_json::Value> {
         match self.voice_storage.get_room_stats(room_id).await {
             Ok(stats) => Ok(json!({
@@ -197,7 +190,6 @@ impl VoiceService {
         }
     }
 
-    /// See [`get_user_voice_stats`].
     /// See [`get_user_voice_stats`].
     pub async fn get_user_voice_stats(&self, user_id: &str) -> ApiResult<serde_json::Value> {
         match self.voice_storage.get_global_user_stats(user_id).await {
@@ -269,7 +261,6 @@ impl VoiceService {
         }))
     }
 
-    /// See [`get_voice_message_content`].
     /// See [`get_voice_message_content`].
     pub async fn get_voice_message_content(&self, media_id: &str) -> ApiResult<serde_json::Value> {
         let record = self

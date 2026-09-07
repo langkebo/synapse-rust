@@ -17,7 +17,6 @@ pub struct InMemoryFilterStore {
 
 impl InMemoryFilterStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }

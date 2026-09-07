@@ -114,7 +114,6 @@ pub struct SearchIndexStorage {
 
 impl SearchIndexStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Pool<Postgres>) -> Self {
         Self { pool }
     }

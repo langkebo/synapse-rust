@@ -116,12 +116,10 @@ impl RtcDomainService {
     }
 
     /// See [`infra`].
-    /// See [`infra`].
     pub fn infra(&self) -> &RtcInfraService {
         &self.infra
     }
 
-    /// See [`call`].
     /// See [`call`].
     #[cfg(feature = "voip-tracking")]
     pub fn call(&self) -> &CallOrchestrationService {
@@ -129,13 +127,11 @@ impl RtcDomainService {
     }
 
     /// See [`session`].
-    /// See [`session`].
     #[cfg(feature = "voip-tracking")]
     pub fn session(&self) -> &RtcSessionService {
         &self.session
     }
 
-    /// See [`sfu`].
     /// See [`sfu`].
     #[cfg(feature = "voip-tracking")]
     pub fn sfu(&self) -> &LivekitClient {

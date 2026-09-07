@@ -108,12 +108,10 @@ pub struct AdminFederationStorage {
 
 impl AdminFederationStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`count_destinations`].
     /// See [`count_destinations`].
     pub async fn count_destinations(&self) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM federation_servers").fetch_one(&*self.pool).await
@@ -155,7 +153,6 @@ impl AdminFederationStorage {
     }
 
     /// See [`get_destination`].
-    /// See [`get_destination`].
     pub async fn get_destination(&self, server_name: &str) -> Result<Option<FederationDestinationRecord>, sqlx::Error> {
         sqlx::query_as::<_, FederationDestinationRecord>(
             r"
@@ -170,7 +167,6 @@ impl AdminFederationStorage {
     }
 
     /// See [`reset_connection`].
-    /// See [`reset_connection`].
     pub async fn reset_connection(&self, server_name: &str) -> Result<u64, sqlx::Error> {
         let result = sqlx::query(
             "UPDATE federation_servers SET last_failed_connect_at = NULL, failure_count = 0 WHERE server_name = $1",
@@ -182,7 +178,6 @@ impl AdminFederationStorage {
     }
 
     /// See [`delete_destination`].
-    /// See [`delete_destination`].
     pub async fn delete_destination(&self, server_name: &str) -> Result<u64, sqlx::Error> {
         let result = sqlx::query("DELETE FROM federation_servers WHERE server_name = $1")
             .bind(server_name)
@@ -192,7 +187,6 @@ impl AdminFederationStorage {
     }
 
     /// See [`destination_exists`].
-    /// See [`destination_exists`].
     pub async fn destination_exists(&self, server_name: &str) -> Result<bool, sqlx::Error> {
         sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM federation_servers WHERE server_name = $1)")
             .bind(server_name)
@@ -200,7 +194,6 @@ impl AdminFederationStorage {
             .await
     }
 
-    /// See [`get_destination_rooms`].
     /// See [`get_destination_rooms`].
     pub async fn get_destination_rooms(&self, server_name: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows: Vec<Option<String>> = sqlx::query_scalar(
@@ -214,7 +207,6 @@ impl AdminFederationStorage {
     }
 
     /// See [`count_distinct_rooms_by_sender_server`].
-    /// See [`count_distinct_rooms_by_sender_server`].
     pub async fn count_distinct_rooms_by_sender_server(&self, server_name: &str) -> Result<i64, sqlx::Error> {
         let suffix = format!("%:{server_name}");
         sqlx::query_scalar::<_, i64>(
@@ -225,7 +217,6 @@ impl AdminFederationStorage {
         .await
     }
 
-    /// See [`get_destination_status`].
     /// See [`get_destination_status`].
     pub async fn get_destination_status(&self, server_name: &str) -> Result<Option<String>, sqlx::Error> {
         sqlx::query_scalar::<_, String>(
@@ -307,14 +298,12 @@ impl AdminFederationStorage {
     }
 
     /// See [`count_pending_federation`].
-    /// See [`count_pending_federation`].
     pub async fn count_pending_federation(&self) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM federation_servers WHERE status = 'pending'")
             .fetch_one(&*self.pool)
             .await
     }
 
-    /// See [`get_federation_cache`].
     /// See [`get_federation_cache`].
     pub async fn get_federation_cache(&self) -> Result<Vec<FederationCacheRecord>, sqlx::Error> {
         let rows = sqlx::query("SELECT key, value, expiry_ts FROM federation_cache ORDER BY key")
@@ -332,13 +321,11 @@ impl AdminFederationStorage {
     }
 
     /// See [`delete_federation_cache_entry`].
-    /// See [`delete_federation_cache_entry`].
     pub async fn delete_federation_cache_entry(&self, key: &str) -> Result<u64, sqlx::Error> {
         let result = sqlx::query("DELETE FROM federation_cache WHERE key = $1").bind(key).execute(&*self.pool).await?;
         Ok(result.rows_affected())
     }
 
-    /// See [`clear_federation_cache`].
     /// See [`clear_federation_cache`].
     pub async fn clear_federation_cache(&self) -> Result<u64, sqlx::Error> {
         let result = sqlx::query("DELETE FROM federation_cache").execute(&*self.pool).await?;

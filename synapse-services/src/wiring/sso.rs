@@ -40,7 +40,6 @@ pub struct SsoServices {
 
 impl SsoServices {
     /// See [`new`].
-    /// See [`new`].
     pub async fn new(pool: &Arc<sqlx::PgPool>, config: &Config) -> Self {
         #[cfg(feature = "saml-sso")]
         let saml_storage: Arc<dyn synapse_storage::saml::SamlStoreApi> =

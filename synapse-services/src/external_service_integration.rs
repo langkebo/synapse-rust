@@ -159,7 +159,6 @@ pub struct ExternalServiceIntegration {
 
 impl ExternalServiceIntegration {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: Arc<dyn ApplicationServiceStoreApi>, server_name: String) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(30))
@@ -500,7 +499,6 @@ impl ExternalServiceIntegration {
     }
 
     /// See [`get_service_health`].
-    /// See [`get_service_health`].
     #[instrument(skip(self))]
     pub async fn get_service_health(&self, service_id: &str) -> Option<ServiceHealthStatus> {
         let status = self.health_status.read().await;
@@ -508,14 +506,12 @@ impl ExternalServiceIntegration {
     }
 
     /// See [`get_all_health_status`].
-    /// See [`get_all_health_status`].
     #[instrument(skip(self))]
     pub async fn get_all_health_status(&self) -> Vec<ServiceHealthStatus> {
         let status = self.health_status.read().await;
         status.values().cloned().collect()
     }
 
-    /// See [`check_service_health`].
     /// See [`check_service_health`].
     #[instrument(skip(self), fields(request_id = %request_id))]
     pub async fn check_service_health(&self, request_id: &str, as_id: &str) -> Result<bool, ApiError> {
@@ -550,7 +546,6 @@ impl ExternalServiceIntegration {
         }
     }
 
-    /// See [`unregister_external_service`].
     /// See [`unregister_external_service`].
     #[instrument(skip(self), fields(request_id = %request_id))]
     pub async fn unregister_external_service(&self, request_id: &str, service_id: &str) -> Result<(), ApiError> {
@@ -601,7 +596,6 @@ impl ExternalServiceIntegration {
         }
     }
 
-    /// See [`send_to_external_service`].
     /// See [`send_to_external_service`].
     #[instrument(skip(self))]
     pub async fn send_to_external_service(&self, as_id: &str, event: serde_json::Value) -> Result<(), ApiError> {

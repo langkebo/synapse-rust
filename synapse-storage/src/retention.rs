@@ -226,7 +226,6 @@ pub trait RetentionStoreApi: Send + Sync {
 
 impl RetentionStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
@@ -263,7 +262,6 @@ impl RetentionStorage {
         Ok(row)
     }
 
-    /// See [`get_room_policy`].
     /// See [`get_room_policy`].
     pub async fn get_room_policy(&self, room_id: &str) -> Result<Option<RoomRetentionPolicy>, sqlx::Error> {
         let row = sqlx::query_as::<_, RoomRetentionPolicy>(
@@ -303,7 +301,6 @@ impl RetentionStorage {
     }
 
     /// See [`delete_room_policy`].
-    /// See [`delete_room_policy`].
     pub async fn delete_room_policy(&self, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM room_retention_policies WHERE room_id = $1")
             .bind(room_id)
@@ -313,7 +310,6 @@ impl RetentionStorage {
         Ok(())
     }
 
-    /// See [`get_server_policy`].
     /// See [`get_server_policy`].
     pub async fn get_server_policy(&self) -> Result<ServerRetentionPolicy, sqlx::Error> {
         let row = sqlx::query_as::<_, ServerRetentionPolicy>(
@@ -350,7 +346,6 @@ impl RetentionStorage {
     }
 
     /// See [`get_effective_policy`].
-    /// See [`get_effective_policy`].
     pub async fn get_effective_policy(&self, room_id: &str) -> Result<EffectiveRetentionPolicy, sqlx::Error> {
         let room_policy = self.get_room_policy(room_id).await?;
         let server_policy = self.get_server_policy().await?;
@@ -364,7 +359,6 @@ impl RetentionStorage {
         })
     }
 
-    /// See [`delete_events_before`].
     /// See [`delete_events_before`].
     pub async fn delete_events_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
@@ -385,7 +379,6 @@ impl RetentionStorage {
     }
 
     /// See [`get_rooms_with_policies`].
-    /// See [`get_rooms_with_policies`].
     pub async fn get_rooms_with_policies(&self) -> Result<Vec<RoomRetentionPolicy>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomRetentionPolicy>(
             "SELECT id, room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts FROM room_retention_policies ORDER BY room_id",
@@ -396,7 +389,6 @@ impl RetentionStorage {
         Ok(rows)
     }
 
-    /// See [`get_server_policy_optional`].
     /// See [`get_server_policy_optional`].
     pub async fn get_server_policy_optional(&self) -> Result<Option<ServerRetentionPolicy>, sqlx::Error> {
         let row = sqlx::query_as::<_, ServerRetentionPolicy>(
@@ -442,7 +434,6 @@ impl RetentionStorage {
     }
 
     /// See [`count_room_policies`].
-    /// See [`count_room_policies`].
     pub async fn count_room_policies(&self) -> Result<i64, sqlx::Error> {
         let count =
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM room_retention_policies").fetch_one(&*self.pool).await?;
@@ -450,7 +441,6 @@ impl RetentionStorage {
         Ok(count)
     }
 
-    /// See [`has_server_policy`].
     /// See [`has_server_policy`].
     pub async fn has_server_policy(&self) -> Result<bool, sqlx::Error> {
         let exists = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM server_retention_policy)")

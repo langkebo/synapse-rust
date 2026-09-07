@@ -312,7 +312,6 @@ impl fmt::Display for ReplicationCommand {
 
 impl ReplicationCommand {
     /// See [`parse`].
-    /// See [`parse`].
     pub fn parse(line: &str) -> Result<Self, ReplicationError> {
         let line = line.trim();
         if line.is_empty() {
@@ -410,7 +409,6 @@ impl ReplicationCommand {
     }
 
     /// See [`to_line`].
-    /// See [`to_line`].
     pub fn to_line(&self) -> String {
         format!("{self}\n")
     }
@@ -445,18 +443,15 @@ pub struct ReplicationProtocol;
 
 impl ReplicationProtocol {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self
     }
 
     /// See [`encode_command`].
-    /// See [`encode_command`].
     pub fn encode_command(&self, command: &ReplicationCommand) -> Vec<u8> {
         command.to_line().into_bytes()
     }
 
-    /// See [`decode_command`].
     /// See [`decode_command`].
     pub fn decode_command(&self, data: &[u8]) -> Result<ReplicationCommand, ReplicationError> {
         let line = String::from_utf8_lossy(data);
@@ -465,30 +460,25 @@ impl ReplicationProtocol {
     }
 
     /// See [`create_ping`].
-    /// See [`create_ping`].
     pub fn create_ping() -> ReplicationCommand {
         ReplicationCommand::Ping { timestamp: current_timestamp_millis() }
     }
 
-    /// See [`create_pong`].
     /// See [`create_pong`].
     pub fn create_pong(server_name: &str) -> ReplicationCommand {
         ReplicationCommand::Pong { timestamp: current_timestamp_millis(), server_name: server_name.to_string() }
     }
 
     /// See [`create_position`].
-    /// See [`create_position`].
     pub fn create_position(stream_name: &str, position: i64) -> ReplicationCommand {
         ReplicationCommand::Position { stream_name: stream_name.to_string(), position }
     }
 
     /// See [`create_error`].
-    /// See [`create_error`].
     pub fn create_error(message: &str) -> ReplicationCommand {
         ReplicationCommand::Error { message: message.to_string() }
     }
 
-    /// See [`create_sync`].
     /// See [`create_sync`].
     pub fn create_sync(stream_name: &str, position: i64) -> ReplicationCommand {
         ReplicationCommand::Sync { stream_name: stream_name.to_string(), position }

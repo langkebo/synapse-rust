@@ -96,7 +96,6 @@ pub struct AccessTokenStorage {
 
 impl AccessTokenStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
     }
@@ -130,7 +129,6 @@ impl AccessTokenStorage {
     }
 
     /// See [`get_token`].
-    /// See [`get_token`].
     pub async fn get_token(&self, token: &str) -> Result<Option<AccessToken>, sqlx::Error> {
         let token_hash = Self::hash_token(token);
         let row = sqlx::query_as!(
@@ -161,7 +159,6 @@ impl AccessTokenStorage {
     }
 
     /// See [`get_user_tokens`].
-    /// See [`get_user_tokens`].
     pub async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<AccessToken>, sqlx::Error> {
         let rows = sqlx::query_as!(
             AccessToken,
@@ -177,7 +174,6 @@ impl AccessTokenStorage {
     }
 
     /// See [`delete_user_token_by_id`].
-    /// See [`delete_user_token_by_id`].
     pub async fn delete_user_token_by_id(&self, user_id: &str, token_id: i64) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
             r#"
@@ -192,7 +188,6 @@ impl AccessTokenStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    /// See [`delete_token`].
     /// See [`delete_token`].
     pub async fn delete_token(&self, token: &str) -> Result<(), sqlx::Error> {
         let token_hash = Self::hash_token(token);
@@ -210,7 +205,6 @@ impl AccessTokenStorage {
     }
 
     /// See [`delete_user_tokens`].
-    /// See [`delete_user_tokens`].
     pub async fn delete_user_tokens(&self, user_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
@@ -224,7 +218,6 @@ impl AccessTokenStorage {
     }
 
     /// See [`delete_device_tokens`].
-    /// See [`delete_device_tokens`].
     pub async fn delete_device_tokens(&self, device_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
@@ -237,7 +230,6 @@ impl AccessTokenStorage {
         Ok(())
     }
 
-    /// See [`delete_user_device_tokens`].
     /// See [`delete_user_device_tokens`].
     pub async fn delete_user_device_tokens(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query!(
@@ -254,7 +246,6 @@ impl AccessTokenStorage {
     }
 
     /// See [`delete_user_tokens_except_device`].
-    /// See [`delete_user_tokens_except_device`].
     pub async fn delete_user_tokens_except_device(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
@@ -269,7 +260,6 @@ impl AccessTokenStorage {
         Ok(())
     }
 
-    /// See [`token_exists`].
     /// See [`token_exists`].
     pub async fn token_exists(&self, token: &str) -> Result<bool, sqlx::Error> {
         let token_hash = Self::hash_token(token);
@@ -290,7 +280,6 @@ impl AccessTokenStorage {
     }
 
     /// See [`is_token_revoked`].
-    /// See [`is_token_revoked`].
     pub async fn is_token_revoked(&self, token: &str) -> Result<bool, sqlx::Error> {
         let token_hash = Self::hash_token(token);
         let legacy_hash = Self::hash_token_legacy(token);
@@ -309,7 +298,6 @@ impl AccessTokenStorage {
         Ok(result.is_some())
     }
 
-    /// See [`add_to_blacklist`].
     /// See [`add_to_blacklist`].
     pub async fn add_to_blacklist(&self, token: &str, user_id: &str, reason: Option<&str>) -> Result<(), sqlx::Error> {
         let token_hash = Self::hash_token(token);
@@ -341,7 +329,6 @@ impl AccessTokenStorage {
     }
 
     /// See [`is_in_blacklist`].
-    /// See [`is_in_blacklist`].
     pub async fn is_in_blacklist(&self, token: &str) -> Result<bool, sqlx::Error> {
         let token_hash = Self::hash_token(token);
         let legacy_hash = Self::hash_token_legacy(token);
@@ -368,7 +355,6 @@ impl AccessTokenStorage {
     }
 
     /// See [`cleanup_expired_blacklist_entries`].
-    /// See [`cleanup_expired_blacklist_entries`].
     pub async fn cleanup_expired_blacklist_entries(&self, max_age_seconds: i64) -> Result<u64, sqlx::Error> {
         let cutoff = current_timestamp_millis() - max_age_seconds * 1000;
         let result = sqlx::query!(
@@ -382,7 +368,6 @@ impl AccessTokenStorage {
         Ok(result.rows_affected())
     }
 
-    /// See [`cleanup_expired_tokens`].
     /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error> {
         let now = current_timestamp_millis();

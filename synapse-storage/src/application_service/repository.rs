@@ -11,7 +11,6 @@ pub struct ApplicationServiceStorage {
 
 impl ApplicationServiceStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
@@ -206,7 +205,6 @@ impl ApplicationServiceStorage {
     }
 
     /// See [`get_by_id`].
-    /// See [`get_by_id`].
     pub async fn get_by_id(&self, as_id: &str) -> Result<Option<ApplicationService>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(r"SELECT id, as_id, url, as_token, hs_token, sender_localpart, is_enabled, is_rate_limited, protocols, namespaces, created_ts, updated_ts, description, api_key, config FROM application_services WHERE as_id = $1")
             .bind(as_id)
@@ -214,7 +212,6 @@ impl ApplicationServiceStorage {
             .await
     }
 
-    /// See [`get_by_token`].
     /// See [`get_by_token`].
     pub async fn get_by_token(&self, as_token: &str) -> Result<Option<ApplicationService>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(
@@ -226,7 +223,6 @@ impl ApplicationServiceStorage {
     }
 
     /// See [`get_by_hs_token`].
-    /// See [`get_by_hs_token`].
     pub async fn get_by_hs_token(&self, hs_token: &str) -> Result<Option<ApplicationService>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(
             r"SELECT id, as_id, url, as_token, hs_token, sender_localpart, is_enabled, is_rate_limited, protocols, namespaces, created_ts, updated_ts, description, api_key, config FROM application_services WHERE hs_token = $1 AND is_enabled = TRUE",
@@ -236,7 +232,6 @@ impl ApplicationServiceStorage {
         .await
     }
 
-    /// See [`get_all_active`].
     /// See [`get_all_active`].
     pub async fn get_all_active(&self) -> Result<Vec<ApplicationService>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationService>(
@@ -283,7 +278,6 @@ impl ApplicationServiceStorage {
     }
 
     /// See [`update_timestamp`].
-    /// See [`update_timestamp`].
     pub async fn update_timestamp(&self, as_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
         sqlx::query(r"UPDATE application_services SET updated_ts = $2 WHERE as_id = $1")
@@ -294,7 +288,6 @@ impl ApplicationServiceStorage {
         Ok(())
     }
 
-    /// See [`unregister`].
     /// See [`unregister`].
     pub async fn unregister(&self, as_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(r"DELETE FROM application_services WHERE as_id = $1").bind(as_id).execute(&*self.pool).await?;
@@ -356,7 +349,6 @@ impl ApplicationServiceStorage {
         .await
     }
 
-    /// See [`get_all_states`].
     /// See [`get_all_states`].
     pub async fn get_all_states(&self, as_id: &str) -> Result<Vec<ApplicationServiceState>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceState>(
@@ -452,7 +444,6 @@ impl ApplicationServiceStorage {
     }
 
     /// See [`count_pending_events`].
-    /// See [`count_pending_events`].
     pub async fn count_pending_events(&self, as_id: &str) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar::<_, i64>(
             r"
@@ -466,7 +457,6 @@ impl ApplicationServiceStorage {
         .await
     }
 
-    /// See [`mark_event_processed`].
     /// See [`mark_event_processed`].
     pub async fn mark_event_processed(&self, event_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
@@ -505,7 +495,6 @@ impl ApplicationServiceStorage {
         .await
     }
 
-    /// See [`complete_transaction`].
     /// See [`complete_transaction`].
     pub async fn complete_transaction(&self, as_id: &str, transaction_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
@@ -560,7 +549,6 @@ impl ApplicationServiceStorage {
     }
 
     /// See [`count_pending_transactions`].
-    /// See [`count_pending_transactions`].
     pub async fn count_pending_transactions(&self, as_id: &str) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar::<_, i64>(
             r"
@@ -603,7 +591,6 @@ impl ApplicationServiceStorage {
     }
 
     /// See [`get_virtual_users`].
-    /// See [`get_virtual_users`].
     pub async fn get_virtual_users(&self, as_id: &str) -> Result<Vec<ApplicationServiceUser>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceUser>(r"SELECT as_id, user_id, displayname, avatar_url, created_ts FROM application_service_users WHERE as_id = $1")
             .bind(as_id)
@@ -611,7 +598,6 @@ impl ApplicationServiceStorage {
             .await
     }
 
-    /// See [`has_exclusive_user_namespace_match`].
     /// See [`has_exclusive_user_namespace_match`].
     pub async fn has_exclusive_user_namespace_match(&self, as_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let matched = sqlx::query_scalar::<_, i64>(
@@ -705,7 +691,6 @@ impl ApplicationServiceStorage {
     }
 
     /// See [`is_user_in_namespace`].
-    /// See [`is_user_in_namespace`].
     pub async fn is_user_in_namespace(&self, user_id: &str) -> Result<Option<String>, sqlx::Error> {
         let result = sqlx::query(
             r"
@@ -723,7 +708,6 @@ impl ApplicationServiceStorage {
         Ok(result.map(|row| row.get("as_id")))
     }
 
-    /// See [`is_room_alias_in_namespace`].
     /// See [`is_room_alias_in_namespace`].
     pub async fn is_room_alias_in_namespace(&self, alias: &str) -> Result<Option<String>, sqlx::Error> {
         let result = sqlx::query(
@@ -743,7 +727,6 @@ impl ApplicationServiceStorage {
     }
 
     /// See [`is_room_id_in_namespace`].
-    /// See [`is_room_id_in_namespace`].
     pub async fn is_room_id_in_namespace(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
         let result = sqlx::query(
             r"
@@ -761,7 +744,6 @@ impl ApplicationServiceStorage {
         Ok(result.map(|row| row.get("as_id")))
     }
 
-    /// See [`get_user_namespaces`].
     /// See [`get_user_namespaces`].
     pub async fn get_user_namespaces(&self, as_id: &str) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceNamespace>(
@@ -806,7 +788,6 @@ impl ApplicationServiceStorage {
     }
 
     /// See [`get_room_namespaces`].
-    /// See [`get_room_namespaces`].
     pub async fn get_room_namespaces(&self, as_id: &str) -> Result<Vec<ApplicationServiceNamespace>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceNamespace>(
             r"
@@ -826,7 +807,6 @@ impl ApplicationServiceStorage {
         .await
     }
 
-    /// See [`get_statistics`].
     /// See [`get_statistics`].
     pub async fn get_statistics(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         sqlx::query(
@@ -893,7 +873,6 @@ impl ApplicationServiceStorage {
         })
     }
 
-    /// See [`update_last_seen`].
     /// See [`update_last_seen`].
     pub async fn update_last_seen(&self, as_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();

@@ -42,7 +42,6 @@ impl MembershipState {
     }
 
     /// See [`as_str`].
-    /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Invite => "invite",
@@ -66,7 +65,6 @@ pub struct TransitionContext {
 }
 
 impl TransitionContext {
-    /// See [`new`].
     /// See [`new`].
     pub fn new(join_rule: Option<String>) -> Self {
         Self { join_rule }

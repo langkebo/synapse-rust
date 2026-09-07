@@ -61,7 +61,6 @@ pub struct QuarantinedMediaChangeStorage {
 
 impl QuarantinedMediaChangeStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: (**pool).clone() }
     }

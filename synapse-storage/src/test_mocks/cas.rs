@@ -19,7 +19,6 @@ pub struct InMemoryCasStore {
 #[cfg(feature = "cas-sso")]
 impl InMemoryCasStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self {
             tickets: Arc::new(tokio::sync::RwLock::new(HashMap::new())),

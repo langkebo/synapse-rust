@@ -148,7 +148,6 @@ impl AdminFederationService {
     }
 
     /// See [`list_destinations`].
-    /// See [`list_destinations`].
     #[instrument(skip(self))]
     pub async fn list_destinations(&self, limit: i32, cursor: Option<DestinationCursor>) -> DestinationListResult {
         let total = self
@@ -178,7 +177,6 @@ impl AdminFederationService {
     }
 
     /// See [`get_destination`].
-    /// See [`get_destination`].
     #[instrument(skip(self))]
     pub async fn get_destination(&self, destination: &str) -> Result<Option<DestinationInfo>, ApiError> {
         let destination = self
@@ -190,7 +188,6 @@ impl AdminFederationService {
         Ok(destination.as_ref().map(map_destination_row))
     }
 
-    /// See [`reset_connection`].
     /// See [`reset_connection`].
     #[instrument(skip(self))]
     pub async fn reset_connection(&self, destination: &str) -> Result<(), ApiError> {
@@ -208,7 +205,6 @@ impl AdminFederationService {
     }
 
     /// See [`delete_destination`].
-    /// See [`delete_destination`].
     #[instrument(skip(self))]
     pub async fn delete_destination(&self, destination: &str) -> Result<(), ApiError> {
         let rows_affected = self
@@ -224,7 +220,6 @@ impl AdminFederationService {
         Ok(())
     }
 
-    /// See [`get_destination_rooms`].
     /// See [`get_destination_rooms`].
     #[instrument(skip(self))]
     pub async fn get_destination_rooms(&self, destination: &str) -> Result<Vec<String>, ApiError> {
@@ -276,7 +271,6 @@ impl AdminFederationService {
         Ok(room_count as usize)
     }
 
-    /// See [`resolve_federation`].
     /// See [`resolve_federation`].
     #[instrument(skip(self))]
     pub async fn resolve_federation(&self, server_name: &str) -> Result<ResolveFederationResult, ApiError> {
@@ -399,7 +393,6 @@ impl AdminFederationService {
     }
 
     /// See [`add_to_blacklist`].
-    /// See [`add_to_blacklist`].
     #[instrument(skip(self))]
     pub async fn add_to_blacklist(&self, server_name: &str, admin_user_id: &str) -> Result<(), ApiError> {
         let existing = self.federation_blacklist_storage.get_blacklist_entry(server_name).await?;
@@ -423,7 +416,6 @@ impl AdminFederationService {
     }
 
     /// See [`remove_from_blacklist`].
-    /// See [`remove_from_blacklist`].
     #[instrument(skip(self))]
     pub async fn remove_from_blacklist(&self, server_name: &str, admin_user_id: &str) -> Result<(), ApiError> {
         let existing = self.federation_blacklist_storage.get_blacklist_entry(server_name).await?;
@@ -434,7 +426,6 @@ impl AdminFederationService {
         self.federation_blacklist_service.remove_from_blacklist(server_name, admin_user_id).await
     }
 
-    /// See [`get_federation_cache`].
     /// See [`get_federation_cache`].
     #[instrument(skip(self))]
     pub async fn get_federation_cache(&self) -> Result<Vec<FederationCacheEntry>, ApiError> {
@@ -447,7 +438,6 @@ impl AdminFederationService {
         Ok(cache.iter().map(map_cache_entry).collect())
     }
 
-    /// See [`delete_federation_cache_entry`].
     /// See [`delete_federation_cache_entry`].
     #[instrument(skip(self))]
     pub async fn delete_federation_cache_entry(&self, key: &str) -> Result<(), ApiError> {
@@ -464,7 +454,6 @@ impl AdminFederationService {
         Ok(())
     }
 
-    /// See [`clear_federation_cache`].
     /// See [`clear_federation_cache`].
     #[instrument(skip(self))]
     pub async fn clear_federation_cache(&self) -> Result<u64, ApiError> {

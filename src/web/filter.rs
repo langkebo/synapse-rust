@@ -6,7 +6,6 @@ pub struct ResponseFilter;
 
 impl ResponseFilter {
     /// See [`filter_fields`].
-    /// See [`filter_fields`].
     pub fn filter_fields<T: Serialize>(data: &T, fields: Option<&[String]>) -> Result<Value, serde_json::Error> {
         let full_value = serde_json::to_value(data)?;
 
@@ -29,7 +28,6 @@ impl ResponseFilter {
     }
 
     /// See [`extract_fields_from_query`].
-    /// See [`extract_fields_from_query`].
     pub fn extract_fields_from_query(query: &Value) -> Option<Vec<String>> {
         query.get("filter").and_then(|f| f.as_str()).and_then(|s| serde_json::from_str(s).ok()).and_then(|v: Value| {
             v.get("fields")
@@ -49,7 +47,6 @@ pub struct FilteredResponse<T> {
 }
 
 impl<T> FilteredResponse<T> {
-    /// See [`new`].
     /// See [`new`].
     pub fn new(data: T, filtered: bool) -> Self {
         Self { data, filtered }

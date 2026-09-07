@@ -27,7 +27,6 @@ pub struct SlidingSyncStorage {
 
 impl SlidingSyncStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
@@ -457,7 +456,6 @@ impl SlidingSyncStorage {
     }
 
     /// See [`push_room_filters`].
-    /// See [`push_room_filters`].
     pub(crate) fn push_room_filters(query: &mut QueryBuilder<Postgres>, filters: Option<&SlidingSyncFilters>) {
         let Some(filters) = filters else {
             return;
@@ -614,7 +612,6 @@ impl SlidingSyncStorage {
     }
 
     /// See [`cleanup_expired_tokens`].
-    /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -747,7 +744,6 @@ impl SlidingSyncStorage {
     }
 
     /// See [`count_room_token_sync`].
-    /// See [`count_room_token_sync`].
     pub async fn count_room_token_sync(&self, room_id: &str) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar("SELECT COUNT(*) FROM sliding_sync_rooms WHERE room_id = $1")
             .bind(room_id)
@@ -755,7 +751,6 @@ impl SlidingSyncStorage {
             .await
     }
 
-    /// See [`get_global_account_data`].
     /// See [`get_global_account_data`].
     pub async fn get_global_account_data(&self, user_id: &str) -> Result<serde_json::Value, sqlx::Error> {
         let rows = sqlx::query(
@@ -815,7 +810,6 @@ impl SlidingSyncStorage {
         Ok(serde_json::Value::Object(rooms_map))
     }
 
-    /// See [`get_receipts_for_rooms`].
     /// See [`get_receipts_for_rooms`].
     #[allow(clippy::expect_used)]
     pub async fn get_receipts_for_rooms(&self, room_ids: &[String]) -> Result<serde_json::Value, sqlx::Error> {

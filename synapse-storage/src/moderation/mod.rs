@@ -82,7 +82,6 @@ pub enum ModerationRuleType {
 
 impl ModerationRuleType {
     /// See [`as_str`].
-    /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Regex => "regex",
@@ -116,7 +115,6 @@ pub enum ModerationAction {
 }
 
 impl ModerationAction {
-    /// See [`as_str`].
     /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -226,12 +224,10 @@ pub struct ModerationStorage {
 
 impl ModerationStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
 
-    /// See [`create_rule`].
     /// See [`create_rule`].
     pub async fn create_rule(&self, params: CreateModerationRuleParams) -> Result<ModerationRule, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -259,7 +255,6 @@ impl ModerationStorage {
     }
 
     /// See [`get_rule`].
-    /// See [`get_rule`].
     pub async fn get_rule(&self, rule_id: &str) -> Result<Option<ModerationRule>, sqlx::Error> {
         sqlx::query_as::<_, ModerationRule>(
             r"
@@ -271,7 +266,6 @@ impl ModerationStorage {
         .await
     }
 
-    /// See [`get_all_rules`].
     /// See [`get_all_rules`].
     pub async fn get_all_rules(&self) -> Result<Vec<ModerationRule>, sqlx::Error> {
         sqlx::query_as::<_, ModerationRule>(
@@ -285,7 +279,6 @@ impl ModerationStorage {
         .await
     }
 
-    /// See [`get_rules_by_type`].
     /// See [`get_rules_by_type`].
     pub async fn get_rules_by_type(&self, rule_type: &str) -> Result<Vec<ModerationRule>, sqlx::Error> {
         sqlx::query_as::<_, ModerationRule>(
@@ -334,7 +327,6 @@ impl ModerationStorage {
         .await
     }
 
-    /// See [`delete_rule`].
     /// See [`delete_rule`].
     pub async fn delete_rule(&self, rule_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
@@ -442,7 +434,6 @@ pub struct ModerationLogStorage {
 
 impl ModerationLogStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
@@ -483,7 +474,6 @@ impl ModerationLogStorage {
     }
 
     /// See [`get_logs_for_event`].
-    /// See [`get_logs_for_event`].
     pub async fn get_logs_for_event(&self, event_id: &str) -> Result<Vec<ModerationLog>, sqlx::Error> {
         sqlx::query_as::<_, ModerationLog>(
             r"
@@ -495,7 +485,6 @@ impl ModerationLogStorage {
         .await
     }
 
-    /// See [`get_logs_for_room`].
     /// See [`get_logs_for_room`].
     pub async fn get_logs_for_room(&self, room_id: &str, limit: i32) -> Result<Vec<ModerationLog>, sqlx::Error> {
         sqlx::query_as::<_, ModerationLog>(
@@ -511,7 +500,6 @@ impl ModerationLogStorage {
     }
 
     /// See [`get_logs_for_sender`].
-    /// See [`get_logs_for_sender`].
     pub async fn get_logs_for_sender(&self, sender: &str, limit: i32) -> Result<Vec<ModerationLog>, sqlx::Error> {
         sqlx::query_as::<_, ModerationLog>(
             r"
@@ -525,7 +513,6 @@ impl ModerationLogStorage {
         .await
     }
 
-    /// See [`cleanup_old_logs`].
     /// See [`cleanup_old_logs`].
     pub async fn cleanup_old_logs(&self, older_than_days: i32) -> Result<u64, sqlx::Error> {
         let cutoff_ts = current_timestamp_millis() - (older_than_days as i64 * 24 * 3600 * 1000);

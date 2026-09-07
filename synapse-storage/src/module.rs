@@ -476,12 +476,10 @@ pub trait ModuleStoreApi: Send + Sync {
 
 impl ModuleStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`register_module`].
     /// See [`register_module`].
     #[instrument(skip(self))]
     pub async fn register_module(&self, request: CreateModuleRequest) -> Result<Module, sqlx::Error> {
@@ -512,7 +510,6 @@ impl ModuleStorage {
     }
 
     /// See [`get_module`].
-    /// See [`get_module`].
     #[instrument(skip(self))]
     pub async fn get_module(&self, module_name: &str) -> Result<Option<Module>, sqlx::Error> {
         let row = sqlx::query_as::<_, Module>("SELECT id, module_name, module_type, version, description, is_enabled, priority, config, created_ts, updated_ts, last_executed_ts, execution_count, error_count, last_error FROM modules WHERE module_name = $1")
@@ -523,7 +520,6 @@ impl ModuleStorage {
         Ok(row)
     }
 
-    /// See [`get_modules_by_type`].
     /// See [`get_modules_by_type`].
     #[instrument(skip(self))]
     pub async fn get_modules_by_type(&self, module_type: &str) -> Result<Vec<Module>, sqlx::Error> {
@@ -596,7 +592,6 @@ impl ModuleStorage {
     }
 
     /// See [`enable_module`].
-    /// See [`enable_module`].
     #[instrument(skip(self))]
     pub async fn enable_module(&self, module_name: &str, is_enabled: bool) -> Result<Module, sqlx::Error> {
         let row = sqlx::query_as::<_, Module>(
@@ -614,7 +609,6 @@ impl ModuleStorage {
         Ok(row)
     }
 
-    /// See [`delete_module`].
     /// See [`delete_module`].
     #[instrument(skip(self))]
     pub async fn delete_module(&self, module_name: &str) -> Result<(), sqlx::Error> {
@@ -692,7 +686,6 @@ impl ModuleStorage {
     }
 
     /// See [`get_spam_check_result`].
-    /// See [`get_spam_check_result`].
     #[instrument(skip(self))]
     pub async fn get_spam_check_result(&self, event_id: &str) -> Result<Option<SpamCheckResult>, sqlx::Error> {
         sqlx::query_as::<_, SpamCheckResult>(
@@ -767,7 +760,6 @@ impl ModuleStorage {
         Ok(row)
     }
 
-    /// See [`get_third_party_rule_results`].
     /// See [`get_third_party_rule_results`].
     #[instrument(skip(self))]
     pub async fn get_third_party_rule_results(&self, event_id: &str) -> Result<Vec<ThirdPartyRuleResult>, sqlx::Error> {
@@ -876,7 +868,6 @@ impl ModuleStorage {
     }
 
     /// See [`get_account_validity`].
-    /// See [`get_account_validity`].
     #[instrument(skip(self))]
     pub async fn get_account_validity(&self, user_id: &str) -> Result<Option<AccountValidity>, sqlx::Error> {
         let row = sqlx::query_as::<_, AccountValidity>(
@@ -935,7 +926,6 @@ impl ModuleStorage {
     }
 
     /// See [`set_renewal_token`].
-    /// See [`set_renewal_token`].
     #[instrument(skip(self))]
     pub async fn set_renewal_token(&self, user_id: &str, token: &str) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE account_validity SET renewal_token = $2 WHERE user_id = $1")
@@ -947,7 +937,6 @@ impl ModuleStorage {
         Ok(())
     }
 
-    /// See [`get_expired_accounts`].
     /// See [`get_expired_accounts`].
     #[instrument(skip(self))]
     pub async fn get_expired_accounts(&self, before_ts: i64) -> Result<Vec<AccountValidity>, sqlx::Error> {
@@ -981,7 +970,6 @@ impl ModuleStorage {
         Err(sqlx::Error::RowNotFound)
     }
 
-    /// See [`get_password_auth_providers`].
     /// See [`get_password_auth_providers`].
     #[instrument(skip(self))]
     pub async fn get_password_auth_providers(&self) -> Result<Vec<PasswordAuthProvider>, sqlx::Error> {
@@ -1020,7 +1008,6 @@ impl ModuleStorage {
         Ok(row)
     }
 
-    /// See [`get_media_callbacks`].
     /// See [`get_media_callbacks`].
     #[instrument(skip(self))]
     pub async fn get_media_callbacks(&self, callback_type: Option<&str>) -> Result<Vec<MediaCallback>, sqlx::Error> {
@@ -1068,7 +1055,6 @@ impl ModuleStorage {
         Ok(row)
     }
 
-    /// See [`get_account_data_callbacks`].
     /// See [`get_account_data_callbacks`].
     #[instrument(skip(self))]
     pub async fn get_account_data_callbacks(&self) -> Result<Vec<AccountDataCallback>, sqlx::Error> {

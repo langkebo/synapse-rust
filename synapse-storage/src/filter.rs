@@ -54,12 +54,10 @@ pub struct FilterStorage {
 
 impl FilterStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`create_filter`].
     /// See [`create_filter`].
     pub async fn create_filter(&self, request: CreateFilterRequest) -> Result<Filter, ApiError> {
         let now = current_timestamp_millis();
@@ -83,7 +81,6 @@ impl FilterStorage {
     }
 
     /// See [`get_filter`].
-    /// See [`get_filter`].
     pub async fn get_filter(&self, user_id: &str, filter_id: &str) -> Result<Option<Filter>, ApiError> {
         let filter = sqlx::query_as::<_, Filter>(
             r"
@@ -101,7 +98,6 @@ impl FilterStorage {
         Ok(filter)
     }
 
-    /// See [`get_filters_by_user`].
     /// See [`get_filters_by_user`].
     pub async fn get_filters_by_user(&self, user_id: &str) -> Result<Vec<Filter>, ApiError> {
         let filters = sqlx::query_as::<_, Filter>(
@@ -121,7 +117,6 @@ impl FilterStorage {
     }
 
     /// See [`delete_filter`].
-    /// See [`delete_filter`].
     pub async fn delete_filter(&self, user_id: &str, filter_id: &str) -> Result<bool, ApiError> {
         let result = sqlx::query(
             r"
@@ -138,7 +133,6 @@ impl FilterStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    /// See [`delete_filters_by_user`].
     /// See [`delete_filters_by_user`].
     pub async fn delete_filters_by_user(&self, user_id: &str) -> Result<u64, ApiError> {
         let result = sqlx::query(

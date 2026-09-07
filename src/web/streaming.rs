@@ -81,7 +81,6 @@ impl StreamingResponse {
     }
 
     /// See [`bytes`].
-    /// See [`bytes`].
     pub fn bytes(data: Vec<u8>, content_type: &str) -> Result<Self, StreamingError> {
         let mut headers = HeaderMap::new();
         let content_type_header =
@@ -94,7 +93,6 @@ impl StreamingResponse {
         Ok(Self { status: StatusCode::OK, headers, body: Bytes::from(data) })
     }
 
-    /// See [`sse`].
     /// See [`sse`].
     pub fn sse(event_name: &str, data: &str, id: Option<u64>) -> Result<Self, StreamingError> {
         let mut sse_data = String::new();
@@ -124,7 +122,6 @@ impl StreamingResponse {
         Ok(Self { status: StatusCode::OK, headers, body: Bytes::from(sse_data) })
     }
 
-    /// See [`chunked`].
     /// See [`chunked`].
     pub fn chunked(items: &[String], content_type: &str) -> Result<Self, StreamingError> {
         let combined = items.join("\n");

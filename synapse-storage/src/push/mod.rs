@@ -118,7 +118,6 @@ pub struct PushStorage {
 
 impl PushStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
         Self { pool }
     }
@@ -184,7 +183,6 @@ impl PushStorage {
         Ok(())
     }
 
-    /// See [`delete_pusher`].
     /// See [`delete_pusher`].
     pub async fn delete_pusher(&self, user_id: &str, device_id: &str, pushkey: &str) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2 AND device_id = $3")

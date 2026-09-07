@@ -8,7 +8,6 @@ use super::service::RoomStateService;
 
 impl RoomStateService {
     /// See [`get_room_aliases`].
-    /// See [`get_room_aliases`].
     pub async fn get_room_aliases(&self, room_id: &str) -> ApiResult<Vec<String>> {
         self.room_storage
             .get_room_aliases(room_id)
@@ -16,7 +15,6 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to get room aliases", &e))
     }
 
-    /// See [`set_room_alias`].
     /// See [`set_room_alias`].
     pub async fn set_room_alias(&self, room_id: &str, alias: &str, created_by: &str) -> ApiResult<()> {
         validate_room_alias_input(alias)?;
@@ -27,7 +25,6 @@ impl RoomStateService {
     }
 
     /// See [`get_room_by_alias`].
-    /// See [`get_room_by_alias`].
     pub async fn get_room_by_alias(&self, alias: &str) -> ApiResult<Option<String>> {
         validate_room_alias_input(alias)?;
         self.room_storage
@@ -37,7 +34,6 @@ impl RoomStateService {
     }
 
     /// See [`remove_room_alias`].
-    /// See [`remove_room_alias`].
     pub async fn remove_room_alias(&self, room_id: &str) -> ApiResult<()> {
         self.room_storage
             .remove_room_alias(room_id)
@@ -45,7 +41,6 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to remove room alias", &e))
     }
 
-    /// See [`remove_room_alias_by_name`].
     /// See [`remove_room_alias_by_name`].
     pub async fn remove_room_alias_by_name(&self, alias: &str) -> ApiResult<()> {
         self.room_storage
@@ -55,7 +50,6 @@ impl RoomStateService {
     }
 
     /// See [`set_room_directory`].
-    /// See [`set_room_directory`].
     pub async fn set_room_directory(&self, room_id: &str, is_public: bool) -> ApiResult<()> {
         self.room_storage
             .set_room_directory(room_id, is_public)
@@ -63,7 +57,6 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to set room directory", &e))
     }
 
-    /// See [`get_room_visibility`].
     /// See [`get_room_visibility`].
     pub async fn get_room_visibility(&self, room_id: &str) -> ApiResult<String> {
         let is_public = self
@@ -75,7 +68,6 @@ impl RoomStateService {
     }
 
     /// See [`remove_room_directory`].
-    /// See [`remove_room_directory`].
     pub async fn remove_room_directory(&self, room_id: &str) -> ApiResult<()> {
         self.room_storage
             .remove_room_directory(room_id)
@@ -83,7 +75,6 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to remove room from directory", &e))
     }
 
-    /// See [`get_public_rooms`].
     /// See [`get_public_rooms`].
     pub async fn get_public_rooms(&self, limit: i64) -> ApiResult<serde_json::Value> {
         let rooms = self

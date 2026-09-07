@@ -52,7 +52,6 @@ pub struct PolicyService {
 
 impl PolicyService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: PolicyServerConfig) -> Self {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(config.timeout_secs))

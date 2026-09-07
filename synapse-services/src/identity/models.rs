@@ -158,7 +158,6 @@ pub struct HashLookupResponse {
 
 impl ThirdPartyId {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(address: &str, medium: &str, user_id: &str) -> Self {
         let now = current_timestamp_millis();
         Self {

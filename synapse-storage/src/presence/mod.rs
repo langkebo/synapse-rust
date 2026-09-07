@@ -154,7 +154,6 @@ pub struct PresenceStorage {
 
 impl PresenceStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>, cache: Arc<CacheManager>) -> Self {
         Self { pool, cache }
     }
@@ -264,7 +263,6 @@ impl PresenceStorage {
         Ok(())
     }
 
-    /// See [`get_presence`].
     /// See [`get_presence`].
     pub async fn get_presence(&self, user_id: &str) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
         tracing::debug!(user_id = %user_id, "Querying presence");
@@ -390,7 +388,6 @@ impl PresenceStorage {
     }
 
     /// See [`set_typing`].
-    /// See [`set_typing`].
     pub async fn set_typing(&self, room_id: &str, user_id: &str, typing: bool) -> Result<(), sqlx::Error> {
         if typing {
             let now = current_timestamp_millis();
@@ -422,7 +419,6 @@ impl PresenceStorage {
         Ok(())
     }
 
-    /// See [`add_subscription`].
     /// See [`add_subscription`].
     pub async fn add_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
@@ -463,7 +459,6 @@ impl PresenceStorage {
     }
 
     /// See [`remove_subscription`].
-    /// See [`remove_subscription`].
     pub async fn remove_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error> {
         let result = sqlx::query(
             r"
@@ -497,7 +492,6 @@ impl PresenceStorage {
         }
     }
 
-    /// See [`get_subscriptions`].
     /// See [`get_subscriptions`].
     pub async fn get_subscriptions(&self, subscriber_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let result = sqlx::query_as::<_, (String,)>(
@@ -534,7 +528,6 @@ impl PresenceStorage {
         }
     }
 
-    /// See [`get_subscribers`].
     /// See [`get_subscribers`].
     pub async fn get_subscribers(&self, target_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let result = sqlx::query_as::<_, (String,)>(

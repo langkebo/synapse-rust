@@ -11,18 +11,15 @@ pub struct WorkerStorage {
 
 impl WorkerStorage {
     /// See [`status_releases_in_flight_work`].
-    /// See [`status_releases_in_flight_work`].
     pub(crate) fn status_releases_in_flight_work(status: &str) -> bool {
         matches!(status, "stopped" | "error")
     }
 
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`register_worker`].
     /// See [`register_worker`].
     pub async fn register_worker(&self, request: RegisterWorkerRequest) -> Result<WorkerInfo, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -60,7 +57,6 @@ impl WorkerStorage {
     }
 
     /// See [`get_worker`].
-    /// See [`get_worker`].
     pub async fn get_worker(&self, worker_id: &str) -> Result<Option<WorkerInfo>, sqlx::Error> {
         let row: Option<WorkerRow> = sqlx::query_as::<_, WorkerRow>(
             r#"SELECT id, worker_id, worker_name,
@@ -80,7 +76,6 @@ impl WorkerStorage {
     }
 
     /// See [`get_workers_by_type`].
-    /// See [`get_workers_by_type`].
     pub async fn get_workers_by_type(&self, worker_type: &str) -> Result<Vec<WorkerInfo>, sqlx::Error> {
         let rows: Vec<WorkerRow> = sqlx::query_as::<_, WorkerRow>(
             r#"SELECT id, worker_id, worker_name,
@@ -99,7 +94,6 @@ impl WorkerStorage {
         Ok(rows.into_iter().map(|r| r.into()).collect())
     }
 
-    /// See [`get_active_workers`].
     /// See [`get_active_workers`].
     pub async fn get_active_workers(&self) -> Result<Vec<WorkerInfo>, sqlx::Error> {
         let rows: Vec<WorkerRow> = sqlx::query_as::<_, WorkerRow>(
@@ -122,7 +116,6 @@ impl WorkerStorage {
         Ok(rows.into_iter().map(|r| r.into()).collect())
     }
 
-    /// See [`update_worker_status`].
     /// See [`update_worker_status`].
     pub async fn update_worker_status(&self, worker_id: &str, status: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
@@ -165,7 +158,6 @@ impl WorkerStorage {
     }
 
     /// See [`update_heartbeat`].
-    /// See [`update_heartbeat`].
     pub async fn update_heartbeat(&self, worker_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -178,7 +170,6 @@ impl WorkerStorage {
         Ok(())
     }
 
-    /// See [`unregister_worker`].
     /// See [`unregister_worker`].
     pub async fn unregister_worker(&self, worker_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
@@ -209,7 +200,6 @@ impl WorkerStorage {
         Ok(())
     }
 
-    /// See [`create_command`].
     /// See [`create_command`].
     pub async fn create_command(&self, request: SendCommandRequest) -> Result<WorkerCommand, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -243,7 +233,6 @@ impl WorkerStorage {
     }
 
     /// See [`get_pending_commands`].
-    /// See [`get_pending_commands`].
     pub async fn get_pending_commands(&self, worker_id: &str, limit: i64) -> Result<Vec<WorkerCommand>, sqlx::Error> {
         let rows: Vec<WorkerCommandRow> = sqlx::query_as::<_, WorkerCommandRow>(
             r#"
@@ -268,7 +257,6 @@ impl WorkerStorage {
     }
 
     /// See [`mark_command_sent`].
-    /// See [`mark_command_sent`].
     pub async fn mark_command_sent(&self, command_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -282,7 +270,6 @@ impl WorkerStorage {
     }
 
     /// See [`complete_command`].
-    /// See [`complete_command`].
     pub async fn complete_command(&self, command_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -295,7 +282,6 @@ impl WorkerStorage {
         Ok(())
     }
 
-    /// See [`fail_command`].
     /// See [`fail_command`].
     pub async fn fail_command(&self, command_id: &str, error: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
@@ -353,7 +339,6 @@ impl WorkerStorage {
     }
 
     /// See [`get_events_since`].
-    /// See [`get_events_since`].
     pub async fn get_events_since(&self, stream_id: i64, limit: i64) -> Result<Vec<WorkerEvent>, sqlx::Error> {
         let rows = sqlx::query_as::<_, WorkerEventRow>(
             r"SELECT id, event_id, stream_id, event_type, room_id,
@@ -368,7 +353,6 @@ impl WorkerStorage {
         Ok(rows.into_iter().map(|r| r.into()).collect())
     }
 
-    /// See [`mark_event_processed`].
     /// See [`mark_event_processed`].
     pub async fn mark_event_processed(&self, event_id: &str, worker_id: &str) -> Result<(), sqlx::Error> {
         // processed_by is JSONB (a JSON array of worker ids). Use JSONB array
@@ -435,7 +419,6 @@ impl WorkerStorage {
     }
 
     /// See [`record_load_stats`].
-    /// See [`record_load_stats`].
     pub fn record_load_stats(&self, worker_id: &str, stats: &WorkerLoadStatsUpdate) -> Result<(), sqlx::Error> {
         tracing::debug!(
             worker_id = worker_id,
@@ -450,7 +433,6 @@ impl WorkerStorage {
         Ok(())
     }
 
-    /// See [`assign_task`].
     /// See [`assign_task`].
     pub async fn assign_task(&self, request: AssignTaskRequest) -> Result<WorkerTaskAssignment, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -482,7 +464,6 @@ impl WorkerStorage {
         Ok(row)
     }
 
-    /// See [`get_pending_tasks`].
     /// See [`get_pending_tasks`].
     pub async fn get_pending_tasks(&self, limit: i64) -> Result<Vec<WorkerTaskAssignment>, sqlx::Error> {
         let rows: Vec<WorkerTaskAssignment> = sqlx::query_as::<_, WorkerTaskAssignment>(
@@ -529,7 +510,6 @@ impl WorkerStorage {
         .await
     }
 
-    /// See [`claim_next_pending_task`].
     /// See [`claim_next_pending_task`].
     pub async fn claim_next_pending_task(&self, worker_id: &str) -> Result<Option<WorkerTaskAssignment>, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -601,7 +581,6 @@ impl WorkerStorage {
     }
 
     /// See [`assign_task_to_worker`].
-    /// See [`assign_task_to_worker`].
     pub async fn assign_task_to_worker(&self, task_id: &str, worker_id: &str) -> Result<bool, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -624,7 +603,6 @@ impl WorkerStorage {
     }
 
     /// See [`complete_task`].
-    /// See [`complete_task`].
     pub async fn complete_task(&self, task_id: &str, result: Option<serde_json::Value>) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -640,7 +618,6 @@ impl WorkerStorage {
         Ok(())
     }
 
-    /// See [`fail_task`].
     /// See [`fail_task`].
     pub async fn fail_task(&self, task_id: &str, error: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
@@ -673,7 +650,6 @@ impl WorkerStorage {
         Ok(())
     }
 
-    /// See [`update_connection_stats`].
     /// See [`update_connection_stats`].
     pub fn update_connection_stats(&self, request: &UpdateConnectionStatsRequest) -> Result<(), sqlx::Error> {
         tracing::debug!(
@@ -737,7 +713,6 @@ impl WorkerStorage {
             .collect())
     }
 
-    /// See [`get_type_statistics`].
     /// See [`get_type_statistics`].
     pub async fn get_type_statistics(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query(

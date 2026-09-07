@@ -13,12 +13,10 @@ pub struct MediaQuotaStorage {
 
 impl MediaQuotaStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: (**pool).clone() }
     }
 
-    /// See [`get_default_config`].
     /// See [`get_default_config`].
     pub async fn get_default_config(&self) -> Result<Option<MediaQuotaConfig>, ApiError> {
         let config = sqlx::query_as::<_, MediaQuotaConfig>(
@@ -32,7 +30,6 @@ impl MediaQuotaStorage {
     }
 
     /// See [`get_config`].
-    /// See [`get_config`].
     pub async fn get_config(&self, config_id: i64) -> Result<Option<MediaQuotaConfig>, ApiError> {
         let config = sqlx::query_as::<_, MediaQuotaConfig>(r"SELECT id, name, description, max_storage_bytes, max_file_size_bytes, max_files_count, allowed_mime_types, blocked_mime_types, is_default, is_enabled, created_ts, updated_ts FROM media_quota_config WHERE id = $1")
             .bind(config_id)
@@ -43,7 +40,6 @@ impl MediaQuotaStorage {
         Ok(config)
     }
 
-    /// See [`create_config`].
     /// See [`create_config`].
     pub async fn create_config(&self, request: CreateQuotaConfigRequest) -> Result<MediaQuotaConfig, ApiError> {
         let now = current_timestamp_millis();
@@ -86,7 +82,6 @@ impl MediaQuotaStorage {
     }
 
     /// See [`list_configs`].
-    /// See [`list_configs`].
     pub async fn list_configs(&self) -> Result<Vec<MediaQuotaConfig>, ApiError> {
         let configs = sqlx::query_as::<_, MediaQuotaConfig>(
             r"SELECT id, name, description, max_storage_bytes, max_file_size_bytes, max_files_count, allowed_mime_types, blocked_mime_types, is_default, is_enabled, created_ts, updated_ts FROM media_quota_config WHERE is_enabled = TRUE ORDER BY created_ts DESC",
@@ -98,7 +93,6 @@ impl MediaQuotaStorage {
         Ok(configs)
     }
 
-    /// See [`delete_config`].
     /// See [`delete_config`].
     pub async fn delete_config(&self, config_id: i64) -> Result<bool, ApiError> {
         let result =
@@ -112,7 +106,6 @@ impl MediaQuotaStorage {
     }
 
     /// See [`get_user_quota`].
-    /// See [`get_user_quota`].
     pub async fn get_user_quota(&self, user_id: &str) -> Result<Option<UserMediaQuota>, ApiError> {
         let quota = sqlx::query_as::<_, UserMediaQuota>(r"SELECT id, user_id, quota_config_id, custom_max_storage_bytes, custom_max_file_size_bytes, custom_max_files_count, current_storage_bytes, current_files_count, created_ts, updated_ts FROM user_media_quota WHERE user_id = $1")
             .bind(user_id)
@@ -123,7 +116,6 @@ impl MediaQuotaStorage {
         Ok(quota)
     }
 
-    /// See [`get_or_create_user_quota`].
     /// See [`get_or_create_user_quota`].
     pub async fn get_or_create_user_quota(&self, user_id: &str) -> Result<UserMediaQuota, ApiError> {
         let default_config = self.get_default_config().await?;
@@ -152,7 +144,6 @@ impl MediaQuotaStorage {
         Ok(quota)
     }
 
-    /// See [`set_user_quota`].
     /// See [`set_user_quota`].
     pub async fn set_user_quota(&self, request: SetUserQuotaRequest) -> Result<UserMediaQuota, ApiError> {
         let now = current_timestamp_millis();
@@ -187,7 +178,6 @@ impl MediaQuotaStorage {
         Ok(quota)
     }
 
-    /// See [`update_usage`].
     /// See [`update_usage`].
     pub async fn update_usage(&self, request: UpdateUsageRequest) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
@@ -265,7 +255,6 @@ impl MediaQuotaStorage {
     }
 
     /// See [`check_quota`].
-    /// See [`check_quota`].
     pub async fn check_quota(&self, user_id: &str, file_size: i64) -> Result<QuotaCheckResult, ApiError> {
         let user_quota = self.get_or_create_user_quota(user_id).await?;
 
@@ -300,7 +289,6 @@ impl MediaQuotaStorage {
         })
     }
 
-    /// See [`get_server_quota`].
     /// See [`get_server_quota`].
     pub async fn get_server_quota(&self) -> Result<ServerMediaQuota, ApiError> {
         let quota = sqlx::query_as::<_, ServerMediaQuota>(r"SELECT id, max_storage_bytes, max_file_size_bytes, max_files_count, current_storage_bytes, current_files_count, alert_threshold_percent, updated_ts FROM server_media_quota WHERE id = 1")
@@ -402,7 +390,6 @@ impl MediaQuotaStorage {
     }
 
     /// See [`get_user_alerts`].
-    /// See [`get_user_alerts`].
     pub async fn get_user_alerts(&self, user_id: &str, unread_only: bool) -> Result<Vec<MediaQuotaAlert>, ApiError> {
         let alerts = if unread_only {
             sqlx::query_as::<_, MediaQuotaAlert>(
@@ -424,7 +411,6 @@ impl MediaQuotaStorage {
     }
 
     /// See [`mark_alert_read`].
-    /// See [`mark_alert_read`].
     pub async fn mark_alert_read(&self, alert_id: i64) -> Result<bool, ApiError> {
         let result = sqlx::query(r"UPDATE media_quota_alerts SET is_read = TRUE WHERE id = $1 AND is_read = FALSE")
             .bind(alert_id)
@@ -435,7 +421,6 @@ impl MediaQuotaStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    /// See [`get_usage_stats`].
     /// See [`get_usage_stats`].
     pub async fn get_usage_stats(&self, user_id: &str) -> Result<serde_json::Value, ApiError> {
         let quota = self.get_or_create_user_quota(user_id).await?;

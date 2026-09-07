@@ -31,7 +31,6 @@ impl RoomSummaryService {
     }
 
     /// See [`get_summary`].
-    /// See [`get_summary`].
     #[instrument(skip(self))]
     pub async fn get_summary(&self, room_id: &str) -> Result<Option<RoomSummaryResponse>, ApiError> {
         let summary_res = self.storage.get_summary(room_id).await;
@@ -50,7 +49,6 @@ impl RoomSummaryService {
         }
     }
 
-    /// See [`get_summaries_for_user`].
     /// See [`get_summaries_for_user`].
     #[instrument(skip(self))]
     pub async fn get_summaries_for_user(&self, user_id: &str) -> Result<Vec<RoomSummaryResponse>, ApiError> {
@@ -79,7 +77,6 @@ impl RoomSummaryService {
         Ok(responses)
     }
 
-    /// See [`get_heroes`].
     /// See [`get_heroes`].
     pub(crate) async fn get_heroes(&self, room_id: &str) -> Result<Vec<RoomSummaryHero>, ApiError> {
         let members_res = self.storage.get_heroes(room_id, 5).await;
@@ -142,7 +139,6 @@ impl RoomSummaryService {
     }
 
     /// See [`create_summary`].
-    /// See [`create_summary`].
     pub async fn create_summary(&self, request: CreateRoomSummaryRequest) -> ApiResult<RoomSummaryResponse> {
         info!(room_id = %request.room_id, "Creating room summary");
 
@@ -178,7 +174,6 @@ impl RoomSummaryService {
     }
 
     /// See [`create_request_to_update_request`].
-    /// See [`create_request_to_update_request`].
     pub(crate) fn create_request_to_update_request(request: &CreateRoomSummaryRequest) -> UpdateRoomSummaryRequest {
         UpdateRoomSummaryRequest {
             name: request.name.clone(),
@@ -212,7 +207,6 @@ impl RoomSummaryService {
     }
 
     /// See [`delete_summary`].
-    /// See [`delete_summary`].
     #[instrument(skip(self))]
     pub async fn delete_summary(&self, room_id: &str) -> Result<(), ApiError> {
         info!(room_id = %room_id, "Deleting room summary");
@@ -225,7 +219,6 @@ impl RoomSummaryService {
         Ok(())
     }
 
-    /// See [`add_member`].
     /// See [`add_member`].
     #[instrument(skip(self))]
     pub async fn add_member(&self, request: CreateSummaryMemberRequest) -> Result<RoomSummaryMember, ApiError> {
@@ -281,7 +274,6 @@ impl RoomSummaryService {
     }
 
     /// See [`remove_member`].
-    /// See [`remove_member`].
     #[instrument(skip(self))]
     pub async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), ApiError> {
         debug!("Removing member {} from room {}", user_id, room_id);
@@ -295,7 +287,6 @@ impl RoomSummaryService {
     }
 
     /// See [`get_members`].
-    /// See [`get_members`].
     #[instrument(skip(self))]
     pub async fn get_members(&self, room_id: &str) -> Result<Vec<RoomSummaryMember>, ApiError> {
         let members = self
@@ -307,7 +298,6 @@ impl RoomSummaryService {
         Ok(members)
     }
 
-    /// See [`get_summaries_by_ids`].
     /// See [`get_summaries_by_ids`].
     #[instrument(skip(self))]
     pub async fn get_summaries_by_ids(&self, room_ids: &[String]) -> Result<Vec<RoomSummaryResponse>, ApiError> {

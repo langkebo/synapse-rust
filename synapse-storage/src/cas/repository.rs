@@ -14,12 +14,10 @@ pub struct CasStorage {
 
 impl CasStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: (**pool).clone() }
     }
 
-    /// See [`create_ticket`].
     /// See [`create_ticket`].
     pub async fn create_ticket(&self, request: CreateTicketRequest) -> Result<CasTicket, ApiError> {
         let now = current_timestamp_millis();
@@ -45,7 +43,6 @@ impl CasStorage {
     }
 
     /// See [`validate_ticket`].
-    /// See [`validate_ticket`].
     pub async fn validate_ticket(&self, ticket_id: &str, service_url: &str) -> Result<Option<CasTicket>, ApiError> {
         let now = current_timestamp_millis();
 
@@ -68,7 +65,6 @@ impl CasStorage {
     }
 
     /// See [`get_ticket`].
-    /// See [`get_ticket`].
     pub async fn get_ticket(&self, ticket_id: &str) -> Result<Option<CasTicket>, ApiError> {
         let ticket = sqlx::query_as::<_, CasTicketRow>(
             r"
@@ -86,7 +82,6 @@ impl CasStorage {
     }
 
     /// See [`delete_ticket`].
-    /// See [`delete_ticket`].
     pub async fn delete_ticket(&self, ticket_id: &str) -> Result<bool, ApiError> {
         let result = sqlx::query(
             r"
@@ -102,7 +97,6 @@ impl CasStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    /// See [`cleanup_expired_tickets`].
     /// See [`cleanup_expired_tickets`].
     pub async fn cleanup_expired_tickets(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();
@@ -120,7 +114,6 @@ impl CasStorage {
         Ok(result.rows_affected())
     }
 
-    /// See [`create_proxy_ticket`].
     /// See [`create_proxy_ticket`].
     pub async fn create_proxy_ticket(&self, request: CreateProxyTicketRequest) -> Result<CasProxyTicket, ApiError> {
         let now = current_timestamp_millis();
@@ -173,7 +166,6 @@ impl CasStorage {
     }
 
     /// See [`create_pgt`].
-    /// See [`create_pgt`].
     pub async fn create_pgt(&self, request: CreatePgtRequest) -> Result<CasProxyGrantingTicket, ApiError> {
         let now = current_timestamp_millis();
         let expires_at = current_timestamp_millis() + request.expires_in_seconds * 1000;
@@ -199,7 +191,6 @@ impl CasStorage {
     }
 
     /// See [`get_pgt`].
-    /// See [`get_pgt`].
     pub async fn get_pgt(&self, pgt_id: &str) -> Result<Option<CasProxyGrantingTicket>, ApiError> {
         let pgt = sqlx::query_as::<_, CasProxyGrantingTicket>(
             r"
@@ -217,7 +208,6 @@ impl CasStorage {
     }
 
     /// See [`get_pgt_by_iou`].
-    /// See [`get_pgt_by_iou`].
     pub async fn get_pgt_by_iou(&self, iou: &str) -> Result<Option<CasProxyGrantingTicket>, ApiError> {
         let pgt = sqlx::query_as::<_, CasProxyGrantingTicket>(
             r"
@@ -234,7 +224,6 @@ impl CasStorage {
         Ok(pgt)
     }
 
-    /// See [`register_service`].
     /// See [`register_service`].
     pub async fn register_service(&self, request: RegisterServiceRequest) -> Result<CasRegisteredService, ApiError> {
         let allowed_attributes =
@@ -273,7 +262,6 @@ impl CasStorage {
     }
 
     /// See [`get_service`].
-    /// See [`get_service`].
     pub async fn get_service(&self, service_id: &str) -> Result<Option<CasRegisteredService>, ApiError> {
         let service = sqlx::query_as::<_, CasRegisteredServiceRow>(
             r"
@@ -292,7 +280,6 @@ impl CasStorage {
         Ok(service.map(CasRegisteredService::from))
     }
 
-    /// See [`get_service_by_url`].
     /// See [`get_service_by_url`].
     pub async fn get_service_by_url(&self, service_url: &str) -> Result<Option<CasRegisteredService>, ApiError> {
         let service = sqlx::query_as::<_, CasRegisteredServiceRow>(
@@ -313,7 +300,6 @@ impl CasStorage {
     }
 
     /// See [`list_services`].
-    /// See [`list_services`].
     pub async fn list_services(&self) -> Result<Vec<CasRegisteredService>, ApiError> {
         let services = sqlx::query_as::<_, CasRegisteredServiceRow>(
             r"
@@ -331,7 +317,6 @@ impl CasStorage {
         Ok(services.into_iter().map(CasRegisteredService::from).collect())
     }
 
-    /// See [`delete_service`].
     /// See [`delete_service`].
     pub async fn delete_service(&self, service_id: &str) -> Result<bool, ApiError> {
         let result = sqlx::query(
@@ -378,7 +363,6 @@ impl CasStorage {
     }
 
     /// See [`get_user_attributes`].
-    /// See [`get_user_attributes`].
     pub async fn get_user_attributes(&self, user_id: &str) -> Result<Vec<CasUserAttribute>, ApiError> {
         let attrs = sqlx::query_as::<_, CasUserAttributeRow>(
             r"
@@ -424,7 +408,6 @@ impl CasStorage {
     }
 
     /// See [`mark_slo_sent`].
-    /// See [`mark_slo_sent`].
     pub async fn mark_slo_sent(&self, session_id: &str) -> Result<bool, ApiError> {
         let now = current_timestamp_millis();
         let result = sqlx::query(
@@ -443,7 +426,6 @@ impl CasStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    /// See [`get_active_slo_sessions`].
     /// See [`get_active_slo_sessions`].
     pub async fn get_active_slo_sessions(&self, user_id: &str) -> Result<Vec<CasSloSession>, ApiError> {
         let sessions = sqlx::query_as::<_, CasSloSessionRow>(

@@ -29,7 +29,6 @@ pub struct OAuthClient {
 
 impl OAuthClient {
     /// See [`redirect_uris_vec`].
-    /// See [`redirect_uris_vec`].
     pub fn redirect_uris_vec(&self) -> Vec<String> {
         self.redirect_uris
             .as_array()
@@ -38,7 +37,6 @@ impl OAuthClient {
     }
 
     /// See [`grant_types_vec`].
-    /// See [`grant_types_vec`].
     pub fn grant_types_vec(&self) -> Vec<String> {
         self.grant_types
             .as_array()
@@ -46,7 +44,6 @@ impl OAuthClient {
             .unwrap_or_default()
     }
 
-    /// See [`response_types_vec`].
     /// See [`response_types_vec`].
     pub fn response_types_vec(&self) -> Vec<String> {
         self.response_types
@@ -85,12 +82,10 @@ pub trait OAuthClientStoreApi: Send + Sync {
 
 impl OAuthClientStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &std::sync::Arc<sqlx::PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`register_client`].
     /// See [`register_client`].
     pub async fn register_client(&self, client: &OAuthClient) -> Result<(), sqlx::Error> {
         sqlx::query(
@@ -116,7 +111,6 @@ impl OAuthClientStorage {
     }
 
     /// See [`get_client`].
-    /// See [`get_client`].
     pub async fn get_client(&self, client_id: &str) -> Result<Option<OAuthClient>, sqlx::Error> {
         sqlx::query_as::<_, OAuthClient>(
             r#"
@@ -130,7 +124,6 @@ impl OAuthClientStorage {
         .await
     }
 
-    /// See [`validate_client`].
     /// See [`validate_client`].
     pub async fn validate_client(&self, client_id: &str, redirect_uri: &str) -> Result<bool, sqlx::Error> {
         let client = self.get_client(client_id).await?;

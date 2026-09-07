@@ -8,7 +8,6 @@ pub struct InMemoryAdminMediaStore {
 
 impl InMemoryAdminMediaStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self { media: Arc::new(tokio::sync::RwLock::new(HashMap::new())) }
     }

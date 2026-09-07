@@ -35,7 +35,6 @@ pub struct AccountDataStorage {
 
 impl AccountDataStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }

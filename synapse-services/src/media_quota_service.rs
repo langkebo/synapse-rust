@@ -10,12 +10,10 @@ pub struct MediaQuotaService {
 
 impl MediaQuotaService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: Arc<dyn MediaQuotaStoreApi>) -> Self {
         Self { storage }
     }
 
-    /// See [`check_upload_quota`].
     /// See [`check_upload_quota`].
     #[instrument(skip(self))]
     pub async fn check_upload_quota(&self, user_id: &str, file_size: i64) -> Result<QuotaCheckResult, ApiError> {
@@ -98,7 +96,6 @@ impl MediaQuotaService {
     }
 
     /// See [`record_delete`].
-    /// See [`record_delete`].
     #[instrument(skip(self))]
     pub async fn record_delete(&self, user_id: &str, media_id: &str, file_size: i64) -> Result<(), ApiError> {
         info!(user_id = %user_id, media_id = %media_id, file_size, "Recording media delete");
@@ -114,7 +111,6 @@ impl MediaQuotaService {
             .await
     }
 
-    /// See [`get_user_quota`].
     /// See [`get_user_quota`].
     #[instrument(skip(self))]
     pub async fn get_user_quota(&self, user_id: &str) -> Result<UserQuotaInfo, ApiError> {
@@ -147,7 +143,6 @@ impl MediaQuotaService {
     }
 
     /// See [`set_user_quota`].
-    /// See [`set_user_quota`].
     #[instrument(skip(self))]
     pub async fn set_user_quota(&self, request: SetUserQuotaRequest) -> Result<UserMediaQuota, ApiError> {
         info!(
@@ -161,7 +156,6 @@ impl MediaQuotaService {
         self.storage.set_user_quota(request).await
     }
 
-    /// See [`create_quota_config`].
     /// See [`create_quota_config`].
     #[instrument(skip(self))]
     pub async fn create_quota_config(&self, request: CreateQuotaConfigRequest) -> Result<MediaQuotaConfig, ApiError> {
@@ -177,13 +171,11 @@ impl MediaQuotaService {
     }
 
     /// See [`list_quota_configs`].
-    /// See [`list_quota_configs`].
     #[instrument(skip(self))]
     pub async fn list_quota_configs(&self) -> Result<Vec<MediaQuotaConfig>, ApiError> {
         self.storage.list_configs().await
     }
 
-    /// See [`delete_quota_config`].
     /// See [`delete_quota_config`].
     #[instrument(skip(self))]
     pub async fn delete_quota_config(&self, config_id: i64) -> Result<bool, ApiError> {
@@ -191,7 +183,6 @@ impl MediaQuotaService {
         self.storage.delete_config(config_id).await
     }
 
-    /// See [`get_server_quota`].
     /// See [`get_server_quota`].
     #[instrument(skip(self))]
     pub async fn get_server_quota(&self) -> Result<ServerMediaQuota, ApiError> {
@@ -220,20 +211,17 @@ impl MediaQuotaService {
     }
 
     /// See [`get_user_alerts`].
-    /// See [`get_user_alerts`].
     #[instrument(skip(self))]
     pub async fn get_user_alerts(&self, user_id: &str, unread_only: bool) -> Result<Vec<MediaQuotaAlert>, ApiError> {
         self.storage.get_user_alerts(user_id, unread_only).await
     }
 
     /// See [`mark_alert_read`].
-    /// See [`mark_alert_read`].
     #[instrument(skip(self))]
     pub async fn mark_alert_read(&self, alert_id: i64) -> Result<bool, ApiError> {
         self.storage.mark_alert_read(alert_id).await
     }
 
-    /// See [`get_usage_stats`].
     /// See [`get_usage_stats`].
     #[instrument(skip(self))]
     pub async fn get_usage_stats(&self, user_id: &str) -> Result<serde_json::Value, ApiError> {

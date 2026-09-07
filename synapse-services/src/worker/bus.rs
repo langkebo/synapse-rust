@@ -114,7 +114,6 @@ pub struct WorkerBus {
 
 impl WorkerBus {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: RedisBusConfig, server_name: String, instance_name: String) -> Self {
         let (command_tx, command_rx) = mpsc::channel(1000);
         let (sub_command_tx, sub_command_rx) = mpsc::channel(100);
@@ -357,7 +356,6 @@ impl WorkerBus {
     }
 
     /// See [`disconnect`].
-    /// See [`disconnect`].
     pub async fn disconnect(&self) {
         // Abort subscriber task
         {
@@ -383,7 +381,6 @@ impl WorkerBus {
         info!(server_name = %self.server_name, instance_name = %self.instance_name, "Redis bus disconnected");
     }
 
-    /// See [`is_connected`].
     /// See [`is_connected`].
     pub async fn is_connected(&self) -> bool {
         *self.connected.read().await
@@ -522,7 +519,6 @@ impl WorkerBus {
     }
 
     /// See [`subscribe`].
-    /// See [`subscribe`].
     pub async fn subscribe(&self, channels: &[&str]) -> Result<broadcast::Receiver<BusMessage>, ApiError> {
         if !self.is_connected().await {
             return Err(ApiError::internal("Redis bus not connected"));
@@ -553,7 +549,6 @@ impl WorkerBus {
     // WORK-01: unsubscribe 现在通过命令通道通知订阅任务真正退订 Redis Pub/Sub。
     // 订阅任务收到命令后会断开当前连接并重连，重连时读取更新后的 subscribed_channels
     // 列表，只订阅剩余频道，从而实现真正的 Redis 退订。
-    /// See [`unsubscribe`].
     /// See [`unsubscribe`].
     pub async fn unsubscribe(&self, channels: &[&str]) -> Result<(), ApiError> {
         let removed_channels: Vec<String> = {
@@ -587,7 +582,6 @@ impl WorkerBus {
     }
 
     /// See [`broadcast_command`].
-    /// See [`broadcast_command`].
     pub async fn broadcast_command(&self, command: &ReplicationCommand) -> Result<(), ApiError> {
         let encoded =
             serde_json::to_vec(command).map_err(|e| ApiError::internal_with_context("Failed to encode command", &e))?;
@@ -595,7 +589,6 @@ impl WorkerBus {
         self.publish("broadcast", &encoded).await
     }
 
-    /// See [`send_to_worker`].
     /// See [`send_to_worker`].
     pub async fn send_to_worker(&self, worker_id: &str, command: &ReplicationCommand) -> Result<(), ApiError> {
         let encoded =
@@ -606,7 +599,6 @@ impl WorkerBus {
     }
 
     /// See [`send_to_stream_writer`].
-    /// See [`send_to_stream_writer`].
     pub async fn send_to_stream_writer(&self, stream_name: &str, command: &ReplicationCommand) -> Result<(), ApiError> {
         let encoded =
             serde_json::to_vec(command).map_err(|e| ApiError::internal_with_context("Failed to encode command", &e))?;
@@ -616,18 +608,15 @@ impl WorkerBus {
     }
 
     /// See [`get_command_sender`].
-    /// See [`get_command_sender`].
     pub fn get_command_sender(&self) -> mpsc::Sender<BusMessage> {
         self.command_tx.clone()
     }
 
     /// See [`take_command_receiver`].
-    /// See [`take_command_receiver`].
     pub fn take_command_receiver(&mut self) -> Option<mpsc::Receiver<BusMessage>> {
         self.command_rx.take()
     }
 
-    /// See [`publish_stream_position`].
     /// See [`publish_stream_position`].
     pub async fn publish_stream_position(&self, stream_name: &str, position: i64) -> Result<(), ApiError> {
         let command = ReplicationCommand::Position { stream_name: stream_name.to_string(), position };
@@ -635,7 +624,6 @@ impl WorkerBus {
         self.broadcast_command(&command).await
     }
 
-    /// See [`publish_user_sync`].
     /// See [`publish_user_sync`].
     pub async fn publish_user_sync(&self, user_id: &str, online: bool) -> Result<(), ApiError> {
         use crate::worker::protocol::UserSyncState;
@@ -649,7 +637,6 @@ impl WorkerBus {
     }
 
     /// See [`publish_federation_ack`].
-    /// See [`publish_federation_ack`].
     pub async fn publish_federation_ack(&self, origin: &str) -> Result<(), ApiError> {
         let command = ReplicationCommand::FederationAck { origin: origin.to_string() };
 
@@ -657,14 +644,12 @@ impl WorkerBus {
     }
 
     /// See [`publish_remove_pushers`].
-    /// See [`publish_remove_pushers`].
     pub async fn publish_remove_pushers(&self, app_id: &str, push_key: &str) -> Result<(), ApiError> {
         let command = ReplicationCommand::RemovePushers { app_id: app_id.to_string(), push_key: push_key.to_string() };
 
         self.broadcast_command(&command).await
     }
 
-    /// See [`get_stats`].
     /// See [`get_stats`].
     pub async fn get_stats(&self) -> BusStats {
         let subscribers = self.subscribers.read().await;

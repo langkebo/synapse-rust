@@ -161,12 +161,10 @@ pub struct WidgetStorage {
 
 impl WidgetStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<PgPool>) -> Self {
         Self { pool }
     }
 
-    /// See [`create_widget`].
     /// See [`create_widget`].
     pub async fn create_widget(&self, params: CreateWidgetParams) -> Result<Widget, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -193,7 +191,6 @@ impl WidgetStorage {
     }
 
     /// See [`get_widget`].
-    /// See [`get_widget`].
     pub async fn get_widget(&self, widget_id: &str) -> Result<Option<Widget>, sqlx::Error> {
         let row = sqlx::query_as::<_, Widget>(
             r#"
@@ -208,7 +205,6 @@ impl WidgetStorage {
     }
 
     /// See [`get_room_widgets`].
-    /// See [`get_room_widgets`].
     pub async fn get_room_widgets(&self, room_id: &str) -> Result<Vec<Widget>, sqlx::Error> {
         let rows = sqlx::query_as::<_, Widget>(
             r#"
@@ -222,7 +218,6 @@ impl WidgetStorage {
         Ok(rows)
     }
 
-    /// See [`get_user_widgets`].
     /// See [`get_user_widgets`].
     pub async fn get_user_widgets(&self, user_id: &str) -> Result<Vec<Widget>, sqlx::Error> {
         let rows = sqlx::query_as::<_, Widget>(
@@ -270,7 +265,6 @@ impl WidgetStorage {
     }
 
     /// See [`delete_widget`].
-    /// See [`delete_widget`].
     pub async fn delete_widget(&self, widget_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"
@@ -315,7 +309,6 @@ impl WidgetStorage {
     }
 
     /// See [`get_widget_permissions`].
-    /// See [`get_widget_permissions`].
     pub async fn get_widget_permissions(&self, widget_id: &str) -> Result<Vec<WidgetPermission>, sqlx::Error> {
         let rows = sqlx::query_as::<_, WidgetPermission>(
             r#"
@@ -348,7 +341,6 @@ impl WidgetStorage {
         Ok(row)
     }
 
-    /// See [`delete_widget_permission`].
     /// See [`delete_widget_permission`].
     pub async fn delete_widget_permission(&self, widget_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
@@ -396,7 +388,6 @@ impl WidgetStorage {
     }
 
     /// See [`get_session`].
-    /// See [`get_session`].
     pub async fn get_session(&self, session_id: &str) -> Result<Option<WidgetSession>, sqlx::Error> {
         let row = sqlx::query_as::<_, WidgetSession>(
             r#"
@@ -410,7 +401,6 @@ impl WidgetStorage {
         Ok(row)
     }
 
-    /// See [`update_session_activity`].
     /// See [`update_session_activity`].
     pub async fn update_session_activity(&self, session_id: &str) -> Result<bool, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -429,7 +419,6 @@ impl WidgetStorage {
     }
 
     /// See [`terminate_session`].
-    /// See [`terminate_session`].
     pub async fn terminate_session(&self, session_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"
@@ -443,7 +432,6 @@ impl WidgetStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    /// See [`get_widget_sessions`].
     /// See [`get_widget_sessions`].
     pub async fn get_widget_sessions(&self, widget_id: &str) -> Result<Vec<WidgetSession>, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -463,7 +451,6 @@ impl WidgetStorage {
         Ok(rows)
     }
 
-    /// See [`cleanup_expired_sessions`].
     /// See [`cleanup_expired_sessions`].
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error> {
         let now = current_timestamp_millis();

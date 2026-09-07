@@ -42,7 +42,6 @@ pub struct PresenceService {
 
 impl PresenceService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: Arc<dyn PresenceStoreApi>) -> Self {
         Self { storage, tuning: PresenceTuning::default() }
     }
@@ -75,7 +74,6 @@ impl PresenceService {
     }
 
     /// See [`get_presence_with_meta`].
-    /// See [`get_presence_with_meta`].
     #[tracing::instrument(skip(self))]
     pub async fn get_presence_with_meta(&self, user_id: &str) -> ApiResult<Option<PresenceRecord>> {
         self.storage
@@ -84,7 +82,6 @@ impl PresenceService {
             .map_err(|e| ApiError::internal_with_context("Failed to get presence", &e))
     }
 
-    /// See [`set_presence`].
     /// See [`set_presence`].
     #[tracing::instrument(skip(self))]
     pub async fn set_presence(&self, user_id: &str, presence: &str, status_msg: Option<&str>) -> ApiResult<()> {
@@ -105,7 +102,6 @@ impl PresenceService {
     }
 
     /// See [`add_subscription`].
-    /// See [`add_subscription`].
     #[tracing::instrument(skip(self))]
     pub async fn add_subscription(&self, subscriber_id: &str, target_id: &str) -> ApiResult<()> {
         self.storage
@@ -114,7 +110,6 @@ impl PresenceService {
             .map_err(|e| ApiError::internal_with_context("Failed to add presence subscription", &e))
     }
 
-    /// See [`remove_subscription`].
     /// See [`remove_subscription`].
     #[tracing::instrument(skip(self))]
     pub async fn remove_subscription(&self, subscriber_id: &str, target_id: &str) -> ApiResult<()> {
@@ -125,7 +120,6 @@ impl PresenceService {
     }
 
     /// See [`get_subscriptions`].
-    /// See [`get_subscriptions`].
     #[tracing::instrument(skip(self))]
     pub async fn get_subscriptions(&self, subscriber_id: &str) -> ApiResult<Vec<String>> {
         self.storage
@@ -134,7 +128,6 @@ impl PresenceService {
             .map_err(|e| ApiError::internal_with_context("Failed to get subscriptions", &e))
     }
 
-    /// See [`get_presence_batch_with_meta`].
     /// See [`get_presence_batch_with_meta`].
     #[tracing::instrument(skip(self))]
     pub async fn get_presence_batch_with_meta(&self, user_ids: &[String]) -> ApiResult<Vec<PresenceBatchRecord>> {

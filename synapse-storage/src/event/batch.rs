@@ -26,7 +26,6 @@ impl EventStorage {
     }
 
     /// See [`get_events_since`].
-    /// See [`get_events_since`].
     pub async fn get_events_since(&self, since: i64, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {
         let events = sqlx::query_as(&format!(
             "SELECT {ROOM_EVENT_COLS}
@@ -192,7 +191,6 @@ impl EventStorage {
     }
 
     /// See [`get_events_batch`].
-    /// See [`get_events_batch`].
     pub async fn get_events_batch(&self, event_ids: &[String]) -> Result<Vec<RoomEvent>, sqlx::Error> {
         if event_ids.is_empty() {
             return Ok(Vec::new());
@@ -226,7 +224,6 @@ impl EventStorage {
         Ok(events.into_iter().map(|e| (e.event_id.clone(), e)).collect())
     }
 
-    /// See [`has_room_events_since`].
     /// See [`has_room_events_since`].
     pub async fn has_room_events_since(&self, room_ids: &[String], since: i64) -> Result<bool, sqlx::Error> {
         if room_ids.is_empty() {
@@ -310,14 +307,12 @@ impl EventStorage {
     }
 
     /// See [`get_max_stream_ordering`].
-    /// See [`get_max_stream_ordering`].
     pub async fn get_max_stream_ordering(&self) -> Result<i64, sqlx::Error> {
         let result: Option<(i64,)> =
             sqlx::query_as("SELECT COALESCE(MAX(stream_ordering), 0) FROM events").fetch_optional(&*self.pool).await?;
         Ok(result.map_or(0, |r| r.0))
     }
 
-    /// See [`get_max_origin_server_ts_for_room`].
     /// See [`get_max_origin_server_ts_for_room`].
     pub async fn get_max_origin_server_ts_for_room(&self, room_id: &str) -> Result<i64, sqlx::Error> {
         let result: Option<(i64,)> =

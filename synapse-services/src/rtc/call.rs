@@ -20,7 +20,6 @@ pub enum CallState {
 
 impl CallState {
     /// See [`as_str`].
-    /// See [`as_str`].
     pub fn as_str(&self) -> &str {
         match self {
             CallState::RingING => "ringing",
@@ -119,7 +118,6 @@ pub struct CallOrchestrationService {
 }
 
 impl CallOrchestrationService {
-    /// See [`new`].
     /// See [`new`].
     pub fn new(storage: Arc<dyn CallSessionStoreApi>) -> Self {
         Self { storage }

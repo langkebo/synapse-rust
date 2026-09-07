@@ -88,7 +88,6 @@ impl AdminRegistrationService {
     }
 
     /// See [`generate_nonce`].
-    /// See [`generate_nonce`].
     #[::tracing::instrument(skip(self))]
     pub async fn generate_nonce(&self) -> ApiResult<NonceResponse> {
         let start = std::time::Instant::now();
@@ -116,7 +115,6 @@ impl AdminRegistrationService {
         Ok(NonceResponse { nonce })
     }
 
-    /// See [`register_admin_user`].
     /// See [`register_admin_user`].
     #[::tracing::instrument(skip(self))]
     pub async fn register_admin_user(&self, request: AdminRegisterRequest) -> ApiResult<AdminRegisterResponse> {

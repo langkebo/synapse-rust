@@ -46,7 +46,6 @@ pub struct RoomTagStorage {
 
 impl RoomTagStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
         Self { pool }
     }
@@ -57,7 +56,6 @@ impl RoomTagStorage {
     }
 
     /// See [`get_all_tags`].
-    /// See [`get_all_tags`].
     pub async fn get_all_tags(&self, user_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
         sqlx::query_as::<_, RoomTag>(
             "SELECT id, user_id, room_id, tag, order_value, created_ts FROM room_tags WHERE user_id = $1 ORDER BY room_id, tag"
@@ -67,7 +65,6 @@ impl RoomTagStorage {
         .await
     }
 
-    /// See [`get_tags`].
     /// See [`get_tags`].
     pub async fn get_tags(&self, user_id: &str, room_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
         sqlx::query_as::<_, RoomTag>(
@@ -101,7 +98,6 @@ impl RoomTagStorage {
         Ok(())
     }
 
-    /// See [`remove_tag`].
     /// See [`remove_tag`].
     pub async fn remove_tag(&self, user_id: &str, room_id: &str, tag: &str) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM room_tags WHERE user_id = $1 AND room_id = $2 AND tag = $3")

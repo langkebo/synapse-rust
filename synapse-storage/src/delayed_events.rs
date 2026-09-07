@@ -93,7 +93,6 @@ impl DelayedEventAction {
     }
 
     /// See [`as_str`].
-    /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Send => "send",
@@ -135,7 +134,6 @@ pub struct DelayedEventStorage {
 }
 
 impl DelayedEventStorage {
-    /// See [`new`].
     /// See [`new`].
     pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
         Self { pool }

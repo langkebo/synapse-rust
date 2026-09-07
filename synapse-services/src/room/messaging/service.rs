@@ -81,7 +81,6 @@ pub struct MessagingServiceConfig {
 
 impl MessagingService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: MessagingServiceConfig) -> Self {
         Self {
             event_reader: config.event_reader,

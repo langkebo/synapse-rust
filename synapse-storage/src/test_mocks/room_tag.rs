@@ -15,7 +15,6 @@ impl Default for InMemoryRoomTagStore {
 
 impl InMemoryRoomTagStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self { tags: Arc::new(RwLock::new(Vec::new())), next_id: Arc::new(RwLock::new(1)) }
     }

@@ -802,7 +802,6 @@ impl FriendRoomService {
     }
 
     /// See [`load_direct_map`].
-    /// See [`load_direct_map`].
     pub async fn load_direct_map(&self, user_id: &str) -> ApiResult<Map<String, Value>> {
         let content = self
             .account_data_storage
@@ -818,7 +817,6 @@ impl FriendRoomService {
     }
 
     /// See [`save_direct_map`].
-    /// See [`save_direct_map`].
     pub async fn save_direct_map(&self, user_id: &str, direct_map: &Map<String, Value>) -> ApiResult<()> {
         self.account_data_storage
             .upsert_account_data(user_id, "m.direct", Value::Object(direct_map.clone()))
@@ -832,7 +830,6 @@ impl FriendRoomService {
         Ok(())
     }
 
-    /// See [`get_effective_direct_map`].
     /// See [`get_effective_direct_map`].
     pub async fn get_effective_direct_map(&self, user_id: &str) -> ApiResult<Map<String, Value>> {
         let mut direct_map = self.load_direct_map(user_id).await?;
@@ -853,7 +850,6 @@ impl FriendRoomService {
         Ok(direct_map)
     }
 
-    /// See [`get_direct_room_snapshot`].
     /// See [`get_direct_room_snapshot`].
     pub async fn get_direct_room_snapshot(&self, user_id: &str, room_id: &str) -> ApiResult<DirectRoomSnapshot> {
         let direct_map = self.get_effective_direct_map(user_id).await?;
@@ -980,7 +976,6 @@ impl FriendRoomService {
             .map_err(|e| ApiError::database_with_context("Failed to query existing DM room", &e))
     }
 
-    /// See [`get_dm_partner_for_room`].
     /// See [`get_dm_partner_for_room`].
     pub async fn get_dm_partner_for_room(&self, user_id: &str, room_id: &str) -> ApiResult<Option<DmPartnerInfo>> {
         if let Some((partner_user_id, _)) =
@@ -1119,7 +1114,6 @@ impl FriendRoomService {
         Ok(EnsureDirectRoomResult { room_id, created: true })
     }
 
-    /// See [`get_friends_page`].
     /// See [`get_friends_page`].
     pub async fn get_friends_page(&self, user_id: &str, request: FriendListRequest) -> ApiResult<FriendListPage> {
         let room_id = self.create_friend_list_room(user_id).await?;
@@ -1459,7 +1453,6 @@ impl FriendRoomService {
     // --- Helpers ---
 
     /// See [`is_remote_user`].
-    /// See [`is_remote_user`].
     pub(crate) fn is_remote_user(&self, user_id: &str) -> bool {
         !user_id.ends_with(&format!(":{}", self.server_name))
     }
@@ -1668,12 +1661,10 @@ impl FriendRoomService {
     }
 
     /// See [`sort_friend_entries`].
-    /// See [`sort_friend_entries`].
     pub(crate) fn sort_friend_entries(items: &mut [FriendListEntry], sort_by: &str) {
         items.sort_by(|left, right| Self::compare_friend_entries(left, right, sort_by));
     }
 
-    /// See [`compare_friend_entries`].
     /// See [`compare_friend_entries`].
     pub(crate) fn compare_friend_entries(left: &FriendListEntry, right: &FriendListEntry, sort_by: &str) -> Ordering {
         match sort_by {
@@ -1723,7 +1714,6 @@ impl FriendRoomService {
     }
 
     /// See [`cursor_from_friend_entry`].
-    /// See [`cursor_from_friend_entry`].
     pub(crate) fn cursor_from_friend_entry(item: &FriendListEntry, sort_by: &str) -> FriendListCursor {
         FriendListCursor {
             sort_by: sort_by.to_string(),
@@ -1737,12 +1727,10 @@ impl FriendRoomService {
     }
 
     /// See [`friend_display_key`].
-    /// See [`friend_display_key`].
     pub(crate) fn friend_display_key(item: &FriendListEntry) -> &str {
         item.display_name.as_deref().or(item.username.as_deref()).unwrap_or(item.user_id.as_str())
     }
 
-    /// See [`build_direct_room_snapshot`].
     /// See [`build_direct_room_snapshot`].
     pub(crate) fn build_direct_room_snapshot(direct_map: Map<String, Value>, room_id: &str) -> DirectRoomSnapshot {
         let users = get_room_direct_users(&direct_map, room_id);

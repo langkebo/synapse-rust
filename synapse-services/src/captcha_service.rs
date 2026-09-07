@@ -50,7 +50,6 @@ pub struct VerifyCaptchaRequest {
 
 impl CaptchaService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: Arc<dyn synapse_storage::captcha::CaptchaStoreApi>) -> Self {
         Self::with_sms_provider(storage, None, false, None)
     }
@@ -188,7 +187,6 @@ impl CaptchaService {
     }
 
     /// See [`verify_captcha`].
-    /// See [`verify_captcha`].
     pub async fn verify_captcha(&self, request: VerifyCaptchaRequest) -> Result<bool, ApiError> {
         let verified = self.storage.verify_captcha(&request.captcha_id, &request.code).await?;
 
@@ -198,12 +196,10 @@ impl CaptchaService {
     }
 
     /// See [`get_captcha`].
-    /// See [`get_captcha`].
     pub async fn get_captcha(&self, captcha_id: &str) -> Result<Option<RegistrationCaptcha>, ApiError> {
         self.storage.get_captcha(captcha_id).await
     }
 
-    /// See [`invalidate_captcha`].
     /// See [`invalidate_captcha`].
     pub async fn invalidate_captcha(&self, captcha_id: &str) -> Result<(), ApiError> {
         self.storage.invalidate_captcha(captcha_id).await
@@ -319,7 +315,6 @@ impl CaptchaService {
         ))
     }
 
-    /// See [`cleanup_expired`].
     /// See [`cleanup_expired`].
     pub async fn cleanup_expired(&self) -> Result<u64, ApiError> {
         self.storage.cleanup_expired_captchas().await

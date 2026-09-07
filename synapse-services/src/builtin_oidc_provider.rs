@@ -316,7 +316,6 @@ const AUTH_CODE_EXPIRY_SECS: i64 = 600;
 
 impl BuiltinOidcProvider {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: Arc<BuiltinOidcConfig>) -> Result<Self, ApiError> {
         let signing_key = Self::load_or_generate_key(config.signing_key_path.as_deref())?;
         let der = signing_key.to_pkcs1_der().map_err(|e| ApiError::internal_with_context("OIDC RSA serialize", &e))?;

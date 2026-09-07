@@ -255,7 +255,6 @@ impl SlidingSyncService {
     }
 
     /// See [`room_to_json`].
-    /// See [`room_to_json`].
     pub(super) fn room_to_json(room: &SlidingSyncRoom) -> Value {
         json!({
             "room_id": room.room_id,
@@ -272,7 +271,6 @@ impl SlidingSyncService {
     }
 
     /// See [`subscription_config_from_list`].
-    /// See [`subscription_config_from_list`].
     pub(crate) fn subscription_config_from_list(list_data: &SlidingSyncListData) -> RoomSubscriptionConfig {
         RoomSubscriptionConfig {
             timeline_limit: list_data.timeline_limit,
@@ -280,7 +278,6 @@ impl SlidingSyncService {
         }
     }
 
-    /// See [`subscription_config_from_value`].
     /// See [`subscription_config_from_value`].
     pub(crate) fn subscription_config_from_value(value: Option<&serde_json::Value>) -> RoomSubscriptionConfig {
         let Some(value) = value else {
@@ -298,7 +295,6 @@ impl SlidingSyncService {
         RoomSubscriptionConfig { timeline_limit, required_state }
     }
 
-    /// See [`build_sync_ops`].
     /// See [`build_sync_ops`].
     pub(super) fn build_sync_ops(ranges: &[SlidingListRangeSnapshot]) -> Vec<Value> {
         ranges

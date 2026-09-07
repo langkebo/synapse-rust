@@ -44,7 +44,6 @@ pub struct ServerConfig {
     /// - 构建客户端访问 URL
     /// - 生成事件 ID 的服务器名称部分
     #[serde(default)]
-    /// `public_baseurl` field.
     pub public_baseurl: Option<String>,
 
     /// 签名密钥文件路径
@@ -59,7 +58,6 @@ pub struct ServerConfig {
     /// - 联邦通信身份验证
     /// - 生成事件 ID
     #[serde(default)]
-    /// `signing_key_path` field.
     pub signing_key_path: Option<String>,
 
     /// Macaroon 密钥
@@ -74,7 +72,6 @@ pub struct ServerConfig {
     /// - 验证令牌完整性
     #[serde(default)]
     #[educe(Debug(ignore))]
-    /// `macaroon_secret_key` field.
     pub macaroon_secret_key: Option<String>,
 
     /// 表单密钥
@@ -88,7 +85,6 @@ pub struct ServerConfig {
     /// - 防止表单伪造
     #[serde(default)]
     #[educe(Debug(ignore))]
-    /// `form_secret` field.
     pub form_secret: Option<String>,
 
     /// 服务器名称（与 name 字段相同）
@@ -96,7 +92,6 @@ pub struct ServerConfig {
     /// 保留此字段是为了与官方 Synapse 配置命名保持一致。
     /// 在代码中应该统一使用此字段而非 `name`。
     #[serde(default)]
-    /// `server_name` field.
     pub server_name: Option<String>,
 
     /// 是否抑制密钥服务器警告

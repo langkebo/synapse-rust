@@ -52,7 +52,6 @@ use synapse_common::room_versions::DEFAULT_ROOM_VERSION;
 
 impl RoomStorage {
     /// See [`encryption_from_is_encrypted`].
-    /// See [`encryption_from_is_encrypted`].
     pub(crate) fn encryption_from_is_encrypted(is_encrypted: Option<bool>) -> Option<String> {
         if is_encrypted.unwrap_or(false) {
             Some("m.megolm.v1.aes-sha2".to_string())
@@ -77,7 +76,6 @@ impl RoomStorage {
         }
     }
 
-    /// See [`new`].
     /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
@@ -157,7 +155,6 @@ impl RoomStorage {
     }
 
     /// See [`get_room`].
-    /// See [`get_room`].
     pub async fn get_room(&self, room_id: &str) -> Result<Option<Room>, sqlx::Error> {
         tracing::debug!(room_id = %room_id, "Querying room");
         let row = sqlx::query_as::<_, RoomRecord>(
@@ -204,7 +201,6 @@ impl RoomStorage {
     }
 
     /// See [`get_rooms_batch`].
-    /// See [`get_rooms_batch`].
     pub async fn get_rooms_batch(&self, room_ids: &[String]) -> Result<Vec<Room>, sqlx::Error> {
         if room_ids.is_empty() {
             return Ok(Vec::new());
@@ -250,7 +246,6 @@ impl RoomStorage {
     }
 
     /// See [`get_room_creator`].
-    /// See [`get_room_creator`].
     pub async fn get_room_creator(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
         let result: Option<(String,)> = sqlx::query_as(
             r"
@@ -264,7 +259,6 @@ impl RoomStorage {
     }
 
     /// See [`room_exists`].
-    /// See [`room_exists`].
     pub async fn room_exists(&self, room_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_scalar::<_, i32>(
             r#"
@@ -277,7 +271,6 @@ impl RoomStorage {
         Ok(result.is_some())
     }
 
-    /// See [`get_public_rooms`].
     /// See [`get_public_rooms`].
     pub async fn get_public_rooms(&self, limit: i64) -> Result<Vec<Room>, sqlx::Error> {
         self.get_public_rooms_paginated(limit, None, None).await
@@ -488,7 +481,6 @@ impl RoomStorage {
     }
 
     /// See [`get_user_rooms`].
-    /// See [`get_user_rooms`].
     pub async fn get_user_rooms(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let rows: Vec<String> = sqlx::query_scalar::<_, String>(
             r"
@@ -595,7 +587,6 @@ impl RoomStorage {
     }
 
     /// See [`update_room_name`].
-    /// See [`update_room_name`].
     pub async fn update_room_name(&self, room_id: &str, name: &str) -> Result<(), sqlx::Error> {
         Self::update_room_name_with_executor(&*self.pool, room_id, name).await
     }
@@ -626,7 +617,6 @@ impl RoomStorage {
         Ok(())
     }
 
-    /// See [`update_room_topic`].
     /// See [`update_room_topic`].
     pub async fn update_room_topic(&self, room_id: &str, topic: &str) -> Result<(), sqlx::Error> {
         Self::update_room_topic_with_executor(&*self.pool, room_id, topic).await
@@ -659,7 +649,6 @@ impl RoomStorage {
     }
 
     /// See [`update_room_avatar`].
-    /// See [`update_room_avatar`].
     pub async fn update_room_avatar(&self, room_id: &str, avatar_url: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -673,7 +662,6 @@ impl RoomStorage {
         Ok(())
     }
 
-    /// See [`set_canonical_alias`].
     /// See [`set_canonical_alias`].
     pub async fn set_canonical_alias(&self, room_id: &str, alias: Option<&str>) -> Result<(), sqlx::Error> {
         sqlx::query(
@@ -708,12 +696,10 @@ impl RoomStorage {
     }
 
     /// See [`update_canonical_alias`].
-    /// See [`update_canonical_alias`].
     pub async fn update_canonical_alias(&self, room_id: &str, alias: &str) -> Result<(), sqlx::Error> {
         self.set_canonical_alias(room_id, Some(alias)).await
     }
 
-    /// See [`increment_member_count`].
     /// See [`increment_member_count`].
     pub async fn increment_member_count(&self, room_id: &str) -> Result<(), sqlx::Error> {
         // v11: removed `joined_member_count = joined_member_count + 1` and
@@ -762,7 +748,6 @@ impl RoomStorage {
     }
 
     /// See [`get_room_count`].
-    /// See [`get_room_count`].
     pub async fn get_room_count(&self) -> Result<i64, sqlx::Error> {
         let count = sqlx::query_scalar::<_, i64>(
             r"
@@ -774,7 +759,6 @@ impl RoomStorage {
         Ok(count)
     }
 
-    /// See [`set_room_visibility`].
     /// See [`set_room_visibility`].
     pub async fn set_room_visibility(&self, room_id: &str, visibility: &str) -> Result<(), sqlx::Error> {
         // Normalize the visibility string and derive the boolean is_public
@@ -798,7 +782,6 @@ impl RoomStorage {
         Ok(())
     }
 
-    /// See [`set_room_alias`].
     /// See [`set_room_alias`].
     pub async fn set_room_alias(&self, room_id: &str, alias: &str, _created_by: &str) -> Result<(), sqlx::Error> {
         let creation_ts = current_timestamp_millis();
@@ -831,7 +814,6 @@ impl RoomStorage {
     }
 
     /// See [`remove_room_alias`].
-    /// See [`remove_room_alias`].
     pub async fn remove_room_alias(&self, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -844,7 +826,6 @@ impl RoomStorage {
         Ok(())
     }
 
-    /// See [`remove_room_alias_by_name`].
     /// See [`remove_room_alias_by_name`].
     pub async fn remove_room_alias_by_name(&self, alias: &str) -> Result<(), sqlx::Error> {
         // B-7: Normalize the alias before deleting so that
@@ -977,7 +958,6 @@ impl RoomStorage {
     }
 
     /// See [`shutdown_room`].
-    /// See [`shutdown_room`].
     pub async fn shutdown_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
         tracing::info!(room_id = %room_id, "Shutting down room");
         // Mark room as inactive or delete it. For simplicity, we delete it from directory
@@ -992,7 +972,6 @@ impl RoomStorage {
     }
 
     /// See [`set_room_version`].
-    /// See [`set_room_version`].
     pub async fn set_room_version(&self, room_id: &str, version: &str) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE rooms SET room_version = $1 WHERE room_id = $2")
             .bind(version)
@@ -1002,7 +981,6 @@ impl RoomStorage {
         Ok(())
     }
 
-    /// See [`get_room_alias`].
     /// See [`get_room_alias`].
     pub async fn get_room_alias(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
         let result: Option<(String,)> = sqlx::query_as(
@@ -1017,7 +995,6 @@ impl RoomStorage {
     }
 
     /// See [`get_room_aliases`].
-    /// See [`get_room_aliases`].
     pub async fn get_room_aliases(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error> {
         let results: Vec<(String,)> = sqlx::query_as(
             r"
@@ -1030,7 +1007,6 @@ impl RoomStorage {
         Ok(results.into_iter().map(|r| r.0).collect())
     }
 
-    /// See [`get_room_by_alias`].
     /// See [`get_room_by_alias`].
     pub async fn get_room_by_alias(&self, alias: &str) -> Result<Option<String>, sqlx::Error> {
         // B-7: Normalize the alias so that `#foo:example.com` queries match rows
@@ -1048,7 +1024,6 @@ impl RoomStorage {
     }
 
     /// See [`is_room_in_directory`].
-    /// See [`is_room_in_directory`].
     pub async fn is_room_in_directory(&self, room_id: &str) -> Result<bool, sqlx::Error> {
         let result: Option<(bool,)> = sqlx::query_as(
             r"
@@ -1061,7 +1036,6 @@ impl RoomStorage {
         Ok(result.is_some_and(|r| r.0))
     }
 
-    /// See [`set_room_directory`].
     /// See [`set_room_directory`].
     pub async fn set_room_directory(&self, room_id: &str, is_public: bool) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
@@ -1090,7 +1064,6 @@ impl RoomStorage {
         Ok(())
     }
 
-    /// See [`remove_room_directory`].
     /// See [`remove_room_directory`].
     pub async fn remove_room_directory(&self, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
@@ -1143,7 +1116,6 @@ impl RoomStorage {
         Ok(ts.and_then(|t| t.0))
     }
 
-    /// See [`update_read_marker`].
     /// See [`update_read_marker`].
     pub async fn update_read_marker(&self, room_id: &str, user_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
         let now: i64 = current_timestamp_millis();

@@ -260,13 +260,11 @@ impl AdminUserService {
     }
 
     /// See [`delete_user`].
-    /// See [`delete_user`].
     #[instrument(skip(self))]
     pub async fn delete_user(&self, user_id: &str) -> Result<(), ApiError> {
         self.user_storage.delete_user(user_id).await.map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
-    /// See [`set_admin_status`].
     /// See [`set_admin_status`].
     #[instrument(skip(self))]
     pub async fn set_admin_status(&self, user_id: &str, is_admin: bool) -> Result<(), ApiError> {
@@ -292,7 +290,6 @@ impl AdminUserService {
     }
 
     /// See [`get_user_devices`].
-    /// See [`get_user_devices`].
     #[instrument(skip(self))]
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<synapse_storage::Device>, ApiError> {
         self.device_storage
@@ -301,7 +298,6 @@ impl AdminUserService {
             .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
-    /// See [`get_user_device_count`].
     /// See [`get_user_device_count`].
     #[instrument(skip(self))]
     pub async fn get_user_device_count(&self, user_id: &str) -> Result<i64, ApiError> {
@@ -312,7 +308,6 @@ impl AdminUserService {
     }
 
     /// See [`get_joined_room_count`].
-    /// See [`get_joined_room_count`].
     #[instrument(skip(self))]
     pub async fn get_joined_room_count(&self, user_id: &str) -> Result<i64, ApiError> {
         self.member_storage
@@ -321,7 +316,6 @@ impl AdminUserService {
             .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
-    /// See [`evict_user_from_joined_rooms`].
     /// See [`evict_user_from_joined_rooms`].
     #[instrument(skip(self))]
     pub async fn evict_user_from_joined_rooms(&self, user_id: &str) -> Result<AdminUserEvictionResult, ApiError> {
@@ -459,7 +453,6 @@ impl AdminUserService {
     }
 
     /// See [`get_user_v2`].
-    /// See [`get_user_v2`].
     #[instrument(skip(self))]
     pub async fn get_user_v2(&self, identifier: &str) -> Result<Option<AdminUserDetails>, ApiError> {
         let user = self.user_service.get_user_by_identifier(identifier).await?;
@@ -591,7 +584,6 @@ impl AdminUserService {
     }
 
     /// See [`get_user_stats`].
-    /// See [`get_user_stats`].
     #[instrument(skip(self))]
     pub async fn get_user_stats(&self) -> Result<AdminUserStats, ApiError> {
         let stats = self
@@ -618,7 +610,6 @@ impl AdminUserService {
         })
     }
 
-    /// See [`get_single_user_stats`].
     /// See [`get_single_user_stats`].
     #[instrument(skip(self))]
     pub async fn get_single_user_stats(&self, identifier: &str) -> Result<AdminSingleUserStats, ApiError> {
@@ -674,7 +665,6 @@ impl AdminUserService {
         Ok(BatchUsersResult { succeeded, failed })
     }
 
-    /// See [`batch_deactivate_users`].
     /// See [`batch_deactivate_users`].
     #[instrument(skip(self))]
     pub async fn batch_deactivate_users(&self, user_ids: &[String]) -> Result<BatchUsersResult, ApiError> {

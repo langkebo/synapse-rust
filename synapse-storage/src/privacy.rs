@@ -105,12 +105,10 @@ pub struct PrivacyStorage {
 
 impl PrivacyStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
 
-    /// See [`create_tables`].
     /// See [`create_tables`].
     pub async fn create_tables(&self) -> Result<(), sqlx::Error> {
         sqlx::query(
@@ -140,7 +138,6 @@ impl PrivacyStorage {
     }
 
     /// See [`get_settings`].
-    /// See [`get_settings`].
     pub async fn get_settings(&self, user_id: &str) -> Result<Option<UserPrivacySettings>, sqlx::Error> {
         let row = sqlx::query_as::<_, UserPrivacySettings>(
             r#"
@@ -154,7 +151,6 @@ impl PrivacyStorage {
         Ok(row)
     }
 
-    /// See [`get_or_create_settings`].
     /// See [`get_or_create_settings`].
     pub async fn get_or_create_settings(&self, user_id: &str) -> Result<UserPrivacySettings, sqlx::Error> {
         if let Some(settings) = self.get_settings(user_id).await? {
@@ -226,7 +222,6 @@ impl PrivacyStorage {
     }
 
     /// See [`can_view_profile`].
-    /// See [`can_view_profile`].
     pub async fn can_view_profile(&self, viewer_id: Option<&str>, target_user_id: &str) -> Result<bool, sqlx::Error> {
         let settings = self.get_or_create_settings(target_user_id).await?;
 
@@ -246,7 +241,6 @@ impl PrivacyStorage {
         Ok(can_view)
     }
 
-    /// See [`can_view_presence`].
     /// See [`can_view_presence`].
     pub async fn can_view_presence(&self, viewer_id: Option<&str>, target_user_id: &str) -> Result<bool, sqlx::Error> {
         let settings = self.get_or_create_settings(target_user_id).await?;

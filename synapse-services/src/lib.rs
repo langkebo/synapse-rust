@@ -161,7 +161,7 @@ pub mod directory_service;
 pub mod typing_service;
 /// The `uia_service` module.
 pub mod uia_service;
-/// The `user_lock_service` module.
+/// User lock operations — deactivated (use UserStore::lock_user directly).
 pub mod user_lock_service;
 /// The `user_service` module.
 pub mod user_service;

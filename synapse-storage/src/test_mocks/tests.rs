@@ -629,7 +629,6 @@ pub struct InMemoryBurnAfterReadStore {
 #[cfg(feature = "burn-after-read")]
 impl InMemoryBurnAfterReadStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }

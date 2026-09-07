@@ -27,12 +27,10 @@ pub struct OidcUserMappingStorage {
 
 impl OidcUserMappingStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
         Self { pool }
     }
 
-    /// See [`get_bound_user_id`].
     /// See [`get_bound_user_id`].
     pub async fn get_bound_user_id(&self, issuer: &str, subject: &str) -> Result<Option<String>, sqlx::Error> {
         sqlx::query_scalar("SELECT user_id FROM oidc_user_mapping WHERE issuer = $1 AND subject = $2")
@@ -42,7 +40,6 @@ impl OidcUserMappingStorage {
             .await
     }
 
-    /// See [`update_last_authenticated`].
     /// See [`update_last_authenticated`].
     pub async fn update_last_authenticated(&self, issuer: &str, subject: &str, now_ts: i64) -> Result<(), sqlx::Error> {
         sqlx::query(

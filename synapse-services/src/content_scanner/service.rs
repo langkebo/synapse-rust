@@ -11,19 +11,16 @@ pub struct ContentScanner {
 
 impl ContentScanner {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: ContentScannerConfig) -> Self {
         // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()
         Self { config, http_client: synapse_common::http_client::default_client() }
     }
 
     /// See [`is_enabled`].
-    /// See [`is_enabled`].
     pub fn is_enabled(&self) -> bool {
         self.config.enabled && self.config.scanner_type != ScannerType::Disabled
     }
 
-    /// See [`scan`].
     /// See [`scan`].
     pub async fn scan(&self, request: ScanRequest) -> Result<ContentScanResult, ApiError> {
         if !self.is_enabled() {
@@ -159,7 +156,6 @@ impl ContentScanner {
         })
     }
 
-    /// See [`scan_text`].
     /// See [`scan_text`].
     pub async fn scan_text(&self, content_id: &str, text: &str) -> Result<ContentScanResult, ApiError> {
         self.scan(ScanRequest {

@@ -11,7 +11,6 @@ pub struct InMemoryQuarantineMediaChangeStore {
 
 impl InMemoryQuarantineMediaChangeStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self { changes: Arc::new(RwLock::new(Vec::new())), next_stream_id: Arc::new(RwLock::new(0)) }
     }

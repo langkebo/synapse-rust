@@ -49,7 +49,6 @@ pub enum RoomSearchCursor {
 
 impl RoomSearchOrder {
     /// See [`from_query`].
-    /// See [`from_query`].
     pub fn from_query(order_by: Option<&str>) -> Self {
         match order_by {
             Some("name") => Self::Name,
@@ -231,7 +230,6 @@ pub struct RoomEncryptionStatus {
 }
 
 impl RoomEncryptionStatus {
-    /// See [`from_room`].
     /// See [`from_room`].
     pub fn from_room(room: &Room) -> Self {
         Self {

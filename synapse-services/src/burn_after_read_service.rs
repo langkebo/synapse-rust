@@ -96,7 +96,6 @@ impl BurnAfterReadService {
     }
 
     /// See [`get_burn_settings`].
-    /// See [`get_burn_settings`].
     pub async fn get_burn_settings(&self, user_id: &str, room_id: &str) -> ApiResult<Option<BurnSettings>> {
         let row = self
             .storage
@@ -107,7 +106,6 @@ impl BurnAfterReadService {
         Ok(row.map(|r| BurnSettings { is_enabled: r.is_enabled, burn_after_ms: r.burn_after_ms }))
     }
 
-    /// See [`get_pending_burns`].
     /// See [`get_pending_burns`].
     pub async fn get_pending_burns(&self, user_id: &str, room_id: &str) -> ApiResult<Vec<BurnEvent>> {
         let rows = self
@@ -130,7 +128,6 @@ impl BurnAfterReadService {
     }
 
     /// See [`cancel_burn`].
-    /// See [`cancel_burn`].
     pub async fn cancel_burn(&self, user_id: &str, room_id: &str, event_id: &str) -> ApiResult<()> {
         self.storage
             .cancel_burn(user_id, room_id, event_id)
@@ -140,7 +137,6 @@ impl BurnAfterReadService {
         Ok(())
     }
 
-    /// See [`delete_burned_message`].
     /// See [`delete_burned_message`].
     pub async fn delete_burned_message(&self, user_id: &str, room_id: &str, event_id: &str) -> ApiResult<()> {
         let now = current_timestamp_millis();
@@ -190,7 +186,6 @@ impl BurnAfterReadService {
     }
 
     /// See [`set_user_default`].
-    /// See [`set_user_default`].
     pub async fn set_user_default(&self, user_id: &str, default_burn_ms: i64) -> ApiResult<()> {
         self.storage
             .set_user_default(user_id, default_burn_ms)
@@ -200,7 +195,6 @@ impl BurnAfterReadService {
         Ok(())
     }
 
-    /// See [`get_user_stats`].
     /// See [`get_user_stats`].
     pub async fn get_user_stats(&self, user_id: &str) -> ApiResult<BurnStats> {
         let row = self
@@ -235,7 +229,6 @@ impl BurnAfterReadService {
         Ok(())
     }
 
-    /// See [`process_expired_burns`].
     /// See [`process_expired_burns`].
     pub async fn process_expired_burns(&self) -> ApiResult<Vec<BurnEvent>> {
         let now = current_timestamp_millis();
@@ -444,7 +437,6 @@ impl BurnAfterReadService {
         Ok(expired)
     }
 
-    /// See [`recover_pending_burns`].
     /// See [`recover_pending_burns`].
     pub async fn recover_pending_burns(&self) {
         ::tracing::info!("Recovering pending burn-after-read events from database");

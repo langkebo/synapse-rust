@@ -172,7 +172,6 @@ impl SamlService {
     }
 
     /// See [`is_enabled`].
-    /// See [`is_enabled`].
     pub fn is_enabled(&self) -> bool {
         self.config.is_enabled()
     }
@@ -321,7 +320,6 @@ impl SamlService {
     }
 
     /// See [`get_auth_redirect`].
-    /// See [`get_auth_redirect`].
     pub async fn get_auth_redirect(&self, relay_state: Option<&str>) -> Result<SamlAuthRequest, ApiError> {
         let request_id = Self::generate_request_id();
         self.store_pending_request(&request_id, relay_state).await?;
@@ -438,7 +436,6 @@ impl SamlService {
     }
 
     /// See [`initiate_logout`].
-    /// See [`initiate_logout`].
     pub async fn initiate_logout(&self, session_id: &str, reason: Option<&str>) -> Result<String, ApiError> {
         let session =
             self.storage.get_session(session_id).await?.ok_or_else(|| ApiError::not_found("Session not found"))?;
@@ -472,7 +469,6 @@ impl SamlService {
     }
 
     /// See [`process_logout_response`].
-    /// See [`process_logout_response`].
     pub async fn process_logout_response(&self, saml_response: &str) -> Result<(), ApiError> {
         let decoded = Self::decode_saml_response(saml_response)?;
 
@@ -498,7 +494,6 @@ impl SamlService {
     }
 
     /// See [`get_session`].
-    /// See [`get_session`].
     pub async fn get_session(&self, session_id: &str) -> Result<Option<SamlSession>, ApiError> {
         let session = self.storage.get_session(session_id).await?;
 
@@ -514,24 +509,20 @@ impl SamlService {
     }
 
     /// See [`get_user_mapping`].
-    /// See [`get_user_mapping`].
     pub async fn get_user_mapping(&self, user_id: &str) -> Result<Option<SamlUserMapping>, ApiError> {
         self.storage.get_user_mapping_by_user_id(user_id).await
     }
 
-    /// See [`get_session_by_user`].
     /// See [`get_session_by_user`].
     pub async fn get_session_by_user(&self, user_id: &str) -> Result<Option<SamlSession>, ApiError> {
         self.storage.get_session_by_user(user_id).await
     }
 
     /// See [`list_user_mappings`].
-    /// See [`list_user_mappings`].
     pub async fn list_user_mappings(&self, limit: i64, after: Option<&str>) -> Result<Vec<SamlUserMapping>, ApiError> {
         self.storage.list_user_mappings(limit, after).await
     }
 
-    /// See [`get_user_mapping_any_issuer`].
     /// See [`get_user_mapping_any_issuer`].
     pub async fn get_user_mapping_any_issuer(&self, name_id: &str) -> Result<Option<SamlUserMapping>, ApiError> {
         self.storage.get_user_mapping_any_issuer(name_id).await
@@ -548,12 +539,10 @@ impl SamlService {
     }
 
     /// See [`delete_user_mapping_by_name_id`].
-    /// See [`delete_user_mapping_by_name_id`].
     pub async fn delete_user_mapping_by_name_id(&self, name_id: &str) -> Result<u64, ApiError> {
         self.storage.delete_user_mapping_by_name_id(name_id).await
     }
 
-    /// See [`get_idp_metadata`].
     /// See [`get_idp_metadata`].
     pub async fn get_idp_metadata(&self) -> Result<SamlMetadata, ApiError> {
         if let Some(ref metadata) = self.cached_metadata {
@@ -1194,18 +1183,15 @@ impl SamlService {
     }
 
     /// See [`get_config`].
-    /// See [`get_config`].
     pub fn get_config(&self) -> &SamlConfig {
         &self.config
     }
 
     /// See [`cleanup_expired_sessions`].
-    /// See [`cleanup_expired_sessions`].
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
         self.storage.cleanup_expired_sessions().await
     }
 
-    /// See [`cleanup_old_auth_events`].
     /// See [`cleanup_old_auth_events`].
     pub async fn cleanup_old_auth_events(&self, days: i64) -> Result<u64, ApiError> {
         self.storage.cleanup_old_auth_events(days).await
@@ -1218,7 +1204,6 @@ pub struct SamlIdpManager {
 }
 
 impl SamlIdpManager {
-    /// See [`new`].
     /// See [`new`].
     pub fn new(storage: Arc<dyn synapse_storage::saml::SamlStoreApi>) -> Self {
         Self { storage }
@@ -1233,24 +1218,20 @@ impl SamlIdpManager {
     }
 
     /// See [`get_idp`].
-    /// See [`get_idp`].
     pub async fn get_idp(&self, entity_id: &str) -> Result<Option<SamlIdentityProvider>, ApiError> {
         self.storage.get_identity_provider(entity_id).await
     }
 
-    /// See [`list_idps`].
     /// See [`list_idps`].
     pub async fn list_idps(&self) -> Result<Vec<SamlIdentityProvider>, ApiError> {
         self.storage.get_all_identity_providers().await
     }
 
     /// See [`list_enabled_idps`].
-    /// See [`list_enabled_idps`].
     pub async fn list_enabled_idps(&self) -> Result<Vec<SamlIdentityProvider>, ApiError> {
         self.storage.get_enabled_identity_providers().await
     }
 
-    /// See [`delete_idp`].
     /// See [`delete_idp`].
     pub async fn delete_idp(&self, entity_id: &str) -> Result<(), ApiError> {
         self.storage.delete_identity_provider(entity_id).await

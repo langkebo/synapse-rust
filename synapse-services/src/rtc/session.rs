@@ -16,7 +16,6 @@ pub struct RtcSessionService {
 
 impl RtcSessionService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: MatrixRTCStorage, cache: Arc<CacheManager>) -> Self {
         Self { storage, cache }
     }
@@ -48,7 +47,6 @@ impl RtcSessionService {
     }
 
     /// See [`get_session`].
-    /// See [`get_session`].
     pub async fn get_session(&self, room_id: &str, session_id: &str) -> Result<Option<RTCSession>, ApiError> {
         let cache_key = format!("matrixrtc:session:{}:{}", room_id, session_id);
 
@@ -78,7 +76,6 @@ impl RtcSessionService {
     }
 
     /// See [`get_active_sessions_for_room`].
-    /// See [`get_active_sessions_for_room`].
     pub async fn get_active_sessions_for_room(&self, room_id: &str) -> Result<Vec<RTCSession>, ApiError> {
         let cache_key = format!("matrixrtc:sessions:{}", room_id);
 
@@ -99,7 +96,6 @@ impl RtcSessionService {
         Ok(sessions)
     }
 
-    /// See [`end_session`].
     /// See [`end_session`].
     pub async fn end_session(&self, room_id: &str, session_id: &str, user_id: &str) -> Result<(), ApiError> {
         let session = self.get_session(room_id, session_id).await?;
@@ -281,7 +277,6 @@ impl RtcSessionService {
         Ok(keys)
     }
 
-    /// See [`cleanup_expired_memberships`].
     /// See [`cleanup_expired_memberships`].
     pub async fn cleanup_expired_memberships(&self) -> Result<u64, ApiError> {
         let count = self

@@ -10,12 +10,10 @@ pub struct EventReportService {
 
 impl EventReportService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: Arc<dyn EventReportStoreApi>) -> Self {
         Self { storage }
     }
 
-    /// See [`create_report`].
     /// See [`create_report`].
     #[instrument(skip(self))]
     pub async fn create_report(&self, request: CreateEventReportRequest) -> Result<EventReport, ApiError> {
@@ -75,7 +73,6 @@ impl EventReportService {
     }
 
     /// See [`get_report`].
-    /// See [`get_report`].
     #[instrument(skip(self))]
     pub async fn get_report(&self, id: i64) -> Result<Option<EventReport>, ApiError> {
         let report = self
@@ -87,7 +84,6 @@ impl EventReportService {
         Ok(report)
     }
 
-    /// See [`get_reports_by_event`].
     /// See [`get_reports_by_event`].
     #[instrument(skip(self))]
     pub async fn get_reports_by_event(&self, event_id: &str) -> Result<Vec<EventReport>, ApiError> {
@@ -231,7 +227,6 @@ impl EventReportService {
     }
 
     /// See [`dismiss_report`].
-    /// See [`dismiss_report`].
     #[instrument(skip(self))]
     pub async fn dismiss_report(&self, id: i64, dismissed_by: &str, reason: &str) -> Result<EventReport, ApiError> {
         let request = UpdateEventReportRequest {
@@ -244,7 +239,6 @@ impl EventReportService {
         self.update_report(id, request, dismissed_by).await
     }
 
-    /// See [`delete_report`].
     /// See [`delete_report`].
     #[instrument(skip(self))]
     pub async fn delete_report(&self, id: i64) -> Result<(), ApiError> {
@@ -265,7 +259,6 @@ impl EventReportService {
     }
 
     /// See [`get_report_history`].
-    /// See [`get_report_history`].
     #[instrument(skip(self))]
     pub async fn get_report_history(&self, report_id: i64) -> Result<Vec<EventReportHistory>, ApiError> {
         let history = self
@@ -276,7 +269,6 @@ impl EventReportService {
         Ok(history)
     }
 
-    /// See [`check_rate_limit`].
     /// See [`check_rate_limit`].
     #[instrument(skip(self))]
     pub async fn check_rate_limit(&self, user_id: &str) -> Result<ReportRateLimitCheck, ApiError> {
@@ -289,7 +281,6 @@ impl EventReportService {
         Ok(check)
     }
 
-    /// See [`block_user_reports`].
     /// See [`block_user_reports`].
     #[instrument(skip(self))]
     pub async fn block_user_reports(&self, user_id: &str, blocked_until: i64, reason: &str) -> Result<(), ApiError> {
@@ -304,7 +295,6 @@ impl EventReportService {
     }
 
     /// See [`unblock_user_reports`].
-    /// See [`unblock_user_reports`].
     #[instrument(skip(self))]
     pub async fn unblock_user_reports(&self, user_id: &str) -> Result<(), ApiError> {
         self.storage
@@ -318,7 +308,6 @@ impl EventReportService {
     }
 
     /// See [`get_stats`].
-    /// See [`get_stats`].
     #[instrument(skip(self))]
     pub async fn get_stats(&self, days: i32) -> Result<Vec<EventReportStats>, ApiError> {
         let stats =
@@ -327,7 +316,6 @@ impl EventReportService {
         Ok(stats)
     }
 
-    /// See [`count_reports_by_status`].
     /// See [`count_reports_by_status`].
     #[instrument(skip(self))]
     pub async fn count_reports_by_status(&self, status: &str) -> Result<i64, ApiError> {
@@ -340,7 +328,6 @@ impl EventReportService {
         Ok(count)
     }
 
-    /// See [`count_all_reports`].
     /// See [`count_all_reports`].
     #[instrument(skip(self))]
     pub async fn count_all_reports(&self) -> Result<i64, ApiError> {
@@ -364,7 +351,6 @@ impl EventReportService {
         self.get_reports_by_status("open", limit, None, since_ts, since_id).await
     }
 
-    /// See [`escalate_report`].
     /// See [`escalate_report`].
     #[instrument(skip(self))]
     pub async fn escalate_report(&self, id: i64, actor_user_id: &str) -> Result<EventReport, ApiError> {

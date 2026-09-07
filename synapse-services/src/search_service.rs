@@ -292,7 +292,6 @@ pub struct SearchService {
 
 impl SearchService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(url: &str, enabled: bool, index_name: &str) -> Self {
         Self::with_postgres(url, enabled, index_name, None, "postgres".to_string())
     }
@@ -396,7 +395,6 @@ impl SearchService {
     }
 
     /// See [`init_indices`].
-    /// See [`init_indices`].
     pub async fn init_indices(&self) -> ApiResult<()> {
         if !self.enabled {
             return Ok(());
@@ -463,7 +461,6 @@ impl SearchService {
     }
 
     /// See [`index_event`].
-    /// See [`index_event`].
     pub async fn index_event(&self, event: &IndexedEvent) -> ApiResult<()> {
         if !self.enabled {
             return Ok(());
@@ -497,7 +494,6 @@ impl SearchService {
         Ok(())
     }
 
-    /// See [`bulk_index`].
     /// See [`bulk_index`].
     pub async fn bulk_index(&self, events: &[IndexedEvent]) -> ApiResult<()> {
         if !self.enabled || events.is_empty() {
@@ -548,7 +544,6 @@ impl SearchService {
         Ok(())
     }
 
-    /// See [`delete_event`].
     /// See [`delete_event`].
     pub async fn delete_event(&self, event_id: &str) -> ApiResult<()> {
         if !self.enabled {
@@ -771,7 +766,6 @@ impl SearchService {
     }
 
     /// See [`delete_room_index`].
-    /// See [`delete_room_index`].
     pub async fn delete_room_index(&self, room_id: &str) -> ApiResult<()> {
         if !self.enabled {
             return Ok(());
@@ -804,7 +798,6 @@ impl SearchService {
         Ok(())
     }
 
-    /// See [`is_enabled`].
     /// See [`is_enabled`].
     pub fn is_enabled(&self) -> bool {
         self.enabled

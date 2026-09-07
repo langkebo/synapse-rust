@@ -19,7 +19,6 @@ impl Default for InMemoryEventStore {
 
 impl InMemoryEventStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         // Lazily-built pool pointed at a non-routable address. Never used —
         // only constructed so service code that calls event_writer.pool() can
@@ -75,7 +74,6 @@ impl InMemoryEventStore {
     }
 
     /// See [`get_event`].
-    /// See [`get_event`].
     pub async fn get_event(&self, event_id: &str) -> Result<Option<crate::event::RoomEvent>, String> {
         Ok(self.events.read().await.get(event_id).cloned())
     }
@@ -89,7 +87,6 @@ impl InMemoryEventStore {
         }
     }
 
-    /// See [`get_room_events`].
     /// See [`get_room_events`].
     pub async fn get_room_events(&self, room_id: &str, limit: i64) -> Result<Vec<crate::event::RoomEvent>, String> {
         let events = self.events.read().await;
@@ -111,13 +108,11 @@ impl InMemoryEventStore {
     }
 
     /// See [`find_missing_event_ids`].
-    /// See [`find_missing_event_ids`].
     pub async fn find_missing_event_ids(&self, event_ids: &[String]) -> Result<Vec<String>, String> {
         let events = self.events.read().await;
         Ok(event_ids.iter().filter(|id| !events.contains_key(*id)).cloned().collect())
     }
 
-    /// See [`redact_event_content`].
     /// See [`redact_event_content`].
     pub async fn redact_event_content(&self, event_id: &str, _redacted_by: Option<&str>) -> Result<(), String> {
         let mut events = self.events.write().await;
@@ -141,7 +136,6 @@ impl InMemoryEventStore {
         Ok(matched)
     }
 
-    /// See [`count_room_events`].
     /// See [`count_room_events`].
     pub async fn count_room_events(&self, room_id: &str) -> Result<i64, String> {
         let events = self.events.read().await;
@@ -275,7 +269,6 @@ impl InMemoryEventStore {
         Ok(results)
     }
 
-    /// See [`seed_events`].
     /// See [`seed_events`].
     pub async fn seed_events(&self, events: Vec<crate::event::RoomEvent>) {
         let mut store = self.events.write().await;

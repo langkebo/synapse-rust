@@ -15,7 +15,6 @@ pub struct InMemoryRoomSummaryStore {
 
 impl InMemoryRoomSummaryStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self {
             summaries: Arc::new(tokio::sync::RwLock::new(HashMap::new())),

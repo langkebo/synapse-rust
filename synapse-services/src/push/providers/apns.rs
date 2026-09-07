@@ -38,7 +38,6 @@ impl Default for ApnsProviderConfig {
 
 impl ApnsProviderConfig {
     /// See [`sandbox`].
-    /// See [`sandbox`].
     pub fn sandbox() -> Self {
         Self { endpoint: "https://api.sandbox.push.apple.com".to_string(), ..Default::default() }
     }
@@ -84,7 +83,6 @@ pub struct ApnsProvider {
 
 impl ApnsProvider {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: ApnsProviderConfig) -> Self {
         let enabled = !config.topic.is_empty();
 
@@ -97,7 +95,6 @@ impl ApnsProvider {
         Self { config, client, enabled }
     }
 
-    /// See [`with_topic`].
     /// See [`with_topic`].
     pub fn with_topic(topic: String) -> Self {
         let config = ApnsProviderConfig { topic, ..Default::default() };

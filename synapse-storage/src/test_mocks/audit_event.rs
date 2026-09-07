@@ -8,7 +8,6 @@ pub struct InMemoryAuditEventStore {
 
 impl InMemoryAuditEventStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self { events: Arc::new(tokio::sync::RwLock::new(HashMap::new())) }
     }

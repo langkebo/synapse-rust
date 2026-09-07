@@ -17,12 +17,10 @@ pub struct DatabaseMaintenance {
 
 impl DatabaseMaintenance {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Pool<Postgres>) -> Self {
         Self { pool }
     }
 
-    /// See [`perform_maintenance`].
     /// See [`perform_maintenance`].
     pub async fn perform_maintenance(&self) -> Result<MaintenanceReport, sqlx::Error> {
         let start_time = Instant::now();

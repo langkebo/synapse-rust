@@ -314,7 +314,6 @@ pub struct RoomSummaryUpdateQueueItem {
 
 impl RoomSummary {
     /// See [`to_response`].
-    /// See [`to_response`].
     pub fn to_response(&self, heroes: Vec<RoomSummaryHero>) -> RoomSummaryResponse {
         self.to_response_with_allowed_room_ids(heroes, None)
     }

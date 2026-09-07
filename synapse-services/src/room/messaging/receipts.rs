@@ -73,7 +73,6 @@ impl MessagingService {
     }
 
     /// See [`get_receipts`].
-    /// See [`get_receipts`].
     pub async fn get_receipts(&self, room_id: &str, receipt_type: &str, event_id: &str) -> ApiResult<Vec<Receipt>> {
         self.room_storage
             .get_receipts(room_id, receipt_type, event_id)

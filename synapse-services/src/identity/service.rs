@@ -14,26 +14,22 @@ pub struct IdentityService {
 
 impl IdentityService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: IdentityStorage, trusted_servers: Vec<String>) -> Self {
         // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()
         Self { storage, http_client: synapse_common::http_client::default_client(), trusted_servers }
     }
 
     /// See [`get_user_three_pids`].
-    /// See [`get_user_three_pids`].
     pub async fn get_user_three_pids(&self, user_id: &str) -> ApiResult<Vec<ThirdPartyId>> {
         self.storage.get_user_three_pids(user_id).await
     }
 
-    /// See [`add_three_pid`].
     /// See [`add_three_pid`].
     pub async fn add_three_pid(&self, address: &str, medium: &str, user_id: &str) -> ApiResult<()> {
         let three_pid = ThirdPartyId::new(address, medium, user_id);
         self.storage.add_three_pid(&three_pid).await
     }
 
-    /// See [`remove_three_pid`].
     /// See [`remove_three_pid`].
     pub async fn remove_three_pid(&self, address: &str, medium: &str, user_id: &str) -> ApiResult<()> {
         self.storage.remove_three_pid(address, medium, user_id).await
@@ -170,7 +166,6 @@ impl IdentityService {
     }
 
     /// See [`check_3pid_validity`].
-    /// See [`check_3pid_validity`].
     pub async fn check_3pid_validity(&self, id_server: &str, sid: &str, client_secret: &str) -> ApiResult<bool> {
         self.validate_id_server(id_server)?;
         let url = format!("https://{id_server}/_matrix/identity/v3/3pid/getValidationStatus");
@@ -199,12 +194,10 @@ impl IdentityService {
     }
 
     /// See [`lookup_3pid`].
-    /// See [`lookup_3pid`].
     pub async fn lookup_3pid(&self, medium: &str, address: &str) -> ApiResult<Option<String>> {
         self.storage.get_three_pid_user(address, medium).await
     }
 
-    /// See [`hash_lookup`].
     /// See [`hash_lookup`].
     pub async fn hash_lookup(&self, addresses: &[String], mediums: &[String]) -> ApiResult<Vec<serde_json::Value>> {
         // P3: Run all (address × medium) lookups concurrently with join_all.
@@ -285,12 +278,10 @@ impl IdentityService {
     }
 
     /// See [`get_trusted_servers`].
-    /// See [`get_trusted_servers`].
     pub fn get_trusted_servers(&self) -> &[String] {
         &self.trusted_servers
     }
 
-    /// See [`validate_id_server`].
     /// See [`validate_id_server`].
     pub fn validate_id_server(&self, id_server: &str) -> ApiResult<()> {
         if id_server.is_empty() {

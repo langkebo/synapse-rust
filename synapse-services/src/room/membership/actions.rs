@@ -47,7 +47,6 @@ impl MembershipService {
     }
 
     /// See [`join_room`].
-    /// See [`join_room`].
     #[::tracing::instrument(skip(self))]
     pub async fn join_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         if !self
@@ -133,7 +132,6 @@ impl MembershipService {
         Ok(())
     }
 
-    /// See [`leave_room`].
     /// See [`leave_room`].
     #[::tracing::instrument(skip(self))]
     pub async fn leave_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
@@ -242,7 +240,6 @@ impl MembershipService {
         }
     }
 
-    /// See [`forget_room`].
     /// See [`forget_room`].
     pub async fn forget_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         let membership = self

@@ -105,7 +105,6 @@ pub struct VoiceStorage {
 
 impl VoiceStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<PgPool>) -> Self {
         Self { pool }
     }
@@ -141,7 +140,6 @@ impl VoiceStorage {
     }
 
     /// See [`get_user_stats`].
-    /// See [`get_user_stats`].
     #[allow(clippy::expect_used)]
     pub async fn get_user_stats(&self, user_id: &str) -> Result<VoiceUserAggregatedStats, sqlx::Error> {
         let today_start = chrono::Utc::now()
@@ -170,7 +168,6 @@ impl VoiceStorage {
     }
 
     /// See [`get_room_stats`].
-    /// See [`get_room_stats`].
     pub async fn get_room_stats(&self, room_id: &str) -> Result<VoiceAggregatedStats, sqlx::Error> {
         let row = sqlx::query_as::<_, VoiceAggregatedStats>(
             r#"
@@ -189,12 +186,10 @@ impl VoiceStorage {
     }
 
     /// See [`get_global_user_stats`].
-    /// See [`get_global_user_stats`].
     pub async fn get_global_user_stats(&self, user_id: &str) -> Result<VoiceUserAggregatedStats, sqlx::Error> {
         self.get_user_stats(user_id).await
     }
 
-    /// See [`delete_user_stats`].
     /// See [`delete_user_stats`].
     pub async fn delete_user_stats(&self, user_id: &str) -> Result<u64, sqlx::Error> {
         let result =
@@ -202,7 +197,6 @@ impl VoiceStorage {
         Ok(result.rows_affected())
     }
 
-    /// See [`delete_room_stats`].
     /// See [`delete_room_stats`].
     pub async fn delete_room_stats(&self, room_id: &str) -> Result<u64, sqlx::Error> {
         let result =
@@ -292,7 +286,6 @@ impl VoiceStorage {
         Ok(rows)
     }
 
-    /// See [`get_by_media_id`].
     /// See [`get_by_media_id`].
     pub async fn get_by_media_id(&self, media_id: &str) -> Result<Option<VoiceUsageRecord>, sqlx::Error> {
         let row = sqlx::query_as::<_, VoiceUsageRecord>(

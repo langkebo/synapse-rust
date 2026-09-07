@@ -86,7 +86,6 @@ pub struct FcmProvider {
 
 impl FcmProvider {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: FcmProviderConfig) -> Self {
         let enabled = !config.api_key.is_empty();
 
@@ -99,7 +98,6 @@ impl FcmProvider {
         Self { config, client, enabled }
     }
 
-    /// See [`with_api_key`].
     /// See [`with_api_key`].
     pub fn with_api_key(api_key: String) -> Self {
         let config = FcmProviderConfig { api_key, ..Default::default() };

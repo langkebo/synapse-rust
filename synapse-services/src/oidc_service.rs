@@ -159,7 +159,6 @@ pub struct OidcService {
 
 impl OidcService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: Arc<OidcConfig>) -> Self {
         let http_client =
             reqwest::Client::builder().timeout(Duration::from_secs(config.timeout)).build().unwrap_or_else(|e| {
@@ -171,7 +170,6 @@ impl OidcService {
         Self { config, http_client, discovery: RwLock::new(None), jwks: RwLock::new(None) }
     }
 
-    /// See [`is_enabled`].
     /// See [`is_enabled`].
     pub fn is_enabled(&self) -> bool {
         self.config.is_enabled()
@@ -270,7 +268,6 @@ impl OidcService {
         Ok(token_data.claims)
     }
 
-    /// See [`discover`].
     /// See [`discover`].
     pub async fn discover(&self) -> Result<OidcDiscoveryDocument, ApiError> {
         {
@@ -665,7 +662,6 @@ impl OidcService {
     }
 
     /// See [`refresh_token`].
-    /// See [`refresh_token`].
     pub async fn refresh_token(&self, refresh_token: &str) -> Result<OidcTokenResponse, ApiError> {
         let default_token = format!("{}/token", self.config.issuer);
         let token_endpoint = {
@@ -698,7 +694,6 @@ impl OidcService {
     }
 
     /// See [`get_user_info`].
-    /// See [`get_user_info`].
     pub async fn get_user_info(&self, access_token: &str) -> Result<OidcUserInfo, ApiError> {
         let default_userinfo = format!("{}/userinfo", self.config.issuer);
         let userinfo_endpoint = {
@@ -726,7 +721,6 @@ impl OidcService {
         response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse UserInfo", &e))
     }
 
-    /// See [`map_user`].
     /// See [`map_user`].
     pub fn map_user(&self, user_info: &OidcUserInfo) -> OidcUser {
         let mapping = &self.config.attribute_mapping;
@@ -757,14 +751,12 @@ impl OidcService {
     }
 
     /// See [`generate_state`].
-    /// See [`generate_state`].
     pub fn generate_state() -> String {
         use rand::Rng;
         let mut rng = rand::rng();
         (0..32).map(|_| rng.sample(rand::distr::Alphanumeric) as char).collect()
     }
 
-    /// See [`get_config`].
     /// See [`get_config`].
     pub fn get_config(&self) -> &OidcConfig {
         &self.config

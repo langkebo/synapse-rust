@@ -226,12 +226,10 @@ pub struct CaptchaStorage {
 
 impl CaptchaStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`create_captcha`].
     /// See [`create_captcha`].
     pub async fn create_captcha(&self, request: CreateCaptchaRequest) -> Result<RegistrationCaptcha, ApiError> {
         let captcha_id = Uuid::new_v4().to_string();
@@ -268,7 +266,6 @@ impl CaptchaStorage {
     }
 
     /// See [`get_captcha`].
-    /// See [`get_captcha`].
     pub async fn get_captcha(&self, captcha_id: &str) -> Result<Option<RegistrationCaptcha>, ApiError> {
         let row = sqlx::query_as::<_, RegistrationCaptcha>("SELECT id, captcha_id, captcha_type, target, code, created_ts, expires_at, used_at, verified_at, ip_address, user_agent, attempt_count, max_attempts, status, metadata FROM registration_captcha WHERE captcha_id = $1")
             .bind(captcha_id)
@@ -304,7 +301,6 @@ impl CaptchaStorage {
         Ok(row)
     }
 
-    /// See [`verify_captcha`].
     /// See [`verify_captcha`].
     pub async fn verify_captcha(&self, captcha_id: &str, code: &str) -> Result<bool, ApiError> {
         let now = current_timestamp_millis();
@@ -363,7 +359,6 @@ impl CaptchaStorage {
     }
 
     /// See [`invalidate_captcha`].
-    /// See [`invalidate_captcha`].
     pub async fn invalidate_captcha(&self, captcha_id: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
@@ -378,7 +373,6 @@ impl CaptchaStorage {
         Ok(())
     }
 
-    /// See [`create_send_log`].
     /// See [`create_send_log`].
     pub async fn create_send_log(&self, request: CreateSendLogRequest) -> Result<CaptchaSendLog, ApiError> {
         let sent_ts = current_timestamp_millis();
@@ -435,7 +429,6 @@ impl CaptchaStorage {
     }
 
     /// See [`check_ip_rate_limit`].
-    /// See [`check_ip_rate_limit`].
     pub async fn check_ip_rate_limit(&self, ip_address: &str, max_per_hour: i32) -> Result<bool, ApiError> {
         let one_hour_ago_ts = current_timestamp_millis() - chrono::Duration::hours(1).num_milliseconds();
 
@@ -455,7 +448,6 @@ impl CaptchaStorage {
     }
 
     /// See [`get_template`].
-    /// See [`get_template`].
     pub async fn get_template(&self, template_name: &str) -> Result<Option<CaptchaTemplate>, ApiError> {
         let row = sqlx::query_as::<_, CaptchaTemplate>(
             "SELECT id, template_name, captcha_type, subject, content, variables, is_default, is_enabled, created_ts, updated_ts FROM captcha_template WHERE template_name = $1 AND is_enabled = true",
@@ -468,7 +460,6 @@ impl CaptchaStorage {
         Ok(row)
     }
 
-    /// See [`get_default_template`].
     /// See [`get_default_template`].
     pub async fn get_default_template(&self, captcha_type: &str) -> Result<Option<CaptchaTemplate>, ApiError> {
         let row = sqlx::query_as::<_, CaptchaTemplate>(
@@ -483,7 +474,6 @@ impl CaptchaStorage {
     }
 
     /// See [`get_config`].
-    /// See [`get_config`].
     pub async fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError> {
         let row: Option<(String,)> = sqlx::query_as("SELECT config_value FROM captcha_config WHERE config_key = $1")
             .bind(config_key)
@@ -495,7 +485,6 @@ impl CaptchaStorage {
     }
 
     /// See [`get_config_as_int`].
-    /// See [`get_config_as_int`].
     pub async fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError> {
         let value = self.get_config(config_key).await?;
 
@@ -505,7 +494,6 @@ impl CaptchaStorage {
         })
     }
 
-    /// See [`cleanup_expired_captchas`].
     /// See [`cleanup_expired_captchas`].
     pub async fn cleanup_expired_captchas(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();

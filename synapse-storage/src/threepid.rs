@@ -141,12 +141,10 @@ pub trait ThreepidStoreApi: Send + Sync {
 
 impl ThreepidStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &PgPool) -> Self {
         Self { pool: Arc::new(pool.clone()) }
     }
 
-    /// See [`add_threepid`].
     /// See [`add_threepid`].
     pub async fn add_threepid(&self, request: CreateThreepidRequest) -> Result<UserThreepid, ApiError> {
         let now = current_timestamp_millis();
@@ -214,7 +212,6 @@ impl ThreepidStorage {
     }
 
     /// See [`get_threepids_by_user`].
-    /// See [`get_threepids_by_user`].
     pub async fn get_threepids_by_user(&self, user_id: &str) -> Result<Vec<UserThreepid>, ApiError> {
         let threepids = sqlx::query_as::<_, UserThreepid>(
             r"
@@ -241,7 +238,6 @@ impl ThreepidStorage {
         Ok(threepids)
     }
 
-    /// See [`get_pending_threepids`].
     /// See [`get_pending_threepids`].
     pub async fn get_pending_threepids(&self, limit: i64) -> Result<Vec<UserThreepid>, ApiError> {
         let threepids = sqlx::query_as::<_, UserThreepid>(
@@ -270,7 +266,6 @@ impl ThreepidStorage {
         Ok(threepids)
     }
 
-    /// See [`get_threepid_by_address`].
     /// See [`get_threepid_by_address`].
     pub async fn get_threepid_by_address(&self, medium: &str, address: &str) -> Result<Option<UserThreepid>, ApiError> {
         let threepid = sqlx::query_as::<_, UserThreepid>(
@@ -330,7 +325,6 @@ impl ThreepidStorage {
     }
 
     /// See [`verify_threepid`].
-    /// See [`verify_threepid`].
     pub async fn verify_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError> {
         let now = current_timestamp_millis();
 
@@ -352,7 +346,6 @@ impl ThreepidStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    /// See [`verify_threepid_by_token`].
     /// See [`verify_threepid_by_token`].
     pub async fn verify_threepid_by_token(&self, token: &str) -> Result<Option<UserThreepid>, ApiError> {
         let now = current_timestamp_millis();
@@ -383,7 +376,6 @@ impl ThreepidStorage {
         Ok(threepid)
     }
 
-    /// See [`remove_threepid`].
     /// See [`remove_threepid`].
     pub async fn remove_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError> {
         let result = sqlx::query(
@@ -434,7 +426,6 @@ impl ThreepidStorage {
     }
 
     /// See [`remove_threepids_by_user`].
-    /// See [`remove_threepids_by_user`].
     pub async fn remove_threepids_by_user(&self, user_id: &str) -> Result<u64, ApiError> {
         let result = sqlx::query(
             r"
@@ -450,7 +441,6 @@ impl ThreepidStorage {
         Ok(result.rows_affected())
     }
 
-    /// See [`cleanup_expired_verifications`].
     /// See [`cleanup_expired_verifications`].
     pub async fn cleanup_expired_verifications(&self) -> Result<u64, ApiError> {
         let now = current_timestamp_millis();
@@ -555,7 +545,6 @@ impl ThreepidStorage {
     }
 
     /// See [`mark_validation_validated`].
-    /// See [`mark_validation_validated`].
     pub async fn mark_validation_validated(&self, id: i64) -> Result<(), ApiError> {
         sqlx::query(
             r"
@@ -574,7 +563,6 @@ impl ThreepidStorage {
     }
 
     /// See [`increment_validation_send_attempt`].
-    /// See [`increment_validation_send_attempt`].
     pub async fn increment_validation_send_attempt(&self, id: i64) -> Result<(), ApiError> {
         sqlx::query("UPDATE threepid_validation_session SET send_attempt = send_attempt + 1 WHERE id = $1")
             .bind(id)
@@ -585,7 +573,6 @@ impl ThreepidStorage {
         Ok(())
     }
 
-    /// See [`cleanup_expired_validation_sessions`].
     /// See [`cleanup_expired_validation_sessions`].
     pub async fn cleanup_expired_validation_sessions(&self) -> Result<u64, ApiError> {
         sqlx::query("DELETE FROM threepid_validation_session WHERE expires_at < $1")

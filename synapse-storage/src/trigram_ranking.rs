@@ -7,7 +7,6 @@ pub struct TrigramRanking {
 
 impl TrigramRanking {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(column: &str, table: &str) -> Self {
         Self { column: column.to_string(), table: table.to_string() }
     }

@@ -119,7 +119,6 @@ pub trait AdminMediaStoreApi: Send + Sync {
 
 impl AdminMediaStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &sqlx::PgPool) -> Self {
         Self { pool: pool.clone() }
     }
@@ -161,7 +160,6 @@ impl AdminMediaStorage {
     }
 
     /// See [`get_all_media`].
-    /// See [`get_all_media`].
     pub async fn get_all_media(&self, limit: i64, cursor: Option<MediaCursor>) -> Result<AdminMediaPage, ApiError> {
         let media: Vec<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
             r#"SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts, last_accessed_at, quarantine_status
@@ -191,7 +189,6 @@ impl AdminMediaStorage {
     }
 
     /// See [`get_media_info`].
-    /// See [`get_media_info`].
     pub async fn get_media_info(&self, media_id: &str) -> Result<Option<AdminMediaInfo>, ApiError> {
         let media: Option<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
             r#"SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts, last_accessed_at, quarantine_status
@@ -206,7 +203,6 @@ impl AdminMediaStorage {
     }
 
     /// See [`delete_media`].
-    /// See [`delete_media`].
     pub async fn delete_media(&self, media_id: &str) -> Result<bool, ApiError> {
         let result = sqlx::query("DELETE FROM media_metadata WHERE media_id = $1")
             .bind(media_id)
@@ -217,7 +213,6 @@ impl AdminMediaStorage {
         Ok(result.rows_affected() > 0)
     }
 
-    /// See [`get_media_quota`].
     /// See [`get_media_quota`].
     pub async fn get_media_quota(&self) -> Result<AdminMediaQuotaSummary, ApiError> {
         let total_size = sqlx::query_scalar::<_, i64>("SELECT COALESCE(SUM(size), 0)::BIGINT FROM media_metadata")
@@ -233,7 +228,6 @@ impl AdminMediaStorage {
     }
 
     /// See [`get_user_media`].
-    /// See [`get_user_media`].
     pub async fn get_user_media(&self, user_id: &str) -> Result<Vec<AdminMediaInfo>, ApiError> {
         let media: Vec<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
             r#"SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts,
@@ -248,7 +242,6 @@ impl AdminMediaStorage {
         Ok(media.into_iter().map(map_media_row).collect())
     }
 
-    /// See [`delete_user_media`].
     /// See [`delete_user_media`].
     pub async fn delete_user_media(&self, user_id: &str) -> Result<u64, ApiError> {
         let result = sqlx::query("DELETE FROM media_metadata WHERE uploader_user_id = $1")

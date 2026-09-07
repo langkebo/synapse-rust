@@ -9,7 +9,6 @@ pub struct InMemoryOidcUserMappingStore {
 
 impl InMemoryOidcUserMappingStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self { mappings: Arc::new(RwLock::new(HashMap::new())) }
     }

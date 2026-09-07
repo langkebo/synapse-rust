@@ -207,13 +207,11 @@ impl RecordUsageRequest {
     }
 
     /// See [`old_access_token_id`].
-    /// See [`old_access_token_id`].
     pub fn old_access_token_id(mut self, old_access_token_id: impl Into<String>) -> Self {
         self.old_access_token_id = Some(old_access_token_id.into());
         self
     }
 
-    /// See [`ip_address`].
     /// See [`ip_address`].
     pub fn ip_address(mut self, ip_address: impl Into<String>) -> Self {
         self.ip_address = Some(ip_address.into());
@@ -221,13 +219,11 @@ impl RecordUsageRequest {
     }
 
     /// See [`user_agent`].
-    /// See [`user_agent`].
     pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
         self.user_agent = Some(user_agent.into());
         self
     }
 
-    /// See [`error_message`].
     /// See [`error_message`].
     pub fn error_message(mut self, error_message: impl Into<String>) -> Self {
         self.error_message = Some(error_message.into());
@@ -337,12 +333,10 @@ pub struct RefreshTokenStorage {
 
 impl RefreshTokenStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`create_token`].
     /// See [`create_token`].
     pub async fn create_token(&self, request: CreateRefreshTokenRequest) -> Result<RefreshToken, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -390,7 +384,6 @@ impl RefreshTokenStorage {
     }
 
     /// See [`get_token`].
-    /// See [`get_token`].
     pub async fn get_token(&self, token_hash: &str) -> Result<Option<RefreshToken>, sqlx::Error> {
         let row = sqlx::query_as!(
             RefreshToken,
@@ -421,7 +414,6 @@ impl RefreshTokenStorage {
         Ok(row)
     }
 
-    /// See [`get_token_by_id`].
     /// See [`get_token_by_id`].
     pub async fn get_token_by_id(&self, id: i64) -> Result<Option<RefreshToken>, sqlx::Error> {
         let row = sqlx::query_as!(
@@ -454,7 +446,6 @@ impl RefreshTokenStorage {
     }
 
     /// See [`get_user_tokens`].
-    /// See [`get_user_tokens`].
     pub async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, sqlx::Error> {
         let rows = sqlx::query_as!(
             RefreshToken,
@@ -485,7 +476,6 @@ impl RefreshTokenStorage {
         Ok(rows)
     }
 
-    /// See [`get_active_tokens`].
     /// See [`get_active_tokens`].
     pub async fn get_active_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -525,7 +515,6 @@ impl RefreshTokenStorage {
     }
 
     /// See [`revoke_token`].
-    /// See [`revoke_token`].
     pub async fn revoke_token(&self, token_hash: &str, reason: &str) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
@@ -543,7 +532,6 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
-    /// See [`revoke_token_cas`].
     /// See [`revoke_token_cas`].
     pub async fn revoke_token_cas(&self, token_hash: &str, reason: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query!(
@@ -563,7 +551,6 @@ impl RefreshTokenStorage {
     }
 
     /// See [`revoke_token_by_id`].
-    /// See [`revoke_token_by_id`].
     pub async fn revoke_token_by_id(&self, id: i64, reason: &str) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
@@ -581,7 +568,6 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
-    /// See [`revoke_all_user_tokens`].
     /// See [`revoke_all_user_tokens`].
     pub async fn revoke_all_user_tokens(&self, user_id: &str, reason: &str) -> Result<i64, sqlx::Error> {
         let result = sqlx::query!(
@@ -646,7 +632,6 @@ impl RefreshTokenStorage {
     }
 
     /// See [`update_token_usage`].
-    /// See [`update_token_usage`].
     pub async fn update_token_usage(&self, token_hash: &str, access_token_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -668,7 +653,6 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
-    /// See [`record_usage`].
     /// See [`record_usage`].
     pub async fn record_usage(&self, request: &RecordUsageRequest) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
@@ -734,7 +718,6 @@ impl RefreshTokenStorage {
     }
 
     /// See [`get_family`].
-    /// See [`get_family`].
     pub async fn get_family(&self, family_id: &str) -> Result<Option<RefreshTokenFamily>, sqlx::Error> {
         let row = sqlx::query_as!(
             RefreshTokenFamily,
@@ -759,7 +742,6 @@ impl RefreshTokenStorage {
         Ok(row)
     }
 
-    /// See [`mark_family_compromised`].
     /// See [`mark_family_compromised`].
     pub async fn mark_family_compromised(&self, family_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
@@ -821,7 +803,6 @@ impl RefreshTokenStorage {
     }
 
     /// See [`get_rotations`].
-    /// See [`get_rotations`].
     pub async fn get_rotations(&self, family_id: &str) -> Result<Vec<RefreshTokenRotation>, sqlx::Error> {
         let rows = sqlx::query_as!(
             RefreshTokenRotation,
@@ -871,7 +852,6 @@ impl RefreshTokenStorage {
     }
 
     /// See [`is_blacklisted`].
-    /// See [`is_blacklisted`].
     pub async fn is_blacklisted(&self, token_hash: &str) -> Result<bool, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -889,7 +869,6 @@ impl RefreshTokenStorage {
     }
 
     /// See [`cleanup_expired_tokens`].
-    /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -906,7 +885,6 @@ impl RefreshTokenStorage {
     }
 
     /// See [`cleanup_blacklist`].
-    /// See [`cleanup_blacklist`].
     pub async fn cleanup_blacklist(&self) -> Result<i64, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -922,7 +900,6 @@ impl RefreshTokenStorage {
         Ok(result.rows_affected() as i64)
     }
 
-    /// See [`get_user_stats`].
     /// See [`get_user_stats`].
     pub async fn get_user_stats(&self, user_id: &str) -> Result<Option<RefreshTokenStats>, sqlx::Error> {
         let row = sqlx::query_as!(
@@ -947,7 +924,6 @@ impl RefreshTokenStorage {
         Ok(row)
     }
 
-    /// See [`get_usage_history`].
     /// See [`get_usage_history`].
     pub async fn get_usage_history(&self, user_id: &str, limit: i64) -> Result<Vec<RefreshTokenUsage>, sqlx::Error> {
         let rows = sqlx::query_as!(
@@ -976,7 +952,6 @@ impl RefreshTokenStorage {
     }
 
     /// See [`delete_token`].
-    /// See [`delete_token`].
     pub async fn delete_token(&self, token_hash: &str) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
@@ -990,7 +965,6 @@ impl RefreshTokenStorage {
         Ok(())
     }
 
-    /// See [`delete_user_tokens`].
     /// See [`delete_user_tokens`].
     pub async fn delete_user_tokens(&self, user_id: &str) -> Result<i64, sqlx::Error> {
         let result = sqlx::query!(

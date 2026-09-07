@@ -74,7 +74,6 @@ pub struct EmailVerificationStorage {
 
 impl EmailVerificationStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
     }
@@ -111,7 +110,6 @@ impl EmailVerificationStorage {
     }
 
     /// See [`verify_token`].
-    /// See [`verify_token`].
     pub async fn verify_token(&self, email: &str, token: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
         let now = current_timestamp_millis();
 
@@ -131,7 +129,6 @@ impl EmailVerificationStorage {
         Ok(token_record)
     }
 
-    /// See [`mark_token_used`].
     /// See [`mark_token_used`].
     pub async fn mark_token_used(&self, token_id: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
@@ -211,7 +208,6 @@ impl EmailVerificationStorage {
     }
 
     /// See [`delete_token_by_id`].
-    /// See [`delete_token_by_id`].
     pub async fn delete_token_by_id(&self, token_id: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -250,7 +246,6 @@ impl EmailVerificationStorage {
     }
 
     /// See [`cleanup_expired_tokens`].
-    /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
         let now = current_timestamp_millis();
         let result = sqlx::query(
@@ -264,7 +259,6 @@ impl EmailVerificationStorage {
         Ok(result.rows_affected() as i64)
     }
 
-    /// See [`get_token_by_email`].
     /// See [`get_token_by_email`].
     pub async fn get_token_by_email(&self, email: &str) -> Result<Option<EmailVerificationToken>, sqlx::Error> {
         let now = current_timestamp_millis();

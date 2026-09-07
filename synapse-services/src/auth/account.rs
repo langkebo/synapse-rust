@@ -108,7 +108,6 @@ impl AuthService {
     }
 
     /// See [`deactivate_user`].
-    /// See [`deactivate_user`].
     pub async fn deactivate_user(&self, user_id: &str) -> ApiResult<()> {
         self.user_storage
             .set_deactivation_status(user_id, true)
@@ -151,7 +150,6 @@ impl AuthService {
         Ok(())
     }
 
-    /// See [`revoke_device`].
     /// See [`revoke_device`].
     pub async fn revoke_device(&self, user_id: &str, device_id: &str) -> ApiResult<u64> {
         let rows = self
@@ -196,7 +194,6 @@ impl AuthService {
         Ok(rows)
     }
 
-    /// See [`revoke_devices`].
     /// See [`revoke_devices`].
     pub async fn revoke_devices(&self, user_id: &str, device_ids: &[String]) -> ApiResult<u64> {
         if device_ids.is_empty() {
@@ -255,13 +252,11 @@ impl AuthService {
     }
 
     /// See [`hash_password`].
-    /// See [`hash_password`].
     pub(crate) fn hash_password(&self, password: &str) -> Result<String, ApiError> {
         hash_password_with_params(password, self.argon2_m_cost, self.argon2_t_cost, self.argon2_p_cost)
             .map_err(ApiError::internal)
     }
 
-    /// See [`hash_password_for_storage`].
     /// See [`hash_password_for_storage`].
     pub async fn hash_password_for_storage(&self, password: &str) -> Result<String, ApiError> {
         let auth = self.clone();
@@ -273,12 +268,10 @@ impl AuthService {
     }
 
     /// See [`verify_password`].
-    /// See [`verify_password`].
     pub(crate) fn verify_password(&self, password: &str, password_hash: &str) -> Result<bool, ApiError> {
         verify_password_common(password, password_hash, self.allow_legacy_hashes).map_err(ApiError::internal)
     }
 
-    /// See [`migrate_password`].
     /// See [`migrate_password`].
     pub(crate) async fn migrate_password(&self, user_id: &str, password: &str) -> Result<(), ApiError> {
         let start = std::time::Instant::now();
@@ -321,7 +314,6 @@ impl AuthService {
         Ok(())
     }
 
-    /// See [`generate_email_verification_token`].
     /// See [`generate_email_verification_token`].
     pub fn generate_email_verification_token(&self) -> ApiResult<String> {
         let token = super::auth_generate_token(32);

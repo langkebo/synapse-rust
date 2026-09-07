@@ -30,7 +30,6 @@ pub struct CreateSpaceBody {
 
 impl CreateSpaceBody {
     /// See [`into_request`].
-    /// See [`into_request`].
     pub fn into_request(self, creator: String) -> synapse_storage::space::CreateSpaceRequest {
         synapse_storage::space::CreateSpaceRequest {
             room_id: self.room_id,
@@ -60,7 +59,6 @@ pub struct AddChildBody {
 }
 
 impl AddChildBody {
-    /// See [`into_request`].
     /// See [`into_request`].
     pub fn into_request(self, space_id: String, sender: String) -> synapse_storage::space::AddChildRequest {
         synapse_storage::space::AddChildRequest {
@@ -96,7 +94,6 @@ pub struct UpdateSpaceBody {
 }
 
 impl UpdateSpaceBody {
-    /// See [`into_request`].
     /// See [`into_request`].
     pub fn into_request(self) -> synapse_storage::space::UpdateSpaceRequest {
         let mut request = synapse_storage::space::UpdateSpaceRequest::new();

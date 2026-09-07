@@ -96,12 +96,10 @@ pub struct WidgetService {
 
 impl WidgetService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: Arc<dyn WidgetStoreApi>) -> Self {
         Self { storage }
     }
 
-    /// See [`create_widget`].
     /// See [`create_widget`].
     pub async fn create_widget(&self, user_id: &str, request: CreateWidgetRequest) -> Result<Widget, ApiError> {
         let widget_id = format!("widget_{}", Uuid::new_v4());
@@ -133,7 +131,6 @@ impl WidgetService {
     }
 
     /// See [`get_widget`].
-    /// See [`get_widget`].
     pub async fn get_widget(&self, widget_id: &str) -> Result<Option<Widget>, ApiError> {
         let widget = self
             .storage
@@ -145,7 +142,6 @@ impl WidgetService {
     }
 
     /// See [`get_room_widgets`].
-    /// See [`get_room_widgets`].
     pub async fn get_room_widgets(&self, room_id: &str) -> Result<Vec<Widget>, ApiError> {
         let widgets = self
             .storage
@@ -156,7 +152,6 @@ impl WidgetService {
         Ok(widgets)
     }
 
-    /// See [`get_user_widgets`].
     /// See [`get_user_widgets`].
     pub async fn get_user_widgets(&self, user_id: &str) -> Result<Vec<Widget>, ApiError> {
         let widgets = self
@@ -187,7 +182,6 @@ impl WidgetService {
         Ok(widget)
     }
 
-    /// See [`delete_widget`].
     /// See [`delete_widget`].
     pub async fn delete_widget(&self, widget_id: &str) -> Result<bool, ApiError> {
         let deleted = self
@@ -227,7 +221,6 @@ impl WidgetService {
     }
 
     /// See [`get_permissions`].
-    /// See [`get_permissions`].
     pub async fn get_permissions(&self, widget_id: &str) -> Result<Vec<WidgetPermission>, ApiError> {
         let permissions = self
             .storage
@@ -253,7 +246,6 @@ impl WidgetService {
         Ok(permission)
     }
 
-    /// See [`delete_permission`].
     /// See [`delete_permission`].
     pub async fn delete_permission(&self, widget_id: &str, user_id: &str) -> Result<bool, ApiError> {
         let deleted = self
@@ -301,7 +293,6 @@ impl WidgetService {
     }
 
     /// See [`get_session`].
-    /// See [`get_session`].
     pub async fn get_session(&self, session_id: &str) -> Result<Option<WidgetSession>, ApiError> {
         let session = self
             .storage
@@ -313,7 +304,6 @@ impl WidgetService {
     }
 
     /// See [`update_session_activity`].
-    /// See [`update_session_activity`].
     pub async fn update_session_activity(&self, session_id: &str) -> Result<bool, ApiError> {
         let updated = self
             .storage
@@ -324,7 +314,6 @@ impl WidgetService {
         Ok(updated)
     }
 
-    /// See [`terminate_session`].
     /// See [`terminate_session`].
     pub async fn terminate_session(&self, session_id: &str) -> Result<bool, ApiError> {
         let terminated = self
@@ -341,7 +330,6 @@ impl WidgetService {
     }
 
     /// See [`get_widget_sessions`].
-    /// See [`get_widget_sessions`].
     pub async fn get_widget_sessions(&self, widget_id: &str) -> Result<Vec<WidgetSession>, ApiError> {
         let sessions = self
             .storage
@@ -352,7 +340,6 @@ impl WidgetService {
         Ok(sessions)
     }
 
-    /// See [`cleanup_expired_sessions`].
     /// See [`cleanup_expired_sessions`].
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
         let count = self

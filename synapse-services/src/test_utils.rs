@@ -37,7 +37,6 @@ pub struct EnvGuard {
 
 impl EnvGuard {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self { original_values: Vec::new() }
     }

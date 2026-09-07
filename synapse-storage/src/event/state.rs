@@ -41,7 +41,6 @@ impl EventStorage {
     }
 
     /// See [`get_state_events`].
-    /// See [`get_state_events`].
     pub async fn get_state_events(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error> {
         sqlx::query_as::<_, StateEvent>(&format!(
             "SELECT {STATE_EVENT_OUTER_COLS} \

@@ -32,7 +32,6 @@ pub struct RouteCheck {
 
 impl RouteCheck {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(method: String, path: &'static str) -> Self {
         Self { method, path }
     }
@@ -60,24 +59,20 @@ pub(crate) struct ClientApiVersionSupport {
 
 impl ClientApiVersionSupport {
     /// See [`legacy`].
-    /// See [`legacy`].
     pub const fn legacy(version: &'static str) -> Self {
         Self { version, family: ClientApiVersionFamily::LegacyR0 }
     }
 
-    /// See [`stable`].
     /// See [`stable`].
     pub const fn stable(version: &'static str) -> Self {
         Self { version, family: ClientApiVersionFamily::StableV1 }
     }
 
     /// See [`version`].
-    /// See [`version`].
     pub const fn version(self) -> &'static str {
         self.version
     }
 
-    /// See [`family`].
     /// See [`family`].
     pub(crate) const fn family(self) -> ClientApiVersionFamily {
         self.family
@@ -165,24 +160,20 @@ pub(crate) struct CapabilityFlag {
 
 impl CapabilityFlag {
     /// See [`config_controlled`].
-    /// See [`config_controlled`].
     pub const fn config_controlled(enabled: bool) -> Self {
         Self { enabled, governance: GovernanceClass::ConfigControlled }
     }
 
-    /// See [`route_surface`].
     /// See [`route_surface`].
     pub const fn route_surface(enabled: bool) -> Self {
         Self { enabled, governance: GovernanceClass::RouteSurface }
     }
 
     /// See [`enabled`].
-    /// See [`enabled`].
     pub const fn enabled(self) -> bool {
         self.enabled
     }
 
-    /// See [`governance`].
     /// See [`governance`].
     #[allow(dead_code)]
     pub const fn governance(self) -> GovernanceClass {
@@ -210,7 +201,6 @@ pub struct CapabilityGovernance {
 }
 
 impl CapabilityGovernance {
-    /// See [`new`].
     /// See [`new`].
     pub fn new(config: &Config, route_surface: Vec<RouteCheck>) -> Self {
         Self { config: config.clone(), route_surface: route_surface.into_iter().collect() }

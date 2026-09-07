@@ -18,7 +18,6 @@ pub struct InMemoryThreadStore {
 
 impl InMemoryThreadStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self {
             roots: Arc::new(tokio::sync::RwLock::new(Vec::new())),

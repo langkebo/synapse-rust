@@ -36,7 +36,6 @@ impl SpaceService {
     // ── Core CRUD ──
 
     /// See [`create_space`].
-    /// See [`create_space`].
     #[instrument(skip(self, request), fields(room_id = %request.room_id, creator = %request.creator))]
     pub async fn create_space(&self, request: CreateSpaceRequest) -> Result<Space, ApiError> {
         info!("Creating space");
@@ -72,7 +71,6 @@ impl SpaceService {
     }
 
     /// See [`get_space`].
-    /// See [`get_space`].
     #[instrument(skip(self), fields(space_id = %space_id))]
     pub async fn get_space(&self, space_id: &str) -> Result<Option<Space>, ApiError> {
         self.space_storage.get_space(space_id).await.map_err(|e| {
@@ -81,7 +79,6 @@ impl SpaceService {
         })
     }
 
-    /// See [`get_space_by_room`].
     /// See [`get_space_by_room`].
     #[instrument(skip(self), fields(room_id = %room_id))]
     pub async fn get_space_by_room(&self, room_id: &str) -> Result<Option<Space>, ApiError> {
@@ -109,7 +106,6 @@ impl SpaceService {
         })
     }
 
-    /// See [`delete_space`].
     /// See [`delete_space`].
     #[instrument(skip(self))]
     pub async fn delete_space(&self, space_id: &str, user_id: &str) -> Result<(), ApiError> {
@@ -242,7 +238,6 @@ impl SpaceService {
     // ── Queries ──
 
     /// See [`get_user_spaces`].
-    /// See [`get_user_spaces`].
     #[instrument(skip(self))]
     pub async fn get_user_spaces(&self, user_id: &str) -> Result<Vec<Space>, ApiError> {
         self.space_storage
@@ -266,7 +261,6 @@ impl SpaceService {
     }
 
     /// See [`resolve_space_id`].
-    /// See [`resolve_space_id`].
     #[instrument(skip(self))]
     pub async fn resolve_space_id(&self, identifier: &str) -> Result<Option<String>, ApiError> {
         self.space_storage
@@ -275,7 +269,6 @@ impl SpaceService {
             .map_err(|e| ApiError::internal_with_context("Failed to resolve space", &e))
     }
 
-    /// See [`get_all_spaces_for_admin`].
     /// See [`get_all_spaces_for_admin`].
     #[instrument(skip(self))]
     pub async fn get_all_spaces_for_admin(&self) -> Result<Vec<Space>, ApiError> {
@@ -286,7 +279,6 @@ impl SpaceService {
     }
 
     /// See [`get_space_by_identifier`].
-    /// See [`get_space_by_identifier`].
     #[instrument(skip(self))]
     pub async fn get_space_by_identifier(&self, identifier: &str) -> Result<Option<Space>, ApiError> {
         self.space_storage
@@ -295,7 +287,6 @@ impl SpaceService {
             .map_err(|e| ApiError::internal_with_context("Failed to get space", &e))
     }
 
-    /// See [`delete_space_returning_count`].
     /// See [`delete_space_returning_count`].
     #[instrument(skip(self))]
     pub async fn delete_space_returning_count(&self, space_id: &str) -> Result<u64, ApiError> {
@@ -306,7 +297,6 @@ impl SpaceService {
     }
 
     /// See [`get_space_user_ids`].
-    /// See [`get_space_user_ids`].
     #[instrument(skip(self))]
     pub async fn get_space_user_ids(&self, space_id: &str) -> Result<Vec<String>, ApiError> {
         self.space_storage
@@ -315,7 +305,6 @@ impl SpaceService {
             .map_err(|e| ApiError::internal_with_context("Failed to get space users", &e))
     }
 
-    /// See [`get_space_room_ids`].
     /// See [`get_space_room_ids`].
     #[instrument(skip(self))]
     pub async fn get_space_room_ids(&self, space_id: &str) -> Result<Vec<String>, ApiError> {
@@ -326,7 +315,6 @@ impl SpaceService {
     }
 
     /// See [`get_space_member_and_child_count`].
-    /// See [`get_space_member_and_child_count`].
     #[instrument(skip(self))]
     pub async fn get_space_member_and_child_count(&self, space_id: &str) -> Result<(i64, i64), ApiError> {
         self.space_storage
@@ -335,7 +323,6 @@ impl SpaceService {
             .map_err(|e| ApiError::internal_with_context("Failed to get space statistics", &e))
     }
 
-    /// See [`get_space_summary`].
     /// See [`get_space_summary`].
     #[instrument(skip(self))]
     pub async fn get_space_summary(&self, space_id: &str) -> Result<Option<SpaceSummary>, ApiError> {
@@ -346,7 +333,6 @@ impl SpaceService {
     }
 
     /// See [`search_spaces`].
-    /// See [`search_spaces`].
     #[instrument(skip(self))]
     pub async fn search_spaces(&self, query: &str, limit: i64, user_id: Option<&str>) -> Result<Vec<Space>, ApiError> {
         self.space_storage
@@ -356,7 +342,6 @@ impl SpaceService {
     }
 
     /// See [`get_space_statistics`].
-    /// See [`get_space_statistics`].
     #[instrument(skip(self))]
     pub async fn get_space_statistics(&self, limit: i64) -> Result<Vec<serde_json::Value>, ApiError> {
         self.space_storage
@@ -365,7 +350,6 @@ impl SpaceService {
             .map_err(|e| ApiError::internal_with_context("Failed to get space statistics", &e))
     }
 
-    /// See [`get_parent_spaces`].
     /// See [`get_parent_spaces`].
     #[instrument(skip(self))]
     pub async fn get_parent_spaces(&self, room_id: &str) -> Result<Vec<Space>, ApiError> {
@@ -378,7 +362,6 @@ impl SpaceService {
     }
 
     /// See [`get_space_tree_path`].
-    /// See [`get_space_tree_path`].
     #[instrument(skip(self))]
     pub async fn get_space_tree_path(&self, space_id: &str) -> Result<Vec<Space>, ApiError> {
         info!(space_id = %space_id, "Getting space tree path");
@@ -390,7 +373,6 @@ impl SpaceService {
     }
 
     /// See [`check_user_can_see_space`].
-    /// See [`check_user_can_see_space`].
     #[instrument(skip(self))]
     pub async fn check_user_can_see_space(&self, space_id: &str, user_id: &str) -> Result<bool, ApiError> {
         self.space_storage
@@ -401,7 +383,6 @@ impl SpaceService {
 
     // ── Access helpers ──
 
-    /// See [`ensure_room_creator_access`].
     /// See [`ensure_room_creator_access`].
     pub(crate) async fn ensure_room_creator_access(&self, room_id: &str, user_id: &str) -> Result<(), ApiError> {
         let room = self
@@ -418,7 +399,6 @@ impl SpaceService {
         Ok(())
     }
 
-    /// See [`ensure_space_creator_access`].
     /// See [`ensure_space_creator_access`].
     pub(crate) async fn ensure_space_creator_access(&self, space_id: &str, user_id: &str) -> Result<(), ApiError> {
         let space = self

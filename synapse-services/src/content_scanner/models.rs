@@ -44,7 +44,6 @@ pub enum ContentType {
 
 impl ContentType {
     /// See [`as_str`].
-    /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::MediaImage => "media_image",

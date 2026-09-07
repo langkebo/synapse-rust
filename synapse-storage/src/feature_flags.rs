@@ -167,7 +167,6 @@ pub struct FeatureFlagStorage {
 
 impl FeatureFlagStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>, cache: Arc<CacheManager>) -> Self {
         Self { pool: pool.clone(), cache }
     }
@@ -283,7 +282,6 @@ impl FeatureFlagStorage {
     }
 
     /// See [`get_flag`].
-    /// See [`get_flag`].
     pub async fn get_flag(&self, flag_key: &str) -> Result<Option<FeatureFlag>, sqlx::Error> {
         let cache_key = Self::flag_cache_key(flag_key);
         if let Ok(Some(flag)) = self.cache.get::<FeatureFlag>(&cache_key).await {
@@ -314,7 +312,6 @@ impl FeatureFlagStorage {
         Ok(Some(flag))
     }
 
-    /// See [`list_flags`].
     /// See [`list_flags`].
     pub async fn list_flags(&self, filters: &FeatureFlagFilters) -> Result<(Vec<FeatureFlag>, i64), sqlx::Error> {
         let cache_key = Self::flag_list_cache_key(filters);

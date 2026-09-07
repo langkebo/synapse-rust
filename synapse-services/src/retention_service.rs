@@ -151,7 +151,6 @@ impl RetentionService {
     }
 
     /// See [`get_room_policy`].
-    /// See [`get_room_policy`].
     #[instrument(skip(self))]
     pub async fn get_room_policy(&self, room_id: &str) -> Result<Option<RoomRetentionPolicy>, ApiError> {
         let policy = self
@@ -163,7 +162,6 @@ impl RetentionService {
         Ok(policy)
     }
 
-    /// See [`get_effective_policy`].
     /// See [`get_effective_policy`].
     #[instrument(skip(self))]
     pub async fn get_effective_policy(&self, room_id: &str) -> Result<EffectiveRetentionPolicy, ApiError> {
@@ -222,7 +220,6 @@ impl RetentionService {
     }
 
     /// See [`delete_room_policy`].
-    /// See [`delete_room_policy`].
     #[instrument(skip(self))]
     pub async fn delete_room_policy(&self, room_id: &str) -> Result<(), ApiError> {
         info!(room_id = %room_id, "Deleting retention policy for room");
@@ -236,7 +233,6 @@ impl RetentionService {
     }
 
     /// See [`get_server_policy`].
-    /// See [`get_server_policy`].
     #[instrument(skip(self))]
     pub async fn get_server_policy(&self) -> Result<ServerRetentionPolicy, ApiError> {
         let policy = self
@@ -248,7 +244,6 @@ impl RetentionService {
         Ok(policy)
     }
 
-    /// See [`get_server_policy_optional`].
     /// See [`get_server_policy_optional`].
     #[instrument(skip(self))]
     pub async fn get_server_policy_optional(&self) -> Result<Option<ServerRetentionPolicy>, ApiError> {
@@ -345,7 +340,6 @@ impl RetentionService {
     }
 
     /// See [`run_cleanup`].
-    /// See [`run_cleanup`].
     #[instrument(skip(self))]
     pub async fn run_cleanup(&self, room_id: &str) -> Result<RetentionCleanupLog, ApiError> {
         info!(room_id = %room_id, "Running retention cleanup for room");
@@ -387,14 +381,12 @@ impl RetentionService {
     }
 
     /// See [`process_pending_cleanups`].
-    /// See [`process_pending_cleanups`].
     #[instrument(skip(self))]
     pub async fn process_pending_cleanups(&self, _limit: i64) -> Result<usize, ApiError> {
         // No-op: cleanup queue table has been removed
         Ok(0)
     }
 
-    /// See [`schedule_room_cleanup`].
     /// See [`schedule_room_cleanup`].
     #[instrument(skip(self))]
     pub async fn schedule_room_cleanup(&self, room_id: &str) -> Result<i64, ApiError> {
@@ -403,14 +395,12 @@ impl RetentionService {
     }
 
     /// See [`get_stats`].
-    /// See [`get_stats`].
     #[instrument(skip(self))]
     pub async fn get_stats(&self, _room_id: &str) -> Result<Option<RetentionStats>, ApiError> {
         // No-op: cleanup queue table has been removed
         Ok(None)
     }
 
-    /// See [`get_cleanup_logs`].
     /// See [`get_cleanup_logs`].
     #[instrument(skip(self))]
     pub async fn get_cleanup_logs(&self, _room_id: &str, _limit: i64) -> Result<Vec<RetentionCleanupLog>, ApiError> {
@@ -419,14 +409,12 @@ impl RetentionService {
     }
 
     /// See [`get_deleted_events`].
-    /// See [`get_deleted_events`].
     #[instrument(skip(self))]
     pub async fn get_deleted_events(&self, _room_id: &str, _since_ts: i64) -> Result<Vec<DeletedEventIndex>, ApiError> {
         // No-op: cleanup queue table has been removed
         Ok(vec![])
     }
 
-    /// See [`get_rooms_with_policies`].
     /// See [`get_rooms_with_policies`].
     #[instrument(skip(self))]
     pub async fn get_rooms_with_policies(&self) -> Result<Vec<RoomRetentionPolicy>, ApiError> {
@@ -440,14 +428,12 @@ impl RetentionService {
     }
 
     /// See [`get_pending_cleanup_count`].
-    /// See [`get_pending_cleanup_count`].
     #[instrument(skip(self))]
     pub async fn get_pending_cleanup_count(&self, _room_id: &str) -> Result<i64, ApiError> {
         // No-op: cleanup queue table has been removed
         Ok(0)
     }
 
-    /// See [`is_event_expired`].
     /// See [`is_event_expired`].
     #[instrument(skip(self))]
     pub async fn is_event_expired(&self, room_id: &str, origin_server_ts: i64) -> Result<bool, ApiError> {
@@ -465,7 +451,6 @@ impl RetentionService {
         }
     }
 
-    /// See [`run_scheduled_cleanups`].
     /// See [`run_scheduled_cleanups`].
     pub async fn run_scheduled_cleanups(&self) -> Result<usize, ApiError> {
         info!(cleanup_scope = %"scheduled", "Running scheduled retention cleanups");
@@ -497,12 +482,10 @@ impl RetentionService {
     }
 
     /// See [`get_last_lifecycle_summary`].
-    /// See [`get_last_lifecycle_summary`].
     pub async fn get_last_lifecycle_summary(&self) -> Option<DataLifecycleCleanupSummary> {
         self.last_lifecycle_summary.read().await.clone()
     }
 
-    /// See [`get_status_summary`].
     /// See [`get_status_summary`].
     #[instrument(skip(self))]
     pub async fn get_status_summary(&self) -> Result<RetentionStatusSummary, ApiError> {
@@ -556,7 +539,6 @@ impl RetentionService {
         self.finish_lifecycle_cycle(&mut summary, config, started_ts, started).await
     }
 
-    /// See [`run_data_lifecycle_cycle_no_beacons`].
     /// See [`run_data_lifecycle_cycle_no_beacons`].
     #[cfg(not(feature = "beacons"))]
     #[instrument(skip(self, config))]

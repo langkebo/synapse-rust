@@ -8,7 +8,6 @@ pub struct InMemoryRateLimitStore {
 
 impl InMemoryRateLimitStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self { limits: Arc::new(RwLock::new(HashMap::new())) }
     }

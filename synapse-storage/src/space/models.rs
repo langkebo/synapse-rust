@@ -173,12 +173,10 @@ pub struct UpdateSpaceRequest {
 
 impl UpdateSpaceRequest {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// See [`name`].
     /// See [`name`].
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
@@ -186,13 +184,11 @@ impl UpdateSpaceRequest {
     }
 
     /// See [`topic`].
-    /// See [`topic`].
     pub fn topic(mut self, topic: impl Into<String>) -> Self {
         self.topic = Some(topic.into());
         self
     }
 
-    /// See [`avatar_url`].
     /// See [`avatar_url`].
     pub fn avatar_url(mut self, avatar_url: impl Into<String>) -> Self {
         self.avatar_url = Some(avatar_url.into());
@@ -200,20 +196,17 @@ impl UpdateSpaceRequest {
     }
 
     /// See [`join_rule`].
-    /// See [`join_rule`].
     pub fn join_rule(mut self, join_rule: impl Into<String>) -> Self {
         self.join_rule = Some(join_rule.into());
         self
     }
 
     /// See [`visibility`].
-    /// See [`visibility`].
     pub fn visibility(mut self, visibility: impl Into<String>) -> Self {
         self.visibility = Some(visibility.into());
         self
     }
 
-    /// See [`is_public`].
     /// See [`is_public`].
     pub fn is_public(mut self, is_public: bool) -> Self {
         self.is_public = Some(is_public);

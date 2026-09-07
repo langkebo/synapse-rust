@@ -40,12 +40,10 @@ pub struct RateLimitStorage {
 
 impl RateLimitStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`get_user_rate_limit`].
     /// See [`get_user_rate_limit`].
     pub async fn get_user_rate_limit(&self, user_id: &str) -> Result<Option<RateLimitRecord>, sqlx::Error> {
         sqlx::query_as::<_, RateLimitRecord>(
@@ -84,7 +82,6 @@ impl RateLimitStorage {
         Ok(())
     }
 
-    /// See [`delete_user_rate_limit`].
     /// See [`delete_user_rate_limit`].
     pub async fn delete_user_rate_limit(&self, user_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(

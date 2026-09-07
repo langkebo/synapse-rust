@@ -45,7 +45,6 @@ pub struct RoomStateServiceConfig {
 
 impl RoomStateService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: RoomStateServiceConfig) -> Self {
         Self {
             room_storage: config.room_storage,

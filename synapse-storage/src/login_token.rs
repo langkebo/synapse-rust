@@ -51,7 +51,6 @@ pub struct LoginTokenStorage {
 
 impl LoginTokenStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
@@ -98,7 +97,6 @@ impl LoginTokenStorage {
         Ok(row)
     }
 
-    /// See [`cleanup_expired_tokens`].
     /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self, now_ts: i64) -> Result<u64, sqlx::Error> {
         let result =

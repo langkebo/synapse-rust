@@ -82,13 +82,11 @@ impl AdminTokenService {
     }
 
     /// See [`get_registration_token`].
-    /// See [`get_registration_token`].
     #[instrument(skip(self))]
     pub async fn get_registration_token(&self, token: &str) -> Result<Option<RegistrationToken>, ApiError> {
         self.registration_token_service.get_token(token).await
     }
 
-    /// See [`delete_registration_token`].
     /// See [`delete_registration_token`].
     #[instrument(skip(self))]
     pub async fn delete_registration_token(&self, token: &str) -> Result<(), ApiError> {
@@ -124,7 +122,6 @@ impl AdminTokenService {
     }
 
     /// See [`get_user_access_tokens`].
-    /// See [`get_user_access_tokens`].
     #[instrument(skip(self))]
     pub async fn get_user_access_tokens(&self, user_id: &str) -> Result<Vec<AdminAccessTokenInfo>, ApiError> {
         let tokens = self
@@ -146,7 +143,6 @@ impl AdminTokenService {
     }
 
     /// See [`delete_user_access_token`].
-    /// See [`delete_user_access_token`].
     #[instrument(skip(self))]
     pub async fn delete_user_access_token(&self, user_id: &str, token_id: i64) -> Result<(), ApiError> {
         let deleted = self
@@ -162,7 +158,6 @@ impl AdminTokenService {
         Ok(())
     }
 
-    /// See [`get_user_refresh_tokens`].
     /// See [`get_user_refresh_tokens`].
     #[instrument(skip(self))]
     pub async fn get_user_refresh_tokens(&self, user_id: &str) -> Result<Vec<AdminRefreshTokenInfo>, ApiError> {
@@ -184,7 +179,6 @@ impl AdminTokenService {
             .collect())
     }
 
-    /// See [`delete_refresh_token`].
     /// See [`delete_refresh_token`].
     #[instrument(skip(self))]
     pub async fn delete_refresh_token(&self, user_id: &str, token_id: i64) -> Result<(), ApiError> {

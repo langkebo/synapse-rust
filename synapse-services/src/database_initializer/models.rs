@@ -25,12 +25,10 @@ pub enum DatabaseInitMode {
 
 impl Environment {
     /// See [`from_env`].
-    /// See [`from_env`].
     pub fn from_env() -> Self {
         std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string()).to_lowercase().into()
     }
 
-    /// See [`is_development`].
     /// See [`is_development`].
     pub fn is_development(&self) -> bool {
         self == &Self::Development
@@ -74,7 +72,6 @@ pub struct InitializationReport {
 }
 
 impl InitializationReport {
-    /// See [`summary`].
     /// See [`summary`].
     pub fn summary(&self) -> String {
         let mut summary = format!("数据库初始化: success={}", self.is_success);

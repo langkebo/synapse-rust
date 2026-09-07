@@ -154,13 +154,11 @@ pub struct LivekitClient {
 
 impl LivekitClient {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: LivekitConfig) -> Self {
         // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()
         Self { config, http_client: synapse_common::http_client::default_client() }
     }
 
-    /// See [`create_room`].
     /// See [`create_room`].
     pub async fn create_room(&self, request: CreateRoomRequest) -> Result<LivekitRoom, LivekitError> {
         let url = format!("{}/twirp/livekit.RoomService/CreateRoom", self.config.host);
@@ -184,7 +182,6 @@ impl LivekitClient {
         Ok(room)
     }
 
-    /// See [`delete_room`].
     /// See [`delete_room`].
     pub async fn delete_room(&self, room_name: &str) -> Result<(), LivekitError> {
         let url = format!("{}/twirp/livekit.RoomService/DeleteRoom", self.config.host);
@@ -210,7 +207,6 @@ impl LivekitClient {
         Ok(())
     }
 
-    /// See [`list_rooms`].
     /// See [`list_rooms`].
     pub async fn list_rooms(&self) -> Result<Vec<LivekitRoom>, LivekitError> {
         let url = format!("{}/twirp/livekit.RoomService/ListRooms", self.config.host);
@@ -241,7 +237,6 @@ impl LivekitClient {
         Ok(result.rooms)
     }
 
-    /// See [`list_participants`].
     /// See [`list_participants`].
     pub async fn list_participants(&self, room_name: &str) -> Result<Vec<LivekitParticipant>, LivekitError> {
         let url = format!("{}/twirp/livekit.RoomService/ListParticipants", self.config.host);
@@ -274,7 +269,6 @@ impl LivekitClient {
         Ok(result.participants)
     }
 
-    /// See [`remove_participant`].
     /// See [`remove_participant`].
     pub async fn remove_participant(&self, room_name: &str, identity: &str) -> Result<(), LivekitError> {
         let url = format!("{}/twirp/livekit.RoomService/RemoveParticipant", self.config.host);

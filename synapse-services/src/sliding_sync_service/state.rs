@@ -42,7 +42,6 @@ impl SlidingSyncService {
     }
 
     /// See [`required_state_matches`].
-    /// See [`required_state_matches`].
     pub(crate) fn required_state_matches(required_state: &[Vec<String>], event: &StateEvent) -> bool {
         let event_type = event.event_type.as_deref().unwrap_or_default();
         let state_key = event.state_key.as_deref().unwrap_or_default();
@@ -53,7 +52,6 @@ impl SlidingSyncService {
         })
     }
 
-    /// See [`cleanup_expired_tokens`].
     /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, ApiError> {
         let count = self

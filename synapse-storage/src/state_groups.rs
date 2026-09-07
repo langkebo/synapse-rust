@@ -139,7 +139,6 @@ pub struct StateGroupStorage {
 
 impl StateGroupStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<sqlx::PgPool>) -> Self {
         Self { pool: pool.as_ref().clone() }
     }
@@ -174,7 +173,6 @@ impl StateGroupStorage {
     }
 
     /// See [`get_state_group`].
-    /// See [`get_state_group`].
     pub async fn get_state_group(&self, id: i64) -> Result<Option<StateGroup>, sqlx::Error> {
         sqlx::query_as::<_, StateGroup>(
             "SELECT id, room_id, event_id, state_hash, created_ts FROM state_groups WHERE id = $1",
@@ -185,7 +183,6 @@ impl StateGroupStorage {
     }
 
     /// See [`get_state_group_by_event`].
-    /// See [`get_state_group_by_event`].
     pub async fn get_state_group_by_event(&self, event_id: &str) -> Result<Option<StateGroup>, sqlx::Error> {
         sqlx::query_as::<_, StateGroup>(
             "SELECT id, room_id, event_id, state_hash, created_ts FROM state_groups WHERE event_id = $1",
@@ -195,7 +192,6 @@ impl StateGroupStorage {
         .await
     }
 
-    /// See [`get_room_state_groups`].
     /// See [`get_room_state_groups`].
     pub async fn get_room_state_groups(&self, room_id: &str, limit: i64) -> Result<Vec<StateGroup>, sqlx::Error> {
         sqlx::query_as::<_, StateGroup>(
@@ -252,7 +248,6 @@ impl StateGroupStorage {
     }
 
     /// See [`get_prev_state_groups`].
-    /// See [`get_prev_state_groups`].
     pub async fn get_prev_state_groups(&self, state_group_id: i64) -> Result<Vec<i64>, sqlx::Error> {
         let rows: Vec<(i64,)> =
             sqlx::query_as(r#"SELECT prev_state_group_id FROM state_group_edges WHERE state_group_id = $1"#)
@@ -263,7 +258,6 @@ impl StateGroupStorage {
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
-    /// See [`get_next_state_groups`].
     /// See [`get_next_state_groups`].
     pub async fn get_next_state_groups(&self, prev_state_group_id: i64) -> Result<Vec<i64>, sqlx::Error> {
         let rows: Vec<(i64,)> =
@@ -294,7 +288,6 @@ impl StateGroupStorage {
         Ok(())
     }
 
-    /// See [`get_state_group_for_event`].
     /// See [`get_state_group_for_event`].
     pub async fn get_state_group_for_event(&self, event_id: &str) -> Result<Option<i64>, sqlx::Error> {
         let row: Option<(i64,)> =
@@ -395,7 +388,6 @@ impl StateGroupStorage {
         Ok(())
     }
 
-    /// See [`get_state_at_group`].
     /// See [`get_state_at_group`].
     pub async fn get_state_at_group(&self, state_group_id: i64) -> Result<Vec<StateGroupState>, sqlx::Error> {
         sqlx::query_as::<_, StateGroupState>(&format!(

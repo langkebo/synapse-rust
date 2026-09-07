@@ -230,7 +230,6 @@ impl DirectoryService {
     }
 
     /// See [`get_room_id_by_alias`].
-    /// See [`get_room_id_by_alias`].
     pub async fn get_room_id_by_alias(&self, alias: &str) -> ApiResult<Option<String>> {
         if let Some(storage) = &self.room_storage {
             match storage.get_room_by_alias(alias).await {
@@ -243,7 +242,6 @@ impl DirectoryService {
         Ok(self.aliases.read().await.get(alias).cloned())
     }
 
-    /// See [`set_room_alias`].
     /// See [`set_room_alias`].
     pub async fn set_room_alias(&self, room_id: &str, alias: &str) -> ApiResult<()> {
         if let Some(storage) = &self.room_storage {
@@ -262,7 +260,6 @@ impl DirectoryService {
         Ok(())
     }
 
-    /// See [`remove_room_alias`].
     /// See [`remove_room_alias`].
     pub async fn remove_room_alias(&self, alias: &str) -> ApiResult<()> {
         if let Some(storage) = &self.room_storage {
@@ -283,7 +280,6 @@ impl DirectoryService {
     }
 
     /// See [`get_public_rooms`].
-    /// See [`get_public_rooms`].
     pub async fn get_public_rooms(&self, limit: i32, _since: Option<&str>) -> ApiResult<Vec<DirectoryRoom>> {
         if let Some(storage) = &self.directory_storage {
             let entries = storage.list_public_rooms(limit as i64, 0).await.map_err(|e| {
@@ -296,7 +292,6 @@ impl DirectoryService {
         Ok(result)
     }
 
-    /// See [`search_public_rooms`].
     /// See [`search_public_rooms`].
     pub async fn search_public_rooms(&self, filter: Option<&str>, limit: i32) -> ApiResult<Vec<DirectoryRoom>> {
         if let Some(storage) = &self.directory_storage {

@@ -10,7 +10,6 @@ pub struct InMemoryMemberStore {
 
 impl InMemoryMemberStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self { members: Arc::new(RwLock::new(HashMap::new())) }
     }
@@ -67,12 +66,10 @@ impl InMemoryMemberStore {
     }
 
     /// See [`get_joined_members`].
-    /// See [`get_joined_members`].
     pub async fn get_joined_members(&self, room_id: &str) -> Result<Vec<crate::membership::RoomMember>, String> {
         self.get_room_members(room_id, "join").await
     }
 
-    /// See [`get_joined_rooms`].
     /// See [`get_joined_rooms`].
     pub async fn get_joined_rooms(&self, user_id: &str) -> Result<Vec<String>, String> {
         let members = self.members.read().await;
@@ -84,12 +81,10 @@ impl InMemoryMemberStore {
     }
 
     /// See [`get_membership_state`].
-    /// See [`get_membership_state`].
     pub async fn get_membership_state(&self, room_id: &str, user_id: &str) -> Result<Option<String>, String> {
         Ok(self.members.read().await.get(&(room_id.to_string(), user_id.to_string())).map(|m| m.membership.clone()))
     }
 
-    /// See [`get_room_member_count`].
     /// See [`get_room_member_count`].
     pub async fn get_room_member_count(&self, room_id: &str) -> Result<i64, String> {
         let members = self.members.read().await;
@@ -97,13 +92,11 @@ impl InMemoryMemberStore {
     }
 
     /// See [`remove_member`].
-    /// See [`remove_member`].
     pub async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), String> {
         self.members.write().await.remove(&(room_id.to_string(), user_id.to_string()));
         Ok(())
     }
 
-    /// See [`ban_member`].
     /// See [`ban_member`].
     pub async fn ban_member(&self, room_id: &str, user_id: &str, banned_by: &str) -> Result<(), String> {
         let mut members = self.members.write().await;
@@ -116,7 +109,6 @@ impl InMemoryMemberStore {
         Ok(())
     }
 
-    /// See [`is_member`].
     /// See [`is_member`].
     pub async fn is_member(&self, room_id: &str, user_id: &str) -> Result<bool, String> {
         Ok(self.members.read().await.contains_key(&(room_id.to_string(), user_id.to_string())))

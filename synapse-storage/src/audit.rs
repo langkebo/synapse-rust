@@ -122,7 +122,6 @@ pub trait AuditEventStoreApi: Send + Sync {
 
 impl AuditEventStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
@@ -137,7 +136,6 @@ impl AuditEventStorage {
         insert_audit_event(&*self.pool, event_id, created_ts, request).await
     }
 
-    /// See [`get_event`].
     /// See [`get_event`].
     pub async fn get_event(&self, event_id: &str) -> Result<Option<AuditEvent>, sqlx::Error> {
         sqlx::query_as::<_, AuditEvent>(
@@ -237,7 +235,6 @@ impl AuditEventStorage {
         Ok((events, total, next_batch))
     }
 
-    /// See [`delete_events_before`].
     /// See [`delete_events_before`].
     pub async fn delete_events_before(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
         // Wrap in a transaction so that set_config (is_local=true) applies to

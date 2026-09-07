@@ -19,7 +19,6 @@ pub struct BackgroundUpdateService {
 
 impl BackgroundUpdateService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: Arc<dyn BackgroundUpdateStoreApi>) -> Self {
         Self {
             storage,
@@ -39,7 +38,6 @@ impl BackgroundUpdateService {
         self
     }
 
-    /// See [`create_update`].
     /// See [`create_update`].
     #[instrument(skip(self))]
     pub async fn create_update(&self, request: CreateBackgroundUpdateRequest) -> Result<BackgroundUpdate, ApiError> {
@@ -66,7 +64,6 @@ impl BackgroundUpdateService {
         Ok(update)
     }
 
-    /// See [`get_update`].
     /// See [`get_update`].
     #[instrument(skip(self))]
     pub async fn get_update(&self, job_name: &str) -> Result<Option<BackgroundUpdate>, ApiError> {
@@ -96,7 +93,6 @@ impl BackgroundUpdateService {
     }
 
     /// See [`get_pending_updates`].
-    /// See [`get_pending_updates`].
     #[instrument(skip(self))]
     pub async fn get_pending_updates(&self) -> Result<Vec<BackgroundUpdate>, ApiError> {
         let updates = self
@@ -109,7 +105,6 @@ impl BackgroundUpdateService {
     }
 
     /// See [`get_running_updates`].
-    /// See [`get_running_updates`].
     #[instrument(skip(self))]
     pub async fn get_running_updates(&self) -> Result<Vec<BackgroundUpdate>, ApiError> {
         let updates = self
@@ -121,7 +116,6 @@ impl BackgroundUpdateService {
         Ok(updates)
     }
 
-    /// See [`start_update`].
     /// See [`start_update`].
     #[instrument(skip(self))]
     pub async fn start_update(&self, job_name: &str) -> Result<BackgroundUpdate, ApiError> {
@@ -203,7 +197,6 @@ impl BackgroundUpdateService {
     }
 
     /// See [`complete_update`].
-    /// See [`complete_update`].
     #[instrument(skip(self))]
     pub async fn complete_update(&self, job_name: &str) -> Result<BackgroundUpdate, ApiError> {
         info!(job_name = %job_name, "Completing background update");
@@ -222,7 +215,6 @@ impl BackgroundUpdateService {
         Ok(update)
     }
 
-    /// See [`fail_update`].
     /// See [`fail_update`].
     #[instrument(skip(self))]
     pub async fn fail_update(&self, job_name: &str, error_message: &str) -> Result<BackgroundUpdate, ApiError> {
@@ -248,7 +240,6 @@ impl BackgroundUpdateService {
     }
 
     /// See [`cancel_update`].
-    /// See [`cancel_update`].
     #[instrument(skip(self))]
     pub async fn cancel_update(&self, job_name: &str) -> Result<BackgroundUpdate, ApiError> {
         info!(job_name = %job_name, "Cancelling background update");
@@ -266,7 +257,6 @@ impl BackgroundUpdateService {
     }
 
     /// See [`delete_update`].
-    /// See [`delete_update`].
     #[instrument(skip(self))]
     pub async fn delete_update(&self, job_name: &str) -> Result<(), ApiError> {
         self.storage
@@ -279,7 +269,6 @@ impl BackgroundUpdateService {
         Ok(())
     }
 
-    /// See [`retry_failed`].
     /// See [`retry_failed`].
     #[instrument(skip(self))]
     pub async fn retry_failed(&self) -> Result<i64, ApiError> {
@@ -297,7 +286,6 @@ impl BackgroundUpdateService {
     }
 
     /// See [`cleanup_expired_locks`].
-    /// See [`cleanup_expired_locks`].
     #[instrument(skip(self))]
     pub async fn cleanup_expired_locks(&self) -> Result<i64, ApiError> {
         info!("Cleaning up expired locks");
@@ -314,7 +302,6 @@ impl BackgroundUpdateService {
     }
 
     /// See [`get_history`].
-    /// See [`get_history`].
     #[instrument(skip(self))]
     pub async fn get_history(&self, job_name: &str, limit: i64) -> Result<Vec<BackgroundUpdateHistory>, ApiError> {
         let history = self
@@ -326,7 +313,6 @@ impl BackgroundUpdateService {
         Ok(history)
     }
 
-    /// See [`count_by_status`].
     /// See [`count_by_status`].
     #[instrument(skip(self))]
     pub async fn count_by_status(&self, status: &str) -> Result<i64, ApiError> {
@@ -340,7 +326,6 @@ impl BackgroundUpdateService {
     }
 
     /// See [`count_all`].
-    /// See [`count_all`].
     #[instrument(skip(self))]
     pub async fn count_all(&self) -> Result<i64, ApiError> {
         let count = self
@@ -352,7 +337,6 @@ impl BackgroundUpdateService {
         Ok(count)
     }
 
-    /// See [`get_stats`].
     /// See [`get_stats`].
     #[instrument(skip(self))]
     pub async fn get_stats(&self, days: i32) -> Result<Vec<BackgroundUpdateStats>, ApiError> {
@@ -366,7 +350,6 @@ impl BackgroundUpdateService {
     }
 
     /// See [`is_locked`].
-    /// See [`is_locked`].
     #[instrument(skip(self))]
     pub async fn is_locked(&self, job_name: &str) -> Result<bool, ApiError> {
         let locked = self
@@ -378,7 +361,6 @@ impl BackgroundUpdateService {
         Ok(locked)
     }
 
-    /// See [`get_next_pending_update`].
     /// See [`get_next_pending_update`].
     pub async fn get_next_pending_update(&self) -> Result<Option<BackgroundUpdate>, ApiError> {
         let pending = self.get_pending_updates().await?;

@@ -17,7 +17,6 @@ impl Default for InMemoryBackgroundUpdateStore {
 
 impl InMemoryBackgroundUpdateStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self {
             updates: tokio::sync::RwLock::new(HashMap::new()),

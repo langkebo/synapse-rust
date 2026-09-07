@@ -203,7 +203,6 @@ pub struct PushGateway {
 
 impl PushGateway {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(config: &PushGatewayConfig) -> Self {
         let client = Client::builder().timeout(Duration::from_secs(config.timeout_secs)).build().unwrap_or_else(|e| {
             // F-1: builder 失败不再静默退化，记录 warn 并回退共享默认 client

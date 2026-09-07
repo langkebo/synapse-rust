@@ -9,7 +9,6 @@ use serde_json::json;
 
 impl SyncService {
     /// See [`get_events`].
-    /// See [`get_events`].
     pub async fn get_events(&self, user_id: &str, from: &str, _timeout: u64) -> ApiResult<serde_json::Value> {
         let room_ids =
             self.member_storage.get_joined_rooms(user_id).await.map_err(map_internal!("Failed to get rooms"))?;

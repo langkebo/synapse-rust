@@ -26,20 +26,17 @@ impl AdminMediaService {
     }
 
     /// See [`get_all_media`].
-    /// See [`get_all_media`].
     #[instrument(skip(self))]
     pub async fn get_all_media(&self, limit: i64, cursor: Option<MediaCursor>) -> Result<AdminMediaPage, ApiError> {
         self.storage.get_all_media(limit, cursor).await
     }
 
     /// See [`get_media_info`].
-    /// See [`get_media_info`].
     #[instrument(skip(self))]
     pub async fn get_media_info(&self, media_id: &str) -> Result<Option<AdminMediaInfo>, ApiError> {
         self.storage.get_media_info(media_id).await
     }
 
-    /// See [`delete_media`].
     /// See [`delete_media`].
     #[instrument(skip(self))]
     pub async fn delete_media(&self, media_id: &str) -> Result<(), ApiError> {
@@ -51,13 +48,11 @@ impl AdminMediaService {
     }
 
     /// See [`get_media_quota`].
-    /// See [`get_media_quota`].
     #[instrument(skip(self))]
     pub async fn get_media_quota(&self) -> Result<AdminMediaQuotaSummary, ApiError> {
         self.storage.get_media_quota().await
     }
 
-    /// See [`get_user_media`].
     /// See [`get_user_media`].
     #[instrument(skip(self))]
     pub async fn get_user_media(&self, identifier: &str) -> Result<(String, Vec<AdminMediaInfo>), ApiError> {
@@ -66,7 +61,6 @@ impl AdminMediaService {
         Ok((user.user_id, media))
     }
 
-    /// See [`delete_user_media`].
     /// See [`delete_user_media`].
     #[instrument(skip(self))]
     pub async fn delete_user_media(&self, identifier: &str) -> Result<u64, ApiError> {

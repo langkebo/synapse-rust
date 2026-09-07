@@ -223,7 +223,6 @@ impl EventStorage {
     }
 
     /// See [`create_postgres_fts_index`].
-    /// See [`create_postgres_fts_index`].
     pub async fn create_postgres_fts_index(&self) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"

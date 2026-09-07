@@ -31,7 +31,6 @@ pub enum WorkerType {
 
 impl WorkerType {
     /// See [`as_str`].
-    /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Master => "master",
@@ -48,24 +47,20 @@ impl WorkerType {
     }
 
     /// See [`can_handle_http`].
-    /// See [`can_handle_http`].
     pub fn can_handle_http(&self) -> bool {
         matches!(self, Self::Master | Self::Frontend | Self::Synchrotron)
     }
 
-    /// See [`can_handle_federation`].
     /// See [`can_handle_federation`].
     pub fn can_handle_federation(&self) -> bool {
         matches!(self, Self::Master | Self::FederationSender | Self::FederationReader)
     }
 
     /// See [`can_persist_events`].
-    /// See [`can_persist_events`].
     pub fn can_persist_events(&self) -> bool {
         matches!(self, Self::Master | Self::EventPersister)
     }
 
-    /// See [`responsibility_domains`].
     /// See [`responsibility_domains`].
     pub fn responsibility_domains(&self) -> &'static [&'static str] {
         match self {
@@ -82,7 +77,6 @@ impl WorkerType {
         }
     }
 
-    /// See [`owned_route_prefixes`].
     /// See [`owned_route_prefixes`].
     pub fn owned_route_prefixes(&self) -> &'static [&'static str] {
         match self {
@@ -106,7 +100,6 @@ impl WorkerType {
     }
 
     /// See [`replication_streams`].
-    /// See [`replication_streams`].
     pub fn replication_streams(&self) -> &'static [&'static str] {
         match self {
             Self::Master => &["events", "worker_commands", "worker_tasks"],
@@ -123,7 +116,6 @@ impl WorkerType {
     }
 
     /// See [`instance_map_keys`].
-    /// See [`instance_map_keys`].
     pub fn instance_map_keys(&self) -> &'static [&'static str] {
         match self {
             Self::Master => &["master"],
@@ -139,7 +131,6 @@ impl WorkerType {
         }
     }
 
-    /// See [`all`].
     /// See [`all`].
     pub fn all() -> Vec<Self> {
         vec![
@@ -194,7 +185,6 @@ pub enum WorkerStatus {
 }
 
 impl WorkerStatus {
-    /// See [`as_str`].
     /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -599,7 +589,6 @@ pub struct WorkerCapabilities {
 
 impl WorkerCapabilities {
     /// See [`for_type`].
-    /// See [`for_type`].
     pub fn for_type(worker_type: &WorkerType) -> Self {
         match worker_type {
             WorkerType::Master => Self {
@@ -719,7 +708,6 @@ pub struct WorkerResponsibilitySummary {
 
 impl WorkerResponsibilitySummary {
     /// See [`for_type`].
-    /// See [`for_type`].
     pub fn for_type(worker_type: WorkerType) -> Self {
         Self {
             worker_type,
@@ -747,7 +735,6 @@ pub struct WorkerTopologyEntry {
 }
 
 impl WorkerTopologyEntry {
-    /// See [`for_type`].
     /// See [`for_type`].
     pub fn for_type(worker_type: WorkerType) -> Self {
         Self {
@@ -787,7 +774,6 @@ pub struct WorkerTopologyPreset {
 
 impl WorkerTopologyPreset {
     /// See [`worker_types`].
-    /// See [`worker_types`].
     pub fn worker_types(&self) -> Vec<WorkerType> {
         self.instances.iter().map(|instance| instance.worker_type).collect()
     }
@@ -803,7 +789,6 @@ pub struct WorkerTopologySummary {
 }
 
 impl WorkerTopologySummary {
-    /// See [`baseline`].
     /// See [`baseline`].
     pub fn baseline() -> Self {
         let workers = [
@@ -901,7 +886,6 @@ impl WorkerTopologySummary {
         Self { workers, deployment_presets }
     }
 
-    /// See [`baseline_preset`].
     /// See [`baseline_preset`].
     pub fn baseline_preset(name: &str) -> Option<WorkerTopologyPreset> {
         Self::baseline().deployment_presets.into_iter().find(|preset| preset.name == name)
@@ -1087,13 +1071,11 @@ impl UpdateConnectionStatsRequest {
     }
 
     /// See [`bytes_sent`].
-    /// See [`bytes_sent`].
     pub fn bytes_sent(mut self, bytes_sent: i64) -> Self {
         self.bytes_sent = bytes_sent;
         self
     }
 
-    /// See [`bytes_received`].
     /// See [`bytes_received`].
     pub fn bytes_received(mut self, bytes_received: i64) -> Self {
         self.bytes_received = bytes_received;
@@ -1101,13 +1083,11 @@ impl UpdateConnectionStatsRequest {
     }
 
     /// See [`messages_sent`].
-    /// See [`messages_sent`].
     pub fn messages_sent(mut self, messages_sent: i64) -> Self {
         self.messages_sent = messages_sent;
         self
     }
 
-    /// See [`messages_received`].
     /// See [`messages_received`].
     pub fn messages_received(mut self, messages_received: i64) -> Self {
         self.messages_received = messages_received;

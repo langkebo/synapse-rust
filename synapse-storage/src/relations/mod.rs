@@ -138,12 +138,10 @@ pub struct RelationsStorage {
 
 impl RelationsStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`create_relation`].
     /// See [`create_relation`].
     pub async fn create_relation(&self, params: CreateRelationParams) -> Result<EventRelation, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -212,7 +210,6 @@ impl RelationsStorage {
     }
 
     /// See [`get_relation`].
-    /// See [`get_relation`].
     pub async fn get_relation(&self, room_id: &str, event_id: &str) -> Result<Option<EventRelation>, sqlx::Error> {
         sqlx::query_as::<_, EventRelation>(
             r"
@@ -253,7 +250,6 @@ impl RelationsStorage {
         Ok(count.0)
     }
 
-    /// See [`get_relations`].
     /// See [`get_relations`].
     pub async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<EventRelation>, sqlx::Error> {
         let limit = params.limit.unwrap_or(50).min(100);
@@ -464,7 +460,6 @@ impl RelationsStorage {
     }
 
     /// See [`redact_relation`].
-    /// See [`redact_relation`].
     pub async fn redact_relation(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
@@ -481,7 +476,6 @@ impl RelationsStorage {
         Ok(())
     }
 
-    /// See [`delete_relation`].
     /// See [`delete_relation`].
     pub async fn delete_relation(&self, room_id: &str, event_id: &str, sender: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(

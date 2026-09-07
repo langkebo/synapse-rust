@@ -31,7 +31,6 @@ pub struct InMemorySlidingSyncStore {
 
 impl InMemorySlidingSyncStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }

@@ -206,12 +206,10 @@ pub struct BeaconStorage {
 
 impl BeaconStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<Pool<Postgres>>) -> Self {
         Self { pool }
     }
 
-    /// See [`create_beacon_info`].
     /// See [`create_beacon_info`].
     pub async fn create_beacon_info(&self, params: CreateBeaconInfoParams) -> Result<BeaconInfo, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -245,7 +243,6 @@ impl BeaconStorage {
     }
 
     /// See [`deactivate_beacons_by_state_key`].
-    /// See [`deactivate_beacons_by_state_key`].
     pub async fn deactivate_beacons_by_state_key(&self, room_id: &str, state_key: &str) -> Result<u64, sqlx::Error> {
         let now = current_timestamp_millis();
         let result = sqlx::query(
@@ -263,7 +260,6 @@ impl BeaconStorage {
         Ok(result.rows_affected())
     }
 
-    /// See [`get_beacon_info`].
     /// See [`get_beacon_info`].
     pub async fn get_beacon_info(&self, room_id: &str, event_id: &str) -> Result<Option<BeaconInfo>, sqlx::Error> {
         let row = sqlx::query_as::<_, BeaconInfo>(
@@ -301,7 +297,6 @@ impl BeaconStorage {
         Ok(rows)
     }
 
-    /// See [`get_active_beacons`].
     /// See [`get_active_beacons`].
     pub async fn get_active_beacons(&self, room_id: &str) -> Result<Vec<BeaconInfo>, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -356,7 +351,6 @@ impl BeaconStorage {
         Ok(row)
     }
 
-    /// See [`delete_beacon_info`].
     /// See [`delete_beacon_info`].
     pub async fn delete_beacon_info(&self, room_id: &str, event_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
@@ -502,7 +496,6 @@ impl BeaconStorage {
     }
 
     /// See [`get_latest_location`].
-    /// See [`get_latest_location`].
     pub async fn get_latest_location(&self, beacon_info_id: &str) -> Result<Option<BeaconLocation>, sqlx::Error> {
         let row = sqlx::query_as::<_, BeaconLocation>(
             r#"
@@ -519,7 +512,6 @@ impl BeaconStorage {
         Ok(row)
     }
 
-    /// See [`count_locations_in_room_since`].
     /// See [`count_locations_in_room_since`].
     pub async fn count_locations_in_room_since(&self, room_id: &str, since_ts: i64) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar::<_, i64>(
@@ -557,7 +549,6 @@ impl BeaconStorage {
     }
 
     /// See [`get_joined_member_count`].
-    /// See [`get_joined_member_count`].
     pub async fn get_joined_member_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar::<_, i64>(
             r#"
@@ -587,7 +578,6 @@ impl BeaconStorage {
         }
     }
 
-    /// See [`cleanup_expired_beacons`].
     /// See [`cleanup_expired_beacons`].
     pub async fn cleanup_expired_beacons(&self) -> Result<u64, sqlx::Error> {
         let now = current_timestamp_millis();

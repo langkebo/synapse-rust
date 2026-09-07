@@ -9,7 +9,6 @@ use super::SpaceService;
 
 impl SpaceService {
     /// See [`add_child`].
-    /// See [`add_child`].
     #[instrument(skip(self, request))]
     pub async fn add_child(&self, request: AddChildRequest) -> Result<SpaceChild, ApiError> {
         info!(
@@ -71,7 +70,6 @@ impl SpaceService {
     }
 
     /// See [`remove_child`].
-    /// See [`remove_child`].
     #[instrument(skip(self))]
     pub async fn remove_child(&self, space_id: &str, room_id: &str, user_id: &str) -> Result<(), ApiError> {
         info!(space_id = %space_id, room_id = %room_id, user_id = %user_id, "Removing child from space");
@@ -113,7 +111,6 @@ impl SpaceService {
     }
 
     /// See [`get_space_children`].
-    /// See [`get_space_children`].
     #[instrument(skip(self))]
     pub async fn get_space_children(&self, space_id: &str) -> Result<Vec<SpaceChild>, ApiError> {
         self.space_storage
@@ -139,7 +136,6 @@ impl SpaceService {
 
     // ── Hierarchy ──
 
-    /// See [`get_space_hierarchy`].
     /// See [`get_space_hierarchy`].
     #[instrument(skip(self))]
     pub async fn get_space_hierarchy(&self, space_id: &str, max_depth: i32) -> Result<SpaceHierarchy, ApiError> {

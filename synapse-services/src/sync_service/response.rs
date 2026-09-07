@@ -325,7 +325,6 @@ impl SyncService {
     }
 
     /// See [`build_room_sync`].
-    /// See [`build_room_sync`].
     pub(crate) async fn build_room_sync(&self, request: BuildRoomSyncRequest<'_>) -> ApiResult<serde_json::Value> {
         let BuildRoomSyncRequest { room_id, user_id, device_id, events, since_token, is_incremental, room_filter } =
             request;
@@ -417,7 +416,6 @@ impl SyncService {
     }
 
     /// See [`event_to_json`].
-    /// See [`event_to_json`].
     pub(crate) fn event_to_json(event: &RoomEvent, event_format: SyncEventFormat) -> Value {
         let mut obj = crate::sync_helpers::room_event_to_json(event);
         if event_format == SyncEventFormat::Federation {
@@ -428,7 +426,6 @@ impl SyncService {
     }
 
     /// See [`state_event_to_json`].
-    /// See [`state_event_to_json`].
     pub(crate) fn state_event_to_json(event: &StateEvent, event_format: SyncEventFormat) -> Value {
         let mut obj = crate::sync_helpers::state_event_to_json(event);
         if event_format == SyncEventFormat::Federation {
@@ -438,7 +435,6 @@ impl SyncService {
         obj
     }
 
-    /// See [`build_room_sync_value`].
     /// See [`build_room_sync_value`].
     pub(crate) fn build_room_sync_value(request: BuildRoomSyncValueRequest<'_>) -> Value {
         let BuildRoomSyncValueRequest {

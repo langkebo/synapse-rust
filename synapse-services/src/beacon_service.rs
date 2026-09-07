@@ -19,7 +19,6 @@ pub struct BeaconService {
 
 impl BeaconService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: Arc<dyn BeaconStoreApi>, cache: Arc<CacheManager>) -> Self {
         Self { storage, cache }
     }
@@ -223,7 +222,6 @@ impl BeaconService {
     }
 
     /// See [`cleanup_expired_beacons`].
-    /// See [`cleanup_expired_beacons`].
     pub async fn cleanup_expired_beacons(&self) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
         let count = self.storage.cleanup_expired_beacons().await?;
         Ok(count)
@@ -273,7 +271,6 @@ impl BeaconService {
         Ok(Some((decision.retry_after_seconds.max(1)) * 1000))
     }
 
-    /// See [`parse_geo_uri`].
     /// See [`parse_geo_uri`].
     pub fn parse_geo_uri(uri: &str) -> Option<(f64, f64, Option<f64>)> {
         if !uri.starts_with("geo:") {

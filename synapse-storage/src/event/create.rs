@@ -309,7 +309,6 @@ impl EventStorage {
     }
 
     /// See [`get_room_create_event`].
-    /// See [`get_room_create_event`].
     pub async fn get_room_create_event(&self, room_id: &str) -> Result<Option<RoomEvent>, sqlx::Error> {
         sqlx::query_as::<_, RoomEvent>(
             r"

@@ -12,7 +12,6 @@ pub enum SinceFilter {
 
 impl SinceFilter {
     /// See [`column`].
-    /// See [`column`].
     pub fn column(&self) -> &'static str {
         match self {
             SinceFilter::OriginServerTs(_) => "origin_server_ts",
@@ -20,7 +19,6 @@ impl SinceFilter {
         }
     }
 
-    /// See [`value`].
     /// See [`value`].
     pub fn value(&self) -> i64 {
         match self {

@@ -28,7 +28,6 @@ pub struct CorsSecurityReport {
 
 impl CorsSecurityReport {
     /// See [`has_issues`].
-    /// See [`has_issues`].
     pub fn has_issues(&self) -> bool {
         !self.errors.is_empty() || !self.warnings.is_empty()
     }

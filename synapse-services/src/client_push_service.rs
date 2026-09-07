@@ -56,12 +56,10 @@ pub struct ClientPushService {
 
 impl ClientPushService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(account_data_storage: Arc<dyn AccountDataStoreApi>, push_storage: Arc<dyn PushStoreApi>) -> Self {
         Self { account_data_storage, push_storage }
     }
 
-    /// See [`get_pushers`].
     /// See [`get_pushers`].
     pub async fn get_pushers(&self, user_id: &str, device_id: Option<&str>) -> Result<Vec<Value>, ApiError> {
         let pushers = self
@@ -88,7 +86,6 @@ impl ClientPushService {
             .collect())
     }
 
-    /// See [`upsert_pusher`].
     /// See [`upsert_pusher`].
     pub async fn upsert_pusher(&self, request: UpsertPusherRequest) -> Result<i64, ApiError> {
         let now = current_timestamp_millis();
@@ -124,7 +121,6 @@ impl ClientPushService {
     }
 
     /// See [`delete_pusher`].
-    /// See [`delete_pusher`].
     pub async fn delete_pusher(&self, user_id: &str, device_id: &str, pushkey: &str) -> Result<(), ApiError> {
         self.push_storage
             .delete_pusher(user_id, device_id, pushkey)
@@ -144,7 +140,6 @@ impl ClientPushService {
     }
 
     /// See [`get_push_rules_content`].
-    /// See [`get_push_rules_content`].
     pub async fn get_push_rules_content(&self, user_id: &str) -> Result<Option<Value>, ApiError> {
         self.account_data_storage
             .get_account_data_content(user_id, "m.push_rules")
@@ -152,7 +147,6 @@ impl ClientPushService {
             .map_err(|e| ApiError::internal_with_context("Failed to get push rules", &e))
     }
 
-    /// See [`get_user_push_rules`].
     /// See [`get_user_push_rules`].
     pub async fn get_user_push_rules(&self, user_id: &str, scope: &str, kind: &str) -> Result<Vec<Value>, ApiError> {
         let rules = self
@@ -177,7 +171,6 @@ impl ClientPushService {
             .collect())
     }
 
-    /// See [`upsert_push_rule`].
     /// See [`upsert_push_rule`].
     pub async fn upsert_push_rule(&self, request: UpsertPushRuleRequest) -> Result<i64, ApiError> {
         let now = current_timestamp_millis();
@@ -305,7 +298,6 @@ impl ClientPushService {
     }
 
     /// See [`get_notifications`].
-    /// See [`get_notifications`].
     pub async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<Value>, ApiError> {
         let notifications = self
             .push_storage
@@ -328,7 +320,6 @@ impl ClientPushService {
             .collect())
     }
 
-    /// See [`ack_notification`].
     /// See [`ack_notification`].
     pub async fn ack_notification(&self, notification_id: i64, user_id: &str) -> Result<bool, ApiError> {
         let result = self

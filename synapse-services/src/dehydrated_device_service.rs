@@ -22,12 +22,10 @@ pub struct DehydratedDeviceService {
 
 impl DehydratedDeviceService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: Arc<dyn DehydratedDeviceStoreApi>) -> Self {
         Self { storage }
     }
 
-    /// See [`get_device`].
     /// See [`get_device`].
     pub async fn get_device(&self, user_id: &str) -> Result<Option<Value>, ApiError> {
         let record = self
@@ -39,7 +37,6 @@ impl DehydratedDeviceService {
         Ok(record.map(Self::record_to_response))
     }
 
-    /// See [`get_status`].
     /// See [`get_status`].
     pub async fn get_status(&self, user_id: &str) -> Result<Value, ApiError> {
         let record = self
@@ -65,7 +62,6 @@ impl DehydratedDeviceService {
     }
 
     /// See [`put_device`].
-    /// See [`put_device`].
     pub async fn put_device(&self, user_id: &str, body: Value) -> Result<String, ApiError> {
         let existing_device_id = self.existing_device_id(user_id).await;
         let normalized = Self::normalize_put_payload(body, existing_device_id)?;
@@ -90,7 +86,6 @@ impl DehydratedDeviceService {
     }
 
     /// See [`delete_device`].
-    /// See [`delete_device`].
     pub async fn delete_device(&self, user_id: &str) -> Result<Option<String>, ApiError> {
         let record = self
             .storage
@@ -109,7 +104,6 @@ impl DehydratedDeviceService {
         Ok(Some(record.device_id))
     }
 
-    /// See [`delete_all_for_user`].
     /// See [`delete_all_for_user`].
     pub async fn delete_all_for_user(&self, user_id: &str) -> Result<(), ApiError> {
         self.storage

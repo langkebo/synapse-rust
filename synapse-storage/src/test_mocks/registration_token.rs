@@ -14,7 +14,6 @@ pub struct InMemoryRegistrationTokenStore {
 
 impl InMemoryRegistrationTokenStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self { next_id: Arc::new(std::sync::atomic::AtomicI64::new(1)), ..Default::default() }
     }

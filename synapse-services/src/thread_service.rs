@@ -149,12 +149,10 @@ pub struct ThreadService {
 
 impl ThreadService {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(storage: Arc<dyn ThreadStoreApi>) -> Self {
         Self { storage }
     }
 
-    /// See [`get_thread_root`].
     /// See [`get_thread_root`].
     pub async fn get_thread_root(&self, room_id: &str, thread_id: &str) -> Result<Option<ThreadRoot>, ApiError> {
         self.storage
@@ -190,7 +188,6 @@ impl ThreadService {
     }
 
     /// See [`get_thread_participants`].
-    /// See [`get_thread_participants`].
     pub async fn get_thread_participants(&self, room_id: &str, thread_id: &str) -> Result<Vec<String>, ApiError> {
         self.storage
             .get_thread_participants(room_id, thread_id)
@@ -198,7 +195,6 @@ impl ThreadService {
             .map_err(|e| ApiError::internal_with_context("Failed to get participants", &e))
     }
 
-    /// See [`create_thread`].
     /// See [`create_thread`].
     pub async fn create_thread(&self, sender: &str, request: CreateThreadRequest) -> Result<ThreadRoot, ApiError> {
         info!(
@@ -241,7 +237,6 @@ impl ThreadService {
         Ok(thread_root)
     }
 
-    /// See [`add_reply`].
     /// See [`add_reply`].
     pub async fn add_reply(&self, sender: &str, request: CreateReplyRequest) -> Result<ThreadReply, ApiError> {
         info!(
@@ -366,7 +361,6 @@ impl ThreadService {
     }
 
     /// See [`list_threads`].
-    /// See [`list_threads`].
     pub async fn list_threads(&self, request: ListThreadsRequest) -> Result<ThreadListResponse, ApiError> {
         debug!(
             room_id = %request.room_id,
@@ -475,7 +469,6 @@ impl ThreadService {
     }
 
     /// See [`subscribe`].
-    /// See [`subscribe`].
     pub async fn subscribe(&self, request: SubscribeRequest) -> Result<ThreadSubscription, ApiError> {
         let thread_root = self
             .storage
@@ -503,7 +496,6 @@ impl ThreadService {
     }
 
     /// See [`unsubscribe`].
-    /// See [`unsubscribe`].
     pub async fn unsubscribe(&self, room_id: &str, thread_id: &str, user_id: &str) -> Result<(), ApiError> {
         self.storage.unsubscribe_from_thread(room_id, thread_id, user_id).await.map_err(|e| {
             warn!(error = %e, "Failed to unsubscribe from thread");
@@ -524,7 +516,6 @@ impl ThreadService {
         })
     }
 
-    /// See [`mark_read`].
     /// See [`mark_read`].
     pub async fn mark_read(&self, request: MarkReadRequest) -> Result<ThreadReadReceipt, ApiError> {
         self.storage
@@ -603,7 +594,6 @@ impl ThreadService {
     }
 
     /// See [`delete_thread`].
-    /// See [`delete_thread`].
     pub async fn delete_thread(&self, room_id: &str, thread_id: &str) -> Result<(), ApiError> {
         self.storage.delete_thread(room_id, thread_id).await.map_err(|e| {
             warn!(error = %e, "Failed to delete thread");
@@ -637,7 +627,6 @@ impl ThreadService {
     }
 
     /// See [`freeze_thread`].
-    /// See [`freeze_thread`].
     pub async fn freeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), ApiError> {
         self.storage.freeze_thread(room_id, thread_id).await.map_err(|e| {
             warn!(error = %e, "Failed to freeze thread");
@@ -645,7 +634,6 @@ impl ThreadService {
         })
     }
 
-    /// See [`unfreeze_thread`].
     /// See [`unfreeze_thread`].
     pub async fn unfreeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), ApiError> {
         self.storage.unfreeze_thread(room_id, thread_id).await.map_err(|e| {
@@ -655,7 +643,6 @@ impl ThreadService {
     }
 
     /// See [`redact_reply`].
-    /// See [`redact_reply`].
     pub async fn redact_reply(&self, room_id: &str, event_id: &str) -> Result<(), ApiError> {
         self.storage.mark_reply_redacted(room_id, event_id).await.map_err(|e| {
             warn!(error = %e, "Failed to redact reply");
@@ -663,7 +650,6 @@ impl ThreadService {
         })
     }
 
-    /// See [`edit_reply`].
     /// See [`edit_reply`].
     pub async fn edit_reply(&self, room_id: &str, event_id: &str) -> Result<(), ApiError> {
         self.storage.mark_reply_edited(room_id, event_id).await.map_err(|e| {

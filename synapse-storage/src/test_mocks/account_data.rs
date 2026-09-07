@@ -9,7 +9,6 @@ pub struct InMemoryAccountDataStore {
 
 impl InMemoryAccountDataStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }

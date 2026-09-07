@@ -15,7 +15,6 @@ pub struct InMemoryWorkerStore {
 
 impl InMemoryWorkerStore {
     /// See [`new`].
-    /// See [`new`].
     pub fn new() -> Self {
         Self {
             workers: Arc::new(RwLock::new(HashMap::new())),

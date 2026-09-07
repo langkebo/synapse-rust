@@ -128,24 +128,20 @@ pub struct PushResult {
 
 impl PushResult {
     /// See [`success`].
-    /// See [`success`].
     pub fn success() -> Self {
         Self { is_success: true, error: None, provider_response: None, should_retry: false }
     }
 
-    /// See [`success_with_response`].
     /// See [`success_with_response`].
     pub fn success_with_response(response: &str) -> Self {
         Self { is_success: true, error: None, provider_response: Some(response.to_string()), should_retry: false }
     }
 
     /// See [`failure`].
-    /// See [`failure`].
     pub fn failure(error: &str) -> Self {
         Self { is_success: false, error: Some(error.to_string()), provider_response: None, should_retry: false }
     }
 
-    /// See [`retryable_failure`].
     /// See [`retryable_failure`].
     pub fn retryable_failure(error: &str) -> Self {
         Self { is_success: false, error: Some(error.to_string()), provider_response: None, should_retry: true }

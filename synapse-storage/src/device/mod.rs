@@ -175,7 +175,6 @@ pub struct DeviceStorage {
 
 impl DeviceStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
         Self { pool: pool.clone() }
     }
@@ -490,7 +489,6 @@ impl DeviceStorage {
     }
 
     /// See [`get_device`].
-    /// See [`get_device`].
     pub async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
         sqlx::query_as::<_, Device>(
             r"
@@ -504,7 +502,6 @@ impl DeviceStorage {
     }
 
     /// See [`get_user_devices`].
-    /// See [`get_user_devices`].
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error> {
         sqlx::query_as::<_, Device>(
             r"
@@ -517,7 +514,6 @@ impl DeviceStorage {
         .await
     }
 
-    /// See [`update_device_display_name`].
     /// See [`update_device_display_name`].
     pub async fn update_device_display_name(&self, device_id: &str, display_name: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
@@ -565,7 +561,6 @@ impl DeviceStorage {
     }
 
     /// See [`update_device_last_seen`].
-    /// See [`update_device_last_seen`].
     pub async fn update_device_last_seen(&self, device_id: &str) -> Result<(), sqlx::Error> {
         let now = current_timestamp_millis();
         sqlx::query(
@@ -580,7 +575,6 @@ impl DeviceStorage {
         Ok(())
     }
 
-    /// See [`delete_device`].
     /// See [`delete_device`].
     pub async fn delete_device(&self, device_id: &str) -> Result<(), sqlx::Error> {
         let existing = self.get_device(device_id).await?;
@@ -607,7 +601,6 @@ impl DeviceStorage {
         }
     }
 
-    /// See [`delete_user_device`].
     /// See [`delete_user_device`].
     pub async fn delete_user_device(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
@@ -660,7 +653,6 @@ impl DeviceStorage {
     }
 
     /// See [`delete_user_devices`].
-    /// See [`delete_user_devices`].
     pub async fn delete_user_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
         let device_ids: Vec<String> = sqlx::query_scalar(
             r"
@@ -692,7 +684,6 @@ impl DeviceStorage {
         }
     }
 
-    /// See [`delete_devices_batch`].
     /// See [`delete_devices_batch`].
     pub async fn delete_devices_batch(&self, device_ids: &[String]) -> Result<u64, sqlx::Error> {
         if device_ids.is_empty() {
@@ -730,7 +721,6 @@ impl DeviceStorage {
     }
 
     /// See [`delete_user_devices_batch`].
-    /// See [`delete_user_devices_batch`].
     pub async fn delete_user_devices_batch(&self, user_id: &str, device_ids: &[String]) -> Result<u64, sqlx::Error> {
         if device_ids.is_empty() {
             return Ok(0);
@@ -752,7 +742,6 @@ impl DeviceStorage {
     }
 
     /// See [`device_exists`].
-    /// See [`device_exists`].
     pub async fn device_exists(&self, device_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query_scalar::<_, i32>(
             r#"
@@ -765,7 +754,6 @@ impl DeviceStorage {
         Ok(result.is_some())
     }
 
-    /// See [`get_devices_batch`].
     /// See [`get_devices_batch`].
     pub async fn get_devices_batch(&self, device_ids: &[String]) -> Result<Vec<Device>, sqlx::Error> {
         if device_ids.is_empty() {
@@ -849,7 +837,6 @@ impl DeviceStorage {
     }
 
     /// See [`get_device_count`].
-    /// See [`get_device_count`].
     pub async fn get_device_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {
         let count = sqlx::query_scalar::<_, i64>(
             r"
@@ -862,7 +849,6 @@ impl DeviceStorage {
         Ok(count)
     }
 
-    /// See [`get_user_device`].
     /// See [`get_user_device`].
     pub async fn get_user_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
         sqlx::query_as::<_, Device>(
@@ -877,7 +863,6 @@ impl DeviceStorage {
         .await
     }
 
-    /// See [`filter_existing_users`].
     /// See [`filter_existing_users`].
     pub async fn filter_existing_users(&self, user_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {
         if user_ids.is_empty() {
@@ -894,7 +879,6 @@ impl DeviceStorage {
         .await
     }
 
-    /// See [`update_devices_last_seen_batch`].
     /// See [`update_devices_last_seen_batch`].
     pub async fn update_devices_last_seen_batch(&self, device_ids: &[String]) -> Result<u64, sqlx::Error> {
         if device_ids.is_empty() {
@@ -930,7 +914,6 @@ impl DeviceStorage {
     }
 
     /// See [`get_max_device_list_stream_id_for_user`].
-    /// See [`get_max_device_list_stream_id_for_user`].
     pub async fn get_max_device_list_stream_id_for_user(&self, user_id: &str) -> Result<i64, sqlx::Error> {
         let max_id: i64 = sqlx::query_scalar(
             r"
@@ -946,7 +929,6 @@ impl DeviceStorage {
         Ok(max_id)
     }
 
-    /// See [`has_device_list_updates_since`].
     /// See [`has_device_list_updates_since`].
     pub async fn has_device_list_updates_since(&self, since_stream_id: i64) -> Result<bool, sqlx::Error> {
         Ok(self.get_max_device_list_stream_id().await? > since_stream_id)

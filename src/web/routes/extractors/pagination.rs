@@ -29,12 +29,10 @@ fn default_limit() -> Option<i64> {
 
 impl Pagination {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(limit: Option<i64>) -> Self {
         Self { limit, ..Default::default() }
     }
 
-    /// See [`with_direction`].
     /// See [`with_direction`].
     pub fn with_direction(mut self, dir: String) -> Self {
         self.dir = Some(dir);
@@ -42,12 +40,10 @@ impl Pagination {
     }
 
     /// See [`is_forward`].
-    /// See [`is_forward`].
     pub fn is_forward(&self) -> bool {
         self.dir.as_deref() != Some("b")
     }
 
-    /// See [`effective_limit`].
     /// See [`effective_limit`].
     pub fn effective_limit(&self) -> i64 {
         self.limit.unwrap_or(DEFAULT_PAGE_LIMIT).clamp(1, MAX_PAGE_LIMIT)

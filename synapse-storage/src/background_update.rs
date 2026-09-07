@@ -252,12 +252,10 @@ pub struct BackgroundUpdateStorage {
 
 impl BackgroundUpdateStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
 
-    /// See [`create_update`].
     /// See [`create_update`].
     pub async fn create_update(&self, request: CreateBackgroundUpdateRequest) -> Result<BackgroundUpdate, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -299,7 +297,6 @@ impl BackgroundUpdateStorage {
     }
 
     /// See [`get_update`].
-    /// See [`get_update`].
     pub async fn get_update(&self, job_name: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         let row = sqlx::query_as::<_, BackgroundUpdate>("SELECT job_name, job_type, description, table_name, column_name, status, progress, total_items, processed_items, created_ts, started_ts, completed_ts, updated_ts, error_message, retry_count, max_retries, batch_size, sleep_ms, depends_on, metadata FROM background_updates WHERE update_name = $1")
             .bind(job_name)
@@ -340,7 +337,6 @@ impl BackgroundUpdateStorage {
     }
 
     /// See [`get_updates_by_status`].
-    /// See [`get_updates_by_status`].
     pub async fn get_updates_by_status(&self, status: &str) -> Result<Vec<BackgroundUpdate>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BackgroundUpdate>(
             "SELECT job_name, job_type, description, table_name, column_name, status, progress, total_items, processed_items, created_ts, started_ts, completed_ts, updated_ts, error_message, retry_count, max_retries, batch_size, sleep_ms, depends_on, metadata FROM background_updates WHERE status = $1 ORDER BY created_ts ASC",
@@ -353,18 +349,15 @@ impl BackgroundUpdateStorage {
     }
 
     /// See [`get_pending_updates`].
-    /// See [`get_pending_updates`].
     pub async fn get_pending_updates(&self) -> Result<Vec<BackgroundUpdate>, sqlx::Error> {
         self.get_updates_by_status("pending").await
     }
 
     /// See [`get_running_updates`].
-    /// See [`get_running_updates`].
     pub async fn get_running_updates(&self) -> Result<Vec<BackgroundUpdate>, sqlx::Error> {
         self.get_updates_by_status("running").await
     }
 
-    /// See [`update_status`].
     /// See [`update_status`].
     pub async fn update_status(&self, job_name: &str, status: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -461,7 +454,6 @@ impl BackgroundUpdateStorage {
     }
 
     /// See [`delete_update`].
-    /// See [`delete_update`].
     pub async fn delete_update(&self, job_name: &str) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM background_updates WHERE update_name = $1")
             .bind(job_name)
@@ -543,7 +535,6 @@ impl BackgroundUpdateStorage {
     }
 
     /// See [`release_lock`].
-    /// See [`release_lock`].
     pub async fn release_lock(&self, job_name: &str) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM background_update_locks WHERE lock_name = $1")
             .bind(job_name)
@@ -553,7 +544,6 @@ impl BackgroundUpdateStorage {
         Ok(())
     }
 
-    /// See [`is_locked`].
     /// See [`is_locked`].
     pub async fn is_locked(&self, job_name: &str) -> Result<bool, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -568,7 +558,6 @@ impl BackgroundUpdateStorage {
         Ok(count > 0)
     }
 
-    /// See [`cleanup_expired_locks`].
     /// See [`cleanup_expired_locks`].
     pub async fn cleanup_expired_locks(&self) -> Result<i64, sqlx::Error> {
         let now = current_timestamp_millis();
@@ -615,7 +604,6 @@ impl BackgroundUpdateStorage {
     }
 
     /// See [`get_history`].
-    /// See [`get_history`].
     pub async fn get_history(&self, job_name: &str, limit: i64) -> Result<Vec<BackgroundUpdateHistory>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BackgroundUpdateHistory>(
             "SELECT id, job_name, execution_start_ts, execution_end_ts, status, items_processed, error_message, metadata FROM background_update_history WHERE job_name = $1 ORDER BY execution_start_ts DESC, id DESC LIMIT $2",
@@ -628,7 +616,6 @@ impl BackgroundUpdateStorage {
         Ok(rows)
     }
 
-    /// See [`retry_failed`].
     /// See [`retry_failed`].
     pub async fn retry_failed(&self) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
@@ -647,7 +634,6 @@ impl BackgroundUpdateStorage {
     }
 
     /// See [`count_by_status`].
-    /// See [`count_by_status`].
     pub async fn count_by_status(&self, status: &str) -> Result<i64, sqlx::Error> {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM background_updates WHERE status = $1")
             .bind(status)
@@ -658,14 +644,12 @@ impl BackgroundUpdateStorage {
     }
 
     /// See [`count_all`].
-    /// See [`count_all`].
     pub async fn count_all(&self) -> Result<i64, sqlx::Error> {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM background_updates").fetch_one(&*self.pool).await?;
 
         Ok(count)
     }
 
-    /// See [`get_stats`].
     /// See [`get_stats`].
     pub async fn get_stats(&self, limit: i32) -> Result<Vec<BackgroundUpdateStats>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BackgroundUpdateStats>(

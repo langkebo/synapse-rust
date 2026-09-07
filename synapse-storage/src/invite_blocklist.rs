@@ -38,7 +38,6 @@ pub struct InviteBlocklistStorage {
 
 impl InviteBlocklistStorage {
     /// See [`new`].
-    /// See [`new`].
     pub fn new(pool: Arc<PgPool>) -> Self {
         Self { pool }
     }
