@@ -36,10 +36,6 @@ pub mod web;
 /// The `worker` module.
 pub mod worker;
 
-/// The `test_config` module.
-#[cfg(any(test, feature = "test-utils"))]
-pub mod test_config;
-
 // Explicit root re-exports (replacing the former per-module wildcard globs).
 // Only the items consumed through the crate root (`synapse_rust::Foo`) are
 // re-exported here; everything else is reached path-qualified

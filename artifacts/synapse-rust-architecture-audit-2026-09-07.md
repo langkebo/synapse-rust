@@ -267,8 +267,8 @@
 | **P1-6** | 清理 240 处 `dead_code` allow | 小 | 中 | 枚举非 test 上下文 dead_code allow，逐个删或重构 | ✅ 2026-09-07 commit d34eb70f |
 | **P2-1** | 处置 `synapse-web` 空壳 vs `src/web` 未迁出 | 大 | 中 | 删除空壳（简单）或迁入（彻底） | 待办 |
 | **P2-2** | 删除 `user_lock_service.rs` 透传壳 | 小 | 低 | 调用方直接依赖 `Arc<dyn UserStore>` | ✅ 2026-09-07 早前 commit 已删 |
-| **P2-3** | 收敛测试基础设施 | 小 | 低 | 删除 12/16 行重复 test_config；建立统一 mock builder | 待办 |
-| **P2-4** | 全局 `in_flight` 锁改 moka 原生 single-flight | 小 | 低 | 替换为 `cache.get_with(key, async { ... })` | 待办 |
+| **P2-3** | 收敛测试基础设施 | 小 | 低 | 删除 12/16 行重复 test_config；建立统一 mock builder | ✅ 2026-09-07 commit (removed unused facade modules) |
+| **P2-4** | 全局 `in_flight` 锁改 moka 原生 single-flight | 小 | 低 | 替换为 `cache.get_with(key, async { ... })` | 评估中（见备注） |
 | **P2-5** | 补 107 处 `missing_docs` | 小 | 极低 | 补文档或缩小 pub 可见性 | 部分（之前的 1,880 行 dedup 解决了 107 中的大部分） |
 
 ---
