@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::background_job::BackgroundJob;
+use synapse_common::http_client::pinned_client_for_url;
+use synapse_common::security;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_common::ApiError;
 use tokio::sync::RwLock;
@@ -154,8 +156,22 @@ impl DeviceSyncManager {
     }
 
     async fn fetch_devices_from_url(&self, url: &str) -> Result<Vec<DeviceInfo>, ApiError> {
-        let response = self
-            .http_client
+        // SSRF 防护：解析主机并校验所有解析结果不在私有/链路本地网段内，
+        // 然后用已验证的 IP 集合构造钉扎客户端（杜绝 DNS 重绑定）。
+        let (host, ips) = security::check_url_and_resolve(url, &security::ssrf_blacklist())
+            .map_err(|e| ApiError::bad_request(format!("SSRF check failed: {e}")))?;
+
+        let pinned = pinned_client_for_url(
+            url,
+            &ips,
+            std::time::Duration::from_secs(15),
+            true, // no_redirect — federation key fetch never follows redirects
+        )
+        .map_err(|e| ApiError::internal_with_context("Failed to build pinned client", &e))?;
+
+        tracing::debug!(%host, ips = ?ips.len(), "Fetching remote devices with SSRF-pinned client");
+
+        let response = pinned
             .get(url)
             .send()
             .await

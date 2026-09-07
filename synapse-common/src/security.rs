@@ -269,6 +269,42 @@ pub fn check_url_and_resolve(url: &str, blacklist: &[String]) -> Result<(String,
     Ok((host.to_string(), ips))
 }
 
+/// 标准 SSRF 黑名单：覆盖所有 RFC 1918 / 3330 / 6598 私有与链路本地地址，
+/// 防止 federation / device-sync 拉取远程服务器时窥探内网元数据服务
+/// (169.254.169.254)、本地环回 (127.0.0.1) 或 Docker/RFC 1918 网段。
+///
+/// 调用方应将此黑名单传给 `check_url_and_resolve`，然后用返回的 IP 列表
+/// 构造 `http_client::pinned_client_for_url` 钉扎客户端 — 杜绝 DNS
+/// 重绑定 (DNS rebinding) 攻击。
+pub fn ssrf_blacklist() -> Vec<String> {
+    vec![
+        // IPv4 private / link-local / loopback
+        "0.0.0.0/8".to_string(),
+        "10.0.0.0/8".to_string(),
+        "100.64.0.0/10".to_string(), // CGNAT
+        "127.0.0.0/8".to_string(),
+        "169.254.0.0/16".to_string(), // cloud metadata
+        "172.16.0.0/12".to_string(),
+        "192.0.0.0/24".to_string(),
+        "192.0.2.0/24".to_string(), // TEST-NET-1
+        "192.52.193.0/24".to_string(), // AMT
+        "192.88.99.0/24".to_string(), // 6to4 anycast
+        "192.168.0.0/16".to_string(),
+        "198.18.0.0/15".to_string(),
+        "198.51.100.0/24".to_string(), // TEST-NET-2
+        "203.0.113.0/24".to_string(), // TEST-NET-3
+        "224.0.0.0/4".to_string(), // multicast
+        "240.0.0.0/4".to_string(), // reserved
+        "255.255.255.255/32".to_string(), // broadcast
+        // IPv6 private / link-local / loopback
+        "::1/128".to_string(),
+        "::/128".to_string(),
+        "fc00::/7".to_string(), // ULA
+        "fe80::/10".to_string(), // link-local
+        "ff00::/8".to_string(), // multicast
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -767,5 +803,63 @@ mod tests {
 
         assert_eq!(host, "8.8.8.8");
         assert!(!ips.is_empty());
+    }
+
+    // ── ssrf_blacklist() 测试 ──────────────────────────────────────
+
+    #[test]
+    fn test_ssrf_blacklist_blocks_loopback_ipv4() {
+        let blacklist = ssrf_blacklist();
+        assert!(is_ip_in_blacklist(&"127.0.0.1".parse::<IpAddr>().unwrap(), &blacklist));
+        assert!(is_ip_in_blacklist(&"127.255.255.255".parse::<IpAddr>().unwrap(), &blacklist));
+    }
+
+    #[test]
+    fn test_ssrf_blacklist_blocks_private_ipv4() {
+        let blacklist = ssrf_blacklist();
+        assert!(is_ip_in_blacklist(&"10.0.0.1".parse::<IpAddr>().unwrap(), &blacklist));
+        assert!(is_ip_in_blacklist(&"172.16.0.1".parse::<IpAddr>().unwrap(), &blacklist));
+        assert!(is_ip_in_blacklist(&"192.168.1.1".parse::<IpAddr>().unwrap(), &blacklist));
+    }
+
+    #[test]
+    fn test_ssrf_blacklist_blocks_link_local() {
+        let blacklist = ssrf_blacklist();
+        // 169.254.169.254 — AWS/GCP 云元数据服务
+        assert!(is_ip_in_blacklist(&"169.254.169.254".parse::<IpAddr>().unwrap(), &blacklist));
+    }
+
+    #[test]
+    fn test_ssrf_blacklist_blocks_ipv6_loopback_and_ula() {
+        let blacklist = ssrf_blacklist();
+        assert!(is_ip_in_blacklist(&"::1".parse::<IpAddr>().unwrap(), &blacklist));
+        assert!(is_ip_in_blacklist(&"fc00::1".parse::<IpAddr>().unwrap(), &blacklist));
+        assert!(is_ip_in_blacklist(&"fd12:3456:789a::1".parse::<IpAddr>().unwrap(), &blacklist));
+    }
+
+    #[test]
+    fn test_ssrf_blacklist_allows_public_ipv4() {
+        let blacklist = ssrf_blacklist();
+        assert!(!is_ip_in_blacklist(&"8.8.8.8".parse::<IpAddr>().unwrap(), &blacklist));
+        assert!(!is_ip_in_blacklist(&"1.1.1.1".parse::<IpAddr>().unwrap(), &blacklist));
+        assert!(!is_ip_in_blacklist(&"172.217.16.142".parse::<IpAddr>().unwrap(), &blacklist));
+    }
+
+    #[test]
+    fn test_ssrf_blacklist_blocks_loopback_url() {
+        let blacklist = ssrf_blacklist();
+        assert!(check_url_against_blacklist("http://127.0.0.1/admin", &blacklist).is_err());
+        assert!(check_url_against_blacklist("http://localhost/internal", &blacklist).is_err());
+    }
+
+    #[test]
+    fn test_ssrf_blacklist_allows_public_url() {
+        let blacklist = ssrf_blacklist();
+        // 公网 IP 不在黑名单内；DNS 解析可能在沙箱内不通，但不应因 IP 黑名单拦截。
+        let result = check_url_against_blacklist("http://8.8.8.8/_matrix/key/v2/server", &blacklist);
+        // 不应在 IP 校验阶段失败（可能因 DNS 不通而失败，但不是"黑名单"错误）。
+        if let Err(e) = result {
+            assert!(!e.contains("blacklist"), "黑名单不应拦截公网 IP: {e}");
+        }
     }
 }

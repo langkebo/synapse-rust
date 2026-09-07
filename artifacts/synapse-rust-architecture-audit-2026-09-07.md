@@ -262,7 +262,7 @@
 | **P1-1** | Federation `m.receipt` EDU 缺失 | 中 | 低 | 新增 EDU 变体 + 分发 + 出站触发 | ✅ 2026-09-07 commit a334d236 |
 | **P1-2** | E2EE 核心模块单元测试覆盖 | 大 | 低 | 按 `key_request → device_trust → secure_backup → ssss` 优先级补测 | 待办 |
 | **P1-3** | 请求体全面加 `deny_unknown_fields` | 中 | 低 | 脚本扫描所有 `*Request` struct | ✅ 2026-09-07 commit d34eb70f（144 structs / 38 files） |
-| **P1-4** | SSRF 防护 | 中 | 中 | federation HTTP client 注入 private IP 黑名单 | 待办 |
+| **P1-4** | SSRF 防护 | 中 | 中 | federation HTTP client 注入 private IP 黑名单 | ✅ 2026-09-07 commit aa717fc0 |
 | **P1-5** | `/sync` N+1 + 无缓存 `get_joined_rooms` | 中 | 低 | 复用缓存 joined-rooms 或跳过 `m.direct` 空场景 | ✅ 2026-09-07 commit a334d236 |
 | **P1-6** | 清理 240 处 `dead_code` allow | 小 | 中 | 枚举非 test 上下文 dead_code allow，逐个删或重构 | ✅ 2026-09-07 commit d34eb70f |
 | **P2-1** | 处置 `synapse-web` 空壳 vs `src/web` 未迁出 | 大 | 中 | 删除空壳（简单）或迁入（彻底） | 待办 |
@@ -313,6 +313,7 @@
 | **P2** 连续重复 `/// See [xxx].` doc 注释 | Python 脚本 collapse 连续相同评论 → **1,880 行** 265 文件 | `cargo build` ✅ 0 warnings | 75c0ba78 |
 | **P1-3** 请求体 `deny_unknown_fields` | 脚本扫描 144 个 Request/Body/Query/Params struct，加 `#[serde(deny_unknown_fields)]`（Content types 除外） | `cargo check` ✅ | d34eb70f |
 | **P1-6** `dead_code` allow 清理 | 删除真正死代码（build_transaction_event、ensure_test_device、KeyRotationService::olm_service）；为保留字段换 struct 级 `#[allow(dead_code)]` + 文档注释 | `cargo clippy -- -D warnings` ✅ | d34eb70f |
+| **P1-4** Federation SSRF 防护 | `synapse-common::security::ssrf_blacklist()` 标准黑名单；`device_sync.rs::fetch_devices_from_url` 改用 `check_url_and_resolve` + `pinned_client_for_url` IP 钉扎 | `cargo clippy -p synapse-federation -p synapse-common -- -D warnings` ✅ + 6 单元测试 | aa717fc0 |
 
 ### 修正说明
 
