@@ -23,5 +23,4 @@ pub use crate::refresh_token_service::*;
 pub use crate::registration_token_service::*;
 pub use crate::sms_provider::*;
 pub use crate::uia_service::*;
-pub use crate::user_lock_service::*;
 pub use crate::user_service::UserService;

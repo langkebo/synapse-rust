@@ -332,9 +332,11 @@ impl Default for CacheConfig {
 #[derive(Clone, Debug)]
 pub struct LocalCache {
     cache: Cache<String, String>,
-    /// D-1: per-key 过期截止时间。moka 0.12 没有 insert_with_ttl，
+    /// D-1: per-key 过期截止时间。moka 0.12 `sync::Cache` 没有 per-entry TTL API，
     /// 用旁路 deadline 表实现「L1 与 L2 Redis 相同的 per-key TTL」。
-    deadlines: Arc<parking_lot::Mutex<HashMap<String, std::time::Instant>>>,
+    /// 用 `RwLock` 而非 `Mutex`：`get_raw` 只读判断，只需 `read()` 锁，
+    /// 避免将所有 worker 线程的缓存读串行化在一把排他锁上。
+    deadlines: Arc<parking_lot::RwLock<HashMap<String, std::time::Instant>>>,
     /// D-2: 独立命名空间缓存，防止高流量域（如 presence）驱逐
     /// 安全关键数据（如 device_keys、token）。每个命名空间有独立
     /// 的 moka 容量和 deadline 表。
@@ -345,7 +347,7 @@ pub struct LocalCache {
 #[derive(Clone, Debug)]
 struct NamespaceCache {
     cache: Cache<String, String>,
-    deadlines: Arc<parking_lot::Mutex<HashMap<String, std::time::Instant>>>,
+    deadlines: Arc<parking_lot::RwLock<HashMap<String, std::time::Instant>>>,
 }
 
 /// D-2: 将缓存键路由到对应的命名空间。
@@ -372,13 +374,13 @@ fn route_key(key: &str) -> Option<&'static str> {
 
 impl NamespaceCache {
     fn new(max_capacity: u64, ttl_secs: u64) -> Self {
-        let deadlines = Arc::new(parking_lot::Mutex::new(HashMap::new()));
+        let deadlines = Arc::new(parking_lot::RwLock::new(HashMap::new()));
         let deadlines_for_listener = Arc::clone(&deadlines);
         let cache = Cache::builder()
             .max_capacity(max_capacity)
             .time_to_live(std::time::Duration::from_secs(ttl_secs))
             .eviction_listener(move |key: Arc<String>, _value, _cause| {
-                deadlines_for_listener.lock().remove(key.as_str());
+                deadlines_for_listener.write().remove(key.as_str());
             })
             .build();
         Self { cache, deadlines }
@@ -388,14 +390,14 @@ impl NamespaceCache {
 impl LocalCache {
     /// Constructs a new cache from the given configuration.
     pub fn new(config: &CacheConfig) -> Self {
-        let deadlines = Arc::new(parking_lot::Mutex::new(HashMap::new()));
+        let deadlines = Arc::new(parking_lot::RwLock::new(HashMap::new()));
         let deadlines_for_listener = Arc::clone(&deadlines);
         let cache = Cache::builder()
             .max_capacity(config.max_capacity)
             .time_to_live(std::time::Duration::from_secs(config.time_to_live))
             // 容量驱逐时同步清理 deadline，避免旁路表泄漏
             .eviction_listener(move |key: Arc<String>, _value, _cause| {
-                deadlines_for_listener.lock().remove(key.as_str());
+                deadlines_for_listener.write().remove(key.as_str());
             })
             .build();
 
@@ -422,7 +424,7 @@ impl LocalCache {
     pub fn set(&self, token: &str, claims: &Claims) {
         match serde_json::to_string(claims) {
             Ok(s) => {
-                self.deadlines.lock().remove(token);
+                self.deadlines.write().remove(token);
                 self.cache.insert(token.to_string(), s);
             }
             Err(e) => {
@@ -436,13 +438,13 @@ impl LocalCache {
         // D-2: 路由到独立命名空间缓存（如有）
         if let Some(ns_name) = route_key(key) {
             if let Some(ns) = self.namespaces.get(ns_name) {
-                ns.deadlines.lock().remove(key);
+                ns.deadlines.write().remove(key);
                 ns.cache.insert(key.to_string(), value.to_string());
                 return;
             }
         }
         // 无 per-key TTL 的普通写入：清除旧 deadline，回落到 builder 级 TTL
-        self.deadlines.lock().remove(key);
+        self.deadlines.write().remove(key);
         self.cache.insert(key.to_string(), value.to_string());
     }
 
@@ -452,12 +454,12 @@ impl LocalCache {
         // D-2: 路由到独立命名空间缓存（如有）
         if let Some(ns_name) = route_key(key) {
             if let Some(ns) = self.namespaces.get(ns_name) {
-                ns.deadlines.lock().insert(key.to_string(), std::time::Instant::now() + ttl);
+                ns.deadlines.write().insert(key.to_string(), std::time::Instant::now() + ttl);
                 ns.cache.insert(key.to_string(), value.to_string());
                 return;
             }
         }
-        self.deadlines.lock().insert(key.to_string(), std::time::Instant::now() + ttl);
+        self.deadlines.write().insert(key.to_string(), std::time::Instant::now() + ttl);
         self.cache.insert(key.to_string(), value.to_string());
     }
 
@@ -467,11 +469,11 @@ impl LocalCache {
         if let Some(ns_name) = route_key(key) {
             if let Some(ns) = self.namespaces.get(ns_name) {
                 // D-1: per-key 过期判定
-                let deadline = ns.deadlines.lock().get(key).copied();
+                let deadline = ns.deadlines.read().get(key).copied();
                 if let Some(deadline) = deadline {
                     if std::time::Instant::now() >= deadline {
                         ns.cache.remove(key);
-                        ns.deadlines.lock().remove(key);
+                        ns.deadlines.write().remove(key);
                         return None;
                     }
                 }
@@ -479,11 +481,11 @@ impl LocalCache {
             }
         }
         // D-1: per-key 过期判定（moka 自身只认 builder 级 TTL）
-        let deadline = self.deadlines.lock().get(key).copied();
+        let deadline = self.deadlines.read().get(key).copied();
         if let Some(deadline) = deadline {
             if std::time::Instant::now() >= deadline {
                 self.cache.remove(key);
-                self.deadlines.lock().remove(key);
+                self.deadlines.write().remove(key);
                 return None;
             }
         }
@@ -495,12 +497,12 @@ impl LocalCache {
         // D-2: 路由到独立命名空间缓存（如有）
         if let Some(ns_name) = route_key(token) {
             if let Some(ns) = self.namespaces.get(ns_name) {
-                ns.deadlines.lock().remove(token);
+                ns.deadlines.write().remove(token);
                 ns.cache.remove(token);
                 return;
             }
         }
-        self.deadlines.lock().remove(token);
+        self.deadlines.write().remove(token);
         self.cache.remove(token);
     }
 }
@@ -1177,7 +1179,7 @@ impl CacheManager {
             let ns_keys: Vec<String> =
                 ns.cache.iter().filter(|(k, _)| matcher(k)).map(|(k, _)| k.to_string()).collect();
             for key in ns_keys {
-                ns.deadlines.lock().remove(&key);
+                ns.deadlines.write().remove(&key);
                 ns.cache.remove(&key);
             }
         }
@@ -1189,7 +1191,7 @@ impl CacheManager {
         // D-2: 同时清空所有命名空间缓存
         for ns in self.local.namespaces.values() {
             ns.cache.invalidate_all();
-            ns.deadlines.lock().clear();
+            ns.deadlines.write().clear();
         }
     }
 
@@ -1234,7 +1236,7 @@ impl CacheManager {
                 // D-2: 同时清空所有命名空间缓存
                 for ns in self.local.namespaces.values() {
                     ns.cache.invalidate_all();
-                    ns.deadlines.lock().clear();
+                    ns.deadlines.write().clear();
                 }
             }
         }
@@ -1419,7 +1421,7 @@ impl CacheManager {
                 // D-2: 同时清空所有命名空间缓存
                 for ns in self.local.namespaces.values() {
                     ns.cache.invalidate_all();
-                    ns.deadlines.lock().clear();
+                    ns.deadlines.write().clear();
                 }
             }
         }
@@ -2430,7 +2432,7 @@ mod tests {
         cache.cache.invalidate_all();
         for ns in cache.namespaces.values() {
             ns.cache.invalidate_all();
-            ns.deadlines.lock().clear();
+            ns.deadlines.write().clear();
         }
         cache.cache.run_pending_tasks();
         for ns in cache.namespaces.values() {
