@@ -417,6 +417,7 @@ impl MembershipService {
 
 #[cfg(test)]
 mod tests {
+    use crate::common::error::ApiError;
     use std::sync::Arc;
 
     use synapse_cache::{CacheConfig, CacheManager};
@@ -517,5 +518,140 @@ mod tests {
         svc.leave_room(ROOM_ID, USER_ID).await.unwrap();
 
         assert!(spy.marked_rotations().await.is_empty());
+    }
+
+    /// Build a service for *join* tests: creates a room with the given
+    /// join_rule, seeds the `m.room.join_rules` state event, and optionally
+    /// pre-seeds `@bob` with a membership state (e.g. "invite").
+    async fn build_join_service(
+        join_rule: &str,
+        seed_bob_membership: Option<&str>,
+    ) -> MembershipService {
+        let member_store = InMemoryMemberStore::new();
+        if let Some(mem) = seed_bob_membership {
+            member_store.add_member(ROOM_ID, USER_ID, mem, None).await.unwrap();
+        }
+
+        let event_store = Arc::new(InMemoryEventStore::new());
+        let room_store = InMemoryRoomStore::new();
+        // Seed a room with the specified join_rule.
+        room_store
+            .create_room(ROOM_ID, "@alice:localhost", join_rule, "10", false)
+            .await
+            .unwrap();
+        // Seed the m.room.join_rules state event so resolve_join_rule picks it up.
+        event_store
+            .create_event(synapse_storage::CreateEventParams {
+                event_id: "$join_rules:localhost".to_string(),
+                room_id: ROOM_ID.to_string(),
+                user_id: "@alice:localhost".to_string(),
+                event_type: "m.room.join_rules".to_string(),
+                content: serde_json::json!({ "join_rule": join_rule }),
+                state_key: Some("".to_string()),
+                origin_server_ts: 1_000,
+                redacts: None,
+            })
+            .await
+            .unwrap();
+
+        let event_reader: Arc<dyn EventReader> = event_store.clone();
+        let event_writer: Arc<dyn EventWriter> = event_store.clone();
+        let member_storage: Arc<dyn MemberStoreApi> = Arc::new(member_store);
+        let room_storage: Arc<dyn RoomStoreApi> = Arc::new(room_store);
+
+        let fake_user_store = FakeUserStore::new();
+        // Seed @bob as a user so user_exists returns true.
+        fake_user_store
+            .seed_user(synapse_storage::User {
+                user_id: USER_ID.to_string(),
+                username: "bob".to_string(),
+                password_hash: None,
+                is_admin: false,
+                is_guest: false,
+                is_shadow_banned: false,
+                is_deactivated: false,
+                created_ts: 0,
+                updated_ts: None,
+                displayname: None,
+                avatar_url: None,
+                email: None,
+                phone: None,
+                generation: None,
+                consent_version: None,
+                appservice_id: None,
+                user_type: None,
+                invalid_update_at: None,
+                migration_state: None,
+                password_changed_ts: None,
+                is_password_change_required: false,
+                password_expires_at: None,
+                failed_login_attempts: 0,
+                locked_until: None,
+                must_change_password: false,
+            })
+            .await;
+        let user_storage: Arc<dyn UserStore> = Arc::new(fake_user_store);
+        let user_service = Arc::new(UserService::new(user_storage.clone()));
+
+        let room_summary_service = Arc::new(RoomSummaryService::new(
+            Arc::new(InMemoryRoomSummaryStore::new()),
+            event_reader.clone(),
+            Some(member_storage.clone()),
+        ));
+
+        MembershipService::new(MembershipServiceConfig {
+            member_storage,
+            room_storage,
+            event_reader,
+            event_writer,
+            user_storage,
+            user_service,
+            room_auth: Arc::new(FakeRoomAuth::new()),
+            server_name: "localhost".to_string(),
+            federation_client: None,
+            key_rotation_manager: None,
+            event_broadcaster: None,
+            room_summary_service,
+            cache: Arc::new(CacheManager::new(&CacheConfig::default())),
+            key_rotation_storage: None,
+            app_service_manager: None,
+            db_pool: None,
+        })
+    }
+
+    /// Verify restricted-join auth resolution: a room with
+    /// `m.room.join_rules: {"join_rule": "restricted"}` requires an
+    /// explicit invite — joining without one is rejected (fail-closed).
+    /// This is the documented behavior: restricted-join authorization
+    /// resolution is not yet wired (actions.rs:80), so restricted rooms
+    /// fail closed and return an M_FORBIDDEN error.
+    #[tokio::test]
+    async fn restricted_join_without_invite_fails_closed() {
+        // User @bob is NOT seeded as a member (from == None).
+        let svc = build_join_service("restricted", None).await;
+
+        let err = svc.join_room(ROOM_ID, USER_ID).await.unwrap_err();
+        assert_eq!(err, ApiError::forbidden("You are not invited to this room"));
+    }
+
+    /// Verify that an already-invited member can join a restricted room.
+    /// The Invite arm of `is_legal` always returns Ok (regardless of
+    /// join_rule), so an explicit invite bypasses the restricted fail-close.
+    #[tokio::test]
+    async fn restricted_join_with_invite_succeeds() {
+        // Pre-seed @bob with an "invite" membership state.
+        let svc = build_join_service("restricted", Some("invite")).await;
+
+        let result = svc.join_room(ROOM_ID, USER_ID).await;
+        assert!(result.is_ok(), "join with invite should succeed under restricted join_rule");
+    }
+
+    /// Sanity check: public rooms accept joins without an invite.
+    #[tokio::test]
+    async fn public_join_without_invite_succeeds() {
+        let svc = build_join_service("public", None).await;
+
+        let result = svc.join_room(ROOM_ID, USER_ID).await;
+        assert!(result.is_ok(), "join should succeed under public join_rule");
     }
 }

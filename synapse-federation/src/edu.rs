@@ -26,6 +26,8 @@ pub enum EduType {
     DirectToDevice,
     /// `m.receipt` — read receipts propagated between federated servers.
     Receipt,
+    /// `m.signing_key_update` — cross-signing key updates propagated between federated servers.
+    SigningKeyUpdate,
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +55,7 @@ impl FromStr for EduType {
             "m.device_list_update" => Ok(Self::DeviceListUpdate),
             "m.direct_to_device" => Ok(Self::DirectToDevice),
             "m.receipt" => Ok(Self::Receipt),
+            "m.signing_key_update" => Ok(Self::SigningKeyUpdate),
             other => Err(UnknownEduType(other.to_string())),
         }
     }
@@ -106,6 +109,7 @@ mod tests {
         assert_eq!("m.device_list_update".parse::<EduType>().unwrap(), EduType::DeviceListUpdate);
         assert_eq!("m.direct_to_device".parse::<EduType>().unwrap(), EduType::DirectToDevice);
         assert_eq!("m.receipt".parse::<EduType>().unwrap(), EduType::Receipt);
+        assert_eq!("m.signing_key_update".parse::<EduType>().unwrap(), EduType::SigningKeyUpdate);
     }
 
     #[test]
@@ -139,6 +143,8 @@ mod tests {
         assert_ne!(EduType::Receipt, EduType::Typing);
         assert_ne!(EduType::Receipt, EduType::DeviceListUpdate);
         assert_ne!(EduType::Receipt, EduType::DirectToDevice);
+        assert_ne!(EduType::SigningKeyUpdate, EduType::Typing);
+        assert_ne!(EduType::SigningKeyUpdate, EduType::Receipt);
     }
 
     #[test]

@@ -10,6 +10,7 @@ use crate::web::routes::context::FederationContext;
 use serde_json::Value;
 use std::str::FromStr;
 use synapse_common::current_timestamp_millis;
+use synapse_e2ee::cross_signing::models::CrossSigningKey;
 
 fn increment_counter(ctx: &FederationContext, name: &str) {
     if let Some(counter) = ctx.metrics.get_counter(name) {
@@ -415,6 +416,114 @@ async fn handle_receipt_edu(
     result
 }
 
+/// Handles an inbound `m.signing_key_update` EDU from a federated peer.
+///
+/// Matrix spec: `content` is a map of `user_id` → `{ master_key, self_signing_key, user_signing_key }`.
+/// Each value contains the updated base64-encoded public cross-signing keys for that user.
+/// We store/update them via `CrossSigningService` and notify local device keys.
+async fn handle_signing_key_update_edu(
+    ctx: &FederationContext,
+    origin: &str,
+    edu: &Value,
+    _remaining: usize,
+) -> EduProcessResult {
+    let content = match edu.get("content").and_then(|c| c.as_object()) {
+        Some(c) => c,
+        None => {
+            ::tracing::debug!("Dropping m.signing_key_update EDU from {} without content", origin);
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    let mut result = EduProcessResult::default();
+    let cs_service = &ctx.cross_signing_service;
+
+    for (user_id, keys_value) in content {
+        if !user_matches_origin(user_id, origin) {
+            ::tracing::debug!(
+                "Ignoring m.signing_key_update for user {} from origin {} (origin mismatch)",
+                user_id,
+                origin
+            );
+            result.dropped += 1;
+            continue;
+        }
+
+        let keys_obj = match keys_value.as_object() {
+            Some(obj) => obj,
+            None => {
+                result.dropped += 1;
+                continue;
+            }
+        };
+
+        // Each key type is a base64-encoded ED25519 public key (32 bytes → ~43 chars)
+        for (key_type, key_b64) in keys_obj {
+            let key_str = match key_b64.as_str() {
+                Some(s) => s,
+                None => {
+                    result.dropped += 1;
+                    continue;
+                }
+            };
+
+            // Validate key type
+            if !matches!(key_type.as_str(), "master_key" | "self_signing_key" | "user_signing_key") {
+                ::tracing::warn!(
+                    "Unknown signing key type '{}' in m.signing_key_update from {}",
+                    key_type,
+                    origin
+                );
+                result.dropped += 1;
+                continue;
+            }
+
+            let key_type_str = key_type.replace("_key", "");
+
+            // upsert the cross-signing key into storage
+            let now = chrono::Utc::now();
+            let cross_signing_key = CrossSigningKey {
+                id: uuid::Uuid::nil(),
+                user_id: user_id.clone(),
+                key_type: key_type_str.clone(),
+                public_key: key_str.to_string(),
+                usage: vec![key_type_str.clone()],
+                signatures: serde_json::Value::Null,
+                key_json: None,
+                created_ts: now,
+                updated_ts: now,
+            };
+
+            match cs_service.upsert_federation_cross_signing_key(&cross_signing_key).await {
+                Ok(()) => {
+                    result.processed += 1;
+                }
+                Err(e) => {
+                    ::tracing::warn!(
+                        "Failed to store m.signing_key_update for {} ({}): {}",
+                        user_id,
+                        key_type,
+                        e
+                    );
+                    result.errored += 1;
+                }
+            }
+        }
+    }
+
+    if result.processed > 0 {
+        increment_counter_by(ctx, "federation_inbound_signing_key_processed_total", result.processed as u64);
+    }
+    if result.dropped > 0 {
+        increment_counter_by(ctx, "federation_inbound_signing_key_dropped_total", result.dropped as u64);
+    }
+    if result.errored > 0 {
+        increment_counter_by(ctx, "federation_inbound_signing_key_error_total", result.errored as u64);
+    }
+
+    result
+}
+
 /// The `EduDispatcher` struct.
 pub struct EduDispatcher;
 
@@ -435,6 +544,7 @@ impl EduDispatcher {
             EduType::DeviceListUpdate => handle_device_list_update_edu(ctx, origin, edu, remaining).await,
             EduType::DirectToDevice => handle_direct_to_device_edu(ctx, origin, edu, remaining).await,
             EduType::Receipt => handle_receipt_edu(ctx, origin, edu, remaining).await,
+            EduType::SigningKeyUpdate => handle_signing_key_update_edu(ctx, origin, edu, remaining).await,
         };
 
         Some(result)

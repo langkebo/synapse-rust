@@ -193,6 +193,13 @@ impl CrossSigningStorage {
         Ok(row.map(CrossSigningKeyRow::into_key))
     }
 
+    /// See [`create_cross_signing_key`].
+    ///
+    /// Upserts a cross-signing key into the database (INSERT ON CONFLICT UPDATE).
+    pub async fn upsert_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {
+        self.create_cross_signing_key(key).await
+    }
+
     /// See [`get_cross_signing_keys`].
     pub async fn get_cross_signing_keys(&self, user_id: &str) -> Result<Vec<CrossSigningKey>, ApiError> {
         let rows: Vec<CrossSigningKeyRow> = sqlx::query_as::<_, CrossSigningKeyRow>(
