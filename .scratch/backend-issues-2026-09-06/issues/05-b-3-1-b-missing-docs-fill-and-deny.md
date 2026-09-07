@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 (B-3.1-a ratchet 度量脚本就位) — ✅ 已完成
 
-**Status:** phase-2-done (synapse-cache crate fully documented; per-crate cargo doc shows **0 missing docs in synapse-cache**; baseline 14,147 → 13,833; ratchet 绿)
+**Status:** phase-3-done (synapse-cache, synapse-common, synapse-e2ee 全部 deny(missing_docs) + 零 missing; 剩 4 crates: federation / services / storage / root)
 
 **Spec reference:**
 - synapse 直接 `#![deny(missing_docs)]`——本仓 05 的最终目标
@@ -42,11 +42,23 @@
 - ✅ Ratchet 重对齐：14,108 → 13,833（-275 = workspace 累计减少）；baseline 自动更新为 13,833
 - ✅ 后续清理：子 ticket B-3.1-b-1（synapse-cache）**已通过** — 准备切 `deny(missing_docs)`
 
+**Phase 3 已完成（2026-09-07，本会话）:**
+- ✅ B-3.1-b-2（synapse-common 1007 项）— commit af2b9702，1006→0 missing，`cargo test -p synapse-common --all-features` → 838 passed
+- ✅ B-3.1-b-3（synapse-e2ee 1147 项 → 0）— commit aec8d38b
+  - 57 文件改，3000 行 doc 插入
+  - 覆盖 pub struct/enum/trait/type/const/mod 声明、struct fields（含 `#[default]`/`#[serde(rename)]` attribute 链）、enum variants、impl 内 pub fn/async fn、trait method 单行签名、crate-level `//!`
+  - 多行 trait fn signature 通过 Edit 手工补（device_keys/storage.rs 11 项 + key_rotation/service.rs 7 项）
+  - 真实挑战：fields 内识别（vs fn 参数）需要 brace 计数 + 当前行检查；多次迭代 Phase 2 脚本收敛（每次跑都识别新增的 items）
+  - 关键陷阱：脚本累计 `/// The X field.` 多个版本需要 cleanup；`#[serde(default)]`、`#[default]` attribute 后必须插 doc 否则 rustdoc 仍报警告
+  - `cargo test -p synapse-e2ee --all-features` → 376 passed; 0 failed
+
 **实现计划（acceptance criteria）:**
 - [x] 跑 04 的 ratchet 脚本，记录当前 missing docs baseline N
 - [x] 7 个 crate `lib.rs:4` 切 `#![warn(missing_docs)]` —— **phase 1 完成**
 - [x] `synapse-cache` crate 内零 missing docs —— **phase 2 完成（B-3.1-b-1 ✅）**
-- [ ] `synapse-cache` 切 `#![deny(missing_docs)]` —— B-3.1-b-1 下一步（**等本 PR 合并后立刻推进**）
+- [x] `synapse-cache` 切 `#![deny(missing_docs)]` —— B-3.1-b-1 ✅（commit 6a027570）
+- [x] `synapse-common` 1007 项 → B-3.1-b-2 ✅（commit af2b9702）
+- [x] `synapse-e2ee` 1151 项 → B-3.1-b-3 ✅（commit aec8d38b，本会话）
 - [ ] 优先级顺序补文档（按公开度 + 复用频率）：
   - [x] `synapse-cache/src/circuit_breaker.rs` (23/23) — phase 1
   - [x] `synapse-cache/src/strategy.rs` (16/35) — phase 1
@@ -56,6 +68,8 @@
   - [x] `synapse-cache/src/federation_signature_cache.rs` (47/47) — phase 2
   - [ ] `synapse-common` 1007 项 → B-3.1-b-2
   - [ ] `synapse-e2ee` 1151 项 → B-3.1-b-3
+  - [x] `synapse-e2ee` 0 missing + `#![deny(missing_docs)]` —— **phase 3 完成（commit aec8d38b）**
+- [ ] `synapse-federation` 331 项 → B-3.1-b-4
   - [ ] `synapse-federation` 331 项 → B-3.1-b-4
   - [ ] `synapse-services` 3358 项 → B-3.1-b-5
   - [ ] `synapse-storage` 5587 项 → B-3.1-b-6
