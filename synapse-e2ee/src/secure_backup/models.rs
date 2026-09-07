@@ -236,4 +236,63 @@ mod tests {
         assert_eq!(backup.algorithm, "m.megolm_backup.v1.secure");
         assert_eq!(backup.key_count, 0);
     }
+
+    #[test]
+    fn as_str_all_variants() {
+        // Auth data serialization test
+        let auth = SecureBackupAuthData {
+            salt: "test_salt".to_string(),
+            iterations: 100000,
+            backup_id: "backup123".to_string(),
+            public_key: Some("test_key".to_string()),
+        };
+
+        let json = serde_json::to_string(&auth).unwrap();
+        let rt: SecureBackupAuthData = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.salt, "test_salt");
+        assert_eq!(rt.iterations, 100000);
+        assert_eq!(rt.backup_id, "backup123");
+        assert_eq!(rt.public_key, Some("test_key".to_string()));
+    }
+
+    #[test]
+    fn session_key_data_serialization() {
+        let data = SessionKeyData {
+            room_id: "!room:test.org".to_string(),
+            session_id: "session1".to_string(),
+            first_message_index: 1,
+            forwarded_count: 0,
+            is_verified: true,
+            session_key: "encrypted_session_key_data".to_string(),
+        };
+
+        let json = serde_json::to_string(&data).unwrap();
+        let rt: SessionKeyData = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.room_id, "!room:test.org");
+        assert_eq!(rt.session_id, "session1");
+        assert_eq!(rt.first_message_index, 1);
+        assert_eq!(rt.forwarded_count, 0);
+        assert_eq!(rt.is_verified, true);
+        assert_eq!(rt.session_key, "encrypted_session_key_data");
+    }
+
+    #[test]
+    fn restore_request_serialization() {
+        let req = RestoreSecureBackupRequest {
+            passphrase: Some("my_passphrase".to_string()),
+            rooms: Some(vec!["!room:test.org".to_string()]),
+        };
+
+        let json = serde_json::to_string(&req).unwrap();
+        let rt: RestoreSecureBackupRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.passphrase, Some("my_passphrase".to_string()));
+        assert_eq!(rt.rooms, Some(vec!["!room:test.org".to_string()]));
+
+        // Test default (no passphrase, no rooms)
+        let req_no_passphrase = RestoreSecureBackupRequest { passphrase: None, rooms: None };
+        let json_no_passphrase = serde_json::to_string(&req_no_passphrase).unwrap();
+        let rt_no_passphrase: RestoreSecureBackupRequest = serde_json::from_str(&json_no_passphrase).unwrap();
+        assert_eq!(rt_no_passphrase.passphrase, None);
+        assert_eq!(rt_no_passphrase.rooms, None);
+    }
 }

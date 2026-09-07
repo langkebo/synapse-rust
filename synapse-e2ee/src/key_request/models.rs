@@ -315,3 +315,38 @@ pub struct KeyRequestPagination<'a> {
     /// The `session_id` field.
     pub session_id: Option<&'a str>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn as_str_all_variants() {
+        assert_eq!(KeyRequestAction::Request.as_str(), "request");
+        assert_eq!(KeyRequestAction::Cancellation.as_str(), "cancellation");
+        assert_eq!(KeyRequestAction::Requested.as_str(), "requested");
+        assert_eq!(KeyRequestAction::Cancelled.as_str(), "cancelled");
+    }
+
+    #[test]
+    fn from_str_roundtrip_all_variants() {
+        assert_eq!("request".parse::<KeyRequestAction>().unwrap(), KeyRequestAction::Request);
+        assert_eq!("cancellation".parse::<KeyRequestAction>().unwrap(), KeyRequestAction::Cancellation);
+        assert_eq!("requested".parse::<KeyRequestAction>().unwrap(), KeyRequestAction::Requested);
+        assert_eq!("cancelled".parse::<KeyRequestAction>().unwrap(), KeyRequestAction::Cancelled);
+    }
+
+    #[test]
+    fn from_str_unknown_rejects() {
+        assert!("bogus".parse::<KeyRequestAction>().is_err());
+        assert!("".parse::<KeyRequestAction>().is_err());
+    }
+
+    #[test]
+    fn serde_roundtrip() {
+        let action = KeyRequestAction::Cancellation;
+        let json = serde_json::to_string(&action).unwrap();
+        let rt: KeyRequestAction = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt, action);
+    }
+}
