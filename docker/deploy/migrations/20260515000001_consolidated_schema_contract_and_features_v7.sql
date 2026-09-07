@@ -234,7 +234,7 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_email ON email_verification_tokens(email);
-CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_expires ON email_verification_tokens(expires_at) WHERE used = FALSE;
+CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_expires ON email_verification_tokens(expires_at) WHERE is_used = FALSE;
 
 -- ============================================================================
 -- 7. federation_access_stats - 联邦访问统计表

@@ -116,6 +116,11 @@ pub fn get_pickle_key() -> &'static [u8; 32] {
     &ZERO
 }
 
+/// Generate a random 32-byte pickle key. Used as the dev-only fallback
+/// when `OLM_PICKLE_KEY` is unset (debug builds only) — production code
+/// must use [`get_pickle_key_strict`] instead.
+#[cfg(debug_assertions)]
+#[allow(dead_code)]
 fn generate_random_pickle_key() -> [u8; 32] {
     use rand::RngCore;
     let mut key = [0u8; 32];
