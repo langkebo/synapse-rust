@@ -1,16 +1,22 @@
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents PerformanceConfig.
 pub struct PerformanceConfig {
     #[serde(default = "default_sync_event_limit")]
+    /// `sync_event_limit` field.
     pub sync_event_limit: u32,
     #[serde(default = "default_sync_poll_interval_ms")]
+    /// `sync_poll_interval_ms` field.
     pub sync_poll_interval_ms: u64,
     #[serde(default = "default_sync_slow_request_threshold_ms")]
+    /// `sync_slow_request_threshold_ms` field.
     pub sync_slow_request_threshold_ms: u64,
     #[serde(default = "default_sync_to_device_limit")]
+    /// `sync_to_device_limit` field.
     pub sync_to_device_limit: u32,
     #[serde(default = "default_sync_ephemeral_limit")]
+    /// `sync_ephemeral_limit` field.
     pub sync_ephemeral_limit: u32,
     /// Sliding sync response latency threshold in milliseconds. When a
     /// sliding sync response takes longer than this, a warning is logged
@@ -19,6 +25,7 @@ pub struct PerformanceConfig {
     /// which reverted a sliding-sync optimisation after performance
     /// regressions went unnoticed.
     #[serde(default = "default_sliding_sync_latency_threshold_ms")]
+    /// `sliding_sync_latency_threshold_ms` field.
     pub sliding_sync_latency_threshold_ms: u64,
 }
 

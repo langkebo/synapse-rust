@@ -8,27 +8,42 @@ use serde::Deserialize;
 /// OpenID Connect configuration.
 #[derive(Clone, Deserialize, Educe)]
 #[educe(Debug)]
+/// Represents OidcConfig.
 pub struct OidcConfig {
     #[serde(default)]
+    /// `enabled` field.
     pub enabled: bool,
+    /// `issuer` field.
     pub issuer: String,
+    /// `client_id` field.
     pub client_id: String,
     #[educe(Debug(ignore))]
+    /// `client_secret` field.
     pub client_secret: Option<String>,
     #[serde(default = "default_oidc_scopes")]
+    /// `scopes` field.
     pub scopes: Vec<String>,
     #[serde(default)]
+    /// `attribute_mapping` field.
     pub attribute_mapping: OidcAttributeMapping,
+    /// `callback_url` field.
     pub callback_url: Option<String>,
     #[serde(default)]
+    /// `allow_existing_users` field.
     pub allow_existing_users: bool,
     #[serde(default)]
+    /// `block_unknown_users` field.
     pub block_unknown_users: bool,
     #[serde(default)]
+    /// `user_mapping_provider` field.
     pub user_mapping_provider: Option<String>,
+    /// `authorization_endpoint` field.
     pub authorization_endpoint: Option<String>,
+    /// `token_endpoint` field.
     pub token_endpoint: Option<String>,
+    /// `userinfo_endpoint` field.
     pub userinfo_endpoint: Option<String>,
+    /// `jwks_uri` field.
     pub jwks_uri: Option<String>,
     /// OIDC Dynamic Client Registration endpoint (RFC 7591).
     ///
@@ -39,6 +54,7 @@ pub struct OidcConfig {
     /// `https://idp.example.com/clients/registration`).
     pub registration_endpoint: Option<String>,
     #[serde(default = "default_oidc_timeout")]
+    /// `timeout` field.
     pub timeout: u64,
 }
 
@@ -66,9 +82,13 @@ impl Default for OidcConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
+/// Represents OidcAttributeMapping.
 pub struct OidcAttributeMapping {
+    /// `localpart` field.
     pub localpart: Option<String>,
+    /// `displayname` field.
     pub displayname: Option<String>,
+    /// `email` field.
     pub email: Option<String>,
 }
 
@@ -81,6 +101,7 @@ fn default_oidc_timeout() -> u64 {
 }
 
 impl OidcConfig {
+    /// Returns true if enabled.
     pub fn is_enabled(&self) -> bool {
         self.enabled && !self.issuer.is_empty() && !self.client_id.is_empty()
     }
@@ -91,9 +112,11 @@ impl OidcConfig {
 /// Official Synapse configuration documentation: https://element-hq.github.io/synapse/latest/openid.html#saml
 #[derive(Clone, Deserialize, Educe)]
 #[educe(Debug)]
+/// Represents SamlConfig.
 pub struct SamlConfig {
     /// Whether to enable SAML authentication
     #[serde(default)]
+    /// `enabled` field.
     pub enabled: bool,
 
     /// SAML IdP metadata URL
@@ -104,6 +127,7 @@ pub struct SamlConfig {
 
     /// SP entity ID
     #[serde(default = "default_saml_sp_entity_id")]
+    /// `sp_entity_id` field.
     pub sp_entity_id: String,
 
     /// SP ACS (Assertion Consumer Service) URL
@@ -114,6 +138,7 @@ pub struct SamlConfig {
 
     /// SP private key (PEM format)
     #[educe(Debug(ignore))]
+    /// `sp_private_key` field.
     pub sp_private_key: Option<String>,
 
     /// SP private key file path
@@ -127,66 +152,82 @@ pub struct SamlConfig {
 
     /// Attribute mapping configuration
     #[serde(default)]
+    /// `attribute_mapping` field.
     pub attribute_mapping: SamlAttributeMapping,
 
     /// NameID format
     #[serde(default = "default_saml_nameid_format")]
+    /// `nameid_format` field.
     pub nameid_format: String,
 
     /// Whether to allow existing users to log in
     #[serde(default = "default_saml_allow_existing_users")]
+    /// `allow_existing_users` field.
     pub allow_existing_users: bool,
 
     /// Whether to block unknown users
     #[serde(default)]
+    /// `block_unknown_users` field.
     pub block_unknown_users: bool,
 
     /// User ID template
     #[serde(default = "default_saml_user_id_template")]
+    /// `user_id_template` field.
     pub user_id_template: String,
 
     /// Whether to use NameID as user identifier
     #[serde(default)]
+    /// `use_name_id_for_user_id` field.
     pub use_name_id_for_user_id: bool,
 
     /// SAML request signing
     #[serde(default = "default_saml_sign_requests")]
+    /// `sign_requests` field.
     pub sign_requests: bool,
 
     /// SAML response signature verification
     #[serde(default = "default_saml_want_response_signed")]
+    /// `want_response_signed` field.
     pub want_response_signed: bool,
 
     /// SAML assertion signature verification
     #[serde(default = "default_saml_want_assertions_signed")]
+    /// `want_assertions_signed` field.
     pub want_assertions_signed: bool,
 
     /// SAML assertion encryption verification
     #[serde(default)]
+    /// `want_assertions_encrypted` field.
     pub want_assertions_encrypted: bool,
 
     /// Authentication context class
     #[serde(default)]
+    /// `authn_context_class_ref` field.
     pub authn_context_class_ref: Option<String>,
 
     /// Session lifetime (seconds)
     #[serde(default = "default_saml_session_lifetime")]
+    /// `session_lifetime` field.
     pub session_lifetime: u64,
 
     /// Metadata refresh interval (seconds)
     #[serde(default = "default_saml_metadata_refresh_interval")]
+    /// `metadata_refresh_interval` field.
     pub metadata_refresh_interval: u64,
 
     /// Allowed IdP entity ID list
     #[serde(default)]
+    /// `allowed_idp_entity_ids` field.
     pub allowed_idp_entity_ids: Vec<String>,
 
     /// Timeout (seconds)
     #[serde(default = "default_saml_timeout")]
+    /// `timeout` field.
     pub timeout: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
+/// Represents SamlAttributeMapping.
 pub struct SamlAttributeMapping {
     /// Username attribute
     pub uid: Option<String>,
@@ -269,16 +310,19 @@ impl Default for SamlConfig {
 }
 
 impl SamlConfig {
+    /// Returns true if enabled.
     pub fn is_enabled(&self) -> bool {
         self.enabled && (self.metadata_url.is_some() || self.metadata_xml.is_some())
     }
 
+    /// Returns the sp acs url.
     pub fn get_sp_acs_url(&self, server_name: &str) -> String {
         self.sp_acs_url
             .clone()
             .unwrap_or_else(|| format!("https://{server_name}/_matrix/client/r0/login/sso/redirect/saml"))
     }
 
+    /// Returns the sp sls url.
     pub fn get_sp_sls_url(&self, server_name: &str) -> Option<String> {
         self.sp_sls_url.clone().or_else(|| Some(format!("https://{server_name}/_matrix/client/r0/logout/saml")))
     }

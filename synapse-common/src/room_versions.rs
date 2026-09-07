@@ -1,12 +1,18 @@
+//! Matrix room-version metadata (`RoomVersion`, capability map, `DEFAULT_ROOM_VERSION`).
+
 use serde_json::{json, Value};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Represents RoomVersionDisposition; see per-variant docs.
 pub enum RoomVersionDisposition {
+    /// `Stable` variant.
     Stable,
+    /// `Unstable` variant.
     Unstable,
 }
 
 impl RoomVersionDisposition {
+    /// Returns a view as str.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Stable => "stable",
@@ -16,16 +22,24 @@ impl RoomVersionDisposition {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Represents RoomVersionCapability.
 pub struct RoomVersionCapability {
+    /// `version` field.
     pub version: &'static str,
+    /// `disposition` field.
     pub disposition: RoomVersionDisposition,
+    /// `can_create` field.
     pub can_create: bool,
+    /// `can_join` field.
     pub can_join: bool,
+    /// `can_parse` field.
     pub can_parse: bool,
+    /// `can_federate` field.
     pub can_federate: bool,
 }
 
 impl RoomVersionCapability {
+    /// Performs stable.
     pub const fn stable(version: &'static str) -> Self {
         Self {
             version,
@@ -52,13 +66,16 @@ impl RoomVersionCapability {
         }
     }
 
+    /// Dispositions the str.
     pub const fn disposition_str(self) -> &'static str {
         self.disposition.as_str()
     }
 }
 
+/// Constant `DEFAULT_ROOM_VERSION`.
 pub const DEFAULT_ROOM_VERSION: &str = "10";
 
+/// Constant `SUPPORTED_ROOM_VERSIONS`.
 pub const SUPPORTED_ROOM_VERSIONS: &[RoomVersionCapability] = &[
     RoomVersionCapability::stable("1"),
     RoomVersionCapability::stable("2"),
@@ -81,26 +98,32 @@ pub const SUPPORTED_ROOM_VERSIONS: &[RoomVersionCapability] = &[
     RoomVersionCapability::stable("13"),
 ];
 
+/// Returns true if supported room version.
 pub fn is_supported_room_version(version: &str) -> bool {
     SUPPORTED_ROOM_VERSIONS.iter().any(|capability| capability.version == version)
 }
 
+/// Cans the create.
 pub fn can_create_room_version(version: &str) -> bool {
     SUPPORTED_ROOM_VERSIONS.iter().any(|capability| capability.version == version && capability.can_create)
 }
 
+/// Cans the join.
 pub fn can_join_room_version(version: &str) -> bool {
     SUPPORTED_ROOM_VERSIONS.iter().any(|capability| capability.version == version && capability.can_join)
 }
 
+/// Cans the parse.
 pub fn can_parse_room_version(version: &str) -> bool {
     SUPPORTED_ROOM_VERSIONS.iter().any(|capability| capability.version == version && capability.can_parse)
 }
 
+/// Cans the federate.
 pub fn can_federate_room_version(version: &str) -> bool {
     SUPPORTED_ROOM_VERSIONS.iter().any(|capability| capability.version == version && capability.can_federate)
 }
 
+/// Resolves the room.
 pub fn resolve_room_version(requested: Option<&str>) -> Option<&'static str> {
     let requested = requested.unwrap_or(DEFAULT_ROOM_VERSION);
 
@@ -110,6 +133,7 @@ pub fn resolve_room_version(requested: Option<&str>) -> Option<&'static str> {
         .map(|capability| capability.version)
 }
 
+/// Clients the room.
 pub fn client_room_versions_capability() -> Value {
     let mut available = serde_json::Map::new();
 
@@ -125,6 +149,7 @@ pub fn client_room_versions_capability() -> Value {
     })
 }
 
+/// Federations the room.
 pub fn federation_room_versions_capability() -> Value {
     let mut available = serde_json::Map::new();
 

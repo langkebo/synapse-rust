@@ -1,4 +1,7 @@
+//! Project-wide utility macros (`map_database!`, etc.).
+
 #[macro_export]
+/// Generates `pub fn <variant>(message)` constructors for every variant of an API error enum.
 macro_rules! impl_api_error {
     ($enum:ident, $($variant:ident => ($code:expr, $status:expr)),+) => {
         $(
@@ -14,6 +17,7 @@ macro_rules! impl_api_error {
 }
 
 #[macro_export]
+/// Maps an `Err` to an Internal `ApiError` with a context message.
 macro_rules! map_internal {
     ($result:expr, $msg:literal) => {
         $result.map_err(|e| $crate::ApiError::internal_with_context($msg, &e))
@@ -43,6 +47,7 @@ macro_rules! map_database {
 }
 
 #[macro_export]
+/// Maps an `Err` to a BadRequest `ApiError` with a context message.
 macro_rules! map_bad_request {
     ($result:expr, $msg:literal) => {
         $result.map_err(|e| $crate::ApiError::bad_request(format!("{}: {}", $msg, e)))
@@ -53,6 +58,7 @@ macro_rules! map_bad_request {
 }
 
 #[macro_export]
+/// Maps an `Err` to a NotFound `ApiError` with a context message.
 macro_rules! map_not_found {
     ($result:expr, $msg:literal) => {
         $result.map_err(|e| $crate::ApiError::not_found(format!("{}: {}", $msg, e)))
@@ -63,6 +69,7 @@ macro_rules! map_not_found {
 }
 
 #[macro_export]
+/// Maps an `Err` to an Unauthorized `ApiError` with a context message.
 macro_rules! map_unauthorized {
     ($result:expr, $msg:literal) => {
         $result.map_err(|e| $crate::ApiError::unauthorized(format!("{}: {}", $msg, e)))
@@ -73,6 +80,7 @@ macro_rules! map_unauthorized {
 }
 
 #[macro_export]
+/// Maps an `Err` to a Forbidden `ApiError` with a context message.
 macro_rules! map_forbidden {
     ($result:expr, $msg:literal) => {
         $result.map_err(|e| $crate::ApiError::forbidden(format!("{}: {}", $msg, e)))

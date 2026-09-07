@@ -8,9 +8,11 @@ use serde::Deserialize;
 ///
 /// Official Synapse configuration documentation: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#voip
 #[derive(Debug, Clone, Deserialize)]
+/// Represents VoipConfig.
 pub struct VoipConfig {
     /// TURN server URL list
     #[serde(default)]
+    /// `turn_uris` field.
     pub turn_uris: Vec<String>,
 
     /// TURN shared secret (for generating temporary credentials)
@@ -27,14 +29,17 @@ pub struct VoipConfig {
 
     /// TURN credential lifetime
     #[serde(default = "default_turn_user_lifetime")]
+    /// `turn_user_lifetime` field.
     pub turn_user_lifetime: String,
 
     /// Whether to allow guests to use the TURN server
     #[serde(default = "default_turn_allow_guests")]
+    /// `turn_allow_guests` field.
     pub turn_allow_guests: bool,
 
     /// STUN server URL list
     #[serde(default)]
+    /// `stun_uris` field.
     pub stun_uris: Vec<String>,
 }
 
@@ -62,10 +67,12 @@ fn default_turn_allow_guests() -> bool {
 }
 
 impl VoipConfig {
+    /// Returns true if enabled.
     pub fn is_enabled(&self) -> bool {
         !self.turn_uris.is_empty() || !self.stun_uris.is_empty()
     }
 
+    /// Lifetimes the seconds.
     pub fn lifetime_seconds(&self) -> i64 {
         parse_duration(&self.turn_user_lifetime).unwrap_or(3600)
     }
@@ -73,10 +80,15 @@ impl VoipConfig {
 
 /// Livekit SFU configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
+/// Represents LivekitConfig.
 pub struct LivekitConfig {
+    /// `api_key` field.
     pub api_key: String,
+    /// `api_secret` field.
     pub api_secret: String,
+    /// `host` field.
     pub host: String,
+    /// `ws_url` field.
     pub ws_url: Option<String>,
 }
 
@@ -107,17 +119,21 @@ fn parse_duration(s: &str) -> Option<i64> {
 ///
 /// Official Synapse configuration documentation: https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html#push
 #[derive(Debug, Clone, Deserialize)]
+/// Represents PushConfig.
 pub struct PushConfig {
     /// Whether to enable push
     #[serde(default)]
+    /// `enabled` field.
     pub enabled: bool,
 
     /// Group unread counts by room
     #[serde(default = "default_group_unread")]
+    /// `group_unread_count_by_room` field.
     pub group_unread_count_by_room: bool,
 
     /// Whether to include message content
     #[serde(default)]
+    /// `include_content` field.
     pub include_content: bool,
 
     /// Application ID
@@ -125,26 +141,32 @@ pub struct PushConfig {
 
     /// APNs configuration
     #[serde(default)]
+    /// `apns` field.
     pub apns: Option<ApnsConfig>,
 
     /// FCM configuration
     #[serde(default)]
+    /// `fcm` field.
     pub fcm: Option<FcmConfig>,
 
     /// Web Push configuration
     #[serde(default)]
+    /// `web_push` field.
     pub web_push: Option<WebPushConfig>,
 
     /// Push gateway URL (for HTTP push)
     #[serde(default)]
+    /// `push_gateway_url` field.
     pub push_gateway_url: Option<String>,
 
     /// Push retry count
     #[serde(default = "default_push_retry_count")]
+    /// `retry_count` field.
     pub retry_count: u32,
 
     /// Push timeout (seconds)
     #[serde(default = "default_push_timeout")]
+    /// `timeout` field.
     pub timeout: u64,
 }
 
@@ -166,39 +188,58 @@ impl Default for PushConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents ApnsConfig.
 pub struct ApnsConfig {
+    /// `cert_file` field.
     pub cert_file: Option<String>,
+    /// `key_file` field.
     pub key_file: Option<String>,
+    /// `topic` field.
     pub topic: String,
     #[serde(default = "default_apns_production")]
+    /// `production` field.
     pub production: bool,
+    /// `key_id` field.
     pub key_id: Option<String>,
+    /// `team_id` field.
     pub team_id: Option<String>,
+    /// `private_key_path` field.
     pub private_key_path: Option<String>,
     /// APNs endpoint URL. Defaults to `https://api.push.apple.com` (production)
     /// or `https://api.sandbox.push.apple.com` (sandbox).
     #[serde(default)]
+    /// `endpoint` field.
     pub endpoint: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents FcmConfig.
 pub struct FcmConfig {
+    /// `api_key` field.
     pub api_key: Option<String>,
+    /// `project_id` field.
     pub project_id: Option<String>,
+    /// `service_account_file` field.
     pub service_account_file: Option<String>,
     /// FCM endpoint URL. Defaults to `https://fcm.googleapis.com/fcm/send`.
     #[serde(default)]
+    /// `endpoint` field.
     pub endpoint: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents WebPushConfig.
 pub struct WebPushConfig {
+    /// `vapid_public_key` field.
     pub vapid_public_key: String,
+    /// `vapid_private_key` field.
     pub vapid_private_key: String,
+    /// `subject` field.
     pub subject: String,
     /// Default gateway endpoint for WebPush relay service.
     /// Individual subscription endpoints take precedence at send time.
     #[serde(default)]
+    /// `gateway_endpoint` field.
     pub gateway_endpoint: Option<String>,
 }
 
@@ -219,6 +260,7 @@ fn default_apns_production() -> bool {
 }
 
 impl PushConfig {
+    /// Returns true if enabled.
     pub fn is_enabled(&self) -> bool {
         self.enabled
             && (self.fcm.is_some() || self.apns.is_some() || self.web_push.is_some() || self.push_gateway_url.is_some())
@@ -277,28 +319,40 @@ fn parse_size(s: &str) -> Option<usize> {
 
 /// URL preview configuration.
 #[derive(Debug, Clone, Deserialize)]
+/// Represents UrlPreviewConfig.
 pub struct UrlPreviewConfig {
     #[serde(default)]
+    /// `enabled` field.
     pub enabled: bool,
     #[serde(default = "default_ip_blacklist")]
+    /// `ip_range_blacklist` field.
     pub ip_range_blacklist: Vec<String>,
     #[serde(default)]
+    /// `ip_range_whitelist` field.
     pub ip_range_whitelist: Vec<String>,
     #[serde(default)]
+    /// `url_blacklist` field.
     pub url_blacklist: Vec<UrlBlacklistRule>,
     #[serde(default = "default_spider_enabled")]
+    /// `spider_enabled` field.
     pub spider_enabled: bool,
     #[serde(default)]
+    /// `oembed_enabled` field.
     pub oembed_enabled: bool,
     #[serde(default = "default_max_spider_size")]
+    /// `max_spider_size` field.
     pub max_spider_size: String,
     #[serde(default = "default_preview_cache_duration")]
+    /// `cache_duration` field.
     pub cache_duration: u64,
     #[serde(default = "default_user_agent")]
+    /// `user_agent` field.
     pub user_agent: String,
     #[serde(default = "default_preview_timeout")]
+    /// `timeout` field.
     pub timeout: u64,
     #[serde(default = "default_max_redirects")]
+    /// `max_redirects` field.
     pub max_redirects: u32,
 }
 
@@ -321,12 +375,16 @@ impl Default for UrlPreviewConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents UrlBlacklistRule.
 pub struct UrlBlacklistRule {
+    /// `domain` field.
     pub domain: Option<String>,
+    /// `regex` field.
     pub regex: Option<String>,
 }
 
 impl UrlPreviewConfig {
+    /// Maxs the spider.
     pub fn max_spider_size_bytes(&self) -> usize {
         parse_size(&self.max_spider_size).unwrap_or(10 * 1024 * 1024)
     }

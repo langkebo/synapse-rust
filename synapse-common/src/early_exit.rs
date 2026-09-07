@@ -1,7 +1,11 @@
+//! Macros for early return from deeply nested scopes (`early_return`, `early_exit`, `early_continue`).
+
 use std::future::Future;
 use std::time::Duration;
 
+/// Trait for EarlyExit.
 pub trait EarlyExit {
+    /// Returns the future's output if it completes within the timeout, otherwise `None`.
     fn with_timeout(self, timeout: Duration) -> impl Future<Output = Option<Self::Output>>
     where
         Self: Sized + Future,
@@ -9,6 +13,7 @@ pub trait EarlyExit {
         async move { tokio::time::timeout(timeout, self).await.ok() }
     }
 
+    /// Returns the future's output if it completes before the deadline, otherwise `None`.
     fn with_deadline(self, deadline: tokio::time::Instant) -> impl Future<Output = Option<Self::Output>>
     where
         Self: Sized + Future,
@@ -19,6 +24,7 @@ pub trait EarlyExit {
 
 impl<F: Future> EarlyExit for F {}
 
+/// Earlys the exit.
 pub fn early_exit<T>(condition: bool, value: T) -> Option<T> {
     if condition {
         Some(value)
@@ -27,10 +33,12 @@ pub fn early_exit<T>(condition: bool, value: T) -> Option<T> {
     }
 }
 
+/// Earlys the return.
 pub fn early_return<T, E>(_condition: bool, error: E) -> Result<T, E> {
     Err(error)
 }
 
+/// Earlys the continue.
 pub fn early_continue<T>(condition: bool, value: T) -> Option<T> {
     if condition {
         None

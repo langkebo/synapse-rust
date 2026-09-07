@@ -1,3 +1,5 @@
+//! Cryptographic helpers: base64/hex codecs, HMAC, password hashing, token generation, signing keys.
+
 use crate::current_timestamp_millis;
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -14,11 +16,13 @@ use crate::argon2_config::Argon2Config;
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// Hashes a password asynchronously.
 pub fn hash_password(password: &str) -> Result<String, String> {
     let config = Argon2Config::get_global();
     hash_password_with_config(password, &config)
 }
 
+/// hash password with config.
 pub fn hash_password_with_config(password: &str, config: &Argon2Config) -> Result<String, String> {
     let salt = SaltString::generate(argon2::password_hash::rand_core::OsRng);
     let params = config.to_argon2_params().map_err(|e| e.to_string())?;
@@ -29,11 +33,13 @@ pub fn hash_password_with_config(password: &str, config: &Argon2Config) -> Resul
     Ok(password_hash)
 }
 
+/// hash password with params.
 pub fn hash_password_with_params(password: &str, m_cost: u32, t_cost: u32, p_cost: u32) -> Result<String, String> {
     let config = Argon2Config::new(m_cost, t_cost, p_cost).map_err(|e| format!("Invalid Argon2 parameters: {e}"))?;
     hash_password_with_config(password, &config)
 }
 
+/// Verifies a password against a hash asynchronously.
 pub fn verify_password(password: &str, password_hash: &str, allow_legacy: bool) -> Result<bool, String> {
     if password_hash.starts_with("$argon2") {
         let parsed_hash = PasswordHash::new(password_hash).map_err(|e| e.to_string())?;
@@ -89,6 +95,7 @@ pub fn verify_password(password: &str, password_hash: &str, allow_legacy: bool) 
     }
 }
 
+/// Secures the compare.
 pub fn secure_compare(a: &str, b: &str) -> bool {
     let a_bytes = a.as_bytes();
     let b_bytes = b.as_bytes();
@@ -104,34 +111,41 @@ pub fn secure_compare(a: &str, b: &str) -> bool {
     result == 0
 }
 
+/// verify password legacy.
 pub fn verify_password_legacy(password: &str, password_hash: &str) -> bool {
     verify_password(password, password_hash, true).unwrap_or(false)
 }
 
+/// Returns true if legacy hash.
 pub fn is_legacy_hash(password_hash: &str) -> bool {
     !password_hash.starts_with("$argon2")
 }
 
+/// Migrates the password.
 pub fn migrate_password_hash(password: &str, m_cost: u32, t_cost: u32, p_cost: u32) -> Result<String, String> {
     hash_password_with_params(password, m_cost, t_cost, p_cost)
 }
 
+/// Migrates the password.
 pub fn migrate_password_hash_with_config(password: &str, config: &Argon2Config) -> Result<String, String> {
     hash_password_with_config(password, config)
 }
 
+/// Generates the token.
 pub fn generate_token(length: usize) -> String {
     let mut bytes = vec![0u8; length];
     rand::rng().fill_bytes(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
+/// Generates the room.
 pub fn generate_room_id(server_name: &str) -> String {
     let mut bytes = [0u8; 18];
     rand::rng().fill_bytes(&mut bytes);
     format!("!{}:{}", URL_SAFE_NO_PAD.encode(bytes), server_name)
 }
 
+/// Generates the event.
 pub fn generate_event_id(server_name: &str) -> String {
     let timestamp = current_timestamp_millis();
     let mut bytes = [0u8; 18];
@@ -139,18 +153,21 @@ pub fn generate_event_id(server_name: &str) -> String {
     format!("${}${}:{}", timestamp, URL_SAFE_NO_PAD.encode(bytes), server_name)
 }
 
+/// Generates the device.
 pub fn generate_device_id() -> String {
     let mut bytes = [0u8; 10];
     rand::rng().fill_bytes(&mut bytes);
     format!("DEVICE{}", URL_SAFE_NO_PAD.encode(bytes).get(..10).unwrap_or("DEVICE0000"))
 }
 
+/// Generates the salt.
 pub fn generate_salt() -> String {
     let mut bytes = [0u8; 16];
     rand::rng().fill_bytes(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
+/// Computes the hash.
 pub fn compute_hash(data: impl AsRef<[u8]>) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data.as_ref());
@@ -202,6 +219,7 @@ pub fn validate_token_hash_secret() -> Result<(), String> {
 }
 
 #[allow(clippy::expect_used, clippy::unnecessary_literal_unwrap)]
+/// hash token.
 pub fn hash_token(token: &str) -> String {
     let server_secret = std::env::var("TOKEN_HASH_SECRET").unwrap_or_else(|_| {
         if cfg!(debug_assertions) {
@@ -216,10 +234,12 @@ pub fn hash_token(token: &str) -> String {
     encode_base64(hmac_sha256(server_secret, token))
 }
 
+/// hash token legacy.
 pub fn hash_token_legacy(token: &str) -> String {
     compute_hash(token)
 }
 
+/// verify token hash.
 pub fn verify_token_hash(token: &str, stored_hash: &str) -> bool {
     if secure_compare(&hash_token(token), stored_hash) {
         return true;
@@ -228,6 +248,7 @@ pub fn verify_token_hash(token: &str, stored_hash: &str) -> bool {
 }
 
 #[allow(clippy::expect_used)]
+/// Hmacs the sha256.
 pub fn hmac_sha256(key: impl AsRef<[u8]>, data: impl AsRef<[u8]>) -> Vec<u8> {
     let key = key.as_ref();
     let data = data.as_ref();
@@ -236,6 +257,7 @@ pub fn hmac_sha256(key: impl AsRef<[u8]>, data: impl AsRef<[u8]>) -> Vec<u8> {
     mac.finalize().into_bytes().to_vec()
 }
 
+/// Randoms the string.
 pub fn random_string(length: usize) -> String {
     static CHARSET: [u8; 62] = *b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     let mut rng = rand::rng();
@@ -248,10 +270,12 @@ pub fn random_string(length: usize) -> String {
     result
 }
 
+/// Encodes base64.
 pub fn encode_base64(data: impl AsRef<[u8]>) -> String {
     URL_SAFE_NO_PAD.encode(data.as_ref())
 }
 
+/// Decodes base64.
 pub fn decode_base64(s: &str) -> Result<Vec<u8>, base64::DecodeError> {
     URL_SAFE_NO_PAD.decode(s)
 }
@@ -304,15 +328,20 @@ pub fn decode_hex(s: &str) -> Result<Vec<u8>, hex::FromHexError> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Represents ServerSigningKey.
 pub struct ServerSigningKey {
+    /// `key_id` field.
     pub key_id: String,
+    /// `key` field.
     pub key: String,
+    /// `expired_ts` field.
     pub expired_ts: i64,
 }
 
 /// Generate an Ed25519 signing key pair for testing.
 /// Returns `(key_id, base64_public_key)`.
 #[cfg(test)]
+/// Generates the signing.
 pub fn generate_signing_key() -> (String, String) {
     let key_id = format!("ed25519:{}", random_string(8));
     let key = random_string(44);

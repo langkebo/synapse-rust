@@ -7,18 +7,25 @@ use std::collections::HashMap;
 // ============================================================================
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents WorkerConfig.
 pub struct WorkerConfig {
     #[serde(default)]
+    /// `enabled` field.
     pub enabled: bool,
     #[serde(default = "default_worker_instance_name")]
+    /// `instance_name` field.
     pub instance_name: String,
     #[serde(default)]
+    /// `worker_app` field.
     pub worker_app: Option<String>,
     #[serde(default)]
+    /// `instance_map` field.
     pub instance_map: HashMap<String, InstanceLocationConfig>,
     #[serde(default)]
+    /// `stream_writers` field.
     pub stream_writers: StreamWriters,
     #[serde(default)]
+    /// `replication` field.
     pub replication: ReplicationConfig,
     /// Maximum interval (in milliseconds) between lock acquisition retries.
     ///
@@ -29,10 +36,12 @@ pub struct WorkerConfig {
     /// Aligned with Synapse v1.153.0 which lowered
     /// `WORKER_LOCK_MAX_RETRY_INTERVAL` to 5 seconds.
     #[serde(default = "default_lock_max_retry_interval_ms")]
+    /// `lock_max_retry_interval_ms` field.
     pub lock_max_retry_interval_ms: u64,
     /// Maximum number of retry attempts before giving up on lock
     /// acquisition. Default 3.
     #[serde(default = "default_lock_max_retries")]
+    /// `lock_max_retries` field.
     pub lock_max_retries: u32,
 }
 
@@ -64,12 +73,16 @@ impl Default for WorkerConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents InstanceLocationConfig.
 pub struct InstanceLocationConfig {
+    /// `host` field.
     pub host: String,
+    /// `port` field.
     pub port: u16,
     /// TLS 默认启用。生产环境联邦连接应始终使用 TLS。
     /// 仅在本地开发或已通过外部代理（如 nginx）终止 TLS 时可关闭。
     #[serde(default = "default_true")]
+    /// `tls` field.
     pub tls: bool,
 }
 
@@ -78,22 +91,31 @@ fn default_true() -> bool {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents StreamWriters.
 pub struct StreamWriters {
     #[serde(default = "default_stream_writers")]
+    /// `events` field.
     pub events: Vec<String>,
     #[serde(default = "default_stream_writers")]
+    /// `typing` field.
     pub typing: Vec<String>,
     #[serde(default = "default_stream_writers")]
+    /// `to_device` field.
     pub to_device: Vec<String>,
     #[serde(default = "default_stream_writers")]
+    /// `account_data` field.
     pub account_data: Vec<String>,
     #[serde(default = "default_stream_writers")]
+    /// `receipts` field.
     pub receipts: Vec<String>,
     #[serde(default = "default_stream_writers")]
+    /// `presence` field.
     pub presence: Vec<String>,
     #[serde(default = "default_stream_writers")]
+    /// `push_rules` field.
     pub push_rules: Vec<String>,
     #[serde(default = "default_stream_writers")]
+    /// `device_lists` field.
     pub device_lists: Vec<String>,
 }
 
@@ -118,20 +140,30 @@ impl Default for StreamWriters {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
+/// Represents ReplicationConfig.
 pub struct ReplicationConfig {
+    /// `enabled` field.
     pub enabled: bool,
+    /// `server_name` field.
     pub server_name: String,
+    /// `http` field.
     pub http: ReplicationHttpConfig,
 }
 
 #[derive(Clone, Deserialize, Default, Educe)]
 #[educe(Debug)]
+/// Represents ReplicationHttpConfig.
 pub struct ReplicationHttpConfig {
+    /// `enabled` field.
     pub enabled: bool,
+    /// `host` field.
     pub host: String,
+    /// `port` field.
     pub port: u16,
     #[educe(Debug(ignore))]
+    /// `secret` field.
     pub secret: Option<String>,
+    /// `secret_path` field.
     pub secret_path: Option<String>,
 }
 

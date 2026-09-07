@@ -1,22 +1,34 @@
+//! JWT Claims struct and builder used by the auth subsystem.
+
 use serde::{Deserialize, Serialize};
 
 /// JWT Claims structure used for authentication tokens.
 /// Moved to common to resolve circular dependency between cache and auth modules.
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// Represents Claims.
 pub struct Claims {
+    /// `sub` field.
     pub sub: String,
+    /// `user_id` field.
     pub user_id: String,
+    /// `jti` field.
     pub jti: String,
     #[serde(rename = "admin")]
+    /// `is_admin` field.
     pub is_admin: bool,
+    /// `exp` field.
     pub exp: i64,
+    /// `iat` field.
     pub iat: i64,
+    /// `device_id` field.
     pub device_id: Option<String>,
     /// P1-18: JWT issuer claim — prevents token confusion when jwt_secret is reused across services.
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// `iss` field.
     pub iss: Option<String>,
     /// P1-18: JWT audience claim — ensures token is only accepted by the intended server.
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// `aud` field.
     pub aud: Option<String>,
 }
 
@@ -34,6 +46,7 @@ pub struct ClaimsBuilder {
 }
 
 impl ClaimsBuilder {
+    /// Constructs a new instance.
     pub fn new() -> Self {
         Self {
             sub: None,
@@ -49,36 +62,43 @@ impl ClaimsBuilder {
     }
 
     #[allow(clippy::should_implement_trait)]
+    /// Subtracts the given delta.
     pub fn sub(mut self, sub: impl Into<String>) -> Self {
         self.sub = Some(sub.into());
         self
     }
 
+    /// Users the id.
     pub fn user_id(mut self, user_id: impl Into<String>) -> Self {
         self.user_id = Some(user_id.into());
         self
     }
 
+    /// Performs jti.
     pub fn jti(mut self, jti: impl Into<String>) -> Self {
         self.jti = Some(jti.into());
         self
     }
 
+    /// Returns true if admin.
     pub fn is_admin(mut self, is_admin: bool) -> Self {
         self.is_admin = is_admin;
         self
     }
 
+    /// Performs exp.
     pub fn exp(mut self, exp: i64) -> Self {
         self.exp = Some(exp);
         self
     }
 
+    /// Performs iat.
     pub fn iat(mut self, iat: i64) -> Self {
         self.iat = Some(iat);
         self
     }
 
+    /// Devices the id.
     pub fn device_id(mut self, device_id: Option<String>) -> Self {
         self.device_id = device_id;
         self
@@ -97,6 +117,7 @@ impl ClaimsBuilder {
     }
 
     #[allow(clippy::expect_used)]
+    /// Builds the configured value.
     pub fn build(self) -> Claims {
         let now = chrono::Utc::now().timestamp();
         let sub = self.sub.expect("ClaimsBuilder: sub is required");

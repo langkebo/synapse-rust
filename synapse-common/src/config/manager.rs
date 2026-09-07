@@ -1,11 +1,13 @@
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::sync::Arc;
 
+/// Represents ConfigManager.
 pub struct ConfigManager {
     config: Arc<RwLock<super::Config>>,
 }
 
 impl ConfigManager {
+    /// Constructs a new instance.
     pub fn new(config: super::Config) -> Self {
         Self { config: Arc::new(RwLock::new(config)) }
     }
@@ -18,21 +20,25 @@ impl ConfigManager {
         self.config.write()
     }
 
+    /// Returns the server name.
     pub fn get_server_name(&self) -> String {
         let config = self.read_config("get_server_name");
         config.server.name.clone()
     }
 
+    /// Returns the server host.
     pub fn get_server_host(&self) -> String {
         let config = self.read_config("get_server_host");
         config.server.host.clone()
     }
 
+    /// Returns the server port.
     pub fn get_server_port(&self) -> u16 {
         let config = self.read_config("get_server_port");
         config.server.port
     }
 
+    /// Returns the database url.
     pub fn get_database_url(&self) -> String {
         let config = self.read_config("get_database_url");
         format!(
@@ -45,16 +51,19 @@ impl ConfigManager {
         )
     }
 
+    /// Returns the redis url.
     pub fn get_redis_url(&self) -> String {
         let config = self.read_config("get_redis_url");
         config.redis.connection_url()
     }
 
+    /// Returns the config.
     pub fn get_config(&self) -> super::Config {
         let config = self.read_config("get_config");
         config.clone()
     }
 
+    /// Updates the config.
     pub fn update_config<F>(&self, f: F)
     where
         F: FnOnce(&mut super::Config),

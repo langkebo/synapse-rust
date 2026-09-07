@@ -1,3 +1,5 @@
+//! PEM/key encryption helpers (decrypt_key, encrypt_key, is_encrypted).
+
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
 use base64::Engine;

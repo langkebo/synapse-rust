@@ -1,3 +1,5 @@
+//! Logging initialization (`init_logging`).
+
 use crate::config::LoggingConfig;
 use opentelemetry_sdk::trace::SdkTracerProvider as TracerProvider;
 use tracing_opentelemetry::OpenTelemetryLayer;

@@ -1,13 +1,52 @@
+//! Background job runner (fire-and-forget tasks with panic capture).
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+/// Represents BackgroundJob; see per-variant docs.
 pub enum BackgroundJob {
-    SendEmail { to: String, subject: String, body: String },
-    ProcessMedia { file_id: String },
-    FederationTransaction { txn_id: String, destination: String },
-    Generic { name: String, payload: serde_json::Value },
-    RedactEvent { room_id: String, event_id: String, reason: Option<String> },
-    DelayedEventProcessing { event_id: String },
+    /// `SendEmail` variant.
+    SendEmail {
+        /// Recipient email address.
+        to: String,
+        /// Email subject line.
+        subject: String,
+        /// Email body content.
+        body: String,
+    },
+    /// `ProcessMedia` variant.
+    ProcessMedia {
+        /// Local media repository file id.
+        file_id: String,
+    },
+    /// `FederationTransaction` variant.
+    FederationTransaction {
+        /// Federation transaction id.
+        txn_id: String,
+        /// Destination homeserver.
+        destination: String,
+    },
+    /// `Generic` variant.
+    Generic {
+        /// Job name.
+        name: String,
+        /// Arbitrary JSON payload.
+        payload: serde_json::Value,
+    },
+    /// `RedactEvent` variant.
+    RedactEvent {
+        /// Room id where the event lives.
+        room_id: String,
+        /// Event id to redact.
+        event_id: String,
+        /// Optional reason for the redaction.
+        reason: Option<String>,
+    },
+    /// `DelayedEventProcessing` variant.
+    DelayedEventProcessing {
+        /// Event id whose processing is delayed.
+        event_id: String,
+    },
 }
 
 #[cfg(test)]

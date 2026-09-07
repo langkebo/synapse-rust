@@ -6,6 +6,7 @@ use serde::Deserialize;
 
 /// 搜索服务配置。
 #[derive(Debug, Clone, Deserialize)]
+/// Represents SearchConfig.
 pub struct SearchConfig {
     /// Elasticsearch 服务器 URL
     pub elasticsearch_url: String,
@@ -13,15 +14,18 @@ pub struct SearchConfig {
     pub enabled: bool,
     /// 搜索服务类型: "elasticsearch" | "postgres"
     #[serde(default = "default_search_provider")]
+    /// `provider` field.
     pub provider: String,
     /// PostgreSQL 全文搜索配置
     #[serde(default)]
+    /// `postgres_fts` field.
     pub postgres_fts: PostgresFtsConfig,
     /// 搜索索引名称（Postgres FTS 索引或 Elasticsearch 索引）。
     ///
     /// 默认 `"synapse_search"`。历史实现硬编码为 `"synapse_messages"`，
     /// 需要保留旧行为的部署可在配置中显式设置该值。
     #[serde(default = "default_search_index_name")]
+    /// `search_index_name` field.
     pub search_index_name: String,
 }
 
@@ -34,6 +38,7 @@ fn default_search_index_name() -> String {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
+/// Represents PostgresFtsConfig.
 pub struct PostgresFtsConfig {
     /// 是否启用 PostgreSQL 全文搜索
     pub enabled: bool,
@@ -42,6 +47,7 @@ pub struct PostgresFtsConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
+/// Represents PostgresFtsWeights.
 pub struct PostgresFtsWeights {
     /// 标题权重
     pub title: f32,

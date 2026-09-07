@@ -1,3 +1,5 @@
+//! Input validation framework (`Validator`, `ValidationContext`, `ValidationError`).
+
 use crate::constants::*;
 use crate::ApiError;
 use regex::Regex;
@@ -5,16 +7,22 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Type alias for ValidationResult.
 pub type ValidationResult = Result<(), ValidationError>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Represents ValidationError.
 pub struct ValidationError {
+    /// `field` field.
     pub field: String,
+    /// `message` field.
     pub message: String,
+    /// `code` field.
     pub code: String,
 }
 
 impl ValidationError {
+    /// Constructs a new instance.
     pub fn new(field: &str, message: &str, code: &str) -> Self {
         Self { field: field.to_string(), message: message.to_string(), code: code.to_string() }
     }
@@ -33,6 +41,7 @@ impl From<ValidationError> for ApiError {
 }
 
 #[derive(Debug, Clone)]
+/// Represents Validator.
 pub struct Validator {
     username_regex: Regex,
     email_regex: Regex,
@@ -43,6 +52,7 @@ pub struct Validator {
 }
 
 impl Validator {
+    /// Constructs a new instance.
     pub fn new() -> Result<Self, regex::Error> {
         Ok(Self {
             // Matrix localpart: [a-z0-9._=-]+
@@ -55,6 +65,7 @@ impl Validator {
         })
     }
 
+    /// Validates the username.
     pub fn validate_username(&self, username: &str) -> ValidationResult {
         if username.is_empty() {
             return Err(ValidationError::new("username", "Username cannot be empty", "EMPTY"));
@@ -83,6 +94,7 @@ impl Validator {
         Ok(())
     }
 
+    /// Validates the password.
     pub fn validate_password(&self, password: &str) -> ValidationResult {
         if password.is_empty() {
             return Err(ValidationError::new("password", "Password cannot be empty", "EMPTY"));
@@ -140,6 +152,7 @@ impl Validator {
         Ok(())
     }
 
+    /// Validates the email.
     pub fn validate_email(&self, email: &str) -> ValidationResult {
         if email.is_empty() {
             return Err(ValidationError::new("email", "Email cannot be empty", "EMPTY"));
@@ -152,6 +165,7 @@ impl Validator {
         Ok(())
     }
 
+    /// Validates the matrix.
     pub fn validate_matrix_id(&self, user_id: &str) -> ValidationResult {
         if user_id.is_empty() {
             return Err(ValidationError::new("user_id", "User ID cannot be empty", "EMPTY"));
@@ -164,6 +178,7 @@ impl Validator {
         Ok(())
     }
 
+    /// Validates the room.
     pub fn validate_room_id(&self, room_id: &str) -> ValidationResult {
         if room_id.is_empty() {
             return Err(ValidationError::new("room_id", "Room ID cannot be empty", "EMPTY"));
@@ -176,6 +191,7 @@ impl Validator {
         Ok(())
     }
 
+    /// Validates the device.
     pub fn validate_device_id(&self, device_id: &str) -> ValidationResult {
         if device_id.is_empty() {
             return Err(ValidationError::new("device_id", "Device ID cannot be empty", "EMPTY"));
@@ -196,6 +212,7 @@ impl Validator {
         Ok(())
     }
 
+    /// Validates the url.
     pub fn validate_url(&self, url: &str) -> ValidationResult {
         if url.is_empty() {
             return Err(ValidationError::new("url", "URL cannot be empty", "EMPTY"));
@@ -208,6 +225,7 @@ impl Validator {
         Ok(())
     }
 
+    /// Validates the string.
     pub fn validate_string_length(&self, field: &str, value: &str, min: usize, max: usize) -> ValidationResult {
         if min > 0 && value.is_empty() {
             return Err(ValidationError::new(field, &format!("{field} cannot be empty"), "EMPTY"));
@@ -228,18 +246,22 @@ impl Validator {
         Ok(())
     }
 
+    /// Validates the display.
     pub fn validate_display_name(&self, display_name: &str) -> ValidationResult {
         self.validate_string_length("display_name", display_name, 1, MAX_DISPLAY_NAME_LENGTH)
     }
 
+    /// Validates the reason.
     pub fn validate_reason(&self, reason: &str) -> ValidationResult {
         self.validate_string_length("reason", reason, 0, MAX_REASON_LENGTH)
     }
 
+    /// Validates the message.
     pub fn validate_message(&self, message: &str) -> ValidationResult {
         self.validate_string_length("message", message, 1, MAX_MESSAGE_LENGTH)
     }
 
+    /// Validates the limit.
     pub fn validate_limit(&self, limit: i64, min: i64, max: i64) -> ValidationResult {
         if limit < min {
             return Err(ValidationError::new("limit", format!("Limit must be at least {min}").as_str(), "TOO_SMALL"));
@@ -252,6 +274,7 @@ impl Validator {
         Ok(())
     }
 
+    /// Validates the timestamp.
     pub fn validate_timestamp(&self, timestamp: i64) -> ValidationResult {
         let now = chrono::Utc::now().timestamp();
         let window = TIMESTAMP_WINDOW_SECONDS;
@@ -269,6 +292,7 @@ impl Validator {
         Ok(())
     }
 
+    /// Validates the ip.
     pub fn validate_ip_address(&self, ip: &str) -> ValidationResult {
         if ip.is_empty() {
             return Err(ValidationError::new("ip_address", "IP address cannot be empty", "EMPTY"));
@@ -308,16 +332,19 @@ impl Validator {
 }
 
 #[derive(Debug, Clone)]
+/// Represents ValidationContext.
 pub struct ValidationContext {
     validator: Arc<Validator>,
     errors: Vec<ValidationError>,
 }
 
 impl ValidationContext {
+    /// Constructs a new instance.
     pub fn new(validator: Arc<Validator>) -> Self {
         Self { validator, errors: Vec::new() }
     }
 
+    /// Validates the username.
     pub fn validate_username(&mut self, username: &str) -> &mut Self {
         if let Err(e) = self.validator.validate_username(username) {
             self.errors.push(e);
@@ -325,6 +352,7 @@ impl ValidationContext {
         self
     }
 
+    /// Validates the password.
     pub fn validate_password(&mut self, password: &str) -> &mut Self {
         if let Err(e) = self.validator.validate_password(password) {
             self.errors.push(e);
@@ -332,6 +360,7 @@ impl ValidationContext {
         self
     }
 
+    /// Validates the email.
     pub fn validate_email(&mut self, email: &str) -> &mut Self {
         if let Err(e) = self.validator.validate_email(email) {
             self.errors.push(e);
@@ -339,6 +368,7 @@ impl ValidationContext {
         self
     }
 
+    /// Validates the matrix.
     pub fn validate_matrix_id(&mut self, user_id: &str) -> &mut Self {
         if let Err(e) = self.validator.validate_matrix_id(user_id) {
             self.errors.push(e);
@@ -346,6 +376,7 @@ impl ValidationContext {
         self
     }
 
+    /// Validates the room.
     pub fn validate_room_id(&mut self, room_id: &str) -> &mut Self {
         if let Err(e) = self.validator.validate_room_id(room_id) {
             self.errors.push(e);
@@ -353,6 +384,7 @@ impl ValidationContext {
         self
     }
 
+    /// Validates the device.
     pub fn validate_device_id(&mut self, device_id: &str) -> &mut Self {
         if let Err(e) = self.validator.validate_device_id(device_id) {
             self.errors.push(e);
@@ -360,6 +392,7 @@ impl ValidationContext {
         self
     }
 
+    /// Validates the url.
     pub fn validate_url(&mut self, url: &str) -> &mut Self {
         if let Err(e) = self.validator.validate_url(url) {
             self.errors.push(e);
@@ -367,6 +400,7 @@ impl ValidationContext {
         self
     }
 
+    /// Validates the display.
     pub fn validate_display_name(&mut self, display_name: &str) -> &mut Self {
         if let Err(e) = self.validator.validate_display_name(display_name) {
             self.errors.push(e);
@@ -374,6 +408,7 @@ impl ValidationContext {
         self
     }
 
+    /// Validates the reason.
     pub fn validate_reason(&mut self, reason: &str) -> &mut Self {
         if let Err(e) = self.validator.validate_reason(reason) {
             self.errors.push(e);
@@ -381,6 +416,7 @@ impl ValidationContext {
         self
     }
 
+    /// Validates the message.
     pub fn validate_message(&mut self, message: &str) -> &mut Self {
         if let Err(e) = self.validator.validate_message(message) {
             self.errors.push(e);
@@ -388,6 +424,7 @@ impl ValidationContext {
         self
     }
 
+    /// Validates the limit.
     pub fn validate_limit(&mut self, limit: i64, min: i64, max: i64) -> &mut Self {
         if let Err(e) = self.validator.validate_limit(limit, min, max) {
             self.errors.push(e);
@@ -395,6 +432,7 @@ impl ValidationContext {
         self
     }
 
+    /// Validates the timestamp.
     pub fn validate_timestamp(&mut self, timestamp: i64) -> &mut Self {
         if let Err(e) = self.validator.validate_timestamp(timestamp) {
             self.errors.push(e);
@@ -402,6 +440,7 @@ impl ValidationContext {
         self
     }
 
+    /// Validates the ip.
     pub fn validate_ip_address(&mut self, ip: &str) -> &mut Self {
         if let Err(e) = self.validator.validate_ip_address(ip) {
             self.errors.push(e);
@@ -409,6 +448,7 @@ impl ValidationContext {
         self
     }
 
+    /// Validates the optional.
     pub fn validate_optional<F>(&mut self, field: Option<&str>, validator: F) -> &mut Self
     where
         F: FnOnce(&str) -> ValidationResult,
@@ -421,10 +461,12 @@ impl ValidationContext {
         self
     }
 
+    /// Returns true if valid.
     pub fn is_valid(&self) -> bool {
         self.errors.is_empty()
     }
 
+    /// Intos the result.
     pub fn into_result(self) -> Result<(), ApiError> {
         if self.errors.is_empty() {
             Ok(())
@@ -436,6 +478,7 @@ impl ValidationContext {
         }
     }
 
+    /// Intos the error.
     pub fn into_error_map(self) -> HashMap<String, String> {
         self.errors.into_iter().map(|e| (e.field, e.message)).collect()
     }

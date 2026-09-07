@@ -1,8 +1,11 @@
+//! Compiled-regex cache (`RegexCache`) using `OnceLock`/Moka for thread safety.
+
 use parking_lot::RwLock;
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Represents RegexCache.
 pub struct RegexCache {
     cache: Arc<RwLock<HashMap<String, Regex>>>,
 }
@@ -14,10 +17,12 @@ impl std::fmt::Debug for RegexCache {
 }
 
 impl RegexCache {
+    /// Constructs a new instance.
     pub fn new() -> Self {
         Self { cache: Arc::new(RwLock::new(HashMap::new())) }
     }
 
+    /// Returns the or create.
     pub fn get_or_create(&self, pattern: &str) -> Result<Regex, regex::Error> {
         {
             let cache = self.cache.read();
@@ -32,21 +37,25 @@ impl RegexCache {
         Ok(regex)
     }
 
+    /// Returns true if match.
     pub fn is_match(&self, pattern: &str, text: &str) -> Result<bool, regex::Error> {
         let regex = self.get_or_create(pattern)?;
         Ok(regex.is_match(text))
     }
 
+    /// Removes all elements.
     pub fn clear(&self) {
         let mut cache = self.cache.write();
         cache.clear();
     }
 
+    /// Returns the number of elements.
     pub fn len(&self) -> usize {
         let cache = self.cache.read();
         cache.len()
     }
 
+    /// Returns true if the collection is empty.
     pub fn is_empty(&self) -> bool {
         let cache = self.cache.read();
         cache.is_empty()

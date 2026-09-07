@@ -1,3 +1,5 @@
+//! Shared traits used across crates (e.g. repository markers).
+
 use crate::error::ApiError;
 
 /// Dehydrated device provider trait — breaks e2ee <-> services circular dependency.
@@ -6,9 +8,13 @@ use crate::error::ApiError;
 /// `DehydratedDeviceService` directly, allowing the concrete implementation
 /// to live in the services layer without creating a circular crate dependency.
 #[async_trait::async_trait]
+/// Trait for DehydratedDeviceProvider.
 pub trait DehydratedDeviceProvider: Send + Sync {
+    /// Retrieves a dehydrated device record for the given user.
     async fn get_dehydrated_device(&self, user_id: &str) -> Result<Option<serde_json::Value>, ApiError>;
+    /// Stores a dehydrated device record for the given user.
     async fn put_dehydrated_device(&self, user_id: &str, data: serde_json::Value) -> Result<String, ApiError>;
+    /// Deletes a dehydrated device record for the given user and device.
     async fn delete_dehydrated_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError>;
 }
 
@@ -18,6 +24,7 @@ pub trait DehydratedDeviceProvider: Send + Sync {
 /// `FriendRoomService` directly, allowing the concrete implementation
 /// to live in the services layer without creating a circular crate dependency.
 #[async_trait::async_trait]
+/// Trait for FriendRoomProvider.
 pub trait FriendRoomProvider: Send + Sync {
     /// Handle an incoming friend request from a remote federated server.
     async fn handle_incoming_friend_request(
@@ -75,25 +82,31 @@ pub trait EventBroadcaster: Send + Sync {
 
 /// Error type shared across all [`EventBroadcaster`] implementations.
 #[derive(Debug, thiserror::Error)]
+/// Represents BroadcastError; see per-variant docs.
 pub enum BroadcastError {
     /// The broadcaster is not connected / not initialised.
     #[error("Not connected")]
+    /// `NotConnected` variant.
     NotConnected,
 
     /// Failed to encode / serialise the message.
     #[error("Encoding failed: {0}")]
+    /// `EncodingFailed` variant.
     EncodingFailed(String),
 
     /// A transport-level error (network, Redis, etc.).
     #[error("Transport error: {0}")]
+    /// `Transport` variant.
     Transport(String),
 
     /// The message was rejected due to back-pressure or a full buffer.
     #[error("Channel full: {0}")]
+    /// `ChannelFull` variant.
     ChannelFull(String),
 
     /// Catch-all for implementation-specific errors.
     #[error("{0}")]
+    /// `Other` variant.
     Other(String),
 }
 

@@ -13,10 +13,13 @@ use tokio::fs;
 /// Errors emitted by rate-limit config loading and validation.
 pub enum RateLimitConfigError {
     #[error("Failed to read config file: {0}")]
+    /// `ReadError` variant.
     ReadError(#[source] std::io::Error),
     #[error("Failed to parse config file: {0}")]
+    /// `ParseError` variant.
     ParseError(#[source] serde_yaml::Error),
     #[error("Config validation error: {0}")]
+    /// `ValidationError` variant.
     ValidationError(String),
 }
 
@@ -50,7 +53,9 @@ impl Default for RateLimitRule {
 /// How an endpoint path is compared to a rule's `path` field.
 pub enum RateLimitMatchType {
     #[default]
+    /// `Exact` variant.
     Exact,
+    /// `Prefix` variant.
     Prefix,
 }
 
@@ -72,6 +77,7 @@ pub struct RateLimitEndpointRule {
 pub enum RateLimitBackend {
     /// Automatically use Redis when available, fall back to in-memory otherwise.
     #[default]
+    /// `Auto` variant.
     Auto,
     /// Always use Redis; fail loudly if Redis is not available.
     Redis,
@@ -91,6 +97,7 @@ pub struct RateLimitConfigFile {
     /// - `redis`: require Redis; log an error and refuse requests if Redis is down.
     /// - `local`: always use in-memory (single-worker deployments only).
     #[serde(default)]
+    /// `backend` field.
     pub backend: RateLimitBackend,
     #[serde(default)]
     /// Default rate-limit rule applied to any endpoint not matched by `endpoints`.
@@ -126,10 +133,12 @@ pub struct RateLimitConfigFile {
     /// X-Forwarded-For / X-Real-IP / Forwarded headers are only trusted when the
     /// direct TCP peer address matches one of these networks.
     #[serde(default)]
+    /// `trusted_proxies` field.
     pub trusted_proxies: Vec<String>,
     /// Whether to trust forwarded headers at all. When false (default), the peer
     /// address is always used regardless of the trusted_proxies list.
     #[serde(default = "default_trust_forwarded")]
+    /// `trust_forwarded` field.
     pub trust_forwarded: bool,
 }
 
@@ -205,6 +214,7 @@ impl Default for RateLimitConfigFile {
 }
 
 impl RateLimitConfigFile {
+    /// Validates this value.
     pub fn validate(&self) -> Result<(), RateLimitConfigError> {
         if self.default.per_second == 0 {
             return Err(RateLimitConfigError::ValidationError("default.per_second cannot be zero".to_string()));
@@ -230,6 +240,7 @@ impl RateLimitConfigFile {
         Ok(())
     }
 
+    /// Performs load.
     pub async fn load<P: AsRef<Path>>(path: P) -> Result<Self, RateLimitConfigError> {
         let content = fs::read_to_string(path.as_ref()).await.map_err(RateLimitConfigError::ReadError)?;
         let config: Self = serde_yaml::from_str(&content).map_err(RateLimitConfigError::ParseError)?;
@@ -237,6 +248,7 @@ impl RateLimitConfigFile {
         Ok(config)
     }
 
+    /// Performs save.
     pub async fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), RateLimitConfigError> {
         let content = serde_yaml::to_string(self).map_err(RateLimitConfigError::ParseError)?;
         if let Some(parent) = path.as_ref().parent() {
@@ -254,24 +266,29 @@ pub struct RateLimitConfigManager {
 }
 
 impl RateLimitConfigManager {
+    /// Constructs a new instance.
     pub fn new(config: RateLimitConfigFile, config_path: PathBuf) -> Self {
         Self { config: Arc::new(RwLock::new(config)), config_path }
     }
 
+    /// Constructs from file.
     pub async fn from_file<P: Into<PathBuf>>(path: P) -> Result<Self, RateLimitConfigError> {
         let path = path.into();
         let config = RateLimitConfigFile::load(&path).await?;
         Ok(Self::new(config, path))
     }
 
+    /// Returns the config.
     pub fn get_config(&self) -> RateLimitConfigFile {
         self.config.read().clone()
     }
 
+    /// Returns the config ref.
     pub fn get_config_ref(&self) -> Arc<RwLock<RateLimitConfigFile>> {
         self.config.clone()
     }
 
+    /// Performs reload.
     pub async fn reload(&self) -> Result<(), RateLimitConfigError> {
         let new_config = RateLimitConfigFile::load(&self.config_path).await?;
         {
@@ -282,6 +299,7 @@ impl RateLimitConfigManager {
         Ok(())
     }
 
+    /// Performs update.
     pub async fn update<F>(&self, f: F) -> Result<(), RateLimitConfigError>
     where
         F: FnOnce(&mut RateLimitConfigFile),
@@ -297,14 +315,17 @@ impl RateLimitConfigManager {
         Ok(())
     }
 
+    /// Sets the enabled.
     pub async fn set_enabled(&self, enabled: bool) -> Result<(), RateLimitConfigError> {
         self.update(|c| c.enabled = enabled).await
     }
 
+    /// Sets the default rule.
     pub async fn set_default_rule(&self, rule: RateLimitRule) -> Result<(), RateLimitConfigError> {
         self.update(|c| c.default = rule).await
     }
 
+    /// Adds the endpoint.
     pub async fn add_endpoint_rule(&self, rule: RateLimitEndpointRule) -> Result<(), RateLimitConfigError> {
         self.update(|c| {
             c.endpoints.push(rule);
@@ -312,6 +333,7 @@ impl RateLimitConfigManager {
         .await
     }
 
+    /// Removes the endpoint.
     pub async fn remove_endpoint_rule(&self, path: &str) -> Result<(), RateLimitConfigError> {
         self.update(|c| {
             c.endpoints.retain(|r| r.path != path);
@@ -319,6 +341,7 @@ impl RateLimitConfigManager {
         .await
     }
 
+    /// Adds the exempt.
     pub async fn add_exempt_path(&self, path: String) -> Result<(), RateLimitConfigError> {
         self.update(|c| {
             if !c.exempt_paths.contains(&path) {
@@ -328,6 +351,7 @@ impl RateLimitConfigManager {
         .await
     }
 
+    /// Removes the exempt.
     pub async fn remove_exempt_path(&self, path: &str) -> Result<(), RateLimitConfigError> {
         self.update(|c| {
             c.exempt_paths.retain(|p| p != path);
@@ -369,6 +393,7 @@ fn select_rule(
     }
 }
 
+/// Selects the endpoint.
 pub fn select_endpoint_rule(config: &RateLimitConfigFile, path: &str) -> (String, RateLimitRule) {
     select_rule(&config.endpoints, &config.endpoint_aliases, &config.default, path)
 }
@@ -379,6 +404,7 @@ pub fn select_endpoint_rule_runtime(config: &crate::config::RateLimitConfig, pat
     select_rule(&config.endpoints, &config.endpoint_aliases, &config.default, path)
 }
 
+/// Starts the config.
 pub async fn start_config_watcher(
     manager: Arc<RateLimitConfigManager>,
     interval_seconds: u64,

@@ -1,3 +1,5 @@
+//! Canonical-JSON encoding/decoding for Matrix event signing (RFC 8785 subset).
+
 use serde_json::Value;
 
 /// Canonical JSON serialization per Matrix specification.

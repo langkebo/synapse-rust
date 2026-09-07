@@ -1,3 +1,5 @@
+//! Core Matrix value types (`EventId`, `UserId`, `RoomAlias`, `Membership`, `SecretString`).
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
@@ -42,12 +44,14 @@ macro_rules! matrix_id {
             ///
             /// Use `FromStr::from_str` for validated construction.
             #[inline]
+            /// News the unchecked.
             pub fn new_unchecked(s: impl Into<String>) -> Self {
                 Self(s.into())
             }
 
             /// Borrow the underlying raw string slice.
             #[inline]
+            /// Returns a view as str.
             pub fn as_str(&self) -> &str {
                 &self.0
             }
@@ -116,8 +120,11 @@ macro_rules! matrix_id {
 
 /// Error returned by `FromStr` impls when a Matrix ID fails validation.
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Represents IdParseError.
 pub struct IdParseError {
+    /// `kind` field.
     pub kind: &'static str,
+    /// `reason` field.
     pub reason: String,
 }
 
@@ -173,6 +180,7 @@ impl RoomAlias {
 
 #[deprecated(note = "use `EventId::from_str(...)` or `EventId::new_unchecked(s)` instead")]
 impl EventId {
+    /// Constructs a new instance.
     pub fn new(value: &str, _server_name: &str) -> Self {
         // EventId wire form is `$value` (server_name is implicit); preserve legacy
         // signature by ignoring the second argument rather than panicking.
@@ -181,17 +189,23 @@ impl EventId {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Represents RoomVersion.
 pub struct RoomVersion {
+    /// `identifier` field.
     pub identifier: String,
+    /// `needs_authentication` field.
     pub needs_authentication: bool,
+    /// `unstable_features` field.
     pub unstable_features: Option<serde_json::Value>,
 }
 
 impl RoomVersion {
+    /// Performs v1.
     pub fn v1() -> Self {
         Self { identifier: "1".to_string(), needs_authentication: false, unstable_features: None }
     }
 
+    /// Performs v2.
     pub fn v2() -> Self {
         Self {
             identifier: "2".to_string(),
@@ -204,11 +218,17 @@ impl RoomVersion {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Represents Membership; see per-variant docs.
 pub enum Membership {
+    /// `Join` variant.
     Join,
+    /// `Leave` variant.
     Leave,
+    /// `Invite` variant.
     Invite,
+    /// `Ban` variant.
     Ban,
+    /// `Knock` variant.
     Knock,
 }
 
@@ -247,14 +267,20 @@ impl FromStr for Membership {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(type_name = "TEXT", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
+/// Represents PresenceState; see per-variant docs.
 pub enum PresenceState {
+    /// `Online` variant.
     Online,
+    /// `Unavailable` variant.
     Unavailable,
+    /// `Offline` variant.
     Offline,
+    /// `Busy` variant.
     Busy,
 }
 
 impl PresenceState {
+    /// Returns a view as str.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Online => "online",
@@ -336,25 +362,31 @@ impl From<&str> for PresenceState {
 pub type Presence = PresenceState;
 
 #[derive(Clone, Default)]
+/// Represents SecretString.
 pub struct SecretString(String);
 
 impl SecretString {
+    /// Constructs a new instance.
     pub fn new(value: String) -> Self {
         Self(value)
     }
 
+    /// Performs expose.
     pub fn expose(&self) -> &str {
         &self.0
     }
 
+    /// Exposes the owned.
     pub fn expose_owned(self) -> String {
         self.0
     }
 
+    /// Constructs from env or.
     pub fn from_env_or(env_key: &str, default: &str) -> Self {
         Self(std::env::var(env_key).unwrap_or_else(|_| default.to_string()))
     }
 
+    /// Constructs from env.
     pub fn from_env(env_key: &str) -> Option<Self> {
         std::env::var(env_key).ok().map(Self)
     }

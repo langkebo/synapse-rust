@@ -1,22 +1,41 @@
+//! OpenTelemetry + Prometheus exporter configuration models.
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Represents OpenTelemetryConfig.
 pub struct OpenTelemetryConfig {
+    /// `enabled` field.
     pub enabled: bool,
+    /// `service_name` field.
     pub service_name: String,
+    /// `service_version` field.
     pub service_version: String,
+    /// `service_namespace` field.
     pub service_namespace: String,
+    /// `otlp_endpoint` field.
     pub otlp_endpoint: Option<String>,
+    /// `otlp_headers` field.
     pub otlp_headers: Option<std::collections::HashMap<String, String>>,
+    /// `trace_enabled` field.
     pub trace_enabled: bool,
+    /// `metrics_enabled` field.
     pub metrics_enabled: bool,
+    /// `logs_enabled` field.
     pub logs_enabled: bool,
+    /// `sampling_ratio` field.
     pub sampling_ratio: f64,
+    /// `batch_export` field.
     pub batch_export: bool,
+    /// `export_timeout_seconds` field.
     pub export_timeout_seconds: u64,
+    /// `max_queue_size` field.
     pub max_queue_size: usize,
+    /// `max_export_batch_size` field.
     pub max_export_batch_size: usize,
+    /// `scheduled_delay_millis` field.
     pub scheduled_delay_millis: u64,
+    /// `resource_attributes` field.
     pub resource_attributes: Option<std::collections::HashMap<String, String>>,
 }
 
@@ -44,22 +63,27 @@ impl Default for OpenTelemetryConfig {
 }
 
 impl OpenTelemetryConfig {
+    /// Returns true if enabled.
     pub fn is_enabled(&self) -> bool {
         self.enabled
     }
 
+    /// Returns true if trace enabled.
     pub fn is_trace_enabled(&self) -> bool {
         self.enabled && self.trace_enabled
     }
 
+    /// Returns true if metrics enabled.
     pub fn is_metrics_enabled(&self) -> bool {
         self.enabled && self.metrics_enabled
     }
 
+    /// Returns true if logs enabled.
     pub fn is_logs_enabled(&self) -> bool {
         self.enabled && self.logs_enabled
     }
 
+    /// Returns the otlp endpoint.
     pub fn get_otlp_endpoint(&self) -> Option<&str> {
         self.otlp_endpoint.as_deref()
     }
@@ -101,6 +125,7 @@ impl OpenTelemetryConfig {
         }
     }
 
+    /// Returns the resource attributes.
     pub fn get_resource_attributes(&self) -> std::collections::HashMap<String, String> {
         let mut attrs = self.resource_attributes.clone().unwrap_or_default();
         attrs.insert("service.name".to_string(), self.service_name.clone());
@@ -111,10 +136,15 @@ impl OpenTelemetryConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Represents PrometheusConfig.
 pub struct PrometheusConfig {
+    /// `enabled` field.
     pub enabled: bool,
+    /// `port` field.
     pub port: u16,
+    /// `path` field.
     pub path: String,
+    /// `include_namespace` field.
     pub include_namespace: bool,
 }
 

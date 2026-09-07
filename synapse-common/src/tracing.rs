@@ -1,3 +1,5 @@
+//! Distributed-tracer primitives + request-id propagation tower layer.
+
 use opentelemetry::trace::TraceContextExt;
 use opentelemetry::{global, Context};
 use std::fmt;
@@ -9,6 +11,7 @@ use tracing_subscriber::Layer;
 /// Value type used to store request_id in span extensions for
 /// cross-span propagation without relying on the field-value visitor pattern.
 #[derive(Debug, Clone)]
+/// Represents RequestId.
 pub struct RequestId(pub String);
 
 impl fmt::Display for RequestId {
@@ -88,25 +91,30 @@ impl tracing::field::Visit for RequestIdFieldVisitor {
     }
 }
 
+/// Represents DistributedTracer.
 pub struct DistributedTracer {
     _service_name: String,
 }
 
 impl DistributedTracer {
+    /// Constructs a new instance.
     pub fn new(service_name: String) -> Self {
         Self { _service_name: service_name }
     }
 
+    /// Initializes tracer.
     pub fn init_tracer(&self) -> Result<(), Box<dyn std::error::Error>> {
         use opentelemetry_sdk::propagation::TraceContextPropagator;
         global::set_text_map_propagator(TraceContextPropagator::new());
         Ok(())
     }
 
+    /// Creates the span.
     pub fn create_span(&self, name: &'static str) -> Span {
         info_span!("{}", name)
     }
 
+    /// Constructs a new span version.
     pub fn with_span<F, R>(&self, name: &'static str, f: F) -> R
     where
         F: FnOnce() -> R,
@@ -116,6 +124,7 @@ impl DistributedTracer {
         f()
     }
 
+    /// Returns the trace id.
     pub fn get_trace_id(&self) -> Option<String> {
         let cx = Context::current();
         let span = cx.span();
@@ -127,6 +136,7 @@ impl DistributedTracer {
         }
     }
 
+    /// Returns the span id.
     pub fn get_span_id(&self) -> Option<String> {
         let cx = Context::current();
         let span = cx.span();
@@ -146,6 +156,7 @@ impl Default for DistributedTracer {
 }
 
 #[macro_export]
+/// Executes a block within a distributed trace span.
 macro_rules! trace_span {
     ($name:expr, $block:block) => {{
         let tracer = DistributedTracer::default();
@@ -154,6 +165,7 @@ macro_rules! trace_span {
 }
 
 #[macro_export]
+/// Wraps a future in a distributed trace span.
 macro_rules! trace_async {
     ($name:expr, $future:expr) => {
         async {

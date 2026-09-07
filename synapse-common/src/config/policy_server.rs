@@ -6,9 +6,11 @@ use serde::Deserialize;
 /// and content. When enabled, the homeserver consults the policy server
 /// before allowing room creation, joins, and invites.
 #[derive(Debug, Clone, Deserialize)]
+/// Represents PolicyServerConfig.
 pub struct PolicyServerConfig {
     /// Whether the policy server is enabled.
     #[serde(default)]
+    /// `enabled` field.
     pub enabled: bool,
 
     /// The URL of the policy server.
@@ -20,12 +22,14 @@ pub struct PolicyServerConfig {
 
     /// Timeout in seconds for policy server requests.
     #[serde(default = "default_policy_server_timeout")]
+    /// `timeout_secs` field.
     pub timeout_secs: u64,
 
     /// Whether to allow operations when the policy server is unreachable.
     /// If true, operations proceed on failure (fail-open).
     /// If false, operations are denied on failure (fail-closed).
     #[serde(default)]
+    /// `fail_open` field.
     pub fail_open: bool,
 }
 
@@ -42,6 +46,7 @@ impl Default for PolicyServerConfig {
 }
 
 impl PolicyServerConfig {
+    /// Returns true if configured.
     pub fn is_configured(&self) -> bool {
         self.enabled && self.endpoint.is_some()
     }

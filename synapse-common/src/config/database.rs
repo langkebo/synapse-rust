@@ -46,6 +46,7 @@ fn default_database_idle_in_transaction_timeout_secs() -> u64 {
 /// 数据库连接配置。
 #[derive(Clone, Deserialize, Educe)]
 #[educe(Debug)]
+/// Represents DatabaseConfig.
 pub struct DatabaseConfig {
     /// 数据库主机地址
     pub host: String,
@@ -55,6 +56,7 @@ pub struct DatabaseConfig {
     pub username: String,
     /// 数据库密码
     #[educe(Debug(ignore))]
+    /// `password` field.
     pub password: String,
     /// 数据库名称
     pub name: String,
@@ -72,23 +74,29 @@ pub struct DatabaseConfig {
     pub connection_timeout: u64,
     /// 连接最长生命周期（秒）。默认 1800s（30 分钟）。
     #[serde(default = "default_database_max_lifetime_secs")]
+    /// `max_lifetime_secs` field.
     pub max_lifetime_secs: u64,
     /// 连接空闲超时（秒）。默认 600s（10 分钟）。
     #[serde(default = "default_database_idle_timeout_secs")]
+    /// `idle_timeout_secs` field.
     pub idle_timeout_secs: u64,
     /// 当 [`min_idle`](Self::min_idle) 未设置时使用的下限。
     ///
     /// 仅在旧配置缺省 `min_idle` 时生效，避免连接池频繁扩张/收缩。
     #[serde(default = "default_database_min_idle_floor")]
+    /// `min_idle_floor` field.
     pub min_idle_floor: u32,
     /// PG `statement_timeout`（秒）。每个新连接初始化时通过 `SET statement_timeout` 生效。
     #[serde(default = "default_database_statement_timeout_secs")]
+    /// `statement_timeout_secs` field.
     pub statement_timeout_secs: u64,
     /// PG `lock_timeout`（秒）。
     #[serde(default = "default_database_lock_timeout_secs")]
+    /// `lock_timeout_secs` field.
     pub lock_timeout_secs: u64,
     /// PG `idle_in_transaction_session_timeout`（秒）。
     #[serde(default = "default_database_idle_in_transaction_timeout_secs")]
+    /// `idle_in_transaction_timeout_secs` field.
     pub idle_in_transaction_timeout_secs: u64,
 }
 
@@ -117,6 +125,7 @@ impl Default for DatabaseConfig {
 /// Redis 缓存配置。
 #[derive(Clone, Deserialize, Default, Educe)]
 #[educe(Debug)]
+/// Represents RedisConfig.
 pub struct RedisConfig {
     /// Redis 主机地址
     pub host: String,
@@ -124,6 +133,7 @@ pub struct RedisConfig {
     pub port: u16,
     /// Redis 密码（可选）
     #[educe(Debug(ignore))]
+    /// `password` field.
     pub password: Option<String>,
     /// 缓存键前缀
     pub key_prefix: String,
@@ -133,16 +143,20 @@ pub struct RedisConfig {
     pub enabled: bool,
     /// 连接超时时间（毫秒）
     #[serde(default = "default_redis_connection_timeout")]
+    /// `connection_timeout_ms` field.
     pub connection_timeout_ms: u64,
     /// 命令超时时间（毫秒）
     #[serde(default = "default_redis_command_timeout")]
+    /// `command_timeout_ms` field.
     pub command_timeout_ms: u64,
     /// 熔断器配置
     #[serde(default)]
+    /// `circuit_breaker` field.
     pub circuit_breaker: CircuitBreakerConfig,
 }
 
 impl RedisConfig {
+    /// Connections the url.
     pub fn connection_url(&self) -> String {
         if let Some(password) = &self.password {
             if !password.is_empty() {
@@ -156,21 +170,27 @@ impl RedisConfig {
 
 /// 熔断器配置
 #[derive(Debug, Clone, Deserialize)]
+/// Represents CircuitBreakerConfig.
 pub struct CircuitBreakerConfig {
     /// 是否启用熔断器
     #[serde(default = "default_circuit_breaker_enabled")]
+    /// `enabled` field.
     pub enabled: bool,
     /// 熔断器打开的失败阈值
     #[serde(default = "default_failure_threshold")]
+    /// `failure_threshold` field.
     pub failure_threshold: u32,
     /// 熔断器半开状态下的成功阈值
     #[serde(default = "default_success_threshold")]
+    /// `success_threshold` field.
     pub success_threshold: u32,
     /// 熔断器打开后的超时时间（毫秒）
     #[serde(default = "default_timeout_ms")]
+    /// `timeout_ms` field.
     pub timeout_ms: u64,
     /// 滑动窗口大小（秒）
     #[serde(default = "default_window_size_seconds")]
+    /// `window_size_seconds` field.
     pub window_size_seconds: u64,
 }
 

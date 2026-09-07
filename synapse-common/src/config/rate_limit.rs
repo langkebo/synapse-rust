@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
+/// Re-exported item.
 pub use crate::rate_limit_config::SyncRateLimitConfigFile as SyncRateLimitConfig;
 /// 限流配置（homeserver.yaml 的 `rate_limit` 段，运行时视图）。
 ///
@@ -16,42 +17,55 @@ pub use crate::rate_limit_config::{RateLimitEndpointRule, RateLimitMatchType, Ra
 // ============================================================================
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents RateLimitConfig.
 pub struct RateLimitConfig {
     /// 是否启用限流
     #[serde(default = "default_rate_limit_enabled")]
+    /// `enabled` field.
     pub enabled: bool,
     /// 默认限流规则
     #[serde(default)]
+    /// `default` field.
     pub default: RateLimitRule,
     /// 端点级限流规则
     #[serde(default)]
+    /// `endpoints` field.
     pub endpoints: Vec<RateLimitEndpointRule>,
     /// IP 头优先级列表
     #[serde(default)]
+    /// `ip_header_priority` field.
     pub ip_header_priority: Vec<String>,
     /// 是否包含请求头进行限流判断
     #[serde(default)]
+    /// `include_headers` field.
     pub include_headers: bool,
     /// 豁免路径列表
     #[serde(default)]
+    /// `exempt_paths` field.
     pub exempt_paths: Vec<String>,
     /// 豁免路径前缀列表
     #[serde(default)]
+    /// `exempt_path_prefixes` field.
     pub exempt_path_prefixes: Vec<String>,
     /// 端点别名映射
     #[serde(default)]
+    /// `endpoint_aliases` field.
     pub endpoint_aliases: HashMap<String, String>,
     /// 错误时是否开放访问
     #[serde(default = "default_rate_limit_fail_open")]
+    /// `fail_open_on_error` field.
     pub fail_open_on_error: bool,
     /// 同步接口的资源隔离限流（initial vs incremental）
     #[serde(default)]
+    /// `sync` field.
     pub sync: SyncRateLimitConfig,
     /// CIDR strings for trusted reverse proxies (e.g. "10.0.0.0/8", "127.0.0.1/32").
     #[serde(default)]
+    /// `trusted_proxies` field.
     pub trusted_proxies: Vec<String>,
     /// Whether to trust forwarded headers at all.
     #[serde(default)]
+    /// `trust_forwarded` field.
     pub trust_forwarded: bool,
 }
 

@@ -1,3 +1,5 @@
+//! Argon2id password hashing configuration and error type.
+
 use argon2::Params;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
@@ -6,26 +8,34 @@ use thiserror::Error;
 static GLOBAL_ARGON2_CONFIG: OnceLock<Argon2Config> = OnceLock::new();
 
 #[derive(Debug, Error)]
+/// Represents Argon2ConfigError; see per-variant docs.
 pub enum Argon2ConfigError {
     #[error("Invalid Argon2 parameters: {0}")]
+    /// `InvalidParams` variant.
     InvalidParams(String),
 
     #[error("OWASP validation failed: {0}")]
+    /// `OwaspValidation` variant.
     OwaspValidation(String),
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+/// Represents Argon2Config.
 pub struct Argon2Config {
     #[serde(default = "default_m_cost")]
+    /// `m_cost` field.
     pub m_cost: u32,
 
     #[serde(default = "default_t_cost")]
+    /// `t_cost` field.
     pub t_cost: u32,
 
     #[serde(default = "default_p_cost")]
+    /// `p_cost` field.
     pub p_cost: u32,
 
     #[serde(default = "default_output_len")]
+    /// `output_len` field.
     pub output_len: Option<usize>,
 }
 
@@ -72,16 +82,19 @@ impl Argon2Config {
     /// 启动时强制下限：p_cost 允许的绝对最低值
     pub const FLOOR_P_COST: u32 = 1;
 
+    /// Constructs a new instance.
     pub fn new(m_cost: u32, t_cost: u32, p_cost: u32) -> Result<Self, Argon2ConfigError> {
         Self::new_with_output_len(m_cost, t_cost, p_cost, Some(32))
     }
 
+    /// News the owasp.
     pub fn new_owasp_compliant(m_cost: u32, t_cost: u32, p_cost: u32) -> Result<Self, Argon2ConfigError> {
         let config = Self::new(m_cost, t_cost, p_cost)?;
         config.validate_owasp()?;
         Ok(config)
     }
 
+    /// News the with.
     pub fn new_with_output_len(
         m_cost: u32,
         t_cost: u32,
@@ -93,6 +106,7 @@ impl Argon2Config {
         Ok(config)
     }
 
+    /// News the with.
     pub fn new_with_output_len_owasp(
         m_cost: u32,
         t_cost: u32,
@@ -104,6 +118,7 @@ impl Argon2Config {
         Ok(config)
     }
 
+    /// Validates this value.
     pub fn validate(&self) -> Result<(), Argon2ConfigError> {
         if self.m_cost < 8 {
             return Err(Argon2ConfigError::InvalidParams("m_cost must be at least 8 (Argon2 minimum)".to_string()));
@@ -132,6 +147,7 @@ impl Argon2Config {
         Ok(())
     }
 
+    /// Validates the owasp.
     pub fn validate_owasp(&self) -> Result<(), Argon2ConfigError> {
         if self.m_cost < Self::OWASP_MIN_M_COST {
             return Err(Argon2ConfigError::OwaspValidation(format!(
@@ -163,6 +179,7 @@ impl Argon2Config {
         Ok(())
     }
 
+    /// Converts to argon2 params.
     pub fn to_argon2_params(&self) -> Result<Params, Argon2ConfigError> {
         self.validate()?;
         Params::new(self.m_cost, self.t_cost, self.p_cost, self.output_len)
@@ -207,6 +224,7 @@ impl Argon2Config {
         }
     }
 
+    /// Initializes the global singleton instance.
     pub fn initialize_global(config: Self) -> Result<(), Argon2ConfigError> {
         config.validate()?;
 
@@ -214,6 +232,7 @@ impl Argon2Config {
         Ok(())
     }
 
+    /// Initializes the global.
     pub fn initialize_global_owasp(mut config: Self) -> Result<(), Argon2ConfigError> {
         // 先强制下限校验，自动提升不合规参数
         config.enforce_minimum();
@@ -247,22 +266,27 @@ impl Argon2Config {
         Ok(())
     }
 
+    /// Returns a reference to the global instance if initialized.
     pub fn get_global() -> Self {
         GLOBAL_ARGON2_CONFIG.get().copied().unwrap_or_default()
     }
 
+    /// Returns true if global initialized.
     pub fn is_global_initialized() -> bool {
         GLOBAL_ARGON2_CONFIG.get().is_some()
     }
 
+    /// Memorys the cost.
     pub fn memory_cost_bytes(&self) -> u64 {
         (self.m_cost as u64) * 1024
     }
 
+    /// Memorys the cost.
     pub fn memory_cost_mb(&self) -> u64 {
         self.memory_cost_bytes() / (1024 * 1024)
     }
 
+    /// Estimateds the hash.
     pub fn estimated_hash_time_ms(&self) -> u64 {
         let base_time_per_iteration_ms = 1;
         let memory_factor = self.m_cost as f64 / 65536.0;
@@ -454,6 +478,7 @@ mod tests {
             admin_rbac_enabled: true,
             ui_auth_session_timeout: 900,
             csrf_secret: String::new(),
+            ..Default::default()
         };
 
         let config = Argon2Config::from(security);
@@ -526,6 +551,7 @@ mod tests {
             admin_rbac_enabled: true,
             ui_auth_session_timeout: 900,
             csrf_secret: String::new(),
+            ..Default::default()
         };
 
         let config = Argon2Config::from(security);

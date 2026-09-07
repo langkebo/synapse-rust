@@ -1,21 +1,28 @@
+//! Timestamp helpers (current ms / UTC, age calculation, pagination/stream token codec).
+
 use chrono::{DateTime, Utc};
 
+/// Currents the timestamp.
 pub fn current_timestamp_millis() -> i64 {
     Utc::now().timestamp_millis()
 }
 
+/// Currents the timestamp.
 pub fn current_timestamp_utc() -> DateTime<Utc> {
     Utc::now()
 }
 
+/// Calculates the age.
 pub fn calculate_age(timestamp: i64) -> i64 {
     current_timestamp_millis().saturating_sub(timestamp)
 }
 
+/// Generates the stream.
 pub fn generate_stream_token_from_ts(timestamp: Option<i64>) -> String {
     format!("t{}", timestamp.unwrap_or_else(current_timestamp_millis))
 }
 
+/// Parses stream token.
 pub fn parse_stream_token(token: &str) -> Option<i64> {
     token.strip_prefix('t').and_then(|s| s.parse().ok())
 }
@@ -49,10 +56,12 @@ pub fn parse_pagination_token(token: &str) -> Option<(i64, Option<i64>)> {
     }
 }
 
+/// Returns true if expired.
 pub fn is_expired(expires_at: Option<i64>) -> bool {
     expires_at.is_some_and(|exp| exp < current_timestamp_millis())
 }
 
+/// Calculates the ttl.
 pub fn calculate_ttl(expires_at: Option<i64>) -> Option<i64> {
     expires_at.map(|exp| {
         let now = current_timestamp_millis();

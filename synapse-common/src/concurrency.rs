@@ -1,22 +1,28 @@
+//! Concurrency limiter primitives (ConcurrencyLimiter, ConcurrencyPermit, ConcurrencyController).
+
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
+/// Represents ConcurrencyController.
 pub struct ConcurrencyController {
     semaphore: Arc<Semaphore>,
     name: String,
 }
 
 impl ConcurrencyController {
+    /// Constructs a new instance.
     pub fn new(max_concurrent: usize, name: String) -> Self {
         Self { semaphore: Arc::new(Semaphore::new(max_concurrent)), name }
     }
 
+    /// Performs acquire.
     pub async fn acquire(&self) -> Result<ConcurrencyPermit, String> {
         let permit =
             self.semaphore.clone().acquire_owned().await.map_err(|_| format!("Semaphore '{}' closed", self.name))?;
         Ok(ConcurrencyPermit { _permit: permit, name: self.name.clone() })
     }
 
+    /// Attempts to acquire without blocking.
     pub fn try_acquire(&self) -> Option<ConcurrencyPermit> {
         self.semaphore
             .clone()
@@ -25,6 +31,7 @@ impl ConcurrencyController {
             .map(|permit| ConcurrencyPermit { _permit: permit, name: self.name.clone() })
     }
 
+    /// Returns the number of currently available permits.
     pub fn available_permits(&self) -> usize {
         self.semaphore.available_permits()
     }
@@ -36,6 +43,7 @@ impl Clone for ConcurrencyController {
     }
 }
 
+/// Represents ConcurrencyPermit.
 pub struct ConcurrencyPermit {
     _permit: tokio::sync::OwnedSemaphorePermit,
     name: String,
@@ -47,24 +55,29 @@ impl Drop for ConcurrencyPermit {
     }
 }
 
+/// Represents ConcurrencyLimiter.
 pub struct ConcurrencyLimiter {
     controllers: std::collections::HashMap<String, ConcurrencyController>,
 }
 
 impl ConcurrencyLimiter {
+    /// Constructs a new instance.
     pub fn new() -> Self {
         Self { controllers: std::collections::HashMap::new() }
     }
 
+    /// Adds the controller.
     pub fn add_controller(&mut self, name: String, max_concurrent: usize) {
         let controller = ConcurrencyController::new(max_concurrent, name.clone());
         self.controllers.insert(name, controller);
     }
 
+    /// Returns the controller.
     pub fn get_controller(&self, name: &str) -> Option<ConcurrencyController> {
         self.controllers.get(name).cloned()
     }
 
+    /// Performs acquire.
     pub async fn acquire(&self, name: &str) -> Option<ConcurrencyPermit> {
         if let Some(controller) = self.get_controller(name) {
             controller.acquire().await.ok()
@@ -73,6 +86,7 @@ impl ConcurrencyLimiter {
         }
     }
 
+    /// Attempts to acquire without blocking.
     pub fn try_acquire(&self, name: &str) -> Option<ConcurrencyPermit> {
         if let Some(controller) = self.get_controller(name) {
             controller.try_acquire()
@@ -89,6 +103,7 @@ impl Default for ConcurrencyLimiter {
 }
 
 #[macro_export]
+/// Acquires a concurrency permit, awaits it, and executes the block.
 macro_rules! with_concurrency_limit {
     ($controller:expr, $block:block) => {{
         let _permit = $controller.acquire().await.ok();
@@ -97,6 +112,7 @@ macro_rules! with_concurrency_limit {
 }
 
 #[macro_export]
+/// Tries to acquire a concurrency permit and executes the block if successful.
 macro_rules! try_with_concurrency_limit {
     ($controller:expr, $block:block) => {{
         if let Some(_permit) = $controller.try_acquire() {

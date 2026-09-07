@@ -19,12 +19,19 @@ use std::str::FromStr;
 
 /// Room join rule, resolved from `m.room.join_rules`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Represents JoinRule; see per-variant docs.
 pub enum JoinRule {
+    /// `Public` variant.
     Public,
+    /// `Invite` variant.
     Invite,
+    /// `Knock` variant.
     Knock,
+    /// `Restricted` variant.
     Restricted,
+    /// `KnockRestricted` variant.
     KnockRestricted,
+    /// `Private` variant.
     Private,
 }
 
@@ -61,6 +68,7 @@ impl FromStr for JoinRule {
 /// data only — no storage handles, no async. The caller (client or federation
 /// adapter) owns the async resolution; this struct is the seam.
 #[derive(Debug, Clone, Copy)]
+/// Represents TransitionCtx.
 pub struct TransitionCtx {
     /// Power level of the sender making the change.
     pub actor_pl: i64,
@@ -123,13 +131,19 @@ impl TransitionCtx {
 /// callers map this to their own error surface (`ApiError` for clients,
 /// event rejection for federation).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Represents TransitionError; see per-variant docs.
 pub enum TransitionError {
     /// Target is banned and must be unbanned before this transition.
     Banned,
     /// Cannot invite a user who is currently banned.
     TargetBanned,
     /// Sender lacks the power level required for this action.
-    InsufficientPower { needed: i64, have: i64 },
+    InsufficientPower {
+        /// Required power level.
+        needed: i64,
+        /// Current power level.
+        have: i64,
+    },
     /// Room is invite-only (or knock/restricted) and the joiner was not invited/authorized.
     NotInvited,
     /// Target is the room creator and cannot be kicked or banned.

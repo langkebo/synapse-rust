@@ -6,68 +6,114 @@ mod loader;
 mod manager;
 mod validation;
 
+/// Re-exported item.
 pub use manager::ConfigManager;
 
 // ============================================================================
 // Sub-module declarations
 // ============================================================================
 
+/// Module `auth`.
 pub mod auth;
+/// Module `builtin_oidc`.
 pub mod builtin_oidc;
+/// Module `database`.
 pub mod database;
+/// Module `error`.
 pub mod error;
+/// Module `experimental`.
 pub mod experimental;
+/// Module `federation`.
 pub mod federation;
+/// Module `identity`.
 pub mod identity;
+/// Module `logging`.
 pub mod logging;
+/// Module `mas`.
 pub mod mas;
+/// Module `performance`.
 pub mod performance;
+/// Module `policy_server`.
 pub mod policy_server;
+/// Module `push`.
 pub mod push;
+/// Module `rate_limit`.
 pub mod rate_limit;
+/// Module `retention`.
 pub mod retention;
+/// Module `search`.
 pub mod search;
+/// Module `security`.
 pub mod security;
+/// Module `server`.
 pub mod server;
+/// Module `sms`.
 pub mod sms;
+/// Module `smtp`.
 pub mod smtp;
+/// Module `translate`.
 pub mod translate;
+/// Module `voip`.
 pub mod voip;
+/// Module `worker`.
 pub mod worker;
 
 // ============================================================================
 // Re-exports for backward compatibility
 // ============================================================================
 
+/// Re-exported item.
 pub use auth::{OidcAttributeMapping, OidcConfig, SamlAttributeMapping, SamlConfig};
+/// Re-exported item.
 pub use builtin_oidc::{BuiltinOidcConfig, BuiltinOidcUser};
+/// Re-exported item.
 pub use database::{CircuitBreakerConfig, DatabaseConfig, RedisConfig};
+/// Re-exported item.
 pub use error::ConfigError;
+/// Re-exported item.
 pub use experimental::ExperimentalConfig;
+/// Re-exported item.
 pub use federation::{FederationConfig, FederationRateLimitConfig, TrustedKeyServer};
+/// Re-exported item.
 pub use identity::IdentityConfig;
+/// Re-exported item.
 pub use logging::LoggingConfig;
+/// Re-exported item.
 pub use mas::MasConfig;
+/// Re-exported item.
 pub use performance::PerformanceConfig;
+/// Re-exported item.
 pub use policy_server::PolicyServerConfig;
+/// Re-exported item.
 pub use rate_limit::{RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule, SyncRateLimitConfig};
+/// Re-exported item.
 pub use retention::{RetentionConfig, RetentionPolicy, RetentionPurgeJob};
+/// Re-exported item.
 pub use search::{PostgresFtsConfig, PostgresFtsWeights, SearchConfig};
+/// Re-exported item.
 pub use security::{AdminRegistrationConfig, CorsConfig, SecurityConfig};
+/// Re-exported item.
 pub use server::ServerConfig;
+/// Re-exported item.
 pub use sms::SmsConfig;
+/// Re-exported item.
 pub use smtp::{SmtpConfig, SmtpRateLimitConfig};
+/// Re-exported item.
 pub use translate::TranslateConfig;
+/// Re-exported item.
 pub use voip::{
     ApnsConfig, FcmConfig, LivekitConfig, PushConfig, UrlBlacklistRule, UrlPreviewConfig, VoipConfig, WebPushConfig,
 };
+/// Re-exported item.
 pub use worker::{InstanceLocationConfig, ReplicationConfig, ReplicationHttpConfig, StreamWriters, WorkerConfig};
 
 // Re-export helper functions used in tests and serde defaults
+/// Re-exported item.
 pub use security::{
     default_admin_mfa_allowed_drift_steps, default_admin_rbac_enabled, default_allowed_headers,
     default_allowed_methods, default_cors_max_age, default_ui_auth_session_timeout,
 };
+/// Re-exported item.
 pub use server::default_dehydrated_device_cleanup_interval_secs;
 
 /// Main configuration class for the Matrix Homeserver, containing all configuration sub-items.
@@ -78,6 +124,7 @@ pub use server::default_dehydrated_device_cleanup_interval_secs;
 /// `identity_server_url:`、`app_service:`）却误以为生效（审查 #11）。
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
+/// Represents Config.
 pub struct Config {
     /// Server configuration
     pub server: ServerConfig,
@@ -95,80 +142,104 @@ pub struct Config {
     pub search: SearchConfig,
     /// Rate limiting configuration
     #[serde(default)]
+    /// `rate_limit` field.
     pub rate_limit: RateLimitConfig,
     /// Admin registration configuration
     #[serde(default)]
+    /// `admin_registration` field.
     pub admin_registration: AdminRegistrationConfig,
     /// Worker node configuration
     #[serde(default)]
+    /// `worker` field.
     pub worker: WorkerConfig,
     /// CORS configuration
     #[serde(default)]
+    /// `cors` field.
     pub cors: CorsConfig,
     /// SMTP email configuration
     #[serde(default)]
+    /// `smtp` field.
     pub smtp: SmtpConfig,
     /// SMS provider configuration
     #[serde(default)]
+    /// `sms` field.
     pub sms: SmsConfig,
     /// VoIP/TURN configuration
     #[serde(default)]
+    /// `voip` field.
     pub voip: VoipConfig,
     /// Livekit SFU configuration
     #[serde(default)]
+    /// `livekit` field.
     pub livekit: LivekitConfig,
     /// Push notification configuration
     #[serde(default)]
+    /// `push` field.
     pub push: PushConfig,
     /// URL preview configuration
     #[serde(default)]
+    /// `url_preview` field.
     pub url_preview: UrlPreviewConfig,
     /// OIDC single sign-on configuration (external Provider)
     #[serde(default)]
+    /// `oidc` field.
     pub oidc: OidcConfig,
     /// Built-in OIDC Provider configuration
     #[serde(default)]
+    /// `builtin_oidc` field.
     pub builtin_oidc: BuiltinOidcConfig,
     /// SAML single sign-on configuration
     #[serde(default)]
+    /// `saml` field.
     pub saml: SamlConfig,
     /// Message retention policy configuration
     #[serde(default)]
+    /// `retention` field.
     pub retention: RetentionConfig,
     /// MSC4284 — Policy server configuration for room/user/content moderation.
     #[serde(default)]
+    /// `policy_server` field.
     pub policy_server: PolicyServerConfig,
     /// MSC3861 — Matrix Authentication Service (MAS) configuration.
     /// When enabled, the homeserver delegates auth to MAS and validates
     /// MAS-issued access tokens (JWTs) instead of local HS256 tokens.
     #[serde(default)]
+    /// `mas` field.
     pub mas: MasConfig,
     /// OpenTelemetry configuration
     #[serde(default)]
+    /// `telemetry` field.
     pub telemetry: crate::telemetry_config::OpenTelemetryConfig,
     /// Prometheus configuration
     #[serde(default)]
+    /// `prometheus` field.
     pub prometheus: crate::telemetry_config::PrometheusConfig,
     /// Performance optimization configuration
     #[serde(default)]
+    /// `performance` field.
     pub performance: PerformanceConfig,
     /// 实验性功能配置
     #[serde(default)]
+    /// `experimental` field.
     pub experimental: ExperimentalConfig,
     /// Identity Server 配置
     #[serde(default)]
+    /// `identity` field.
     pub identity: IdentityConfig,
     /// Translation service configuration
     #[serde(default)]
+    /// `translate` field.
     pub translate: TranslateConfig,
     /// Allowed redirect URL prefixes for SSO post-login redirects.
     /// If empty, only same-origin paths (starting with `/`) are permitted.
     /// Example: `["https://app.example.com/"]`
     #[serde(default)]
+    /// `sso_redirect_allowlist` field.
     pub sso_redirect_allowlist: Vec<String>,
 }
 
 impl Config {
+    /// Databases the url.
     pub fn database_url(&self) -> String {
         format!(
             "postgres://{}:{}@{}:{}/{}",
@@ -176,6 +247,7 @@ impl Config {
         )
     }
 
+    /// Rediss the url.
     pub fn redis_url(&self) -> String {
         self.redis.connection_url()
     }
@@ -368,6 +440,7 @@ mod tests {
                 admin_rbac_enabled: default_admin_rbac_enabled(),
                 ui_auth_session_timeout: default_ui_auth_session_timeout(),
                 csrf_secret: String::new(),
+                ..Default::default()
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -530,6 +603,7 @@ mod tests {
                 admin_rbac_enabled: default_admin_rbac_enabled(),
                 ui_auth_session_timeout: default_ui_auth_session_timeout(),
                 csrf_secret: String::new(),
+                ..Default::default()
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -804,6 +878,7 @@ mod tests {
                 admin_rbac_enabled: default_admin_rbac_enabled(),
                 ui_auth_session_timeout: default_ui_auth_session_timeout(),
                 csrf_secret: String::new(),
+                ..Default::default()
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -939,6 +1014,7 @@ mod tests {
             admin_rbac_enabled: default_admin_rbac_enabled(),
             ui_auth_session_timeout: default_ui_auth_session_timeout(),
             csrf_secret: String::new(),
+            ..Default::default()
         };
 
         assert!(config.secret.len() > 16);
@@ -994,9 +1070,11 @@ mod tests {
 ///   min_thumbnail_size: "10K"
 /// ```
 #[derive(Debug, Clone, Deserialize)]
+/// Represents MediaStoreConfig.
 pub struct MediaStoreConfig {
     /// 是否启用媒体存储功能
     #[serde(default)]
+    /// `enabled` field.
     pub enabled: bool,
 
     /// 媒体文件存储路径
@@ -1004,46 +1082,64 @@ pub struct MediaStoreConfig {
 
     /// 是否启用 URL 预览功能
     #[serde(default)]
+    /// `url_preview_enabled` field.
     pub url_preview_enabled: bool,
 
     /// 缩略图配置
     #[serde(default)]
+    /// `thumbnails` field.
     pub thumbnails: ThumbnailConfig,
 
     /// 二级存储提供者（S3, Azure 等）
     #[serde(default)]
+    /// `storage_providers` field.
     pub storage_providers: Vec<StorageProviderConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents ThumbnailConfig.
 pub struct ThumbnailConfig {
     /// 最大缩略图大小
     #[serde(default = "default_max_thumbnail_size")]
+    /// `max_size` field.
     pub max_size: String,
 
     /// 最小缩略图大小
     #[serde(default = "default_min_thumbnail_size")]
+    /// `min_size` field.
     pub min_size: String,
 
     /// 支持的缩略图尺寸列表
     #[serde(default)]
+    /// `sizes` field.
     pub sizes: Vec<ThumbnailSize>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents ThumbnailSize.
 pub struct ThumbnailSize {
+    /// `width` field.
     pub width: u32,
+    /// `height` field.
     pub height: u32,
+    /// `method` field.
     pub method: String, // "crop", "scale", "fit"
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents StorageProviderConfig.
 pub struct StorageProviderConfig {
+    /// `provider` field.
     pub provider: String, // "s3", "azure", "gcs"
+    /// `bucket` field.
     pub bucket: String,
+    /// `region` field.
     pub region: Option<String>,
+    /// `endpoint_url` field.
     pub endpoint_url: Option<String>,
+    /// `access_key_id` field.
     pub access_key_id: Option<String>,
+    /// `secret_access_key` field.
     pub secret_access_key: Option<String>,
 }
 */
@@ -1078,12 +1174,15 @@ pub struct StorageProviderConfig {
 ///       - names: [metrics]
 /// ```
 #[derive(Debug, Clone, Deserialize)]
+/// Represents ListenersConfig.
 pub struct ListenersConfig {
     #[serde(default)]
+    /// `listeners` field.
     pub listeners: Vec<ListenerConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents ListenerConfig.
 pub struct ListenerConfig {
     /// 监听器类型: http, https, metrics, manhole
     #[serde(default)]
@@ -1094,10 +1193,12 @@ pub struct ListenerConfig {
 
     /// 监听地址
     #[serde(default = "default_listen_host")]
+    /// `host` field.
     pub host: String,
 
     /// 是否启用 TLS
     #[serde(default)]
+    /// `tls` field.
     pub tls: bool,
 
     /// TLS 证书路径
@@ -1108,20 +1209,24 @@ pub struct ListenerConfig {
 
     /// 是否处理 X-Forwarded-For 头
     #[serde(default = "default_x_forwarded")]
+    /// `x_forwarded` field.
     pub x_forwarded: bool,
 
     /// 资源配置
     #[serde(default)]
+    /// `resources` field.
     pub resources: Vec<ListenerResource>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents ListenerResource.
 pub struct ListenerResource {
     /// 资源名称列表: client, federation, metrics, static
     pub names: Vec<String>,
 
     /// 是否压缩响应
     #[serde(default = "default_compress")]
+    /// `compress` field.
     pub compress: bool,
 }
 
@@ -1163,28 +1268,35 @@ fn default_compress() -> bool {
 ///   batch_size_limit: 50
 /// ```
 #[derive(Debug, Clone, Deserialize)]
+/// Represents LimitsConfig.
 pub struct LimitsConfig {
     /// 房间加入复杂度限制
     #[serde(default = "default_room_join_complexity")]
+    /// `room_join_complexity_limit` field.
     pub room_join_complexity_limit: u64,
 
     /// 事件字段大小限制
     #[serde(default = "default_event_fields_size")]
+    /// `event_fields_size_limit` field.
     pub event_fields_size_limit: u64,
 
     /// 联邦限制配置
     #[serde(default)]
+    /// `federation` field.
     pub federation: FederationLimitsConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents FederationLimitsConfig.
 pub struct FederationLimitsConfig {
     /// 单个事件大小限制
     #[serde(default = "default_federation_event_size")]
+    /// `event_size_limit` field.
     pub event_size_limit: String,
 
     /// 批量事件数量限制
     #[serde(default = "default_batch_size")]
+    /// `batch_size_limit` field.
     pub batch_size_limit: u64,
 }
 
@@ -1232,9 +1344,11 @@ fn default_batch_size() -> u64 {
 ///     - module: "bcrypt"
 /// ```
 #[derive(Debug, Clone, Deserialize)]
+/// Represents PasswordConfig.
 pub struct PasswordConfig {
     /// 是否启用密码认证
     #[serde(default = "default_password_enabled")]
+    /// `enabled` field.
     pub enabled: bool,
 
     /// 密码 pepper（全局盐值，对所有密码哈希添加额外安全性）
@@ -1242,32 +1356,41 @@ pub struct PasswordConfig {
 
     /// 最小密码长度
     #[serde(default = "default_min_password_length")]
+    /// `minimum_length` field.
     pub minimum_length: u32,
 
     /// 是否要求数字
     #[serde(default)]
+    /// `require_digit` field.
     pub require_digit: bool,
 
     /// 是否要求符号
     #[serde(default)]
+    /// `require_symbol` field.
     pub require_symbol: bool,
 
     /// 是否要求大写字母
     #[serde(default)]
+    /// `require_uppercase` field.
     pub require_uppercase: bool,
 
     /// 是否要求小写字母
     #[serde(default)]
+    /// `require_lowercase` field.
     pub require_lowercase: bool,
 
     /// 认证模块列表
     #[serde(default)]
+    /// `modules` field.
     pub modules: Vec<PasswordAuthModule>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents PasswordAuthModule.
 pub struct PasswordAuthModule {
+    /// `module` field.
     pub module: String, // "argon2", "bcrypt", "custom"
+    /// `config` field.
     pub config: Option<serde_json::Value>,
 }
 
@@ -1302,17 +1425,21 @@ fn default_min_password_length() -> u32 {
 ///   renewal_email_subject: "Renew your account"
 /// ```
 #[derive(Debug, Clone, Deserialize)]
+/// Represents AccountValidityConfig.
 pub struct AccountValidityConfig {
     /// 是否启用账户有效性
     #[serde(default)]
+    /// `enabled` field.
     pub enabled: bool,
 
     /// 账户有效期
     #[serde(default = "default_validity_period")]
+    /// `period` field.
     pub period: String,
 
     /// 续期提醒时间
     #[serde(default = "default_renew_at")]
+    /// `renew_at` field.
     pub renew_at: String,
 
     /// 续期邮件主题
@@ -1351,9 +1478,11 @@ fn default_renew_at() -> String {
 ///   service_url: "https://matrix.example.com"
 /// ```
 #[derive(Debug, Clone, Deserialize)]
+/// Represents CasConfig.
 pub struct CasConfig {
     /// 是否启用 CAS
     #[serde(default)]
+    /// `enabled` field.
     pub enabled: bool,
 
     /// CAS 服务器 URL
@@ -1394,41 +1523,57 @@ pub struct CasConfig {
 ///     email: "emailAddress"
 /// ```
 #[derive(Debug, Clone, Deserialize)]
+/// Represents Saml2Config.
 pub struct Saml2Config {
     /// 是否启用 SAML2
     #[serde(default)]
+    /// `enabled` field.
     pub enabled: bool,
 
     /// 服务提供者配置
     #[serde(default)]
+    /// `sp_config` field.
     pub sp_config: Option<SamlSpConfig>,
 
     /// 身份提供者元数据
     #[serde(default)]
+    /// `idp_metadata` field.
     pub idp_metadata: Vec<SamlIdpMetadata>,
 
     /// 属性映射
     #[serde(default)]
+    /// `attribute_mapping` field.
     pub attribute_mapping: SamlAttributeMapping,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents SamlSpConfig.
 pub struct SamlSpConfig {
+    /// `endpoint` field.
     pub endpoint: Vec<String>,
+    /// `cert_file` field.
     pub cert_file: String,
+    /// `key_file` field.
     pub key_file: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents SamlIdpMetadata.
 pub struct SamlIdpMetadata {
+    /// `url` field.
     pub url: Option<String>,
+    /// `file` field.
     pub file: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents SamlAttributeMapping.
 pub struct SamlAttributeMapping {
+    /// `uid` field.
     pub uid: String,
+    /// `displayname` field.
     pub displayname: Option<String>,
+    /// `email` field.
     pub email: Option<String>,
 }
 
@@ -1462,13 +1607,16 @@ impl Default for SamlAttributeMapping {
 ///   maximum_sessions: 100
 /// ```
 #[derive(Debug, Clone, Deserialize)]
+/// Represents UiAuthConfig.
 pub struct UiAuthConfig {
     /// 会话超时时间
     #[serde(default = "default_ui_auth_session_timeout")]
+    /// `session_timeout` field.
     pub session_timeout: String,
 
     /// 最大会话数
     #[serde(default = "default_max_ui_auth_sessions")]
+    /// `maximum_sessions` field.
     pub maximum_sessions: u32,
 }
 
@@ -1503,21 +1651,26 @@ fn default_max_ui_auth_sessions() -> u32 {
 ///   state_event_limit: 1000
 /// ```
 #[derive(Debug, Clone, Deserialize)]
+/// Represents RoomsConfig.
 pub struct RoomsConfig {
     /// 默认房间版本
     #[serde(default = "default_room_version")]
+    /// `default_room_version` field.
     pub default_room_version: String,
 
     /// 是否过滤房间列表
     #[serde(default)]
+    /// `filter_room_lists` field.
     pub filter_room_lists: bool,
 
     /// 是否导出指标
     #[serde(default)]
+    /// `export_metrics` field.
     pub export_metrics: bool,
 
     /// 状态事件数量限制
     #[serde(default = "default_state_event_limit")]
+    /// `state_event_limit` field.
     pub state_event_limit: u64,
 }
 
@@ -1552,21 +1705,26 @@ fn default_state_event_limit() -> u64 {
 ///   indexing_interval: "1h"
 /// ```
 #[derive(Debug, Clone, Deserialize)]
+/// Represents UserDirectoryConfig.
 pub struct UserDirectoryConfig {
     /// 是否启用用户目录
     #[serde(default = "default_user_directory_enabled")]
+    /// `enabled` field.
     pub enabled: bool,
 
     /// 是否搜索所有用户（包括非共享房间的用户）
     #[serde(default)]
+    /// `search_all_users` field.
     pub search_all_users: bool,
 
     /// 是否优先显示本地用户
     #[serde(default = "default_prefer_local_users")]
+    /// `prefer_local_users` field.
     pub prefer_local_users: bool,
 
     /// 索引更新间隔
     #[serde(default = "default_indexing_interval")]
+    /// `indexing_interval` field.
     pub indexing_interval: String,
 }
 
@@ -1605,17 +1763,21 @@ fn default_indexing_interval() -> String {
 ///     - "instance:production"
 /// ```
 #[derive(Debug, Clone, Deserialize)]
+/// Represents MetricsConfig.
 pub struct MetricsConfig {
     /// 是否启用指标
     #[serde(default)]
+    /// `enabled` field.
     pub enabled: bool,
 
     /// 指标端口
     #[serde(default = "default_metrics_port")]
+    /// `port` field.
     pub port: u16,
 
     /// 额外的标签
     #[serde(default)]
+    /// `labels` field.
     pub labels: Vec<String>,
 }
 
@@ -1647,23 +1809,30 @@ fn default_metrics_port() -> u16 {
 ///     client_url: "https://github.com/element-hq/synapse"
 /// ```
 #[derive(Debug, Clone, Deserialize)]
+/// Represents ClientConfig.
 pub struct ClientConfig {
     /// 最大请求大小
     #[serde(default = "default_client_max_request_size")]
+    /// `max_request_size` field.
     pub max_request_size: String,
 
     /// 最大同步事件数量
     #[serde(default = "default_max_sync_events")]
+    /// `max_sync_events` field.
     pub max_sync_events: u64,
 
     /// Well-known 配置
     #[serde(default)]
+    /// `well_known` field.
     pub well_known: Option<WellKnownConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents WellKnownConfig.
 pub struct WellKnownConfig {
+    /// `client_name` field.
     pub client_name: Option<String>,
+    /// `client_url` field.
     pub client_url: Option<String>,
 }
 
@@ -1696,6 +1865,7 @@ fn default_max_sync_events() -> u64 {
 ///   server_notices_room: "!notices:example.com"
 /// ```
 #[derive(Debug, Clone, Deserialize)]
+/// Represents ServerNoticesConfig.
 pub struct ServerNoticesConfig {
     /// 系统通知用户的 MXID 本地部分
     pub system_mxid_localpart: String,
@@ -1728,18 +1898,25 @@ pub struct ServerNoticesConfig {
 ///       - network: "freenode"
 /// ```
 #[derive(Debug, Clone, Deserialize)]
+/// Represents ThirdPartyRulesConfig.
 pub struct ThirdPartyRulesConfig {
+    /// `rules` field.
     pub rules: Vec<ThirdPartyRule>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents ThirdPartyRule.
 pub struct ThirdPartyRule {
+    /// `protocol` field.
     pub protocol: String,
+    /// `fields` field.
     pub fields: Vec<ThirdPartyField>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents ThirdPartyField.
 pub struct ThirdPartyField {
+    /// `network` field.
     pub network: String,
 }
 */
@@ -1765,9 +1942,11 @@ pub struct ThirdPartyField {
 ///   sample_rate: 0.1
 /// ```
 #[derive(Debug, Clone, Deserialize)]
+/// Represents SentryConfig.
 pub struct SentryConfig {
     /// 是否启用 Sentry
     #[serde(default)]
+    /// `enabled` field.
     pub enabled: bool,
 
     /// Sentry DSN
@@ -1778,6 +1957,7 @@ pub struct SentryConfig {
 
     /// 采样率 (0.0 - 1.0)
     #[serde(default = "default_sentry_sample_rate")]
+    /// `sample_rate` field.
     pub sample_rate: f32,
 }
 

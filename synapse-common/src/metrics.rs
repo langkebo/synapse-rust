@@ -5,20 +5,28 @@ use std::time::Instant;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
+/// Represents MetricsError; see per-variant docs.
 pub enum MetricsError {
     #[error("Histogram value comparison error: {0}")]
+    /// `ValueComparisonError` variant.
     ValueComparisonError(String),
 }
 
 #[derive(Debug, Clone)]
+/// Represents Metric.
 pub struct Metric {
+    /// `name` field.
     pub name: String,
+    /// `value` field.
     pub value: f64,
+    /// `timestamp` field.
     pub timestamp: Instant,
+    /// `labels` field.
     pub labels: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
+/// Represents Counter.
 pub struct Counter {
     name: String,
     value: Arc<AtomicU64>,
@@ -26,32 +34,39 @@ pub struct Counter {
 }
 
 impl Counter {
+    /// Constructs a new instance.
     pub fn new(name: String) -> Self {
         Self { name, value: Arc::new(AtomicU64::new(0)), labels: HashMap::new() }
     }
 
+    /// Constructs a new instance with labels attached.
     pub fn with_labels(name: String, labels: HashMap<String, String>) -> Self {
         Self { name, value: Arc::new(AtomicU64::new(0)), labels }
     }
 
+    /// Increments by one.
     pub fn inc(&self) {
         self.value.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Increments by the given delta.
     pub fn inc_by(&self, delta: u64) {
         self.value.fetch_add(delta, Ordering::Relaxed);
     }
 
+    /// Returns the current value.
     pub fn get(&self) -> u64 {
         self.value.load(Ordering::Relaxed)
     }
 
+    /// Resets to its initial state.
     pub fn reset(&self) {
         self.value.store(0, Ordering::Relaxed);
     }
 }
 
 #[derive(Debug, Clone)]
+/// Represents Gauge.
 pub struct Gauge {
     name: String,
     value: Arc<AtomicU64>,
@@ -59,34 +74,42 @@ pub struct Gauge {
 }
 
 impl Gauge {
+    /// Constructs a new instance.
     pub fn new(name: String) -> Self {
         Self { name, value: Arc::new(AtomicU64::new(0.0f64.to_bits())), labels: HashMap::new() }
     }
 
+    /// Constructs a new instance with labels attached.
     pub fn with_labels(name: String, labels: HashMap<String, String>) -> Self {
         Self { name, value: Arc::new(AtomicU64::new(0.0f64.to_bits())), labels }
     }
 
+    /// Sets the value.
     pub fn set(&self, value: f64) {
         self.value.store(value.to_bits(), Ordering::Relaxed);
     }
 
+    /// Increments by one.
     pub fn inc(&self) {
         self.add(1.0);
     }
 
+    /// Decrements by one.
     pub fn dec(&self) {
         self.sub(1.0);
     }
 
+    /// Adds the given delta.
     pub fn add(&self, delta: f64) {
         self.update(|current| current + delta);
     }
 
+    /// Subtracts the given delta.
     pub fn sub(&self, delta: f64) {
         self.update(|current| current - delta);
     }
 
+    /// Returns the current value.
     pub fn get(&self) -> f64 {
         f64::from_bits(self.value.load(Ordering::Relaxed))
     }
@@ -105,6 +128,7 @@ impl Gauge {
 }
 
 #[derive(Debug, Clone)]
+/// Represents Histogram.
 pub struct Histogram {
     name: String,
     values: Arc<parking_lot::Mutex<Vec<f64>>>,
@@ -112,34 +136,41 @@ pub struct Histogram {
 }
 
 impl Histogram {
+    /// Constructs a new instance.
     pub fn new(name: String) -> Self {
         Self { name, values: Arc::new(parking_lot::Mutex::new(Vec::new())), labels: HashMap::new() }
     }
 
+    /// Constructs a new instance with labels attached.
     pub fn with_labels(name: String, labels: HashMap<String, String>) -> Self {
         Self { name, values: Arc::new(parking_lot::Mutex::new(Vec::new())), labels }
     }
 
+    /// Records a new observed value.
     pub fn observe(&self, value: f64) {
         let mut values = self.values.lock();
         values.push(value);
     }
 
+    /// Returns all recorded values.
     pub fn get_values(&self) -> Vec<f64> {
         let values = self.values.lock();
         values.clone()
     }
 
+    /// Returns the number of recorded values.
     pub fn get_count(&self) -> usize {
         let values = self.values.lock();
         values.len()
     }
 
+    /// Returns the sum of recorded values.
     pub fn get_sum(&self) -> f64 {
         let values = self.values.lock();
         values.iter().sum()
     }
 
+    /// Returns the average of recorded values.
     pub fn get_avg(&self) -> f64 {
         let values = self.values.lock();
         if values.is_empty() {
@@ -149,6 +180,7 @@ impl Histogram {
         }
     }
 
+    /// Returns the value at the given percentile.
     pub fn get_percentile(&self, percentile: f64) -> Result<f64, MetricsError> {
         let mut values = self.values.lock();
         if values.is_empty() {
@@ -159,12 +191,14 @@ impl Histogram {
         Ok(values[index.min(values.len() - 1)])
     }
 
+    /// Resets to its initial state.
     pub fn reset(&self) {
         let mut values = self.values.lock();
         values.clear();
     }
 }
 
+/// Represents MetricsCollector.
 pub struct MetricsCollector {
     counters: Arc<parking_lot::Mutex<HashMap<String, Counter>>>,
     gauges: Arc<parking_lot::Mutex<HashMap<String, Gauge>>>,
@@ -172,13 +206,18 @@ pub struct MetricsCollector {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Represents MetricInventory.
 pub struct MetricInventory {
+    /// `total_counters` field.
     pub total_counters: usize,
+    /// `total_gauges` field.
     pub total_gauges: usize,
+    /// `total_histograms` field.
     pub total_histograms: usize,
 }
 
 impl MetricsCollector {
+    /// Constructs a new instance.
     pub fn new() -> Self {
         Self {
             counters: Arc::new(parking_lot::Mutex::new(HashMap::new())),
@@ -187,6 +226,7 @@ impl MetricsCollector {
         }
     }
 
+    /// Registers a new counter.
     pub fn register_counter(&self, name: String) -> Counter {
         let counter = Counter::new(name.clone());
         let mut counters = self.counters.lock();
@@ -194,6 +234,7 @@ impl MetricsCollector {
         counter
     }
 
+    /// Registers a new labeled counter.
     pub fn register_counter_with_labels(&self, name: String, labels: HashMap<String, String>) -> Counter {
         let counter = Counter::with_labels(name.clone(), labels);
         let mut counters = self.counters.lock();
@@ -201,6 +242,7 @@ impl MetricsCollector {
         counter
     }
 
+    /// Registers a new gauge.
     pub fn register_gauge(&self, name: String) -> Gauge {
         let gauge = Gauge::new(name.clone());
         let mut gauges = self.gauges.lock();
@@ -208,6 +250,7 @@ impl MetricsCollector {
         gauge
     }
 
+    /// Registers a new labeled gauge.
     pub fn register_gauge_with_labels(&self, name: String, labels: HashMap<String, String>) -> Gauge {
         let gauge = Gauge::with_labels(name.clone(), labels);
         let mut gauges = self.gauges.lock();
@@ -215,6 +258,7 @@ impl MetricsCollector {
         gauge
     }
 
+    /// Registers a new histogram.
     pub fn register_histogram(&self, name: String) -> Histogram {
         let histogram = Histogram::new(name.clone());
         let mut histograms = self.histograms.lock();
@@ -222,6 +266,7 @@ impl MetricsCollector {
         histogram
     }
 
+    /// Registers a new labeled histogram.
     pub fn register_histogram_with_labels(&self, name: String, labels: HashMap<String, String>) -> Histogram {
         let histogram = Histogram::with_labels(name.clone(), labels);
         let mut histograms = self.histograms.lock();
@@ -229,21 +274,25 @@ impl MetricsCollector {
         histogram
     }
 
+    /// Returns the counter with the given name.
     pub fn get_counter(&self, name: &str) -> Option<Counter> {
         let counters = self.counters.lock();
         counters.get(name).cloned()
     }
 
+    /// Returns the gauge with the given name.
     pub fn get_gauge(&self, name: &str) -> Option<Gauge> {
         let gauges = self.gauges.lock();
         gauges.get(name).cloned()
     }
 
+    /// Returns the histogram with the given name.
     pub fn get_histogram(&self, name: &str) -> Option<Histogram> {
         let histograms = self.histograms.lock();
         histograms.get(name).cloned()
     }
 
+    /// Returns a snapshot of all registered metrics.
     pub fn collect_metrics(&self) -> Vec<Metric> {
         let mut metrics = Vec::new();
 
@@ -292,6 +341,7 @@ impl MetricsCollector {
         metrics
     }
 
+    /// Returns a summary of registered metric counts.
     pub fn inventory(&self) -> MetricInventory {
         MetricInventory {
             total_counters: self.counters.lock().len(),
@@ -300,6 +350,7 @@ impl MetricsCollector {
         }
     }
 
+    /// Renders the metrics in Prometheus exposition format.
     pub fn to_prometheus_format(&self) -> String {
         let mut output = String::with_capacity(4096);
 

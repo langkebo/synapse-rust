@@ -33,6 +33,7 @@ pub const NONCE_CACHE_CAPACITY: u64 = 1_000_000;
 
 /// Bounded, async-safe cache for federation nonces.
 #[derive(Clone)]
+/// Represents FederationNonceCache.
 pub struct FederationNonceCache {
     inner: Arc<Cache<String, ()>>,
     /// Tracks the timestamp we first saw a (origin, nonce) entry so we
@@ -48,6 +49,7 @@ impl Default for FederationNonceCache {
 }
 
 impl FederationNonceCache {
+    /// Constructs a new instance.
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Cache::builder().max_capacity(NONCE_CACHE_CAPACITY).time_to_live(NONCE_TTL).build()),

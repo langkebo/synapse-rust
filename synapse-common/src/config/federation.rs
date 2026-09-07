@@ -17,6 +17,7 @@ use std::path::PathBuf;
 /// 时只需在 impl 内补一行 + 上面加一个助手函数即可。
 #[derive(Clone, Deserialize, Educe)]
 #[educe(Debug)]
+/// Represents FederationConfig.
 pub struct FederationConfig {
     /// 是否启用联邦功能
     pub enabled: bool,
@@ -36,6 +37,7 @@ pub struct FederationConfig {
     pub client_ca_file: Option<PathBuf>,
     /// 签名密钥
     #[educe(Debug(ignore))]
+    /// `signing_key` field.
     pub signing_key: Option<String>,
     /// 密钥 ID
     pub key_id: Option<String>,
@@ -44,29 +46,37 @@ pub struct FederationConfig {
     /// 用于获取其他服务器的签名密钥。默认包含 matrix.org。
     /// 格式: [{"server_name": "matrix.org", "verify_keys": {"ed25519:auto": "key"}}]
     #[serde(default = "default_trusted_key_servers")]
+    /// `trusted_key_servers` field.
     pub trusted_key_servers: Vec<TrustedKeyServer>,
     /// 密钥刷新间隔（秒）
     #[serde(default = "default_key_refresh_interval")]
+    /// `key_refresh_interval` field.
     pub key_refresh_interval: u64,
     /// 是否抑制密钥服务器警告
     #[serde(default)]
+    /// `suppress_key_server_warning` field.
     pub suppress_key_server_warning: bool,
     /// 签名验证缓存 TTL（秒），默认 1 小时
     #[serde(default = "default_signature_cache_ttl")]
+    /// `signature_cache_ttl` field.
     pub signature_cache_ttl: u64,
     /// 密钥缓存 TTL（秒），默认 1 小时
     #[serde(default = "default_key_cache_ttl")]
+    /// `key_cache_ttl` field.
     pub key_cache_ttl: u64,
     /// 密钥轮换宽限期（毫秒），默认 10 分钟
     #[serde(default = "default_key_rotation_grace_period_ms")]
+    /// `key_rotation_grace_period_ms` field.
     pub key_rotation_grace_period_ms: u64,
 
     /// 拉取远端 server keys 的最大并发（全局），默认 32
     #[serde(default = "default_federation_key_fetch_max_concurrency")]
+    /// `key_fetch_max_concurrency` field.
     pub key_fetch_max_concurrency: usize,
 
     /// 拉取远端 server keys 的单次请求超时（毫秒），默认 5000
     #[serde(default = "default_federation_key_fetch_timeout_ms")]
+    /// `key_fetch_timeout_ms` field.
     pub key_fetch_timeout_ms: u64,
 
     /// 是否允许使用 HTTP 拉取远端 server keys（默认 false）。
@@ -74,6 +84,7 @@ pub struct FederationConfig {
     /// 生产环境必须保持 false（Matrix 联邦要求 TLS）。仅在测试/开发环境中
     /// 设为 true，以便使用本地 HTTP mock 服务器测试联邦密钥拉取行为。
     #[serde(default)]
+    /// `allow_http_key_fetch` field.
     pub allow_http_key_fetch: bool,
 
     /// E-2: 是否跳过联邦密钥拉取的 SSRF 防护（默认 false）。
@@ -85,14 +96,17 @@ pub struct FederationConfig {
     ///
     /// 仅在本地 mock 测试（全部流量到 localhost）时才设为 true。
     #[serde(default)]
+    /// `skip_ssrf_check` field.
     pub skip_ssrf_check: bool,
 
     /// 是否处理入站联邦 EDUs（默认 false）
     #[serde(default)]
+    /// `process_inbound_edus` field.
     pub process_inbound_edus: bool,
 
     /// 单个联邦 txn 允许的最大 EDU 数量（默认 100）
     #[serde(default = "default_federation_inbound_edus_max_per_txn")]
+    /// `inbound_edus_max_per_txn` field.
     pub inbound_edus_max_per_txn: usize,
 
     /// F-02: 单个入站联邦 txn 允许的最大 PDU 数量（默认 50）。
@@ -101,35 +115,45 @@ pub struct FederationConfig {
     /// 该值控制入站事务去重前阶段的最大 PDU 截断量。超过此数量的事件将被截断
     /// 并记录安全审计日志 `federation_pdu_count_exceeded`。
     #[serde(default = "default_federation_inbound_pdus_max_per_txn")]
+    /// `inbound_max_pdus_per_txn` field.
     pub inbound_max_pdus_per_txn: usize,
 
     #[serde(default = "default_federation_inbound_edu_max_concurrency")]
+    /// `inbound_edu_max_concurrency` field.
     pub inbound_edu_max_concurrency: usize,
 
     #[serde(default = "default_federation_inbound_edu_acquire_timeout_ms")]
+    /// `inbound_edu_acquire_timeout_ms` field.
     pub inbound_edu_acquire_timeout_ms: u64,
 
     #[serde(default = "default_federation_inbound_edu_per_origin_max_concurrency")]
+    /// `inbound_edu_per_origin_max_concurrency` field.
     pub inbound_edu_per_origin_max_concurrency: usize,
 
     /// 是否处理入站联邦 presence EDU（默认 false）
     #[serde(default)]
+    /// `process_inbound_presence_edus` field.
     pub process_inbound_presence_edus: bool,
 
     /// 单个联邦 txn 内 presence 更新的最大条数（默认 50）
     #[serde(default = "default_federation_inbound_presence_updates_max_per_txn")]
+    /// `inbound_presence_updates_max_per_txn` field.
     pub inbound_presence_updates_max_per_txn: usize,
 
     #[serde(default = "default_federation_inbound_presence_backoff_ms")]
+    /// `inbound_presence_backoff_ms` field.
     pub inbound_presence_backoff_ms: u64,
 
     #[serde(default = "default_federation_join_max_concurrency")]
+    /// `join_max_concurrency` field.
     pub join_max_concurrency: usize,
 
     #[serde(default = "default_federation_join_acquire_timeout_ms")]
+    /// `join_acquire_timeout_ms` field.
     pub join_acquire_timeout_ms: u64,
 
     #[serde(default)]
+    /// `admission_mode` field.
     pub admission_mode: bool,
 
     /// 联邦事务去重 TTL（秒）。
@@ -137,6 +161,7 @@ pub struct FederationConfig {
     /// 已成功处理过的入站事务 ID 会被缓存，防止 origin 重试同一事务导致重复处理。
     /// 默认 24 小时。设为 0 表示禁用去重（仅建议在测试环境使用）。
     #[serde(default = "default_federation_txn_dedup_ttl_secs")]
+    /// `txn_dedup_ttl_secs` field.
     pub txn_dedup_ttl_secs: u64,
 
     /// Master key for encrypting federation signing keys at rest.
@@ -152,6 +177,7 @@ pub struct FederationConfig {
     /// Generate with: `openssl rand -hex 32`
     #[serde(default)]
     #[educe(Debug(ignore))]
+    /// `signing_key_master_key` field.
     pub signing_key_master_key: Option<String>,
 
     /// Explicitly allow storing federation signing keys in plaintext when no
@@ -165,6 +191,7 @@ pub struct FederationConfig {
     /// Can also be set via the `SYNAPSE__FEDERATION__ALLOW_PLAINTEXT_SIGNING_KEYS`
     /// environment variable.
     #[serde(default)]
+    /// `allow_plaintext_signing_keys` field.
     pub allow_plaintext_signing_keys: bool,
 
     /// 出站联邦事件批处理的最大事件数，默认 100。
@@ -172,6 +199,7 @@ pub struct FederationConfig {
     /// `EventBroadcaster` 在 flush 之前最多累积这么多事件。历史实现
     /// 硬编码为 20，需要保留旧行为的部署可在配置中显式设置该值。
     #[serde(default = "default_event_broadcast_batch_size")]
+    /// `event_broadcast_batch_size` field.
     pub event_broadcast_batch_size: usize,
 
     /// S1 修复：联邦请求签名时间戳（SigningTs）容差（毫秒），默认 86400000（24h）。
@@ -180,6 +208,7 @@ pub struct FederationConfig {
     /// `|ts - now|` 超过此容差的请求，防止合法签名请求被无限重放。
     /// 设为 0 则跳过校验（不推荐，仅用于测试）。
     #[serde(default = "default_signing_ts_tolerance_ms")]
+    /// `signing_ts_tolerance_ms` field.
     pub signing_ts_tolerance_ms: i64,
 
     /// S1 修复：是否启用联邦重放保护（基于 ReplayProtectionCache）。
@@ -187,11 +216,13 @@ pub struct FederationConfig {
     /// 启用后，每个成功验签的请求的签名哈希被记入重放保护缓存，窗口内
     /// 重复提交同一签名即被拒绝。默认 true。
     #[serde(default = "default_replay_protection_enabled")]
+    /// `replay_protection_enabled` field.
     pub replay_protection_enabled: bool,
 
     /// Per-origin federation rate limiting. When enabled, each remote server
     /// is rate-limited independently based on its authenticated `origin`.
     #[serde(default)]
+    /// `rate_limit` field.
     pub rate_limit: FederationRateLimitConfig,
 }
 
@@ -251,20 +282,25 @@ fn default_replay_protection_enabled() -> bool {
 
 /// Per-origin federation rate limit configuration.
 #[derive(Debug, Clone, Deserialize)]
+/// Represents FederationRateLimitConfig.
 pub struct FederationRateLimitConfig {
     /// Master switch for per-origin federation rate limiting.
     #[serde(default = "default_federation_rate_limit_enabled")]
+    /// `enabled` field.
     pub enabled: bool,
     /// Requests per second per origin.
     #[serde(default = "default_federation_rate_limit_per_second")]
+    /// `per_second` field.
     pub per_second: u32,
     /// Burst size (maximum tokens in the bucket).
     #[serde(default = "default_federation_rate_limit_burst_size")]
+    /// `burst_size` field.
     pub burst_size: u32,
     /// S17/SEC-02: 限流后端（Redis）故障时的行为。false（默认，与主限流器
     /// 对齐）= fail-closed 返回 5xx；true = fail-open 放行并告警。
     /// 注意：2026-08-10 之前联邦限流在 Redis 故障时无条件放行且无配置项。
     #[serde(default = "default_federation_rate_limit_fail_open")]
+    /// `fail_open_on_error` field.
     pub fail_open_on_error: bool,
 }
 
@@ -301,11 +337,13 @@ fn default_federation_rate_limit_fail_open() -> bool {
 
 /// 信任的密钥服务器配置
 #[derive(Debug, Clone, Deserialize)]
+/// Represents TrustedKeyServer.
 pub struct TrustedKeyServer {
     /// 服务器名称
     pub server_name: String,
     /// 验证密钥（可选）
     #[serde(default)]
+    /// `verify_keys` field.
     pub verify_keys: Option<HashMap<String, String>>,
 }
 

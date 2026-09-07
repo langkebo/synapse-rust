@@ -1,18 +1,25 @@
+//! SAML XML metadata/response parser (security-wire format).
+
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use std::collections::HashMap;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
+/// Represents XmlParseError; see per-variant docs.
 pub enum XmlParseError {
     #[error("XML parse error: {0}")]
+    /// `Parse` variant.
     Parse(String),
     #[error("Missing required element: {0}")]
+    /// `MissingElement` variant.
     MissingElement(String),
     #[error("Invalid XML structure: {0}")]
+    /// `InvalidStructure` variant.
     InvalidStructure(String),
 }
 
+/// Parses saml response.
 pub fn parse_saml_response(xml: &str) -> Result<SamlAssertionData, XmlParseError> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
@@ -106,6 +113,7 @@ pub fn parse_saml_response(xml: &str) -> Result<SamlAssertionData, XmlParseError
     Ok(SamlAssertionData { name_id, issuer, attributes, session_index })
 }
 
+/// Parses saml metadata.
 pub fn parse_saml_metadata(xml: &str) -> Result<SamlMetadataParsed, XmlParseError> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
@@ -185,18 +193,28 @@ pub fn parse_saml_metadata(xml: &str) -> Result<SamlMetadataParsed, XmlParseErro
 }
 
 #[derive(Debug, Clone)]
+/// Represents SamlAssertionData.
 pub struct SamlAssertionData {
+    /// `name_id` field.
     pub name_id: String,
+    /// `issuer` field.
     pub issuer: String,
+    /// `attributes` field.
     pub attributes: HashMap<String, Vec<String>>,
+    /// `session_index` field.
     pub session_index: Option<String>,
 }
 
 #[derive(Debug, Clone)]
+/// Represents SamlMetadataParsed.
 pub struct SamlMetadataParsed {
+    /// `entity_id` field.
     pub entity_id: String,
+    /// `sso_url` field.
     pub sso_url: String,
+    /// `slo_url` field.
     pub slo_url: Option<String>,
+    /// `certificate` field.
     pub certificate: String,
 }
 

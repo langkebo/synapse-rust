@@ -1,3 +1,5 @@
+//! Health-check primitives (HealthCheck, HealthChecker, DatabaseHealthCheck, HealthStatus).
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

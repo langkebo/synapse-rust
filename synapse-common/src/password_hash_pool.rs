@@ -1,3 +1,5 @@
+//! Argon2id password-hash computation pool (bounded concurrency, progress metrics).
+
 use std::env;
 use std::sync::Arc;
 use std::time::Instant;
@@ -14,18 +16,28 @@ use crate::metrics::{Counter, Gauge, Histogram, MetricsCollector};
 static PASSWORD_HASH_POOL: std::sync::OnceLock<PasswordHashPool> = std::sync::OnceLock::new();
 
 #[derive(Debug, Clone)]
+/// Represents PasswordHashMetrics.
 pub struct PasswordHashMetrics {
+    /// `total_hash_operations` field.
     pub total_hash_operations: Counter,
+    /// `total_verify_operations` field.
     pub total_verify_operations: Counter,
+    /// `hash_duration_ms` field.
     pub hash_duration_ms: Histogram,
+    /// `verify_duration_ms` field.
     pub verify_duration_ms: Histogram,
+    /// `active_operations` field.
     pub active_operations: Gauge,
+    /// `queued_operations` field.
     pub queued_operations: Counter,
+    /// `rejected_operations` field.
     pub rejected_operations: Counter,
+    /// `pool_exhaustion_count` field.
     pub pool_exhaustion_count: Counter,
 }
 
 impl PasswordHashMetrics {
+    /// Constructs a new instance.
     pub fn new(collector: &MetricsCollector) -> Self {
         Self {
             total_hash_operations: collector.register_counter("password_hash_total".to_string()),
@@ -41,10 +53,15 @@ impl PasswordHashMetrics {
 }
 
 #[derive(Debug, Clone)]
+/// Represents PasswordHashPoolConfig.
 pub struct PasswordHashPoolConfig {
+    /// `max_concurrent` field.
     pub max_concurrent: usize,
+    /// `queue_size` field.
     pub queue_size: usize,
+    /// `thread_pool_size` field.
     pub thread_pool_size: usize,
+    /// `hash_timeout_ms` field.
     pub hash_timeout_ms: u64,
 }
 
@@ -72,6 +89,7 @@ fn runtime_pool_config() -> PasswordHashPoolConfig {
     }
 }
 
+/// Represents PasswordHashPool.
 pub struct PasswordHashPool {
     semaphore: Arc<Semaphore>,
     config: PasswordHashPoolConfig,
@@ -81,15 +99,18 @@ pub struct PasswordHashPool {
 }
 
 impl PasswordHashPool {
+    /// Constructs a new instance.
     pub fn new(config: PasswordHashPoolConfig, argon2_config: Argon2Config) -> Self {
         let metrics_collector = MetricsCollector::new();
         Self::with_metrics(config, argon2_config, &metrics_collector)
     }
 
+    /// Returns a reference to the underlying semaphore.
     pub fn semaphore(&self) -> &Arc<Semaphore> {
         &self.semaphore
     }
 
+    /// Constructs a new instance with metrics collection enabled.
     pub fn with_metrics(
         config: PasswordHashPoolConfig,
         argon2_config: Argon2Config,
@@ -121,31 +142,38 @@ impl PasswordHashPool {
         }
     }
 
+    /// Initializes the global singleton instance.
     pub fn initialize_global(config: PasswordHashPoolConfig, argon2_config: Argon2Config) {
         let pool = Self::new(config, argon2_config);
         let _ = PASSWORD_HASH_POOL.set(pool);
     }
 
+    /// Returns a reference to the global instance if initialized.
     pub fn get_global() -> Option<&'static Self> {
         PASSWORD_HASH_POOL.get()
     }
 
+    /// Returns the global instance, initializing it with defaults if needed.
     pub fn get_or_init_default() -> &'static Self {
         PASSWORD_HASH_POOL.get_or_init(|| Self::new(runtime_pool_config(), Argon2Config::get_global()))
     }
 
+    /// Returns a reference to the metrics for this pool.
     pub fn metrics(&self) -> &PasswordHashMetrics {
         &self.metrics
     }
 
+    /// Returns the number of currently available permits.
     pub fn available_permits(&self) -> usize {
         self.semaphore.available_permits()
     }
 
+    /// Returns the maximum number of concurrent operations.
     pub fn max_concurrent(&self) -> usize {
         self.config.max_concurrent
     }
 
+    /// Hashes a password asynchronously.
     pub async fn hash_password(&self, password: &str) -> Result<String, PasswordHashError> {
         let start = Instant::now();
         self.metrics.active_operations.inc();
@@ -183,6 +211,7 @@ impl PasswordHashPool {
         Ok(result)
     }
 
+    /// Verifies a password against a hash asynchronously.
     pub async fn verify_password(&self, password: &str, hash: &str) -> Result<bool, PasswordHashError> {
         let start = Instant::now();
         self.metrics.active_operations.inc();
@@ -219,14 +248,17 @@ impl PasswordHashPool {
         Ok(result)
     }
 
+    /// Hashes a password, blocking the current thread.
     pub async fn hash_password_blocking(&self, password: &str) -> Result<String, PasswordHashError> {
         self.hash_password(password).await
     }
 
+    /// Verifies a password against a hash, blocking the current thread.
     pub async fn verify_password_blocking(&self, password: &str, hash: &str) -> Result<bool, PasswordHashError> {
         self.verify_password(password, hash).await
     }
 
+    /// Spawns a background task to hash the password.
     pub fn try_hash_password(&self, password: &str) -> Option<JoinHandle<Result<String, PasswordHashError>>> {
         if self.semaphore.available_permits() == 0 {
             self.metrics.rejected_operations.inc();
@@ -276,40 +308,51 @@ impl Clone for PasswordHashPool {
 }
 
 #[derive(Debug, thiserror::Error)]
+/// Represents PasswordHashError; see per-variant docs.
 pub enum PasswordHashError {
     #[error("Password hash pool exhausted, too many concurrent operations")]
+    /// `PoolExhausted` variant.
     PoolExhausted,
 
     #[error("Hash operation failed: {0}")]
+    /// `HashFailed` variant.
     HashFailed(String),
 
     #[error("Invalid hash format: {0}")]
+    /// `InvalidHashFormat` variant.
     InvalidHashFormat(String),
 
     #[error("Task join error: {0}")]
+    /// `TaskJoinError` variant.
     TaskJoinError(String),
 
     #[error("Operation timed out")]
+    /// `Timeout` variant.
     Timeout,
 
     #[error("Queue is full")]
+    /// `QueueFull` variant.
     QueueFull,
 }
 
+/// Hashes a password using the global pool.
 pub async fn hash_password_pooled(password: &str) -> Result<String, PasswordHashError> {
     let pool = PasswordHashPool::get_or_init_default();
     pool.hash_password(password).await
 }
 
+/// Verifies a password using the global pool.
 pub async fn verify_password_pooled(password: &str, hash: &str) -> Result<bool, PasswordHashError> {
     let pool = PasswordHashPool::get_or_init_default();
     pool.verify_password(password, hash).await
 }
 
+/// Returns the global pool metrics if initialized.
 pub fn get_pool_metrics() -> Option<&'static PasswordHashMetrics> {
     PasswordHashPool::get_global().map(|p| p.metrics())
 }
 
+/// Returns a snapshot of the global pool status.
 pub fn get_pool_status() -> PoolStatus {
     if let Some(pool) = PasswordHashPool::get_global() {
         PoolStatus {
@@ -323,9 +366,13 @@ pub fn get_pool_status() -> PoolStatus {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Represents PoolStatus.
 pub struct PoolStatus {
+    /// `available_permits` field.
     pub available_permits: usize,
+    /// `max_concurrent` field.
     pub max_concurrent: usize,
+    /// `active_operations` field.
     pub active_operations: usize,
 }
 

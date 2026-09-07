@@ -5,9 +5,11 @@ fn default_trusted_identity_servers() -> Vec<String> {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents IdentityConfig.
 pub struct IdentityConfig {
     /// 信任的 Identity Server 列表
     #[serde(default = "default_trusted_identity_servers")]
+    /// `trusted_servers` field.
     pub trusted_servers: Vec<String>,
 }
 

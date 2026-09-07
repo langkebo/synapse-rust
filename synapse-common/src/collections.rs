@@ -1,20 +1,26 @@
+//! Pre-sized HashMap/HashSet/Vec builders (HashMapBuilder/HashSetBuilder/VecBuilder).
+
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 
+/// Represents VecBuilder.
 pub struct VecBuilder<T> {
     capacity: usize,
     _phantom: PhantomData<T>,
 }
 
 impl<T> VecBuilder<T> {
+    /// Constructs a new instance.
     pub fn new(capacity: usize) -> Self {
         Self { capacity, _phantom: PhantomData }
     }
 
+    /// Builds the configured value.
     pub fn build(&self) -> Vec<T> {
         Vec::with_capacity(self.capacity)
     }
 
+    /// Constructs from iter.
     pub fn from_iter<I>(self, iter: I) -> Vec<T>
     where
         I: IntoIterator<Item = T>,
@@ -23,6 +29,7 @@ impl<T> VecBuilder<T> {
     }
 }
 
+/// Represents HashMapBuilder.
 pub struct HashMapBuilder<K, V> {
     capacity: usize,
     _phantom_key: PhantomData<K>,
@@ -30,14 +37,17 @@ pub struct HashMapBuilder<K, V> {
 }
 
 impl<K, V> HashMapBuilder<K, V> {
+    /// Constructs a new instance.
     pub fn new(capacity: usize) -> Self {
         Self { capacity, _phantom_key: PhantomData, _phantom_value: PhantomData }
     }
 
+    /// Builds the configured value.
     pub fn build(&self) -> HashMap<K, V> {
         HashMap::with_capacity(self.capacity)
     }
 
+    /// Constructs from iter.
     pub fn from_iter<I>(self, iter: I) -> HashMap<K, V>
     where
         K: Eq + std::hash::Hash,
@@ -47,16 +57,19 @@ impl<K, V> HashMapBuilder<K, V> {
     }
 }
 
+/// Represents HashSetBuilder.
 pub struct HashSetBuilder<T> {
     capacity: usize,
     _phantom: PhantomData<T>,
 }
 
 impl<T> HashSetBuilder<T> {
+    /// Constructs a new instance.
     pub fn new(capacity: usize) -> Self {
         Self { capacity, _phantom: PhantomData }
     }
 
+    /// Builds the configured value.
     pub fn build(&self) -> HashSet<T>
     where
         T: Eq + std::hash::Hash,
@@ -64,6 +77,7 @@ impl<T> HashSetBuilder<T> {
         HashSet::with_capacity(self.capacity)
     }
 
+    /// Constructs from iter.
     pub fn from_iter<I>(self, iter: I) -> HashSet<T>
     where
         T: Eq + std::hash::Hash,
@@ -73,14 +87,17 @@ impl<T> HashSetBuilder<T> {
     }
 }
 
+/// Vecs the with.
 pub fn vec_with_capacity<T>(capacity: usize) -> Vec<T> {
     Vec::with_capacity(capacity)
 }
 
+/// Hashmaps the with.
 pub fn hashmap_with_capacity<K, V>(capacity: usize) -> HashMap<K, V> {
     HashMap::with_capacity(capacity)
 }
 
+/// Hashsets the with.
 pub fn hashset_with_capacity<T>(capacity: usize) -> HashSet<T>
 where
     T: Eq + std::hash::Hash,

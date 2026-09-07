@@ -1,3 +1,5 @@
+//! Helpers for generating ephemeral federation keypairs in tests.
+
 #[cfg(any(test, feature = "test-utils"))]
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
 #[cfg(any(test, feature = "test-utils"))]
@@ -6,13 +8,18 @@ use ed25519_dalek::{Signer, SigningKey as DalekSigningKey, Verifier, VerifyingKe
 use rand::{Rng, RngCore};
 
 #[cfg(any(test, feature = "test-utils"))]
+/// Represents FederationTestKeypair.
 pub struct FederationTestKeypair {
+    /// `key_id` field.
     pub key_id: String,
+    /// `secret_key` field.
     pub secret_key: String,
+    /// `public_key` field.
     pub public_key: String,
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+/// Generates the federation.
 pub fn generate_federation_test_keypair() -> FederationTestKeypair {
     let mut rng = rand::rng();
     let mut secret_bytes = [0u8; 32];
@@ -29,6 +36,7 @@ pub fn generate_federation_test_keypair() -> FederationTestKeypair {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+/// Signs the federation.
 pub fn sign_federation_request(
     secret_key: &str,
     method: &str,
@@ -54,6 +62,7 @@ pub fn sign_federation_request(
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+/// verify federation signature.
 pub fn verify_federation_signature(
     public_key: &str,
     method: &str,

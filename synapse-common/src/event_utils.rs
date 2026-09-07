@@ -1,6 +1,9 @@
+//! Event → JSON conversion helpers (single, batch, with/without `age` field).
+
 use crate::event_models::RoomEvent;
 use serde_json::{json, Value};
 
+/// Events the to.
 pub fn event_to_json(event: &RoomEvent) -> Value {
     let age = crate::time::calculate_age(event.origin_server_ts);
 
@@ -23,10 +26,12 @@ pub fn event_to_json(event: &RoomEvent) -> Value {
     obj
 }
 
+/// Eventss the to.
 pub fn events_to_json(events: &[RoomEvent]) -> Vec<Value> {
     events.iter().map(event_to_json).collect()
 }
 
+/// Events the to.
 pub fn event_to_json_without_age(event: &RoomEvent) -> Value {
     let mut obj = json!({
         "type": event.event_type,
@@ -44,6 +49,7 @@ pub fn event_to_json_without_age(event: &RoomEvent) -> Value {
     obj
 }
 
+/// Eventss the to.
 pub fn events_to_json_without_age(events: &[RoomEvent]) -> Vec<Value> {
     events.iter().map(event_to_json_without_age).collect()
 }

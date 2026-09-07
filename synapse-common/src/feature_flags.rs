@@ -1,43 +1,61 @@
+//! Feature-flag service with default flag sets (DmFlags, RoomSummaryFlags, SpaceFlags, etc.).
+
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
+/// Represents FeatureFlags.
 pub struct FeatureFlags {
+    /// `room_summary` field.
     pub room_summary: RoomSummaryFlags,
+    /// `dm` field.
     pub dm: DmFlags,
+    /// `space` field.
     pub space: SpaceFlags,
+    /// `pushers` field.
     pub pushers: PusherFlags,
+    /// `verification` field.
     pub verification: VerificationFlags,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+/// Represents RoomSummaryFlags.
 pub struct RoomSummaryFlags {
     #[serde(default = "default_realtime_sync")]
+    /// `realtime_sync` field.
     pub realtime_sync: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+/// Represents DmFlags.
 pub struct DmFlags {
     #[serde(default = "default_stable_mode")]
+    /// `stable_mode` field.
     pub stable_mode: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+/// Represents SpaceFlags.
 pub struct SpaceFlags {
     #[serde(default = "default_max_depth")]
+    /// `max_depth` field.
     pub max_depth: i32,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
+/// Represents PusherFlags.
 pub struct PusherFlags {
     #[serde(default)]
+    /// `experimental` field.
     pub experimental: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
+/// Represents VerificationFlags.
 pub struct VerificationFlags {
     #[serde(default)]
+    /// `use_new_api` field.
     pub use_new_api: bool,
 }
 
@@ -72,40 +90,49 @@ impl Default for SpaceFlags {
 }
 
 #[derive(Clone)]
+/// Represents RuntimeFeatureFlagService.
 pub struct RuntimeFeatureFlagService {
     flags: Arc<RwLock<FeatureFlags>>,
 }
 
 impl RuntimeFeatureFlagService {
+    /// Constructs a new instance.
     pub fn new() -> Self {
         Self { flags: Arc::new(RwLock::new(FeatureFlags::default())) }
     }
 
+    /// Performs update.
     pub async fn update(&self, flags: FeatureFlags) {
         let mut current = self.flags.write().await;
         *current = flags;
     }
 
+    /// Returns the flags.
     pub async fn get_flags(&self) -> FeatureFlags {
         self.flags.read().await.clone()
     }
 
+    /// Returns true if room summary realtime sync enabled.
     pub async fn is_room_summary_realtime_sync_enabled(&self) -> bool {
         self.flags.read().await.room_summary.realtime_sync
     }
 
+    /// Returns true if dm stable mode enabled.
     pub async fn is_dm_stable_mode_enabled(&self) -> bool {
         self.flags.read().await.dm.stable_mode
     }
 
+    /// Returns the space max depth.
     pub async fn get_space_max_depth(&self) -> i32 {
         self.flags.read().await.space.max_depth
     }
 
+    /// Returns true if pusher experimental enabled.
     pub async fn is_pusher_experimental_enabled(&self) -> bool {
         self.flags.read().await.pushers.experimental
     }
 
+    /// Returns true if verification new api enabled.
     pub async fn is_verification_new_api_enabled(&self) -> bool {
         self.flags.read().await.verification.use_new_api
     }

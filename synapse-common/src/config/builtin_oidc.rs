@@ -5,31 +5,41 @@ use serde::Deserialize;
 ///
 /// 内置 OIDC Provider 配置
 #[derive(Debug, Clone, Deserialize)]
+/// Represents BuiltinOidcConfig.
 pub struct BuiltinOidcConfig {
     #[serde(default)]
+    /// `enabled` field.
     pub enabled: bool,
+    /// `issuer` field.
     pub issuer: String,
     #[serde(default = "default_builtin_oidc_client_id")]
+    /// `client_id` field.
     pub client_id: String,
     #[serde(default)]
+    /// `allow_redirect_uris` field.
     pub allow_redirect_uris: Vec<String>,
     #[serde(default)]
+    /// `allow_client_ids` field.
     pub allow_client_ids: Vec<String>,
     #[serde(default)]
+    /// `users` field.
     pub users: Vec<BuiltinOidcUser>,
     /// SEC-03: 是否允许用户使用明文密码登录。默认 false（生产拒绝），
     /// 仅开发/测试环境显式开启；开启后仍会打 warn 日志。
     #[serde(default)]
+    /// `allow_plaintext_passwords` field.
     pub allow_plaintext_passwords: bool,
     /// Persistence path for the built-in OIDC Provider's RSA signing key (PKCS#8 PEM).
     /// If empty, a temporary key is generated in-process; old tokens become invalid after process restart.
     #[serde(default)]
+    /// `signing_key_path` field.
     pub signing_key_path: Option<std::path::PathBuf>,
     /// Persistence path for the built-in OIDC Provider's P-256 EC signing key (PKCS#8 PEM)
     /// used to sign ES256 tokens (RFC 7518 §3.4).
     /// If empty, an ephemeral EC key is generated in-process (default for dev/test).
     /// Note: EC and RSA keys are independent — both are exposed in the JWKS endpoint.
     #[serde(default)]
+    /// `signing_key_ec_path` field.
     pub signing_key_ec_path: Option<std::path::PathBuf>,
 }
 
@@ -39,18 +49,25 @@ fn default_builtin_oidc_client_id() -> String {
 
 #[derive(Clone, Deserialize, Educe)]
 #[educe(Debug)]
+/// Represents BuiltinOidcUser.
 pub struct BuiltinOidcUser {
+    /// `id` field.
     pub id: String,
+    /// `username` field.
     pub username: String,
     /// Plaintext password (development/testing only). Use password_hash in production.
     #[serde(default)]
     #[educe(Debug(ignore))]
+    /// `password` field.
     pub password: Option<String>,
     /// Argon2 PHC string. Takes priority over password.
     #[serde(default)]
     #[educe(Debug(ignore))]
+    /// `password_hash` field.
     pub password_hash: Option<String>,
+    /// `email` field.
     pub email: String,
+    /// `displayname` field.
     pub displayname: Option<String>,
 }
 
@@ -71,6 +88,7 @@ impl Default for BuiltinOidcConfig {
 }
 
 impl BuiltinOidcConfig {
+    /// Returns true if this feature is enabled.
     pub fn is_enabled(&self) -> bool {
         self.enabled && !self.issuer.is_empty() && !self.users.is_empty()
     }

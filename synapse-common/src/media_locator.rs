@@ -1,3 +1,5 @@
+//! Media-server locator used to pick the closest replica for `mxc://` URLs.
+
 /// Unified parser for Matrix `mxc://` URIs.
 ///
 /// Matrix media is addressed via `mxc://server_name/media_id` URIs.
@@ -6,8 +8,11 @@
 /// voice_service, media_service, and oidc routes.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Represents MediaLocator.
 pub struct MediaLocator {
+    /// `server_name` field.
     pub server_name: String,
+    /// `media_id` field.
     pub media_id: String,
 }
 

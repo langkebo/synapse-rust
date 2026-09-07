@@ -1,3 +1,5 @@
+//! Security primitives: URL blacklist checks, constant-time comparison, replay-protection cache.
+
 use crate::current_timestamp_millis;
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
 use moka::sync::Cache;
@@ -8,9 +10,13 @@ const REPLAY_CACHE_SIZE: u64 = 10000;
 const REPLAY_PROTECTION_WINDOW_SECS: u64 = 300;
 
 #[derive(Debug, Clone)]
+/// Represents ReplayProtectionConfig.
 pub struct ReplayProtectionConfig {
+    /// `enabled` field.
     pub enabled: bool,
+    /// `cache_size` field.
     pub cache_size: u64,
+    /// `window_secs` field.
     pub window_secs: u64,
 }
 
@@ -20,12 +26,14 @@ impl Default for ReplayProtectionConfig {
     }
 }
 
+/// Represents ReplayProtectionCache.
 pub struct ReplayProtectionCache {
     cache: Cache<String, Instant>,
     config: ReplayProtectionConfig,
 }
 
 impl ReplayProtectionCache {
+    /// Constructs a new instance.
     pub fn new(config: ReplayProtectionConfig) -> Self {
         let cache = Cache::builder()
             .max_capacity(config.cache_size)
@@ -34,6 +42,7 @@ impl ReplayProtectionCache {
         Self { cache, config }
     }
 
+    /// Checks and record.
     pub fn check_and_record(&self, signature_hash: &str) -> bool {
         if !self.config.enabled {
             return true;
@@ -57,10 +66,12 @@ impl ReplayProtectionCache {
         true
     }
 
+    /// Cleanups the expired.
     pub fn cleanup_expired(&self) {
         self.cache.run_pending_tasks();
     }
 
+    /// Performs stats.
     pub fn stats(&self) -> ReplayProtectionStats {
         ReplayProtectionStats {
             total_entries: self.cache.entry_count() as usize,
@@ -70,11 +81,15 @@ impl ReplayProtectionCache {
 }
 
 #[derive(Debug, Clone)]
+/// Represents ReplayProtectionStats.
 pub struct ReplayProtectionStats {
+    /// `total_entries` field.
     pub total_entries: usize,
+    /// `capacity` field.
     pub capacity: usize,
 }
 
+/// Computes the signature.
 pub fn compute_signature_hash(origin: &str, key_id: &str, signature: &str, signed_bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(origin.as_bytes());
@@ -84,9 +99,11 @@ pub fn compute_signature_hash(origin: &str, key_id: &str, signature: &str, signe
     STANDARD_NO_PAD.encode(hasher.finalize())
 }
 
+/// Represents SecurityValidator.
 pub struct SecurityValidator;
 
 impl SecurityValidator {
+    /// Validates the jwt.
     pub fn validate_jwt_secret(secret: &str) -> Result<(), String> {
         if secret.is_empty() {
             return Err("JWT secret cannot be empty".to_string());
@@ -118,6 +135,7 @@ impl SecurityValidator {
         Ok(())
     }
 
+    /// Validates the federation.
     pub fn validate_federation_timestamp(signature_ts: i64, tolerance_ms: i64) -> Result<(), String> {
         let now = current_timestamp_millis();
         let diff = (signature_ts - now).abs();
@@ -152,6 +170,7 @@ impl SecurityValidator {
         entropy
     }
 
+    /// Validates the origin.
     pub fn validate_origin(origin: &str) -> Result<(), String> {
         if origin.is_empty() {
             return Err("Origin cannot be empty".to_string());
@@ -171,13 +190,16 @@ impl SecurityValidator {
     }
 }
 
+/// Represents ConstantTimeComparison.
 pub struct ConstantTimeComparison;
 
 impl ConstantTimeComparison {
+    /// Compares the bytes.
     pub fn compare_bytes(a: &[u8], b: &[u8]) -> bool {
         crate::crypto::secure_compare_bytes(a, b)
     }
 
+    /// Compares the strings.
     pub fn compare_strings(a: &str, b: &str) -> bool {
         crate::crypto::secure_compare(a, b)
     }
@@ -185,6 +207,7 @@ impl ConstantTimeComparison {
 
 use std::net::IpAddr;
 
+/// Returns true if ip in blacklist.
 pub fn is_ip_in_blacklist(ip: &IpAddr, blacklist: &[String]) -> bool {
     let ip_str = ip.to_string();
     for cidr in blacklist {
@@ -201,6 +224,7 @@ pub fn is_ip_in_blacklist(ip: &IpAddr, blacklist: &[String]) -> bool {
     false
 }
 
+/// Checks url against blacklist.
 pub fn check_url_against_blacklist(url: &str, blacklist: &[String]) -> Result<(), String> {
     check_url_and_resolve(url, blacklist).map(|_| ())
 }

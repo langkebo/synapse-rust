@@ -1,3 +1,5 @@
+//! Redis-backed task queue with worker pool and metrics.
+
 use super::background_job::BackgroundJob;
 use crate::current_timestamp_millis;
 use std::future::Future;
@@ -15,35 +17,47 @@ use tokio::task::JoinHandle;
 use tokio::sync::oneshot;
 
 #[derive(Debug, Error)]
+/// Represents TaskQueueError; see per-variant docs.
 pub enum TaskQueueError {
     #[error("Semaphore acquire failed: {0}")]
+    /// `SemaphoreAcquireError` variant.
     SemaphoreAcquireError(String),
     #[error("Channel closed")]
+    /// `ChannelClosed` variant.
     ChannelClosed,
     #[error("Task submission failed: {0}")]
+    /// `SubmissionError` variant.
     SubmissionError(String),
 }
 
 #[cfg(test)]
+/// Type alias for TaskId.
 pub type TaskId = u64;
 
 #[cfg(test)]
+/// Represents TaskResultValue.
 pub struct TaskResultValue {
+    /// `task_id` field.
     pub task_id: TaskId,
+    /// `success` field.
     pub success: bool,
+    /// `message` field.
     pub message: String,
 }
 
 // Legacy in-memory queue helpers are kept only for tests and local semantics
 // validation. Production background execution goes through RedisTaskQueue.
 #[cfg(test)]
+/// Represents TaskQueue.
 pub struct TaskQueue {
     sender: mpsc::Sender<Box<dyn TaskHandler>>,
     _handle: JoinHandle<()>,
 }
 
 #[cfg(test)]
+/// Trait for TaskHandler.
 pub trait TaskHandler: Send + 'static {
+    /// Executes the task, returning a `Pin<Box<dyn Future>>` of its result.
     fn execute(self: Box<Self>) -> Pin<Box<dyn Future<Output = TaskResultValue> + Send>>;
 }
 
@@ -60,6 +74,7 @@ where
 
 #[cfg(test)]
 impl TaskQueue {
+    /// Constructs a new instance.
     pub fn new(max_concurrent: usize) -> Self {
         let (sender, receiver) = mpsc::channel(1000);
         let handle = tokio::spawn(Self::worker(receiver, max_concurrent));
@@ -89,6 +104,7 @@ impl TaskQueue {
         }
     }
 
+    /// Performs submit.
     pub fn submit<F, Fut>(&self, task: F) -> Result<(), TaskQueueError>
     where
         F: FnOnce() -> Fut + Send + 'static,
@@ -97,6 +113,7 @@ impl TaskQueue {
         self.sender.try_send(Box::new(task)).map_err(|e| TaskQueueError::SubmissionError(e.to_string()))
     }
 
+    /// Submits the async.
     pub fn submit_async<F, Fut>(&self, task: F) -> Result<(), TaskQueueError>
     where
         F: FnOnce() -> Fut + Send + 'static,
@@ -105,6 +122,7 @@ impl TaskQueue {
         self.sender.try_send(Box::new(task)).map_err(|e| TaskQueueError::SubmissionError(e.to_string()))
     }
 
+    /// Submits the delayed.
     pub fn submit_delayed<F, Fut>(&self, task: F, delay: std::time::Duration) -> Result<(), TaskQueueError>
     where
         F: FnOnce() -> Fut + Send + 'static,
@@ -121,6 +139,7 @@ impl TaskQueue {
 }
 
 #[cfg(test)]
+/// Represents BackgroundTaskManager.
 pub struct BackgroundTaskManager {
     task_queue: TaskQueue,
     task_counter: std::sync::atomic::AtomicU64,
@@ -128,10 +147,12 @@ pub struct BackgroundTaskManager {
 
 #[cfg(test)]
 impl BackgroundTaskManager {
+    /// Constructs a new instance.
     pub fn new(max_concurrent: usize) -> Self {
         Self { task_queue: TaskQueue::new(max_concurrent), task_counter: std::sync::atomic::AtomicU64::new(0) }
     }
 
+    /// Submits the task.
     pub fn submit_task<F, Fut>(&self, name: String, task: F) -> Result<TaskId, TaskQueueError>
     where
         F: FnOnce() -> Fut + Send + 'static,
@@ -154,6 +175,7 @@ impl BackgroundTaskManager {
         Ok(task_id)
     }
 
+    /// Submits the async.
     pub fn submit_async_task<F, Fut>(&self, name: String, task: F) -> Result<TaskId, TaskQueueError>
     where
         F: FnOnce() -> Fut + Send + 'static,
@@ -179,6 +201,7 @@ impl BackgroundTaskManager {
         Ok(task_id)
     }
 
+    /// Submits the delayed.
     pub fn submit_delayed_task<F, Fut>(
         &self,
         name: String,
@@ -211,11 +234,13 @@ impl BackgroundTaskManager {
 use deadpool_redis::{Config, Pool, Runtime};
 use redis::AsyncCommands;
 
+/// Represents RedisTaskQueue.
 pub struct RedisTaskQueue {
     pool: Pool,
 }
 
 impl RedisTaskQueue {
+    /// Constructs a new instance.
     pub fn new(config: &crate::config::RedisConfig) -> Result<Self, TaskQueueError> {
         let conn_str = config.connection_url();
         let cfg = Config::from_url(conn_str);
@@ -226,10 +251,12 @@ impl RedisTaskQueue {
         Ok(Self { pool })
     }
 
+    /// Constructs from pool.
     pub fn from_pool(pool: Pool) -> Self {
         Self { pool }
     }
 
+    /// Performs submit.
     pub async fn submit(&self, job: BackgroundJob) -> Result<String, TaskQueueError> {
         let payload = serde_json::to_string(&job)
             .map_err(|e| TaskQueueError::SubmissionError(format!("Failed to serialize job: {e}")))?;
@@ -375,6 +402,7 @@ impl RedisTaskQueue {
 
         Ok(())
     }
+    /// Returns the metrics.
     pub async fn get_metrics(&self, group_name: &str) -> Result<QueueMetrics, TaskQueueError> {
         let mut conn = self
             .pool
@@ -417,9 +445,13 @@ impl RedisTaskQueue {
 }
 
 #[derive(Debug, serde::Serialize)]
+/// Represents QueueMetrics.
 pub struct QueueMetrics {
+    /// `queue_length` field.
     pub queue_length: u64,
+    /// `consumer_lag` field.
     pub consumer_lag: u64,
+    /// `consumers` field.
     pub consumers: Vec<(String, u64)>,
 }
 

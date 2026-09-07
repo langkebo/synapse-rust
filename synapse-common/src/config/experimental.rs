@@ -1,6 +1,7 @@
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
+/// Represents ExperimentalConfig.
 pub struct ExperimentalConfig {
     /// MSC4452: Preview URL capabilities API.
     ///
@@ -12,6 +13,7 @@ pub struct ExperimentalConfig {
     /// This is a capability-driven feature gate, as introduced in Synapse
     /// v1.154 (#19715).
     #[serde(default)]
+    /// `msc4452_enabled` field.
     pub msc4452_enabled: bool,
 
     /// Controls whether private `io.hula.*` extensions (friends,
@@ -22,6 +24,7 @@ pub struct ExperimentalConfig {
     /// capability declarations for features that have no corresponding UI in
     /// the default client. Defaults to `true` for backward compatibility.
     #[serde(default = "default_true")]
+    /// `declare_private_extensions` field.
     pub declare_private_extensions: bool,
 }
 
