@@ -21,7 +21,7 @@ use crate::room::summary::RoomSummaryService;
 /// Domain service for messaging operations — events, messages, receipts,
 /// read markers, burn-after-read, and federation broadcast.
 #[derive(Clone)]
-pub struct MessagingService {
+#[allow(dead_code)] pub struct MessagingService {
     pub(crate) event_reader: Arc<dyn EventReader>,
     pub(crate) event_writer: Arc<dyn EventWriter>,
     pub(crate) room_storage: Arc<dyn RoomStoreApi>,

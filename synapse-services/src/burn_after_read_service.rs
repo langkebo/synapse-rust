@@ -911,6 +911,9 @@ mod tests {
             created_ts: 100,
             delete_ts: 200,
             is_processed: false,
+            retry_count: 0,
+            last_error: None,
+            is_dead_letter: false,
         }]));
         let svc = make_service(store);
         let result = svc.get_pending_burns("@alice:ex.com", "!room:ex.com").await.unwrap();
@@ -989,6 +992,9 @@ mod tests {
                 created_ts: 100,
                 delete_ts: 200,
                 is_processed: false,
+                retry_count: 0,
+                last_error: None,
+                is_dead_letter: false,
             },
             BurnPendingRow {
                 id: 2,
@@ -998,6 +1004,9 @@ mod tests {
                 created_ts: 150,
                 delete_ts: 250,
                 is_processed: false,
+                retry_count: 0,
+                last_error: None,
+                is_dead_letter: false,
             },
         ]));
         let svc = make_service(store.clone());
@@ -1049,6 +1058,9 @@ mod tests {
             created_ts: 0,
             delete_ts: 0,
             is_processed: false,
+            retry_count: 0,
+            last_error: None,
+            is_dead_letter: false,
         }]));
         let svc = make_service(store.clone());
         svc.recover_pending_burns().await;
