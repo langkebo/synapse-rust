@@ -257,7 +257,7 @@
 | 优先级 | 问题 | 工作量 | 风险 | 建议行动 | 状态 |
 |---|---|---|---|---|---|
 | **P0-1** | L1 缓存全局排他锁（`deadlines` map） | 中 | 低 | 删除 `deadlines`，改用 moka 原生 `insert_with_ttl` | ✅ 2026-09-07 RwLock 化（moka 0.12.16 仍无 per-entry TTL） |
-| **P0-2** | 巨型文件拆分（`friend_room_service/mod.rs` 3022 行） | 大 | 中 | 提取生产逻辑/测试/bench 为独立模块 | 待办 |
+| **P0-2** | 巨型文件拆分（`friend_room_service/mod.rs` 3022 行） | 大 | 中 | 提取生产逻辑/测试/bench 为独立模块 | ✅ 2026-09-07 commit 0b92bc1c (tests.rs 1253 lines 提取) |
 | **P0-3** | `transaction.rs` 662 行单函数 | 中 | 低 | 拆为签名校验/持久化/广播子 async fn | 待办 |
 | **P1-1** | Federation `m.receipt` EDU 缺失 | 中 | 低 | 新增 EDU 变体 + 分发 + 出站触发 | ✅ 2026-09-07 commit a334d236 |
 | **P1-2** | E2EE 核心模块单元测试覆盖 | 大 | 低 | 按 `key_request → device_trust → secure_backup → ssss` 优先级补测 | 待办 |
