@@ -7,6 +7,7 @@ use synapse_storage::matrixrtc::{
     SessionWithMemberships,
 };
 
+/// The `RtcSessionService` struct.
 #[derive(Clone)]
 pub struct RtcSessionService {
     storage: MatrixRTCStorage,
@@ -14,10 +15,13 @@ pub struct RtcSessionService {
 }
 
 impl RtcSessionService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: MatrixRTCStorage, cache: Arc<CacheManager>) -> Self {
         Self { storage, cache }
     }
 
+    /// See [`create_session`].
     pub async fn create_session(
         &self,
         room_id: String,
@@ -43,6 +47,8 @@ impl RtcSessionService {
         Ok(session)
     }
 
+    /// See [`get_session`].
+    /// See [`get_session`].
     pub async fn get_session(&self, room_id: &str, session_id: &str) -> Result<Option<RTCSession>, ApiError> {
         let cache_key = format!("matrixrtc:session:{}:{}", room_id, session_id);
 
@@ -71,6 +77,8 @@ impl RtcSessionService {
         Ok(session)
     }
 
+    /// See [`get_active_sessions_for_room`].
+    /// See [`get_active_sessions_for_room`].
     pub async fn get_active_sessions_for_room(&self, room_id: &str) -> Result<Vec<RTCSession>, ApiError> {
         let cache_key = format!("matrixrtc:sessions:{}", room_id);
 
@@ -91,6 +99,8 @@ impl RtcSessionService {
         Ok(sessions)
     }
 
+    /// See [`end_session`].
+    /// See [`end_session`].
     pub async fn end_session(&self, room_id: &str, session_id: &str, user_id: &str) -> Result<(), ApiError> {
         let session = self.get_session(room_id, session_id).await?;
 
@@ -109,6 +119,7 @@ impl RtcSessionService {
         }
     }
 
+    /// See [`create_membership`].
     #[allow(clippy::too_many_arguments)]
     pub async fn create_membership(
         &self,
@@ -154,6 +165,7 @@ impl RtcSessionService {
         Ok(membership)
     }
 
+    /// See [`get_memberships_for_session`].
     pub async fn get_memberships_for_session(
         &self,
         room_id: &str,
@@ -184,6 +196,7 @@ impl RtcSessionService {
         Ok(memberships)
     }
 
+    /// See [`end_membership`].
     pub async fn end_membership(
         &self,
         room_id: &str,
@@ -201,6 +214,7 @@ impl RtcSessionService {
         Ok(())
     }
 
+    /// See [`get_session_with_memberships`].
     pub async fn get_session_with_memberships(
         &self,
         room_id: &str,
@@ -215,6 +229,7 @@ impl RtcSessionService {
         Ok(result)
     }
 
+    /// See [`store_encryption_key`].
     pub async fn store_encryption_key(
         &self,
         room_id: &str,
@@ -235,6 +250,7 @@ impl RtcSessionService {
         Ok(encryption_key)
     }
 
+    /// See [`get_encryption_keys`].
     pub async fn get_encryption_keys(
         &self,
         room_id: &str,
@@ -265,6 +281,8 @@ impl RtcSessionService {
         Ok(keys)
     }
 
+    /// See [`cleanup_expired_memberships`].
+    /// See [`cleanup_expired_memberships`].
     pub async fn cleanup_expired_memberships(&self) -> Result<u64, ApiError> {
         let count = self
             .storage
@@ -294,6 +312,7 @@ impl RtcSessionService {
     }
 }
 
+/// See [`to_matrix_event`].
 pub fn to_matrix_event(session: &RTCSession, memberships: &[RTCMembership]) -> serde_json::Value {
     serde_json::json!({
         "type": "org.matrix.msc3401.call",

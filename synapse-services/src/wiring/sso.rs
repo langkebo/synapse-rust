@@ -9,26 +9,38 @@ use std::sync::Arc;
 
 use synapse_common::config::Config;
 
+/// The `SsoServices` struct.
 #[derive(Clone)]
 pub struct SsoServices {
     #[cfg(feature = "saml-sso")]
+    /// The `saml_storage` field.
     pub saml_storage: Arc<dyn synapse_storage::saml::SamlStoreApi>,
     #[cfg(feature = "saml-sso")]
+    /// The `saml_service` field.
     pub saml_service: Arc<crate::saml_service::SamlService>,
     #[cfg(feature = "cas-sso")]
+    /// The `cas_storage` field.
     pub cas_storage: Arc<dyn synapse_storage::cas::CasStoreApi>,
     #[cfg(feature = "cas-sso")]
+    /// The `cas_service` field.
     pub cas_service: Arc<crate::cas_service::CasService>,
+    /// The `oidc_service` field.
     pub oidc_service: Option<Arc<crate::oidc_service::OidcService>>,
+    /// The `oidc_mapping_storage` field.
     pub oidc_mapping_storage: Arc<dyn synapse_storage::oidc_user_mapping::OidcUserMappingStoreApi>,
+    /// The `oidc_session_storage` field.
     pub oidc_session_storage: Arc<dyn synapse_storage::oidc_session_storage::OidcSessionStoreApi>,
     #[cfg(feature = "builtin-oidc")]
+    /// The `builtin_oidc_provider` field.
     pub builtin_oidc_provider: Option<Arc<crate::builtin_oidc_provider::BuiltinOidcProvider>>,
     #[cfg(not(feature = "builtin-oidc"))]
+    /// The `builtin_oidc_provider` field.
     pub builtin_oidc_provider: Option<()>,
 }
 
 impl SsoServices {
+    /// See [`new`].
+    /// See [`new`].
     pub async fn new(pool: &Arc<sqlx::PgPool>, config: &Config) -> Self {
         #[cfg(feature = "saml-sso")]
         let saml_storage: Arc<dyn synapse_storage::saml::SamlStoreApi> =

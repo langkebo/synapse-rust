@@ -1,3 +1,4 @@
+/// The `audit_service` module.
 pub mod audit_service;
 
 pub use audit_service::{

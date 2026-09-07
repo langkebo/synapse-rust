@@ -1,4 +1,6 @@
+/// The `models` module.
 pub mod models;
+/// The `tables` module.
 pub mod tables;
 pub use models::{initialize_database, DatabaseInitMode, DatabaseInitService, Environment, InitializationReport};
 
@@ -47,6 +49,8 @@ impl DatabaseInitService {
         }
     }
 
+    /// See [`with_mode`].
+    /// See [`with_mode`].
     pub fn with_mode(mut self, mode: DatabaseInitMode) -> Self {
         self.mode = mode;
         self

@@ -54,20 +54,35 @@ pub struct MembershipService {
 
 /// Configuration for constructing a [`MembershipService`].
 pub struct MembershipServiceConfig {
+    /// The `member_storage` field.
     pub member_storage: Arc<dyn MemberStoreApi>,
+    /// The `room_storage` field.
     pub room_storage: Arc<dyn RoomStoreApi>,
+    /// The `event_reader` field.
     pub event_reader: Arc<dyn synapse_storage::event::EventReader>,
+    /// The `event_writer` field.
     pub event_writer: Arc<dyn synapse_storage::event::EventWriter>,
+    /// The `user_storage` field.
     pub user_storage: Arc<dyn UserStore>,
+    /// The `user_service` field.
     pub user_service: Arc<UserService>,
+    /// The `room_auth` field.
     pub room_auth: Arc<dyn crate::auth::RoomAuth>,
+    /// The `server_name` field.
     pub server_name: String,
+    /// The `federation_client` field.
     pub federation_client: Option<Arc<dyn FederationClientApi>>,
+    /// The `key_rotation_manager` field.
     pub key_rotation_manager: Option<Arc<KeyRotationManager>>,
+    /// The `event_broadcaster` field.
     pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
+    /// The `room_summary_service` field.
     pub room_summary_service: Arc<RoomSummaryService>,
+    /// The `cache` field.
     pub cache: Arc<CacheManager>,
+    /// The `key_rotation_storage` field.
     pub key_rotation_storage: Option<Arc<dyn KeyRotationStorageApi>>,
+    /// The `app_service_manager` field.
     pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
     /// Optional DB pool for wrapping multi-event persistence in a single
     /// transaction (federation join state events, etc.).
@@ -75,6 +90,8 @@ pub struct MembershipServiceConfig {
 }
 
 impl MembershipService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: MembershipServiceConfig) -> Self {
         Self {
             member_storage: config.member_storage,

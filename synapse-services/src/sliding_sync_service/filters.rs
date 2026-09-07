@@ -7,6 +7,7 @@ use synapse_storage::sliding_sync::{
 use super::{RoomSubscriptionConfig, SlidingListRangeSnapshot, SlidingListWindowSnapshot, SlidingSyncService};
 
 impl SlidingSyncService {
+    /// See [`build_lists_response`].
     pub(super) async fn build_lists_response(
         &self,
         user_id: &str,
@@ -109,6 +110,7 @@ impl SlidingSyncService {
         ops
     }
 
+    /// See [`build_rooms_response`].
     pub(super) async fn build_rooms_response(
         &self,
         user_id: &str,
@@ -252,6 +254,8 @@ impl SlidingSyncService {
         Ok(room_json)
     }
 
+    /// See [`room_to_json`].
+    /// See [`room_to_json`].
     pub(super) fn room_to_json(room: &SlidingSyncRoom) -> Value {
         json!({
             "room_id": room.room_id,
@@ -267,6 +271,8 @@ impl SlidingSyncService {
         })
     }
 
+    /// See [`subscription_config_from_list`].
+    /// See [`subscription_config_from_list`].
     pub(crate) fn subscription_config_from_list(list_data: &SlidingSyncListData) -> RoomSubscriptionConfig {
         RoomSubscriptionConfig {
             timeline_limit: list_data.timeline_limit,
@@ -274,6 +280,8 @@ impl SlidingSyncService {
         }
     }
 
+    /// See [`subscription_config_from_value`].
+    /// See [`subscription_config_from_value`].
     pub(crate) fn subscription_config_from_value(value: Option<&serde_json::Value>) -> RoomSubscriptionConfig {
         let Some(value) = value else {
             return RoomSubscriptionConfig::default();
@@ -290,6 +298,8 @@ impl SlidingSyncService {
         RoomSubscriptionConfig { timeline_limit, required_state }
     }
 
+    /// See [`build_sync_ops`].
+    /// See [`build_sync_ops`].
     pub(super) fn build_sync_ops(ranges: &[SlidingListRangeSnapshot]) -> Vec<Value> {
         ranges
             .iter()
@@ -304,6 +314,7 @@ impl SlidingSyncService {
             .collect()
     }
 
+    /// See [`build_incremental_ops`].
     pub(super) fn build_incremental_ops(
         previous: &SlidingListWindowSnapshot,
         current: &[SlidingListRangeSnapshot],
@@ -405,6 +416,7 @@ impl SlidingSyncService {
         }
     }
 
+    /// See [`list_snapshot_cache_key`].
     pub(crate) fn list_snapshot_cache_key(
         user_id: &str,
         device_id: &str,

@@ -10,6 +10,7 @@ use synapse_common::{ApiError, ApiResult};
 use synapse_storage::CreateEventParams;
 
 impl LifecycleService {
+    /// See [`create_room_in_db`].
     pub(crate) async fn create_room_in_db(
         &self,
         room_id: &str,
@@ -28,6 +29,7 @@ impl LifecycleService {
         result.map(|_| ()).map_err(|e| ApiError::internal_with_context("Failed to create room", &e))
     }
 
+    /// See [`add_creator_to_room`].
     pub(crate) async fn add_creator_to_room(
         &self,
         room_id: &str,
@@ -42,6 +44,7 @@ impl LifecycleService {
         Ok(())
     }
 
+    /// See [`set_room_metadata`].
     #[allow(clippy::needless_option_as_deref)]
     pub(crate) async fn set_room_metadata(
         &self,

@@ -14,11 +14,17 @@ use synapse_storage::FakeUserStore;
 
 /// 测试 harness：持有 service 及各 mock 存储的句柄，便于测试直接操纵状态。
 pub(crate) struct TestAuthHarness {
+    /// The `service` field.
     pub service: AuthService,
+    /// The `user_store` field.
     pub user_store: FakeUserStore,
+    /// The `token_store` field.
     pub token_store: InMemoryAccessTokenStore,
+    /// The `member_store` field.
     pub member_store: InMemoryMemberStore,
+    /// The `event_store` field.
     pub event_store: InMemoryEventStore,
+    /// The `cache` field.
     pub cache: Arc<CacheManager>,
 }
 

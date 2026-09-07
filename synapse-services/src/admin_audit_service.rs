@@ -6,15 +6,20 @@ use tracing::{error, instrument};
 
 type AuditListResult = Result<(Vec<AuditEvent>, i64, Option<String>), ApiError>;
 
+/// The `AdminAuditService` struct.
 pub struct AdminAuditService {
     storage: Arc<dyn AuditEventStoreApi>,
 }
 
 impl AdminAuditService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn AuditEventStoreApi>) -> Self {
         Self { storage }
     }
 
+    /// See [`create_event`].
+    /// See [`create_event`].
     #[instrument(skip(self))]
     pub async fn create_event(&self, request: CreateAuditEventRequest) -> Result<AuditEvent, ApiError> {
         validate_request(&request)?;
@@ -28,6 +33,8 @@ impl AdminAuditService {
         })
     }
 
+    /// See [`get_event`].
+    /// See [`get_event`].
     #[instrument(skip(self))]
     pub async fn get_event(&self, event_id: &str) -> Result<Option<AuditEvent>, ApiError> {
         self.storage
@@ -36,6 +43,8 @@ impl AdminAuditService {
             .map_err(|error| ApiError::internal_with_context("Failed to load audit event", &error))
     }
 
+    /// See [`list_events`].
+    /// See [`list_events`].
     #[instrument(skip(self))]
     pub async fn list_events(&self, filters: AuditEventFilters) -> AuditListResult {
         self.storage

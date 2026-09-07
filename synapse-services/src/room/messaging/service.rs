@@ -47,25 +47,41 @@ pub struct MessagingService {
 
 /// Configuration for constructing a [`MessagingService`].
 pub struct MessagingServiceConfig {
+    /// The `event_reader` field.
     pub event_reader: Arc<dyn EventReader>,
+    /// The `event_writer` field.
     pub event_writer: Arc<dyn EventWriter>,
+    /// The `room_storage` field.
     pub room_storage: Arc<dyn RoomStoreApi>,
+    /// The `member_storage` field.
     pub member_storage: Arc<dyn MemberStoreApi>,
+    /// The `server_name` field.
     pub server_name: String,
     #[cfg(feature = "beacons")]
+    /// The `beacon_service` field.
     pub beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
     #[cfg(not(feature = "beacons"))]
+    /// The `beacon_service` field.
     pub beacon_service: Option<()>,
+    /// The `task_queue` field.
     pub task_queue: Option<Arc<RedisTaskQueue>>,
+    /// The `relations_storage` field.
     pub relations_storage: Arc<dyn RelationsStoreApi>,
+    /// The `event_broadcaster` field.
     pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
+    /// The `app_service_manager` field.
     pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
+    /// The `key_rotation_manager` field.
     pub key_rotation_manager: Option<Arc<synapse_federation::KeyRotationManager>>,
+    /// The `room_summary_service` field.
     pub room_summary_service: Arc<RoomSummaryService>,
+    /// The `cache` field.
     pub cache: Arc<CacheManager>,
 }
 
 impl MessagingService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: MessagingServiceConfig) -> Self {
         Self {
             event_reader: config.event_reader,

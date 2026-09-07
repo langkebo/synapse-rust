@@ -13,6 +13,7 @@ use tracing::instrument;
 
 type AccountDataWithTimestamp = (Value, Option<i64>);
 
+/// The `AccountDataService` struct.
 pub struct AccountDataService {
     cache: Arc<CacheManager>,
     account_data_storage: Arc<dyn AccountDataStoreApi>,
@@ -23,6 +24,7 @@ pub struct AccountDataService {
 }
 
 impl AccountDataService {
+    /// See [`new`].
     pub fn new(
         cache: Arc<CacheManager>,
         account_data_storage: Arc<dyn AccountDataStoreApi>,
@@ -41,6 +43,8 @@ impl AccountDataService {
         }
     }
 
+    /// See [`list_account_data`].
+    /// See [`list_account_data`].
     #[instrument(skip(self))]
     pub async fn list_account_data(&self, user_id: &str) -> Result<serde_json::Map<String, Value>, ApiError> {
         let result = self
@@ -51,6 +55,8 @@ impl AccountDataService {
         Ok(result.into_iter().map(|row| (row.data_type, row.content)).collect())
     }
 
+    /// See [`set_account_data`].
+    /// See [`set_account_data`].
     #[instrument(skip(self, body))]
     pub async fn set_account_data(&self, user_id: &str, data_type: &str, body: &Value) -> Result<(), ApiError> {
         validate_account_data_payload(data_type, body)?;
@@ -66,6 +72,8 @@ impl AccountDataService {
         Ok(())
     }
 
+    /// See [`get_account_data`].
+    /// See [`get_account_data`].
     #[instrument(skip(self))]
     pub async fn get_account_data(&self, user_id: &str, data_type: &str) -> Result<Option<Value>, ApiError> {
         self.user_storage
@@ -97,6 +105,8 @@ impl AccountDataService {
         Ok(ignored_users.keys().cloned().collect())
     }
 
+    /// See [`delete_account_data`].
+    /// See [`delete_account_data`].
     #[instrument(skip(self))]
     pub async fn delete_account_data(&self, user_id: &str, data_type: &str) -> Result<bool, ApiError> {
         let result = self
@@ -112,6 +122,7 @@ impl AccountDataService {
         Ok(result)
     }
 
+    /// See [`set_room_account_data`].
     #[instrument(skip(self, body))]
     pub async fn set_room_account_data(
         &self,
@@ -128,6 +139,7 @@ impl AccountDataService {
             .map_err(|e| ApiError::internal_with_context("Failed to save room account data", &e))
     }
 
+    /// See [`get_room_account_data`].
     #[instrument(skip(self))]
     pub async fn get_room_account_data(
         &self,
@@ -138,6 +150,7 @@ impl AccountDataService {
         self.room_account_data_storage.get_room_account_data_content(user_id, room_id, data_type).await
     }
 
+    /// See [`get_room_account_data_with_ts`].
     #[instrument(skip(self))]
     pub async fn get_room_account_data_with_ts(
         &self,
@@ -148,6 +161,7 @@ impl AccountDataService {
         self.room_account_data_storage.get_room_account_data_with_ts(user_id, room_id, data_type).await
     }
 
+    /// See [`delete_room_account_data`].
     #[instrument(skip(self))]
     pub async fn delete_room_account_data(
         &self,
@@ -158,6 +172,8 @@ impl AccountDataService {
         self.room_account_data_storage.delete_room_account_data(user_id, room_id, data_type).await
     }
 
+    /// See [`create_filter`].
+    /// See [`create_filter`].
     #[instrument(skip(self, content))]
     pub async fn create_filter(&self, user_id: &str, content: Value) -> Result<String, ApiError> {
         let filter_id = random_string(16);
@@ -167,16 +183,21 @@ impl AccountDataService {
         Ok(filter_id)
     }
 
+    /// See [`get_filter`].
+    /// See [`get_filter`].
     #[instrument(skip(self))]
     pub async fn get_filter(&self, user_id: &str, filter_id: &str) -> Result<Option<Value>, ApiError> {
         Ok(self.filter_storage.get_filter(user_id, filter_id).await?.map(|filter| filter.content))
     }
 
+    /// See [`delete_filter`].
+    /// See [`delete_filter`].
     #[instrument(skip(self))]
     pub async fn delete_filter(&self, user_id: &str, filter_id: &str) -> Result<bool, ApiError> {
         self.filter_storage.delete_filter(user_id, filter_id).await
     }
 
+    /// See [`create_openid_token`].
     #[instrument(skip(self))]
     pub async fn create_openid_token(
         &self,
@@ -198,6 +219,8 @@ impl AccountDataService {
         Ok((token, expires_in_seconds))
     }
 
+    /// See [`validate_openid_token`].
+    /// See [`validate_openid_token`].
     #[instrument(skip(self, token))]
     pub async fn validate_openid_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError> {
         self.openid_token_storage.validate_token(token).await

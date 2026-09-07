@@ -9,11 +9,14 @@ use synapse_storage::{
 };
 use tracing::{info, instrument, warn};
 
+/// The `DestinationCursor` struct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DestinationCursor {
+    /// The `server_name` field.
     pub server_name: String,
 }
 
+/// See [`decode_destination_cursor`].
 pub fn decode_destination_cursor(cursor: Option<&str>) -> Option<DestinationCursor> {
     let cursor = cursor?;
     let server_name = cursor.strip_prefix("v1|")?;
@@ -23,16 +26,21 @@ pub fn decode_destination_cursor(cursor: Option<&str>) -> Option<DestinationCurs
     Some(DestinationCursor { server_name: server_name.to_string() })
 }
 
+/// See [`encode_destination_cursor`].
 pub fn encode_destination_cursor(cursor: &DestinationCursor) -> String {
     format!("v1|{}", cursor.server_name)
 }
 
+/// The `PendingFederationCursor` struct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingFederationCursor {
+    /// The `updated_ts` field.
     pub updated_ts: i64,
+    /// The `server_name` field.
     pub server_name: String,
 }
 
+/// See [`decode_pending_federation_cursor`].
 pub fn decode_pending_federation_cursor(cursor: Option<&str>) -> Option<PendingFederationCursor> {
     let cursor = cursor?;
     let (updated_ts, server_name) = cursor.split_once('|')?;
@@ -43,56 +51,86 @@ pub fn decode_pending_federation_cursor(cursor: Option<&str>) -> Option<PendingF
     Some(PendingFederationCursor { updated_ts, server_name: server_name.to_string() })
 }
 
+/// See [`encode_pending_federation_cursor`].
 pub fn encode_pending_federation_cursor(cursor: &PendingFederationCursor) -> String {
     format!("{}|{}", cursor.updated_ts, cursor.server_name)
 }
 
+/// The `DestinationInfo` struct.
 #[derive(Debug, Clone, Serialize)]
 pub struct DestinationInfo {
+    /// The `destination` field.
     pub destination: Option<String>,
+    /// The `retry_last_ts` field.
     pub retry_last_ts: Option<i64>,
+    /// The `retry_interval` field.
     pub retry_interval: Option<i64>,
+    /// The `failure_ts` field.
     pub failure_ts: Option<i64>,
+    /// The `last_successful_ts` field.
     pub last_successful_ts: Option<i64>,
+    /// The `failure_count` field.
     pub failure_count: i32,
+    /// The `status` field.
     pub status: String,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
 }
 
+/// The `PendingFederationInfo` struct.
 #[derive(Debug, Clone, Serialize)]
 pub struct PendingFederationInfo {
+    /// The `server_name` field.
     pub server_name: String,
+    /// The `failure_count` field.
     pub failure_count: i32,
+    /// The `last_failed_connect_at` field.
     pub last_failed_connect_at: Option<i64>,
+    /// The `last_successful_connect_at` field.
     pub last_successful_connect_at: Option<i64>,
+    /// The `status` field.
     pub status: String,
+    /// The `updated_ts` field.
     pub updated_ts: Option<i64>,
 }
 
+/// The `FederationCacheEntry` struct.
 #[derive(Debug, Clone, Serialize)]
 pub struct FederationCacheEntry {
+    /// The `key` field.
     pub key: String,
+    /// The `value` field.
     pub value: Option<serde_json::Value>,
+    /// The `expiry_ts` field.
     pub expiry_ts: Option<i64>,
 }
 
+/// The `ResolveFederationResult` struct.
 #[derive(Debug, Clone, Serialize)]
 pub struct ResolveFederationResult {
+    /// The `resolved` field.
     pub resolved: bool,
+    /// The `blacklisted` field.
     pub blacklisted: bool,
+    /// The `in_destinations` field.
     pub in_destinations: bool,
 }
 
+/// The `ConfirmFederationResult` struct.
 #[derive(Debug, Clone, Serialize)]
 pub struct ConfirmFederationResult {
+    /// The `status` field.
     pub status: String,
+    /// The `previous_status` field.
     pub previous_status: String,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
 type DestinationListResult = Result<(Vec<DestinationInfo>, i64, Option<DestinationCursor>), ApiError>;
 type PendingFederationListResult = Result<(Vec<PendingFederationInfo>, i64, Option<PendingFederationCursor>), ApiError>;
 
+/// The `AdminFederationService` struct.
 pub struct AdminFederationService {
     storage: Arc<dyn AdminFederationStoreApi>,
     federation_blacklist_storage: Arc<dyn FederationBlacklistStoreApi>,
@@ -100,6 +138,7 @@ pub struct AdminFederationService {
 }
 
 impl AdminFederationService {
+    /// See [`new`].
     pub fn new(
         storage: Arc<dyn AdminFederationStoreApi>,
         federation_blacklist_storage: Arc<dyn FederationBlacklistStoreApi>,
@@ -108,6 +147,8 @@ impl AdminFederationService {
         Self { storage, federation_blacklist_storage, federation_blacklist_service }
     }
 
+    /// See [`list_destinations`].
+    /// See [`list_destinations`].
     #[instrument(skip(self))]
     pub async fn list_destinations(&self, limit: i32, cursor: Option<DestinationCursor>) -> DestinationListResult {
         let total = self
@@ -136,6 +177,8 @@ impl AdminFederationService {
         Ok((visible_rows.iter().map(map_destination_row).collect(), total, next_batch))
     }
 
+    /// See [`get_destination`].
+    /// See [`get_destination`].
     #[instrument(skip(self))]
     pub async fn get_destination(&self, destination: &str) -> Result<Option<DestinationInfo>, ApiError> {
         let destination = self
@@ -147,6 +190,8 @@ impl AdminFederationService {
         Ok(destination.as_ref().map(map_destination_row))
     }
 
+    /// See [`reset_connection`].
+    /// See [`reset_connection`].
     #[instrument(skip(self))]
     pub async fn reset_connection(&self, destination: &str) -> Result<(), ApiError> {
         let rows_affected = self
@@ -162,6 +207,8 @@ impl AdminFederationService {
         Ok(())
     }
 
+    /// See [`delete_destination`].
+    /// See [`delete_destination`].
     #[instrument(skip(self))]
     pub async fn delete_destination(&self, destination: &str) -> Result<(), ApiError> {
         let rows_affected = self
@@ -177,6 +224,8 @@ impl AdminFederationService {
         Ok(())
     }
 
+    /// See [`get_destination_rooms`].
+    /// See [`get_destination_rooms`].
     #[instrument(skip(self))]
     pub async fn get_destination_rooms(&self, destination: &str) -> Result<Vec<String>, ApiError> {
         let exists = self
@@ -195,6 +244,7 @@ impl AdminFederationService {
             .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
+    /// See [`rewrite_federation`].
     #[instrument(skip(self))]
     pub async fn rewrite_federation(
         &self,
@@ -226,6 +276,8 @@ impl AdminFederationService {
         Ok(room_count as usize)
     }
 
+    /// See [`resolve_federation`].
+    /// See [`resolve_federation`].
     #[instrument(skip(self))]
     pub async fn resolve_federation(&self, server_name: &str) -> Result<ResolveFederationResult, ApiError> {
         let blacklist = self.federation_blacklist_service.check_server(server_name).await?;
@@ -242,6 +294,7 @@ impl AdminFederationService {
         })
     }
 
+    /// See [`confirm_federation`].
     #[instrument(skip(self))]
     pub async fn confirm_federation(
         &self,
@@ -298,6 +351,7 @@ impl AdminFederationService {
         Ok(ConfirmFederationResult { status: new_status.to_string(), previous_status, updated_ts: now })
     }
 
+    /// See [`list_pending_federation`].
     #[instrument(skip(self))]
     pub async fn list_pending_federation(
         &self,
@@ -344,6 +398,8 @@ impl AdminFederationService {
         Ok((list, total, next_batch))
     }
 
+    /// See [`add_to_blacklist`].
+    /// See [`add_to_blacklist`].
     #[instrument(skip(self))]
     pub async fn add_to_blacklist(&self, server_name: &str, admin_user_id: &str) -> Result<(), ApiError> {
         let existing = self.federation_blacklist_storage.get_blacklist_entry(server_name).await?;
@@ -366,6 +422,8 @@ impl AdminFederationService {
         Ok(())
     }
 
+    /// See [`remove_from_blacklist`].
+    /// See [`remove_from_blacklist`].
     #[instrument(skip(self))]
     pub async fn remove_from_blacklist(&self, server_name: &str, admin_user_id: &str) -> Result<(), ApiError> {
         let existing = self.federation_blacklist_storage.get_blacklist_entry(server_name).await?;
@@ -376,6 +434,8 @@ impl AdminFederationService {
         self.federation_blacklist_service.remove_from_blacklist(server_name, admin_user_id).await
     }
 
+    /// See [`get_federation_cache`].
+    /// See [`get_federation_cache`].
     #[instrument(skip(self))]
     pub async fn get_federation_cache(&self) -> Result<Vec<FederationCacheEntry>, ApiError> {
         let cache = self
@@ -387,6 +447,8 @@ impl AdminFederationService {
         Ok(cache.iter().map(map_cache_entry).collect())
     }
 
+    /// See [`delete_federation_cache_entry`].
+    /// See [`delete_federation_cache_entry`].
     #[instrument(skip(self))]
     pub async fn delete_federation_cache_entry(&self, key: &str) -> Result<(), ApiError> {
         let rows_affected = self
@@ -402,6 +464,8 @@ impl AdminFederationService {
         Ok(())
     }
 
+    /// See [`clear_federation_cache`].
+    /// See [`clear_federation_cache`].
     #[instrument(skip(self))]
     pub async fn clear_federation_cache(&self) -> Result<u64, ApiError> {
         let rows_affected = self

@@ -4,71 +4,105 @@ use synapse_storage::widget::{CreateWidgetParams, Widget, WidgetPermission, Widg
 use tracing::info;
 use uuid::Uuid;
 
+/// The `CreateWidgetRequest` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CreateWidgetRequest {
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `widget_type` field.
     pub widget_type: String,
+    /// The `url` field.
     pub url: String,
+    /// The `name` field.
     pub name: String,
+    /// The `data` field.
     pub data: Option<serde_json::Value>,
 }
 
+/// The `UpdateWidgetRequest` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct UpdateWidgetRequest {
+    /// The `url` field.
     pub url: Option<String>,
+    /// The `name` field.
     pub name: Option<String>,
+    /// The `data` field.
     pub data: Option<serde_json::Value>,
 }
 
+/// The `SetPermissionRequest` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SetPermissionRequest {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `permissions` field.
     pub permissions: Vec<String>,
 }
 
+/// The `CreateSessionRequest` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CreateSessionRequest {
+    /// The `widget_id` field.
     pub widget_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `expires_in_ms` field.
     pub expires_in_ms: Option<i64>,
 }
 
+/// The `WidgetResponse` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WidgetResponse {
+    /// The `widget` field.
     pub widget: Widget,
 }
 
+/// The `WidgetListResponse` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WidgetListResponse {
+    /// The `widgets` field.
     pub widgets: Vec<Widget>,
+    /// The `total` field.
     pub total: usize,
 }
 
+/// The `PermissionResponse` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PermissionResponse {
+    /// The `permission` field.
     pub permission: WidgetPermission,
 }
 
+/// The `SessionResponse` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SessionResponse {
+    /// The `session` field.
     pub session: WidgetSession,
 }
 
+/// The `SessionListResponse` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SessionListResponse {
+    /// The `sessions` field.
     pub sessions: Vec<WidgetSession>,
+    /// The `total` field.
     pub total: usize,
 }
 
+/// The `WidgetService` struct.
 pub struct WidgetService {
     storage: Arc<dyn WidgetStoreApi>,
 }
 
 impl WidgetService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn WidgetStoreApi>) -> Self {
         Self { storage }
     }
 
+    /// See [`create_widget`].
+    /// See [`create_widget`].
     pub async fn create_widget(&self, user_id: &str, request: CreateWidgetRequest) -> Result<Widget, ApiError> {
         let widget_id = format!("widget_{}", Uuid::new_v4());
 
@@ -98,6 +132,8 @@ impl WidgetService {
         Ok(widget)
     }
 
+    /// See [`get_widget`].
+    /// See [`get_widget`].
     pub async fn get_widget(&self, widget_id: &str) -> Result<Option<Widget>, ApiError> {
         let widget = self
             .storage
@@ -108,6 +144,8 @@ impl WidgetService {
         Ok(widget)
     }
 
+    /// See [`get_room_widgets`].
+    /// See [`get_room_widgets`].
     pub async fn get_room_widgets(&self, room_id: &str) -> Result<Vec<Widget>, ApiError> {
         let widgets = self
             .storage
@@ -118,6 +156,8 @@ impl WidgetService {
         Ok(widgets)
     }
 
+    /// See [`get_user_widgets`].
+    /// See [`get_user_widgets`].
     pub async fn get_user_widgets(&self, user_id: &str) -> Result<Vec<Widget>, ApiError> {
         let widgets = self
             .storage
@@ -128,6 +168,7 @@ impl WidgetService {
         Ok(widgets)
     }
 
+    /// See [`update_widget`].
     pub async fn update_widget(
         &self,
         widget_id: &str,
@@ -146,6 +187,8 @@ impl WidgetService {
         Ok(widget)
     }
 
+    /// See [`delete_widget`].
+    /// See [`delete_widget`].
     pub async fn delete_widget(&self, widget_id: &str) -> Result<bool, ApiError> {
         let deleted = self
             .storage
@@ -160,6 +203,7 @@ impl WidgetService {
         Ok(deleted)
     }
 
+    /// See [`set_permission`].
     pub async fn set_permission(
         &self,
         widget_id: &str,
@@ -182,6 +226,8 @@ impl WidgetService {
         Ok(permission)
     }
 
+    /// See [`get_permissions`].
+    /// See [`get_permissions`].
     pub async fn get_permissions(&self, widget_id: &str) -> Result<Vec<WidgetPermission>, ApiError> {
         let permissions = self
             .storage
@@ -192,6 +238,7 @@ impl WidgetService {
         Ok(permissions)
     }
 
+    /// See [`get_user_permission`].
     pub async fn get_user_permission(
         &self,
         widget_id: &str,
@@ -206,6 +253,8 @@ impl WidgetService {
         Ok(permission)
     }
 
+    /// See [`delete_permission`].
+    /// See [`delete_permission`].
     pub async fn delete_permission(&self, widget_id: &str, user_id: &str) -> Result<bool, ApiError> {
         let deleted = self
             .storage
@@ -220,6 +269,7 @@ impl WidgetService {
         Ok(deleted)
     }
 
+    /// See [`create_session`].
     pub async fn create_session(
         &self,
         user_id: &str,
@@ -250,6 +300,8 @@ impl WidgetService {
         Ok(session)
     }
 
+    /// See [`get_session`].
+    /// See [`get_session`].
     pub async fn get_session(&self, session_id: &str) -> Result<Option<WidgetSession>, ApiError> {
         let session = self
             .storage
@@ -260,6 +312,8 @@ impl WidgetService {
         Ok(session)
     }
 
+    /// See [`update_session_activity`].
+    /// See [`update_session_activity`].
     pub async fn update_session_activity(&self, session_id: &str) -> Result<bool, ApiError> {
         let updated = self
             .storage
@@ -270,6 +324,8 @@ impl WidgetService {
         Ok(updated)
     }
 
+    /// See [`terminate_session`].
+    /// See [`terminate_session`].
     pub async fn terminate_session(&self, session_id: &str) -> Result<bool, ApiError> {
         let terminated = self
             .storage
@@ -284,6 +340,8 @@ impl WidgetService {
         Ok(terminated)
     }
 
+    /// See [`get_widget_sessions`].
+    /// See [`get_widget_sessions`].
     pub async fn get_widget_sessions(&self, widget_id: &str) -> Result<Vec<WidgetSession>, ApiError> {
         let sessions = self
             .storage
@@ -294,6 +352,8 @@ impl WidgetService {
         Ok(sessions)
     }
 
+    /// See [`cleanup_expired_sessions`].
+    /// See [`cleanup_expired_sessions`].
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
         let count = self
             .storage
@@ -308,6 +368,7 @@ impl WidgetService {
         Ok(count)
     }
 
+    /// See [`check_permission`].
     pub async fn check_permission(
         &self,
         widget_id: &str,

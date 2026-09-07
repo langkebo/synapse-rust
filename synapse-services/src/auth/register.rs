@@ -3,6 +3,7 @@ use synapse_common::*;
 use synapse_storage::User;
 
 impl AuthService {
+    /// See [`register`].
     pub async fn register(
         &self,
         username: &str,
@@ -29,6 +30,7 @@ impl AuthService {
         result
     }
 
+    /// See [`register_with_device_name`].
     pub async fn register_with_device_name(
         &self,
         username: &str,

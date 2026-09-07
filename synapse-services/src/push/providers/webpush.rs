@@ -6,14 +6,19 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tracing::{debug, error, info};
 
+/// The `WebPushProviderConfig` struct.
 #[derive(Debug, Clone)]
 pub struct WebPushProviderConfig {
+    /// The `vapid_public_key` field.
     pub vapid_public_key: String,
+    /// The `vapid_private_key` field.
     pub vapid_private_key: String,
+    /// The `subject` field.
     pub subject: String,
     /// Default gateway endpoint for WebPush relay service.
     /// Individual subscription endpoints take precedence at send time.
     pub gateway_endpoint: String,
+    /// The `timeout_secs` field.
     pub timeout_secs: u64,
 }
 
@@ -29,15 +34,21 @@ impl Default for WebPushProviderConfig {
     }
 }
 
+/// The `WebPushSubscription` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebPushSubscription {
+    /// The `endpoint` field.
     pub endpoint: String,
+    /// The `keys` field.
     pub keys: WebPushKeys,
 }
 
+/// The `WebPushKeys` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebPushKeys {
+    /// The `p256dh` field.
     pub p256dh: String,
+    /// The `auth` field.
     pub auth: String,
 }
 
@@ -55,6 +66,7 @@ struct VapidClaims {
     sub: String,
 }
 
+/// The `WebPushProvider` struct.
 #[derive(Debug)]
 pub struct WebPushProvider {
     config: WebPushProviderConfig,
@@ -63,6 +75,8 @@ pub struct WebPushProvider {
 }
 
 impl WebPushProvider {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: WebPushProviderConfig) -> Self {
         let enabled = !config.vapid_public_key.is_empty() && !config.vapid_private_key.is_empty();
 
@@ -75,6 +89,8 @@ impl WebPushProvider {
         Self { config, client, enabled }
     }
 
+    /// See [`with_vapid_keys`].
+    /// See [`with_vapid_keys`].
     pub fn with_vapid_keys(public_key: String, private_key: String) -> Self {
         let config = WebPushProviderConfig {
             vapid_public_key: public_key,
@@ -156,6 +172,8 @@ impl WebPushProvider {
         Err(format!("WebPush error: {status} - {body}"))
     }
 
+    /// See [`parse_subscription`].
+    /// See [`parse_subscription`].
     pub fn parse_subscription(&self, data: &str) -> Result<WebPushSubscription, String> {
         serde_json::from_str(data).map_err(|e| format!("Invalid subscription: {e}"))
     }

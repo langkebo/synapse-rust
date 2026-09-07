@@ -26,79 +26,130 @@ use synapse_common::error::ApiError;
 use tokio::sync::RwLock;
 use tracing::debug;
 
+/// The `OidcDiscoveryDocument` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcDiscoveryDocument {
+    /// The `issuer` field.
     pub issuer: String,
+    /// The `authorization_endpoint` field.
     pub authorization_endpoint: String,
+    /// The `token_endpoint` field.
     pub token_endpoint: String,
+    /// The `userinfo_endpoint` field.
     pub userinfo_endpoint: String,
+    /// The `jwks_uri` field.
     pub jwks_uri: String,
+    /// The `response_types_supported` field.
     pub response_types_supported: Vec<String>,
+    /// The `subject_types_supported` field.
     pub subject_types_supported: Vec<String>,
+    /// The `id_token_signing_alg_values_supported` field.
     pub id_token_signing_alg_values_supported: Vec<String>,
+    /// The `scopes_supported` field.
     pub scopes_supported: Option<Vec<String>>,
+    /// The `claims_supported` field.
     pub claims_supported: Option<Vec<String>>,
 }
 
+/// The `OidcTokenResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcTokenResponse {
+    /// The `access_token` field.
     pub access_token: String,
+    /// The `token_type` field.
     pub token_type: String,
+    /// The `expires_in` field.
     pub expires_in: Option<i64>,
+    /// The `refresh_token` field.
     pub refresh_token: Option<String>,
+    /// The `id_token` field.
     pub id_token: Option<String>,
+    /// The `scope` field.
     pub scope: Option<String>,
 }
 
+/// The `OidcUserInfo` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcUserInfo {
+    /// The `sub` field.
     pub sub: String,
+    /// The `name` field.
     pub name: Option<String>,
+    /// The `given_name` field.
     pub given_name: Option<String>,
+    /// The `family_name` field.
     pub family_name: Option<String>,
+    /// The `preferred_username` field.
     pub preferred_username: Option<String>,
+    /// The `email` field.
     pub email: Option<String>,
+    /// The `email_verified` field.
     pub email_verified: Option<bool>,
+    /// The `picture` field.
     pub picture: Option<String>,
+    /// The `locale` field.
     pub locale: Option<String>,
 }
 
+/// The `OidcAuthRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcAuthRequest {
+    /// The `url` field.
     pub url: String,
+    /// The `state` field.
     pub state: String,
+    /// The `nonce` field.
     pub nonce: String,
+    /// The `code_verifier` field.
     pub code_verifier: String,
 }
 
+/// The `OidcUser` struct.
 #[derive(Debug, Clone)]
 pub struct OidcUser {
+    /// The `subject` field.
     pub subject: String,
+    /// The `localpart` field.
     pub localpart: String,
+    /// The `displayname` field.
     pub displayname: Option<String>,
+    /// The `email` field.
     pub email: Option<String>,
 }
 
+/// The `OidcJwks` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcJwks {
+    /// The `keys` field.
     pub keys: Vec<OidcJwk>,
 }
 
+/// The `OidcJwk` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcJwk {
+    /// The `kty` field.
     pub kty: String,
     #[serde(rename = "use")]
+    /// The `use_` field.
     pub use_: Option<String>,
+    /// The `kid` field.
     pub kid: Option<String>,
+    /// The `alg` field.
     pub alg: Option<String>,
+    /// The `n` field.
     pub n: Option<String>,
+    /// The `e` field.
     pub e: Option<String>,
     #[serde(rename = "crv")]
+    /// The `crv` field.
     pub crv: Option<String>,
+    /// The `x` field.
     pub x: Option<String>,
+    /// The `y` field.
     pub y: Option<String>,
 }
 
+/// The `OidcService` struct.
 pub struct OidcService {
     config: Arc<OidcConfig>,
     http_client: reqwest::Client,
@@ -107,6 +158,8 @@ pub struct OidcService {
 }
 
 impl OidcService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: Arc<OidcConfig>) -> Self {
         let http_client =
             reqwest::Client::builder().timeout(Duration::from_secs(config.timeout)).build().unwrap_or_else(|e| {
@@ -118,6 +171,8 @@ impl OidcService {
         Self { config, http_client, discovery: RwLock::new(None), jwks: RwLock::new(None) }
     }
 
+    /// See [`is_enabled`].
+    /// See [`is_enabled`].
     pub fn is_enabled(&self) -> bool {
         self.config.is_enabled()
     }
@@ -215,6 +270,8 @@ impl OidcService {
         Ok(token_data.claims)
     }
 
+    /// See [`discover`].
+    /// See [`discover`].
     pub async fn discover(&self) -> Result<OidcDiscoveryDocument, ApiError> {
         {
             let read = self.discovery.read().await;
@@ -250,6 +307,7 @@ impl OidcService {
         Ok(discovery)
     }
 
+    /// See [`get_authorization_url`].
     pub async fn get_authorization_url(
         &self,
         state: &str,
@@ -330,6 +388,7 @@ impl OidcService {
         synapse_common::crypto::secure_compare(&computed, code_challenge)
     }
 
+    /// See [`exchange_code`].
     pub async fn exchange_code(
         &self,
         code: &str,
@@ -605,6 +664,8 @@ impl OidcService {
         Ok(())
     }
 
+    /// See [`refresh_token`].
+    /// See [`refresh_token`].
     pub async fn refresh_token(&self, refresh_token: &str) -> Result<OidcTokenResponse, ApiError> {
         let default_token = format!("{}/token", self.config.issuer);
         let token_endpoint = {
@@ -636,6 +697,8 @@ impl OidcService {
         response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse token response", &e))
     }
 
+    /// See [`get_user_info`].
+    /// See [`get_user_info`].
     pub async fn get_user_info(&self, access_token: &str) -> Result<OidcUserInfo, ApiError> {
         let default_userinfo = format!("{}/userinfo", self.config.issuer);
         let userinfo_endpoint = {
@@ -663,6 +726,8 @@ impl OidcService {
         response.json().await.map_err(|e| ApiError::internal_with_context("Failed to parse UserInfo", &e))
     }
 
+    /// See [`map_user`].
+    /// See [`map_user`].
     pub fn map_user(&self, user_info: &OidcUserInfo) -> OidcUser {
         let mapping = &self.config.attribute_mapping;
 
@@ -691,12 +756,16 @@ impl OidcService {
         }
     }
 
+    /// See [`generate_state`].
+    /// See [`generate_state`].
     pub fn generate_state() -> String {
         use rand::Rng;
         let mut rng = rand::rng();
         (0..32).map(|_| rng.sample(rand::distr::Alphanumeric) as char).collect()
     }
 
+    /// See [`get_config`].
+    /// See [`get_config`].
     pub fn get_config(&self) -> &OidcConfig {
         &self.config
     }

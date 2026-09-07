@@ -48,18 +48,31 @@ const HIGH_PENDING_EVENT_THRESHOLD: i64 = 50;
 /// Pending transaction count that marks a service as backlog-heavy.
 const HIGH_PENDING_TRANSACTION_THRESHOLD: i64 = 2;
 
+/// Constant `SCHEDULER_STATE_LAST_TICK_TS`.
 pub(crate) const SCHEDULER_STATE_LAST_TICK_TS: &str = "scheduler_last_tick_ts";
+/// Constant `SCHEDULER_STATE_LAST_RESULT`.
 pub(crate) const SCHEDULER_STATE_LAST_RESULT: &str = "scheduler_last_result";
+/// Constant `SCHEDULER_STATE_PENDING_EVENT_COUNT`.
 pub(crate) const SCHEDULER_STATE_PENDING_EVENT_COUNT: &str = "scheduler_pending_event_count";
+/// Constant `SCHEDULER_STATE_PENDING_TRANSACTION_COUNT`.
 pub(crate) const SCHEDULER_STATE_PENDING_TRANSACTION_COUNT: &str = "scheduler_pending_transaction_count";
+/// Constant `SCHEDULER_STATE_BACKLOG_STATE`.
 pub(crate) const SCHEDULER_STATE_BACKLOG_STATE: &str = "scheduler_backlog_state";
+/// Constant `SCHEDULER_STATE_TRANSACTION_STATE`.
 pub(crate) const SCHEDULER_STATE_TRANSACTION_STATE: &str = "scheduler_transaction_state";
+/// Constant `SCHEDULER_STATE_LAST_DISPATCHED_EVENTS`.
 pub(crate) const SCHEDULER_STATE_LAST_DISPATCHED_EVENTS: &str = "scheduler_last_dispatched_events";
+/// Constant `SCHEDULER_STATE_LAST_ELAPSED_MS`.
 pub(crate) const SCHEDULER_STATE_LAST_ELAPSED_MS: &str = "scheduler_last_elapsed_ms";
+/// Constant `SCHEDULER_STATE_TOTAL_SUCCESS_COUNT`.
 pub(crate) const SCHEDULER_STATE_TOTAL_SUCCESS_COUNT: &str = "scheduler_total_success_count";
+/// Constant `SCHEDULER_STATE_TOTAL_FAILURE_COUNT`.
 pub(crate) const SCHEDULER_STATE_TOTAL_FAILURE_COUNT: &str = "scheduler_total_failure_count";
+/// Constant `SCHEDULER_STATE_TOTAL_BACKOFF_COUNT`.
 pub(crate) const SCHEDULER_STATE_TOTAL_BACKOFF_COUNT: &str = "scheduler_total_backoff_count";
+/// Constant `SCHEDULER_STATE_TOTAL_CAPACITY_LIMITED_COUNT`.
 pub(crate) const SCHEDULER_STATE_TOTAL_CAPACITY_LIMITED_COUNT: &str = "scheduler_total_capacity_limited_count";
+/// Constant `SCHEDULER_STATE_TOTAL_IN_FLIGHT_COUNT`.
 pub(crate) const SCHEDULER_STATE_TOTAL_IN_FLIGHT_COUNT: &str = "scheduler_total_in_flight_count";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -345,6 +358,7 @@ impl ApplicationServiceScheduler {
         )
     }
 
+    /// See [`with_options`].
     pub fn with_options(
         manager: Arc<ApplicationServiceManager>,
         max_events_per_txn: usize,
@@ -360,6 +374,7 @@ impl ApplicationServiceScheduler {
         )
     }
 
+    /// See [`with_capacity_options`].
     pub fn with_capacity_options(
         manager: Arc<ApplicationServiceManager>,
         max_events_per_txn: usize,
@@ -436,6 +451,8 @@ impl ApplicationServiceScheduler {
         Some(handle)
     }
 
+    /// See [`run_once`].
+    /// See [`run_once`].
     pub async fn run_once(&self) -> Result<(), String> {
         self.tick().await
     }

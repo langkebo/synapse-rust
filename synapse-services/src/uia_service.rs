@@ -6,38 +6,56 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::ThreepidStoreApi;
 
+/// The `UiaSession` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UiaSession {
+    /// The `session_id` field.
     pub session_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `completed` field.
     pub completed: Vec<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `flows` field.
     pub flows: Vec<UiaFlow>,
 }
 
+/// The `UiaFlow` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UiaFlow {
+    /// The `stages` field.
     pub stages: Vec<String>,
 }
 
+/// The `UiaAuthResult` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UiaAuthResult {
+    /// The `session` field.
     pub session: Option<String>,
+    /// The `completed` field.
     pub completed: Vec<String>,
+    /// The `flows` field.
     pub flows: Vec<UiaFlow>,
+    /// The `params` field.
     pub params: Value,
 }
 
+/// The `UiaService` struct.
 pub struct UiaService {
     cache: Arc<CacheManager>,
     session_timeout_secs: i64,
 }
 
 impl UiaService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(cache: Arc<CacheManager>, session_timeout_secs: i64) -> Self {
         Self { cache, session_timeout_secs }
     }
 
+    /// See [`get_default_flows`].
+    /// See [`get_default_flows`].
     pub fn get_default_flows() -> Vec<UiaFlow> {
         vec![
             UiaFlow { stages: vec!["m.login.password".to_string()] },
@@ -46,6 +64,8 @@ impl UiaService {
         ]
     }
 
+    /// See [`get_password_change_flows`].
+    /// See [`get_password_change_flows`].
     pub fn get_password_change_flows() -> Vec<UiaFlow> {
         vec![
             UiaFlow { stages: vec!["m.login.password".to_string()] },
@@ -53,6 +73,8 @@ impl UiaService {
         ]
     }
 
+    /// See [`get_delete_device_flows`].
+    /// See [`get_delete_device_flows`].
     pub fn get_delete_device_flows() -> Vec<UiaFlow> {
         vec![
             UiaFlow { stages: vec!["m.login.password".to_string()] },
@@ -60,6 +82,8 @@ impl UiaService {
         ]
     }
 
+    /// See [`get_deactivate_account_flows`].
+    /// See [`get_deactivate_account_flows`].
     pub fn get_deactivate_account_flows() -> Vec<UiaFlow> {
         vec![
             UiaFlow { stages: vec!["m.login.password".to_string()] },
@@ -67,6 +91,8 @@ impl UiaService {
         ]
     }
 
+    /// See [`get_cross_signing_flows`].
+    /// See [`get_cross_signing_flows`].
     pub fn get_cross_signing_flows() -> Vec<UiaFlow> {
         vec![
             UiaFlow { stages: vec!["m.login.password".to_string()] },
@@ -74,6 +100,8 @@ impl UiaService {
         ]
     }
 
+    /// See [`create_session`].
+    /// See [`create_session`].
     pub async fn create_session(&self, user_id: &str, flows: Vec<UiaFlow>) -> UiaSession {
         let session_id = uuid::Uuid::new_v4().to_string();
         let session = UiaSession {
@@ -90,11 +118,15 @@ impl UiaService {
         session
     }
 
+    /// See [`get_session`].
+    /// See [`get_session`].
     pub async fn get_session(&self, session_id: &str) -> Option<UiaSession> {
         let key = format!("uia:session:{session_id}");
         self.cache.get(&key).await.ok().flatten()
     }
 
+    /// See [`complete_stage`].
+    /// See [`complete_stage`].
     pub async fn complete_stage(&self, session_id: &str, stage: &str) -> Option<UiaSession> {
         let key = format!("uia:session:{session_id}");
         let mut session: UiaSession = self.cache.get(&key).await.ok().flatten()?;
@@ -109,11 +141,15 @@ impl UiaService {
         Some(session)
     }
 
+    /// See [`remove_session`].
+    /// See [`remove_session`].
     pub async fn remove_session(&self, session_id: &str) {
         let key = format!("uia:session:{session_id}");
         self.cache.delete(&key).await;
     }
 
+    /// See [`is_session_complete`].
+    /// See [`is_session_complete`].
     pub fn is_session_complete(&self, session: &UiaSession) -> bool {
         for flow in &session.flows {
             if flow.stages.iter().all(|stage| session.completed.contains(stage)) {
@@ -123,6 +159,8 @@ impl UiaService {
         false
     }
 
+    /// See [`build_uia_response`].
+    /// See [`build_uia_response`].
     pub fn build_uia_response(&self, session: &UiaSession, errcode: &str, error: &str) -> Value {
         let flows: Vec<Value> = session.flows.iter().map(|f| json!({ "stages": f.stages })).collect();
 
@@ -153,6 +191,7 @@ impl UiaService {
         })
     }
 
+    /// See [`validate_auth`].
     pub async fn validate_auth(
         &self,
         auth: &Value,
@@ -241,6 +280,7 @@ impl UiaService {
         Err(self.build_uia_response(&session, "M_UIA_REQUIRED", "Additional authentication stages required"))
     }
 
+    /// See [`verify_password_stage`].
     pub async fn verify_password_stage(
         &self,
         auth: &Value,
@@ -451,6 +491,8 @@ impl UiaService {
         Ok(())
     }
 
+    /// See [`cleanup_expired_sessions`].
+    /// See [`cleanup_expired_sessions`].
     pub fn cleanup_expired_sessions(&self) -> Result<(), String> {
         Ok(())
     }

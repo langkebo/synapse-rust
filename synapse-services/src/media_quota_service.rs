@@ -3,15 +3,20 @@ use synapse_common::ApiError;
 use synapse_storage::media_quota::*;
 use tracing::{info, instrument};
 
+/// The `MediaQuotaService` struct.
 pub struct MediaQuotaService {
     storage: Arc<dyn MediaQuotaStoreApi>,
 }
 
 impl MediaQuotaService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn MediaQuotaStoreApi>) -> Self {
         Self { storage }
     }
 
+    /// See [`check_upload_quota`].
+    /// See [`check_upload_quota`].
     #[instrument(skip(self))]
     pub async fn check_upload_quota(&self, user_id: &str, file_size: i64) -> Result<QuotaCheckResult, ApiError> {
         info!(user_id = %user_id, file_size, "Checking upload quota");
@@ -64,6 +69,7 @@ impl MediaQuotaService {
         Ok(result)
     }
 
+    /// See [`record_upload`].
     #[instrument(skip(self))]
     pub async fn record_upload(
         &self,
@@ -91,6 +97,8 @@ impl MediaQuotaService {
             .await
     }
 
+    /// See [`record_delete`].
+    /// See [`record_delete`].
     #[instrument(skip(self))]
     pub async fn record_delete(&self, user_id: &str, media_id: &str, file_size: i64) -> Result<(), ApiError> {
         info!(user_id = %user_id, media_id = %media_id, file_size, "Recording media delete");
@@ -106,6 +114,8 @@ impl MediaQuotaService {
             .await
     }
 
+    /// See [`get_user_quota`].
+    /// See [`get_user_quota`].
     #[instrument(skip(self))]
     pub async fn get_user_quota(&self, user_id: &str) -> Result<UserQuotaInfo, ApiError> {
         let user_quota = self.storage.get_or_create_user_quota(user_id).await?;
@@ -136,6 +146,8 @@ impl MediaQuotaService {
         })
     }
 
+    /// See [`set_user_quota`].
+    /// See [`set_user_quota`].
     #[instrument(skip(self))]
     pub async fn set_user_quota(&self, request: SetUserQuotaRequest) -> Result<UserMediaQuota, ApiError> {
         info!(
@@ -149,6 +161,8 @@ impl MediaQuotaService {
         self.storage.set_user_quota(request).await
     }
 
+    /// See [`create_quota_config`].
+    /// See [`create_quota_config`].
     #[instrument(skip(self))]
     pub async fn create_quota_config(&self, request: CreateQuotaConfigRequest) -> Result<MediaQuotaConfig, ApiError> {
         info!(
@@ -162,22 +176,29 @@ impl MediaQuotaService {
         self.storage.create_config(request).await
     }
 
+    /// See [`list_quota_configs`].
+    /// See [`list_quota_configs`].
     #[instrument(skip(self))]
     pub async fn list_quota_configs(&self) -> Result<Vec<MediaQuotaConfig>, ApiError> {
         self.storage.list_configs().await
     }
 
+    /// See [`delete_quota_config`].
+    /// See [`delete_quota_config`].
     #[instrument(skip(self))]
     pub async fn delete_quota_config(&self, config_id: i64) -> Result<bool, ApiError> {
         info!(config_id, "Deleting quota config");
         self.storage.delete_config(config_id).await
     }
 
+    /// See [`get_server_quota`].
+    /// See [`get_server_quota`].
     #[instrument(skip(self))]
     pub async fn get_server_quota(&self) -> Result<ServerMediaQuota, ApiError> {
         self.storage.get_server_quota().await
     }
 
+    /// See [`update_server_quota`].
     #[instrument(skip(self))]
     pub async fn update_server_quota(
         &self,
@@ -198,29 +219,42 @@ impl MediaQuotaService {
             .await
     }
 
+    /// See [`get_user_alerts`].
+    /// See [`get_user_alerts`].
     #[instrument(skip(self))]
     pub async fn get_user_alerts(&self, user_id: &str, unread_only: bool) -> Result<Vec<MediaQuotaAlert>, ApiError> {
         self.storage.get_user_alerts(user_id, unread_only).await
     }
 
+    /// See [`mark_alert_read`].
+    /// See [`mark_alert_read`].
     #[instrument(skip(self))]
     pub async fn mark_alert_read(&self, alert_id: i64) -> Result<bool, ApiError> {
         self.storage.mark_alert_read(alert_id).await
     }
 
+    /// See [`get_usage_stats`].
+    /// See [`get_usage_stats`].
     #[instrument(skip(self))]
     pub async fn get_usage_stats(&self, user_id: &str) -> Result<serde_json::Value, ApiError> {
         self.storage.get_usage_stats(user_id).await
     }
 }
 
+/// The `UserQuotaInfo` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserQuotaInfo {
+    /// The `current_storage_bytes` field.
     pub current_storage_bytes: i64,
+    /// The `current_files_count` field.
     pub current_files_count: i32,
+    /// The `max_storage_bytes` field.
     pub max_storage_bytes: i64,
+    /// The `max_file_size_bytes` field.
     pub max_file_size_bytes: i64,
+    /// The `max_files_count` field.
     pub max_files_count: i32,
+    /// The `usage_percent` field.
     pub usage_percent: f64,
 }
 

@@ -5,72 +5,112 @@ use synapse_common::error::ApiError;
 use synapse_storage::relations::{EventRelation, RelationQueryParams, RelationsStoreApi};
 use tracing::{debug, info, warn};
 
+/// The `SendAnnotationRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendAnnotationRequest {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `relates_to_event_id` field.
     pub relates_to_event_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `key` field.
     pub key: String,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
 }
 
+/// The `SendReferenceRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendReferenceRequest {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `relates_to_event_id` field.
     pub relates_to_event_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `content` field.
     pub content: Value,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
+    /// The `relation_type` field.
     pub relation_type: Option<String>,
 }
 
+/// The `SendReplacementRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendReplacementRequest {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `relates_to_event_id` field.
     pub relates_to_event_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `new_content` field.
     pub new_content: Value,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
 }
 
+/// The `RelationsResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelationsResponse {
+    /// The `chunk` field.
     pub chunk: Vec<Value>,
+    /// The `next_batch` field.
     pub next_batch: Option<String>,
+    /// The `prev_batch` field.
     pub prev_batch: Option<String>,
     /// 规范未强制，但 SDK `getRelationCount` 依赖此字段；缺省时 SDK 永远读到 0。
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `total` field.
     pub total: Option<i64>,
 }
 
+/// The `AggregationResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AggregationResponse {
+    /// The `chunk` field.
     pub chunk: Vec<AggregationItem>,
 }
 
+/// The `AggregationItem` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AggregationItem {
     #[serde(rename = "type")]
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `key` field.
     pub key: Option<String>,
+    /// The `count` field.
     pub count: i64,
+    /// The `sender` field.
     pub sender: Option<String>,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: Option<i64>,
 }
 
+/// The `RelationSendResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelationSendResponse {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `relates_to` field.
     pub relates_to: RelationTarget,
 }
 
+/// The `RelationTarget` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelationTarget {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `rel_type` field.
     pub rel_type: String,
 }
 
+/// The `RelationsService` struct.
 #[derive(Clone)]
 pub struct RelationsService {
     storage: Arc<dyn RelationsStoreApi>,
@@ -78,10 +118,14 @@ pub struct RelationsService {
 }
 
 impl RelationsService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn RelationsStoreApi>, server_name: String) -> Self {
         Self { storage, server_name }
     }
 
+    /// See [`send_annotation`].
+    /// See [`send_annotation`].
     pub async fn send_annotation(&self, request: SendAnnotationRequest) -> Result<EventRelation, ApiError> {
         info!(
             room_id = %request.room_id,
@@ -117,6 +161,8 @@ impl RelationsService {
             .map_err(|e| ApiError::internal_with_context("Failed to create annotation", &e))
     }
 
+    /// See [`send_reference`].
+    /// See [`send_reference`].
     pub async fn send_reference(&self, request: SendReferenceRequest) -> Result<EventRelation, ApiError> {
         info!(
             room_id = %request.room_id,
@@ -163,6 +209,8 @@ impl RelationsService {
             .map_err(|e| ApiError::internal_with_context("Failed to create reference", &e))
     }
 
+    /// See [`send_replacement`].
+    /// See [`send_replacement`].
     pub async fn send_replacement(&self, request: SendReplacementRequest) -> Result<EventRelation, ApiError> {
         info!(
             room_id = %request.room_id,
@@ -214,6 +262,7 @@ impl RelationsService {
             .map_err(|e| ApiError::internal_with_context("Failed to create replacement", &e))
     }
 
+    /// See [`get_relations`].
     pub async fn get_relations(
         &self,
         room_id: &str,
@@ -267,6 +316,7 @@ impl RelationsService {
         Ok(RelationsResponse { chunk, next_batch: None, prev_batch: None, total: Some(total) })
     }
 
+    /// See [`get_aggregations`].
     pub async fn get_aggregations(
         &self,
         room_id: &str,
@@ -298,6 +348,8 @@ impl RelationsService {
         Ok(AggregationResponse { chunk })
     }
 
+    /// See [`redact_relation`].
+    /// See [`redact_relation`].
     pub async fn redact_relation(&self, room_id: &str, event_id: &str, sender: &str) -> Result<(), ApiError> {
         let relation = self
             .storage
@@ -319,6 +371,7 @@ impl RelationsService {
         Ok(())
     }
 
+    /// See [`annotation_exists`].
     pub async fn annotation_exists(
         &self,
         room_id: &str,

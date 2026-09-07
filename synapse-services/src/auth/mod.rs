@@ -1,18 +1,25 @@
 mod account;
+/// The `credential_auth` module.
 pub mod credential_auth;
 mod login;
+/// The `mas_rest_client` module.
 pub mod mas_rest_client;
+/// The `mas_validator` module.
 pub mod mas_validator;
+/// The `password_policy` module.
 pub mod password_policy;
 mod power_levels;
 mod register;
+/// The `room_auth` module.
 pub mod room_auth;
 mod session;
+/// The `test_harness` module.
 #[cfg(test)]
 pub(crate) mod test_harness;
 #[cfg(test)]
 mod tests;
 mod token;
+/// The `token_auth` module.
 pub mod token_auth;
 
 use rand::RngCore;
@@ -43,28 +50,50 @@ const ADMIN_CACHE_TTL_SECS: u64 = 60;
 const REVOCATION_CHECK_CACHE_TTL_SECS: u64 = 30;
 const DEFAULT_POWER_LEVEL: i64 = 50;
 
+/// The `AuthService` struct.
 #[derive(Clone)]
 pub struct AuthService {
+    /// The `user_storage` field.
     pub user_storage: Arc<dyn UserStore>,
+    /// The `user_service` field.
     pub user_service: Arc<UserService>,
+    /// The `device_storage` field.
     pub device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
+    /// The `token_storage` field.
     pub token_storage: Arc<dyn AccessTokenStoreApi>,
+    /// The `refresh_token_storage` field.
     pub refresh_token_storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi>,
+    /// The `room_storage` field.
     pub room_storage: RoomStorage,
+    /// The `member_storage` field.
     pub member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
+    /// The `event_reader` field.
     pub event_reader: Arc<dyn synapse_storage::event::EventReader>,
+    /// The `cache` field.
     pub cache: Arc<CacheManager>,
+    /// The `metrics` field.
     pub metrics: Arc<MetricsCollector>,
+    /// The `validator` field.
     pub validator: Arc<Validator>,
+    /// The `jwt_secret` field.
     pub jwt_secret: Vec<u8>,
+    /// The `token_expiry` field.
     pub token_expiry: i64,
+    /// The `refresh_token_expiry` field.
     pub refresh_token_expiry: i64,
+    /// The `server_name` field.
     pub server_name: String,
+    /// The `argon2_m_cost` field.
     pub argon2_m_cost: u32,
+    /// The `argon2_t_cost` field.
     pub argon2_t_cost: u32,
+    /// The `argon2_p_cost` field.
     pub argon2_p_cost: u32,
+    /// The `allow_legacy_hashes` field.
     pub allow_legacy_hashes: bool,
+    /// The `login_failure_lockout_threshold` field.
     pub login_failure_lockout_threshold: u32,
+    /// The `login_lockout_duration_seconds` field.
     pub login_lockout_duration_seconds: u64,
     /// MSC3861: Optional MAS token validator. When set (MAS deployed),
     /// `validate_token` first tries the MAS path for RS256/ES256/EdDSA
@@ -80,6 +109,7 @@ pub struct AuthService {
 }
 
 impl AuthService {
+    /// See [`new`].
     pub fn new(
         pool: &Arc<sqlx::PgPool>,
         cache: Arc<CacheManager>,
@@ -110,6 +140,7 @@ impl AuthService {
         )
     }
 
+    /// See [`new_with_lifetime`].
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_lifetime(
         pool: &Arc<sqlx::PgPool>,

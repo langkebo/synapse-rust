@@ -68,6 +68,7 @@ fn account_data_map_to_events(map: serde_json::Value) -> Vec<serde_json::Value> 
 }
 
 impl SlidingSyncService {
+    /// See [`build_extensions_response`].
     pub(super) async fn build_extensions_response(
         &self,
         user_id: &str,
@@ -397,6 +398,8 @@ impl SlidingSyncService {
         }))
     }
 
+    /// See [`e2ee_device_list_stream_cache_key`].
+    /// See [`e2ee_device_list_stream_cache_key`].
     pub(crate) fn e2ee_device_list_stream_cache_key(user_id: &str, device_id: &str, conn_id: Option<&str>) -> String {
         match conn_id {
             Some(conn_id) => format!("sliding_sync:e2ee:{user_id}:{device_id}:{conn_id}"),
@@ -404,6 +407,8 @@ impl SlidingSyncService {
         }
     }
 
+    /// See [`e2ee_shared_users_cache_key`].
+    /// See [`e2ee_shared_users_cache_key`].
     pub(crate) fn e2ee_shared_users_cache_key(user_id: &str, device_id: &str, conn_id: Option<&str>) -> String {
         match conn_id {
             Some(conn_id) => format!("sliding_sync:e2ee:shared_users:{user_id}:{device_id}:{conn_id}"),
@@ -476,6 +481,8 @@ impl SlidingSyncService {
             .unwrap_or_default()
     }
 
+    /// See [`compute_left_shared_users`].
+    /// See [`compute_left_shared_users`].
     pub(crate) fn compute_left_shared_users(previous: &[String], current: &[String]) -> Vec<String> {
         let previous: BTreeSet<&str> = previous.iter().map(String::as_str).collect();
         let current: BTreeSet<&str> = current.iter().map(String::as_str).collect();

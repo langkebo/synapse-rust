@@ -19,29 +19,48 @@ use crate::auth::{CredentialAuth, RoomAuth, TokenAuth};
 use crate::container::SharedInfra;
 use crate::UserService;
 
+/// The `CoreServices` struct.
 #[derive(Clone)]
 pub struct CoreServices {
+    /// The `token_auth` field.
     pub token_auth: Arc<dyn TokenAuth>,
+    /// The `credential_auth` field.
     pub credential_auth: Arc<dyn CredentialAuth>,
+    /// The `room_auth` field.
     pub room_auth: Arc<dyn RoomAuth>,
+    /// The `registration_service` field.
     pub registration_service: Arc<crate::registration_service::RegistrationService>,
+    /// The `search_service` field.
     pub search_service: Arc<crate::search_service::SearchService>,
+    /// The `media_service` field.
     pub media_service: crate::media_service::MediaService,
+    /// The `cache` field.
     pub cache: Arc<CacheManager>,
+    /// The `metrics` field.
     pub metrics: Arc<MetricsCollector>,
+    /// The `server_metrics` field.
     pub server_metrics: Arc<ServerMetrics>,
+    /// The `server_name` field.
     pub server_name: String,
     // `config` 必须是 Arc：RoomContext/其它 Context 的 `FromRef<AppState>` 每次请求
     // 都会执行 `state.services.core.config.clone()`。若这里是裸值 Config（30+ 子结构，
     // 大量 Vec/HashMap），每次请求深拷贝整份配置 → 高分配 churn + 操作驱动的内存累积
     // （jemalloc prof 实测 8h 净增长 ~290MB，主因即此）。改 Arc 后 clone 仅引用计数 +1。
+    /// The `config` field.
     pub config: Arc<Config>,
+    /// The `validator` field.
     pub validator: Arc<synapse_common::validation::Validator>,
+    /// The `key_rotation_storage` field.
     pub key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage,
+    /// The `event_broadcaster` field.
     pub event_broadcaster: Arc<EventBroadcaster>,
+    /// The `event_notifier` field.
     pub event_notifier: crate::event_notifier::EventNotifier,
+    /// The `account_data_service` field.
     pub account_data_service: Arc<crate::account_data_service::AccountDataService>,
+    /// The `client_push_service` field.
     pub client_push_service: Arc<crate::client_push_service::ClientPushService>,
+    /// The `user_service` field.
     pub user_service: Arc<UserService>,
 }
 
@@ -63,6 +82,7 @@ impl CoreServices {
         )
     }
 
+    /// See [`new`].
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         infra: &SharedInfra,

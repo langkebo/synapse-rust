@@ -5,39 +5,56 @@ use synapse_common::RegexCache;
 use synapse_storage::federation_blacklist::*;
 use tracing::info;
 
+/// The `FederationBlacklistService` struct.
 #[derive(Debug, Clone)]
 pub struct FederationBlacklistService {
     storage: Arc<dyn FederationBlacklistStoreApi>,
     regex_cache: RegexCache,
 }
 
+/// The `CheckResult` struct.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CheckResult {
+    /// The `is_blocked` field.
     pub is_blocked: bool,
+    /// The `is_whitelisted` field.
     pub is_whitelisted: bool,
+    /// The `is_quarantined` field.
     pub is_quarantined: bool,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `matched_rule` field.
     pub matched_rule: Option<String>,
 }
 
+/// The `AddBlacklistRequest` struct.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct AddBlacklistRequest {
+    /// The `server_name` field.
     pub server_name: String,
+    /// The `block_type` field.
     pub block_type: String,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `expires_in_days` field.
     pub expires_in_days: Option<i32>,
 }
 
+/// The `CheckServerRequest` struct.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct CheckServerRequest {
+    /// The `server_name` field.
     pub server_name: String,
 }
 
 impl FederationBlacklistService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn FederationBlacklistStoreApi>) -> Self {
         Self { storage, regex_cache: RegexCache::default() }
     }
 
+    /// See [`add_to_blacklist`].
     pub async fn add_to_blacklist(
         &self,
         request: AddBlacklistRequest,
@@ -87,10 +104,14 @@ impl FederationBlacklistService {
         Ok(entry)
     }
 
+    /// See [`remove_from_blacklist`].
+    /// See [`remove_from_blacklist`].
     pub async fn remove_from_blacklist(&self, server_name: &str, performed_by: &str) -> Result<(), ApiError> {
         self.storage.remove_from_blacklist(server_name, performed_by).await
     }
 
+    /// See [`check_server`].
+    /// See [`check_server`].
     pub async fn check_server(&self, server_name: &str) -> Result<CheckResult, ApiError> {
         let is_whitelisted = self.storage.is_server_whitelisted(server_name).await?;
 
@@ -170,6 +191,7 @@ impl FederationBlacklistService {
         }
     }
 
+    /// See [`record_access`].
     pub async fn record_access(
         &self,
         server_name: &str,
@@ -239,6 +261,7 @@ impl FederationBlacklistService {
         Ok(())
     }
 
+    /// See [`get_blacklist`].
     pub async fn get_blacklist(
         &self,
         limit: i32,
@@ -247,14 +270,19 @@ impl FederationBlacklistService {
         self.storage.get_all_blacklist(limit, from).await
     }
 
+    /// See [`get_stats`].
+    /// See [`get_stats`].
     pub async fn get_stats(&self, server_name: &str) -> Result<Option<FederationAccessStats>, ApiError> {
         self.storage.get_access_stats(server_name).await
     }
 
+    /// See [`cleanup_expired`].
+    /// See [`cleanup_expired`].
     pub async fn cleanup_expired(&self) -> Result<u64, ApiError> {
         self.storage.cleanup_expired_entries().await
     }
 
+    /// See [`create_rule`].
     pub async fn create_rule(
         &self,
         request: synapse_storage::federation_blacklist::CreateRuleRequest,
@@ -270,6 +298,8 @@ impl FederationBlacklistService {
         self.storage.create_rule(request).await
     }
 
+    /// See [`get_rules`].
+    /// See [`get_rules`].
     pub async fn get_rules(&self) -> Result<Vec<FederationBlacklistRule>, ApiError> {
         self.storage.get_all_rules().await
     }

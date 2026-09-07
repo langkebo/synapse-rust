@@ -10,37 +10,55 @@ use synapse_common::error::ApiError;
 
 type HmacSha1 = Hmac<Sha1>;
 
+/// The `TurnCredentials` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnCredentials {
+    /// The `username` field.
     pub username: String,
+    /// The `password` field.
     pub password: String,
+    /// The `uris` field.
     pub uris: Vec<String>,
+    /// The `ttl` field.
     pub ttl: i64,
 }
 
+/// The `RtcInfraSettings` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RtcInfraSettings {
+    /// The `turn_uris` field.
     pub turn_uris: Vec<String>,
+    /// The `turn_username` field.
     pub turn_username: Option<String>,
+    /// The `turn_password` field.
     pub turn_password: Option<String>,
+    /// The `stun_uris` field.
     pub stun_uris: Vec<String>,
 }
 
+/// Type alias `VoipSettings`.
 pub type VoipSettings = RtcInfraSettings;
 
+/// The `RtcInfraService` struct.
 pub struct RtcInfraService {
     config: Arc<VoipConfig>,
 }
 
 impl RtcInfraService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: Arc<VoipConfig>) -> Self {
         Self { config }
     }
 
+    /// See [`is_enabled`].
+    /// See [`is_enabled`].
     pub fn is_enabled(&self) -> bool {
         self.config.is_enabled()
     }
 
+    /// See [`get_settings`].
+    /// See [`get_settings`].
     pub fn get_settings(&self) -> RtcInfraSettings {
         RtcInfraSettings {
             turn_uris: self.config.turn_uris.clone(),
@@ -50,6 +68,8 @@ impl RtcInfraService {
         }
     }
 
+    /// See [`generate_turn_credentials`].
+    /// See [`generate_turn_credentials`].
     pub fn generate_turn_credentials(&self, user_id: &str) -> Result<TurnCredentials, ApiError> {
         if !self.is_enabled() {
             return Err(ApiError::bad_request("VoIP/TURN is not configured"));
@@ -94,14 +114,20 @@ impl RtcInfraService {
         Ok(BASE64.encode(result.into_bytes()))
     }
 
+    /// See [`can_guest_use_turn`].
+    /// See [`can_guest_use_turn`].
     pub fn can_guest_use_turn(&self) -> bool {
         self.config.turn_allow_guests
     }
 
+    /// See [`get_turn_uris`].
+    /// See [`get_turn_uris`].
     pub fn get_turn_uris(&self) -> Vec<String> {
         self.config.turn_uris.clone()
     }
 
+    /// See [`get_stun_uris`].
+    /// See [`get_stun_uris`].
     pub fn get_stun_uris(&self) -> Vec<String> {
         self.config.stun_uris.clone()
     }

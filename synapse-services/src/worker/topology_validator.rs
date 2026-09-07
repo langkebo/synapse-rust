@@ -142,6 +142,7 @@ fn is_worker_instance(instance_name: &str, baseline_name: &str) -> bool {
             .is_some_and(|suffix| suffix.starts_with('-') || suffix.starts_with('_'))
 }
 
+/// See [`resolved_current_instance_name`].
 pub fn resolved_current_instance_name(config: &WorkerConfig) -> String {
     if !config.enabled {
         return "master".to_string();
@@ -198,15 +199,21 @@ fn configured_worker_types(config: &WorkerConfig) -> Vec<WorkerType> {
     inferred_workers
 }
 
+/// The `RouteOwnerProbe` enum.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RouteOwnerProbe {
+    /// The `Sync` variant.
     Sync,
+    /// The `Media` variant.
     Media,
+    /// The `Federation` variant.
     Federation,
 }
 
 impl RouteOwnerProbe {
+    /// See [`as_str`].
+    /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Sync => "sync",
@@ -215,6 +222,8 @@ impl RouteOwnerProbe {
         }
     }
 
+    /// See [`path`].
+    /// See [`path`].
     pub fn path(&self) -> &'static str {
         match self {
             Self::Sync => "/_matrix/client/v3/sync",
@@ -232,6 +241,7 @@ impl RouteOwnerProbe {
     }
 }
 
+/// See [`expected_route_owner_for_probe`].
 pub fn expected_route_owner_for_probe(config: &WorkerConfig, probe: RouteOwnerProbe) -> WorkerType {
     if !config.enabled {
         return WorkerType::Master;
@@ -245,6 +255,7 @@ pub fn expected_route_owner_for_probe(config: &WorkerConfig, probe: RouteOwnerPr
     }
 }
 
+/// See [`current_instance_worker_type`].
 pub fn current_instance_worker_type(config: &WorkerConfig) -> WorkerType {
     if !config.enabled {
         return WorkerType::Master;
@@ -253,6 +264,7 @@ pub fn current_instance_worker_type(config: &WorkerConfig) -> WorkerType {
     worker_type_for_instance_name(&resolved_current_instance_name(config)).unwrap_or(WorkerType::Master)
 }
 
+/// See [`global_maintenance_owner`].
 pub fn global_maintenance_owner(config: &WorkerConfig) -> WorkerType {
     if !config.enabled {
         return WorkerType::Master;
@@ -269,6 +281,7 @@ pub fn global_maintenance_owner(config: &WorkerConfig) -> WorkerType {
     }
 }
 
+/// See [`should_run_global_maintenance`].
 pub fn should_run_global_maintenance(config: &WorkerConfig) -> bool {
     current_instance_worker_type(config) == global_maintenance_owner(config)
 }

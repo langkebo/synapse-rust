@@ -68,6 +68,7 @@ fn room_typing_key(room_id: &str) -> String {
 /// 默认打字状态 TTL（秒）：最大超时 + 缓冲
 const DEFAULT_TYPING_TTL: u64 = 120;
 
+/// The `TypingService` struct.
 pub struct TypingService {
     cache: Arc<CacheManager>,
 }
@@ -99,6 +100,8 @@ impl TypingService {
         0
     }
 
+    /// See [`set_typing`].
+    /// See [`set_typing`].
     pub async fn set_typing(&self, room_id: &str, user_id: &str, timeout_ms: u64) -> ApiResult<()> {
         let key = room_typing_key(room_id);
 
@@ -128,6 +131,8 @@ impl TypingService {
         Ok(())
     }
 
+    /// See [`clear_typing`].
+    /// See [`clear_typing`].
     pub async fn clear_typing(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         let key = room_typing_key(room_id);
 
@@ -148,6 +153,8 @@ impl TypingService {
         Ok(())
     }
 
+    /// See [`get_typing_users`].
+    /// See [`get_typing_users`].
     pub async fn get_typing_users(&self, room_id: &str) -> ApiResult<HashMap<String, u64>> {
         let now = current_timestamp_millis();
         let key = room_typing_key(room_id);
@@ -181,6 +188,8 @@ impl TypingService {
         Ok(result)
     }
 
+    /// See [`get_typing_users_batch`].
+    /// See [`get_typing_users_batch`].
     pub async fn get_typing_users_batch(&self, room_ids: &[String]) -> ApiResult<HashMap<String, Vec<String>>> {
         let now = current_timestamp_millis();
         let mut result: HashMap<String, Vec<String>> = HashMap::with_capacity(room_ids.len());
@@ -220,6 +229,8 @@ impl TypingService {
         Ok(result)
     }
 
+    /// See [`get_user_typing`].
+    /// See [`get_user_typing`].
     pub async fn get_user_typing(&self, room_id: &str, user_id: &str) -> ApiResult<Option<u64>> {
         let now = current_timestamp_millis();
         let key = room_typing_key(room_id);
@@ -241,6 +252,8 @@ impl TypingService {
         Ok(None)
     }
 
+    /// See [`clear_expired_typing`].
+    /// See [`clear_expired_typing`].
     pub fn clear_expired_typing(&self) -> ApiResult<()> {
         // 在 Redis 模式下，过期条目由 TTL 自动清理。
         // 此方法保留用于兼容性，实际清理发生在 get_typing_users 读取时。

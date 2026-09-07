@@ -9,6 +9,7 @@ use tracing::{info, instrument, warn};
 use super::service::RoomSummaryService;
 
 impl RoomSummaryService {
+    /// See [`update_state`].
     pub async fn update_state(
         &self,
         room_id: &str,
@@ -109,6 +110,7 @@ impl RoomSummaryService {
         Ok(())
     }
 
+    /// See [`get_state`].
     #[instrument(skip(self))]
     pub async fn get_state(
         &self,
@@ -125,6 +127,8 @@ impl RoomSummaryService {
         Ok(state)
     }
 
+    /// See [`get_all_state`].
+    /// See [`get_all_state`].
     #[instrument(skip(self))]
     pub async fn get_all_state(&self, room_id: &str) -> Result<Vec<RoomSummaryState>, ApiError> {
         let states = self
@@ -136,6 +140,8 @@ impl RoomSummaryService {
         Ok(states)
     }
 
+    /// See [`sync_summary_state_and_members`].
+    /// See [`sync_summary_state_and_members`].
     pub(crate) async fn sync_summary_state_and_members(&self, room_id: &str) -> Result<(), ApiError> {
         let states_res = self.event_reader.get_state_events(room_id).await;
 
@@ -213,6 +219,8 @@ impl RoomSummaryService {
         Ok(())
     }
 
+    /// See [`synchronize_room_snapshot`].
+    /// See [`synchronize_room_snapshot`].
     pub(crate) async fn synchronize_room_snapshot(&self, room_id: &str) -> Result<(), ApiError> {
         self.sync_summary_state_and_members(room_id).await?;
 
@@ -223,6 +231,8 @@ impl RoomSummaryService {
         Ok(())
     }
 
+    /// See [`sync_from_room`].
+    /// See [`sync_from_room`].
     pub async fn sync_from_room(&self, room_id: &str) -> Result<RoomSummaryResponse, ApiError> {
         info!(room_id = %room_id, "Syncing room summary from room");
 

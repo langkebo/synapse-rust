@@ -9,6 +9,7 @@ use synapse_storage::event::SinceFilter;
 use tokio::sync::Notify;
 
 impl SyncService {
+    /// See [`fetch_events`].
     pub(crate) async fn fetch_events(
         &self,
         request: FetchEventsRequest<'_>,

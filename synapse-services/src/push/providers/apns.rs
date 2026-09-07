@@ -6,13 +6,20 @@ use serde::Serialize;
 use std::time::Duration;
 use tracing::{debug, error, info};
 
+/// The `ApnsProviderConfig` struct.
 #[derive(Debug, Clone)]
 pub struct ApnsProviderConfig {
+    /// The `topic` field.
     pub topic: String,
+    /// The `endpoint` field.
     pub endpoint: String,
+    /// The `key_id` field.
     pub key_id: Option<String>,
+    /// The `team_id` field.
     pub team_id: Option<String>,
+    /// The `private_key` field.
     pub private_key: Option<String>,
+    /// The `timeout_secs` field.
     pub timeout_secs: u64,
 }
 
@@ -30,6 +37,8 @@ impl Default for ApnsProviderConfig {
 }
 
 impl ApnsProviderConfig {
+    /// See [`sandbox`].
+    /// See [`sandbox`].
     pub fn sandbox() -> Self {
         Self { endpoint: "https://api.sandbox.push.apple.com".to_string(), ..Default::default() }
     }
@@ -65,6 +74,7 @@ struct ApnsJwtClaims {
     iat: i64,
 }
 
+/// The `ApnsProvider` struct.
 #[derive(Debug)]
 pub struct ApnsProvider {
     config: ApnsProviderConfig,
@@ -73,6 +83,8 @@ pub struct ApnsProvider {
 }
 
 impl ApnsProvider {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: ApnsProviderConfig) -> Self {
         let enabled = !config.topic.is_empty();
 
@@ -85,6 +97,8 @@ impl ApnsProvider {
         Self { config, client, enabled }
     }
 
+    /// See [`with_topic`].
+    /// See [`with_topic`].
     pub fn with_topic(topic: String) -> Self {
         let config = ApnsProviderConfig { topic, ..Default::default() };
         Self::new(config)

@@ -8,21 +8,34 @@ use synapse_common::error::ApiError;
 use tokio::sync::RwLock;
 use tracing::{debug, warn};
 
+/// The `StreamWriters` struct.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StreamWriters {
+    /// The `events` field.
     pub events: Option<String>,
+    /// The `typing` field.
     pub typing: Option<String>,
+    /// The `to_device` field.
     pub to_device: Option<String>,
+    /// The `account_data` field.
     pub account_data: Option<String>,
+    /// The `receipts` field.
     pub receipts: Option<String>,
+    /// The `presence` field.
     pub presence: Option<String>,
+    /// The `device_lists` field.
     pub device_lists: Option<String>,
+    /// The `federation` field.
     pub federation: Option<String>,
+    /// The `pushers` field.
     pub pushers: Option<String>,
+    /// The `caches` field.
     pub caches: Option<String>,
 }
 
 impl StreamWriters {
+    /// See [`get_writer`].
+    /// See [`get_writer`].
     pub fn get_writer(&self, stream_name: &str) -> Option<&str> {
         match stream_name {
             "events" => self.events.as_deref(),
@@ -39,6 +52,8 @@ impl StreamWriters {
         }
     }
 
+    /// See [`all_writers`].
+    /// See [`all_writers`].
     pub fn all_writers(&self) -> Vec<&str> {
         let mut writers = Vec::new();
         if let Some(w) = &self.events {
@@ -75,14 +90,20 @@ impl StreamWriters {
     }
 }
 
+/// The `StreamPosition` struct.
 #[derive(Debug, Clone)]
 pub struct StreamPosition {
+    /// The `stream_name` field.
     pub stream_name: String,
+    /// The `position` field.
     pub position: i64,
+    /// The `instance_name` field.
     pub instance_name: String,
+    /// The `updated_ts` field.
     pub updated_ts: i64,
 }
 
+/// The `StreamWriterManager` struct.
 pub struct StreamWriterManager {
     config: StreamWriters,
     bus: Arc<WorkerBus>,
@@ -91,14 +112,20 @@ pub struct StreamWriterManager {
 }
 
 impl StreamWriterManager {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: StreamWriters, bus: Arc<WorkerBus>, instance_name: String) -> Self {
         Self { config, bus, instance_name, positions: RwLock::new(HashMap::new()) }
     }
 
+    /// See [`get_writer`].
+    /// See [`get_writer`].
     pub fn get_writer(&self, stream_name: &str) -> Option<&str> {
         self.config.get_writer(stream_name)
     }
 
+    /// See [`is_local_writer`].
+    /// See [`is_local_writer`].
     pub fn is_local_writer(&self, stream_name: &str) -> bool {
         match self.config.get_writer(stream_name) {
             Some(writer) => writer == self.instance_name,
@@ -106,6 +133,7 @@ impl StreamWriterManager {
         }
     }
 
+    /// See [`forward_to_writer`].
     pub async fn forward_to_writer(
         &self,
         stream_name: &str,
@@ -131,6 +159,8 @@ impl StreamWriterManager {
         }
     }
 
+    /// See [`update_position`].
+    /// See [`update_position`].
     pub async fn update_position(&self, stream_name: &str, position: i64) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
@@ -152,16 +182,22 @@ impl StreamWriterManager {
         Ok(())
     }
 
+    /// See [`get_position`].
+    /// See [`get_position`].
     pub async fn get_position(&self, stream_name: &str) -> Option<i64> {
         let positions = self.positions.read().await;
         positions.get(stream_name).map(|p| p.position)
     }
 
+    /// See [`get_all_positions`].
+    /// See [`get_all_positions`].
     pub async fn get_all_positions(&self) -> HashMap<String, i64> {
         let positions = self.positions.read().await;
         positions.iter().map(|(k, v)| (k.clone(), v.position)).collect()
     }
 
+    /// See [`sync_positions`].
+    /// See [`sync_positions`].
     pub async fn sync_positions(&self) -> Result<(), ApiError> {
         for stream_name in Self::stream_names() {
             if self.is_local_writer(stream_name) {
@@ -174,6 +210,8 @@ impl StreamWriterManager {
         Ok(())
     }
 
+    /// See [`stream_names`].
+    /// See [`stream_names`].
     pub fn stream_names() -> &'static [&'static str] {
         &[
             "events",
@@ -189,14 +227,20 @@ impl StreamWriterManager {
         ]
     }
 
+    /// See [`get_local_streams`].
+    /// See [`get_local_streams`].
     pub fn get_local_streams(&self) -> Vec<&'static str> {
         Self::stream_names().iter().filter(|s| self.is_local_writer(s)).copied().collect()
     }
 
+    /// See [`can_write`].
+    /// See [`can_write`].
     pub fn can_write(&self, stream_name: &str) -> bool {
         self.is_local_writer(stream_name)
     }
 
+    /// See [`validate_writer`].
+    /// See [`validate_writer`].
     pub fn validate_writer(&self, stream_name: &str, writer_instance: &str) -> Result<(), ApiError> {
         match self.config.get_writer(stream_name) {
             Some(configured_writer) => {
@@ -225,6 +269,8 @@ impl StreamWriterManager {
         }
     }
 
+    /// See [`get_stats`].
+    /// See [`get_stats`].
     pub async fn get_stats(&self) -> StreamWriterStats {
         let positions = self.positions.read().await;
 
@@ -235,11 +281,15 @@ impl StreamWriterManager {
         }
     }
 
+    /// See [`get_all_stream_positions`].
+    /// See [`get_all_stream_positions`].
     pub async fn get_all_stream_positions(&self) -> Vec<StreamPosition> {
         let positions = self.positions.read().await;
         positions.values().cloned().collect()
     }
 
+    /// See [`update_positions_bulk`].
+    /// See [`update_positions_bulk`].
     pub async fn update_positions_bulk(&self, updates: HashMap<String, i64>) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
@@ -259,18 +309,26 @@ impl StreamWriterManager {
         Ok(())
     }
 
+    /// See [`get_stream_config`].
+    /// See [`get_stream_config`].
     pub fn get_stream_config(&self) -> StreamWriters {
         self.config.clone()
     }
 
+    /// See [`update_stream_config`].
+    /// See [`update_stream_config`].
     pub fn update_stream_config(&mut self, new_config: StreamWriters) {
         self.config = new_config;
     }
 
+    /// See [`reset_position`].
+    /// See [`reset_position`].
     pub async fn reset_position(&self, stream_name: &str) -> Result<(), ApiError> {
         self.update_position(stream_name, 0).await
     }
 
+    /// See [`advance_position_if_greater`].
+    /// See [`advance_position_if_greater`].
     pub async fn advance_position_if_greater(&self, stream_name: &str, new_position: i64) -> Result<bool, ApiError> {
         let current = self.get_position(stream_name).await.unwrap_or(0);
 
@@ -283,10 +341,14 @@ impl StreamWriterManager {
     }
 }
 
+/// The `StreamWriterStats` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StreamWriterStats {
+    /// The `instance_name` field.
     pub instance_name: String,
+    /// The `local_streams` field.
     pub local_streams: Vec<String>,
+    /// The `positions` field.
     pub positions: HashMap<String, i64>,
 }
 

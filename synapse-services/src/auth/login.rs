@@ -9,6 +9,7 @@ use synapse_storage::User;
 use uuid::Uuid;
 
 impl AuthService {
+    /// See [`login`].
     pub async fn login(
         &self,
         username: &str,
@@ -189,6 +190,8 @@ impl AuthService {
         Ok(())
     }
 
+    /// See [`verify_user_password`].
+    /// See [`verify_user_password`].
     pub(crate) async fn verify_user_password(&self, password: &str, password_hash: &str) -> ApiResult<bool> {
         let auth = Arc::new(self.clone());
         let password_str = password.to_string();
@@ -283,6 +286,7 @@ impl AuthService {
         .await;
     }
 
+    /// See [`get_or_create_device_id`].
     pub(crate) async fn get_or_create_device_id(
         &self,
         device_id: Option<&str>,
@@ -321,6 +325,8 @@ impl AuthService {
         Ok(device_id)
     }
 
+    /// See [`increment_counter`].
+    /// See [`increment_counter`].
     pub(crate) fn increment_counter(&self, name: &str) {
         if let Some(counter) = self.metrics.get_counter(name) {
             counter.inc();

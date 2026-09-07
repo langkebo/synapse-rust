@@ -94,8 +94,11 @@ pub async fn send_with_retry<P: PushProvider + ?Sized>(
 /// Enum representing the type of push gateway.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PushGatewayType {
+    /// The `Apns` variant.
     Apns,
+    /// The `Fcm` variant.
     Fcm,
+    /// The `WebPush` variant.
     WebPush,
 }
 
@@ -109,61 +112,94 @@ impl std::fmt::Display for PushGatewayType {
     }
 }
 
+/// The `PushResult` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PushResult {
     #[serde(rename = "success")]
+    /// The `is_success` field.
     pub is_success: bool,
+    /// The `error` field.
     pub error: Option<String>,
+    /// The `provider_response` field.
     pub provider_response: Option<String>,
+    /// The `should_retry` field.
     pub should_retry: bool,
 }
 
 impl PushResult {
+    /// See [`success`].
+    /// See [`success`].
     pub fn success() -> Self {
         Self { is_success: true, error: None, provider_response: None, should_retry: false }
     }
 
+    /// See [`success_with_response`].
+    /// See [`success_with_response`].
     pub fn success_with_response(response: &str) -> Self {
         Self { is_success: true, error: None, provider_response: Some(response.to_string()), should_retry: false }
     }
 
+    /// See [`failure`].
+    /// See [`failure`].
     pub fn failure(error: &str) -> Self {
         Self { is_success: false, error: Some(error.to_string()), provider_response: None, should_retry: false }
     }
 
+    /// See [`retryable_failure`].
+    /// See [`retryable_failure`].
     pub fn retryable_failure(error: &str) -> Self {
         Self { is_success: false, error: Some(error.to_string()), provider_response: None, should_retry: true }
     }
 }
 
+/// The `NotificationPayload` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationPayload {
+    /// The `title` field.
     pub title: String,
+    /// The `body` field.
     pub body: String,
+    /// The `icon` field.
     pub icon: Option<String>,
+    /// The `badge` field.
     pub badge: Option<String>,
+    /// The `sound` field.
     pub sound: Option<String>,
+    /// The `tag` field.
     pub tag: Option<String>,
+    /// The `data` field.
     pub data: serde_json::Value,
+    /// The `event_id` field.
     pub event_id: Option<String>,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `room_name` field.
     pub room_name: Option<String>,
+    /// The `sender` field.
     pub sender: Option<String>,
+    /// The `counts` field.
     pub counts: Option<NotificationCounts>,
 }
 
+/// The `NotificationCounts` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationCounts {
+    /// The `unread` field.
     pub unread: u32,
+    /// The `missed_calls` field.
     pub missed_calls: u32,
 }
 
+/// The `PushProvider` trait.
 #[async_trait]
 pub trait PushProvider: Send + Sync {
+    /// See [`name`].
     fn name(&self) -> &str;
 
+    /// See [`send`].
     async fn send(&self, token: &str, payload: &NotificationPayload) -> PushResult;
 
+    /// See [`send_batch`].
     async fn send_batch(&self, messages: Vec<(String, NotificationPayload)>) -> Vec<(String, PushResult)> {
         let mut results = Vec::new();
         for (token, payload) in messages {
@@ -173,6 +209,7 @@ pub trait PushProvider: Send + Sync {
         results
     }
 
+    /// See [`is_enabled`].
     fn is_enabled(&self) -> bool;
 
     /// Returns the type of this push gateway.

@@ -34,20 +34,33 @@ pub struct LifecycleService {
 
 /// Configuration for constructing a [`LifecycleService`].
 pub struct LifecycleServiceConfig {
+    /// The `room_storage` field.
     pub room_storage: Arc<dyn RoomStoreApi>,
+    /// The `member_storage` field.
     pub member_storage: Arc<dyn MemberStoreApi>,
+    /// The `event_reader` field.
     pub event_reader: Arc<dyn synapse_storage::event::EventReader>,
+    /// The `event_writer` field.
     pub event_writer: Arc<dyn synapse_storage::event::EventWriter>,
+    /// The `user_storage` field.
     pub user_storage: Arc<dyn UserStore>,
+    /// The `user_service` field.
     pub user_service: Arc<UserService>,
+    /// The `validator` field.
     pub validator: Arc<Validator>,
+    /// The `server_name` field.
     pub server_name: String,
+    /// The `room_summary_service` field.
     pub room_summary_service: Option<Arc<crate::room::summary::RoomSummaryService>>,
+    /// The `cache` field.
     pub cache: Arc<CacheManager>,
+    /// The `app_service_manager` field.
     pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
 }
 
 impl LifecycleService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: LifecycleServiceConfig) -> Self {
         Self {
             room_storage: config.room_storage,

@@ -8,23 +8,37 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::*;
 use synapse_storage::{EventStorage, RoomStorage};
 
+/// The `SearchFilters` struct.
 #[derive(Debug, Clone, Default)]
 pub struct SearchFilters {
+    /// The `sender_id` field.
     pub sender_id: Option<String>,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `message_type` field.
     pub message_type: Option<String>,
+    /// The `start_ts` field.
     pub start_ts: Option<i64>,
+    /// The `end_ts` field.
     pub end_ts: Option<i64>,
+    /// The `has_media` field.
     pub has_media: Option<bool>,
 }
 
+/// The `AdvancedSearchOptions` struct.
 #[derive(Debug, Clone)]
 pub struct AdvancedSearchOptions {
+    /// The `query` field.
     pub query: String,
+    /// The `filters` field.
     pub filters: SearchFilters,
+    /// The `limit` field.
     pub limit: i64,
+    /// The `offset` field.
     pub offset: i64,
+    /// The `highlight` field.
     pub highlight: bool,
+    /// The `fuzzy` field.
     pub fuzzy: bool,
 }
 
@@ -41,22 +55,35 @@ impl Default for AdvancedSearchOptions {
     }
 }
 
+/// The `SearchResult` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
+    /// The `results` field.
     pub results: Vec<SearchResultItem>,
+    /// The `total_count` field.
     pub total_count: usize,
+    /// The `next_batch` field.
     pub next_batch: Option<String>,
 }
 
+/// The `SearchResultItem` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResultItem {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `content` field.
     pub content: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
+    /// The `highlights` field.
     pub highlights: Option<Vec<String>>,
+    /// The `room_name` field.
     pub room_name: Option<String>,
 }
 
@@ -131,79 +158,126 @@ fn decode_room_events_cursor(cursor: Option<&str>) -> Option<RoomEventsCursor> {
     Some(RoomEventsCursor { origin_server_ts, event_id })
 }
 
+/// The `IndexedEvent` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexedEvent {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `content` field.
     pub content: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `message_type` field.
     pub message_type: Option<String>,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
+    /// The `index_ts` field.
     pub index_ts: i64,
+    /// The `keys` field.
     pub keys: Vec<String>,
 }
 
+/// The `RoomEventsSearchFilter` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RoomEventsSearchFilter {
+    /// The `rooms` field.
     pub rooms: Option<Vec<String>>,
+    /// The `not_rooms` field.
     pub not_rooms: Option<Vec<String>>,
+    /// The `types` field.
     pub types: Option<Vec<String>>,
+    /// The `senders` field.
     pub senders: Option<Vec<String>>,
 }
 
+/// The `SearchRoomEvent` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchRoomEvent {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `content` field.
     pub content: Value,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
 }
 
+/// The `SearchRoomEventsPage` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchRoomEventsPage {
+    /// The `results` field.
     pub results: Vec<SearchRoomEvent>,
+    /// The `next_batch` field.
     pub next_batch: Option<String>,
 }
 
+/// The `TimestampDirection` enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimestampDirection {
+    /// The `Forward` variant.
     Forward,
+    /// The `Backward` variant.
     Backward,
 }
 
+/// The `TimestampEventMatch` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TimestampEventMatch {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
 }
 
+/// The `EventContextEntry` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventContextEntry {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `content` field.
     pub content: Value,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
 }
 
+/// The `EventContextWindow` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventContextWindow {
+    /// The `events_before` field.
     pub events_before: Vec<EventContextEntry>,
+    /// The `events_after` field.
     pub events_after: Vec<EventContextEntry>,
 }
 
+/// The `SearchRoomSummary` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchRoomSummary {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `name` field.
     pub name: Option<String>,
+    /// The `topic` field.
     pub topic: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `is_public` field.
     pub is_public: bool,
 }
 
+/// The `SearchService` struct.
 #[derive(Clone)]
 pub struct SearchService {
     client: reqwest::Client,
@@ -217,10 +291,13 @@ pub struct SearchService {
 }
 
 impl SearchService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(url: &str, enabled: bool, index_name: &str) -> Self {
         Self::with_postgres(url, enabled, index_name, None, "postgres".to_string())
     }
 
+    /// See [`with_postgres`].
     pub fn with_postgres(
         url: &str,
         enabled: bool,
@@ -318,6 +395,8 @@ impl SearchService {
         self.provider == "postgres" && self.postgres_pool.is_some()
     }
 
+    /// See [`init_indices`].
+    /// See [`init_indices`].
     pub async fn init_indices(&self) -> ApiResult<()> {
         if !self.enabled {
             return Ok(());
@@ -383,6 +462,8 @@ impl SearchService {
         Ok(())
     }
 
+    /// See [`index_event`].
+    /// See [`index_event`].
     pub async fn index_event(&self, event: &IndexedEvent) -> ApiResult<()> {
         if !self.enabled {
             return Ok(());
@@ -416,6 +497,8 @@ impl SearchService {
         Ok(())
     }
 
+    /// See [`bulk_index`].
+    /// See [`bulk_index`].
     pub async fn bulk_index(&self, events: &[IndexedEvent]) -> ApiResult<()> {
         if !self.enabled || events.is_empty() {
             return Ok(());
@@ -465,6 +548,8 @@ impl SearchService {
         Ok(())
     }
 
+    /// See [`delete_event`].
+    /// See [`delete_event`].
     pub async fn delete_event(&self, event_id: &str) -> ApiResult<()> {
         if !self.enabled {
             return Ok(());
@@ -486,6 +571,7 @@ impl SearchService {
         Ok(())
     }
 
+    /// See [`index_message`].
     #[allow(clippy::too_many_arguments)]
     pub async fn index_message(
         &self,
@@ -516,6 +602,7 @@ impl SearchService {
         content.split_whitespace().take(10).map(|s| s.to_lowercase()).collect()
     }
 
+    /// See [`search_messages`].
     pub async fn search_messages(
         &self,
         user_id: &str,
@@ -540,6 +627,7 @@ impl SearchService {
         self.advanced_search(&options, next_batch).await
     }
 
+    /// See [`advanced_search`].
     pub async fn advanced_search(
         &self,
         options: &AdvancedSearchOptions,
@@ -682,6 +770,8 @@ impl SearchService {
         Ok(SearchResult { results, total_count, next_batch })
     }
 
+    /// See [`delete_room_index`].
+    /// See [`delete_room_index`].
     pub async fn delete_room_index(&self, room_id: &str) -> ApiResult<()> {
         if !self.enabled {
             return Ok(());
@@ -714,6 +804,8 @@ impl SearchService {
         Ok(())
     }
 
+    /// See [`is_enabled`].
+    /// See [`is_enabled`].
     pub fn is_enabled(&self) -> bool {
         self.enabled
     }
@@ -753,6 +845,7 @@ impl SearchService {
             has_next_batch = next_batch.is_some()
         )
     )]
+    /// See [`search_room_events`].
     pub async fn search_room_events(
         &self,
         user_id: &str,
@@ -820,6 +913,7 @@ impl SearchService {
         Ok(SearchRoomEventsPage { results, next_batch })
     }
 
+    /// See [`find_event_by_timestamp`].
     #[::tracing::instrument(skip_all, fields(room_id = %room_id, ts = ts, direction = ?direction))]
     pub async fn find_event_by_timestamp(
         &self,
@@ -836,6 +930,7 @@ impl SearchService {
         Ok(row.map(|(event_id, origin_server_ts)| TimestampEventMatch { event_id, origin_server_ts }))
     }
 
+    /// See [`get_event_context_window`].
     #[::tracing::instrument(skip_all, fields(room_id = %room_id, target_ts = target_ts, limit = limit))]
     pub async fn get_event_context_window(
         &self,
@@ -861,6 +956,7 @@ impl SearchService {
         })
     }
 
+    /// See [`search_rooms_for_user`].
     #[::tracing::instrument(skip_all, fields(user_id = %user_id, search_term_len = search_term.len(), limit = limit))]
     pub async fn search_rooms_for_user(
         &self,
@@ -888,6 +984,7 @@ impl SearchService {
             .collect())
     }
 
+    /// See [`search_room_messages`].
     #[::tracing::instrument(skip_all, fields(room_id = %room_id, search_term_len = search_term.len(), limit = limit))]
     pub async fn search_room_messages(
         &self,

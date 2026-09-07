@@ -25,17 +25,27 @@ pub struct RoomStateService {
 
 /// Configuration for constructing a [`RoomStateService`].
 pub struct RoomStateServiceConfig {
+    /// The `room_storage` field.
     pub room_storage: Arc<dyn RoomStoreApi>,
+    /// The `member_storage` field.
     pub member_storage: Arc<dyn MemberStoreApi>,
+    /// The `event_reader` field.
     pub event_reader: Arc<dyn synapse_storage::event::EventReader>,
+    /// The `event_writer` field.
     pub event_writer: Arc<dyn synapse_storage::event::EventWriter>,
+    /// The `room_tag_storage` field.
     pub room_tag_storage: Arc<dyn RoomTagStoreApi>,
+    /// The `user_storage` field.
     pub user_storage: Arc<dyn UserStore>,
+    /// The `user_service` field.
     pub user_service: Arc<UserService>,
+    /// The `server_name` field.
     pub server_name: String,
 }
 
 impl RoomStateService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: RoomStateServiceConfig) -> Self {
         Self {
             room_storage: config.room_storage,

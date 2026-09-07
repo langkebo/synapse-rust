@@ -8,6 +8,7 @@ use synapse_common::task_queue::RedisTaskQueue;
 use synapse_storage::captcha::*;
 use tracing::{info, warn};
 
+/// The `CaptchaService` struct.
 #[derive(Clone)]
 pub struct CaptchaService {
     storage: Arc<dyn synapse_storage::captcha::CaptchaStoreApi>,
@@ -16,31 +17,45 @@ pub struct CaptchaService {
     sms_provider: Option<Arc<dyn SmsProvider>>,
 }
 
+/// The `CaptchaResponse` struct.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CaptchaResponse {
+    /// The `captcha_id` field.
     pub captcha_id: String,
+    /// The `expires_in` field.
     pub expires_in: i64,
+    /// The `captcha_type` field.
     pub captcha_type: String,
 }
 
+/// The `SendCaptchaRequest` struct.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct SendCaptchaRequest {
+    /// The `captcha_type` field.
     pub captcha_type: String,
+    /// The `target` field.
     pub target: String,
+    /// The `template_name` field.
     pub template_name: Option<String>,
 }
 
+/// The `VerifyCaptchaRequest` struct.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct VerifyCaptchaRequest {
+    /// The `captcha_id` field.
     pub captcha_id: String,
+    /// The `code` field.
     pub code: String,
 }
 
 impl CaptchaService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn synapse_storage::captcha::CaptchaStoreApi>) -> Self {
         Self::with_sms_provider(storage, None, false, None)
     }
 
+    /// See [`with_delivery`].
     pub fn with_delivery(
         storage: Arc<dyn synapse_storage::captcha::CaptchaStoreApi>,
         task_queue: Option<Arc<RedisTaskQueue>>,
@@ -49,6 +64,7 @@ impl CaptchaService {
         Self::with_sms_provider(storage, task_queue, smtp_enabled, None)
     }
 
+    /// See [`with_sms_provider`].
     pub fn with_sms_provider(
         storage: Arc<dyn synapse_storage::captcha::CaptchaStoreApi>,
         task_queue: Option<Arc<RedisTaskQueue>>,
@@ -70,6 +86,7 @@ impl CaptchaService {
         Self { storage, task_queue, smtp_enabled, sms_provider }
     }
 
+    /// See [`send_captcha`].
     pub async fn send_captcha(
         &self,
         request: SendCaptchaRequest,
@@ -170,6 +187,8 @@ impl CaptchaService {
         })
     }
 
+    /// See [`verify_captcha`].
+    /// See [`verify_captcha`].
     pub async fn verify_captcha(&self, request: VerifyCaptchaRequest) -> Result<bool, ApiError> {
         let verified = self.storage.verify_captcha(&request.captcha_id, &request.code).await?;
 
@@ -178,10 +197,14 @@ impl CaptchaService {
         Ok(verified)
     }
 
+    /// See [`get_captcha`].
+    /// See [`get_captcha`].
     pub async fn get_captcha(&self, captcha_id: &str) -> Result<Option<RegistrationCaptcha>, ApiError> {
         self.storage.get_captcha(captcha_id).await
     }
 
+    /// See [`invalidate_captcha`].
+    /// See [`invalidate_captcha`].
     pub async fn invalidate_captcha(&self, captcha_id: &str) -> Result<(), ApiError> {
         self.storage.invalidate_captcha(captcha_id).await
     }
@@ -296,6 +319,8 @@ impl CaptchaService {
         ))
     }
 
+    /// See [`cleanup_expired`].
+    /// See [`cleanup_expired`].
     pub async fn cleanup_expired(&self) -> Result<u64, ApiError> {
         self.storage.cleanup_expired_captchas().await
     }

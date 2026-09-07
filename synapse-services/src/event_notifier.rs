@@ -19,15 +19,20 @@ const EVENT_NOTIFY_CHANNEL: &str = "synapse:events:notify";
 /// Redis fan-out).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventNotifyMessage {
+    /// The `kind` field.
     pub kind: EventNotifyKind,
+    /// The `key` field.
     pub key: String,
+    /// The `sender_instance` field.
     pub sender_instance: String,
 }
 
 /// Whether a notification targets a room or a user.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum EventNotifyKind {
+    /// The `Room` variant.
     Room,
+    /// The `User` variant.
     User,
 }
 
@@ -80,6 +85,8 @@ impl std::fmt::Debug for EventNotifier {
 }
 
 impl EventNotifier {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self {
             room_notifiers: Arc::new(DashMap::new()),
@@ -92,12 +99,16 @@ impl EventNotifier {
         }
     }
 
+    /// See [`with_redis`].
+    /// See [`with_redis`].
     pub fn with_redis(mut self, pool: Pool, redis_url: String) -> Self {
         self.redis_pool = Some(pool);
         self.redis_url = Some(redis_url);
         self
     }
 
+    /// See [`with_instance_id`].
+    /// See [`with_instance_id`].
     pub fn with_instance_id(mut self, instance_id: String) -> Self {
         self.instance_id = instance_id;
         self

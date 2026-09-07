@@ -6,22 +6,35 @@ use synapse_common::error::ApiError;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, info, warn};
 
+/// The `QueuedNotification` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueuedNotification {
+    /// The `id` field.
     pub id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `push_type` field.
     pub push_type: String,
+    /// The `token` field.
     pub token: String,
+    /// The `payload` field.
     pub payload: serde_json::Value,
+    /// The `priority` field.
     pub priority: i32,
+    /// The `attempts` field.
     pub attempts: u32,
+    /// The `max_attempts` field.
     pub max_attempts: u32,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `next_attempt_ts` field.
     pub next_attempt_ts: Option<i64>,
 }
 
 impl QueuedNotification {
+    /// See [`new`].
     pub fn new(
         user_id: &str,
         device_id: &str,
@@ -45,10 +58,14 @@ impl QueuedNotification {
         }
     }
 
+    /// See [`can_retry`].
+    /// See [`can_retry`].
     pub fn can_retry(&self) -> bool {
         self.attempts < self.max_attempts
     }
 
+    /// See [`increment_attempt`].
+    /// See [`increment_attempt`].
     pub fn increment_attempt(&mut self) {
         self.attempts += 1;
         let delay_ms = 2u64.pow(self.attempts) * 1000;
@@ -56,11 +73,16 @@ impl QueuedNotification {
     }
 }
 
+/// The `QueueConfig` struct.
 #[derive(Debug, Clone)]
 pub struct QueueConfig {
+    /// The `max_size` field.
     pub max_size: usize,
+    /// The `batch_size` field.
     pub batch_size: usize,
+    /// The `max_attempts` field.
     pub max_attempts: u32,
+    /// The `retry_delay_ms` field.
     pub retry_delay_ms: u64,
 }
 
@@ -70,6 +92,7 @@ impl Default for QueueConfig {
     }
 }
 
+/// The `PushQueue` struct.
 #[derive(Debug)]
 pub struct PushQueue {
     config: QueueConfig,
@@ -78,15 +101,22 @@ pub struct PushQueue {
     stats: Arc<RwLock<QueueStats>>,
 }
 
+/// The `QueueStats` struct.
 #[derive(Debug, Clone, Default)]
 pub struct QueueStats {
+    /// The `total_queued` field.
     pub total_queued: u64,
+    /// The `total_sent` field.
     pub total_sent: u64,
+    /// The `total_failed` field.
     pub total_failed: u64,
+    /// The `current_size` field.
     pub current_size: usize,
 }
 
 impl PushQueue {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: QueueConfig) -> Self {
         Self {
             config,
@@ -96,6 +126,8 @@ impl PushQueue {
         }
     }
 
+    /// See [`enqueue`].
+    /// See [`enqueue`].
     pub async fn enqueue(&self, notification: QueuedNotification) -> Result<(), ApiError> {
         let mut queue = self.queue.lock().await;
 
@@ -122,6 +154,8 @@ impl PushQueue {
         Ok(())
     }
 
+    /// See [`dequeue_batch`].
+    /// See [`dequeue_batch`].
     pub async fn dequeue_batch(&self) -> Vec<QueuedNotification> {
         let mut queue = self.queue.lock().await;
         let batch_size = self.config.batch_size.min(queue.len());
@@ -139,6 +173,8 @@ impl PushQueue {
         batch
     }
 
+    /// See [`mark_sent`].
+    /// See [`mark_sent`].
     pub async fn mark_sent(&self, id: &str) {
         let mut pending = self.pending.write().await;
         pending.remove(id);
@@ -149,6 +185,8 @@ impl PushQueue {
         debug!(notification_id = %id, "Notification marked as sent");
     }
 
+    /// See [`mark_failed`].
+    /// See [`mark_failed`].
     pub async fn mark_failed(&self, id: &str, retry: bool) {
         let mut pending = self.pending.write().await;
 
@@ -166,21 +204,29 @@ impl PushQueue {
         debug!(notification_id = %id, retry, "Notification marked as failed");
     }
 
+    /// See [`get_size`].
+    /// See [`get_size`].
     pub async fn get_size(&self) -> usize {
         let queue = self.queue.lock().await;
         queue.len()
     }
 
+    /// See [`get_pending_count`].
+    /// See [`get_pending_count`].
     pub async fn get_pending_count(&self) -> usize {
         let pending = self.pending.read().await;
         pending.len()
     }
 
+    /// See [`get_stats`].
+    /// See [`get_stats`].
     pub async fn get_stats(&self) -> QueueStats {
         let stats = self.stats.read().await;
         stats.clone()
     }
 
+    /// See [`clear`].
+    /// See [`clear`].
     pub async fn clear(&self) {
         let mut queue = self.queue.lock().await;
         queue.clear();
@@ -194,6 +240,8 @@ impl PushQueue {
         info!(cleared_queue = true, current_size = stats.current_size, "Push queue cleared");
     }
 
+    /// See [`remove_for_device`].
+    /// See [`remove_for_device`].
     pub async fn remove_for_device(&self, user_id: &str, device_id: &str) -> usize {
         let mut queue = self.queue.lock().await;
         let original_len = queue.len();
@@ -208,6 +256,8 @@ impl PushQueue {
         removed
     }
 
+    /// See [`remove_for_user`].
+    /// See [`remove_for_user`].
     pub async fn remove_for_user(&self, user_id: &str) -> usize {
         let mut queue = self.queue.lock().await;
         let original_len = queue.len();
@@ -222,6 +272,8 @@ impl PushQueue {
         removed
     }
 
+    /// See [`prioritize`].
+    /// See [`prioritize`].
     pub async fn prioritize(&self, id: &str) -> bool {
         let mut queue = self.queue.lock().await;
 

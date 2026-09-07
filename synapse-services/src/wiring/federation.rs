@@ -9,17 +9,25 @@ use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_federation::client_api::FederationClientApi;
 use synapse_federation::{DeviceSyncManager, EventAuthChain, FederationClient, KeyRotationManager, PgDeadLetterQueue};
 
+/// The `FederationServices` struct.
 #[derive(Clone)]
 pub struct FederationServices {
+    /// The `event_auth_chain` field.
     pub event_auth_chain: EventAuthChain,
+    /// The `key_rotation_manager` field.
     pub key_rotation_manager: KeyRotationManager,
+    /// The `key_rotation_service` field.
     pub key_rotation_service: Arc<crate::federation_key_rotation_service::FederationKeyRotationService>,
+    /// The `federation_client` field.
     pub federation_client: Arc<dyn FederationClientApi>,
+    /// The `device_sync_manager` field.
     pub device_sync_manager: DeviceSyncManager,
+    /// The `federation_server_name` field.
     pub federation_server_name: String,
 }
 
 impl FederationServices {
+    /// See [`new`].
     pub async fn new(
         pool: &Arc<sqlx::PgPool>,
         cache: &Arc<CacheManager>,

@@ -10,9 +10,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 use synapse_storage::admin_media::AdminMediaStorage;
 
+/// The `ThumbnailMethod` enum.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ThumbnailMethod {
+    /// The `Crop` variant.
     Crop,
+    /// The `Scale` variant.
     Scale,
 }
 
@@ -28,14 +31,20 @@ impl FromStr for ThumbnailMethod {
     }
 }
 
+/// The `ThumbnailSettings` struct.
 #[derive(Debug, Clone)]
 pub struct ThumbnailSettings {
+    /// The `width` field.
     pub width: u32,
+    /// The `height` field.
     pub height: u32,
+    /// The `method` field.
     pub method: ThumbnailMethod,
+    /// The `quality` field.
     pub quality: u8,
 }
 
+/// Type alias `ThumbnailConfig`.
 #[deprecated(since = "0.1.0", note = "Use ThumbnailSettings instead to avoid confusion with config::ThumbnailConfig")]
 pub type ThumbnailConfig = ThumbnailSettings;
 
@@ -45,6 +54,7 @@ impl Default for ThumbnailSettings {
     }
 }
 
+/// The `MediaService` struct.
 #[derive(Clone)]
 pub struct MediaService {
     media_path: PathBuf,
@@ -73,10 +83,13 @@ impl MediaService {
         Ok(())
     }
 
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(media_path: &str, task_queue: Option<Arc<RedisTaskQueue>>, server_name: &str) -> Self {
         Self::with_pool(media_path, task_queue, server_name, None)
     }
 
+    /// See [`with_pool`].
     pub fn with_pool(
         media_path: &str,
         task_queue: Option<Arc<RedisTaskQueue>>,
@@ -146,6 +159,7 @@ impl MediaService {
         signer.verify(&path, signature, expires)
     }
 
+    /// See [`upload_media`].
     pub async fn upload_media(
         &self,
         user_id: &str,
@@ -157,6 +171,7 @@ impl MediaService {
         self.store_media_with_id(user_id, &media_id, content, content_type, filename).await
     }
 
+    /// See [`upload_media_with_id`].
     pub async fn upload_media_with_id(
         &self,
         user_id: &str,
@@ -342,6 +357,8 @@ impl MediaService {
         .map_err(|e| ApiError::internal_with_context("Task error", &e))
     }
 
+    /// See [`get_media`].
+    /// See [`get_media`].
     pub async fn get_media(&self, _server_name: &str, media_id: &str) -> Option<Vec<u8>> {
         let media_path = self.media_path.clone();
         let media_id = media_id.to_string();
@@ -379,11 +396,14 @@ impl MediaService {
         Some(self.media_path.join(file_name))
     }
 
+    /// See [`download_media`].
+    /// See [`download_media`].
     pub async fn download_media(&self, _server_name: &str, media_id: &str) -> Result<Vec<u8>, ApiError> {
         Self::validate_media_id(media_id)?;
         self.get_media(_server_name, media_id).await.ok_or(ApiError::not_found("Media not found".to_string()))
     }
 
+    /// See [`get_thumbnail`].
     pub async fn get_thumbnail(
         &self,
         _server_name: &str,
@@ -495,6 +515,8 @@ impl MediaService {
         Ok(output)
     }
 
+    /// See [`generate_all_thumbnails`].
+    /// See [`generate_all_thumbnails`].
     pub async fn generate_all_thumbnails(&self, media_id: &str) -> Result<Vec<String>, ApiError> {
         Self::validate_media_id(media_id)?;
         let original_content = self.download_media("", media_id).await?;
@@ -536,10 +558,14 @@ impl MediaService {
         Ok(generated)
     }
 
+    /// See [`get_thumbnail_configurations`].
+    /// See [`get_thumbnail_configurations`].
     pub fn get_thumbnail_configurations(&self) -> Vec<ThumbnailSettings> {
         self.default_thumbnail_configs.clone()
     }
 
+    /// See [`cleanup_old_thumbnails`].
+    /// See [`cleanup_old_thumbnails`].
     pub async fn cleanup_old_thumbnails(&self, max_age_days: u64) -> Result<u64, ApiError> {
         let thumbnail_path = self.thumbnail_path.clone();
         let now = std::time::SystemTime::now();
@@ -578,6 +604,8 @@ impl MediaService {
         Ok(result)
     }
 
+    /// See [`get_media_metadata`].
+    /// See [`get_media_metadata`].
     pub async fn get_media_metadata(&self, _server_name: &str, media_id: &str) -> Option<serde_json::Value> {
         if Self::validate_media_id(media_id).is_err() {
             return None;
@@ -630,6 +658,8 @@ impl MediaService {
         }
     }
 
+    /// See [`preview_url`].
+    /// See [`preview_url`].
     pub fn preview_url(&self, url: &str, _ts: i64) -> ApiResult<serde_json::Value> {
         Ok(serde_json::json!({
             "url": url,
@@ -644,6 +674,8 @@ impl MediaService {
         }))
     }
 
+    /// See [`get_media_info`].
+    /// See [`get_media_info`].
     pub async fn get_media_info(&self, server_name: &str, media_id: &str) -> ApiResult<serde_json::Value> {
         Self::validate_media_id(media_id)?;
         let media_path = self.media_path.clone();
@@ -691,6 +723,8 @@ impl MediaService {
         result.ok_or(ApiError::not_found("Media not found".to_string()))
     }
 
+    /// See [`delete_media`].
+    /// See [`delete_media`].
     pub async fn delete_media(&self, server_name: &str, media_id: &str) -> ApiResult<()> {
         Self::validate_media_id(media_id)?;
         let media_path = self.media_path.clone();
@@ -725,6 +759,8 @@ impl MediaService {
         result.map_err(ApiError::not_found)
     }
 
+    /// See [`purge_media_cache`].
+    /// See [`purge_media_cache`].
     pub async fn purge_media_cache(&self, before_ts: i64) -> Result<u64, ApiError> {
         let media_path = self.media_path.clone();
         let thumbnail_path = self.thumbnail_path.clone();

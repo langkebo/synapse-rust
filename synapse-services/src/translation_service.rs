@@ -44,6 +44,7 @@ struct TranslationCacheKey {
 // Service
 // ============================================================================
 
+/// The `TranslationService` struct.
 #[derive(Clone)]
 pub struct TranslationService {
     http_client: Client,
@@ -52,6 +53,8 @@ pub struct TranslationService {
 }
 
 impl TranslationService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: TranslateConfig) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(config.timeout_secs))
@@ -340,22 +343,53 @@ impl TranslationService {
 // Error types
 // ============================================================================
 
+/// The `TranslationError` enum.
 #[derive(Debug, thiserror::Error)]
 pub enum TranslationError {
     #[error("Translation request to {provider} failed: {reason}")]
-    RequestFailed { provider: String, reason: String },
+    /// The `RequestFailed` variant.
+    RequestFailed {
+        /// The `provider` field.
+        provider: String,
+        /// The `reason` field.
+        reason: String,
+    },
 
     #[error("Translation provider {provider} returned error {status}: {message}")]
-    ProviderError { provider: String, status: u16, message: String },
+    /// The `ProviderError` variant.
+    ProviderError {
+        /// The `provider` field.
+        provider: String,
+        /// The `status` field.
+        status: u16,
+        /// The `message` field.
+        message: String,
+    },
 
     #[error("Failed to parse {provider} response: {reason}")]
-    ParseError { provider: String, reason: String },
+    /// The `ParseError` variant.
+    ParseError {
+        /// The `provider` field.
+        provider: String,
+        /// The `reason` field.
+        reason: String,
+    },
 
     #[error("Unsupported translation provider: {provider}")]
-    UnsupportedProvider { provider: String },
+    /// The `UnsupportedProvider` variant.
+    UnsupportedProvider {
+        /// The `provider` field.
+        provider: String,
+    },
 
     #[error("Text too long: {length} bytes (max: {max})")]
-    TextTooLong { length: usize, max: usize },
+    /// The `TextTooLong` variant.
+    TextTooLong {
+        /// The `length` field.
+        length: usize,
+        /// The `max` field.
+        max: usize,
+    },
 }
 
 #[cfg(test)]

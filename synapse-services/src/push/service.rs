@@ -12,6 +12,7 @@ use synapse_common::error::ApiError;
 use synapse_storage::push_notification::*;
 use tracing::info;
 
+/// The `PushNotificationService` struct.
 #[derive(Clone)]
 pub struct PushNotificationService {
     storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi>,
@@ -25,42 +26,70 @@ pub struct PushNotificationService {
     account_data_storage: Option<Arc<dyn synapse_storage::account_data::AccountDataStoreApi>>,
 }
 
+/// The `NotificationPayload` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NotificationPayload {
+    /// The `title` field.
     pub title: String,
+    /// The `body` field.
     pub body: String,
+    /// The `icon` field.
     pub icon: Option<String>,
+    /// The `badge` field.
     pub badge: Option<String>,
+    /// The `sound` field.
     pub sound: Option<String>,
+    /// The `tag` field.
     pub tag: Option<String>,
+    /// The `data` field.
     pub data: serde_json::Value,
+    /// The `event_id` field.
     pub event_id: Option<String>,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `room_name` field.
     pub room_name: Option<String>,
+    /// The `sender` field.
     pub sender: Option<String>,
+    /// The `counts` field.
     pub counts: Option<NotificationCounts>,
 }
 
+/// The `SendNotificationRequest` struct.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct SendNotificationRequest {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `event_id` field.
     pub event_id: Option<String>,
+    /// The `room_id` field.
     pub room_id: Option<String>,
+    /// The `notification_type` field.
     pub notification_type: Option<String>,
+    /// The `title` field.
     pub title: String,
+    /// The `body` field.
     pub body: String,
+    /// The `data` field.
     pub data: Option<serde_json::Value>,
+    /// The `priority` field.
     pub priority: Option<i32>,
 }
 
+/// The `PushRuleResult` struct.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PushRuleResult {
+    /// The `notify` field.
     pub notify: bool,
+    /// The `tweaks` field.
     pub tweaks: serde_json::Value,
 }
 
 impl PushNotificationService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi>) -> Self {
         Self {
             storage,
@@ -73,26 +102,36 @@ impl PushNotificationService {
         }
     }
 
+    /// See [`with_fcm_provider`].
+    /// See [`with_fcm_provider`].
     pub fn with_fcm_provider(mut self, provider: Arc<FcmProvider>) -> Self {
         self.fcm_provider = Some(provider);
         self
     }
 
+    /// See [`with_apns_provider`].
+    /// See [`with_apns_provider`].
     pub fn with_apns_provider(mut self, provider: Arc<ApnsProvider>) -> Self {
         self.apns_provider = Some(provider);
         self
     }
 
+    /// See [`with_webpush_provider`].
+    /// See [`with_webpush_provider`].
     pub fn with_webpush_provider(mut self, provider: Arc<WebPushProvider>) -> Self {
         self.webpush_provider = Some(provider);
         self
     }
 
+    /// See [`with_push_gateway`].
+    /// See [`with_push_gateway`].
     pub fn with_push_gateway(mut self, gateway: Arc<PushGateway>) -> Self {
         self.push_gateway = Some(gateway);
         self
     }
 
+    /// See [`with_queue`].
+    /// See [`with_queue`].
     pub fn with_queue(mut self, config: QueueConfig) -> Self {
         self.queue = Some(Arc::new(PushQueue::new(config)));
         self
@@ -111,6 +150,8 @@ impl PushNotificationService {
         self
     }
 
+    /// See [`initialize_providers`].
+    /// See [`initialize_providers`].
     pub async fn initialize_providers(&mut self) -> Result<(), ApiError> {
         let fcm_enabled = self.storage.get_config_as_bool("fcm.enabled", false).await?;
         if fcm_enabled {
@@ -146,6 +187,8 @@ impl PushNotificationService {
         Ok(())
     }
 
+    /// See [`register_device`].
+    /// See [`register_device`].
     pub async fn register_device(&self, request: RegisterDeviceRequest) -> Result<PushDevice, ApiError> {
         if !matches!(request.push_type.as_str(), "fcm" | "apns" | "webpush" | "upstream") {
             return Err(ApiError::bad_request("Invalid push type"));
@@ -154,14 +197,19 @@ impl PushNotificationService {
         self.storage.register_device(request).await
     }
 
+    /// See [`unregister_device`].
+    /// See [`unregister_device`].
     pub async fn unregister_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         self.storage.unregister_device(user_id, device_id).await
     }
 
+    /// See [`get_user_devices`].
+    /// See [`get_user_devices`].
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<PushDevice>, ApiError> {
         self.storage.get_user_devices(user_id).await
     }
 
+    /// See [`get_room_notifications`].
     pub async fn get_room_notifications(
         &self,
         user_id: &str,
@@ -174,6 +222,8 @@ impl PushNotificationService {
             .map_err(|e| ApiError::internal_with_context("Failed to get room notifications", &e))
     }
 
+    /// See [`send_notification`].
+    /// See [`send_notification`].
     pub async fn send_notification(&self, request: SendNotificationRequest) -> Result<(), ApiError> {
         let devices = if let Some(device_id) = &request.device_id {
             let device = self.storage.get_device(&request.user_id, device_id).await?;
@@ -235,6 +285,8 @@ impl PushNotificationService {
         Ok(())
     }
 
+    /// See [`process_pending_notifications`].
+    /// See [`process_pending_notifications`].
     pub async fn process_pending_notifications(&self, batch_size: i32) -> Result<u64, ApiError> {
         let notifications = self.storage.get_pending_notifications(batch_size).await?;
 
@@ -454,6 +506,8 @@ impl PushNotificationService {
         Ok(PushResult::success_with_response("Upstream accepted"))
     }
 
+    /// See [`create_push_rule`].
+    /// See [`create_push_rule`].
     pub async fn create_push_rule(&self, request: CreatePushRuleRequest) -> Result<PushRule, ApiError> {
         if !matches!(request.scope.as_str(), "global" | "device") {
             return Err(ApiError::bad_request("Invalid scope"));
@@ -466,10 +520,13 @@ impl PushNotificationService {
         self.storage.create_push_rule(request).await
     }
 
+    /// See [`get_push_rules`].
+    /// See [`get_push_rules`].
     pub async fn get_push_rules(&self, user_id: &str) -> Result<Vec<PushRule>, ApiError> {
         self.storage.get_user_push_rules(user_id).await
     }
 
+    /// See [`delete_push_rule`].
     pub async fn delete_push_rule(
         &self,
         user_id: &str,
@@ -480,6 +537,8 @@ impl PushNotificationService {
         self.storage.delete_push_rule(user_id, scope, kind, rule_id).await
     }
 
+    /// See [`evaluate_push_rules`].
+    /// See [`evaluate_push_rules`].
     pub async fn evaluate_push_rules(&self, user_id: &str, event: &JsonValue) -> Result<PushRuleResult, ApiError> {
         // Per the Matrix spec, events from users in the recipient's
         // `m.ignored_user_list` account_data must never produce a push
@@ -547,6 +606,8 @@ impl PushNotificationService {
         Ok(PushRuleResult { notify: false, tweaks: serde_json::json!({}) })
     }
 
+    /// See [`matches_rule`].
+    /// See [`matches_rule`].
     pub(crate) fn matches_rule(rule: &PushRule, event: &JsonValue) -> Result<bool, ApiError> {
         let conditions: Vec<JsonValue> = serde_json::from_value(rule.conditions.clone())
             .map_err(|e| ApiError::internal_with_context("Invalid conditions", &e))?;
@@ -596,6 +657,8 @@ impl PushNotificationService {
         Ok(true)
     }
 
+    /// See [`matches_event_match`].
+    /// See [`matches_event_match`].
     pub(crate) fn matches_event_match(condition: &JsonValue, event: &JsonValue) -> bool {
         let key = condition.get("key").and_then(|k| k.as_str()).unwrap_or("");
         let pattern = condition.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
@@ -689,6 +752,8 @@ impl PushNotificationService {
         true
     }
 
+    /// See [`get_event_value`].
+    /// See [`get_event_value`].
     pub(crate) fn get_event_value<'a>(event: &'a JsonValue, key: &str) -> Option<&'a str> {
         let parts: Vec<&str> = key.split('.').collect();
         let mut current = event;
@@ -700,6 +765,8 @@ impl PushNotificationService {
         current.get(parts.last()?).and_then(|v| v.as_str())
     }
 
+    /// See [`cleanup_old_logs`].
+    /// See [`cleanup_old_logs`].
     pub async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError> {
         self.storage.cleanup_old_logs(days).await
     }

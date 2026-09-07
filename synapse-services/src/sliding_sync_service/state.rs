@@ -7,6 +7,7 @@ use super::SlidingSyncService;
 use crate::sync_helpers;
 
 impl SlidingSyncService {
+    /// See [`build_required_state_events`].
     pub(super) async fn build_required_state_events(
         &self,
         room_id: &str,
@@ -40,6 +41,8 @@ impl SlidingSyncService {
             .collect())
     }
 
+    /// See [`required_state_matches`].
+    /// See [`required_state_matches`].
     pub(crate) fn required_state_matches(required_state: &[Vec<String>], event: &StateEvent) -> bool {
         let event_type = event.event_type.as_deref().unwrap_or_default();
         let state_key = event.state_key.as_deref().unwrap_or_default();
@@ -50,6 +53,8 @@ impl SlidingSyncService {
         })
     }
 
+    /// See [`cleanup_expired_tokens`].
+    /// See [`cleanup_expired_tokens`].
     pub async fn cleanup_expired_tokens(&self) -> Result<u64, ApiError> {
         let count = self
             .storage
@@ -60,6 +65,7 @@ impl SlidingSyncService {
         Ok(count)
     }
 
+    /// See [`get_room_token_sync`].
     pub async fn get_room_token_sync(
         &self,
         room_id: &str,

@@ -95,66 +95,97 @@ fn is_blocked_ipv6(ip: &Ipv6Addr) -> bool {
         || (ip.segments()[0] & 0xffc0) == 0xfe80
 }
 
+/// The `PushNotification` struct.
 #[derive(Debug, Clone, Serialize)]
 pub struct PushNotification {
+    /// The `notification` field.
     pub notification: NotificationContent,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `devices` field.
     pub devices: Option<Vec<PushDevice>>,
 }
 
+/// The `NotificationContent` struct.
 #[derive(Debug, Clone, Serialize)]
 pub struct NotificationContent {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
     #[serde(rename = "type")]
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `sender` field.
     pub sender: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `room_name` field.
     pub room_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `room_alias` field.
     pub room_alias: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `user_is_target` field.
     pub user_is_target: Option<bool>,
+    /// The `counts` field.
     pub counts: NotificationCounts,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `devices` field.
     pub devices: Option<Vec<PushDeviceContent>>,
 }
 
+/// The `NotificationCounts` struct.
 #[derive(Debug, Clone, Serialize)]
 pub struct NotificationCounts {
+    /// The `missed_calls` field.
     pub missed_calls: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `unread` field.
     pub unread: Option<u32>,
 }
 
+/// The `PushDevice` struct.
 #[derive(Debug, Clone, Serialize)]
 pub struct PushDevice {
+    /// The `app_id` field.
     pub app_id: String,
+    /// The `pushkey` field.
     pub pushkey: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `pushkey_ts` field.
     pub pushkey_ts: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `data` field.
     pub data: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `tweaks` field.
     pub tweaks: Option<serde_json::Value>,
 }
 
+/// The `PushDeviceContent` struct.
 #[derive(Debug, Clone, Serialize)]
 pub struct PushDeviceContent {
+    /// The `app_id` field.
     pub app_id: String,
+    /// The `pushkey` field.
     pub pushkey: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `data` field.
     pub data: Option<serde_json::Value>,
 }
 
+/// The `PushGatewayResponse` struct.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PushGatewayResponse {
+    /// The `rejected` field.
     pub rejected: Vec<String>,
 }
 
+/// The `PushGatewayConfig` struct.
 #[derive(Debug, Clone)]
 pub struct PushGatewayConfig {
+    /// The `timeout_secs` field.
     pub timeout_secs: u64,
+    /// The `max_retries` field.
     pub max_retries: u32,
 }
 
@@ -164,12 +195,15 @@ impl Default for PushGatewayConfig {
     }
 }
 
+/// The `PushGateway` struct.
 #[derive(Debug)]
 pub struct PushGateway {
     client: Client,
 }
 
 impl PushGateway {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: &PushGatewayConfig) -> Self {
         let client = Client::builder().timeout(Duration::from_secs(config.timeout_secs)).build().unwrap_or_else(|e| {
             // F-1: builder 失败不再静默退化，记录 warn 并回退共享默认 client
@@ -180,6 +214,7 @@ impl PushGateway {
         Self { client }
     }
 
+    /// See [`send_notification`].
     pub async fn send_notification(
         &self,
         gateway_url: &str,
@@ -228,6 +263,7 @@ impl PushGateway {
         Ok(gateway_response)
     }
 
+    /// See [`build_notification`].
     #[allow(clippy::too_many_arguments)]
     pub fn build_notification(
         &self,
@@ -255,6 +291,7 @@ impl PushGateway {
         }
     }
 
+    /// See [`build_device`].
     pub fn build_device(
         &self,
         app_id: &str,

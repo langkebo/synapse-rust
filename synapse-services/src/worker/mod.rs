@@ -1,12 +1,22 @@
+/// The `bus` module.
 pub mod bus;
+/// The `health` module.
 pub mod health;
+/// The `load_balancer` module.
 pub mod load_balancer;
+/// The `manager` module.
 pub mod manager;
+/// The `protocol` module.
 pub mod protocol;
+/// The `storage` module.
 pub mod storage;
+/// The `stream` module.
 pub mod stream;
+/// The `tcp` module.
 pub mod tcp;
+/// The `topology_validator` module.
 pub mod topology_validator;
+/// The `types` module.
 pub mod types;
 
 pub use bus::{BusMessage, RedisBusConfig, WorkerBus};

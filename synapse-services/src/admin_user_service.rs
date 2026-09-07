@@ -7,12 +7,16 @@ use synapse_storage::device::DeviceListStoreApi;
 use synapse_storage::{RoomStoreApi, User, UserStore};
 use tracing::instrument;
 
+/// The `AdminUserCursor` struct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminUserCursor {
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `user_id` field.
     pub user_id: String,
 }
 
+/// See [`decode_user_cursor`].
 pub fn decode_user_cursor(cursor: Option<&str>) -> Option<AdminUserCursor> {
     let cursor = cursor?;
     let (created_ts, user_id) = cursor.split_once('|')?;
@@ -23,47 +27,76 @@ pub fn decode_user_cursor(cursor: Option<&str>) -> Option<AdminUserCursor> {
     Some(AdminUserCursor { created_ts, user_id: user_id.to_owned() })
 }
 
+/// See [`encode_user_cursor`].
 pub fn encode_user_cursor(cursor: &AdminUserCursor) -> String {
     format!("{}|{}", cursor.created_ts, cursor.user_id)
 }
 
+/// The `AdminUserListItem` struct.
 #[derive(Debug, Clone)]
 pub struct AdminUserListItem {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `is_admin` field.
     pub is_admin: bool,
+    /// The `is_guest` field.
     pub is_guest: bool,
+    /// The `user_type` field.
     pub user_type: Option<String>,
+    /// The `is_deactivated` field.
     pub is_deactivated: bool,
+    /// The `displayname` field.
     pub displayname: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
 }
 
+/// The `AdminUserDeviceInfo` struct.
 #[derive(Debug, Clone)]
 pub struct AdminUserDeviceInfo {
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `display_name` field.
     pub display_name: Option<String>,
+    /// The `last_seen_ts` field.
     pub last_seen_ts: Option<i64>,
+    /// The `last_seen_ip` field.
     pub last_seen_ip: Option<String>,
 }
 
+/// The `AdminUsersPage` struct.
 #[derive(Debug, Clone)]
 pub struct AdminUsersPage {
+    /// The `users` field.
     pub users: Vec<AdminUserListItem>,
+    /// The `total` field.
     pub total: i64,
+    /// The `next_token` field.
     pub next_token: Option<String>,
 }
 
+/// The `AdminUserProfile` struct.
 #[derive(Debug, Clone)]
 pub struct AdminUserProfile {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `username` field.
     pub username: String,
+    /// The `is_admin` field.
     pub is_admin: bool,
+    /// The `is_guest` field.
     pub is_guest: bool,
+    /// The `is_deactivated` field.
     pub is_deactivated: bool,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `displayname` field.
     pub displayname: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `user_type` field.
     pub user_type: Option<String>,
 }
 
@@ -83,54 +116,82 @@ impl From<&User> for AdminUserProfile {
     }
 }
 
+/// The `AdminUserDetails` struct.
 #[derive(Debug, Clone)]
 pub struct AdminUserDetails {
+    /// The `user` field.
     pub user: AdminUserProfile,
+    /// The `devices` field.
     pub devices: Vec<AdminUserDeviceInfo>,
 }
 
+/// The `AdminLegacyUsersPage` struct.
 #[derive(Debug, Clone)]
 pub struct AdminLegacyUsersPage {
+    /// The `users` field.
     pub users: Vec<User>,
+    /// The `total` field.
     pub total: i64,
 }
 
+/// The `AdminEvictionFailure` struct.
 #[derive(Debug, Clone)]
 pub struct AdminEvictionFailure {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `error` field.
     pub error: String,
 }
 
+/// The `AdminUserEvictionResult` struct.
 #[derive(Debug, Clone)]
 pub struct AdminUserEvictionResult {
+    /// The `joined_rooms` field.
     pub joined_rooms: Vec<String>,
+    /// The `failures` field.
     pub failures: Vec<AdminEvictionFailure>,
 }
 
+/// The `AdminUserStats` struct.
 #[derive(Debug, Clone)]
 pub struct AdminUserStats {
+    /// The `total_users` field.
     pub total_users: i64,
+    /// The `active_users` field.
     pub active_users: i64,
+    /// The `admin_users` field.
     pub admin_users: i64,
+    /// The `deactivated_users` field.
     pub deactivated_users: i64,
+    /// The `guest_users` field.
     pub guest_users: i64,
+    /// The `average_rooms_per_user` field.
     pub average_rooms_per_user: f64,
 }
 
+/// The `AdminSingleUserStats` struct.
 #[derive(Debug, Clone)]
 pub struct AdminSingleUserStats {
+    /// The `user` field.
     pub user: AdminUserProfile,
+    /// The `rooms_joined` field.
     pub rooms_joined: i64,
+    /// The `messages_sent` field.
     pub messages_sent: i64,
+    /// The `last_seen_ts` field.
     pub last_seen_ts: Option<i64>,
 }
 
+/// The `BatchUsersResult` struct.
 #[derive(Debug, Clone)]
 pub struct BatchUsersResult {
+    /// The `succeeded` field.
     pub succeeded: Vec<String>,
+    /// The `failed` field.
     pub failed: Vec<String>,
 }
 
+/// The `AdminUserService` struct.
 pub struct AdminUserService {
     user_service: Arc<crate::UserService>,
     user_storage: Arc<dyn UserStore>,
@@ -145,6 +206,7 @@ pub struct AdminUserService {
 }
 
 impl AdminUserService {
+    /// See [`new`].
     pub fn new(
         _pool: Arc<PgPool>,
         user_service: Arc<crate::UserService>,
@@ -182,6 +244,7 @@ impl AdminUserService {
         self
     }
 
+    /// See [`list_users_legacy`].
     #[instrument(skip(self))]
     pub async fn list_users_legacy(
         &self,
@@ -196,11 +259,15 @@ impl AdminUserService {
         Ok(AdminLegacyUsersPage { users, total })
     }
 
+    /// See [`delete_user`].
+    /// See [`delete_user`].
     #[instrument(skip(self))]
     pub async fn delete_user(&self, user_id: &str) -> Result<(), ApiError> {
         self.user_storage.delete_user(user_id).await.map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
+    /// See [`set_admin_status`].
+    /// See [`set_admin_status`].
     #[instrument(skip(self))]
     pub async fn set_admin_status(&self, user_id: &str, is_admin: bool) -> Result<(), ApiError> {
         self.user_storage
@@ -210,6 +277,7 @@ impl AdminUserService {
             .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
+    /// See [`get_user_rooms_paginated`].
     #[instrument(skip(self))]
     pub async fn get_user_rooms_paginated(
         &self,
@@ -223,6 +291,8 @@ impl AdminUserService {
             .map_err(|e| ApiError::database(format!("A database error occurred: {e}")))
     }
 
+    /// See [`get_user_devices`].
+    /// See [`get_user_devices`].
     #[instrument(skip(self))]
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<synapse_storage::Device>, ApiError> {
         self.device_storage
@@ -231,6 +301,8 @@ impl AdminUserService {
             .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
+    /// See [`get_user_device_count`].
+    /// See [`get_user_device_count`].
     #[instrument(skip(self))]
     pub async fn get_user_device_count(&self, user_id: &str) -> Result<i64, ApiError> {
         self.device_storage
@@ -239,6 +311,8 @@ impl AdminUserService {
             .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
+    /// See [`get_joined_room_count`].
+    /// See [`get_joined_room_count`].
     #[instrument(skip(self))]
     pub async fn get_joined_room_count(&self, user_id: &str) -> Result<i64, ApiError> {
         self.member_storage
@@ -247,6 +321,8 @@ impl AdminUserService {
             .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
+    /// See [`evict_user_from_joined_rooms`].
+    /// See [`evict_user_from_joined_rooms`].
     #[instrument(skip(self))]
     pub async fn evict_user_from_joined_rooms(&self, user_id: &str) -> Result<AdminUserEvictionResult, ApiError> {
         // B-1.1 fix (Phase 2 — pagination + concurrent removal + visible failures):
@@ -327,6 +403,7 @@ impl AdminUserService {
         Ok(AdminUserEvictionResult { joined_rooms, failures })
     }
 
+    /// See [`list_users_v2`].
     #[instrument(skip(self))]
     pub async fn list_users_v2(
         &self,
@@ -381,6 +458,8 @@ impl AdminUserService {
         Ok(AdminUsersPage { users, total, next_token })
     }
 
+    /// See [`get_user_v2`].
+    /// See [`get_user_v2`].
     #[instrument(skip(self))]
     pub async fn get_user_v2(&self, identifier: &str) -> Result<Option<AdminUserDetails>, ApiError> {
         let user = self.user_service.get_user_by_identifier(identifier).await?;
@@ -409,6 +488,7 @@ impl AdminUserService {
         }))
     }
 
+    /// See [`create_or_update_user_v2`].
     #[allow(clippy::too_many_arguments)]
     #[instrument(skip(self))]
     pub async fn create_or_update_user_v2(
@@ -510,6 +590,8 @@ impl AdminUserService {
         Ok(())
     }
 
+    /// See [`get_user_stats`].
+    /// See [`get_user_stats`].
     #[instrument(skip(self))]
     pub async fn get_user_stats(&self) -> Result<AdminUserStats, ApiError> {
         let stats = self
@@ -536,6 +618,8 @@ impl AdminUserService {
         })
     }
 
+    /// See [`get_single_user_stats`].
+    /// See [`get_single_user_stats`].
     #[instrument(skip(self))]
     pub async fn get_single_user_stats(&self, identifier: &str) -> Result<AdminSingleUserStats, ApiError> {
         let user = self.user_service.get_user_or_not_found(identifier).await?;
@@ -562,6 +646,7 @@ impl AdminUserService {
         Ok(AdminSingleUserStats { user: AdminUserProfile::from(&user), rooms_joined, messages_sent, last_seen_ts })
     }
 
+    /// See [`batch_create_users`].
     #[instrument(skip(self))]
     pub async fn batch_create_users(
         &self,
@@ -589,6 +674,8 @@ impl AdminUserService {
         Ok(BatchUsersResult { succeeded, failed })
     }
 
+    /// See [`batch_deactivate_users`].
+    /// See [`batch_deactivate_users`].
     #[instrument(skip(self))]
     pub async fn batch_deactivate_users(&self, user_ids: &[String]) -> Result<BatchUsersResult, ApiError> {
         // B-1.2: Previously each user_id triggered an independent
@@ -630,6 +717,7 @@ impl AdminUserService {
         Ok(BatchUsersResult { succeeded, failed })
     }
 
+    /// See [`update_account`].
     #[instrument(skip(self))]
     pub async fn update_account(
         &self,

@@ -9,6 +9,8 @@ use synapse_storage::CreateEventParams;
 use super::service::MessagingService;
 
 impl MessagingService {
+    /// See [`get_event_record`].
+    /// See [`get_event_record`].
     pub async fn get_event_record(&self, event_id: &str) -> ApiResult<Option<synapse_storage::RoomEvent>> {
         self.event_reader
             .get_event(event_id)
@@ -16,6 +18,7 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Failed to get event", &e))
     }
 
+    /// See [`get_event_record_in_room`].
     pub async fn get_event_record_in_room(
         &self,
         room_id: &str,
@@ -35,6 +38,7 @@ impl MessagingService {
         Ok(event)
     }
 
+    /// See [`find_event_by_timestamp`].
     pub async fn find_event_by_timestamp(
         &self,
         room_id: &str,
@@ -47,6 +51,7 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
+    /// See [`report_event`].
     pub async fn report_event(
         &self,
         event_id: &str,
@@ -61,6 +66,8 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Failed to report event", &e))
     }
 
+    /// See [`get_state_events`].
+    /// See [`get_state_events`].
     pub async fn get_state_events(&self, room_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         let events = self
             .event_reader
@@ -84,6 +91,8 @@ impl MessagingService {
         Ok(event_list)
     }
 
+    /// See [`get_state_event_records`].
+    /// See [`get_state_event_records`].
     pub async fn get_state_event_records(&self, room_id: &str) -> ApiResult<Vec<synapse_storage::StateEvent>> {
         self.event_reader
             .get_state_events(room_id)
@@ -91,6 +100,7 @@ impl MessagingService {
             .map_err(|e| ApiError::database_with_context("Failed to get room state", &e))
     }
 
+    /// See [`get_state_events_at_or_before`].
     pub async fn get_state_events_at_or_before(
         &self,
         room_id: &str,
@@ -102,6 +112,7 @@ impl MessagingService {
             .map_err(|e| ApiError::database_with_context("Failed to get room state", &e))
     }
 
+    /// See [`create_event`].
     pub async fn create_event(
         &self,
         params: CreateEventParams,
@@ -261,6 +272,8 @@ impl MessagingService {
         Ok(event)
     }
 
+    /// See [`get_state_events_by_type`].
+    /// See [`get_state_events_by_type`].
     pub async fn get_state_events_by_type(&self, room_id: &str, event_type: &str) -> ApiResult<Vec<serde_json::Value>> {
         let events = self
             .event_reader
@@ -284,6 +297,8 @@ impl MessagingService {
         Ok(event_list)
     }
 
+    /// See [`get_pinned_event_ids`].
+    /// See [`get_pinned_event_ids`].
     pub async fn get_pinned_event_ids(&self, room_id: &str) -> ApiResult<Vec<String>> {
         let state_events: Vec<serde_json::Value> =
             self.get_state_events_by_type(room_id, "m.room.pinned_events").await?;
@@ -297,6 +312,7 @@ impl MessagingService {
         Ok(pinned)
     }
 
+    /// See [`set_pinned_event_ids`].
     pub async fn set_pinned_event_ids(
         &self,
         room_id: &str,
@@ -323,6 +339,8 @@ impl MessagingService {
         Ok(())
     }
 
+    /// See [`get_event`].
+    /// See [`get_event`].
     pub async fn get_event(&self, room_id: &str, event_id: &str) -> ApiResult<serde_json::Value> {
         let event = self
             .event_reader
@@ -346,6 +364,8 @@ impl MessagingService {
         }))
     }
 
+    /// See [`get_pending_events`].
+    /// See [`get_pending_events`].
     pub async fn get_pending_events(&self, room_id: &str, limit: i64) -> ApiResult<Vec<synapse_storage::RoomEvent>> {
         self.event_reader
             .get_pending_room_events(room_id, limit)
@@ -353,6 +373,8 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Failed to get pending events", &e))
     }
 
+    /// See [`get_room_events`].
+    /// See [`get_room_events`].
     pub async fn get_room_events(&self, room_id: &str, limit: i64) -> ApiResult<Vec<synapse_storage::RoomEvent>> {
         self.event_reader
             .get_room_events(room_id, limit)
@@ -360,6 +382,7 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Failed to get room events", &e))
     }
 
+    /// See [`get_room_events_by_type`].
     pub async fn get_room_events_by_type(
         &self,
         room_id: &str,
@@ -372,6 +395,7 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Failed to get room events by type", &e))
     }
 
+    /// See [`get_room_events_paginated_admin`].
     pub async fn get_room_events_paginated_admin(
         &self,
         room_id: &str,
@@ -385,6 +409,7 @@ impl MessagingService {
             .map_err(|e| ApiError::database_with_context("Failed to get room messages", &e))
     }
 
+    /// See [`get_event_context_admin`].
     pub async fn get_event_context_admin(
         &self,
         room_id: &str,
@@ -430,6 +455,7 @@ impl MessagingService {
         }))
     }
 
+    /// See [`search_room_messages_admin`].
     pub async fn search_room_messages_admin(
         &self,
         room_id: &str,
@@ -442,6 +468,8 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Search failed", &e))
     }
 
+    /// See [`get_forward_extremities_count`].
+    /// See [`get_forward_extremities_count`].
     pub async fn get_forward_extremities_count(&self, room_id: &str) -> ApiResult<i64> {
         self.event_reader
             .get_forward_extremities_count(room_id)
@@ -449,10 +477,14 @@ impl MessagingService {
             .map_err(|e| ApiError::database_with_context("Failed to get forward extremities", &e))
     }
 
+    /// See [`count_events_by_status`].
+    /// See [`count_events_by_status`].
     pub async fn count_events_by_status(&self, room_id: &str, status: &str) -> i64 {
         self.event_reader.count_room_events_by_status(room_id, status).await.unwrap_or(0)
     }
 
+    /// See [`redact_event_content`].
+    /// See [`redact_event_content`].
     pub async fn redact_event_content(&self, event_id: &str, redacted_by: Option<&str>) -> ApiResult<()> {
         self.event_writer
             .redact_event_content(event_id, redacted_by)
@@ -476,6 +508,7 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Failed to update event signatures and hashes", &e))
     }
 
+    /// See [`save_event_signature`].
     #[allow(clippy::too_many_arguments)]
     pub async fn save_event_signature(
         &self,
@@ -493,6 +526,8 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Failed to save signature", &e))
     }
 
+    /// See [`get_event_signatures`].
+    /// See [`get_event_signatures`].
     pub async fn get_event_signatures(&self, event_id: &str) -> ApiResult<Vec<synapse_storage::event::EventSignature>> {
         self.event_reader
             .get_event_signatures(event_id)
@@ -500,6 +535,8 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Failed to get signatures", &e))
     }
 
+    /// See [`get_daily_message_count`].
+    /// See [`get_daily_message_count`].
     #[tracing::instrument(skip(self))]
     pub async fn get_daily_message_count(&self) -> ApiResult<i64> {
         self.event_reader
@@ -508,6 +545,8 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Failed to get daily message count", &e))
     }
 
+    /// See [`find_missing_event_ids`].
+    /// See [`find_missing_event_ids`].
     #[tracing::instrument(skip(self))]
     pub async fn find_missing_event_ids(&self, event_ids: &[String]) -> ApiResult<Vec<String>> {
         self.event_reader
@@ -516,6 +555,7 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Failed to find missing event ids", &e))
     }
 
+    /// See [`get_missing_events_between`].
     #[tracing::instrument(skip(self))]
     pub async fn get_missing_events_between(
         &self,

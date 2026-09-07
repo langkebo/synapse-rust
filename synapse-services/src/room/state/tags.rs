@@ -6,8 +6,10 @@ use super::service::RoomStateService;
 #[derive(Debug, thiserror::Error)]
 pub enum TagsError {
     #[error("Tag not found")]
+    /// The `NotFound` variant.
     NotFound,
     #[error("Tag already exists")]
+    /// The `Duplicate` variant.
     Duplicate,
 }
 
@@ -21,6 +23,8 @@ impl From<TagsError> for ApiError {
 }
 
 impl RoomStateService {
+    /// See [`get_all_tags`].
+    /// See [`get_all_tags`].
     #[tracing::instrument(skip(self))]
     pub async fn get_all_tags(&self, user_id: &str) -> Result<Vec<synapse_storage::room_tag::RoomTag>, TagsError> {
         self.room_tag_storage.get_all_tags(user_id).await.map_err(|e| {
@@ -29,6 +33,7 @@ impl RoomStateService {
         })
     }
 
+    /// See [`get_tags`].
     #[tracing::instrument(skip(self))]
     pub async fn get_tags(
         &self,
@@ -41,6 +46,8 @@ impl RoomStateService {
         })
     }
 
+    /// See [`add_tag`].
+    /// See [`add_tag`].
     #[tracing::instrument(skip(self))]
     pub async fn add_tag(&self, user_id: &str, room_id: &str, tag: &str, order: Option<f64>) -> Result<(), TagsError> {
         self.room_tag_storage.add_tag(user_id, room_id, tag, order).await.map_err(|e| {
@@ -49,6 +56,8 @@ impl RoomStateService {
         })
     }
 
+    /// See [`remove_tag`].
+    /// See [`remove_tag`].
     #[tracing::instrument(skip(self))]
     pub async fn remove_tag(&self, user_id: &str, room_id: &str, tag: &str) -> Result<(), TagsError> {
         self.room_tag_storage.remove_tag(user_id, room_id, tag).await.map_err(|e| {

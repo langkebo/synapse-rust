@@ -8,11 +8,16 @@ use synapse_storage::UserStore;
 
 use crate::room::RoomServiceApi;
 
+/// The `FriendListRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendListRequest {
+    /// The `limit` field.
     pub limit: usize,
+    /// The `offset` field.
     pub offset: Option<usize>,
+    /// The `from` field.
     pub from: Option<FriendListCursor>,
+    /// The `sort_by` field.
     pub sort_by: String,
 }
 
@@ -22,64 +27,105 @@ impl Default for FriendListRequest {
     }
 }
 
+/// The `FriendListCursor` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FriendListCursor {
+    /// The `sort_by` field.
     pub sort_by: String,
+    /// The `sort_letter` field.
     pub sort_letter: String,
+    /// The `display_key` field.
     pub display_key: String,
+    /// The `online` field.
     pub online: bool,
+    /// The `last_active_ts` field.
     pub last_active_ts: Option<i64>,
+    /// The `added_ts` field.
     pub added_ts: Option<i64>,
+    /// The `user_id` field.
     pub user_id: String,
 }
 
+/// See [`encode_friend_list_cursor`].
 #[allow(clippy::expect_used)]
 pub fn encode_friend_list_cursor(cursor: &FriendListCursor) -> String {
     let raw = serde_json::to_string(cursor).expect("friend list cursor serialization should succeed");
     URL_SAFE_NO_PAD.encode(raw.as_bytes())
 }
 
+/// See [`decode_friend_list_cursor`].
 pub fn decode_friend_list_cursor(cursor: Option<&str>) -> Option<FriendListCursor> {
     let cursor = cursor?;
     let decoded = URL_SAFE_NO_PAD.decode(cursor).ok()?;
     serde_json::from_slice::<FriendListCursor>(&decoded).ok()
 }
 
+/// The `FriendListEntry` struct.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FriendListEntry {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `username` field.
     pub username: Option<String>,
     #[serde(rename = "displayname")]
+    /// The `display_name` field.
     pub display_name: Option<String>,
+    /// The `avatar_url` field.
     pub avatar_url: Option<String>,
+    /// The `note` field.
     pub note: Option<String>,
+    /// The `status` field.
     pub status: String,
+    /// The `online` field.
     pub online: bool,
+    /// The `presence` field.
     pub presence: String,
+    /// The `last_active_ts` field.
     pub last_active_ts: Option<i64>,
+    /// The `last_seen_ts` field.
     pub last_seen_ts: Option<i64>,
+    /// The `added_ts` field.
     pub added_ts: Option<i64>,
+    /// The `sort_letter` field.
     pub sort_letter: String,
+    /// The `dm_room_id` field.
     pub dm_room_id: Option<String>,
+    /// The `dm_room_active` field.
     pub dm_room_active: bool,
+    /// The `dm_room_state` field.
     pub dm_room_state: Option<String>,
+    /// The `dm_room_updated_ts` field.
     pub dm_room_updated_ts: Option<i64>,
+    /// The `dm_room_affected_user_id` field.
     pub dm_room_affected_user_id: Option<String>,
+    /// The `dm_room_changed_by` field.
     pub dm_room_changed_by: Option<String>,
+    /// The `dm_room_reason` field.
     pub dm_room_reason: Option<String>,
 }
 
+/// The `FriendListPage` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendListPage {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `items` field.
     pub items: Vec<FriendListEntry>,
+    /// The `total` field.
     pub total: usize,
+    /// The `limit` field.
     pub limit: usize,
+    /// The `offset` field.
     pub offset: Option<usize>,
+    /// The `next_offset` field.
     pub next_offset: Option<usize>,
+    /// The `next_batch` field.
     pub next_batch: Option<String>,
+    /// The `version` field.
     pub version: i64,
+    /// The `cached` field.
     pub cached: bool,
+    /// The `generated_ts` field.
     pub generated_ts: i64,
 }
 
@@ -91,57 +137,97 @@ pub struct FriendListPage {
 /// 缓存键中故 struct 不再重复保存。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendListSortCache {
+    /// The `version` field.
     pub version: i64,
+    /// The `sort_by` field.
     pub sort_by: String,
+    /// The `items` field.
     pub items: Vec<FriendListEntry>,
+    /// The `total` field.
     pub total: usize,
+    /// The `generated_ts` field.
     pub generated_ts: i64,
 }
 
+/// The `DmPartnerInfo` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DmPartnerInfo {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `display_name` field.
     pub display_name: String,
+    /// The `avatar_url` field.
     pub avatar_url: String,
 }
 
+/// The `EnsureDirectRoomResult` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnsureDirectRoomResult {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `created` field.
     pub created: bool,
 }
 
+/// The `FriendRoomCreateRoomConfig` struct.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FriendRoomCreateRoomConfig {
+    /// The `visibility` field.
     pub visibility: Option<String>,
+    /// The `room_alias_name` field.
     pub room_alias_name: Option<String>,
+    /// The `name` field.
     pub name: Option<String>,
+    /// The `topic` field.
     pub topic: Option<String>,
+    /// The `invite_list` field.
     pub invite_list: Option<Vec<String>>,
+    /// The `preset` field.
     pub preset: Option<String>,
+    /// The `encryption` field.
     pub encryption: Option<String>,
+    /// The `history_visibility` field.
     pub history_visibility: Option<String>,
+    /// The `is_direct` field.
     pub is_direct: Option<bool>,
+    /// The `room_type` field.
     pub room_type: Option<String>,
+    /// The `initial_state` field.
     pub initial_state: Option<Vec<serde_json::Value>>,
+    /// The `creation_content` field.
     pub creation_content: Option<serde_json::Value>,
+    /// The `room_version` field.
     pub room_version: Option<String>,
+    /// The `power_level_content_override` field.
     pub power_level_content_override: Option<serde_json::Value>,
 }
 
+/// The `DirectRoomSnapshot` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DirectRoomSnapshot {
+    /// The `direct_map` field.
     pub direct_map: Map<String, Value>,
+    /// The `users` field.
     pub users: Vec<String>,
+    /// The `is_direct` field.
     pub is_direct: bool,
 }
 
+/// The `DirectMapUpdateAction` enum.
 #[derive(Debug, Clone)]
 pub enum DirectMapUpdateAction {
-    ReplaceRoomTargets { room_id: String, target_user_ids: Vec<String> },
+    /// The `ReplaceRoomTargets` variant.
+    ReplaceRoomTargets {
+        /// The `room_id` field.
+        room_id: String,
+        /// The `target_user_ids` field.
+        target_user_ids: Vec<String>,
+    },
+    /// The `OverwriteMap` variant.
     OverwriteMap(Map<String, Value>),
 }
 
+/// See [`ensure_room_in_direct_map`].
 pub(crate) fn ensure_room_in_direct_map(direct_map: &mut Map<String, Value>, target_user_id: &str, room_id: &str) {
     let entry = direct_map.entry(target_user_id.to_string()).or_insert_with(|| Value::Array(Vec::new()));
 
@@ -156,6 +242,7 @@ pub(crate) fn ensure_room_in_direct_map(direct_map: &mut Map<String, Value>, tar
     }
 }
 
+/// See [`remove_room_from_direct_map`].
 pub(crate) fn remove_room_from_direct_map(direct_map: &mut Map<String, Value>, room_id: &str) {
     direct_map.retain(|_, value| {
         if let Some(rooms) = value.as_array_mut() {
@@ -167,6 +254,7 @@ pub(crate) fn remove_room_from_direct_map(direct_map: &mut Map<String, Value>, r
     });
 }
 
+/// See [`merge_direct_links`].
 pub(crate) fn merge_direct_links(
     direct_map: &mut Map<String, Value>,
     links: impl IntoIterator<Item = (String, String)>,
@@ -176,6 +264,7 @@ pub(crate) fn merge_direct_links(
     }
 }
 
+/// See [`get_room_direct_users`].
 pub(crate) fn get_room_direct_users(direct_map: &Map<String, Value>, room_id: &str) -> Vec<String> {
     direct_map
         .iter()
@@ -191,6 +280,7 @@ pub(crate) fn get_room_direct_users(direct_map: &Map<String, Value>, room_id: &s
 // 路由原语来自 synapse-common（与 storage 层共享，单一事实来源）。
 pub(crate) use synapse_common::friend_shard::sort_letter_for;
 
+/// The `FriendRoomService` struct.
 pub struct FriendRoomService {
     pub(crate) friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
     pub(crate) room_service: Arc<dyn RoomServiceApi>,

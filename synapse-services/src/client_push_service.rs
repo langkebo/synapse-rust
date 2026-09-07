@@ -5,40 +5,64 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::account_data::AccountDataStoreApi;
 use synapse_storage::push::PushStoreApi;#[derive(Debug, Clone)]
+/// The `UpsertPusherRequest` struct.
 pub struct UpsertPusherRequest {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `pushkey` field.
     pub pushkey: String,
+    /// The `kind` field.
     pub kind: String,
+    /// The `app_id` field.
     pub app_id: String,
+    /// The `app_display_name` field.
     pub app_display_name: String,
+    /// The `device_display_name` field.
     pub device_display_name: String,
+    /// The `profile_tag` field.
     pub profile_tag: Option<String>,
+    /// The `lang` field.
     pub lang: String,
+    /// The `data` field.
     pub data: Option<Value>,
 }
 
+/// The `UpsertPushRuleRequest` struct.
 #[derive(Debug, Clone)]
 pub struct UpsertPushRuleRequest {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `scope` field.
     pub scope: String,
+    /// The `kind` field.
     pub kind: String,
+    /// The `rule_id` field.
     pub rule_id: String,
+    /// The `pattern` field.
     pub pattern: Option<String>,
+    /// The `conditions` field.
     pub conditions: Option<Value>,
+    /// The `actions` field.
     pub actions: Value,
 }
 
+/// The `ClientPushService` struct.
 pub struct ClientPushService {
     account_data_storage: Arc<dyn AccountDataStoreApi>,
     push_storage: Arc<dyn PushStoreApi>,
 }
 
 impl ClientPushService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(account_data_storage: Arc<dyn AccountDataStoreApi>, push_storage: Arc<dyn PushStoreApi>) -> Self {
         Self { account_data_storage, push_storage }
     }
 
+    /// See [`get_pushers`].
+    /// See [`get_pushers`].
     pub async fn get_pushers(&self, user_id: &str, device_id: Option<&str>) -> Result<Vec<Value>, ApiError> {
         let pushers = self
             .push_storage
@@ -64,6 +88,8 @@ impl ClientPushService {
             .collect())
     }
 
+    /// See [`upsert_pusher`].
+    /// See [`upsert_pusher`].
     pub async fn upsert_pusher(&self, request: UpsertPusherRequest) -> Result<i64, ApiError> {
         let now = current_timestamp_millis();
         self.push_storage
@@ -97,6 +123,8 @@ impl ClientPushService {
         Ok(now)
     }
 
+    /// See [`delete_pusher`].
+    /// See [`delete_pusher`].
     pub async fn delete_pusher(&self, user_id: &str, device_id: &str, pushkey: &str) -> Result<(), ApiError> {
         self.push_storage
             .delete_pusher(user_id, device_id, pushkey)
@@ -115,6 +143,8 @@ impl ClientPushService {
         Ok(())
     }
 
+    /// See [`get_push_rules_content`].
+    /// See [`get_push_rules_content`].
     pub async fn get_push_rules_content(&self, user_id: &str) -> Result<Option<Value>, ApiError> {
         self.account_data_storage
             .get_account_data_content(user_id, "m.push_rules")
@@ -122,6 +152,8 @@ impl ClientPushService {
             .map_err(|e| ApiError::internal_with_context("Failed to get push rules", &e))
     }
 
+    /// See [`get_user_push_rules`].
+    /// See [`get_user_push_rules`].
     pub async fn get_user_push_rules(&self, user_id: &str, scope: &str, kind: &str) -> Result<Vec<Value>, ApiError> {
         let rules = self
             .push_storage
@@ -145,6 +177,8 @@ impl ClientPushService {
             .collect())
     }
 
+    /// See [`upsert_push_rule`].
+    /// See [`upsert_push_rule`].
     pub async fn upsert_push_rule(&self, request: UpsertPushRuleRequest) -> Result<i64, ApiError> {
         let now = current_timestamp_millis();
         self.push_storage
@@ -175,6 +209,7 @@ impl ClientPushService {
         Ok(now)
     }
 
+    /// See [`delete_push_rule`].
     pub async fn delete_push_rule(
         &self,
         user_id: &str,
@@ -202,6 +237,7 @@ impl ClientPushService {
         Ok(rows > 0)
     }
 
+    /// See [`set_push_rule_actions`].
     pub async fn set_push_rule_actions(
         &self,
         user_id: &str,
@@ -227,6 +263,7 @@ impl ClientPushService {
         Ok(())
     }
 
+    /// See [`get_push_rule_enabled`].
     pub async fn get_push_rule_enabled(
         &self,
         user_id: &str,
@@ -240,6 +277,7 @@ impl ClientPushService {
             .map_err(|e| ApiError::internal_with_context("Database error", &e))
     }
 
+    /// See [`set_push_rule_enabled`].
     pub async fn set_push_rule_enabled(
         &self,
         user_id: &str,
@@ -266,6 +304,8 @@ impl ClientPushService {
         Ok(())
     }
 
+    /// See [`get_notifications`].
+    /// See [`get_notifications`].
     pub async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<Value>, ApiError> {
         let notifications = self
             .push_storage
@@ -288,6 +328,8 @@ impl ClientPushService {
             .collect())
     }
 
+    /// See [`ack_notification`].
+    /// See [`ack_notification`].
     pub async fn ack_notification(&self, notification_id: i64, user_id: &str) -> Result<bool, ApiError> {
         let result = self
             .push_storage

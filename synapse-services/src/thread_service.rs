@@ -6,100 +6,156 @@ use synapse_storage::thread::{
 };
 use tracing::{debug, info, warn};
 
+/// The `CreateThreadRequest` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CreateThreadRequest {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `root_event_id` field.
     pub root_event_id: String,
 }
 
+/// The `CreateReplyRequest` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CreateReplyRequest {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `thread_id` field.
     pub thread_id: String,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `root_event_id` field.
     pub root_event_id: String,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `in_reply_to_event_id` field.
     pub in_reply_to_event_id: Option<String>,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
 }
 
+/// The `GetThreadRequest` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GetThreadRequest {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `thread_id` field.
     pub thread_id: String,
+    /// The `include_replies` field.
     pub include_replies: bool,
+    /// The `reply_limit` field.
     pub reply_limit: Option<i32>,
 }
 
+/// The `ListThreadsRequest` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ListThreadsRequest {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `limit` field.
     pub limit: Option<i32>,
+    /// The `from` field.
     pub from: Option<String>,
+    /// The `include_all` field.
     pub include_all: bool,
 }
 
+/// The `SubscribeRequest` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SubscribeRequest {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `thread_id` field.
     pub thread_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `notification_level` field.
     pub notification_level: String,
 }
 
+/// The `MarkReadRequest` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MarkReadRequest {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `thread_id` field.
     pub thread_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `origin_server_ts` field.
     pub origin_server_ts: i64,
 }
 
+/// The `ThreadListResponse` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ThreadListResponse {
+    /// The `threads` field.
     pub threads: Vec<ThreadSummary>,
+    /// The `next_batch` field.
     pub next_batch: Option<String>,
+    /// The `total` field.
     pub total: i32,
 }
 
+/// The `ThreadDetailResponse` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ThreadDetailResponse {
+    /// The `root` field.
     pub root: ThreadRoot,
+    /// The `replies` field.
     pub replies: Vec<ThreadReply>,
+    /// The `reply_count` field.
     pub reply_count: i32,
+    /// The `participants` field.
     pub participants: Vec<String>,
+    /// The `summary` field.
     pub summary: Option<ThreadSummary>,
+    /// The `user_receipt` field.
     pub user_receipt: Option<ThreadReadReceipt>,
+    /// The `user_subscription` field.
     pub user_subscription: Option<ThreadSubscription>,
 }
 
+/// The `UnreadThreadsResponse` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct UnreadThreadsResponse {
+    /// The `threads` field.
     pub threads: Vec<ThreadReadReceipt>,
+    /// The `total_unread` field.
     pub total_unread: i32,
+    /// The `total_threads` field.
     pub total_threads: i32,
 }
 
+/// The `SubscribedThreadsResponse` struct.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SubscribedThreadsResponse {
+    /// The `threads` field.
     pub threads: Vec<ThreadSummary>,
+    /// The `subscribed` field.
     pub subscribed: Vec<ThreadSubscription>,
     /// `thread_id` keyset cursor for the next page; `None` when the page is
     /// the last one. Matches the cursor contract used by `list_threads`.
     pub next_batch: Option<String>,
 }
 
+/// The `ThreadService` struct.
 #[derive(Clone)]
 pub struct ThreadService {
     storage: Arc<dyn ThreadStoreApi>,
 }
 
 impl ThreadService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn ThreadStoreApi>) -> Self {
         Self { storage }
     }
 
+    /// See [`get_thread_root`].
+    /// See [`get_thread_root`].
     pub async fn get_thread_root(&self, room_id: &str, thread_id: &str) -> Result<Option<ThreadRoot>, ApiError> {
         self.storage
             .get_thread_root(room_id, thread_id)
@@ -107,6 +163,7 @@ impl ThreadService {
             .map_err(|e| ApiError::internal_with_context("Failed to get thread root", &e))
     }
 
+    /// See [`get_thread_root_by_event`].
     pub async fn get_thread_root_by_event(
         &self,
         room_id: &str,
@@ -118,6 +175,7 @@ impl ThreadService {
             .map_err(|e| ApiError::internal_with_context("Failed to get thread root", &e))
     }
 
+    /// See [`get_thread_replies`].
     pub async fn get_thread_replies(
         &self,
         room_id: &str,
@@ -131,6 +189,8 @@ impl ThreadService {
             .map_err(|e| ApiError::internal_with_context("Failed to get replies", &e))
     }
 
+    /// See [`get_thread_participants`].
+    /// See [`get_thread_participants`].
     pub async fn get_thread_participants(&self, room_id: &str, thread_id: &str) -> Result<Vec<String>, ApiError> {
         self.storage
             .get_thread_participants(room_id, thread_id)
@@ -138,6 +198,8 @@ impl ThreadService {
             .map_err(|e| ApiError::internal_with_context("Failed to get participants", &e))
     }
 
+    /// See [`create_thread`].
+    /// See [`create_thread`].
     pub async fn create_thread(&self, sender: &str, request: CreateThreadRequest) -> Result<ThreadRoot, ApiError> {
         info!(
             room_id = %request.room_id,
@@ -179,6 +241,8 @@ impl ThreadService {
         Ok(thread_root)
     }
 
+    /// See [`add_reply`].
+    /// See [`add_reply`].
     pub async fn add_reply(&self, sender: &str, request: CreateReplyRequest) -> Result<ThreadReply, ApiError> {
         info!(
             room_id = %request.room_id,
@@ -234,6 +298,7 @@ impl ThreadService {
         Ok(reply)
     }
 
+    /// See [`get_thread`].
     pub async fn get_thread(
         &self,
         request: GetThreadRequest,
@@ -300,6 +365,8 @@ impl ThreadService {
         Ok(ThreadDetailResponse { root, replies, reply_count, participants, summary, user_receipt, user_subscription })
     }
 
+    /// See [`list_threads`].
+    /// See [`list_threads`].
     pub async fn list_threads(&self, request: ListThreadsRequest) -> Result<ThreadListResponse, ApiError> {
         debug!(
             room_id = %request.room_id,
@@ -357,6 +424,7 @@ impl ThreadService {
         Ok(ThreadListResponse { threads: summaries, next_batch, total })
     }
 
+    /// See [`list_all_threads`].
     pub async fn list_all_threads(
         &self,
         limit: Option<i32>,
@@ -406,6 +474,8 @@ impl ThreadService {
         Ok(ThreadListResponse { threads: summaries, next_batch, total })
     }
 
+    /// See [`subscribe`].
+    /// See [`subscribe`].
     pub async fn subscribe(&self, request: SubscribeRequest) -> Result<ThreadSubscription, ApiError> {
         let thread_root = self
             .storage
@@ -432,6 +502,8 @@ impl ThreadService {
             })
     }
 
+    /// See [`unsubscribe`].
+    /// See [`unsubscribe`].
     pub async fn unsubscribe(&self, room_id: &str, thread_id: &str, user_id: &str) -> Result<(), ApiError> {
         self.storage.unsubscribe_from_thread(room_id, thread_id, user_id).await.map_err(|e| {
             warn!(error = %e, "Failed to unsubscribe from thread");
@@ -439,6 +511,7 @@ impl ThreadService {
         })
     }
 
+    /// See [`mute_thread`].
     pub async fn mute_thread(
         &self,
         room_id: &str,
@@ -451,6 +524,8 @@ impl ThreadService {
         })
     }
 
+    /// See [`mark_read`].
+    /// See [`mark_read`].
     pub async fn mark_read(&self, request: MarkReadRequest) -> Result<ThreadReadReceipt, ApiError> {
         self.storage
             .update_read_receipt(
@@ -467,6 +542,7 @@ impl ThreadService {
             })
     }
 
+    /// See [`get_unread_threads`].
     pub async fn get_unread_threads(
         &self,
         user_id: &str,
@@ -483,6 +559,7 @@ impl ThreadService {
         Ok(UnreadThreadsResponse { threads, total_unread, total_threads })
     }
 
+    /// See [`get_subscribed_threads`].
     pub async fn get_subscribed_threads(
         &self,
         user_id: &str,
@@ -525,6 +602,8 @@ impl ThreadService {
         Ok(SubscribedThreadsResponse { threads, subscribed: page, next_batch })
     }
 
+    /// See [`delete_thread`].
+    /// See [`delete_thread`].
     pub async fn delete_thread(&self, room_id: &str, thread_id: &str) -> Result<(), ApiError> {
         self.storage.delete_thread(room_id, thread_id).await.map_err(|e| {
             warn!(error = %e, "Failed to delete thread");
@@ -532,6 +611,7 @@ impl ThreadService {
         })
     }
 
+    /// See [`get_thread_statistics`].
     pub async fn get_thread_statistics(
         &self,
         room_id: &str,
@@ -543,6 +623,7 @@ impl ThreadService {
         })
     }
 
+    /// See [`search_threads`].
     pub async fn search_threads(
         &self,
         room_id: &str,
@@ -555,6 +636,8 @@ impl ThreadService {
         })
     }
 
+    /// See [`freeze_thread`].
+    /// See [`freeze_thread`].
     pub async fn freeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), ApiError> {
         self.storage.freeze_thread(room_id, thread_id).await.map_err(|e| {
             warn!(error = %e, "Failed to freeze thread");
@@ -562,6 +645,8 @@ impl ThreadService {
         })
     }
 
+    /// See [`unfreeze_thread`].
+    /// See [`unfreeze_thread`].
     pub async fn unfreeze_thread(&self, room_id: &str, thread_id: &str) -> Result<(), ApiError> {
         self.storage.unfreeze_thread(room_id, thread_id).await.map_err(|e| {
             warn!(error = %e, "Failed to unfreeze thread");
@@ -569,6 +654,8 @@ impl ThreadService {
         })
     }
 
+    /// See [`redact_reply`].
+    /// See [`redact_reply`].
     pub async fn redact_reply(&self, room_id: &str, event_id: &str) -> Result<(), ApiError> {
         self.storage.mark_reply_redacted(room_id, event_id).await.map_err(|e| {
             warn!(error = %e, "Failed to redact reply");
@@ -576,6 +663,8 @@ impl ThreadService {
         })
     }
 
+    /// See [`edit_reply`].
+    /// See [`edit_reply`].
     pub async fn edit_reply(&self, room_id: &str, event_id: &str) -> Result<(), ApiError> {
         self.storage.mark_reply_edited(room_id, event_id).await.map_err(|e| {
             warn!(error = %e, "Failed to edit reply");

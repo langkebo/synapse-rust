@@ -2,23 +2,30 @@ use super::models::ThirdPartyId;
 use synapse_common::error::ApiError;
 use synapse_storage::{CreateThreepidRequest, ThreepidStorage};
 
+/// The `IdentityStorage` struct.
 #[derive(Clone)]
 pub struct IdentityStorage {
     threepid_storage: ThreepidStorage,
 }
 
 impl IdentityStorage {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: &sqlx::PgPool) -> Self {
         let threepid_storage = ThreepidStorage::new(pool);
 
         Self { threepid_storage }
     }
 
+    /// See [`get_user_three_pids`].
+    /// See [`get_user_three_pids`].
     pub async fn get_user_three_pids(&self, user_id: &str) -> Result<Vec<ThirdPartyId>, ApiError> {
         let rows = self.threepid_storage.get_threepids_by_user(user_id).await?;
         Ok(rows.into_iter().map(Self::map_threepid).collect())
     }
 
+    /// See [`add_three_pid`].
+    /// See [`add_three_pid`].
     pub async fn add_three_pid(&self, three_pid: &ThirdPartyId) -> Result<(), ApiError> {
         self.threepid_storage
             .add_threepid(CreateThreepidRequest {
@@ -40,20 +47,28 @@ impl IdentityStorage {
         Ok(())
     }
 
+    /// See [`remove_three_pid`].
+    /// See [`remove_three_pid`].
     pub async fn remove_three_pid(&self, address: &str, medium: &str, user_id: &str) -> Result<(), ApiError> {
         self.threepid_storage.remove_threepid(user_id, medium, address).await?;
         Ok(())
     }
 
+    /// See [`get_three_pid_user`].
+    /// See [`get_three_pid_user`].
     pub async fn get_three_pid_user(&self, address: &str, medium: &str) -> Result<Option<String>, ApiError> {
         Ok(self.threepid_storage.get_threepid_by_address(medium, address).await?.map(|threepid| threepid.user_id))
     }
 
+    /// See [`validate_three_pid`].
+    /// See [`validate_three_pid`].
     pub async fn validate_three_pid(&self, address: &str, medium: &str, user_id: &str) -> Result<(), ApiError> {
         let _ = self.threepid_storage.verify_threepid(user_id, medium, address).await?;
         Ok(())
     }
 
+    /// See [`get_pending_three_pid_validations`].
+    /// See [`get_pending_three_pid_validations`].
     pub async fn get_pending_three_pid_validations(&self) -> Result<Vec<serde_json::Value>, ApiError> {
         let rows = self.threepid_storage.get_pending_threepids(100).await?;
 

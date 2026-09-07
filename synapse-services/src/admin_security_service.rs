@@ -6,12 +6,16 @@ use synapse_storage::rate_limit::RateLimitStoreApi;
 use synapse_storage::UserStore;
 use tracing::instrument;
 
+/// The `UserRateLimit` struct.
 #[derive(Debug, Clone)]
 pub struct UserRateLimit {
+    /// The `messages_per_second` field.
     pub messages_per_second: f64,
+    /// The `burst_count` field.
     pub burst_count: i32,
 }
 
+/// The `AdminSecurityService` struct.
 pub struct AdminSecurityService {
     user_storage: Arc<dyn UserStore>,
     #[allow(dead_code)]
@@ -21,6 +25,7 @@ pub struct AdminSecurityService {
 }
 
 impl AdminSecurityService {
+    /// See [`new`].
     pub fn new(
         user_storage: Arc<dyn UserStore>,
         user_service: Arc<UserService>,
@@ -30,6 +35,8 @@ impl AdminSecurityService {
         Self { user_storage, user_service, rate_limit_storage, cache }
     }
 
+    /// See [`set_shadow_ban`].
+    /// See [`set_shadow_ban`].
     #[instrument(skip(self))]
     pub async fn set_shadow_ban(&self, user_id: &str, is_shadow_banned: bool) -> Result<(), ApiError> {
         let updated = self
@@ -46,6 +53,8 @@ impl AdminSecurityService {
         Ok(())
     }
 
+    /// See [`get_user_rate_limit`].
+    /// See [`get_user_rate_limit`].
     #[instrument(skip(self))]
     pub async fn get_user_rate_limit(&self, user_id: &str) -> Result<UserRateLimit, ApiError> {
         let limit = self
@@ -63,6 +72,7 @@ impl AdminSecurityService {
         })
     }
 
+    /// See [`set_user_rate_limit`].
     #[instrument(skip(self))]
     pub async fn set_user_rate_limit(
         &self,
@@ -78,6 +88,8 @@ impl AdminSecurityService {
         Ok(UserRateLimit { messages_per_second, burst_count })
     }
 
+    /// See [`delete_user_rate_limit`].
+    /// See [`delete_user_rate_limit`].
     #[instrument(skip(self))]
     pub async fn delete_user_rate_limit(&self, user_id: &str) -> Result<(), ApiError> {
         self.rate_limit_storage

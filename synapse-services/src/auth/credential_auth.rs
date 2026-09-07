@@ -6,6 +6,7 @@ use synapse_storage::User;
 /// guest accounts, and verification.
 #[async_trait]
 pub trait CredentialAuth: Send + Sync {
+    /// See [`login`].
     async fn login(
         &self,
         username: &str,
@@ -14,6 +15,7 @@ pub trait CredentialAuth: Send + Sync {
         initial_display_name: Option<&str>,
     ) -> ApiResult<(User, String, String, String)>;
 
+    /// See [`register`].
     async fn register(
         &self,
         username: &str,
@@ -22,6 +24,7 @@ pub trait CredentialAuth: Send + Sync {
         displayname: Option<&str>,
     ) -> ApiResult<(User, String, String, String)>;
 
+    /// See [`register_with_device_name`].
     async fn register_with_device_name(
         &self,
         username: &str,
@@ -47,14 +50,19 @@ pub trait CredentialAuth: Send + Sync {
         logout_devices: bool,
     ) -> ApiResult<()>;
 
+    /// See [`deactivate_user`].
     async fn deactivate_user(&self, user_id: &str) -> ApiResult<()>;
 
+    /// See [`verify_user_credentials`].
     async fn verify_user_credentials(&self, user_id: &str, password: &str) -> ApiResult<()>;
 
+    /// See [`register_guest_account`].
     async fn register_guest_account(&self) -> ApiResult<(User, String, String)>;
 
+    /// See [`require_guest_user`].
     async fn require_guest_user(&self, user_id: &str) -> ApiResult<User>;
 
+    /// See [`upgrade_guest_account`].
     async fn upgrade_guest_account(
         &self,
         user_id: &str,
@@ -63,5 +71,6 @@ pub trait CredentialAuth: Send + Sync {
         password: &str,
     ) -> ApiResult<String>;
 
+    /// See [`generate_email_verification_token`].
     fn generate_email_verification_token(&self) -> ApiResult<String>;
 }

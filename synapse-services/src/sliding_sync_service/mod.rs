@@ -53,6 +53,7 @@ const MAX_SLIDING_SYNC_IDLE_WAIT_MS: u64 = 30_000;
 /// Default idle wait when the client omits the `timeout` field.
 const DEFAULT_SLIDING_SYNC_IDLE_WAIT_MS: u64 = 10_000;
 
+/// The `SlidingSyncService` struct.
 #[derive(Clone)]
 pub struct SlidingSyncService {
     storage: Arc<dyn SlidingSyncStoreApi>,
@@ -93,17 +94,20 @@ pub struct SlidingSyncService {
     event_notifier: Option<crate::event_notifier::EventNotifier>,
 }
 
+/// The `RoomSubscriptionConfig` struct.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RoomSubscriptionConfig {
     pub(crate) timeline_limit: Option<u32>,
     pub(crate) required_state: Option<Vec<Vec<String>>>,
 }
 
+/// The `SlidingListWindowSnapshot` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct SlidingListWindowSnapshot {
     pub(crate) ranges: Vec<SlidingListRangeSnapshot>,
 }
 
+/// The `SlidingListRangeSnapshot` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct SlidingListRangeSnapshot {
     pub(crate) start: u32,
@@ -112,6 +116,7 @@ pub(crate) struct SlidingListRangeSnapshot {
 }
 
 impl SlidingSyncService {
+    /// See [`new`].
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         storage: Arc<dyn SlidingSyncStoreApi>,
@@ -186,6 +191,7 @@ impl SlidingSyncService {
         self.metrics.get_counter(SLIDING_SYNC_SLOW_REQUESTS_COUNTER).map_or(0, |c| c.get())
     }
 
+    /// See [`sync`].
     pub async fn sync(
         &self,
         user_id: &str,

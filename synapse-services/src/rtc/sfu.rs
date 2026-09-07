@@ -1,93 +1,151 @@
 use serde::{Deserialize, Serialize};
 use synapse_common::config::LivekitConfig;
 
+/// The `LivekitRoom` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LivekitRoom {
+    /// The `sid` field.
     pub sid: String,
+    /// The `name` field.
     pub name: String,
+    /// The `empty_timeout` field.
     pub empty_timeout: u32,
+    /// The `max_participants` field.
     pub max_participants: u32,
+    /// The `creation_time` field.
     pub creation_time: i64,
+    /// The `turn_password` field.
     pub turn_password: String,
+    /// The `enabled_codecs` field.
     pub enabled_codecs: Vec<LivekitCodec>,
 }
 
+/// The `LivekitCodec` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LivekitCodec {
+    /// The `mime_type` field.
     pub mime_type: String,
+    /// The `fmtp_line` field.
     pub fmtp_line: Option<String>,
 }
 
+/// The `LivekitParticipant` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LivekitParticipant {
+    /// The `sid` field.
     pub sid: String,
+    /// The `identity` field.
     pub identity: String,
+    /// The `state` field.
     pub state: String,
+    /// The `tracks` field.
     pub tracks: Vec<LivekitTrack>,
+    /// The `metadata` field.
     pub metadata: Option<String>,
+    /// The `joined_at` field.
     pub joined_at: i64,
+    /// The `name` field.
     pub name: Option<String>,
 }
 
+/// The `LivekitTrack` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LivekitTrack {
+    /// The `sid` field.
     pub sid: String,
+    /// The `name` field.
     pub name: String,
+    /// The `kind` field.
     pub kind: String,
+    /// The `source` field.
     pub source: String,
+    /// The `muted` field.
     pub muted: bool,
+    /// The `width` field.
     pub width: Option<u32>,
+    /// The `height` field.
     pub height: Option<u32>,
 }
 
+/// The `CreateRoomRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateRoomRequest {
+    /// The `name` field.
     pub name: String,
+    /// The `empty_timeout` field.
     pub empty_timeout: Option<u32>,
+    /// The `max_participants` field.
     pub max_participants: Option<u32>,
+    /// The `node_id` field.
     pub node_id: Option<String>,
+    /// The `metadata` field.
     pub metadata: Option<String>,
 }
 
+/// The `CreateRoomResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateRoomResponse {
+    /// The `room` field.
     pub room: LivekitRoom,
 }
 
+/// The `JoinRoomRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinRoomRequest {
+    /// The `room` field.
     pub room: String,
+    /// The `identity` field.
     pub identity: String,
+    /// The `name` field.
     pub name: Option<String>,
+    /// The `metadata` field.
     pub metadata: Option<String>,
+    /// The `can_publish` field.
     pub can_publish: Option<bool>,
+    /// The `can_subscribe` field.
     pub can_subscribe: Option<bool>,
+    /// The `can_publish_data` field.
     pub can_publish_data: Option<bool>,
 }
 
+/// The `JoinRoomResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinRoomResponse {
+    /// The `access_token` field.
     pub access_token: String,
+    /// The `room` field.
     pub room: LivekitRoom,
+    /// The `participant` field.
     pub participant: LivekitParticipant,
 }
 
+/// The `RoomParticipant` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoomParticipant {
+    /// The `identity` field.
     pub identity: String,
+    /// The `state` field.
     pub state: String,
+    /// The `tracks` field.
     pub tracks: Vec<TrackInfo>,
 }
 
+/// The `TrackInfo` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackInfo {
+    /// The `sid` field.
     pub sid: String,
+    /// The `name` field.
     pub name: String,
+    /// The `kind` field.
     pub kind: String,
+    /// The `source` field.
     pub source: String,
+    /// The `muted` field.
     pub muted: bool,
 }
 
+/// The `LivekitClient` struct.
 #[derive(Clone)]
 pub struct LivekitClient {
     config: LivekitConfig,
@@ -95,11 +153,15 @@ pub struct LivekitClient {
 }
 
 impl LivekitClient {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: LivekitConfig) -> Self {
         // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()
         Self { config, http_client: synapse_common::http_client::default_client() }
     }
 
+    /// See [`create_room`].
+    /// See [`create_room`].
     pub async fn create_room(&self, request: CreateRoomRequest) -> Result<LivekitRoom, LivekitError> {
         let url = format!("{}/twirp/livekit.RoomService/CreateRoom", self.config.host);
 
@@ -122,6 +184,8 @@ impl LivekitClient {
         Ok(room)
     }
 
+    /// See [`delete_room`].
+    /// See [`delete_room`].
     pub async fn delete_room(&self, room_name: &str) -> Result<(), LivekitError> {
         let url = format!("{}/twirp/livekit.RoomService/DeleteRoom", self.config.host);
 
@@ -146,6 +210,8 @@ impl LivekitClient {
         Ok(())
     }
 
+    /// See [`list_rooms`].
+    /// See [`list_rooms`].
     pub async fn list_rooms(&self) -> Result<Vec<LivekitRoom>, LivekitError> {
         let url = format!("{}/twirp/livekit.RoomService/ListRooms", self.config.host);
 
@@ -175,6 +241,8 @@ impl LivekitClient {
         Ok(result.rooms)
     }
 
+    /// See [`list_participants`].
+    /// See [`list_participants`].
     pub async fn list_participants(&self, room_name: &str) -> Result<Vec<LivekitParticipant>, LivekitError> {
         let url = format!("{}/twirp/livekit.RoomService/ListParticipants", self.config.host);
 
@@ -206,6 +274,8 @@ impl LivekitClient {
         Ok(result.participants)
     }
 
+    /// See [`remove_participant`].
+    /// See [`remove_participant`].
     pub async fn remove_participant(&self, room_name: &str, identity: &str) -> Result<(), LivekitError> {
         let url = format!("{}/twirp/livekit.RoomService/RemoveParticipant", self.config.host);
 
@@ -231,6 +301,7 @@ impl LivekitClient {
         Ok(())
     }
 
+    /// See [`mute_published_track`].
     pub async fn mute_published_track(
         &self,
         room_name: &str,
@@ -264,6 +335,7 @@ impl LivekitClient {
         Ok(())
     }
 
+    /// See [`create_access_token`].
     #[allow(clippy::too_many_arguments, clippy::expect_used)]
     pub fn create_access_token(
         &self,
@@ -360,15 +432,20 @@ impl LivekitClient {
     }
 }
 
+/// The `LivekitError` enum.
 #[derive(Debug, thiserror::Error)]
 pub enum LivekitError {
     #[error("Network error: {0}")]
+    /// The `Network` variant.
     Network(String),
     #[error("API error: {0}")]
+    /// The `Api` variant.
     Api(String),
     #[error("Parse error: {0}")]
+    /// The `Parse` variant.
     Parse(String),
     #[error("Token error: {0}")]
+    /// The `Token` variant.
     Token(String),
 }
 

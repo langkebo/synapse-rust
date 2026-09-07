@@ -2,16 +2,20 @@ use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::user::{LockedUser, UserStore};
 
+/// The `UserLockService` struct.
 #[derive(Clone)]
 pub struct UserLockService {
     user_store: Arc<dyn UserStore>,
 }
 
 impl UserLockService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(user_store: Arc<dyn UserStore>) -> Self {
         Self { user_store }
     }
 
+    /// See [`lock_user`].
     pub async fn lock_user(
         &self,
         user_id: &str,
@@ -25,6 +29,8 @@ impl UserLockService {
             .map_err(|e| ApiError::internal_with_context("Failed to lock user", &e))
     }
 
+    /// See [`unlock_user`].
+    /// See [`unlock_user`].
     pub async fn unlock_user(&self, user_id: &str, now_ts: i64) -> Result<(), ApiError> {
         self.user_store
             .unlock_user(user_id, now_ts)
@@ -32,6 +38,8 @@ impl UserLockService {
             .map_err(|e| ApiError::internal_with_context("Failed to unlock user", &e))
     }
 
+    /// See [`is_user_locked`].
+    /// See [`is_user_locked`].
     pub async fn is_user_locked(&self, user_id: &str) -> Result<bool, ApiError> {
         self.user_store
             .is_user_locked(user_id)
@@ -39,6 +47,8 @@ impl UserLockService {
             .map_err(|e| ApiError::internal_with_context("Failed to check user lock status", &e))
     }
 
+    /// See [`get_active_user_lock`].
+    /// See [`get_active_user_lock`].
     pub async fn get_active_user_lock(&self, user_id: &str) -> Result<Option<LockedUser>, ApiError> {
         self.user_store
             .get_active_user_lock(user_id)
@@ -46,6 +56,8 @@ impl UserLockService {
             .map_err(|e| ApiError::internal_with_context("Failed to get active user lock", &e))
     }
 
+    /// See [`get_locked_users`].
+    /// See [`get_locked_users`].
     pub async fn get_locked_users(&self, limit: i64, offset: i64) -> Result<Vec<LockedUser>, ApiError> {
         self.user_store
             .get_locked_users(limit, offset)

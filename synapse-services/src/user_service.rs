@@ -15,6 +15,8 @@ pub struct UserService {
 }
 
 impl UserService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(user_storage: Arc<dyn UserStore>) -> Self {
         Self { user_storage }
     }
@@ -26,26 +28,36 @@ impl UserService {
 
     // ── user lookup (Patterns 1+2) ──────────────────────────────────────
 
+    /// See [`get_user`].
+    /// See [`get_user`].
     #[instrument(skip(self))]
     pub async fn get_user(&self, user_id: &str) -> Result<Option<User>, ApiError> {
         self.user_storage.get_user_by_id(user_id).await.map_err(Self::db_error)
     }
 
+    /// See [`get_user_by_identifier`].
+    /// See [`get_user_by_identifier`].
     #[instrument(skip(self))]
     pub async fn get_user_by_identifier(&self, identifier: &str) -> Result<Option<User>, ApiError> {
         self.user_storage.get_user_by_identifier(identifier).await.map_err(Self::db_error)
     }
 
+    /// See [`get_user_by_username`].
+    /// See [`get_user_by_username`].
     #[instrument(skip(self))]
     pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, ApiError> {
         self.user_storage.get_user_by_username(username).await.map_err(Self::db_error)
     }
 
+    /// See [`get_user_by_email`].
+    /// See [`get_user_by_email`].
     #[instrument(skip(self))]
     pub async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, ApiError> {
         self.user_storage.get_user_by_email(email).await.map_err(Self::db_error)
     }
 
+    /// See [`user_exists`].
+    /// See [`user_exists`].
     #[instrument(skip(self))]
     pub async fn user_exists(&self, user_id: &str) -> Result<bool, ApiError> {
         self.user_storage.user_exists(user_id).await.map_err(Self::db_error)
@@ -66,6 +78,8 @@ impl UserService {
 
     // ── profile (Patterns 3+4+5) ───────────────────────────────────────
 
+    /// See [`get_profile`].
+    /// See [`get_profile`].
     #[instrument(skip(self))]
     pub async fn get_profile(&self, user_id: &str) -> Result<serde_json::Value, ApiError> {
         let user = self.get_user(user_id).await?.ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
@@ -76,6 +90,8 @@ impl UserService {
         }))
     }
 
+    /// See [`get_profiles_batch`].
+    /// See [`get_profiles_batch`].
     #[instrument(skip(self))]
     pub async fn get_profiles_batch(&self, user_ids: &[String]) -> Result<Vec<serde_json::Value>, ApiError> {
         let profiles = self.user_storage.get_user_profiles_batch(user_ids).await.map_err(Self::db_error)?;
@@ -87,6 +103,8 @@ impl UserService {
             .collect())
     }
 
+    /// See [`update_displayname`].
+    /// See [`update_displayname`].
     #[instrument(skip(self))]
     pub async fn update_displayname(&self, user_id: &str, displayname: Option<&str>) -> Result<(), ApiError> {
         self.user_storage.update_displayname(user_id, displayname).await.map_err(|e| {
@@ -98,6 +116,8 @@ impl UserService {
         })
     }
 
+    /// See [`update_avatar_url`].
+    /// See [`update_avatar_url`].
     #[instrument(skip(self))]
     pub async fn update_avatar_url(&self, user_id: &str, avatar_url: Option<&str>) -> Result<(), ApiError> {
         self.user_storage.update_avatar_url(user_id, avatar_url).await.map_err(|e| {
@@ -109,6 +129,7 @@ impl UserService {
         })
     }
 
+    /// See [`update_profile`].
     #[instrument(skip(self))]
     pub async fn update_profile(
         &self,
@@ -127,11 +148,14 @@ impl UserService {
 
     // ── search / listing ───────────────────────────────────────────────
 
+    /// See [`search_users`].
+    /// See [`search_users`].
     #[instrument(skip(self))]
     pub async fn search_users(&self, query: &str, limit: i64) -> Result<Vec<UserSearchResult>, ApiError> {
         self.user_storage.search_users(query, limit).await.map_err(Self::db_error)
     }
 
+    /// See [`search_directory_users`].
     #[instrument(skip(self))]
     pub async fn search_directory_users(
         &self,
@@ -142,6 +166,7 @@ impl UserService {
         self.user_storage.search_directory_users(query, limit, exact_only).await.map_err(Self::db_error)
     }
 
+    /// See [`get_users_paginated`].
     #[instrument(skip(self))]
     pub async fn get_users_paginated(
         &self,
@@ -152,16 +177,22 @@ impl UserService {
         self.user_storage.get_users_paginated(limit, since_ts, since_user_id).await.map_err(Self::db_error)
     }
 
+    /// See [`get_user_count`].
+    /// See [`get_user_count`].
     #[instrument(skip(self))]
     pub async fn get_user_count(&self) -> Result<i64, ApiError> {
         self.user_storage.get_user_count().await.map_err(Self::db_error)
     }
 
+    /// See [`get_non_deactivated_user_count`].
+    /// See [`get_non_deactivated_user_count`].
     #[instrument(skip(self))]
     pub async fn get_non_deactivated_user_count(&self) -> Result<i64, ApiError> {
         self.user_storage.count_non_deactivated_users().await.map_err(Self::db_error)
     }
 
+    /// See [`get_non_deactivated_user_count_by_app_service`].
+    /// See [`get_non_deactivated_user_count_by_app_service`].
     #[instrument(skip(self))]
     pub async fn get_non_deactivated_user_count_by_app_service(&self) -> Result<HashMap<String, i64>, ApiError> {
         self.user_storage.count_non_deactivated_users_by_app_service().await.map_err(Self::db_error)

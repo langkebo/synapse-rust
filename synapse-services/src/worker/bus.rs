@@ -9,11 +9,16 @@ use synapse_common::error::ApiError;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tracing::{debug, info, warn};
 
+/// The `BusMessage` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BusMessage {
+    /// The `channel` field.
     pub channel: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `timestamp` field.
     pub timestamp: i64,
+    /// The `payload` field.
     pub payload: Vec<u8>,
 }
 
@@ -30,18 +35,26 @@ enum SubCommand {
 /// Stored in an in-memory ring buffer for inspection and manual replay.
 #[derive(Debug, Clone)]
 pub struct FailedPublish {
+    /// The `channel` field.
     pub channel: String,
+    /// The `payload` field.
     pub payload: Vec<u8>,
+    /// The `error` field.
     pub error: String,
+    /// The `failed_at` field.
     pub failed_at: i64,
 }
 
 const FAILED_PUBLISH_RING_SIZE: usize = 256;
 
+/// The `RedisBusConfig` struct.
 #[derive(Debug, Clone)]
 pub struct RedisBusConfig {
+    /// The `url` field.
     pub url: String,
+    /// The `pool_size` field.
     pub pool_size: u32,
+    /// The `channel_prefix` field.
     pub channel_prefix: String,
     /// Maximum number of Redis publish attempts (initial + retries) before
     /// the message is moved to the in-memory DLQ ring buffer.
@@ -100,6 +113,8 @@ pub struct WorkerBus {
 }
 
 impl WorkerBus {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: RedisBusConfig, server_name: String, instance_name: String) -> Self {
         let (command_tx, command_rx) = mpsc::channel(1000);
         let (sub_command_tx, sub_command_rx) = mpsc::channel(100);
@@ -341,6 +356,8 @@ impl WorkerBus {
         *task = Some(join_handle);
     }
 
+    /// See [`disconnect`].
+    /// See [`disconnect`].
     pub async fn disconnect(&self) {
         // Abort subscriber task
         {
@@ -366,6 +383,8 @@ impl WorkerBus {
         info!(server_name = %self.server_name, instance_name = %self.instance_name, "Redis bus disconnected");
     }
 
+    /// See [`is_connected`].
+    /// See [`is_connected`].
     pub async fn is_connected(&self) -> bool {
         *self.connected.read().await
     }
@@ -502,6 +521,8 @@ impl WorkerBus {
         Ok(())
     }
 
+    /// See [`subscribe`].
+    /// See [`subscribe`].
     pub async fn subscribe(&self, channels: &[&str]) -> Result<broadcast::Receiver<BusMessage>, ApiError> {
         if !self.is_connected().await {
             return Err(ApiError::internal("Redis bus not connected"));
@@ -532,6 +553,8 @@ impl WorkerBus {
     // WORK-01: unsubscribe 现在通过命令通道通知订阅任务真正退订 Redis Pub/Sub。
     // 订阅任务收到命令后会断开当前连接并重连，重连时读取更新后的 subscribed_channels
     // 列表，只订阅剩余频道，从而实现真正的 Redis 退订。
+    /// See [`unsubscribe`].
+    /// See [`unsubscribe`].
     pub async fn unsubscribe(&self, channels: &[&str]) -> Result<(), ApiError> {
         let removed_channels: Vec<String> = {
             let mut subscribed = self.subscribed_channels.write().await;
@@ -563,6 +586,8 @@ impl WorkerBus {
         Ok(())
     }
 
+    /// See [`broadcast_command`].
+    /// See [`broadcast_command`].
     pub async fn broadcast_command(&self, command: &ReplicationCommand) -> Result<(), ApiError> {
         let encoded =
             serde_json::to_vec(command).map_err(|e| ApiError::internal_with_context("Failed to encode command", &e))?;
@@ -570,6 +595,8 @@ impl WorkerBus {
         self.publish("broadcast", &encoded).await
     }
 
+    /// See [`send_to_worker`].
+    /// See [`send_to_worker`].
     pub async fn send_to_worker(&self, worker_id: &str, command: &ReplicationCommand) -> Result<(), ApiError> {
         let encoded =
             serde_json::to_vec(command).map_err(|e| ApiError::internal_with_context("Failed to encode command", &e))?;
@@ -578,6 +605,8 @@ impl WorkerBus {
         self.publish(&channel, &encoded).await
     }
 
+    /// See [`send_to_stream_writer`].
+    /// See [`send_to_stream_writer`].
     pub async fn send_to_stream_writer(&self, stream_name: &str, command: &ReplicationCommand) -> Result<(), ApiError> {
         let encoded =
             serde_json::to_vec(command).map_err(|e| ApiError::internal_with_context("Failed to encode command", &e))?;
@@ -586,20 +615,28 @@ impl WorkerBus {
         self.publish(&channel, &encoded).await
     }
 
+    /// See [`get_command_sender`].
+    /// See [`get_command_sender`].
     pub fn get_command_sender(&self) -> mpsc::Sender<BusMessage> {
         self.command_tx.clone()
     }
 
+    /// See [`take_command_receiver`].
+    /// See [`take_command_receiver`].
     pub fn take_command_receiver(&mut self) -> Option<mpsc::Receiver<BusMessage>> {
         self.command_rx.take()
     }
 
+    /// See [`publish_stream_position`].
+    /// See [`publish_stream_position`].
     pub async fn publish_stream_position(&self, stream_name: &str, position: i64) -> Result<(), ApiError> {
         let command = ReplicationCommand::Position { stream_name: stream_name.to_string(), position };
 
         self.broadcast_command(&command).await
     }
 
+    /// See [`publish_user_sync`].
+    /// See [`publish_user_sync`].
     pub async fn publish_user_sync(&self, user_id: &str, online: bool) -> Result<(), ApiError> {
         use crate::worker::protocol::UserSyncState;
 
@@ -611,18 +648,24 @@ impl WorkerBus {
         self.broadcast_command(&command).await
     }
 
+    /// See [`publish_federation_ack`].
+    /// See [`publish_federation_ack`].
     pub async fn publish_federation_ack(&self, origin: &str) -> Result<(), ApiError> {
         let command = ReplicationCommand::FederationAck { origin: origin.to_string() };
 
         self.broadcast_command(&command).await
     }
 
+    /// See [`publish_remove_pushers`].
+    /// See [`publish_remove_pushers`].
     pub async fn publish_remove_pushers(&self, app_id: &str, push_key: &str) -> Result<(), ApiError> {
         let command = ReplicationCommand::RemovePushers { app_id: app_id.to_string(), push_key: push_key.to_string() };
 
         self.broadcast_command(&command).await
     }
 
+    /// See [`get_stats`].
+    /// See [`get_stats`].
     pub async fn get_stats(&self) -> BusStats {
         let subscribers = self.subscribers.read().await;
         let has_redis = self.redis_pool.read().await.is_some();
@@ -696,12 +739,18 @@ impl WorkerBus {
     }
 }
 
+/// The `BusStats` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BusStats {
+    /// The `connected` field.
     pub connected: bool,
+    /// The `server_name` field.
     pub server_name: String,
+    /// The `instance_name` field.
     pub instance_name: String,
+    /// The `subscriber_count` field.
     pub subscriber_count: usize,
+    /// The `redis_enabled` field.
     pub redis_enabled: bool,
 }
 
@@ -729,10 +778,12 @@ impl Clone for WorkerBus {
     }
 }
 
+/// See [`parse_bus_message`].
 pub fn parse_bus_message(data: &[u8]) -> Result<BusMessage, ApiError> {
     serde_json::from_slice(data).map_err(|e| ApiError::bad_request(format!("Invalid bus message: {e}")))
 }
 
+/// See [`parse_replication_command`].
 pub fn parse_replication_command(data: &[u8]) -> Result<ReplicationCommand, ApiError> {
     serde_json::from_slice(data).map_err(|e| ApiError::bad_request(format!("Invalid replication command: {e}")))
 }

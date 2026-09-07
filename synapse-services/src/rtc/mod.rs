@@ -22,15 +22,21 @@
 //! 语音消息（VoiceService）属于异步媒体通信，不属于实时通信域，
 //! 保留在 `services/voice_service.rs`。
 
+/// The `infra` module.
 pub mod infra;
+/// The `member_event` module.
 #[cfg(feature = "voip-tracking")]
 pub mod member_event;
+/// The `metrics` module.
 pub mod metrics;
 
+/// The `call` module.
 #[cfg(feature = "voip-tracking")]
 pub mod call;
+/// The `session` module.
 #[cfg(feature = "voip-tracking")]
 pub mod session;
+/// The `sfu` module.
 #[cfg(feature = "voip-tracking")]
 pub mod sfu;
 
@@ -77,16 +83,21 @@ use std::sync::Arc;
 /// ServiceContainer 和路由层应通过此类型访问 RTC 能力。
 #[derive(Clone)]
 pub struct RtcDomainService {
+    /// The `infra` field.
     pub infra: Arc<RtcInfraService>,
     #[cfg(feature = "voip-tracking")]
+    /// The `call` field.
     pub call: Arc<CallOrchestrationService>,
     #[cfg(feature = "voip-tracking")]
+    /// The `session` field.
     pub session: Arc<RtcSessionService>,
     #[cfg(feature = "voip-tracking")]
+    /// The `sfu` field.
     pub sfu: Arc<LivekitClient>,
 }
 
 impl RtcDomainService {
+    /// See [`new`].
     pub fn new(
         infra: Arc<RtcInfraService>,
         #[cfg(feature = "voip-tracking")] call: Arc<CallOrchestrationService>,
@@ -104,20 +115,28 @@ impl RtcDomainService {
         }
     }
 
+    /// See [`infra`].
+    /// See [`infra`].
     pub fn infra(&self) -> &RtcInfraService {
         &self.infra
     }
 
+    /// See [`call`].
+    /// See [`call`].
     #[cfg(feature = "voip-tracking")]
     pub fn call(&self) -> &CallOrchestrationService {
         &self.call
     }
 
+    /// See [`session`].
+    /// See [`session`].
     #[cfg(feature = "voip-tracking")]
     pub fn session(&self) -> &RtcSessionService {
         &self.session
     }
 
+    /// See [`sfu`].
+    /// See [`sfu`].
     #[cfg(feature = "voip-tracking")]
     pub fn sfu(&self) -> &LivekitClient {
         &self.sfu

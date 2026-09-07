@@ -13,6 +13,7 @@ use synapse_common::ApiError;
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, warn};
 
+/// The `WorkerManager` struct.
 pub struct WorkerManager {
     storage: Arc<dyn WorkerStoreApi>,
     #[allow(dead_code)] // P2-DEBT-2: reserved for future cluster rollout; currently unused after remove enable_bus
@@ -114,6 +115,8 @@ impl WorkerManager {
         Ok(worker_type)
     }
 
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn WorkerStoreApi>, server_name: String) -> Self {
         Self {
             storage,
@@ -127,21 +130,29 @@ impl WorkerManager {
         }
     }
 
+    /// See [`with_bus`].
+    /// See [`with_bus`].
     pub fn with_bus(mut self, bus: Arc<WorkerBus>) -> Self {
         self.bus = Some(bus);
         self
     }
 
+    /// See [`with_stream_manager`].
+    /// See [`with_stream_manager`].
     pub fn with_stream_manager(mut self, stream_manager: Arc<StreamWriterManager>) -> Self {
         self.stream_manager = Some(stream_manager);
         self
     }
 
+    /// See [`with_load_balancer`].
+    /// See [`with_load_balancer`].
     pub fn with_load_balancer(mut self, load_balancer: Arc<WorkerLoadBalancer>) -> Self {
         self.load_balancer = Some(load_balancer);
         self
     }
 
+    /// See [`with_health_checker`].
+    /// See [`with_health_checker`].
     pub fn with_health_checker(mut self, health_checker: Arc<HealthChecker>) -> Self {
         self.health_checker = Some(health_checker);
         self
@@ -153,30 +164,44 @@ impl WorkerManager {
     // use `with_bus(Arc::new(WorkerBus::new(cfg, server_name, name)))` and
     // then call `bus.connect().await` from the container startup path.
 
+    /// See [`enable_load_balancer`].
+    /// See [`enable_load_balancer`].
     pub fn enable_load_balancer(&mut self, strategy: LoadBalanceStrategy) {
         self.load_balancer = Some(Arc::new(WorkerLoadBalancer::new(strategy)));
     }
 
+    /// See [`enable_health_checker`].
+    /// See [`enable_health_checker`].
     pub fn enable_health_checker(&mut self, config: HealthCheckConfig) {
         self.health_checker = Some(Arc::new(HealthChecker::new(config)));
     }
 
+    /// See [`bus`].
+    /// See [`bus`].
     pub fn bus(&self) -> Option<&Arc<WorkerBus>> {
         self.bus.as_ref()
     }
 
+    /// See [`stream_manager`].
+    /// See [`stream_manager`].
     pub fn stream_manager(&self) -> Option<&Arc<StreamWriterManager>> {
         self.stream_manager.as_ref()
     }
 
+    /// See [`load_balancer`].
+    /// See [`load_balancer`].
     pub fn load_balancer(&self) -> Option<&Arc<WorkerLoadBalancer>> {
         self.load_balancer.as_ref()
     }
 
+    /// See [`health_checker`].
+    /// See [`health_checker`].
     pub fn health_checker(&self) -> Option<&Arc<HealthChecker>> {
         self.health_checker.as_ref()
     }
 
+    /// See [`register`].
+    /// See [`register`].
     #[instrument(skip(self, request))]
     pub async fn register(&self, request: RegisterWorkerRequest) -> Result<WorkerInfo, ApiError> {
         info!(
@@ -238,6 +263,8 @@ impl WorkerManager {
         Ok(worker)
     }
 
+    /// See [`get`].
+    /// See [`get`].
     #[instrument(skip(self))]
     pub async fn get(&self, worker_id: &str) -> Result<Option<WorkerInfo>, ApiError> {
         self.storage
@@ -246,6 +273,8 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal_with_context("Failed to get worker", &e))
     }
 
+    /// See [`get_by_type`].
+    /// See [`get_by_type`].
     #[instrument(skip(self))]
     pub async fn get_by_type(&self, worker_type: WorkerType) -> Result<Vec<WorkerInfo>, ApiError> {
         self.storage
@@ -254,6 +283,8 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal_with_context("Failed to get workers by type", &e))
     }
 
+    /// See [`get_active`].
+    /// See [`get_active`].
     #[instrument(skip(self))]
     pub async fn get_active(&self) -> Result<Vec<WorkerInfo>, ApiError> {
         self.storage
@@ -262,6 +293,7 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal_with_context("Failed to get active workers", &e))
     }
 
+    /// See [`heartbeat`].
     #[instrument(skip(self))]
     pub async fn heartbeat(
         &self,
@@ -314,6 +346,8 @@ impl WorkerManager {
         Ok(())
     }
 
+    /// See [`unregister`].
+    /// See [`unregister`].
     #[instrument(skip(self))]
     pub async fn unregister(&self, worker_id: &str) -> Result<(), ApiError> {
         info!(worker_id = %worker_id, "Unregistering worker");
@@ -343,6 +377,8 @@ impl WorkerManager {
         Ok(())
     }
 
+    /// See [`send_command`].
+    /// See [`send_command`].
     #[instrument(skip(self))]
     pub async fn send_command(&self, request: SendCommandRequest) -> Result<WorkerCommand, ApiError> {
         info!(
@@ -394,6 +430,8 @@ impl WorkerManager {
         Ok(command)
     }
 
+    /// See [`get_pending_commands`].
+    /// See [`get_pending_commands`].
     #[instrument(skip(self))]
     pub async fn get_pending_commands(&self, worker_id: &str, limit: i64) -> Result<Vec<WorkerCommand>, ApiError> {
         self.storage
@@ -402,6 +440,8 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal_with_context("Failed to get pending commands", &e))
     }
 
+    /// See [`complete_command`].
+    /// See [`complete_command`].
     #[instrument(skip(self))]
     pub async fn complete_command(&self, command_id: &str) -> Result<(), ApiError> {
         self.storage
@@ -413,6 +453,8 @@ impl WorkerManager {
         Ok(())
     }
 
+    /// See [`fail_command`].
+    /// See [`fail_command`].
     #[instrument(skip(self))]
     pub async fn fail_command(&self, command_id: &str, error: &str) -> Result<(), ApiError> {
         self.storage
@@ -424,6 +466,7 @@ impl WorkerManager {
         Ok(())
     }
 
+    /// See [`add_event`].
     #[instrument(skip(self, event_data))]
     pub async fn add_event(
         &self,
@@ -479,6 +522,8 @@ impl WorkerManager {
         Ok(())
     }
 
+    /// See [`get_events_since`].
+    /// See [`get_events_since`].
     #[instrument(skip(self))]
     pub async fn get_events_since(&self, stream_id: i64, limit: i64) -> Result<Vec<WorkerEvent>, ApiError> {
         self.storage
@@ -487,6 +532,7 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal_with_context("Failed to get events", &e))
     }
 
+    /// See [`update_replication_position`].
     #[instrument(skip(self))]
     pub async fn update_replication_position(
         &self,
@@ -503,6 +549,8 @@ impl WorkerManager {
         Ok(())
     }
 
+    /// See [`get_replication_position`].
+    /// See [`get_replication_position`].
     #[instrument(skip(self))]
     pub async fn get_replication_position(&self, worker_id: &str, stream_name: &str) -> Result<Option<i64>, ApiError> {
         self.storage
@@ -511,6 +559,8 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal_with_context("Failed to get replication position", &e))
     }
 
+    /// See [`assign_task`].
+    /// See [`assign_task`].
     #[instrument(skip(self))]
     pub async fn assign_task(&self, request: AssignTaskRequest) -> Result<WorkerTaskAssignment, ApiError> {
         info!(task_type = %request.task_type, preferred_worker_id = ?request.preferred_worker_id, "Creating task");
@@ -543,6 +593,8 @@ impl WorkerManager {
         Ok(task)
     }
 
+    /// See [`get_pending_tasks`].
+    /// See [`get_pending_tasks`].
     #[instrument(skip(self))]
     pub async fn get_pending_tasks(&self, limit: i64) -> Result<Vec<WorkerTaskAssignment>, ApiError> {
         self.storage
@@ -551,6 +603,8 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal_with_context("Failed to get pending tasks", &e))
     }
 
+    /// See [`claim_task`].
+    /// See [`claim_task`].
     #[instrument(skip(self))]
     pub async fn claim_task(&self, task_id: &str, worker_id: &str) -> Result<(), ApiError> {
         // PERF-05: 按 task_id 直查，不再拉 1000 条 pending 到内存 find——
@@ -581,6 +635,8 @@ impl WorkerManager {
         Ok(())
     }
 
+    /// See [`claim_next_pending_task`].
+    /// See [`claim_next_pending_task`].
     #[instrument(skip(self))]
     pub async fn claim_next_pending_task(&self, worker_id: &str) -> Result<WorkerTaskAssignment, ApiError> {
         let worker = self
@@ -606,6 +662,8 @@ impl WorkerManager {
         info!(task_id = %task.task_id, worker_id = %worker_id, "Task claimed atomically by worker");
         Ok(task)
     }
+    /// See [`complete_task`].
+    /// See [`complete_task`].
     #[instrument(skip(self, result))]
     pub async fn complete_task(&self, task_id: &str, result: Option<serde_json::Value>) -> Result<(), ApiError> {
         self.storage
@@ -617,6 +675,8 @@ impl WorkerManager {
         Ok(())
     }
 
+    /// See [`fail_task`].
+    /// See [`fail_task`].
     #[instrument(skip(self))]
     pub async fn fail_task(&self, task_id: &str, error: &str) -> Result<(), ApiError> {
         self.storage
@@ -628,6 +688,8 @@ impl WorkerManager {
         Ok(())
     }
 
+    /// See [`connect_to_worker`].
+    /// See [`connect_to_worker`].
     #[instrument(skip(self))]
     pub async fn connect_to_worker(&self, worker_id: &str, addr: &str) -> Result<(), ApiError> {
         info!(worker_id = %worker_id, remote_addr = %addr, "Connecting to worker");
@@ -662,6 +724,8 @@ impl WorkerManager {
         Ok(())
     }
 
+    /// See [`disconnect_from_worker`].
+    /// See [`disconnect_from_worker`].
     #[instrument(skip(self))]
     pub async fn disconnect_from_worker(&self, worker_id: &str) -> Result<(), ApiError> {
         info!(worker_id = %worker_id, "Disconnecting from worker");
@@ -678,6 +742,8 @@ impl WorkerManager {
         Ok(())
     }
 
+    /// See [`get_statistics`].
+    /// See [`get_statistics`].
     #[instrument(skip(self))]
     pub async fn get_statistics(&self, limit: i64) -> Result<Vec<serde_json::Value>, ApiError> {
         self.storage
@@ -686,6 +752,8 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal_with_context("Failed to get statistics", &e))
     }
 
+    /// See [`get_type_statistics`].
+    /// See [`get_type_statistics`].
     #[instrument(skip(self))]
     pub async fn get_type_statistics(&self) -> Result<Vec<serde_json::Value>, ApiError> {
         self.storage
@@ -694,6 +762,8 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal_with_context("Failed to get type statistics", &e))
     }
 
+    /// See [`select_worker_for_task`].
+    /// See [`select_worker_for_task`].
     pub async fn select_worker_for_task(&self, task_type: &str) -> Result<Option<String>, ApiError> {
         if let Some(lb) = &self.load_balancer {
             if let Some(worker_id) = lb.select_worker(task_type).await {
@@ -755,10 +825,14 @@ impl WorkerManager {
         Ok(selected.map(|w| w.worker_id.clone()))
     }
 
+    /// See [`set_local_worker_id`].
+    /// See [`set_local_worker_id`].
     pub fn set_local_worker_id(&mut self, worker_id: String) {
         self.local_worker_id = Some(worker_id);
     }
 
+    /// See [`get_local_worker_id`].
+    /// See [`get_local_worker_id`].
     pub fn get_local_worker_id(&self) -> Option<&str> {
         self.local_worker_id.as_deref()
     }

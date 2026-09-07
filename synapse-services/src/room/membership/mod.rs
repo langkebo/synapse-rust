@@ -4,10 +4,15 @@
 //! Federation membership lives in [`federation`].
 //! Moderation methods live in [`moderation`].
 
+/// The `actions` module.
 pub mod actions;
+/// The `federation` module.
 pub mod federation;
+/// The `moderation` module.
 pub mod moderation;
+/// The `service` module.
 pub mod service;
+/// The `transition` module.
 pub mod transition;
 
 use crate::common::error::{ApiError, ApiResult};
@@ -17,6 +22,8 @@ use serde_json::json;
 use service::MembershipService;
 
 impl MembershipService {
+    /// See [`get_room_members`].
+    /// See [`get_room_members`].
     pub async fn get_room_members(&self, room_id: &str, user_id: &str) -> ApiResult<serde_json::Value> {
         if !self
             .room_storage
@@ -73,6 +80,8 @@ impl MembershipService {
         Ok(json!({ "chunk": chunk }))
     }
 
+    /// See [`get_joined_rooms`].
+    /// See [`get_joined_rooms`].
     pub async fn get_joined_rooms(&self, user_id: &str) -> ApiResult<Vec<String>> {
         self.member_storage
             .get_joined_rooms(user_id)
@@ -80,6 +89,8 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to get joined rooms", &e))
     }
 
+    /// See [`get_shared_room_users`].
+    /// See [`get_shared_room_users`].
     pub async fn get_shared_room_users(&self, user_id: &str) -> ApiResult<Vec<String>> {
         self.member_storage
             .get_shared_room_users(user_id)
@@ -87,6 +98,8 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to get shared room users", &e))
     }
 
+    /// See [`share_common_room`].
+    /// See [`share_common_room`].
     pub async fn share_common_room(&self, user_id: &str, other_user_id: &str) -> ApiResult<bool> {
         self.member_storage
             .share_common_room(user_id, other_user_id)
@@ -94,6 +107,8 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to check shared room membership", &e))
     }
 
+    /// See [`share_common_rooms_batch`].
+    /// See [`share_common_rooms_batch`].
     pub async fn share_common_rooms_batch(&self, user_id: &str, other_user_ids: &[String]) -> ApiResult<Vec<String>> {
         self.member_storage
             .share_common_rooms_batch(user_id, other_user_ids)
@@ -101,6 +116,8 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to check shared room membership batch", &e))
     }
 
+    /// See [`get_joined_members_with_profiles`].
+    /// See [`get_joined_members_with_profiles`].
     pub async fn get_joined_members_with_profiles(&self, room_id: &str) -> ApiResult<Vec<storage::RoomMember>> {
         self.member_storage
             .get_joined_members(room_id)
@@ -108,6 +125,8 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to get joined members", &e))
     }
 
+    /// See [`get_membership_history`].
+    /// See [`get_membership_history`].
     pub async fn get_membership_history(&self, room_id: &str, limit: i64) -> ApiResult<Vec<storage::RoomMember>> {
         self.member_storage
             .get_membership_history(room_id, limit)
@@ -115,6 +134,7 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to get membership history", &e))
     }
 
+    /// See [`get_room_members_by_membership`].
     pub async fn get_room_members_by_membership(
         &self,
         room_id: &str,
@@ -126,6 +146,8 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to get room members", &e))
     }
 
+    /// See [`has_any_non_banned_member_from_server`].
+    /// See [`has_any_non_banned_member_from_server`].
     pub async fn has_any_non_banned_member_from_server(&self, room_id: &str, server_name: &str) -> ApiResult<bool> {
         self.member_storage
             .has_any_non_banned_member_from_server(room_id, server_name)
@@ -159,6 +181,8 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to batch check users sharing room with server", &e))
     }
 
+    /// See [`get_room_membership`].
+    /// See [`get_room_membership`].
     pub async fn get_room_membership(&self, room_id: &str, user_id: &str) -> ApiResult<Option<String>> {
         self.member_storage
             .get_membership_state(room_id, user_id)
@@ -166,6 +190,8 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to check room membership", &e))
     }
 
+    /// See [`get_room_member_record`].
+    /// See [`get_room_member_record`].
     pub async fn get_room_member_record(&self, room_id: &str, user_id: &str) -> ApiResult<Option<storage::RoomMember>> {
         self.member_storage
             .get_room_member(room_id, user_id)
@@ -173,6 +199,8 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to load room member", &e))
     }
 
+    /// See [`remove_member_record`].
+    /// See [`remove_member_record`].
     pub async fn remove_member_record(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         self.member_storage
             .remove_member(room_id, user_id, None)
@@ -180,6 +208,7 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to remove room member", &e))
     }
 
+    /// See [`get_room_members_paginated_admin`].
     pub async fn get_room_members_paginated_admin(
         &self,
         room_id: &str,
@@ -193,6 +222,8 @@ impl MembershipService {
             .map_err(|e| ApiError::database_with_context("Failed to get room members", &e))
     }
 
+    /// See [`get_room_member_count_admin`].
+    /// See [`get_room_member_count_admin`].
     pub async fn get_room_member_count_admin(&self, room_id: &str) -> ApiResult<i64> {
         self.member_storage
             .get_room_member_count(room_id)
@@ -200,6 +231,8 @@ impl MembershipService {
             .map_err(|e| ApiError::database_with_context("Failed to count room members", &e))
     }
 
+    /// See [`admin_ban_user_membership`].
+    /// See [`admin_ban_user_membership`].
     pub async fn admin_ban_user_membership(&self, room_id: &str, user_id: &str, banned_by: &str) -> ApiResult<()> {
         self.member_storage
             .ban_member(room_id, user_id, banned_by)
@@ -207,6 +240,8 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to ban user", &e))
     }
 
+    /// See [`admin_unban_user_membership`].
+    /// See [`admin_unban_user_membership`].
     pub async fn admin_unban_user_membership(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         self.member_storage
             .unban_member(room_id, user_id)
@@ -214,6 +249,8 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to unban user", &e))
     }
 
+    /// See [`set_ban_reason`].
+    /// See [`set_ban_reason`].
     pub async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: &str) -> ApiResult<()> {
         self.member_storage
             .set_ban_reason(room_id, user_id, reason)
@@ -221,6 +258,8 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to set ban reason", &e))
     }
 
+    /// See [`force_leave_membership`].
+    /// See [`force_leave_membership`].
     pub async fn force_leave_membership(&self, room_id: &str, user_id: &str, now: i64) -> ApiResult<()> {
         self.member_storage
             .force_leave_membership(room_id, user_id, now)
@@ -228,6 +267,8 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to force leave membership", &e))
     }
 
+    /// See [`decrement_member_count`].
+    /// See [`decrement_member_count`].
     pub async fn decrement_member_count(&self, room_id: &str) -> ApiResult<()> {
         self.room_storage
             .decrement_member_count(room_id, None)
@@ -236,11 +277,14 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_context("Failed to update member count", &e))
     }
 
+    /// See [`get_invited_members_count`].
+    /// See [`get_invited_members_count`].
     pub async fn get_invited_members_count(&self, room_id: &str) -> ApiResult<i64> {
         let summary = self.room_summary_service.get_summary(room_id).await?;
         Ok(summary.map(|summary| summary.invited_member_count).unwrap_or(0))
     }
 
+    /// See [`add_member`].
     pub async fn add_member(
         &self,
         room_id: &str,

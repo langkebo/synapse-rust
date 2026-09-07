@@ -15,72 +15,121 @@ use crate::worker::topology_validator::{
 use crate::UserService;
 use synapse_storage::email_verification::EmailVerificationStorage;
 
+/// The `AdminUserServices` struct.
 #[derive(Clone)]
 pub struct AdminUserServices {
+    /// The `admin_registration_service` field.
     pub admin_registration_service: crate::admin_registration_service::AdminRegistrationService,
+    /// The `admin_user_service` field.
     pub admin_user_service: Arc<crate::admin_user_service::AdminUserService>,
+    /// The `email_verification_storage` field.
     pub email_verification_storage: Arc<dyn synapse_storage::email_verification::EmailVerificationStoreApi>,
+    /// The `admin_token_service` field.
     pub admin_token_service: Arc<crate::admin_token_service::AdminTokenService>,
+    /// The `refresh_token_storage` field.
     pub refresh_token_storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi>,
+    /// The `refresh_token_service` field.
     pub refresh_token_service: Arc<crate::refresh_token_service::RefreshTokenService>,
+    /// The `registration_token_storage` field.
     pub registration_token_storage: Arc<dyn synapse_storage::registration_token::RegistrationTokenStoreApi>,
+    /// The `registration_token_service` field.
     pub registration_token_service: Arc<crate::registration_token_service::RegistrationTokenService>,
 }
 
+/// The `AdminFederationServices` struct.
 #[derive(Clone)]
 pub struct AdminFederationServices {
+    /// The `admin_federation_service` field.
     pub admin_federation_service: Arc<crate::admin_federation_service::AdminFederationService>,
+    /// The `federation_blacklist_storage` field.
     pub federation_blacklist_storage: Arc<dyn synapse_storage::federation_blacklist::FederationBlacklistStoreApi>,
+    /// The `federation_blacklist_service` field.
     pub federation_blacklist_service: Arc<crate::federation_blacklist_service::FederationBlacklistService>,
 }
 
+/// The `AdminMediaServices` struct.
 #[derive(Clone)]
 pub struct AdminMediaServices {
+    /// The `admin_media_service` field.
     pub admin_media_service: Arc<crate::admin_media_service::AdminMediaService>,
+    /// The `media_quota_storage` field.
     pub media_quota_storage: Arc<dyn synapse_storage::media_quota::MediaQuotaStoreApi>,
+    /// The `media_quota_service` field.
     pub media_quota_service: Arc<crate::media_quota_service::MediaQuotaService>,
 }
 
+/// The `AdminSecurityServices` struct.
 #[derive(Clone)]
 pub struct AdminSecurityServices {
+    /// The `admin_security_service` field.
     pub admin_security_service: Arc<crate::admin_security_service::AdminSecurityService>,
+    /// The `captcha_storage` field.
     pub captcha_storage: Arc<dyn synapse_storage::captcha::CaptchaStoreApi>,
+    /// The `captcha_service` field.
     pub captcha_service: Arc<crate::captcha_service::CaptchaService>,
+    /// The `audit_storage` field.
     pub audit_storage: Arc<dyn synapse_storage::audit::AuditEventStoreApi>,
+    /// The `admin_audit_service` field.
     pub admin_audit_service: Arc<crate::admin_audit_service::AdminAuditService>,
+    /// The `admin_server_service` field.
     pub admin_server_service: Arc<crate::admin_server_service::AdminServerService>,
+    /// The `telemetry_alert_service` field.
     pub telemetry_alert_service: Arc<crate::telemetry_service::TelemetryAlertService>,
 }
 
+/// The `AdminModuleServices` struct.
 #[derive(Clone)]
 pub struct AdminModuleServices {
+    /// The `feature_flag_storage` field.
     pub feature_flag_storage: Arc<dyn synapse_storage::feature_flags::FeatureFlagStoreApi>,
+    /// The `feature_flag_service` field.
     pub feature_flag_service: Arc<crate::feature_flag_service::FeatureFlagService>,
+    /// The `event_report_storage` field.
     pub event_report_storage: Arc<dyn synapse_storage::event_report::EventReportStoreApi>,
+    /// The `event_report_service` field.
     pub event_report_service: Arc<crate::event_report_service::EventReportService>,
     /// MSC4140 — Cancellable delayed events storage.
     pub delayed_event_storage: Arc<dyn synapse_storage::delayed_events::DelayedEventStorageApi>,
+    /// The `background_update_storage` field.
     pub background_update_storage: Arc<dyn synapse_storage::background_update::BackgroundUpdateStoreApi>,
+    /// The `background_update_service` field.
     pub background_update_service: Arc<crate::background_update_service::BackgroundUpdateService>,
+    /// The `module_storage` field.
     pub module_storage: Arc<dyn synapse_storage::module::ModuleStoreApi>,
+    /// The `module_service` field.
     pub module_service: Arc<crate::module_service::ModuleService>,
+    /// The `account_validity_service` field.
     pub account_validity_service: Arc<crate::module_service::AccountValidityService>,
+    /// The `retention_storage` field.
     pub retention_storage: Arc<dyn synapse_storage::retention::RetentionStoreApi>,
+    /// The `retention_service` field.
     pub retention_service: Arc<crate::retention_service::RetentionService>,
+    /// The `push_notification_storage` field.
     pub push_notification_storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi>,
+    /// The `push_notification_service` field.
     pub push_notification_service: Arc<crate::push_notification_service::PushNotificationService>,
+    /// The `app_service_storage` field.
     pub app_service_storage: Arc<dyn synapse_storage::application_service::ApplicationServiceStoreApi>,
+    /// The `app_service_event_reader` field.
     pub app_service_event_reader: Arc<dyn synapse_storage::event::EventReader>,
+    /// The `app_service_manager` field.
     pub app_service_manager: Arc<crate::application_service::ApplicationServiceManager>,
+    /// The `app_service_scheduler` field.
     pub app_service_scheduler: Arc<crate::application_service::ApplicationServiceScheduler>,
     /// MSC4284 — Policy server service for room/user/content moderation.
     pub policy_service: Arc<crate::policy_service::PolicyService>,
     #[cfg(feature = "external-services")]
+    /// The `external_service_integration` field.
     pub external_service_integration: Arc<crate::external_service_integration::ExternalServiceIntegration>,
+    /// The `rendezvous_storage` field.
     pub rendezvous_storage: Arc<dyn synapse_storage::rendezvous::RendezvousStoreApi>,
+    /// The `rendezvous_message_storage` field.
     pub rendezvous_message_storage: Arc<dyn synapse_storage::rendezvous::RendezvousMessageStoreApi>,
+    /// The `login_token_storage` field.
     pub login_token_storage: Arc<dyn synapse_storage::login_token::LoginTokenStoreApi>,
+    /// The `worker_storage` field.
     pub worker_storage: Arc<dyn synapse_storage::worker::WorkerStoreApi>,
+    /// The `worker_manager` field.
     pub worker_manager: Arc<crate::worker::WorkerManager>,
 }
 
@@ -105,14 +154,20 @@ pub struct AdminModuleServices {
 /// `federation_blacklist_storage`, and `media_quota_storage`.
 #[derive(Clone)]
 pub struct AdminServices {
+    /// The `user` field.
     pub user: AdminUserServices,
+    /// The `federation` field.
     pub federation: AdminFederationServices,
+    /// The `media` field.
     pub media: AdminMediaServices,
+    /// The `security` field.
     pub security: AdminSecurityServices,
+    /// The `modules` field.
     pub modules: AdminModuleServices,
 }
 
 impl AdminServices {
+    /// See [`new`].
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         pool: &Arc<sqlx::PgPool>,
@@ -370,6 +425,7 @@ impl AdminServices {
     }
 }
 
+/// See [`burn_after_read_processor_enabled`].
 #[cfg(feature = "burn-after-read")]
 pub(crate) fn burn_after_read_processor_enabled(config_enabled: bool) -> bool {
     config_enabled

@@ -5,6 +5,7 @@ mod event_fetch;
 mod filter;
 mod lazy_load;
 mod metrics;
+/// The `push_rules` module.
 pub mod push_rules;
 mod response;
 #[cfg(test)]
@@ -32,6 +33,7 @@ use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_storage::UserRoomMembership;
 use tokio::sync::RwLock;
 
+/// The `SyncService` struct.
 pub struct SyncService {
     pub(crate) presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     pub(crate) member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
@@ -63,6 +65,8 @@ const LAZY_LOADED_MEMBERS_CACHE_MAX_ENTRIES: usize = 50_000;
 impl SyncService {
     const TIMESTAMP_TOKEN_MIN: i64 = 1_000_000_000_000;
 
+    /// See [`from_deps`].
+    /// See [`from_deps`].
     pub fn from_deps(deps: SyncServiceDeps) -> Self {
         Self {
             presence_storage: deps.presence_storage,
@@ -88,6 +92,7 @@ impl SyncService {
         }
     }
 
+    /// See [`new`].
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         presence_storage: Arc<synapse_storage::presence::PresenceStorage>,
@@ -123,6 +128,7 @@ impl SyncService {
         })
     }
 
+    /// See [`sync`].
     #[allow(clippy::too_many_arguments)]
     pub async fn sync(
         &self,
@@ -146,6 +152,8 @@ impl SyncService {
         .await
     }
 
+    /// See [`sync_with_request`].
+    /// See [`sync_with_request`].
     pub async fn sync_with_request(&self, request: SyncServiceRequest<'_>) -> ApiResult<serde_json::Value> {
         let SyncServiceRequest { user_id, device_id, timeout, is_full_state, set_presence, filter_id, since } = request;
         let total_started = Instant::now();
@@ -229,6 +237,7 @@ impl SyncService {
         Ok(response)
     }
 
+    /// See [`room_sync`].
     pub async fn room_sync(
         &self,
         user_id: &str,
@@ -308,6 +317,7 @@ impl SyncService {
         Ok(serde_json::Value::Object(result))
     }
 
+    /// See [`room_sync_with_timeout`].
     pub async fn room_sync_with_timeout(
         &self,
         user_id: &str,
@@ -352,11 +362,14 @@ impl SyncService {
         }
     }
 
+    /// See [`room_unread_counts`].
+    /// See [`room_unread_counts`].
     pub async fn room_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)> {
         let (highlight_count, notification_count) = self.get_unread_counts(room_id, user_id).await?;
         Ok((notification_count, highlight_count))
     }
 
+    /// See [`rooms_to_include`].
     pub(crate) fn rooms_to_include(
         room_ids: &[String],
         room_events: &HashMap<String, Vec<RoomEvent>>,
@@ -379,6 +392,7 @@ impl SyncService {
             .collect()
     }
 
+    /// See [`filter_sync_rooms`].
     pub(crate) fn filter_sync_rooms(
         memberships: Vec<UserRoomMembership>,
         room_filter: Option<&RoomFilter>,
@@ -406,6 +420,7 @@ impl SyncService {
             .collect()
     }
 
+    /// See [`room_sections_from_memberships`].
     pub(crate) fn room_sections_from_memberships(
         memberships: &[UserRoomMembership],
     ) -> HashMap<String, SyncRoomSection> {
@@ -422,6 +437,8 @@ impl SyncService {
             .collect()
     }
 
+    /// See [`event_since_ts`].
+    /// See [`event_since_ts`].
     pub(crate) fn event_since_ts(since_token: &Option<SyncToken>) -> i64 {
         match since_token {
             // S6: timestamp-based tokens (stream_id >= 1e12) are no longer
@@ -436,6 +453,7 @@ impl SyncService {
         }
     }
 
+    /// See [`next_event_stream_id`].
     pub(crate) fn next_event_stream_id(
         since_token: &Option<SyncToken>,
         room_events: &HashMap<String, Vec<RoomEvent>>,

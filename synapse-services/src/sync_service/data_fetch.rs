@@ -11,11 +11,15 @@ use synapse_storage::event::SinceFilter;
 type PresenceCanonical = HashMap<String, (String, Option<String>, Option<i64>)>;
 
 impl SyncService {
+    /// See [`update_presence`].
+    /// See [`update_presence`].
     pub(crate) async fn update_presence(&self, user_id: &str, set_presence: &str) -> ApiResult<()> {
         self.presence_storage.set_presence(user_id, set_presence, None).await.ok();
         Ok(())
     }
 
+    /// See [`aggregate_ephemeral_events`].
+    /// See [`aggregate_ephemeral_events`].
     pub(crate) fn aggregate_ephemeral_events(events: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
         let events_len = events.len();
         let mut receipt_content = serde_json::Map::new();
@@ -62,6 +66,7 @@ impl SyncService {
         result
     }
 
+    /// See [`get_room_state_events_batch`].
     pub(crate) async fn get_room_state_events_batch(
         &self,
         room_ids: &[String],
@@ -82,6 +87,7 @@ impl SyncService {
             .collect())
     }
 
+    /// See [`get_state_events_for_sync_batch`].
     pub(crate) async fn get_state_events_for_sync_batch(
         &self,
         room_ids: &[String],
@@ -326,6 +332,8 @@ impl SyncService {
         Ok(events)
     }
 
+    /// See [`get_account_data_events`].
+    /// See [`get_account_data_events`].
     pub(crate) async fn get_account_data_events(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         // Cache-through: account data changes infrequently, so a 600 s TTL
         // with write-through invalidation is safe (OPT-015-b, audit 04 §5).
@@ -393,6 +401,7 @@ impl SyncService {
         Ok(events)
     }
 
+    /// See [`get_to_device_events`].
     pub(crate) async fn get_to_device_events(
         &self,
         user_id: &str,
@@ -409,6 +418,7 @@ impl SyncService {
             .map_err(map_internal!("Failed to get to-device events"))
     }
 
+    /// See [`get_device_lists`].
     pub(crate) async fn get_device_lists(
         &self,
         user_id: &str,
@@ -599,14 +609,19 @@ impl SyncService {
         Ok(left)
     }
 
+    /// See [`to_device_since_stream_id`].
+    /// See [`to_device_since_stream_id`].
     pub(crate) fn to_device_since_stream_id(since: &Option<SyncToken>) -> i64 {
         since.as_ref().and_then(|token| token.to_device_stream_id).unwrap_or(0)
     }
 
+    /// See [`device_list_since_stream_id`].
+    /// See [`device_list_since_stream_id`].
     pub(crate) fn device_list_since_stream_id(since: &Option<SyncToken>) -> i64 {
         since.as_ref().and_then(|token| token.device_list_stream_id).unwrap_or(0)
     }
 
+    /// See [`get_room_ephemeral_events`].
     pub(crate) async fn get_room_ephemeral_events(
         &self,
         room_id: &str,
@@ -635,6 +650,7 @@ impl SyncService {
         Ok(events)
     }
 
+    /// See [`get_room_ephemeral_events_batch`].
     pub(crate) async fn get_room_ephemeral_events_batch(
         &self,
         room_ids: &[String],
@@ -671,6 +687,7 @@ impl SyncService {
         Ok(result)
     }
 
+    /// See [`get_room_account_data_events`].
     pub(crate) async fn get_room_account_data_events(
         &self,
         room_id: &str,
@@ -693,6 +710,7 @@ impl SyncService {
             .collect())
     }
 
+    /// See [`get_room_account_data_events_batch`].
     pub(crate) async fn get_room_account_data_events_batch(
         &self,
         user_id: &str,
@@ -722,6 +740,8 @@ impl SyncService {
         Ok(result)
     }
 
+    /// See [`get_unread_counts`].
+    /// See [`get_unread_counts`].
     pub(crate) async fn get_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)> {
         let counts = self
             .event_reader
@@ -731,6 +751,7 @@ impl SyncService {
         Ok((counts.highlight_count, counts.notification_count))
     }
 
+    /// See [`get_unread_counts_batch`].
     pub(crate) async fn get_unread_counts_batch(
         &self,
         room_ids: &[String],

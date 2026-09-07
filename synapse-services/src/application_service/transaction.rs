@@ -79,15 +79,25 @@ pub fn appservice_receives_ephemeral(service: &ApplicationService) -> bool {
     false
 }
 
+/// Constant `APPSERVICE_RETRY_BACKOFF_BASE_MS`.
 pub(super) const APPSERVICE_RETRY_BACKOFF_BASE_MS: i64 = 5_000;
+/// Constant `APPSERVICE_RETRY_BACKOFF_MAX_MS`.
 pub(super) const APPSERVICE_RETRY_BACKOFF_MAX_MS: i64 = 5 * 60 * 1_000;
+/// Constant `APPSERVICE_FATAL_FAILURE_THRESHOLD`.
 pub(super) const APPSERVICE_FATAL_FAILURE_THRESHOLD: i32 = 3;
+/// Constant `APPSERVICE_RETRYABLE_FAILURE_THRESHOLD`.
 pub(super) const APPSERVICE_RETRYABLE_FAILURE_THRESHOLD: i32 = 8;
+/// Constant `APPSERVICE_STATE_DELIVERY_STATUS`.
 pub(super) const APPSERVICE_STATE_DELIVERY_STATUS: &str = "delivery_status";
+/// Constant `APPSERVICE_STATE_DELIVERY_LAST_ERROR`.
 pub(super) const APPSERVICE_STATE_DELIVERY_LAST_ERROR: &str = "delivery_last_error";
+/// Constant `APPSERVICE_STATE_DELIVERY_LAST_FAILURE_KIND`.
 pub(super) const APPSERVICE_STATE_DELIVERY_LAST_FAILURE_KIND: &str = "delivery_last_failure_kind";
+/// Constant `APPSERVICE_STATE_DELIVERY_LAST_FAILURE_TS`.
 pub(super) const APPSERVICE_STATE_DELIVERY_LAST_FAILURE_TS: &str = "delivery_last_failure_ts";
+/// Constant `APPSERVICE_STATE_DELIVERY_DISABLED_REASON`.
 pub(super) const APPSERVICE_STATE_DELIVERY_DISABLED_REASON: &str = "delivery_disabled_reason";
+/// Constant `APPSERVICE_SCHEDULER_STATE_KEYS`.
 pub(super) const APPSERVICE_SCHEDULER_STATE_KEYS: [&str; 13] = [
     SCHEDULER_STATE_LAST_TICK_TS,
     SCHEDULER_STATE_LAST_RESULT,
@@ -104,13 +114,18 @@ pub(super) const APPSERVICE_SCHEDULER_STATE_KEYS: [&str; 13] = [
     SCHEDULER_STATE_TOTAL_IN_FLIGHT_COUNT,
 ];
 
+/// The `TransactionFailureKind` enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum TransactionFailureKind {
+    /// The `Retryable` variant.
     Retryable,
+    /// The `Fatal` variant.
     Fatal,
 }
 
 impl TransactionFailureKind {
+    /// See [`as_str`].
+    /// See [`as_str`].
     pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::Retryable => "retryable",
@@ -120,6 +135,8 @@ impl TransactionFailureKind {
 }
 
 impl ApplicationServiceManager {
+    /// See [`send_transaction`].
+    /// See [`send_transaction`].
     pub async fn send_transaction(&self, as_id: &str, events: Vec<serde_json::Value>) -> Result<(), ApiError> {
         let service = self
             .storage
@@ -139,6 +156,8 @@ impl ApplicationServiceManager {
         self.deliver_transaction(&service, &transaction_id, &events).await
     }
 
+    /// See [`process_pending_for_service`].
+    /// See [`process_pending_for_service`].
     pub async fn process_pending_for_service(&self, as_id: &str, batch_limit: i64) -> Result<usize, ApiError> {
         let service = self
             .storage
@@ -184,6 +203,8 @@ impl ApplicationServiceManager {
         Ok(pending_events.len())
     }
 
+    /// See [`process_pending_queues`].
+    /// See [`process_pending_queues`].
     pub async fn process_pending_queues(&self, batch_limit: i64) -> Result<usize, ApiError> {
         let services = self.get_all_active().await?;
         let mut dispatched = 0_usize;
@@ -368,6 +389,8 @@ impl ApplicationServiceManager {
         }))
     }
 
+    /// See [`source_event_id`].
+    /// See [`source_event_id`].
     pub(super) fn source_event_id(queue_event_id: &str) -> String {
         queue_event_id
             .rsplit_once("::")
@@ -467,10 +490,14 @@ impl ApplicationServiceManager {
         }
     }
 
+    /// See [`is_transaction_ready_to_retry`].
+    /// See [`is_transaction_ready_to_retry`].
     pub(super) fn is_transaction_ready_to_retry(transaction: &ApplicationServiceTransaction, now_ts: i64) -> bool {
         now_ts.saturating_sub(transaction.sent_ts.unwrap_or(0)) >= Self::retry_backoff_ms(transaction.retry_count)
     }
 
+    /// See [`retry_backoff_ms`].
+    /// See [`retry_backoff_ms`].
     pub(super) fn retry_backoff_ms(retry_count: i32) -> i64 {
         if retry_count <= 0 {
             return 0;
@@ -480,6 +507,8 @@ impl ApplicationServiceManager {
         APPSERVICE_RETRY_BACKOFF_BASE_MS.saturating_mul(exponential).min(APPSERVICE_RETRY_BACKOFF_MAX_MS)
     }
 
+    /// See [`classify_http_failure`].
+    /// See [`classify_http_failure`].
     pub(super) fn classify_http_failure(status: StatusCode) -> TransactionFailureKind {
         if status.is_server_error()
             || matches!(status, StatusCode::TOO_MANY_REQUESTS | StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_EARLY)
@@ -490,6 +519,8 @@ impl ApplicationServiceManager {
         }
     }
 
+    /// See [`should_disable_service`].
+    /// See [`should_disable_service`].
     pub(super) fn should_disable_service(failure_kind: TransactionFailureKind, retry_count: i32) -> bool {
         match failure_kind {
             TransactionFailureKind::Fatal => retry_count >= APPSERVICE_FATAL_FAILURE_THRESHOLD,
@@ -497,6 +528,8 @@ impl ApplicationServiceManager {
         }
     }
 
+    /// See [`scheduler_statistics_from_states`].
+    /// See [`scheduler_statistics_from_states`].
     pub(super) fn scheduler_statistics_from_states(states: &[ApplicationServiceState]) -> serde_json::Value {
         let has_scheduler_state = APPSERVICE_SCHEDULER_STATE_KEYS
             .iter()

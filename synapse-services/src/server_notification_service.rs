@@ -4,16 +4,21 @@ use synapse_common::ApiError;
 use synapse_storage::server_notification::*;
 use tracing::{info, instrument};
 
+/// The `ServerNotificationService` struct.
 pub struct ServerNotificationService {
     storage: Arc<dyn ServerNotificationStoreApi>,
     user_service: Arc<UserService>,
 }
 
 impl ServerNotificationService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn ServerNotificationStoreApi>, user_service: Arc<UserService>) -> Self {
         Self { storage, user_service }
     }
 
+    /// See [`ensure_target_users_exist`].
+    /// See [`ensure_target_users_exist`].
     #[instrument(skip(self))]
     pub async fn ensure_target_users_exist(&self, user_ids: &[String]) -> Result<(), ApiError> {
         for user_id in user_ids {
@@ -23,6 +28,7 @@ impl ServerNotificationService {
         Ok(())
     }
 
+    /// See [`create_notification`].
     #[instrument(skip(self))]
     pub async fn create_notification(
         &self,
@@ -40,36 +46,49 @@ impl ServerNotificationService {
         self.storage.create_notification(request).await
     }
 
+    /// See [`get_notification`].
+    /// See [`get_notification`].
     #[instrument(skip(self))]
     pub async fn get_notification(&self, notification_id: i64) -> Result<Option<ServerNotification>, ApiError> {
         self.storage.get_notification(notification_id).await
     }
 
+    /// See [`list_active_notifications`].
+    /// See [`list_active_notifications`].
     #[instrument(skip(self))]
     pub async fn list_active_notifications(&self) -> Result<Vec<ServerNotification>, ApiError> {
         self.storage.list_active_notifications().await
     }
 
+    /// See [`get_user_notification_setting`].
+    /// See [`get_user_notification_setting`].
     #[instrument(skip(self))]
     pub async fn get_user_notification_setting(&self, user_id: &str) -> Result<Option<bool>, ApiError> {
         self.storage.get_user_notification_setting(user_id).await
     }
 
+    /// See [`upsert_user_notification_setting`].
+    /// See [`upsert_user_notification_setting`].
     #[instrument(skip(self))]
     pub async fn upsert_user_notification_setting(&self, user_id: &str, enabled: bool) -> Result<(), ApiError> {
         self.storage.upsert_user_notification_setting(user_id, enabled).await
     }
 
+    /// See [`get_user_pushers`].
+    /// See [`get_user_pushers`].
     #[instrument(skip(self))]
     pub async fn get_user_pushers(&self, user_id: &str) -> Result<Vec<serde_json::Value>, ApiError> {
         self.storage.get_user_pushers(user_id).await
     }
 
+    /// See [`delete_user_pusher`].
+    /// See [`delete_user_pusher`].
     #[instrument(skip(self))]
     pub async fn delete_user_pusher(&self, user_id: &str, pushkey: &str) -> Result<bool, ApiError> {
         self.storage.delete_user_pusher(user_id, pushkey).await
     }
 
+    /// See [`list_all_notifications`].
     #[instrument(skip(self))]
     pub async fn list_all_notifications(
         &self,
@@ -80,6 +99,7 @@ impl ServerNotificationService {
         self.storage.list_all_notifications(audience, limit, from).await
     }
 
+    /// See [`update_notification`].
     #[instrument(skip(self))]
     pub async fn update_notification(
         &self,
@@ -99,18 +119,23 @@ impl ServerNotificationService {
         self.storage.update_notification(notification_id, request).await
     }
 
+    /// See [`delete_notification`].
+    /// See [`delete_notification`].
     #[instrument(skip(self))]
     pub async fn delete_notification(&self, notification_id: i64) -> Result<bool, ApiError> {
         info!(notification_id, "Deleting notification");
         self.storage.delete_notification(notification_id).await
     }
 
+    /// See [`deactivate_notification`].
+    /// See [`deactivate_notification`].
     #[instrument(skip(self))]
     pub async fn deactivate_notification(&self, notification_id: i64) -> Result<bool, ApiError> {
         info!(notification_id, "Deactivating notification");
         self.storage.deactivate_notification(notification_id).await
     }
 
+    /// See [`get_server_notices_paginated`].
     #[instrument(skip(self))]
     #[allow(clippy::type_complexity)]
     pub async fn get_server_notices_paginated(
@@ -121,11 +146,15 @@ impl ServerNotificationService {
         self.storage.get_server_notices_paginated(cursor, limit).await
     }
 
+    /// See [`get_server_notice_by_id`].
+    /// See [`get_server_notice_by_id`].
     #[instrument(skip(self))]
     pub async fn get_server_notice_by_id(&self, notice_id: i64) -> Result<Option<serde_json::Value>, ApiError> {
         self.storage.get_server_notice_by_id(notice_id).await
     }
 
+    /// See [`delete_server_notice`].
+    /// See [`delete_server_notice`].
     #[instrument(skip(self))]
     pub async fn delete_server_notice(&self, notice_id: i64) -> Result<(), ApiError> {
         let notice_info = self.storage.get_server_notice_with_room(notice_id).await?;
@@ -145,29 +174,39 @@ impl ServerNotificationService {
         Ok(())
     }
 
+    /// See [`get_user_notifications`].
+    /// See [`get_user_notifications`].
     #[instrument(skip(self))]
     pub async fn get_user_notifications(&self, user_id: &str) -> Result<Vec<NotificationWithStatus>, ApiError> {
         self.storage.get_user_notifications(user_id).await
     }
 
+    /// See [`mark_as_read`].
+    /// See [`mark_as_read`].
     #[instrument(skip(self))]
     pub async fn mark_as_read(&self, user_id: &str, notification_id: i64) -> Result<bool, ApiError> {
         info!(notification_id, user_id = %user_id, "Marking notification as read");
         self.storage.mark_as_read(user_id, notification_id).await
     }
 
+    /// See [`mark_as_dismissed`].
+    /// See [`mark_as_dismissed`].
     #[instrument(skip(self))]
     pub async fn mark_as_dismissed(&self, user_id: &str, notification_id: i64) -> Result<bool, ApiError> {
         info!(notification_id, user_id = %user_id, "Dismissing notification");
         self.storage.mark_as_dismissed(user_id, notification_id).await
     }
 
+    /// See [`mark_all_as_read`].
+    /// See [`mark_all_as_read`].
     #[instrument(skip(self))]
     pub async fn mark_all_as_read(&self, user_id: &str) -> Result<i64, ApiError> {
         info!(user_id = %user_id, "Marking all notifications as read");
         self.storage.mark_all_as_read(user_id).await
     }
 
+    /// See [`create_template`].
+    /// See [`create_template`].
     #[instrument(skip(self))]
     pub async fn create_template(&self, request: CreateTemplateRequest) -> Result<NotificationTemplate, ApiError> {
         info!(
@@ -179,22 +218,29 @@ impl ServerNotificationService {
         self.storage.create_template(request).await
     }
 
+    /// See [`get_template`].
+    /// See [`get_template`].
     #[instrument(skip(self))]
     pub async fn get_template(&self, name: &str) -> Result<Option<NotificationTemplate>, ApiError> {
         self.storage.get_template(name).await
     }
 
+    /// See [`list_templates`].
+    /// See [`list_templates`].
     #[instrument(skip(self))]
     pub async fn list_templates(&self) -> Result<Vec<NotificationTemplate>, ApiError> {
         self.storage.list_templates().await
     }
 
+    /// See [`delete_template`].
+    /// See [`delete_template`].
     #[instrument(skip(self))]
     pub async fn delete_template(&self, name: &str) -> Result<bool, ApiError> {
         info!(template_name = %name, "Deleting notification template");
         self.storage.delete_template(name).await
     }
 
+    /// See [`create_from_template`].
     #[instrument(skip(self))]
     pub async fn create_from_template(
         &self,
@@ -233,6 +279,7 @@ impl ServerNotificationService {
         self.storage.create_notification(request).await
     }
 
+    /// See [`schedule_notification`].
     #[instrument(skip(self))]
     pub async fn schedule_notification(
         &self,
@@ -243,6 +290,8 @@ impl ServerNotificationService {
         self.storage.schedule_notification(notification_id, scheduled_for).await
     }
 
+    /// See [`process_scheduled_notifications`].
+    /// See [`process_scheduled_notifications`].
     #[instrument(skip(self))]
     pub async fn process_scheduled_notifications(&self) -> Result<i64, ApiError> {
         let pending = self.storage.get_pending_scheduled_notifications().await?;
@@ -258,6 +307,8 @@ impl ServerNotificationService {
         Ok(processed)
     }
 
+    /// See [`broadcast_notification`].
+    /// See [`broadcast_notification`].
     #[instrument(skip(self))]
     pub async fn broadcast_notification(&self, notification_id: i64, delivery_method: &str) -> Result<(), ApiError> {
         info!(notification_id, delivery_method = %delivery_method, "Broadcasting notification");
@@ -267,6 +318,7 @@ impl ServerNotificationService {
         Ok(())
     }
 
+    /// See [`send_server_notice`].
     #[allow(clippy::too_many_arguments)]
     #[instrument(skip(self, target_displayname, target_avatar_url, body))]
     pub async fn send_server_notice(

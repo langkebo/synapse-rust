@@ -1,18 +1,30 @@
 use serde::{Deserialize, Serialize};
 use synapse_common::current_timestamp_millis;
 
+/// The `PasswordPolicy` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PasswordPolicy {
+    /// The `min_length` field.
     pub min_length: u8,
+    /// The `max_length` field.
     pub max_length: u8,
+    /// The `require_uppercase` field.
     pub require_uppercase: bool,
+    /// The `require_lowercase` field.
     pub require_lowercase: bool,
+    /// The `require_digit` field.
     pub require_digit: bool,
+    /// The `require_special` field.
     pub require_special: bool,
+    /// The `max_age_days` field.
     pub max_age_days: u32,
+    /// The `history_count` field.
     pub history_count: u8,
+    /// The `max_failed_attempts` field.
     pub max_failed_attempts: u8,
+    /// The `lockout_duration_minutes` field.
     pub lockout_duration_minutes: u32,
+    /// The `force_first_login_change` field.
     pub force_first_login_change: bool,
 }
 
@@ -34,14 +46,20 @@ impl Default for PasswordPolicy {
     }
 }
 
+/// The `PasswordValidationResult` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PasswordValidationResult {
+    /// The `is_valid` field.
     pub is_valid: bool,
+    /// The `errors` field.
     pub errors: Vec<String>,
+    /// The `strength_score` field.
     pub strength_score: u8,
 }
 
 impl PasswordPolicy {
+    /// See [`validate`].
+    /// See [`validate`].
     pub fn validate(&self, password: &str) -> PasswordValidationResult {
         let mut errors = Vec::new();
         let mut score: u8 = 0;
@@ -87,6 +105,8 @@ impl PasswordPolicy {
         PasswordValidationResult { is_valid: errors.is_empty(), errors, strength_score: score.min(100) }
     }
 
+    /// See [`is_password_expired`].
+    /// See [`is_password_expired`].
     pub fn is_password_expired(&self, password_changed_ts: Option<i64>) -> bool {
         if self.max_age_days == 0 {
             return false;
@@ -102,6 +122,8 @@ impl PasswordPolicy {
         }
     }
 
+    /// See [`calculate_password_expires_at`].
+    /// See [`calculate_password_expires_at`].
     pub fn calculate_password_expires_at(&self) -> i64 {
         if self.max_age_days == 0 {
             return 0;
@@ -111,6 +133,8 @@ impl PasswordPolicy {
         now + max_age_ms
     }
 
+    /// See [`calculate_lockout_until`].
+    /// See [`calculate_lockout_until`].
     pub fn calculate_lockout_until(&self) -> i64 {
         let now = current_timestamp_millis();
         let lockout_ms = (self.lockout_duration_minutes as i64) * 60 * 1000;
@@ -118,19 +142,26 @@ impl PasswordPolicy {
     }
 }
 
+/// The `PasswordPolicyService` struct.
 pub struct PasswordPolicyService {
     policy: PasswordPolicy,
 }
 
 impl PasswordPolicyService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(_pool: sqlx::PgPool) -> Self {
         Self { policy: PasswordPolicy::default() }
     }
 
+    /// See [`from_policy`].
+    /// See [`from_policy`].
     pub fn from_policy(policy: PasswordPolicy) -> Self {
         Self { policy }
     }
 
+    /// See [`policy`].
+    /// See [`policy`].
     pub fn policy(&self) -> &PasswordPolicy {
         &self.policy
     }

@@ -9,6 +9,8 @@ use synapse_storage::CreateEventParams;
 use super::service::MembershipService;
 
 impl MembershipService {
+    /// See [`invite_user`].
+    /// See [`invite_user`].
     pub async fn invite_user(&self, room_id: &str, inviter_id: &str, invitee_id: &str) -> ApiResult<()> {
         if !self
             .room_storage
@@ -129,6 +131,8 @@ impl MembershipService {
         Ok(())
     }
 
+    /// See [`knock_room`].
+    /// See [`knock_room`].
     pub async fn knock_room(&self, room_id: &str, user_id: &str, reason: Option<&str>) -> ApiResult<()> {
         if !self
             .room_storage
@@ -159,6 +163,8 @@ impl MembershipService {
         Ok(())
     }
 
+    /// See [`ban_user`].
+    /// See [`ban_user`].
     pub async fn ban_user(&self, room_id: &str, user_id: &str, banned_by: &str, reason: Option<&str>) -> ApiResult<()> {
         if !self
             .room_storage
@@ -248,6 +254,8 @@ impl MembershipService {
         Ok(())
     }
 
+    /// See [`unban_user`].
+    /// See [`unban_user`].
     pub async fn unban_user(&self, room_id: &str, user_id: &str, unbanned_by: &str) -> ApiResult<()> {
         self.room_auth.can_unban_user(room_id, unbanned_by, user_id).await?;
 
@@ -320,6 +328,7 @@ impl MembershipService {
         Ok(())
     }
 
+    /// See [`kick_user`].
     pub async fn kick_user(
         &self,
         room_id: &str,

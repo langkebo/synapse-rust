@@ -10,6 +10,7 @@ use tokio::sync::OnceCell;
 use tokio::sync::{Mutex as TokioMutex, Semaphore};
 
 static PREPARED_TEST_POOLS: LazyLock<Mutex<VecDeque<Arc<PgPool>>>> = LazyLock::new(|| Mutex::new(VecDeque::new()));
+/// Static `TEST_ENV_LOCK`.
 pub static TEST_ENV_LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
 static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
 static TEMPLATE_SCHEMA_NAME: OnceCell<String> = OnceCell::const_new();
@@ -24,19 +25,24 @@ const DEFAULT_TEST_DB_MAX_LIFETIME_SECS: u64 = 300;
 const DEFAULT_TEST_DB_INIT_TIMEOUT_SECS: u64 = 300;
 const DEFAULT_TEST_DB_SHARED_CLONE_CONCURRENCY: usize = 2;
 
+/// The `EnvLockGuard` struct.
 pub struct EnvLockGuard {
     _guard: tokio::sync::MutexGuard<'static, ()>,
 }
 
+/// The `EnvGuard` struct.
 pub struct EnvGuard {
     original_values: Vec<(String, Option<String>)>,
 }
 
 impl EnvGuard {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self { original_values: Vec::new() }
     }
 
+    /// See [`set`].
     pub fn set<K, V>(&mut self, key: K, value: V)
     where
         K: Into<String>,
@@ -48,6 +54,7 @@ impl EnvGuard {
         std::env::set_var(&key, &value);
     }
 
+    /// See [`remove`].
     pub fn remove<K>(&mut self, key: K)
     where
         K: Into<String>,
@@ -83,18 +90,22 @@ impl Drop for EnvGuard {
     }
 }
 
+/// See [`env_lock`].
 pub fn env_lock() -> EnvLockGuard {
     EnvLockGuard { _guard: TEST_ENV_LOCK.blocking_lock() }
 }
 
+/// See [`env_lock_async`].
 pub async fn env_lock_async() -> EnvLockGuard {
     EnvLockGuard { _guard: TEST_ENV_LOCK.lock().await }
 }
 
+/// See [`enqueue_prepared_test_pool`].
 pub fn enqueue_prepared_test_pool(pool: Arc<PgPool>) {
     PREPARED_TEST_POOLS.lock().unwrap_or_else(|e| e.into_inner()).push_back(pool);
 }
 
+/// See [`take_prepared_test_pool`].
 pub fn take_prepared_test_pool() -> Option<Arc<PgPool>> {
     PREPARED_TEST_POOLS.lock().unwrap_or_else(|e| e.into_inner()).pop_front()
 }
@@ -115,45 +126,55 @@ fn env_string(key: &str) -> Option<String> {
     std::env::var(key).ok().map(|value| value.trim().to_string()).filter(|value| !value.is_empty())
 }
 
+/// See [`configured_test_pool_max_connections`].
 pub fn configured_test_pool_max_connections() -> u32 {
     env_u32("TEST_DB_MAX_CONNECTIONS").filter(|value| *value > 0).unwrap_or(DEFAULT_TEST_DB_MAX_CONNECTIONS)
 }
 
+/// See [`configured_test_pool_min_connections`].
 pub fn configured_test_pool_min_connections() -> u32 {
     env_u32("TEST_DB_MIN_CONNECTIONS")
         .map_or(DEFAULT_TEST_DB_MIN_CONNECTIONS, |value| value.min(configured_test_pool_max_connections()))
 }
 
+/// See [`configured_test_pool_connect_timeout`].
 pub fn configured_test_pool_connect_timeout() -> Duration {
     Duration::from_secs(env_u64("TEST_DB_CONNECT_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_CONNECT_TIMEOUT_SECS))
 }
 
+/// See [`configured_test_pool_acquire_timeout`].
 pub fn configured_test_pool_acquire_timeout() -> Duration {
     Duration::from_secs(env_u64("TEST_DB_ACQUIRE_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS))
 }
 
+/// See [`configured_test_pool_idle_timeout`].
 pub fn configured_test_pool_idle_timeout() -> Duration {
     Duration::from_secs(env_u64("TEST_DB_IDLE_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_IDLE_TIMEOUT_SECS))
 }
 
+/// See [`configured_test_pool_max_lifetime`].
 pub fn configured_test_pool_max_lifetime() -> Duration {
     Duration::from_secs(env_u64("TEST_DB_MAX_LIFETIME_SECS").unwrap_or(DEFAULT_TEST_DB_MAX_LIFETIME_SECS))
 }
 
+/// See [`configured_test_db_init_timeout`].
 pub fn configured_test_db_init_timeout() -> Duration {
     Duration::from_secs(env_u64("TEST_DB_INIT_TIMEOUT_SECS").unwrap_or(DEFAULT_TEST_DB_INIT_TIMEOUT_SECS))
 }
 
+/// See [`configured_shared_clone_concurrency`].
 pub fn configured_shared_clone_concurrency() -> usize {
     env_usize("TEST_DB_SHARED_CLONE_CONCURRENCY")
         .filter(|value| *value > 0)
         .unwrap_or(DEFAULT_TEST_DB_SHARED_CLONE_CONCURRENCY)
 }
 
+/// See [`configured_test_db_template_schema`].
 pub fn configured_test_db_template_schema() -> Option<String> {
     env_string("TEST_DB_TEMPLATE_SCHEMA")
 }
 
+/// See [`prepare_isolated_test_pool`].
 pub async fn prepare_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
@@ -422,6 +443,7 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
     Ok(pool)
 }
 
+/// See [`prepare_empty_isolated_test_pool`].
 pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     let database_url = resolve_test_database_url().await?;
     let schema_name = next_test_schema_name();
@@ -474,6 +496,7 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     Ok(pool)
 }
 
+/// See [`resolve_test_database_url`].
 pub async fn resolve_test_database_url() -> Result<String, String> {
     let mut errors = Vec::new();
     let connect_timeout = configured_test_pool_connect_timeout();

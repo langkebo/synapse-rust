@@ -5,6 +5,8 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::{ApiError, ApiResult};
 
 impl FriendRoomService {
+    /// See [`calculate_suggestion_score`].
+    /// See [`calculate_suggestion_score`].
     pub(crate) fn calculate_suggestion_score(suggestion: &serde_json::Value) -> f64 {
         let mut score = 0.0;
 

@@ -26,49 +26,77 @@ use synapse_storage::UserStore;
 use crate::container::SharedInfra;
 use crate::UserService;
 
+/// The `ExtensionServices` struct.
 #[derive(Clone)]
 pub struct ExtensionServices {
     #[cfg(feature = "voice-extended")]
+    /// The `voice_service` field.
     pub voice_service: crate::voice_service::VoiceService,
     #[cfg(feature = "friends")]
+    /// The `friend_storage` field.
     pub friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
     #[cfg(feature = "friends")]
+    /// The `friend_room_service` field.
     pub friend_room_service: Arc<crate::friend_room_service::FriendRoomService>,
+    /// The `rtc_domain_service` field.
     pub rtc_domain_service: Arc<crate::rtc::RtcDomainService>,
+    /// The `directory_service` field.
     pub directory_service: Arc<crate::directory_service::DirectoryService>,
+    /// The `media_domain_service` field.
     pub media_domain_service: Arc<crate::media::MediaDomainService>,
     #[cfg(feature = "server-notifications")]
+    /// The `server_notification_storage` field.
     pub server_notification_storage: Arc<dyn synapse_storage::server_notification::ServerNotificationStoreApi>,
     #[cfg(feature = "server-notifications")]
+    /// The `server_notification_service` field.
     pub server_notification_service: Arc<crate::server_notification_service::ServerNotificationService>,
     #[cfg(feature = "privacy-ext")]
+    /// The `privacy_storage` field.
     pub privacy_storage: Arc<dyn synapse_storage::privacy::PrivacyStoreApi>,
     #[cfg(feature = "widgets")]
+    /// The `widget_storage` field.
     pub widget_storage: Arc<dyn synapse_storage::widget::WidgetStoreApi>,
     #[cfg(feature = "widgets")]
+    /// The `widget_service` field.
     pub widget_service: Arc<crate::widget_service::WidgetService>,
     #[cfg(feature = "burn-after-read")]
+    /// The `burn_after_read` field.
     pub burn_after_read: Arc<BurnAfterReadService>,
+    /// The `identity_service` field.
     pub identity_service: Arc<crate::identity::IdentityService>,
+    /// The `translation_service` field.
     pub translation_service: Arc<crate::translation_service::TranslationService>,
+    /// The `uia_service` field.
     pub uia_service: Arc<crate::uia_service::UiaService>,
 }
 
 /// Dependency bundle for [`ExtensionServices::new`].
 pub struct ExtensionServicesDeps<'a> {
+    /// The `infra` field.
     pub infra: &'a SharedInfra,
+    /// The `rooms` field.
     pub rooms: &'a super::RoomSyncServices,
+    /// The `user_storage` field.
     pub user_storage: &'a Arc<dyn UserStore>,
+    /// The `threepid_storage` field.
     pub threepid_storage: Arc<dyn synapse_storage::ThreepidStoreApi>,
+    /// The `presence_storage` field.
     pub presence_storage: &'a Arc<dyn synapse_storage::presence::PresenceStoreApi>,
+    /// The `federation` field.
     pub federation: &'a super::FederationServices,
+    /// The `media_service` field.
     pub media_service: &'a crate::media_service::MediaService,
+    /// The `media_domain_service` field.
     pub media_domain_service: &'a Arc<crate::media::MediaDomainService>,
+    /// The `ui_auth_session_timeout` field.
     pub ui_auth_session_timeout: i64,
+    /// The `user_service` field.
     pub user_service: Arc<UserService>,
 }
 
 impl ExtensionServices {
+    /// See [`new`].
+    /// See [`new`].
     pub async fn new(deps: ExtensionServicesDeps<'_>) -> Self {
         let ExtensionServicesDeps {
             infra,

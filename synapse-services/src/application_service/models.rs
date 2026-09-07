@@ -39,6 +39,7 @@ fn cached_regex(pattern: &str) -> Option<&'static Regex> {
     guard.insert(pattern.to_string(), compiled);
     Some(compiled)
 }
+/// The `AppServiceConfigFile` struct.
 #[derive(Debug, Deserialize)]
 pub(super) struct AppServiceConfigFile {
     id: String,
@@ -61,6 +62,7 @@ pub(super) struct AppServiceConfigFile {
     extra: BTreeMap<String, serde_yaml::Value>,
 }
 
+/// The `AppServiceConfigNamespaces` struct.
 #[derive(Debug, Default, Deserialize)]
 pub(super) struct AppServiceConfigNamespaces {
     #[serde(default)]
@@ -71,6 +73,7 @@ pub(super) struct AppServiceConfigNamespaces {
     rooms: Vec<AppServiceConfigNamespaceRule>,
 }
 
+/// The `AppServiceConfigNamespaceRule` struct.
 #[derive(Debug, Deserialize)]
 pub(super) struct AppServiceConfigNamespaceRule {
     #[serde(rename = "exclusive")]
@@ -80,14 +83,19 @@ pub(super) struct AppServiceConfigNamespaceRule {
     group_id: Option<String>,
 }
 
+/// The `NamespacesInfo` struct.
 #[derive(Debug, Serialize)]
 pub struct NamespacesInfo {
+    /// The `users` field.
     pub users: Vec<ApplicationServiceNamespace>,
+    /// The `aliases` field.
     pub aliases: Vec<ApplicationServiceNamespace>,
+    /// The `rooms` field.
     pub rooms: Vec<ApplicationServiceNamespace>,
 }
 
 impl ApplicationServiceManager {
+    /// See [`parse_config_file_contents`].
     pub(super) fn parse_config_file_contents(
         &self,
         raw_config: &str,
@@ -279,6 +287,7 @@ impl ApplicationServiceManager {
             .collect()
     }
 
+    /// See [`service_matches_event`].
     pub(super) fn service_matches_event(
         &self,
         service: &ApplicationService,
@@ -291,6 +300,7 @@ impl ApplicationServiceManager {
             || state_key.is_some_and(|key| Self::namespace_matches(&service.namespaces, "users", key, false))
     }
 
+    /// See [`namespace_matches`].
     pub(super) fn namespace_matches(
         namespaces: &serde_json::Value,
         namespace_kind: &str,
@@ -307,6 +317,7 @@ impl ApplicationServiceManager {
             .any(|pattern| cached_regex(pattern).is_some_and(|regex| regex.is_match(candidate)))
     }
 
+    /// See [`validate_namespace_exclusivity`].
     pub(super) async fn validate_namespace_exclusivity(
         &self,
         as_id: &str,
@@ -354,6 +365,7 @@ impl ApplicationServiceManager {
         Ok(())
     }
 
+    /// See [`exclusive_namespace_patterns`].
     pub(super) fn exclusive_namespace_patterns(
         namespaces: Option<&serde_json::Value>,
         namespace_kind: &str,
@@ -371,6 +383,8 @@ impl ApplicationServiceManager {
             .collect()
     }
 
+    /// See [`is_local_user_id`].
+    /// See [`is_local_user_id`].
     pub(super) fn is_local_user_id(user_id: &str, server_name: &str) -> bool {
         user_id
             .strip_prefix('@')

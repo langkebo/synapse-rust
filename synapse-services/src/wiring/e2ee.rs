@@ -19,23 +19,37 @@ use synapse_e2ee::to_device::ToDeviceService;
 use synapse_e2ee::verification::VerificationService;
 use synapse_storage::UserStore;
 
+/// The `E2eeServices` struct.
 #[derive(Clone)]
 pub struct E2eeServices {
+    /// The `device_keys_service` field.
     pub device_keys_service: DeviceKeyService,
+    /// The `key_request_service` field.
     pub key_request_service: KeyRequestService,
+    /// The `megolm_service` field.
     pub megolm_service: MegolmProvider,
+    /// The `cross_signing_service` field.
     pub cross_signing_service: CrossSigningService,
+    /// The `ssss_service` field.
     pub ssss_service: SecretStorageService,
+    /// The `backup_service` field.
     pub backup_service: KeyBackupService,
+    /// The `dehydrated_device_service` field.
     pub dehydrated_device_service: crate::dehydrated_device_service::DehydratedDeviceService,
+    /// The `secure_backup_service` field.
     pub secure_backup_service: synapse_e2ee::secure_backup::SecureBackupService,
+    /// The `to_device_service` field.
     pub to_device_service: ToDeviceService,
+    /// The `verification_service` field.
     pub verification_service: VerificationService,
+    /// The `device_trust_service` field.
     pub device_trust_service: synapse_e2ee::device_trust::DeviceTrustService,
+    /// The `to_device_storage` field.
     pub to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
 }
 
 impl E2eeServices {
+    /// See [`new`].
     pub async fn new(
         pool: &Arc<sqlx::PgPool>,
         cache: &Arc<CacheManager>,
@@ -111,6 +125,7 @@ impl E2eeServices {
     }
 }
 
+/// See [`generate_encryption_key`].
 pub(crate) fn generate_encryption_key(config_path: Option<&str>) -> [u8; 32] {
     use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 

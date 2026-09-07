@@ -42,15 +42,21 @@ pub struct FakeTokenAuth {
 }
 
 impl FakeTokenAuth {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self { validate_token_response: RwLock::new(None), token_expiry_value: RwLock::new(3_600_000) }
     }
 
+    /// See [`with_validate_token_ok`].
+    /// See [`with_validate_token_ok`].
     pub fn with_validate_token_ok(self, result: (String, Option<String>, bool, bool, bool)) -> Self {
         *self.validate_token_response.write().unwrap() = Some(Ok(result));
         self
     }
 
+    /// See [`with_token_expiry`].
+    /// See [`with_token_expiry`].
     pub fn with_token_expiry(self, expiry: i64) -> Self {
         *self.token_expiry_value.write().unwrap() = expiry;
         self
@@ -112,6 +118,8 @@ impl crate::auth::TokenAuth for FakeTokenAuth {
 pub struct FakeCredentialAuth;
 
 impl FakeCredentialAuth {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self
     }
@@ -204,6 +212,8 @@ impl crate::auth::CredentialAuth for FakeCredentialAuth {
 pub struct FakeRoomAuth;
 
 impl FakeRoomAuth {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self
     }
@@ -285,13 +295,19 @@ impl crate::auth::RoomAuth for FakeRoomAuth {
 /// ```
 #[derive(Clone, Default)]
 pub struct TestSyncContext {
+    /// The `room_store` field.
     pub room_store: InMemoryRoomStore,
+    /// The `event_store` field.
     pub event_store: InMemoryEventStore,
+    /// The `member_store` field.
     pub member_store: InMemoryMemberStore,
+    /// The `user_store` field.
     pub user_store: SharedFakeUserStore,
 }
 
 impl TestSyncContext {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self {
             room_store: InMemoryRoomStore::new(),
@@ -319,6 +335,8 @@ pub struct MockSyncServiceDepsBuilder {
 }
 
 impl MockSyncServiceDepsBuilder {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }
@@ -366,6 +384,8 @@ pub struct InMemoryRegistrationTokenService {
 }
 
 impl InMemoryRegistrationTokenService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self::default()
     }

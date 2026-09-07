@@ -3,24 +3,35 @@ use std::sync::Arc;
 use synapse_storage::SchemaValidator;
 use tracing::{error, info};
 
+/// The `Environment` enum.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Environment {
+    /// The `Development` variant.
     Development,
+    /// The `Production` variant.
     Production,
 }
 
+/// The `DatabaseInitMode` enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DatabaseInitMode {
+    /// The `Auto` variant.
     Auto,
+    /// The `Strict` variant.
     Strict,
+    /// The `Compatible` variant.
     Compatible,
 }
 
 impl Environment {
+    /// See [`from_env`].
+    /// See [`from_env`].
     pub fn from_env() -> Self {
         std::env::var("RUST_ENV").unwrap_or_else(|_| "development".to_string()).to_lowercase().into()
     }
 
+    /// See [`is_development`].
+    /// See [`is_development`].
     pub fn is_development(&self) -> bool {
         self == &Self::Development
     }
@@ -45,17 +56,26 @@ pub struct DatabaseInitService {
     pub(crate) mode: DatabaseInitMode,
 }
 
+/// The `InitializationReport` struct.
 #[derive(Debug, Clone)]
 pub struct InitializationReport {
+    /// The `is_success` field.
     pub is_success: bool,
+    /// The `steps` field.
     pub steps: Vec<String>,
+    /// The `errors` field.
     pub errors: Vec<String>,
+    /// The `schema_status` field.
     pub schema_status: Option<synapse_storage::SchemaValidationResult>,
+    /// The `repairs_performed` field.
     pub repairs_performed: Vec<String>,
+    /// The `skipped` field.
     pub skipped: bool,
 }
 
 impl InitializationReport {
+    /// See [`summary`].
+    /// See [`summary`].
     pub fn summary(&self) -> String {
         let mut summary = format!("数据库初始化: success={}", self.is_success);
 
@@ -101,6 +121,7 @@ impl InitializationReport {
     }
 }
 
+/// See [`initialize_database`].
 pub async fn initialize_database(pool: &PgPool) -> Result<(), String> {
     let initializer = DatabaseInitService::new(Arc::new(pool.clone()));
 

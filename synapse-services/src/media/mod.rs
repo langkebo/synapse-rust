@@ -1,3 +1,4 @@
+/// The `chunked_upload` module.
 pub mod chunked_upload;
 
 pub use chunked_upload::{ChunkedUploadService, CompleteUploadRequest};
@@ -19,27 +20,42 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::random_string;
 use synapse_common::ApiError;
 
+/// The `MediaFinalizationResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaFinalizationResponse {
+    /// The `media_id` field.
     pub media_id: String,
+    /// The `content_uri` field.
     pub content_uri: String,
+    /// The `size` field.
     pub size: i64,
 }
 
+/// The `MediaResponseHeaders` struct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediaResponseHeaders {
+    /// The `content_type` field.
     pub content_type: String,
+    /// The `content_length` field.
     pub content_length: usize,
+    /// The `content_disposition` field.
     pub content_disposition: String,
+    /// The `x_content_type_options` field.
     pub x_content_type_options: &'static str,
+    /// The `content_security_policy` field.
     pub content_security_policy: &'static str,
+    /// The `cross_origin_resource_policy` field.
     pub cross_origin_resource_policy: &'static str,
+    /// The `referrer_policy` field.
     pub referrer_policy: &'static str,
 }
 
+/// The `MediaResponsePayload` struct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediaResponsePayload {
+    /// The `content` field.
     pub content: Vec<u8>,
+    /// The `headers` field.
     pub headers: MediaResponseHeaders,
 }
 
@@ -59,6 +75,7 @@ pub struct MediaStreamPayload {
     pub headers: MediaResponseHeaders,
 }
 
+/// The `MediaDomainService` struct.
 #[derive(Clone)]
 pub struct MediaDomainService {
     media_service: MediaService,
@@ -69,6 +86,7 @@ pub struct MediaDomainService {
 }
 
 impl MediaDomainService {
+    /// See [`new`].
     pub fn new(
         media_service: MediaService,
         media_quota_service: Arc<MediaQuotaService>,
@@ -224,6 +242,7 @@ impl MediaDomainService {
         }
     }
 
+    /// See [`upload_media`].
     pub async fn upload_media(
         &self,
         user_id: &str,
@@ -247,6 +266,7 @@ impl MediaDomainService {
         Ok(response)
     }
 
+    /// See [`upload_media_with_id`].
     pub async fn upload_media_with_id(
         &self,
         user_id: &str,
@@ -266,6 +286,7 @@ impl MediaDomainService {
         Ok(response)
     }
 
+    /// See [`start_chunked_upload`].
     pub async fn start_chunked_upload(
         &self,
         user_id: &str,
@@ -286,6 +307,7 @@ impl MediaDomainService {
         self.chunked_upload_service.start_upload(user_id, filename, content_type, total_size, total_chunks).await
     }
 
+    /// See [`upload_chunk`].
     pub async fn upload_chunk(
         &self,
         request: chunked_upload::ChunkUploadRequest,
@@ -294,6 +316,7 @@ impl MediaDomainService {
         self.chunked_upload_service.upload_chunk(request, user_id).await
     }
 
+    /// See [`complete_chunked_upload`].
     pub async fn complete_chunked_upload(
         &self,
         upload_id: &str,
@@ -331,10 +354,13 @@ impl MediaDomainService {
         Ok(MediaFinalizationResponse { media_id, content_uri, size })
     }
 
+    /// See [`cancel_chunked_upload`].
+    /// See [`cancel_chunked_upload`].
     pub async fn cancel_chunked_upload(&self, upload_id: &str, user_id: &str) -> Result<(), ApiError> {
         self.chunked_upload_service.cancel_upload(upload_id, user_id).await
     }
 
+    /// See [`get_chunked_upload_progress`].
     pub async fn get_chunked_upload_progress(
         &self,
         upload_id: &str,
@@ -352,6 +378,7 @@ impl MediaDomainService {
         self.media_service.verify_media_download_url(server_name, media_id, signature, expires)
     }
 
+    /// See [`download_media`].
     pub async fn download_media(
         &self,
         server_name: &str,
@@ -443,6 +470,7 @@ impl MediaDomainService {
         Ok(MediaStreamPayload { file, content_length, headers })
     }
 
+    /// See [`get_thumbnail`].
     pub async fn get_thumbnail(
         &self,
         server_name: &str,
@@ -456,10 +484,13 @@ impl MediaDomainService {
         Ok(MediaResponsePayload { content, headers })
     }
 
+    /// See [`preview_url`].
+    /// See [`preview_url`].
     pub fn preview_url(&self, url: &str, ts: i64) -> Result<Value, ApiError> {
         self.media_service.preview_url(url, ts)
     }
 
+    /// See [`delete_media_for_user`].
     pub async fn delete_media_for_user(
         &self,
         server_name: &str,
@@ -494,14 +525,19 @@ impl MediaDomainService {
         Ok(())
     }
 
+    /// See [`get_user_quota`].
+    /// See [`get_user_quota`].
     pub async fn get_user_quota(&self, user_id: &str) -> Result<crate::media_quota_service::UserQuotaInfo, ApiError> {
         self.media_quota_service.get_user_quota(user_id).await
     }
 
+    /// See [`get_usage_stats`].
+    /// See [`get_usage_stats`].
     pub async fn get_usage_stats(&self, user_id: &str) -> Result<Value, ApiError> {
         self.media_quota_service.get_usage_stats(user_id).await
     }
 
+    /// See [`get_user_alerts`].
     pub async fn get_user_alerts(
         &self,
         user_id: &str,

@@ -8,6 +8,7 @@ use std::time::Duration;
 use super::service::MessagingService;
 
 impl MessagingService {
+    /// See [`process_read_receipt`].
     pub async fn process_read_receipt(
         &self,
         room_id: &str,

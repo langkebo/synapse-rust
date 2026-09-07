@@ -13,39 +13,66 @@ use synapse_storage::*;
 
 use crate::UserService;
 
+/// The `AccountServices` struct.
 #[derive(Clone)]
 pub struct AccountServices {
+    /// The `account_device_list_service` field.
     pub account_device_list_service: Arc<crate::account_device_list_service::AccountDeviceListService>,
+    /// The `account_identity_service` field.
     pub account_identity_service: Arc<crate::account_identity_service::AccountIdentityService>,
+    /// The `user_storage` field.
     pub user_storage: Arc<dyn UserStore>,
+    /// The `threepid_storage` field.
     pub threepid_storage: Arc<dyn ThreepidStoreApi>,
+    /// The `device_storage` field.
     pub device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
+    /// The `token_storage` field.
     pub token_storage: Arc<dyn AccessTokenStoreApi>,
+    /// The `presence_storage` field.
     pub presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
+    /// The `presence_service` field.
     pub presence_service: Arc<crate::presence_service::PresenceService>,
+    /// The `qr_login_storage` field.
     pub qr_login_storage: Arc<dyn QrLoginStoreApi>,
+    /// The `invite_blocklist_storage` field.
     pub invite_blocklist_storage: Arc<dyn InviteBlocklistStoreApi>,
+    /// The `sticky_event_storage` field.
     pub sticky_event_storage: Arc<dyn StickyEventStoreApi>,
+    /// The `user_service` field.
     pub user_service: Arc<UserService>,
 }
 
 /// Dependency bundle for [`AccountServices::new`].
 pub struct AccountServicesDeps {
+    /// The `pool` field.
     pub pool: Arc<sqlx::PgPool>,
+    /// The `user_storage` field.
     pub user_storage: Arc<dyn UserStore>,
+    /// The `device_storage` field.
     pub device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
+    /// The `threepid_storage` field.
     pub threepid_storage: Arc<dyn ThreepidStoreApi>,
+    /// The `presence_storage` field.
     pub presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
+    /// The `presence_service` field.
     pub presence_service: Arc<crate::presence_service::PresenceService>,
+    /// The `qr_login_storage` field.
     pub qr_login_storage: Arc<dyn QrLoginStoreApi>,
+    /// The `invite_blocklist_storage` field.
     pub invite_blocklist_storage: Arc<dyn InviteBlocklistStoreApi>,
+    /// The `sticky_event_storage` field.
     pub sticky_event_storage: Arc<dyn StickyEventStoreApi>,
+    /// The `account_device_list_service` field.
     pub account_device_list_service: Arc<crate::account_device_list_service::AccountDeviceListService>,
+    /// The `account_identity_service` field.
     pub account_identity_service: Arc<crate::account_identity_service::AccountIdentityService>,
+    /// The `user_service` field.
     pub user_service: Arc<UserService>,
 }
 
 impl AccountServices {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(deps: AccountServicesDeps) -> Self {
         Self {
             account_device_list_service: deps.account_device_list_service,

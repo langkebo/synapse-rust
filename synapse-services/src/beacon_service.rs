@@ -11,16 +11,20 @@ const BEACON_MAX_PER_ROOM_WINDOW: i64 = 60;
 const BEACON_ROOM_BACKPRESSURE_BUCKET_CAPACITY: u32 = 20;
 const BEACON_ROOM_BACKPRESSURE_REFILL_PER_SEC: u32 = 5;
 
+/// The `BeaconService` struct.
 pub struct BeaconService {
     storage: Arc<dyn BeaconStoreApi>,
     cache: Arc<CacheManager>,
 }
 
 impl BeaconService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn BeaconStoreApi>, cache: Arc<CacheManager>) -> Self {
         Self { storage, cache }
     }
 
+    /// See [`create_beacon`].
     pub async fn create_beacon(
         &self,
         params: CreateBeaconInfoParams,
@@ -47,6 +51,7 @@ impl BeaconService {
         Ok(beacon)
     }
 
+    /// See [`get_beacon_info`].
     pub async fn get_beacon_info(
         &self,
         room_id: &str,
@@ -69,6 +74,7 @@ impl BeaconService {
         Ok(beacon)
     }
 
+    /// See [`get_active_beacons`].
     pub async fn get_active_beacons(
         &self,
         room_id: &str,
@@ -88,6 +94,7 @@ impl BeaconService {
         Ok(beacons)
     }
 
+    /// See [`update_beacon_liveness`].
     pub async fn update_beacon_liveness(
         &self,
         room_id: &str,
@@ -110,6 +117,7 @@ impl BeaconService {
         Ok(beacon)
     }
 
+    /// See [`delete_beacon`].
     pub async fn delete_beacon(
         &self,
         room_id: &str,
@@ -128,6 +136,7 @@ impl BeaconService {
         Ok(deleted)
     }
 
+    /// See [`report_location`].
     pub async fn report_location(
         &self,
         params: CreateBeaconLocationParams,
@@ -150,6 +159,7 @@ impl BeaconService {
         Ok(location)
     }
 
+    /// See [`get_beacon_locations`].
     pub async fn get_beacon_locations(
         &self,
         beacon_info_id: &str,
@@ -170,6 +180,7 @@ impl BeaconService {
         Ok(locations)
     }
 
+    /// See [`get_latest_location`].
     pub async fn get_latest_location(
         &self,
         beacon_info_id: &str,
@@ -191,6 +202,7 @@ impl BeaconService {
         Ok(location)
     }
 
+    /// See [`get_beacon_with_locations`].
     pub async fn get_beacon_with_locations(
         &self,
         room_id: &str,
@@ -200,6 +212,7 @@ impl BeaconService {
         Ok(beacon_with_locations)
     }
 
+    /// See [`get_room_beacons`].
     pub async fn get_room_beacons(
         &self,
         room_id: &str,
@@ -209,11 +222,14 @@ impl BeaconService {
         Ok(beacons)
     }
 
+    /// See [`cleanup_expired_beacons`].
+    /// See [`cleanup_expired_beacons`].
     pub async fn cleanup_expired_beacons(&self) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
         let count = self.storage.cleanup_expired_beacons().await?;
         Ok(count)
     }
 
+    /// See [`check_location_quota`].
     pub async fn check_location_quota(
         &self,
         room_id: &str,
@@ -234,6 +250,7 @@ impl BeaconService {
         Ok(None)
     }
 
+    /// See [`check_room_backpressure`].
     pub async fn check_room_backpressure(
         &self,
         room_id: &str,
@@ -256,6 +273,8 @@ impl BeaconService {
         Ok(Some((decision.retry_after_seconds.max(1)) * 1000))
     }
 
+    /// See [`parse_geo_uri`].
+    /// See [`parse_geo_uri`].
     pub fn parse_geo_uri(uri: &str) -> Option<(f64, f64, Option<f64>)> {
         if !uri.starts_with("geo:") {
             return None;

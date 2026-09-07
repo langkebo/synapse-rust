@@ -8,6 +8,7 @@ pub use synapse_storage::{
 use synapse_storage::{AdminMediaStoreApi, QuarantinedMediaChangeStoreApi};
 use tracing::instrument;
 
+/// The `AdminMediaService` struct.
 pub struct AdminMediaService {
     storage: Arc<dyn AdminMediaStoreApi>,
     quarantine_change_storage: Arc<dyn QuarantinedMediaChangeStoreApi>,
@@ -15,6 +16,7 @@ pub struct AdminMediaService {
 }
 
 impl AdminMediaService {
+    /// See [`new`].
     pub fn new(
         storage: Arc<dyn AdminMediaStoreApi>,
         quarantine_change_storage: Arc<dyn QuarantinedMediaChangeStoreApi>,
@@ -23,16 +25,22 @@ impl AdminMediaService {
         Self { storage, quarantine_change_storage, user_service }
     }
 
+    /// See [`get_all_media`].
+    /// See [`get_all_media`].
     #[instrument(skip(self))]
     pub async fn get_all_media(&self, limit: i64, cursor: Option<MediaCursor>) -> Result<AdminMediaPage, ApiError> {
         self.storage.get_all_media(limit, cursor).await
     }
 
+    /// See [`get_media_info`].
+    /// See [`get_media_info`].
     #[instrument(skip(self))]
     pub async fn get_media_info(&self, media_id: &str) -> Result<Option<AdminMediaInfo>, ApiError> {
         self.storage.get_media_info(media_id).await
     }
 
+    /// See [`delete_media`].
+    /// See [`delete_media`].
     #[instrument(skip(self))]
     pub async fn delete_media(&self, media_id: &str) -> Result<(), ApiError> {
         if !self.storage.delete_media(media_id).await? {
@@ -42,11 +50,15 @@ impl AdminMediaService {
         Ok(())
     }
 
+    /// See [`get_media_quota`].
+    /// See [`get_media_quota`].
     #[instrument(skip(self))]
     pub async fn get_media_quota(&self) -> Result<AdminMediaQuotaSummary, ApiError> {
         self.storage.get_media_quota().await
     }
 
+    /// See [`get_user_media`].
+    /// See [`get_user_media`].
     #[instrument(skip(self))]
     pub async fn get_user_media(&self, identifier: &str) -> Result<(String, Vec<AdminMediaInfo>), ApiError> {
         let user = self.user_service.get_user_or_not_found(identifier).await?;
@@ -54,6 +66,8 @@ impl AdminMediaService {
         Ok((user.user_id, media))
     }
 
+    /// See [`delete_user_media`].
+    /// See [`delete_user_media`].
     #[instrument(skip(self))]
     pub async fn delete_user_media(&self, identifier: &str) -> Result<u64, ApiError> {
         let user = self.user_service.get_user_or_not_found(identifier).await?;

@@ -14,10 +14,14 @@ pub struct AdminServerService {
 }
 
 impl AdminServerService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<PgPool>) -> Self {
         Self { pool }
     }
 
+    /// See [`is_database_healthy`].
+    /// See [`is_database_healthy`].
     #[instrument(skip(self))]
     pub async fn is_database_healthy(&self) -> bool {
         let check = DatabaseHealthCheck::new((*self.pool).clone());
@@ -31,6 +35,8 @@ impl AdminServerService {
         is_healthy
     }
 
+    /// See [`validate_required_tables`].
+    /// See [`validate_required_tables`].
     #[instrument(skip(self, tables))]
     pub async fn validate_required_tables(&self, tables: &[&str]) -> Result<Vec<String>, ApiError> {
         let validator = SchemaValidator::new(self.pool.clone());

@@ -24,11 +24,15 @@ use crate::room_versions::client_room_versions_capability;
 /// entries before constructing a [`CapabilityGovernance`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RouteCheck {
+    /// The `method` field.
     pub method: String,
+    /// The `path` field.
     pub path: &'static str,
 }
 
 impl RouteCheck {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(method: String, path: &'static str) -> Self {
         Self { method, path }
     }
@@ -38,12 +42,16 @@ impl RouteCheck {
 // Client API version support
 // ---------------------------------------------------------------------------
 
+/// The `ClientApiVersionFamily` enum.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ClientApiVersionFamily {
+    /// The `LegacyR0` variant.
     LegacyR0,
+    /// The `StableV1` variant.
     StableV1,
 }
 
+/// The `ClientApiVersionSupport` struct.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ClientApiVersionSupport {
     version: &'static str,
@@ -51,23 +59,32 @@ pub(crate) struct ClientApiVersionSupport {
 }
 
 impl ClientApiVersionSupport {
+    /// See [`legacy`].
+    /// See [`legacy`].
     pub const fn legacy(version: &'static str) -> Self {
         Self { version, family: ClientApiVersionFamily::LegacyR0 }
     }
 
+    /// See [`stable`].
+    /// See [`stable`].
     pub const fn stable(version: &'static str) -> Self {
         Self { version, family: ClientApiVersionFamily::StableV1 }
     }
 
+    /// See [`version`].
+    /// See [`version`].
     pub const fn version(self) -> &'static str {
         self.version
     }
 
+    /// See [`family`].
+    /// See [`family`].
     pub(crate) const fn family(self) -> ClientApiVersionFamily {
         self.family
     }
 }
 
+/// Constant `CLIENT_API_VERSION_SUPPORT`.
 pub(crate) const CLIENT_API_VERSION_SUPPORT: &[ClientApiVersionSupport] = &[
     ClientApiVersionSupport::legacy("r0.5.0"),
     ClientApiVersionSupport::legacy("r0.6.0"),
@@ -130,12 +147,16 @@ const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
 // Capability governance types
 // ---------------------------------------------------------------------------
 
+/// The `GovernanceClass` enum.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum GovernanceClass {
+    /// The `ConfigControlled` variant.
     ConfigControlled,
+    /// The `RouteSurface` variant.
     RouteSurface,
 }
 
+/// The `CapabilityFlag` struct.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CapabilityFlag {
     enabled: bool,
@@ -143,18 +164,26 @@ pub(crate) struct CapabilityFlag {
 }
 
 impl CapabilityFlag {
+    /// See [`config_controlled`].
+    /// See [`config_controlled`].
     pub const fn config_controlled(enabled: bool) -> Self {
         Self { enabled, governance: GovernanceClass::ConfigControlled }
     }
 
+    /// See [`route_surface`].
+    /// See [`route_surface`].
     pub const fn route_surface(enabled: bool) -> Self {
         Self { enabled, governance: GovernanceClass::RouteSurface }
     }
 
+    /// See [`enabled`].
+    /// See [`enabled`].
     pub const fn enabled(self) -> bool {
         self.enabled
     }
 
+    /// See [`governance`].
+    /// See [`governance`].
     #[allow(dead_code)]
     pub const fn governance(self) -> GovernanceClass {
         self.governance
@@ -181,6 +210,8 @@ pub struct CapabilityGovernance {
 }
 
 impl CapabilityGovernance {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: &Config, route_surface: Vec<RouteCheck>) -> Self {
         Self { config: config.clone(), route_surface: route_surface.into_iter().collect() }
     }

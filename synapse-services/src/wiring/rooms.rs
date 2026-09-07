@@ -15,23 +15,36 @@ use crate::auth::RoomAuth;
 use crate::container::SharedInfra;
 use crate::UserService;
 
+/// The `RoomSyncServices` struct.
 #[derive(Clone)]
 pub struct RoomSyncServices {
+    /// The `room_storage` field.
     pub room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
+    /// The `event_writer` field.
     pub event_writer: Arc<dyn synapse_storage::event::EventWriter>,
+    /// The `room_summary_service` field.
     pub room_summary_service: Arc<crate::room_summary_service::RoomSummaryService>,
     #[cfg(feature = "beacons")]
+    /// The `beacon_service` field.
     pub beacon_service: Arc<crate::beacon_service::BeaconService>,
+    /// The `room_service` field.
     pub room_service: Arc<dyn crate::room::RoomServiceApi>,
+    /// The `sync_service` field.
     pub sync_service: Arc<dyn crate::sync_service::SyncServiceApi>,
+    /// The `sliding_sync_service` field.
     pub sliding_sync_service: Arc<crate::sliding_sync_service::SlidingSyncService>,
+    /// The `typing_service` field.
     pub typing_service: Arc<crate::typing_service::TypingService>,
+    /// The `space_service` field.
     pub space_service: Arc<crate::space_service::SpaceService>,
+    /// The `relations_service` field.
     pub relations_service: Arc<crate::relations_service::RelationsService>,
+    /// The `thread_service` field.
     pub thread_service: Arc<crate::thread_service::ThreadService>,
 }
 
 impl RoomSyncServices {
+    /// See [`new`].
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         infra: &SharedInfra,

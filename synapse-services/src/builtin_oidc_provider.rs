@@ -45,131 +45,213 @@ use uuid::Uuid;
 
 // ============ 类型定义 ============
 
+/// The `OidcDiscoveryDocument` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcDiscoveryDocument {
+    /// The `issuer` field.
     pub issuer: String,
+    /// The `authorization_endpoint` field.
     pub authorization_endpoint: String,
+    /// The `token_endpoint` field.
     pub token_endpoint: String,
+    /// The `userinfo_endpoint` field.
     pub userinfo_endpoint: String,
+    /// The `jwks_uri` field.
     pub jwks_uri: String,
+    /// The `registration_endpoint` field.
     pub registration_endpoint: Option<String>,
+    /// The `revocation_endpoint` field.
     pub revocation_endpoint: Option<String>,
+    /// The `end_session_endpoint` field.
     pub end_session_endpoint: Option<String>,
+    /// The `response_types_supported` field.
     pub response_types_supported: Vec<String>,
+    /// The `subject_types_supported` field.
     pub subject_types_supported: Vec<String>,
+    /// The `id_token_signing_alg_values_supported` field.
     pub id_token_signing_alg_values_supported: Vec<String>,
+    /// The `scopes_supported` field.
     pub scopes_supported: Vec<String>,
+    /// The `token_endpoint_auth_methods_supported` field.
     pub token_endpoint_auth_methods_supported: Vec<String>,
+    /// The `claims_supported` field.
     pub claims_supported: Vec<String>,
+    /// The `code_challenge_methods_supported` field.
     pub code_challenge_methods_supported: Vec<String>,
 }
 
+/// The `OidcTokenRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcTokenRequest {
+    /// The `grant_type` field.
     pub grant_type: String,
+    /// The `code` field.
     pub code: Option<String>,
+    /// The `redirect_uri` field.
     pub redirect_uri: Option<String>,
+    /// The `client_id` field.
     pub client_id: Option<String>,
+    /// The `code_verifier` field.
     pub code_verifier: Option<String>,
+    /// The `refresh_token` field.
     pub refresh_token: Option<String>,
+    /// The `scope` field.
     pub scope: Option<String>,
 }
 
+/// The `OidcTokenResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcTokenResponse {
+    /// The `access_token` field.
     pub access_token: String,
+    /// The `token_type` field.
     pub token_type: String,
+    /// The `expires_in` field.
     pub expires_in: i64,
+    /// The `id_token` field.
     pub id_token: String,
+    /// The `refresh_token` field.
     pub refresh_token: Option<String>,
+    /// The `scope` field.
     pub scope: Option<String>,
 }
 
+/// The `OidcUserInfo` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcUserInfo {
+    /// The `sub` field.
     pub sub: String,
+    /// The `name` field.
     pub name: Option<String>,
+    /// The `given_name` field.
     pub given_name: Option<String>,
+    /// The `family_name` field.
     pub family_name: Option<String>,
+    /// The `preferred_username` field.
     pub preferred_username: Option<String>,
+    /// The `email` field.
     pub email: Option<String>,
+    /// The `email_verified` field.
     pub email_verified: bool,
+    /// The `picture` field.
     pub picture: Option<String>,
 }
 
+/// The `Jwks` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Jwks {
+    /// The `keys` field.
     pub keys: Vec<Jwk>,
 }
 
+/// The `Jwk` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Jwk {
+    /// The `kty` field.
     pub kty: String,
     #[serde(rename = "use")]
+    /// The `use_` field.
     pub use_: String,
+    /// The `kid` field.
     pub kid: String,
+    /// The `alg` field.
     pub alg: String,
     // RSA components — present when kty == "RSA"
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `n` field.
     pub n: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `e` field.
     pub e: Option<String>,
     // EC components — present when kty == "EC"
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "crv")]
+    /// The `crv` field.
     pub crv: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `x` field.
     pub x: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// The `y` field.
     pub y: Option<String>,
 }
 
 // ============ JWT Claims ============
 
+/// The `JwtClaims` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JwtClaims {
+    /// The `iss` field.
     pub iss: String,
+    /// The `sub` field.
     pub sub: String,
+    /// The `aud` field.
     pub aud: String,
+    /// The `exp` field.
     pub exp: i64,
+    /// The `iat` field.
     pub iat: i64,
+    /// The `nonce` field.
     pub nonce: Option<String>,
+    /// The `at_hash` field.
     pub at_hash: Option<String>,
+    /// The `email` field.
     pub email: Option<String>,
+    /// The `email_verified` field.
     pub email_verified: bool,
+    /// The `name` field.
     pub name: Option<String>,
+    /// The `picture` field.
     pub picture: Option<String>,
 }
 
+/// The `AccessTokenClaims` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AccessTokenClaims {
+    /// The `iss` field.
     pub iss: String,
+    /// The `sub` field.
     pub sub: String,
+    /// The `aud` field.
     pub aud: Vec<String>,
+    /// The `exp` field.
     pub exp: i64,
+    /// The `iat` field.
     pub iat: i64,
+    /// The `jti` field.
     pub jti: String,
+    /// The `scope` field.
     pub scope: String,
 }
 
 // ============ 授权会话 ============
 
+/// The `AuthSession` struct.
 #[derive(Debug, Clone)]
 pub struct AuthSession {
+    /// The `code` field.
     pub code: String,
+    /// The `client_id` field.
     pub client_id: String,
+    /// The `redirect_uri` field.
     pub redirect_uri: String,
+    /// The `scope` field.
     pub scope: String,
+    /// The `state` field.
     pub state: String,
+    /// The `nonce` field.
     pub nonce: Option<String>,
     /// 客户端在 /authorize 提交的 PKCE code_challenge (S256, BASE64URL(SHA256(verifier)))
     pub code_challenge: Option<String>,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `created_at` field.
     pub created_at: Instant,
 }
 
 // ============ 内置 OIDC Provider ============
 
+/// The `BuiltinOidcProvider` struct.
 pub struct BuiltinOidcProvider {
     config: Arc<BuiltinOidcConfig>,
     signing_key: RsaPrivateKey,
@@ -186,11 +268,16 @@ pub struct BuiltinOidcProvider {
     refresh_tokens: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, RefreshToken>>>,
 }
 
+/// The `RefreshToken` struct.
 #[derive(Debug, Clone)]
 pub struct RefreshToken {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `client_id` field.
     pub client_id: String,
+    /// The `scope` field.
     pub scope: String,
+    /// The `created_at` field.
     pub created_at: Instant,
     /// SSO-AUDIT: refresh token expiry. The default 30 days is set to match
     /// the local Matrix refresh-token expiry in synapse-common::config; the
@@ -200,18 +287,27 @@ pub struct RefreshToken {
     pub expires_at: Instant,
 }
 
+/// The `AuthorizeRequest` struct.
 #[derive(Debug, Deserialize)]
 pub struct AuthorizeRequest {
+    /// The `client_id` field.
     pub client_id: String,
+    /// The `redirect_uri` field.
     pub redirect_uri: String,
+    /// The `scope` field.
     pub scope: String,
+    /// The `state` field.
     pub state: String,
+    /// The `nonce` field.
     pub nonce: Option<String>,
     /// PKCE code_challenge 由客户端生成: BASE64URL(SHA256(code_verifier))
     /// 字段名保留为 `code_verifier` 以兼容外层路由参数, 语义见文档.
     #[serde(alias = "code_challenge")]
+    /// The `code_verifier` field.
     pub code_verifier: Option<String>,
+    /// The `username` field.
     pub username: String,
+    /// The `password` field.
     pub password: String,
 }
 
@@ -219,6 +315,8 @@ const OIDC_TOKEN_EXPIRY_SECS: i64 = 3600;
 const AUTH_CODE_EXPIRY_SECS: i64 = 600;
 
 impl BuiltinOidcProvider {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: Arc<BuiltinOidcConfig>) -> Result<Self, ApiError> {
         let signing_key = Self::load_or_generate_key(config.signing_key_path.as_deref())?;
         let der = signing_key.to_pkcs1_der().map_err(|e| ApiError::internal_with_context("OIDC RSA serialize", &e))?;

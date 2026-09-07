@@ -15,32 +15,45 @@ use synapse_common::telemetry_config::{OpenTelemetryConfig, PrometheusConfig};
 use synapse_storage::{DatabaseHealthStatus, DatabaseMonitor};
 use tracing::info;
 
+/// The `TelemetryService` struct.
 pub struct TelemetryService {
     config: Arc<OpenTelemetryConfig>,
     prometheus_config: Arc<PrometheusConfig>,
 }
 
 impl TelemetryService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: Arc<OpenTelemetryConfig>, prometheus_config: Arc<PrometheusConfig>) -> Self {
         Self { config, prometheus_config }
     }
 
+    /// See [`is_enabled`].
+    /// See [`is_enabled`].
     pub fn is_enabled(&self) -> bool {
         self.config.is_enabled() || self.prometheus_config.enabled
     }
 
+    /// See [`is_trace_enabled`].
+    /// See [`is_trace_enabled`].
     pub fn is_trace_enabled(&self) -> bool {
         self.config.is_trace_enabled()
     }
 
+    /// See [`is_metrics_enabled`].
+    /// See [`is_metrics_enabled`].
     pub fn is_metrics_enabled(&self) -> bool {
         self.config.is_metrics_enabled() || self.prometheus_config.enabled
     }
 
+    /// See [`get_service_name`].
+    /// See [`get_service_name`].
     pub fn get_service_name(&self) -> &str {
         &self.config.service_name
     }
 
+    /// See [`get_sampling_ratio`].
+    /// See [`get_sampling_ratio`].
     pub fn get_sampling_ratio(&self) -> f64 {
         if self.config.is_trace_enabled() {
             self.config.sampling_ratio
@@ -49,6 +62,8 @@ impl TelemetryService {
         }
     }
 
+    /// See [`get_export_config`].
+    /// See [`get_export_config`].
     pub fn get_export_config(&self) -> ExportConfig {
         ExportConfig {
             otlp_endpoint: self.config.otlp_endpoint.clone(),
@@ -66,10 +81,14 @@ impl TelemetryService {
         }
     }
 
+    /// See [`get_resource_attributes`].
+    /// See [`get_resource_attributes`].
     pub fn get_resource_attributes(&self) -> std::collections::HashMap<String, String> {
         self.config.get_resource_attributes()
     }
 
+    /// See [`initialize`].
+    /// See [`initialize`].
     pub fn initialize(&self) -> Result<Option<SdkTracerProvider>, Box<dyn std::error::Error + Send + Sync>> {
         if !self.is_enabled() {
             info!(
@@ -167,6 +186,8 @@ impl TelemetryService {
         Ok(())
     }
 
+    /// See [`shutdown`].
+    /// See [`shutdown`].
     pub fn shutdown(&self) {
         if self.is_enabled() {
             info!(
@@ -181,44 +202,64 @@ impl TelemetryService {
     }
 }
 
+/// The `ExportConfig` struct.
 #[derive(Debug, Clone)]
 pub struct ExportConfig {
+    /// The `otlp_endpoint` field.
     pub otlp_endpoint: Option<String>,
+    /// The `prometheus_port` field.
     pub prometheus_port: Option<u16>,
+    /// The `prometheus_path` field.
     pub prometheus_path: Option<String>,
+    /// The `batch_export` field.
     pub batch_export: bool,
+    /// The `export_timeout_seconds` field.
     pub export_timeout_seconds: u64,
+    /// The `max_queue_size` field.
     pub max_queue_size: usize,
+    /// The `max_export_batch_size` field.
     pub max_export_batch_size: usize,
+    /// The `scheduled_delay_millis` field.
     pub scheduled_delay_millis: u64,
 }
 
+/// The `TelemetryBuilder` struct.
 pub struct TelemetryBuilder {
     config: OpenTelemetryConfig,
     prometheus_config: PrometheusConfig,
 }
 
 impl TelemetryBuilder {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self { config: OpenTelemetryConfig::default(), prometheus_config: PrometheusConfig::default() }
     }
 
+    /// See [`with_service_name`].
+    /// See [`with_service_name`].
     pub fn with_service_name(mut self, name: impl Into<String>) -> Self {
         self.config.service_name = name.into();
         self
     }
 
+    /// See [`with_service_version`].
+    /// See [`with_service_version`].
     pub fn with_service_version(mut self, version: impl Into<String>) -> Self {
         self.config.service_version = version.into();
         self
     }
 
+    /// See [`with_otlp_endpoint`].
+    /// See [`with_otlp_endpoint`].
     pub fn with_otlp_endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.config.otlp_endpoint = Some(endpoint.into());
         self.config.enabled = true;
         self
     }
 
+    /// See [`with_prometheus`].
+    /// See [`with_prometheus`].
     pub fn with_prometheus(mut self, port: u16, path: impl Into<String>) -> Self {
         self.prometheus_config.enabled = true;
         self.prometheus_config.port = port;
@@ -226,21 +267,29 @@ impl TelemetryBuilder {
         self
     }
 
+    /// See [`with_sampling_ratio`].
+    /// See [`with_sampling_ratio`].
     pub fn with_sampling_ratio(mut self, ratio: f64) -> Self {
         self.config.sampling_ratio = ratio;
         self
     }
 
+    /// See [`with_trace_enabled`].
+    /// See [`with_trace_enabled`].
     pub fn with_trace_enabled(mut self, enabled: bool) -> Self {
         self.config.trace_enabled = enabled;
         self
     }
 
+    /// See [`with_metrics_enabled`].
+    /// See [`with_metrics_enabled`].
     pub fn with_metrics_enabled(mut self, enabled: bool) -> Self {
         self.config.metrics_enabled = enabled;
         self
     }
 
+    /// See [`build`].
+    /// See [`build`].
     pub fn build(self) -> TelemetryService {
         TelemetryService::new(Arc::new(self.config), Arc::new(self.prometheus_config))
     }
@@ -254,48 +303,77 @@ impl Default for TelemetryBuilder {
 
 // ——— 告警子系统 ———
 
+/// The `TelemetryAlertSeverity` enum.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TelemetryAlertSeverity {
+    /// The `Warning` variant.
     Warning,
+    /// The `Critical` variant.
     Critical,
 }
 
+/// The `TelemetryAlertStatus` enum.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TelemetryAlertStatus {
+    /// The `Warning` variant.
     Warning,
+    /// The `Critical` variant.
     Critical,
+    /// The `Acknowledged` variant.
     Acknowledged,
+    /// The `Recovered` variant.
     Recovered,
+    /// The `Closed` variant.
     Closed,
 }
 
+/// The `TelemetryAlert` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryAlert {
+    /// The `alert_id` field.
     pub alert_id: String,
+    /// The `alert_key` field.
     pub alert_key: String,
+    /// The `rule_name` field.
     pub rule_name: String,
+    /// The `severity` field.
     pub severity: TelemetryAlertSeverity,
+    /// The `status` field.
     pub status: TelemetryAlertStatus,
+    /// The `owner` field.
     pub owner: String,
+    /// The `message` field.
     pub message: String,
+    /// The `trigger_count` field.
     pub trigger_count: u64,
+    /// The `triggered_at` field.
     pub triggered_at: i64,
+    /// The `last_seen_ts` field.
     pub last_seen_ts: i64,
+    /// The `acknowledged_at` field.
     pub acknowledged_at: Option<i64>,
+    /// The `acknowledged_by` field.
     pub acknowledged_by: Option<String>,
+    /// The `recovered_at` field.
     pub recovered_at: Option<i64>,
+    /// The `closed_at` field.
     pub closed_at: Option<i64>,
+    /// The `metrics` field.
     pub metrics: serde_json::Value,
 }
 
+/// The `TelemetryAlertFilters` struct.
 #[derive(Debug, Clone, Default)]
 pub struct TelemetryAlertFilters {
+    /// The `status` field.
     pub status: Option<String>,
+    /// The `severity` field.
     pub severity: Option<String>,
 }
 
+/// The `TelemetryAlertService` struct.
 #[derive(Clone)]
 pub struct TelemetryAlertService {
     pool: Arc<PgPool>,
@@ -304,10 +382,14 @@ pub struct TelemetryAlertService {
 }
 
 impl TelemetryAlertService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<PgPool>, max_connections: u32) -> Self {
         Self { pool, max_connections, alerts: Arc::new(RwLock::new(HashMap::new())) }
     }
 
+    /// See [`sync_with_health`].
+    /// See [`sync_with_health`].
     pub async fn sync_with_health(&self) -> Result<(DatabaseHealthStatus, Vec<TelemetryAlert>), ApiError> {
         let monitor = DatabaseMonitor::new((*self.pool).clone(), None, self.max_connections);
         let health = monitor
@@ -390,6 +472,7 @@ impl TelemetryAlertService {
         Ok((health, result))
     }
 
+    /// See [`raise_alert`].
     pub fn raise_alert(
         &self,
         alert_key: &str,
@@ -428,6 +511,8 @@ impl TelemetryAlertService {
         entry.clone()
     }
 
+    /// See [`list_alerts`].
+    /// See [`list_alerts`].
     pub fn list_alerts(&self, filters: &TelemetryAlertFilters) -> Result<Vec<TelemetryAlert>, ApiError> {
         Self::validate_filters(filters)?;
         let alerts = match self.alerts.read() {
@@ -447,6 +532,8 @@ impl TelemetryAlertService {
         Ok(entries)
     }
 
+    /// See [`acknowledge_alert`].
+    /// See [`acknowledge_alert`].
     pub fn acknowledge_alert(&self, alert_id: &str, acknowledged_by: &str) -> Result<TelemetryAlert, ApiError> {
         let mut alerts = match self.alerts.write() {
             Ok(guard) => guard,

@@ -1,104 +1,164 @@
 use serde::{Deserialize, Serialize};
 use synapse_common::current_timestamp_millis;
 
+/// The `ThirdPartyId` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThirdPartyId {
+    /// The `address` field.
     pub address: String,
+    /// The `medium` field.
     pub medium: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `validated_ts` field.
     pub validated_ts: i64,
+    /// The `added_ts` field.
     pub added_ts: i64,
 }
 
+/// The `ThirdPartyIdValidation` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThirdPartyIdValidation {
+    /// The `sid` field.
     pub sid: String,
+    /// The `client_secret` field.
     pub client_secret: String,
+    /// The `medium` field.
     pub medium: String,
+    /// The `address` field.
     pub address: String,
 }
 
+/// The `IdentityServerInfo` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IdentityServerInfo {
+    /// The `trusted_servers` field.
     pub trusted_servers: Vec<String>,
+    /// The `api_endpoint` field.
     pub api_endpoint: String,
 }
 
+/// The `BindingRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BindingRequest {
+    /// The `sid` field.
     pub sid: String,
+    /// The `client_secret` field.
     pub client_secret: String,
+    /// The `id_server` field.
     pub id_server: String,
+    /// The `id_access_token` field.
     pub id_access_token: String,
 }
 
+/// The `BindingResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BindingResponse {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
 }
 
+/// The `UnbindingRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnbindingRequest {
+    /// The `id_server` field.
     pub id_server: String,
+    /// The `id_access_token` field.
     pub id_access_token: String,
 }
 
+/// The `Invitation` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Invitation {
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `medium` field.
     pub medium: String,
+    /// The `address` field.
     pub address: String,
+    /// The `id_server` field.
     pub id_server: String,
+    /// The `display_name` field.
     pub display_name: Option<String>,
 }
 
+/// The `InvitationResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvitationResponse {
+    /// The `user_id` field.
     pub user_id: Option<String>,
+    /// The `signed` field.
     pub signed: Option<serde_json::Value>,
 }
 
+/// The `Invite3pid` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Invite3pid {
+    /// The `id_server` field.
     pub id_server: String,
+    /// The `id_access_token` field.
     pub id_access_token: String,
+    /// The `medium` field.
     pub medium: String,
+    /// The `address` field.
     pub address: String,
+    /// The `signer` field.
     pub signer: String,
+    /// The `signature` field.
     pub signature: Option<serde_json::Value>,
 }
 
+/// The `LookupRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LookupRequest {
+    /// The `medium` field.
     pub medium: String,
+    /// The `address` field.
     pub address: String,
 }
 
+/// The `LookupResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LookupResponse {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `medium` field.
     pub medium: String,
+    /// The `address` field.
     pub address: String,
+    /// The `not_before` field.
     pub not_before: Option<i64>,
+    /// The `not_after` field.
     pub not_after: Option<i64>,
+    /// The `devices` field.
     pub devices: Option<Vec<serde_json::Value>>,
 }
 
+/// The `HashLookupRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HashLookupRequest {
+    /// The `algorithm` field.
     pub algorithm: String,
+    /// The `addresses` field.
     pub addresses: Vec<String>,
+    /// The `mediums` field.
     pub mediums: Vec<String>,
 }
 
+/// The `HashLookupResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HashLookupResponse {
+    /// The `chunk` field.
     pub chunk: Vec<serde_json::Value>,
 }
 
 impl ThirdPartyId {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(address: &str, medium: &str, user_id: &str) -> Self {
         let now = current_timestamp_millis();
         Self {

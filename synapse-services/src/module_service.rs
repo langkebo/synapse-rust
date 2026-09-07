@@ -8,17 +8,23 @@ use synapse_common::error::ApiError;
 use synapse_storage::module::*;
 use tracing::{error, info, instrument};
 
+/// The `SpamCheckResultType` enum.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SpamCheckResultType {
     #[serde(rename = "allow")]
+    /// The `Allow` variant.
     Allow,
     #[serde(rename = "block")]
+    /// The `Block` variant.
     Block,
     #[serde(rename = "shadow_ban")]
+    /// The `ShadowBan` variant.
     ShadowBan,
 }
 
 impl SpamCheckResultType {
+    /// See [`as_str`].
+    /// See [`as_str`].
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Allow => "allow",
@@ -41,76 +47,116 @@ impl FromStr for SpamCheckResultType {
     }
 }
 
+/// The `SpamCheckContext` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpamCheckContext {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `content` field.
     pub content: serde_json::Value,
 }
 
+/// The `SpamCheckOutput` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpamCheckOutput {
+    /// The `result` field.
     pub result: SpamCheckResultType,
+    /// The `score` field.
     pub score: i32,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `action_taken` field.
     pub action_taken: Option<String>,
 }
 
+/// The `SpamChecker` trait.
 #[async_trait]
 pub trait SpamChecker: Send + Sync {
+    /// See [`name`].
     fn name(&self) -> &str;
 
+    /// See [`check`].
     async fn check(&self, context: &SpamCheckContext) -> Result<SpamCheckOutput, ApiError>;
 }
 
+/// The `ThirdPartyRuleContext` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThirdPartyRuleContext {
+    /// The `event_id` field.
     pub event_id: String,
+    /// The `room_id` field.
     pub room_id: String,
+    /// The `sender` field.
     pub sender: String,
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `content` field.
     pub content: serde_json::Value,
+    /// The `state_events` field.
     pub state_events: Vec<serde_json::Value>,
 }
 
+/// The `ThirdPartyRuleOutput` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThirdPartyRuleOutput {
     #[serde(rename = "allowed")]
+    /// The `is_allowed` field.
     pub is_allowed: bool,
+    /// The `reason` field.
     pub reason: Option<String>,
+    /// The `modified_content` field.
     pub modified_content: Option<serde_json::Value>,
 }
 
+/// The `ThirdPartyRule` trait.
 #[async_trait]
 pub trait ThirdPartyRule: Send + Sync {
+    /// See [`name`].
     fn name(&self) -> &str;
 
+    /// See [`check`].
     async fn check(&self, context: &ThirdPartyRuleContext) -> Result<ThirdPartyRuleOutput, ApiError>;
 }
 
+/// The `PasswordAuthContext` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PasswordAuthContext {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `password` field.
     pub password: String,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `initial_device_display_name` field.
     pub initial_device_display_name: Option<String>,
 }
 
+/// The `PasswordAuthOutput` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PasswordAuthOutput {
+    /// The `valid` field.
     pub valid: bool,
+    /// The `user_id` field.
     pub user_id: Option<String>,
 }
 
+/// The `PasswordAuthProviderTrait` trait.
 #[async_trait]
 pub trait PasswordAuthProviderTrait: Send + Sync {
+    /// See [`name`].
     fn name(&self) -> &str;
 
+    /// See [`check`].
     async fn check(&self, context: &PasswordAuthContext) -> Result<PasswordAuthOutput, ApiError>;
 }
 
+/// The `ModuleRegistry` struct.
 pub struct ModuleRegistry {
     spam_checkers: Vec<Arc<dyn SpamChecker>>,
     third_party_rules: Vec<Arc<dyn ThirdPartyRule>>,
@@ -118,33 +164,47 @@ pub struct ModuleRegistry {
 }
 
 impl ModuleRegistry {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new() -> Self {
         Self { spam_checkers: Vec::new(), third_party_rules: Vec::new(), password_providers: Vec::new() }
     }
 
+    /// See [`register_spam_checker`].
+    /// See [`register_spam_checker`].
     pub fn register_spam_checker(&mut self, checker: Arc<dyn SpamChecker>) {
         info!(module_name = %checker.name(), module_type = %"spam_checker", "Registering spam checker");
         self.spam_checkers.push(checker);
     }
 
+    /// See [`register_third_party_rule`].
+    /// See [`register_third_party_rule`].
     pub fn register_third_party_rule(&mut self, rule: Arc<dyn ThirdPartyRule>) {
         info!(module_name = %rule.name(), module_type = %"third_party_rule", "Registering third party rule");
         self.third_party_rules.push(rule);
     }
 
+    /// See [`register_password_provider`].
+    /// See [`register_password_provider`].
     pub fn register_password_provider(&mut self, provider: Arc<dyn PasswordAuthProviderTrait>) {
         info!(module_name = %provider.name(), module_type = %"password_provider", "Registering password provider");
         self.password_providers.push(provider);
     }
 
+    /// See [`spam_checkers`].
+    /// See [`spam_checkers`].
     pub fn spam_checkers(&self) -> &[Arc<dyn SpamChecker>] {
         &self.spam_checkers
     }
 
+    /// See [`third_party_rules`].
+    /// See [`third_party_rules`].
     pub fn third_party_rules(&self) -> &[Arc<dyn ThirdPartyRule>] {
         &self.third_party_rules
     }
 
+    /// See [`password_providers`].
+    /// See [`password_providers`].
     pub fn password_providers(&self) -> &[Arc<dyn PasswordAuthProviderTrait>] {
         &self.password_providers
     }
@@ -156,16 +216,21 @@ impl Default for ModuleRegistry {
     }
 }
 
+/// The `ModuleService` struct.
 pub struct ModuleService {
     storage: Arc<dyn synapse_storage::module::ModuleStoreApi>,
     registry: Arc<tokio::sync::RwLock<ModuleRegistry>>,
 }
 
 impl ModuleService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn synapse_storage::module::ModuleStoreApi>) -> Self {
         Self { storage, registry: Arc::new(tokio::sync::RwLock::new(ModuleRegistry::new())) }
     }
 
+    /// See [`register_module`].
+    /// See [`register_module`].
     #[instrument(skip(self))]
     pub async fn register_module(&self, request: CreateModuleRequest) -> Result<Module, ApiError> {
         info!(module_name = %request.module_name, module_type = %request.module_type, "Registering module");
@@ -179,6 +244,8 @@ impl ModuleService {
         Ok(module)
     }
 
+    /// See [`get_module`].
+    /// See [`get_module`].
     #[instrument(skip(self))]
     pub async fn get_module(&self, module_name: &str) -> Result<Option<Module>, ApiError> {
         let module = self
@@ -190,6 +257,8 @@ impl ModuleService {
         Ok(module)
     }
 
+    /// See [`get_modules_by_type`].
+    /// See [`get_modules_by_type`].
     #[instrument(skip(self))]
     pub async fn get_modules_by_type(&self, module_type: &str) -> Result<Vec<Module>, ApiError> {
         let modules = self
@@ -201,6 +270,7 @@ impl ModuleService {
         Ok(modules)
     }
 
+    /// See [`get_all_modules`].
     #[instrument(skip(self))]
     pub async fn get_all_modules(
         &self,
@@ -216,6 +286,8 @@ impl ModuleService {
         Ok((modules, next_from))
     }
 
+    /// See [`update_module_config`].
+    /// See [`update_module_config`].
     #[instrument(skip(self))]
     pub async fn update_module_config(&self, module_name: &str, config: serde_json::Value) -> Result<Module, ApiError> {
         let module = self
@@ -227,6 +299,8 @@ impl ModuleService {
         Ok(module)
     }
 
+    /// See [`enable_module`].
+    /// See [`enable_module`].
     #[instrument(skip(self))]
     pub async fn enable_module(&self, module_name: &str, enabled: bool) -> Result<Module, ApiError> {
         let module = self
@@ -238,6 +312,8 @@ impl ModuleService {
         Ok(module)
     }
 
+    /// See [`delete_module`].
+    /// See [`delete_module`].
     #[instrument(skip(self))]
     pub async fn delete_module(&self, module_name: &str) -> Result<(), ApiError> {
         self.storage
@@ -248,6 +324,8 @@ impl ModuleService {
         Ok(())
     }
 
+    /// See [`check_spam`].
+    /// See [`check_spam`].
     #[instrument(skip(self))]
     pub async fn check_spam(&self, context: &SpamCheckContext) -> Result<SpamCheckOutput, ApiError> {
         let registry = self.registry.read().await;
@@ -352,6 +430,7 @@ impl ModuleService {
         Ok(final_result)
     }
 
+    /// See [`check_third_party_rules`].
     #[instrument(skip(self))]
     pub async fn check_third_party_rules(
         &self,
@@ -457,6 +536,8 @@ impl ModuleService {
         })
     }
 
+    /// See [`check_password_auth`].
+    /// See [`check_password_auth`].
     #[instrument(skip(self))]
     pub async fn check_password_auth(&self, context: &PasswordAuthContext) -> Result<PasswordAuthOutput, ApiError> {
         let registry = self.registry.read().await;
@@ -528,25 +609,35 @@ impl ModuleService {
         Ok(PasswordAuthOutput { valid: false, user_id: None })
     }
 
+    /// See [`registry`].
+    /// See [`registry`].
     pub fn registry(&self) -> Arc<tokio::sync::RwLock<ModuleRegistry>> {
         self.registry.clone()
     }
 
+    /// See [`register_spam_checker`].
+    /// See [`register_spam_checker`].
     pub async fn register_spam_checker(&self, checker: Arc<dyn SpamChecker>) {
         let mut registry = self.registry.write().await;
         registry.register_spam_checker(checker);
     }
 
+    /// See [`register_third_party_rule`].
+    /// See [`register_third_party_rule`].
     pub async fn register_third_party_rule(&self, rule: Arc<dyn ThirdPartyRule>) {
         let mut registry = self.registry.write().await;
         registry.register_third_party_rule(rule);
     }
 
+    /// See [`register_password_provider`].
+    /// See [`register_password_provider`].
     pub async fn register_password_provider(&self, provider: Arc<dyn PasswordAuthProviderTrait>) {
         let mut registry = self.registry.write().await;
         registry.register_password_provider(provider);
     }
 
+    /// See [`get_spam_check_result`].
+    /// See [`get_spam_check_result`].
     #[instrument(skip(self))]
     pub async fn get_spam_check_result(&self, event_id: &str) -> Result<Option<SpamCheckResult>, ApiError> {
         let result = self
@@ -558,6 +649,7 @@ impl ModuleService {
         Ok(result)
     }
 
+    /// See [`get_spam_check_results_by_sender`].
     #[instrument(skip(self))]
     pub async fn get_spam_check_results_by_sender(
         &self,
@@ -573,6 +665,8 @@ impl ModuleService {
         Ok(results)
     }
 
+    /// See [`get_third_party_rule_results`].
+    /// See [`get_third_party_rule_results`].
     #[instrument(skip(self))]
     pub async fn get_third_party_rule_results(&self, event_id: &str) -> Result<Vec<ThirdPartyRuleResult>, ApiError> {
         let results = self
@@ -584,6 +678,8 @@ impl ModuleService {
         Ok(results)
     }
 
+    /// See [`get_execution_logs`].
+    /// See [`get_execution_logs`].
     #[instrument(skip(self))]
     pub async fn get_execution_logs(&self, module_name: &str, limit: i64) -> Result<Vec<ModuleExecutionLog>, ApiError> {
         let logs = self
@@ -596,15 +692,20 @@ impl ModuleService {
     }
 }
 
+/// The `AccountValidityService` struct.
 pub struct AccountValidityService {
     storage: Arc<dyn synapse_storage::module::ModuleStoreApi>,
 }
 
 impl AccountValidityService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn synapse_storage::module::ModuleStoreApi>) -> Self {
         Self { storage }
     }
 
+    /// See [`create_validity`].
+    /// See [`create_validity`].
     #[instrument(skip(self))]
     pub async fn create_validity(&self, request: CreateAccountValidityRequest) -> Result<AccountValidity, ApiError> {
         let validity = self
@@ -616,6 +717,8 @@ impl AccountValidityService {
         Ok(validity)
     }
 
+    /// See [`get_validity`].
+    /// See [`get_validity`].
     #[instrument(skip(self))]
     pub async fn get_validity(&self, user_id: &str) -> Result<Option<AccountValidity>, ApiError> {
         let validity = self
@@ -627,6 +730,8 @@ impl AccountValidityService {
         Ok(validity)
     }
 
+    /// See [`is_account_valid`].
+    /// See [`is_account_valid`].
     #[instrument(skip(self))]
     pub async fn is_account_valid(&self, user_id: &str) -> Result<bool, ApiError> {
         let validity = self.get_validity(user_id).await?;
@@ -639,6 +744,7 @@ impl AccountValidityService {
         }
     }
 
+    /// See [`renew_account`].
     #[instrument(skip(self))]
     pub async fn renew_account(
         &self,
@@ -655,6 +761,8 @@ impl AccountValidityService {
         Ok(validity)
     }
 
+    /// See [`set_renewal_token`].
+    /// See [`set_renewal_token`].
     #[instrument(skip(self))]
     pub async fn set_renewal_token(&self, user_id: &str, token: &str) -> Result<(), ApiError> {
         self.storage
@@ -665,6 +773,8 @@ impl AccountValidityService {
         Ok(())
     }
 
+    /// See [`get_expired_accounts`].
+    /// See [`get_expired_accounts`].
     #[instrument(skip(self))]
     pub async fn get_expired_accounts(&self, before_ts: i64) -> Result<Vec<AccountValidity>, ApiError> {
         let accounts = self
@@ -677,6 +787,7 @@ impl AccountValidityService {
     }
 }
 
+/// The `SimpleSpamChecker` struct.
 pub struct SimpleSpamChecker {
     name: String,
     blocked_words: Vec<String>,
@@ -684,6 +795,8 @@ pub struct SimpleSpamChecker {
 }
 
 impl SimpleSpamChecker {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(name: &str, blocked_words: Vec<String>, max_message_length: usize) -> Self {
         Self { name: name.to_string(), blocked_words, max_message_length }
     }
@@ -722,12 +835,15 @@ impl SpamChecker for SimpleSpamChecker {
     }
 }
 
+/// The `SimpleThirdPartyRule` struct.
 pub struct SimpleThirdPartyRule {
     name: String,
     blocked_event_types: Vec<String>,
 }
 
 impl SimpleThirdPartyRule {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(name: &str, blocked_event_types: Vec<String>) -> Self {
         Self { name: name.to_string(), blocked_event_types }
     }

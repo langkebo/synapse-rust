@@ -10,6 +10,8 @@ use synapse_common::*;
 use synapse_storage::refresh_token::CreateRefreshTokenRequest;
 
 impl AuthService {
+    /// See [`validate_token`].
+    /// See [`validate_token`].
     pub async fn validate_token(&self, token: &str) -> ApiResult<(String, Option<String>, bool, bool, bool)> {
         ::tracing::debug!(target: "token_validation", "Validating token");
 
@@ -215,6 +217,8 @@ impl AuthService {
         }
     }
 
+    /// See [`generate_access_token`].
+    /// See [`generate_access_token`].
     pub async fn generate_access_token(&self, user_id: &str, device_id: &str, admin: bool) -> ApiResult<String> {
         let now = Utc::now();
         let claims = super::ClaimsBuilder::new()
@@ -284,10 +288,14 @@ impl AuthService {
         Ok(token)
     }
 
+    /// See [`hash_token`].
+    /// See [`hash_token`].
     pub(crate) fn hash_token(token: &str) -> String {
         synapse_common::crypto::hash_token(token)
     }
 
+    /// See [`hash_token_legacy`].
+    /// See [`hash_token_legacy`].
     pub(crate) fn hash_token_legacy(token: &str) -> String {
         synapse_common::crypto::hash_token_legacy(token)
     }
@@ -297,6 +305,8 @@ impl AuthService {
         Self::revocation_ok_key_for_hash(&Self::hash_token(token))
     }
 
+    /// See [`revocation_ok_key_for_hash`].
+    /// See [`revocation_ok_key_for_hash`].
     pub(crate) fn revocation_ok_key_for_hash(token_hash: &str) -> String {
         format!("token:revocation_ok:{token_hash}")
     }
@@ -328,6 +338,8 @@ impl AuthService {
         }
     }
 
+    /// See [`decode_token`].
+    /// See [`decode_token`].
     pub(crate) fn decode_token(&self, token: &str) -> Result<super::Claims, jsonwebtoken::errors::Error> {
         let mut validation = Validation::new(Algorithm::HS256);
         validation.leeway = 5;

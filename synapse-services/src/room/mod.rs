@@ -10,20 +10,31 @@
 //   pub use room::summary as room_summary_service;
 //   pub use room::space as space_service;
 
+/// The `api_trait` module.
 pub mod api_trait;
+/// The `backfill` module.
 pub mod backfill;
+/// The `infrastructure` module.
 pub mod infrastructure;
+/// The `lifecycle` module.
 pub mod lifecycle;
 pub use lifecycle::service::LifecycleService;
+/// The `membership` module.
 pub mod membership;
 pub use membership::service::MembershipService;
+/// The `messaging` module.
 pub mod messaging;
 pub use messaging::service::MessagingService;
+/// The `service` module.
 pub mod service;
+/// The `space` module.
 pub mod space;
+/// The `state` module.
 pub mod state;
 pub use state::service::RoomStateService;
+/// The `summary` module.
 pub mod summary;
+/// The `utils` module.
 pub mod utils;
 
 pub use api_trait::RoomServiceApi;

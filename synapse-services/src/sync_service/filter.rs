@@ -6,6 +6,7 @@ use synapse_common::*;
 use synapse_storage::EventQueryFilter;
 
 impl SyncService {
+    /// See [`resolve_sync_response_filter`].
     pub(crate) async fn resolve_sync_response_filter(
         &self,
         user_id: &str,
@@ -40,6 +41,8 @@ impl SyncService {
         Ok(stored.as_ref().map(|filter| Self::sync_response_filter_from_filter_json(&filter.content)))
     }
 
+    /// See [`sync_response_filter_from_filter_json`].
+    /// See [`sync_response_filter_from_filter_json`].
     pub(crate) fn sync_response_filter_from_filter_json(filter: &serde_json::Value) -> SyncResponseFilter {
         SyncResponseFilter {
             event_fields: Self::json_string_array(filter.get("event_fields")),
@@ -49,6 +52,8 @@ impl SyncService {
         }
     }
 
+    /// See [`timeline_limit_from_room_filter`].
+    /// See [`timeline_limit_from_room_filter`].
     pub(crate) fn timeline_limit_from_room_filter(room_filter: Option<&RoomFilter>, default_limit: i64) -> i64 {
         room_filter
             .and_then(|filter| filter.timeline.as_ref())
@@ -57,6 +62,8 @@ impl SyncService {
             .map_or(default_limit, |limit| limit.min(default_limit))
     }
 
+    /// See [`event_query_filter_from_sync_filter`].
+    /// See [`event_query_filter_from_sync_filter`].
     pub(crate) fn event_query_filter_from_sync_filter(filter: Option<&SyncFilter>) -> Option<EventQueryFilter> {
         let filter = filter?;
         let query_filter = EventQueryFilter {
@@ -77,6 +84,8 @@ impl SyncService {
         }
     }
 
+    /// See [`room_filter_from_filter_json`].
+    /// See [`room_filter_from_filter_json`].
     pub(crate) fn room_filter_from_filter_json(filter: &serde_json::Value) -> RoomFilter {
         let room = filter.get("room");
         RoomFilter {
@@ -90,6 +99,8 @@ impl SyncService {
         }
     }
 
+    /// See [`sync_filter_from_json`].
+    /// See [`sync_filter_from_json`].
     pub(crate) fn sync_filter_from_json(filter: Option<&serde_json::Value>) -> Option<SyncFilter> {
         let filter = filter?;
         Some(SyncFilter {
@@ -106,6 +117,8 @@ impl SyncService {
         })
     }
 
+    /// See [`event_format_from_json`].
+    /// See [`event_format_from_json`].
     pub(crate) fn event_format_from_json(value: Option<&Value>) -> SyncEventFormat {
         match value.and_then(|value| value.as_str()) {
             Some("federation") => SyncEventFormat::Federation,
@@ -113,6 +126,8 @@ impl SyncService {
         }
     }
 
+    /// See [`filter_event_fields`].
+    /// See [`filter_event_fields`].
     pub(crate) fn filter_event_fields(event: Value, event_fields: Option<&[String]>) -> Value {
         let Some(event_fields) = event_fields else {
             return event;
@@ -135,6 +150,8 @@ impl SyncService {
         Value::Object(filtered)
     }
 
+    /// See [`insert_nested_field`].
+    /// See [`insert_nested_field`].
     pub(crate) fn insert_nested_field(target: &mut Map<String, Value>, root_key: &str, path: &str, value: &Value) {
         let Some(source_obj) = value.as_object() else {
             return;
@@ -177,6 +194,8 @@ impl SyncService {
         }
     }
 
+    /// See [`merge_json_object`].
+    /// See [`merge_json_object`].
     pub(crate) fn merge_json_object(target: &mut Map<String, Value>, key: String, value: Value) {
         match (target.get_mut(&key), value) {
             (Some(Value::Object(existing)), Value::Object(incoming)) => {
@@ -190,10 +209,14 @@ impl SyncService {
         }
     }
 
+    /// See [`apply_event_fields_to_values`].
+    /// See [`apply_event_fields_to_values`].
     pub(crate) fn apply_event_fields_to_values(events: Vec<Value>, event_fields: Option<&[String]>) -> Vec<Value> {
         events.into_iter().map(|event| Self::filter_event_fields(event, event_fields)).collect()
     }
 
+    /// See [`json_string_array`].
+    /// See [`json_string_array`].
     pub(crate) fn json_string_array(value: Option<&serde_json::Value>) -> Option<Vec<String>> {
         value.and_then(|value| {
             value
@@ -202,6 +225,7 @@ impl SyncService {
         })
     }
 
+    /// See [`apply_sync_filter_to_values`].
     pub(crate) fn apply_sync_filter_to_values(
         events: Vec<serde_json::Value>,
         filter: Option<&SyncFilter>,
@@ -213,6 +237,8 @@ impl SyncService {
         events.into_iter().filter(|event| Self::value_matches_sync_filter(event, filter)).collect()
     }
 
+    /// See [`room_filter_requests_lazy_members`].
+    /// See [`room_filter_requests_lazy_members`].
     pub(crate) fn room_filter_requests_lazy_members(room_filter: Option<&RoomFilter>) -> bool {
         room_filter
             .and_then(|filter| {
@@ -225,6 +251,8 @@ impl SyncService {
             .unwrap_or(false)
     }
 
+    /// See [`room_filter_requests_redundant_members`].
+    /// See [`room_filter_requests_redundant_members`].
     pub(crate) fn room_filter_requests_redundant_members(room_filter: Option<&RoomFilter>) -> bool {
         room_filter
             .and_then(|filter| {
@@ -237,6 +265,8 @@ impl SyncService {
             .unwrap_or(false)
     }
 
+    /// See [`value_matches_sync_filter`].
+    /// See [`value_matches_sync_filter`].
     pub(crate) fn value_matches_sync_filter(event: &serde_json::Value, filter: &SyncFilter) -> bool {
         let room_id = event.get("room_id").and_then(|value| value.as_str());
         let event_type = event.get("type").and_then(|value| value.as_str());
@@ -293,6 +323,8 @@ impl SyncService {
         true
     }
 
+    /// See [`matches_wildcard`].
+    /// See [`matches_wildcard`].
     pub(crate) fn matches_wildcard(actual: &str, pattern: &str) -> bool {
         if let Some(prefix) = pattern.strip_suffix('*') {
             actual.starts_with(prefix)
@@ -301,6 +333,8 @@ impl SyncService {
         }
     }
 
+    /// See [`apply_timeline_limit`].
+    /// See [`apply_timeline_limit`].
     pub(crate) fn apply_timeline_limit(events: &[RoomEvent], timeline_limit: i64) -> (Vec<RoomEvent>, bool) {
         if timeline_limit <= 0 {
             return (Vec::new(), !events.is_empty());

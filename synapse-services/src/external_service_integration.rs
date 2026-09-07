@@ -9,25 +9,40 @@ use synapse_common::ApiError;
 use synapse_storage::application_service::*;
 use tracing::{debug, info, instrument, warn};
 
+/// The `ExternalServiceConfig` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExternalServiceConfig {
+    /// The `service_type` field.
     pub service_type: ExternalServiceType,
+    /// The `service_id` field.
     pub service_id: String,
+    /// The `display_name` field.
     pub display_name: String,
+    /// The `webhook_url` field.
     pub webhook_url: Option<String>,
+    /// The `api_key` field.
     pub api_key: Option<String>,
+    /// The `config` field.
     pub config: serde_json::Value,
+    /// The `is_enabled` field.
     pub is_enabled: bool,
 }
 
+/// The `ExternalServiceType` enum.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExternalServiceType {
+    /// The `TrendRadar` variant.
     TrendRadar,
+    /// The `GenericWebhook` variant.
     GenericWebhook,
+    /// The `IrcBridge` variant.
     IrcBridge,
+    /// The `SlackBridge` variant.
     SlackBridge,
+    /// The `DiscordBridge` variant.
     DiscordBridge,
+    /// The `Custom` variant.
     Custom,
 }
 
@@ -44,13 +59,20 @@ impl std::fmt::Display for ExternalServiceType {
     }
 }
 
+/// The `TrendRadarConfig` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrendRadarConfig {
+    /// The `topic` field.
     pub topic: String,
+    /// The `server_url` field.
     pub server_url: Option<String>,
+    /// The `include_rss` field.
     pub include_rss: bool,
+    /// The `include_hotlist` field.
     pub include_hotlist: bool,
+    /// The `keywords` field.
     pub keywords: Vec<String>,
+    /// The `max_items` field.
     pub max_items: usize,
 }
 
@@ -67,42 +89,67 @@ impl Default for TrendRadarConfig {
     }
 }
 
+/// The `TrendRadarPayload` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrendRadarPayload {
+    /// The `title` field.
     pub title: String,
+    /// The `content` field.
     pub content: String,
+    /// The `source` field.
     pub source: String,
+    /// The `timestamp` field.
     pub timestamp: i64,
+    /// The `url` field.
     pub url: Option<String>,
+    /// The `keywords` field.
     pub keywords: Vec<String>,
+    /// The `metadata` field.
     pub metadata: Option<serde_json::Value>,
 }
 
+/// The `WebhookPayload` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookPayload {
+    /// The `event_type` field.
     pub event_type: String,
+    /// The `timestamp` field.
     pub timestamp: i64,
+    /// The `data` field.
     pub data: serde_json::Value,
+    /// The `signature` field.
     pub signature: Option<String>,
 }
 
+/// The `WebhookAuthInput` struct.
 #[derive(Debug, Clone, Default)]
 pub struct WebhookAuthInput {
+    /// The `token` field.
     pub token: Option<String>,
+    /// The `signature` field.
     pub signature: Option<String>,
 }
 
+/// The `ServiceHealthStatus` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceHealthStatus {
+    /// The `service_id` field.
     pub service_id: String,
+    /// The `service_type` field.
     pub service_type: ExternalServiceType,
+    /// The `is_healthy` field.
     pub is_healthy: bool,
+    /// The `last_check_ts` field.
     pub last_check_ts: i64,
+    /// The `last_success_ts` field.
     pub last_success_ts: Option<i64>,
+    /// The `last_error` field.
     pub last_error: Option<String>,
+    /// The `consecutive_failures` field.
     pub consecutive_failures: i32,
 }
 
+/// The `ExternalServiceIntegration` struct.
 pub struct ExternalServiceIntegration {
     storage: Arc<dyn ApplicationServiceStoreApi>,
     http_client: Client,
@@ -111,6 +158,8 @@ pub struct ExternalServiceIntegration {
 }
 
 impl ExternalServiceIntegration {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn ApplicationServiceStoreApi>, server_name: String) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(30))
@@ -185,6 +234,7 @@ impl ExternalServiceIntegration {
         Err(ApiError::unauthorized("Missing or invalid webhook credential".to_string()))
     }
 
+    /// See [`register_external_service`].
     #[instrument(skip(self, config), fields(request_id = %request_id))]
     pub async fn register_external_service(
         &self,
@@ -302,6 +352,7 @@ impl ExternalServiceIntegration {
         }
     }
 
+    /// See [`handle_trendradar_webhook`].
     #[instrument(skip(self, payload), fields(request_id = %request_id))]
     pub async fn handle_trendradar_webhook(
         &self,
@@ -372,6 +423,7 @@ impl ExternalServiceIntegration {
         Ok(())
     }
 
+    /// See [`handle_generic_webhook`].
     #[instrument(skip(self, payload), fields(request_id = %request_id))]
     pub async fn handle_generic_webhook(
         &self,
@@ -447,18 +499,24 @@ impl ExternalServiceIntegration {
         }
     }
 
+    /// See [`get_service_health`].
+    /// See [`get_service_health`].
     #[instrument(skip(self))]
     pub async fn get_service_health(&self, service_id: &str) -> Option<ServiceHealthStatus> {
         let status = self.health_status.read().await;
         status.get(service_id).cloned()
     }
 
+    /// See [`get_all_health_status`].
+    /// See [`get_all_health_status`].
     #[instrument(skip(self))]
     pub async fn get_all_health_status(&self) -> Vec<ServiceHealthStatus> {
         let status = self.health_status.read().await;
         status.values().cloned().collect()
     }
 
+    /// See [`check_service_health`].
+    /// See [`check_service_health`].
     #[instrument(skip(self), fields(request_id = %request_id))]
     pub async fn check_service_health(&self, request_id: &str, as_id: &str) -> Result<bool, ApiError> {
         let service = self
@@ -492,6 +550,8 @@ impl ExternalServiceIntegration {
         }
     }
 
+    /// See [`unregister_external_service`].
+    /// See [`unregister_external_service`].
     #[instrument(skip(self), fields(request_id = %request_id))]
     pub async fn unregister_external_service(&self, request_id: &str, service_id: &str) -> Result<(), ApiError> {
         info!(%request_id, service_id = %service_id, "Unregistering external service");
@@ -506,6 +566,7 @@ impl ExternalServiceIntegration {
         Ok(())
     }
 
+    /// See [`update_external_service`].
     #[instrument(skip(self, request), fields(request_id = %request_id))]
     pub async fn update_external_service(
         &self,
@@ -520,6 +581,7 @@ impl ExternalServiceIntegration {
             .ok_or_else(|| ApiError::not_found("Service not found"))
     }
 
+    /// See [`list_external_services`].
     #[instrument(skip(self))]
     pub async fn list_external_services(
         &self,
@@ -539,6 +601,8 @@ impl ExternalServiceIntegration {
         }
     }
 
+    /// See [`send_to_external_service`].
+    /// See [`send_to_external_service`].
     #[instrument(skip(self))]
     pub async fn send_to_external_service(&self, as_id: &str, event: serde_json::Value) -> Result<(), ApiError> {
         let service = self

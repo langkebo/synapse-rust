@@ -1,5 +1,8 @@
+/// The `service` module.
 pub mod service;
+/// The `state` module.
 pub mod state;
+/// The `stats` module.
 pub mod stats;
 
 pub use service::{

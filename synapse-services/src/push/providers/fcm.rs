@@ -5,11 +5,16 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
+/// The `FcmProviderConfig` struct.
 #[derive(Debug, Clone)]
 pub struct FcmProviderConfig {
+    /// The `api_key` field.
     pub api_key: String,
+    /// The `endpoint` field.
     pub endpoint: String,
+    /// The `timeout_secs` field.
     pub timeout_secs: u64,
+    /// The `max_retries` field.
     pub max_retries: u32,
 }
 
@@ -71,6 +76,7 @@ struct FcmResult {
     error: Option<String>,
 }
 
+/// The `FcmProvider` struct.
 #[derive(Debug)]
 pub struct FcmProvider {
     config: FcmProviderConfig,
@@ -79,6 +85,8 @@ pub struct FcmProvider {
 }
 
 impl FcmProvider {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: FcmProviderConfig) -> Self {
         let enabled = !config.api_key.is_empty();
 
@@ -91,6 +99,8 @@ impl FcmProvider {
         Self { config, client, enabled }
     }
 
+    /// See [`with_api_key`].
+    /// See [`with_api_key`].
     pub fn with_api_key(api_key: String) -> Self {
         let config = FcmProviderConfig { api_key, ..Default::default() };
         Self::new(config)

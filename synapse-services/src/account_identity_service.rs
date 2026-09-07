@@ -9,6 +9,7 @@ use synapse_common::error::ApiError;
 use synapse_common::map_database;
 use synapse_storage::{ThreepidStoreApi, User, UserThreepid};
 
+/// The `AccountIdentityService` struct.
 #[derive(Clone)]
 pub struct AccountIdentityService {
     user_service: Arc<UserService>,
@@ -18,6 +19,7 @@ pub struct AccountIdentityService {
 }
 
 impl AccountIdentityService {
+    /// See [`new`].
     #[cfg(feature = "privacy-ext")]
     pub fn new(
         user_service: Arc<UserService>,
@@ -27,11 +29,14 @@ impl AccountIdentityService {
         Self { user_service, threepid_storage, privacy_storage }
     }
 
+    /// See [`new`].
+    /// See [`new`].
     #[cfg(not(feature = "privacy-ext"))]
     pub fn new(user_service: Arc<UserService>, threepid_storage: Arc<dyn ThreepidStoreApi>) -> Self {
         Self { user_service, threepid_storage }
     }
 
+    /// See [`can_view_profile_for_requester_batch`].
     #[cfg(feature = "privacy-ext")]
     pub async fn can_view_profile_for_requester_batch(
         &self,
@@ -44,6 +49,7 @@ impl AccountIdentityService {
             .map_err(map_database!("can_view_profile_for_requester_batch"))
     }
 
+    /// See [`can_view_profile_for_requester_batch`].
     #[cfg(not(feature = "privacy-ext"))]
     pub async fn can_view_profile_for_requester_batch(
         &self,
@@ -53,6 +59,8 @@ impl AccountIdentityService {
         Ok(user_ids.iter().cloned().map(|user_id| (user_id, true)).collect())
     }
 
+    /// See [`ensure_active_user_exists`].
+    /// See [`ensure_active_user_exists`].
     pub async fn ensure_active_user_exists(&self, user_id: &str) -> Result<(), ApiError> {
         let user_exists = self.user_service.user_exists(user_id).await?;
         if !user_exists {
@@ -61,22 +69,31 @@ impl AccountIdentityService {
         Ok(())
     }
 
+    /// See [`user_exists`].
+    /// See [`user_exists`].
     pub async fn user_exists(&self, user_id: &str) -> Result<bool, ApiError> {
         self.user_service.user_exists(user_id).await
     }
 
+    /// See [`get_user_by_id`].
+    /// See [`get_user_by_id`].
     pub async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, ApiError> {
         self.user_service.get_user(user_id).await
     }
 
+    /// See [`get_user_by_identifier`].
+    /// See [`get_user_by_identifier`].
     pub async fn get_user_by_identifier(&self, identifier: &str) -> Result<Option<User>, ApiError> {
         self.user_service.get_user_by_identifier(identifier).await
     }
 
+    /// See [`get_user_by_username`].
+    /// See [`get_user_by_username`].
     pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, ApiError> {
         self.user_service.get_user_by_username(username).await
     }
 
+    /// See [`search_users`].
     pub async fn search_users(
         &self,
         search_term: &str,
@@ -85,6 +102,7 @@ impl AccountIdentityService {
         self.user_service.search_users(search_term, limit).await
     }
 
+    /// See [`get_users_paginated`].
     pub async fn get_users_paginated(
         &self,
         limit: i64,
@@ -94,18 +112,25 @@ impl AccountIdentityService {
         self.user_service.get_users_paginated(limit, created_ts_cursor, user_id_cursor).await
     }
 
+    /// See [`get_user_count`].
+    /// See [`get_user_count`].
     pub async fn get_user_count(&self) -> Result<i64, ApiError> {
         self.user_service.get_user_count().await
     }
 
+    /// See [`get_non_deactivated_user_count`].
+    /// See [`get_non_deactivated_user_count`].
     pub async fn get_non_deactivated_user_count(&self) -> Result<i64, ApiError> {
         self.user_service.get_non_deactivated_user_count().await
     }
 
+    /// See [`get_non_deactivated_user_count_by_app_service`].
+    /// See [`get_non_deactivated_user_count_by_app_service`].
     pub async fn get_non_deactivated_user_count_by_app_service(&self) -> Result<HashMap<String, i64>, ApiError> {
         self.user_service.get_non_deactivated_user_count_by_app_service().await
     }
 
+    /// See [`search_directory_users`].
     #[tracing::instrument(skip(self))]
     pub async fn search_directory_users(
         &self,
@@ -116,6 +141,8 @@ impl AccountIdentityService {
         self.user_service.search_directory_users(search_term, limit, exact_only).await
     }
 
+    /// See [`get_daily_active_users`].
+    /// See [`get_daily_active_users`].
     #[tracing::instrument(skip(self))]
     pub async fn get_daily_active_users(&self) -> Result<i64, ApiError> {
         self.user_service
@@ -125,6 +152,8 @@ impl AccountIdentityService {
             .map_err(|e| ApiError::internal_with_context("Failed to get daily active users", &e))
     }
 
+    /// See [`get_monthly_active_users`].
+    /// See [`get_monthly_active_users`].
     #[tracing::instrument(skip(self))]
     pub async fn get_monthly_active_users(&self) -> Result<i64, ApiError> {
         self.user_service
@@ -134,6 +163,8 @@ impl AccountIdentityService {
             .map_err(|e| ApiError::internal_with_context("Failed to get monthly active users", &e))
     }
 
+    /// See [`get_r30_users`].
+    /// See [`get_r30_users`].
     #[tracing::instrument(skip(self))]
     pub async fn get_r30_users(&self) -> Result<i64, ApiError> {
         self.user_service
@@ -143,6 +174,8 @@ impl AccountIdentityService {
             .map_err(|e| ApiError::internal_with_context("Failed to get r30 users", &e))
     }
 
+    /// See [`resolve_password_reset_user_id_by_email`].
+    /// See [`resolve_password_reset_user_id_by_email`].
     pub async fn resolve_password_reset_user_id_by_email(&self, email: &str, request_id: &str) -> Option<String> {
         match self.threepid_storage.get_verified_threepid_by_address("email", email).await {
             Ok(Some(threepid)) => Some(threepid.user_id),
@@ -174,6 +207,7 @@ impl AccountIdentityService {
         }
     }
 
+    /// See [`require_deactivate_account_uia`].
     pub async fn require_deactivate_account_uia(
         &self,
         uia_service: &UiaService,
@@ -194,6 +228,7 @@ impl AccountIdentityService {
             .await
     }
 
+    /// See [`require_cross_signing_uia`].
     pub async fn require_cross_signing_uia(
         &self,
         uia_service: &UiaService,
@@ -214,10 +249,13 @@ impl AccountIdentityService {
             .await
     }
 
+    /// See [`get_user_threepids`].
+    /// See [`get_user_threepids`].
     pub async fn get_user_threepids(&self, user_id: &str) -> Result<Vec<UserThreepid>, ApiError> {
         self.threepid_storage.get_threepids_by_user(user_id).await
     }
 
+    /// See [`add_verified_threepid`].
     pub async fn add_verified_threepid(
         &self,
         user_id: &str,
@@ -229,6 +267,8 @@ impl AccountIdentityService {
         self.threepid_storage.add_verified_threepid(user_id, medium, address, validated_at, added_ts).await
     }
 
+    /// See [`remove_threepid`].
+    /// See [`remove_threepid`].
     pub async fn remove_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError> {
         self.threepid_storage.remove_threepid(user_id, medium, address).await
     }

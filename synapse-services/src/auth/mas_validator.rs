@@ -64,6 +64,7 @@ pub struct OidcMasTokenValidator {
 }
 
 impl OidcMasTokenValidator {
+    /// See [`new`].
     pub fn new(
         oidc_service: Arc<OidcService>,
         user_mapping: Arc<dyn OidcUserMappingStoreApi>,

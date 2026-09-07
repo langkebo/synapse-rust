@@ -21,21 +21,32 @@ use super::membership::service::{MembershipService, MembershipServiceConfig};
 use super::messaging::service::{MessagingService, MessagingServiceConfig};
 use super::state::service::{RoomStateService, RoomStateServiceConfig};
 
+/// The `CreateRoomConfig` struct.
 #[derive(Debug, Default, Clone)]
 pub struct CreateRoomConfig {
+    /// The `visibility` field.
     pub visibility: Option<String>,
+    /// The `room_alias_name` field.
     pub room_alias_name: Option<String>,
+    /// The `name` field.
     pub name: Option<String>,
+    /// The `topic` field.
     pub topic: Option<String>,
+    /// The `invite_list` field.
     pub invite_list: Option<Vec<String>>,
     /// MSC4491: per-invitee reasons keyed by user_id. Populated when createRoom
     /// `invite` entries are objects with a `reason` field. Included in the
     /// `m.room.member` invite event content.
     pub invite_reasons: Option<std::collections::HashMap<String, String>>,
+    /// The `preset` field.
     pub preset: Option<String>,
+    /// The `encryption` field.
     pub encryption: Option<String>,
+    /// The `history_visibility` field.
     pub history_visibility: Option<String>,
+    /// The `is_direct` field.
     pub is_direct: Option<bool>,
+    /// The `room_type` field.
     pub room_type: Option<String>,
     /// Per Matrix C-S spec, additional state events the client wants applied
     /// after the standard set (m.room.create, m.room.member, power_levels,
@@ -52,21 +63,37 @@ pub struct CreateRoomConfig {
     pub power_level_content_override: Option<serde_json::Value>,
 }
 
+/// The `RoomServiceConfig` struct.
 pub struct RoomServiceConfig {
+    /// The `room_storage` field.
     pub room_storage: Arc<dyn RoomStoreApi>,
+    /// The `member_storage` field.
     pub member_storage: Arc<dyn MemberStoreApi>,
+    /// The `event_reader` field.
     pub event_reader: Option<Arc<dyn synapse_storage::event::EventReader>>,
+    /// The `event_writer` field.
     pub event_writer: Option<Arc<dyn synapse_storage::event::EventWriter>>,
+    /// The `room_tag_storage` field.
     pub room_tag_storage: Arc<dyn RoomTagStoreApi>,
+    /// The `user_storage` field.
     pub user_storage: Arc<dyn UserStore>,
+    /// The `user_service` field.
     pub user_service: Arc<UserService>,
+    /// The `room_auth` field.
     pub room_auth: Arc<dyn RoomAuth>,
+    /// The `room_summary_service` field.
     pub room_summary_service: Arc<RoomSummaryService>,
+    /// The `validator` field.
     pub validator: Arc<Validator>,
+    /// The `server_name` field.
     pub server_name: String,
+    /// The `task_queue` field.
     pub task_queue: Option<Arc<RedisTaskQueue>>,
+    /// The `relations_storage` field.
     pub relations_storage: Arc<dyn synapse_storage::relations::RelationsStoreApi>,
+    /// The `event_broadcaster` field.
     pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
+    /// The `app_service_manager` field.
     pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
     /// Server signing key manager, used to sign locally-produced PDUs before
     /// federating them.  `None` in test setups that don't exercise federation.
@@ -75,10 +102,14 @@ pub struct RoomServiceConfig {
     /// send_leave/invite flows.  `None` in test setups.
     pub federation_client: Option<Arc<dyn synapse_federation::client_api::FederationClientApi>>,
     #[cfg(feature = "beacons")]
+    /// The `beacon_service` field.
     pub beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
     #[cfg(not(feature = "beacons"))]
+    /// The `beacon_service` field.
     pub beacon_service: Option<()>,
+    /// The `sticky_event_storage` field.
     pub sticky_event_storage: Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>,
+    /// The `cache` field.
     pub cache: Arc<CacheManager>,
     /// Optional key-rotation storage injected into the membership sub-service so
     /// that leaving a LOCAL encrypted room marks the megolm session for
@@ -89,6 +120,7 @@ pub struct RoomServiceConfig {
     pub db_pool: Option<sqlx::PgPool>,
 }
 
+/// The `RoomService` struct.
 pub struct RoomService {
     /// Domain sub-service: membership operations (join, leave, invite, etc.)
     pub membership: MembershipService,
@@ -100,11 +132,17 @@ pub struct RoomService {
     pub lifecycle: LifecycleService,
     pub(crate) room_storage: Arc<dyn RoomStoreApi>,
     pub(crate) member_storage: Arc<dyn MemberStoreApi>,
+    /// The `user_storage` field.
     pub user_storage: Arc<dyn UserStore>,
+    /// The `validator` field.
     pub validator: Arc<Validator>,
+    /// The `server_name` field.
     pub server_name: String,
+    /// The `task_queue` field.
     pub task_queue: Option<Arc<RedisTaskQueue>>,
+    /// The `active_tasks` field.
     pub active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
+    /// The `room_summary_service` field.
     pub room_summary_service: Arc<RoomSummaryService>,
     /// Shared infrastructure injected into sub-services.
     pub(crate) infra: RoomInfrastructure,
@@ -115,6 +153,8 @@ pub struct RoomService {
 }
 
 impl RoomService {
+    /// See [`new`].
+    /// See [`new`].
     #[allow(clippy::expect_used)]
     pub fn new(config: RoomServiceConfig) -> Self {
         // Build shared infrastructure FIRST so its handles can be cloned into
@@ -214,16 +254,22 @@ impl RoomService {
         }
     }
 
+    /// See [`room_summary_service`].
+    /// See [`room_summary_service`].
     pub fn room_summary_service(&self) -> &RoomSummaryService {
         &self.room_summary_service
     }
 
+    /// See [`cleanup_completed_tasks`].
+    /// See [`cleanup_completed_tasks`].
     pub async fn cleanup_completed_tasks(&self) -> usize {
         let mut tasks = self.active_tasks.write().await;
         tasks.retain(|_key, handle| !handle.is_finished());
         tasks.len()
     }
 
+    /// See [`abort_task`].
+    /// See [`abort_task`].
     pub async fn abort_task(&self, task_id: &str) -> bool {
         let mut tasks = self.active_tasks.write().await;
         if let Some(handle) = tasks.remove(task_id) {
@@ -234,6 +280,8 @@ impl RoomService {
         }
     }
 
+    /// See [`shutdown`].
+    /// See [`shutdown`].
     pub async fn shutdown(&self) {
         let mut tasks = self.active_tasks.write().await;
         for (task_id, handle) in tasks.drain() {
@@ -242,6 +290,7 @@ impl RoomService {
         }
     }
 
+    /// See [`dispatch_appservice_event`].
     pub async fn dispatch_appservice_event(
         &self,
         event_id: &str,
@@ -268,6 +317,8 @@ impl RoomService {
         }
     }
 
+    /// See [`get_room`].
+    /// See [`get_room`].
     pub async fn get_room(&self, room_id: &str) -> ApiResult<serde_json::Value> {
         let room = self
             .room_storage
@@ -289,6 +340,8 @@ impl RoomService {
         }
     }
 
+    /// See [`get_room_state`].
+    /// See [`get_room_state`].
     pub async fn get_room_state(&self, room_id: &str, user_id: &str) -> ApiResult<serde_json::Value> {
         if !self
             .member_storage
@@ -319,6 +372,8 @@ impl RoomService {
         }
     }
 
+    /// See [`get_user_rooms`].
+    /// See [`get_user_rooms`].
     pub async fn get_user_rooms(&self, user_id: &str) -> ApiResult<serde_json::Value> {
         let room_ids = self
             .member_storage
@@ -404,6 +459,8 @@ impl RoomService {
         Ok(child_rooms)
     }
 
+    /// See [`upgrade_room`].
+    /// See [`upgrade_room`].
     pub async fn upgrade_room(&self, old_room_id: &str, new_version: &str, user_id: &str) -> ApiResult<String> {
         let old_room = self
             .room_storage
@@ -594,6 +651,7 @@ impl RoomService {
         Ok(new_room_id)
     }
 
+    /// See [`set_is_sticky_event`].
     pub async fn set_is_sticky_event(
         &self,
         room_id: &str,
@@ -608,6 +666,7 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_context("Failed to set sticky event", &e))
     }
 
+    /// See [`get_is_sticky_event`].
     pub async fn get_is_sticky_event(
         &self,
         room_id: &str,
@@ -620,6 +679,7 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_context("Failed to get sticky event", &e))
     }
 
+    /// See [`get_all_is_sticky_events`].
     pub async fn get_all_is_sticky_events(
         &self,
         room_id: &str,
@@ -631,6 +691,8 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_context("Failed to get all sticky events", &e))
     }
 
+    /// See [`clear_is_sticky_event`].
+    /// See [`clear_is_sticky_event`].
     pub async fn clear_is_sticky_event(&self, room_id: &str, user_id: &str, event_type: &str) -> ApiResult<()> {
         self.sticky_event_storage
             .clear_is_sticky_event(room_id, user_id, event_type)

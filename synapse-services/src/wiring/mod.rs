@@ -2,10 +2,14 @@
 // Wiring — decomposed service-group assemblers extracted from container.rs
 // =============================================================================
 
+/// The `accounts` module.
 pub mod accounts;
+/// The `admin` module.
 pub mod admin;
+/// The `core` module.
 pub mod core;
 mod e2ee;
+/// The `extensions` module.
 pub mod extensions;
 mod federation;
 mod rooms;

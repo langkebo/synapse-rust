@@ -9,16 +9,20 @@ use synapse_storage::{
     UpdateFeatureFlagRequest,
 };
 
+/// The `FeatureFlagService` struct.
 pub struct FeatureFlagService {
     storage: Arc<dyn FeatureFlagStoreApi>,
     audit_service: Arc<AdminAuditService>,
 }
 
 impl FeatureFlagService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn FeatureFlagStoreApi>, audit_service: Arc<AdminAuditService>) -> Self {
         Self { storage, audit_service }
     }
 
+    /// See [`create_flag`].
     pub async fn create_flag(
         &self,
         actor_id: &str,
@@ -49,6 +53,7 @@ impl FeatureFlagService {
         Ok(flag)
     }
 
+    /// See [`update_flag`].
     pub async fn update_flag(
         &self,
         actor_id: &str,
@@ -85,6 +90,8 @@ impl FeatureFlagService {
         Ok(flag)
     }
 
+    /// See [`get_flag`].
+    /// See [`get_flag`].
     pub async fn get_flag(&self, flag_key: &str) -> Result<FeatureFlag, ApiError> {
         validate_flag_key(flag_key)?;
         self.storage
@@ -94,6 +101,8 @@ impl FeatureFlagService {
             .ok_or_else(|| ApiError::not_found(format!("feature flag not found: {flag_key}")))
     }
 
+    /// See [`list_flags`].
+    /// See [`list_flags`].
     pub async fn list_flags(&self, filters: FeatureFlagFilters) -> Result<(Vec<FeatureFlag>, i64), ApiError> {
         if let Some(ref scope) = filters.target_scope {
             validate_target_scope(scope)?;

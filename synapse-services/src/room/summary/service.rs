@@ -13,6 +13,7 @@ use std::sync::Arc;
 use synapse_storage::MemberStoreApi;
 use tracing::{debug, info, instrument};
 
+/// The `RoomSummaryService` struct.
 pub struct RoomSummaryService {
     pub(crate) storage: Arc<dyn RoomSummaryStoreApi>,
     pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
@@ -20,6 +21,7 @@ pub struct RoomSummaryService {
 }
 
 impl RoomSummaryService {
+    /// See [`new`].
     pub fn new(
         storage: Arc<dyn RoomSummaryStoreApi>,
         event_reader: Arc<dyn synapse_storage::event::EventReader>,
@@ -28,6 +30,8 @@ impl RoomSummaryService {
         Self { storage, event_reader, member_storage }
     }
 
+    /// See [`get_summary`].
+    /// See [`get_summary`].
     #[instrument(skip(self))]
     pub async fn get_summary(&self, room_id: &str) -> Result<Option<RoomSummaryResponse>, ApiError> {
         let summary_res = self.storage.get_summary(room_id).await;
@@ -46,6 +50,8 @@ impl RoomSummaryService {
         }
     }
 
+    /// See [`get_summaries_for_user`].
+    /// See [`get_summaries_for_user`].
     #[instrument(skip(self))]
     pub async fn get_summaries_for_user(&self, user_id: &str) -> Result<Vec<RoomSummaryResponse>, ApiError> {
         let summaries_res = self.storage.get_summaries_for_user(user_id).await;
@@ -73,6 +79,8 @@ impl RoomSummaryService {
         Ok(responses)
     }
 
+    /// See [`get_heroes`].
+    /// See [`get_heroes`].
     pub(crate) async fn get_heroes(&self, room_id: &str) -> Result<Vec<RoomSummaryHero>, ApiError> {
         let members_res = self.storage.get_heroes(room_id, 5).await;
 
@@ -133,6 +141,8 @@ impl RoomSummaryService {
             .collect())
     }
 
+    /// See [`create_summary`].
+    /// See [`create_summary`].
     pub async fn create_summary(&self, request: CreateRoomSummaryRequest) -> ApiResult<RoomSummaryResponse> {
         info!(room_id = %request.room_id, "Creating room summary");
 
@@ -167,6 +177,8 @@ impl RoomSummaryService {
         final_summary.ok_or_else(|| ApiError::not_found("Room summary not found after sync"))
     }
 
+    /// See [`create_request_to_update_request`].
+    /// See [`create_request_to_update_request`].
     pub(crate) fn create_request_to_update_request(request: &CreateRoomSummaryRequest) -> UpdateRoomSummaryRequest {
         UpdateRoomSummaryRequest {
             name: request.name.clone(),
@@ -182,6 +194,7 @@ impl RoomSummaryService {
         }
     }
 
+    /// See [`update_summary`].
     #[instrument(skip(self))]
     pub async fn update_summary(
         &self,
@@ -198,6 +211,8 @@ impl RoomSummaryService {
         Ok(summary.to_response(heroes))
     }
 
+    /// See [`delete_summary`].
+    /// See [`delete_summary`].
     #[instrument(skip(self))]
     pub async fn delete_summary(&self, room_id: &str) -> Result<(), ApiError> {
         info!(room_id = %room_id, "Deleting room summary");
@@ -210,6 +225,8 @@ impl RoomSummaryService {
         Ok(())
     }
 
+    /// See [`add_member`].
+    /// See [`add_member`].
     #[instrument(skip(self))]
     pub async fn add_member(&self, request: CreateSummaryMemberRequest) -> Result<RoomSummaryMember, ApiError> {
         debug!("Adding member {} to room {}", request.user_id, request.room_id);
@@ -246,6 +263,7 @@ impl RoomSummaryService {
         Ok(member)
     }
 
+    /// See [`update_member`].
     #[instrument(skip(self))]
     pub async fn update_member(
         &self,
@@ -262,6 +280,8 @@ impl RoomSummaryService {
         Ok(member)
     }
 
+    /// See [`remove_member`].
+    /// See [`remove_member`].
     #[instrument(skip(self))]
     pub async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), ApiError> {
         debug!("Removing member {} from room {}", user_id, room_id);
@@ -274,6 +294,8 @@ impl RoomSummaryService {
         Ok(())
     }
 
+    /// See [`get_members`].
+    /// See [`get_members`].
     #[instrument(skip(self))]
     pub async fn get_members(&self, room_id: &str) -> Result<Vec<RoomSummaryMember>, ApiError> {
         let members = self
@@ -285,6 +307,8 @@ impl RoomSummaryService {
         Ok(members)
     }
 
+    /// See [`get_summaries_by_ids`].
+    /// See [`get_summaries_by_ids`].
     #[instrument(skip(self))]
     pub async fn get_summaries_by_ids(&self, room_ids: &[String]) -> Result<Vec<RoomSummaryResponse>, ApiError> {
         if room_ids.is_empty() {

@@ -8,37 +8,58 @@ use synapse_storage::{DeviceStorage, E2eeAuditStorage};
 pub use synapse_storage::{KeyAuditEntry, KeyEvent};
 use tracing::{debug, info, warn};
 
+/// The `DeviceVerificationStatus` struct.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct DeviceVerificationStatus {
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `display_name` field.
     pub display_name: Option<String>,
+    /// The `is_verified` field.
     pub is_verified: bool,
+    /// The `is_cross_signed` field.
     pub is_cross_signed: bool,
+    /// The `signature_valid` field.
     pub signature_valid: bool,
+    /// The `last_verified_ts` field.
     pub last_verified_ts: Option<i64>,
+    /// The `verification_method` field.
     pub verification_method: Option<String>,
 }
 
+/// The `DeviceVerificationReport` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceVerificationReport {
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `devices` field.
     pub devices: Vec<DeviceVerificationStatus>,
+    /// The `all_verified` field.
     pub all_verified: bool,
+    /// The `cross_signing_setup` field.
     pub cross_signing_setup: bool,
+    /// The `verified_count` field.
     pub verified_count: usize,
+    /// The `unverified_count` field.
     pub unverified_count: usize,
 }
 
+/// The `E2eeAuditService` struct.
 pub struct E2eeAuditService {
     storage: E2eeAuditStorage,
 }
 
 impl E2eeAuditService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<PgPool>) -> Self {
         Self { storage: E2eeAuditStorage::new(&pool) }
     }
 
+    /// See [`log_key_operation`].
+    /// See [`log_key_operation`].
     pub async fn log_key_operation(&self, event: KeyEvent) -> Result<(), ApiError> {
         self.storage.log_key_operation(&event).await?;
 
@@ -46,10 +67,13 @@ impl E2eeAuditService {
         Ok(())
     }
 
+    /// See [`get_key_history`].
+    /// See [`get_key_history`].
     pub async fn get_key_history(&self, user_id: &str) -> Result<Vec<KeyAuditEntry>, ApiError> {
         self.storage.get_key_history(user_id).await
     }
 
+    /// See [`get_key_history_paginated`].
     pub async fn get_key_history_paginated(
         &self,
         user_id: &str,
@@ -60,10 +84,13 @@ impl E2eeAuditService {
         self.storage.get_key_history_paginated(user_id, limit, from_ts, from_id).await
     }
 
+    /// See [`get_operations_by_type`].
+    /// See [`get_operations_by_type`].
     pub async fn get_operations_by_type(&self, operation: &str, limit: i64) -> Result<Vec<KeyAuditEntry>, ApiError> {
         self.storage.get_operations_by_type(operation, limit).await
     }
 
+    /// See [`get_user_device_history`].
     pub async fn get_user_device_history(
         &self,
         user_id: &str,
@@ -72,6 +99,8 @@ impl E2eeAuditService {
         self.storage.get_user_device_history(user_id, device_id).await
     }
 
+    /// See [`cleanup_old_logs`].
+    /// See [`cleanup_old_logs`].
     pub async fn cleanup_old_logs(&self, days_to_keep: i64) -> Result<u64, ApiError> {
         let deleted = self.storage.cleanup_old_logs(days_to_keep).await?;
         if deleted > 0 {
@@ -81,6 +110,7 @@ impl E2eeAuditService {
     }
 }
 
+/// The `CrossSigningVerificationService` struct.
 pub struct CrossSigningVerificationService {
     device_storage: DeviceStorage,
     device_trust_storage: DeviceTrustStorage,
@@ -89,6 +119,8 @@ pub struct CrossSigningVerificationService {
 }
 
 impl CrossSigningVerificationService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(pool: Arc<PgPool>, audit: Arc<E2eeAuditService>) -> Self {
         let device_storage = DeviceStorage::new(&pool);
         let device_trust_storage = DeviceTrustStorage::new(&pool);
@@ -97,6 +129,8 @@ impl CrossSigningVerificationService {
         Self { device_storage, device_trust_storage, cross_signing_storage, audit }
     }
 
+    /// See [`verify_user_devices`].
+    /// See [`verify_user_devices`].
     pub async fn verify_user_devices(&self, user_id: &str) -> Result<DeviceVerificationReport, ApiError> {
         let devices = self.get_user_devices(user_id).await?;
         let mut report = DeviceVerificationReport {
@@ -187,6 +221,8 @@ impl CrossSigningVerificationService {
         Ok(report)
     }
 
+    /// See [`verify_device`].
+    /// See [`verify_device`].
     pub async fn verify_device(&self, device: &DeviceInfo) -> Result<DeviceVerificationStatus, ApiError> {
         let signature_valid = self.verify_device_signature(device).await?;
         let cross_signed = self.check_cross_signing(device).await?;
@@ -223,6 +259,8 @@ impl CrossSigningVerificationService {
         Ok(status)
     }
 
+    /// See [`mark_device_verified`].
+    /// See [`mark_device_verified`].
     pub async fn mark_device_verified(&self, user_id: &str, device_id: &str, method: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
@@ -249,6 +287,8 @@ impl CrossSigningVerificationService {
         Ok(())
     }
 
+    /// See [`mark_device_unverified`].
+    /// See [`mark_device_unverified`].
     pub async fn mark_device_unverified(&self, user_id: &str, device_id: &str, reason: &str) -> Result<(), ApiError> {
         let now = current_timestamp_millis();
 
@@ -316,6 +356,7 @@ impl CrossSigningVerificationService {
     }
 }
 
+/// The `DeviceInfo` struct.
 #[derive(Debug, Clone)]
 pub struct DeviceInfo {
     device_id: String,

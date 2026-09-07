@@ -77,41 +77,65 @@ fn attribute_value_regex(attribute: &str) -> &Regex {
 const SAML_REQUEST_TTL_SECONDS: u64 = 600;
 const SAML_CLOCK_SKEW_SECONDS: i64 = 300;
 
+/// The `SamlAuthRequest` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SamlAuthRequest {
+    /// The `request_id` field.
     pub request_id: String,
+    /// The `redirect_url` field.
     pub redirect_url: String,
+    /// The `relay_state` field.
     pub relay_state: Option<String>,
 }
 
+/// The `SamlAuthResponse` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SamlAuthResponse {
+    /// The `session_id` field.
     pub session_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `name_id` field.
     pub name_id: String,
+    /// The `issuer` field.
     pub issuer: String,
+    /// The `attributes` field.
     pub attributes: HashMap<String, Vec<String>>,
+    /// The `expires_at` field.
     pub expires_at: i64,
 }
 
+/// The `SamlUser` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SamlUser {
+    /// The `name_id` field.
     pub name_id: String,
+    /// The `localpart` field.
     pub localpart: String,
+    /// The `displayname` field.
     pub displayname: Option<String>,
+    /// The `email` field.
     pub email: Option<String>,
+    /// The `issuer` field.
     pub issuer: String,
 }
 
+/// The `SamlMetadata` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SamlMetadata {
+    /// The `entity_id` field.
     pub entity_id: String,
+    /// The `sso_url` field.
     pub sso_url: String,
+    /// The `slo_url` field.
     pub slo_url: Option<String>,
+    /// The `certificate` field.
     pub certificate: String,
+    /// The `valid_until` field.
     pub valid_until: Option<DateTime<Utc>>,
 }
 
+/// The `SamlService` struct.
 pub struct SamlService {
     config: Arc<SamlConfig>,
     storage: Arc<dyn synapse_storage::saml::SamlStoreApi>,
@@ -123,6 +147,7 @@ pub struct SamlService {
 }
 
 impl SamlService {
+    /// See [`new`].
     pub fn new(
         config: Arc<SamlConfig>,
         storage: Arc<dyn synapse_storage::saml::SamlStoreApi>,
@@ -146,6 +171,8 @@ impl SamlService {
         }
     }
 
+    /// See [`is_enabled`].
+    /// See [`is_enabled`].
     pub fn is_enabled(&self) -> bool {
         self.config.is_enabled()
     }
@@ -293,6 +320,8 @@ impl SamlService {
         Ok(())
     }
 
+    /// See [`get_auth_redirect`].
+    /// See [`get_auth_redirect`].
     pub async fn get_auth_redirect(&self, relay_state: Option<&str>) -> Result<SamlAuthRequest, ApiError> {
         let request_id = Self::generate_request_id();
         self.store_pending_request(&request_id, relay_state).await?;
@@ -313,6 +342,7 @@ impl SamlService {
         Ok(SamlAuthRequest { request_id, redirect_url, relay_state: relay_state.map(|s| s.to_string()) })
     }
 
+    /// See [`process_auth_response`].
     pub async fn process_auth_response(
         &self,
         saml_response: &str,
@@ -407,6 +437,8 @@ impl SamlService {
         Ok(SamlAuthResponse { session_id, user_id, name_id, issuer, attributes, expires_at: session.expires_at })
     }
 
+    /// See [`initiate_logout`].
+    /// See [`initiate_logout`].
     pub async fn initiate_logout(&self, session_id: &str, reason: Option<&str>) -> Result<String, ApiError> {
         let session =
             self.storage.get_session(session_id).await?.ok_or_else(|| ApiError::not_found("Session not found"))?;
@@ -439,6 +471,8 @@ impl SamlService {
         Ok(redirect_url)
     }
 
+    /// See [`process_logout_response`].
+    /// See [`process_logout_response`].
     pub async fn process_logout_response(&self, saml_response: &str) -> Result<(), ApiError> {
         let decoded = Self::decode_saml_response(saml_response)?;
 
@@ -463,6 +497,8 @@ impl SamlService {
         Ok(())
     }
 
+    /// See [`get_session`].
+    /// See [`get_session`].
     pub async fn get_session(&self, session_id: &str) -> Result<Option<SamlSession>, ApiError> {
         let session = self.storage.get_session(session_id).await?;
 
@@ -477,22 +513,31 @@ impl SamlService {
         Ok(session)
     }
 
+    /// See [`get_user_mapping`].
+    /// See [`get_user_mapping`].
     pub async fn get_user_mapping(&self, user_id: &str) -> Result<Option<SamlUserMapping>, ApiError> {
         self.storage.get_user_mapping_by_user_id(user_id).await
     }
 
+    /// See [`get_session_by_user`].
+    /// See [`get_session_by_user`].
     pub async fn get_session_by_user(&self, user_id: &str) -> Result<Option<SamlSession>, ApiError> {
         self.storage.get_session_by_user(user_id).await
     }
 
+    /// See [`list_user_mappings`].
+    /// See [`list_user_mappings`].
     pub async fn list_user_mappings(&self, limit: i64, after: Option<&str>) -> Result<Vec<SamlUserMapping>, ApiError> {
         self.storage.list_user_mappings(limit, after).await
     }
 
+    /// See [`get_user_mapping_any_issuer`].
+    /// See [`get_user_mapping_any_issuer`].
     pub async fn get_user_mapping_any_issuer(&self, name_id: &str) -> Result<Option<SamlUserMapping>, ApiError> {
         self.storage.get_user_mapping_any_issuer(name_id).await
     }
 
+    /// See [`update_user_mapping_by_name_id`].
     pub async fn update_user_mapping_by_name_id(
         &self,
         name_id: &str,
@@ -502,10 +547,14 @@ impl SamlService {
         self.storage.update_user_mapping_by_name_id(name_id, new_user_id, attributes).await
     }
 
+    /// See [`delete_user_mapping_by_name_id`].
+    /// See [`delete_user_mapping_by_name_id`].
     pub async fn delete_user_mapping_by_name_id(&self, name_id: &str) -> Result<u64, ApiError> {
         self.storage.delete_user_mapping_by_name_id(name_id).await
     }
 
+    /// See [`get_idp_metadata`].
+    /// See [`get_idp_metadata`].
     pub async fn get_idp_metadata(&self) -> Result<SamlMetadata, ApiError> {
         if let Some(ref metadata) = self.cached_metadata {
             if let Some(last_refresh) = self.metadata_last_refresh {
@@ -1144,28 +1193,38 @@ impl SamlService {
         uuid::Uuid::new_v4().to_string()
     }
 
+    /// See [`get_config`].
+    /// See [`get_config`].
     pub fn get_config(&self) -> &SamlConfig {
         &self.config
     }
 
+    /// See [`cleanup_expired_sessions`].
+    /// See [`cleanup_expired_sessions`].
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
         self.storage.cleanup_expired_sessions().await
     }
 
+    /// See [`cleanup_old_auth_events`].
+    /// See [`cleanup_old_auth_events`].
     pub async fn cleanup_old_auth_events(&self, days: i64) -> Result<u64, ApiError> {
         self.storage.cleanup_old_auth_events(days).await
     }
 }
 
+/// The `SamlIdpManager` struct.
 pub struct SamlIdpManager {
     storage: Arc<dyn synapse_storage::saml::SamlStoreApi>,
 }
 
 impl SamlIdpManager {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn synapse_storage::saml::SamlStoreApi>) -> Self {
         Self { storage }
     }
 
+    /// See [`register_idp`].
     pub async fn register_idp(
         &self,
         request: CreateSamlIdentityProviderRequest,
@@ -1173,18 +1232,26 @@ impl SamlIdpManager {
         self.storage.create_identity_provider(request).await
     }
 
+    /// See [`get_idp`].
+    /// See [`get_idp`].
     pub async fn get_idp(&self, entity_id: &str) -> Result<Option<SamlIdentityProvider>, ApiError> {
         self.storage.get_identity_provider(entity_id).await
     }
 
+    /// See [`list_idps`].
+    /// See [`list_idps`].
     pub async fn list_idps(&self) -> Result<Vec<SamlIdentityProvider>, ApiError> {
         self.storage.get_all_identity_providers().await
     }
 
+    /// See [`list_enabled_idps`].
+    /// See [`list_enabled_idps`].
     pub async fn list_enabled_idps(&self) -> Result<Vec<SamlIdentityProvider>, ApiError> {
         self.storage.get_enabled_identity_providers().await
     }
 
+    /// See [`delete_idp`].
+    /// See [`delete_idp`].
     pub async fn delete_idp(&self, entity_id: &str) -> Result<(), ApiError> {
         self.storage.delete_identity_provider(entity_id).await
     }

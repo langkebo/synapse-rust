@@ -7,22 +7,34 @@ use tracing::{debug, info, warn};
 
 type HealthCallback = Box<dyn Fn(&str, HealthStatus) + Send + Sync>;
 
+/// The `HealthStatus` enum.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HealthStatus {
+    /// The `Healthy` variant.
     Healthy,
+    /// The `Unhealthy` variant.
     Unhealthy,
+    /// The `Degraded` variant.
     Degraded,
     #[default]
+    /// The `Unknown` variant.
     Unknown,
 }
 
+/// The `HealthCheckResult` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthCheckResult {
+    /// The `worker_id` field.
     pub worker_id: String,
+    /// The `status` field.
     pub status: HealthStatus,
+    /// The `latency_ms` field.
     pub latency_ms: u64,
+    /// The `last_check_ts` field.
     pub last_check_ts: i64,
+    /// The `consecutive_failures` field.
     pub consecutive_failures: u32,
+    /// The `error_message` field.
     pub error_message: Option<String>,
 }
 
@@ -39,12 +51,18 @@ impl Default for HealthCheckResult {
     }
 }
 
+/// The `HealthCheckConfig` struct.
 #[derive(Debug, Clone)]
 pub struct HealthCheckConfig {
+    /// The `check_interval_secs` field.
     pub check_interval_secs: u64,
+    /// The `timeout_secs` field.
     pub timeout_secs: u64,
+    /// The `max_consecutive_failures` field.
     pub max_consecutive_failures: u32,
+    /// The `recovery_threshold` field.
     pub recovery_threshold: u32,
+    /// The `degraded_latency_ms` field.
     pub degraded_latency_ms: u64,
     /// WORK-04: 心跳超时（秒）。超过该时长未收到心跳的 worker 判定为
     /// 探测失败——崩溃的 worker 不再「注册即健康」。
@@ -64,6 +82,7 @@ impl Default for HealthCheckConfig {
     }
 }
 
+/// The `HealthChecker` struct.
 pub struct HealthChecker {
     config: HealthCheckConfig,
     health_status: RwLock<HashMap<String, HealthCheckResult>>,
@@ -72,6 +91,8 @@ pub struct HealthChecker {
 }
 
 impl HealthChecker {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(config: HealthCheckConfig) -> Self {
         Self {
             config,
@@ -81,6 +102,8 @@ impl HealthChecker {
         }
     }
 
+    /// See [`register_worker`].
+    /// See [`register_worker`].
     pub async fn register_worker(&self, worker_id: &str) {
         let mut status = self.health_status.write().await;
         status.entry(worker_id.to_string()).or_insert_with(|| HealthCheckResult {
@@ -102,6 +125,8 @@ impl HealthChecker {
         self.last_heartbeat.write().await.insert(worker_id.to_string(), current_timestamp_millis());
     }
 
+    /// See [`unregister_worker`].
+    /// See [`unregister_worker`].
     pub async fn unregister_worker(&self, worker_id: &str) {
         let mut status = self.health_status.write().await;
         status.remove(worker_id);
@@ -111,6 +136,8 @@ impl HealthChecker {
         debug!("Worker unregistered from health checks: {}", worker_id);
     }
 
+    /// See [`check_health`].
+    /// See [`check_health`].
     pub async fn check_health(&self, worker_id: &str) -> HealthCheckResult {
         let start = std::time::Instant::now();
 
@@ -208,36 +235,50 @@ impl HealthChecker {
         }
     }
 
+    /// See [`get_health`].
+    /// See [`get_health`].
     pub async fn get_health(&self, worker_id: &str) -> Option<HealthCheckResult> {
         let status = self.health_status.read().await;
         status.get(worker_id).cloned()
     }
 
+    /// See [`get_all_health`].
+    /// See [`get_all_health`].
     pub async fn get_all_health(&self) -> HashMap<String, HealthCheckResult> {
         let status = self.health_status.read().await;
         status.clone()
     }
 
+    /// See [`get_healthy_workers`].
+    /// See [`get_healthy_workers`].
     pub async fn get_healthy_workers(&self) -> Vec<String> {
         let status = self.health_status.read().await;
         status.iter().filter(|(_, r)| r.status == HealthStatus::Healthy).map(|(id, _)| id.clone()).collect()
     }
 
+    /// See [`get_unhealthy_workers`].
+    /// See [`get_unhealthy_workers`].
     pub async fn get_unhealthy_workers(&self) -> Vec<String> {
         let status = self.health_status.read().await;
         status.iter().filter(|(_, r)| r.status == HealthStatus::Unhealthy).map(|(id, _)| id.clone()).collect()
     }
 
+    /// See [`is_healthy`].
+    /// See [`is_healthy`].
     pub async fn is_healthy(&self, worker_id: &str) -> bool {
         let status = self.health_status.read().await;
         status.get(worker_id).is_some_and(|r| r.status == HealthStatus::Healthy || r.status == HealthStatus::Degraded)
     }
 
+    /// See [`register_callback`].
+    /// See [`register_callback`].
     pub fn register_callback(&self, callback: HealthCallback) {
         let mut callbacks = self.callbacks.blocking_write();
         callbacks.push(callback);
     }
 
+    /// See [`start_periodic_checks`].
+    /// See [`start_periodic_checks`].
     pub async fn start_periodic_checks(&self, mut shutdown_rx: mpsc::Receiver<()>) {
         let config = self.config.clone();
         let interval = Duration::from_secs(config.check_interval_secs);
@@ -277,6 +318,8 @@ impl HealthChecker {
         }
     }
 
+    /// See [`get_stats`].
+    /// See [`get_stats`].
     pub async fn get_stats(&self) -> HealthCheckStats {
         let status = self.health_status.read().await;
 
@@ -311,14 +354,22 @@ impl HealthChecker {
     }
 }
 
+/// The `HealthCheckStats` struct.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HealthCheckStats {
+    /// The `total_workers` field.
     pub total_workers: u32,
+    /// The `healthy_count` field.
     pub healthy_count: u32,
+    /// The `unhealthy_count` field.
     pub unhealthy_count: u32,
+    /// The `degraded_count` field.
     pub degraded_count: u32,
+    /// The `unknown_count` field.
     pub unknown_count: u32,
+    /// The `total_latency_ms` field.
     pub total_latency_ms: u64,
+    /// The `avg_latency_ms` field.
     pub avg_latency_ms: u64,
 }
 

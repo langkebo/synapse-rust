@@ -17,6 +17,7 @@ use tracing::{debug, info};
 /// normal operation acquires the lock in microseconds.
 const LOCK_ACQUIRE_TIMEOUT_SECS: u64 = 5;
 
+/// The `TcpReplicationClient` struct.
 pub struct TcpReplicationClient {
     stream: Option<TcpStream>,
     protocol: ReplicationProtocol,
@@ -24,10 +25,14 @@ pub struct TcpReplicationClient {
 }
 
 impl TcpReplicationClient {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(worker_name: String) -> Self {
         Self { stream: None, protocol: ReplicationProtocol::new(), worker_name }
     }
 
+    /// See [`connect`].
+    /// See [`connect`].
     pub async fn connect(&mut self, addr: &str) -> Result<(), ReplicationError> {
         let stream = timeout(Duration::from_secs(10), TcpStream::connect(addr))
             .await
@@ -54,6 +59,8 @@ impl TcpReplicationClient {
         Ok(())
     }
 
+    /// See [`send_command`].
+    /// See [`send_command`].
     pub async fn send_command(&mut self, command: &ReplicationCommand) -> Result<(), ReplicationError> {
         let stream = self.stream.as_mut().ok_or_else(|| ReplicationError::IoError("Not connected".to_string()))?;
 
@@ -66,6 +73,8 @@ impl TcpReplicationClient {
         Ok(())
     }
 
+    /// See [`receive_command`].
+    /// See [`receive_command`].
     pub async fn receive_command(&mut self) -> Result<ReplicationCommand, ReplicationError> {
         let stream = self.stream.as_mut().ok_or_else(|| ReplicationError::IoError("Not connected".to_string()))?;
 
@@ -83,6 +92,8 @@ impl TcpReplicationClient {
         Ok(command)
     }
 
+    /// See [`ping`].
+    /// See [`ping`].
     pub async fn ping(&mut self) -> Result<i64, ReplicationError> {
         let start = current_timestamp_millis();
         self.send_command(&ReplicationProtocol::create_ping()).await?;
@@ -99,18 +110,26 @@ impl TcpReplicationClient {
         }
     }
 
+    /// See [`sync_stream`].
+    /// See [`sync_stream`].
     pub async fn sync_stream(&mut self, stream_name: &str, position: i64) -> Result<(), ReplicationError> {
         self.send_command(&ReplicationProtocol::create_sync(stream_name, position)).await
     }
 
+    /// See [`send_position`].
+    /// See [`send_position`].
     pub async fn send_position(&mut self, stream_name: &str, position: i64) -> Result<(), ReplicationError> {
         self.send_command(&ReplicationProtocol::create_position(stream_name, position)).await
     }
 
+    /// See [`is_connected`].
+    /// See [`is_connected`].
     pub fn is_connected(&self) -> bool {
         self.stream.is_some()
     }
 
+    /// See [`disconnect`].
+    /// See [`disconnect`].
     pub async fn disconnect(&mut self) {
         if let Some(mut stream) = self.stream.take() {
             let _ = stream.shutdown().await;
@@ -119,6 +138,7 @@ impl TcpReplicationClient {
     }
 }
 
+/// The `ReplicationConnection` struct.
 #[derive(Clone)]
 pub struct ReplicationConnection {
     client: Arc<tokio::sync::Mutex<Option<TcpReplicationClient>>>,
@@ -126,10 +146,14 @@ pub struct ReplicationConnection {
 }
 
 impl ReplicationConnection {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(worker_name: String) -> Self {
         Self { client: Arc::new(tokio::sync::Mutex::new(None)), worker_name }
     }
 
+    /// See [`connect`].
+    /// See [`connect`].
     pub async fn connect(&self, addr: &str) -> Result<(), ReplicationError> {
         let mut client = TcpReplicationClient::new(self.worker_name.clone());
         client.connect(addr).await?;
@@ -140,6 +164,8 @@ impl ReplicationConnection {
         Ok(())
     }
 
+    /// See [`send_command`].
+    /// See [`send_command`].
     pub async fn send_command(&self, command: &ReplicationCommand) -> Result<(), ReplicationError> {
         // GHSA-8q93: Bound lock acquisition to prevent CPU starvation under
         // contention. Fail closed (return error) instead of hanging indefinitely.
@@ -157,6 +183,8 @@ impl ReplicationConnection {
         }
     }
 
+    /// See [`ping`].
+    /// See [`ping`].
     pub async fn ping(&self) -> Result<i64, ReplicationError> {
         // GHSA-8q93: Same lock-acquire timeout as send_command.
         let mut guard = timeout(Duration::from_secs(LOCK_ACQUIRE_TIMEOUT_SECS), self.client.lock())
@@ -173,6 +201,8 @@ impl ReplicationConnection {
         }
     }
 
+    /// See [`disconnect`].
+    /// See [`disconnect`].
     pub async fn disconnect(&self) {
         let mut guard = self.client.lock().await;
         if let Some(ref mut client) = *guard {
@@ -181,6 +211,8 @@ impl ReplicationConnection {
         *guard = None;
     }
 
+    /// See [`is_connected`].
+    /// See [`is_connected`].
     pub async fn is_connected(&self) -> bool {
         let guard = self.client.lock().await;
         guard.is_some()

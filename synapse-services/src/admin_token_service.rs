@@ -8,24 +8,37 @@ use synapse_storage::registration_token::{
 use synapse_storage::token::AccessTokenStoreApi;
 use tracing::instrument;
 
+/// The `AdminAccessTokenInfo` struct.
 #[derive(Debug, Clone)]
 pub struct AdminAccessTokenInfo {
+    /// The `id` field.
     pub id: i64,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `is_revoked` field.
     pub is_revoked: bool,
 }
 
+/// The `AdminRefreshTokenInfo` struct.
 #[derive(Debug, Clone)]
 pub struct AdminRefreshTokenInfo {
+    /// The `id` field.
     pub id: i64,
+    /// The `device_id` field.
     pub device_id: Option<String>,
+    /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `expires_at` field.
     pub expires_at: Option<i64>,
+    /// The `is_revoked` field.
     pub is_revoked: bool,
 }
 
+/// The `AdminTokenService` struct.
 pub struct AdminTokenService {
     token_storage: Arc<dyn AccessTokenStoreApi>,
     refresh_token_storage: Arc<dyn RefreshTokenStoreApi>,
@@ -33,6 +46,7 @@ pub struct AdminTokenService {
 }
 
 impl AdminTokenService {
+    /// See [`new`].
     pub fn new(
         token_storage: Arc<dyn AccessTokenStoreApi>,
         refresh_token_storage: Arc<dyn RefreshTokenStoreApi>,
@@ -41,6 +55,7 @@ impl AdminTokenService {
         Self { token_storage, refresh_token_storage, registration_token_service }
     }
 
+    /// See [`create_registration_token`].
     #[instrument(skip(self))]
     pub async fn create_registration_token(
         &self,
@@ -66,11 +81,15 @@ impl AdminTokenService {
             .await
     }
 
+    /// See [`get_registration_token`].
+    /// See [`get_registration_token`].
     #[instrument(skip(self))]
     pub async fn get_registration_token(&self, token: &str) -> Result<Option<RegistrationToken>, ApiError> {
         self.registration_token_service.get_token(token).await
     }
 
+    /// See [`delete_registration_token`].
+    /// See [`delete_registration_token`].
     #[instrument(skip(self))]
     pub async fn delete_registration_token(&self, token: &str) -> Result<(), ApiError> {
         let existing = self
@@ -82,6 +101,7 @@ impl AdminTokenService {
         self.registration_token_service.delete_token(existing.id).await
     }
 
+    /// See [`update_registration_token`].
     #[instrument(skip(self))]
     pub async fn update_registration_token(
         &self,
@@ -103,6 +123,8 @@ impl AdminTokenService {
             .await
     }
 
+    /// See [`get_user_access_tokens`].
+    /// See [`get_user_access_tokens`].
     #[instrument(skip(self))]
     pub async fn get_user_access_tokens(&self, user_id: &str) -> Result<Vec<AdminAccessTokenInfo>, ApiError> {
         let tokens = self
@@ -123,6 +145,8 @@ impl AdminTokenService {
             .collect())
     }
 
+    /// See [`delete_user_access_token`].
+    /// See [`delete_user_access_token`].
     #[instrument(skip(self))]
     pub async fn delete_user_access_token(&self, user_id: &str, token_id: i64) -> Result<(), ApiError> {
         let deleted = self
@@ -138,6 +162,8 @@ impl AdminTokenService {
         Ok(())
     }
 
+    /// See [`get_user_refresh_tokens`].
+    /// See [`get_user_refresh_tokens`].
     #[instrument(skip(self))]
     pub async fn get_user_refresh_tokens(&self, user_id: &str) -> Result<Vec<AdminRefreshTokenInfo>, ApiError> {
         let tokens = self
@@ -158,6 +184,8 @@ impl AdminTokenService {
             .collect())
     }
 
+    /// See [`delete_refresh_token`].
+    /// See [`delete_refresh_token`].
     #[instrument(skip(self))]
     pub async fn delete_refresh_token(&self, user_id: &str, token_id: i64) -> Result<(), ApiError> {
         let token = self

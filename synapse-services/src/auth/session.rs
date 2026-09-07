@@ -4,6 +4,8 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::*;
 
 impl AuthService {
+    /// See [`logout`].
+    /// See [`logout`].
     pub async fn logout(&self, access_token: &str, device_id: Option<&str>) -> ApiResult<()> {
         let claims = self.decode_token(access_token).ok();
         let user_id = claims.as_ref().map_or("unknown", |c| c.sub.as_str());
@@ -58,6 +60,8 @@ impl AuthService {
         Ok(())
     }
 
+    /// See [`logout_all`].
+    /// See [`logout_all`].
     pub async fn logout_all(&self, user_id: &str) -> ApiResult<()> {
         let tokens = self
             .token_storage
@@ -104,6 +108,8 @@ impl AuthService {
         Ok(())
     }
 
+    /// See [`refresh_token`].
+    /// See [`refresh_token`].
     pub async fn refresh_token(&self, refresh_token: &str) -> ApiResult<(String, String, String)> {
         let token_hash = Self::hash_token(refresh_token);
 

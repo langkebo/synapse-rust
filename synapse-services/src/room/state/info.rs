@@ -8,6 +8,7 @@ use synapse_storage::{Room, RoomSearchCursor, RoomSearchOrder};
 use super::service::RoomStateService;
 
 impl RoomStateService {
+    /// See [`get_room_encryption_status`].
     pub async fn get_room_encryption_status(
         &self,
         room_id: &str,
@@ -44,6 +45,8 @@ impl RoomStateService {
         ))
     }
 
+    /// See [`delete_room`].
+    /// See [`delete_room`].
     pub async fn delete_room(&self, room_id: &str, requester_id: &str) -> ApiResult<()> {
         let room = self
             .room_storage
@@ -79,6 +82,8 @@ impl RoomStateService {
         Ok(())
     }
 
+    /// See [`get_user_room_list`].
+    /// See [`get_user_room_list`].
     pub async fn get_user_room_list(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         let rooms = self
             .room_storage
@@ -99,6 +104,8 @@ impl RoomStateService {
             .collect())
     }
 
+    /// See [`cleanup_abnormal_data`].
+    /// See [`cleanup_abnormal_data`].
     pub async fn cleanup_abnormal_data(&self, min_age_ms: Option<i64>) -> ApiResult<serde_json::Value> {
         self.room_storage
             .cleanup_abnormal_data(min_age_ms)
@@ -106,6 +113,8 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Cleanup failed", &e))
     }
 
+    /// See [`room_exists`].
+    /// See [`room_exists`].
     pub async fn room_exists(&self, room_id: &str) -> ApiResult<bool> {
         let exists = self
             .room_storage
@@ -115,6 +124,8 @@ impl RoomStateService {
         Ok(exists)
     }
 
+    /// See [`block_room`].
+    /// See [`block_room`].
     pub async fn block_room(&self, room_id: &str, blocked_by: &str, reason: Option<&str>) -> ApiResult<()> {
         let now = current_timestamp_millis();
         self.room_storage
@@ -123,6 +134,8 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to block room", &e))
     }
 
+    /// See [`get_room_block_status`].
+    /// See [`get_room_block_status`].
     pub async fn get_room_block_status(&self, room_id: &str) -> ApiResult<Option<i64>> {
         self.room_storage
             .get_room_block_status(room_id)
@@ -130,6 +143,8 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to get room block status", &e))
     }
 
+    /// See [`unblock_room`].
+    /// See [`unblock_room`].
     pub async fn unblock_room(&self, room_id: &str) -> ApiResult<()> {
         self.room_storage
             .unblock_room(room_id)
@@ -137,6 +152,7 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to unblock room", &e))
     }
 
+    /// See [`get_public_rooms_paginated`].
     pub async fn get_public_rooms_paginated(
         &self,
         limit: i64,
@@ -149,6 +165,8 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to get public rooms", &e))
     }
 
+    /// See [`count_public_rooms`].
+    /// See [`count_public_rooms`].
     pub async fn count_public_rooms(&self) -> ApiResult<i64> {
         self.room_storage
             .count_public_rooms()
@@ -156,6 +174,8 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to count public rooms", &e))
     }
 
+    /// See [`get_room_stats_overview`].
+    /// See [`get_room_stats_overview`].
     pub async fn get_room_stats_overview(&self) -> ApiResult<serde_json::Value> {
         self.room_storage
             .get_room_stats_overview()
@@ -163,6 +183,8 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to get room statistics overview", &e))
     }
 
+    /// See [`get_single_room_stats`].
+    /// See [`get_single_room_stats`].
     pub async fn get_single_room_stats(&self, room_id: &str) -> ApiResult<Option<serde_json::Value>> {
         self.room_storage
             .get_single_room_stats(room_id)
@@ -170,6 +192,7 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to get room statistics", &e))
     }
 
+    /// See [`get_all_rooms_with_members`].
     pub async fn get_all_rooms_with_members(
         &self,
         limit: i64,
@@ -182,6 +205,8 @@ impl RoomStateService {
             .map_err(|e| ApiError::database_with_context("Failed to list rooms", &e))
     }
 
+    /// See [`get_room_count`].
+    /// See [`get_room_count`].
     pub async fn get_room_count(&self) -> ApiResult<i64> {
         self.room_storage
             .get_room_count()
@@ -189,10 +214,14 @@ impl RoomStateService {
             .map_err(|e| ApiError::database_with_context("Failed to count rooms", &e))
     }
 
+    /// See [`get_room_record`].
+    /// See [`get_room_record`].
     pub async fn get_room_record(&self, room_id: &str) -> ApiResult<Option<Room>> {
         self.room_storage.get_room(room_id).await.map_err(|e| ApiError::database_with_context("Failed to get room", &e))
     }
 
+    /// See [`get_room_listings_status`].
+    /// See [`get_room_listings_status`].
     pub async fn get_room_listings_status(&self, room_id: &str) -> ApiResult<Option<(bool, bool)>> {
         self.room_storage
             .get_room_listings_status(room_id)
@@ -200,6 +229,8 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to get room listing status", &e))
     }
 
+    /// See [`set_room_public_with_directory`].
+    /// See [`set_room_public_with_directory`].
     pub async fn set_room_public_with_directory(&self, room_id: &str) -> ApiResult<bool> {
         self.room_storage
             .set_room_public_with_directory(room_id)
@@ -207,6 +238,8 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to set room public", &e))
     }
 
+    /// See [`set_room_private_with_directory`].
+    /// See [`set_room_private_with_directory`].
     pub async fn set_room_private_with_directory(&self, room_id: &str) -> ApiResult<bool> {
         self.room_storage
             .set_room_private_with_directory(room_id)
@@ -214,6 +247,8 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to set room private", &e))
     }
 
+    /// See [`shutdown_room_and_remove_members`].
+    /// See [`shutdown_room_and_remove_members`].
     pub async fn shutdown_room_and_remove_members(&self, room_id: &str) -> ApiResult<()> {
         self.room_storage
             .shutdown_room(room_id)
@@ -226,6 +261,8 @@ impl RoomStateService {
         Ok(())
     }
 
+    /// See [`grant_room_admin`].
+    /// See [`grant_room_admin`].
     pub async fn grant_room_admin(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         let event_id = synapse_common::generate_event_id(&self.server_name);
         let sender = format!("@admin:{}", self.server_name);
@@ -249,6 +286,8 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to grant room admin", &e))
     }
 
+    /// See [`purge_history_before`].
+    /// See [`purge_history_before`].
     pub async fn purge_history_before(&self, room_id: &str, timestamp: i64, dry_run: bool) -> ApiResult<u64> {
         self.event_writer
             .delete_events_before(room_id, timestamp, dry_run)
@@ -256,6 +295,8 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Failed to purge history", &e))
     }
 
+    /// See [`get_room_version`].
+    /// See [`get_room_version`].
     pub async fn get_room_version(&self, room_id: &str) -> ApiResult<Option<String>> {
         self.room_storage
             .get_room_version_only(room_id)
@@ -263,6 +304,7 @@ impl RoomStateService {
             .map_err(|e| ApiError::database_with_context("Failed to get room version", &e))
     }
 
+    /// See [`search_all_rooms_admin`].
     pub async fn search_all_rooms_admin(
         &self,
         search_term: Option<&str>,
@@ -278,6 +320,8 @@ impl RoomStateService {
             .map_err(|e| ApiError::internal_with_context("Search failed", &e))
     }
 
+    /// See [`is_room_creator`].
+    /// See [`is_room_creator`].
     pub async fn is_room_creator(&self, room_id: &str, user_id: &str) -> ApiResult<bool> {
         let room = self
             .room_storage
@@ -291,6 +335,8 @@ impl RoomStateService {
         }
     }
 
+    /// See [`check_room_has_encryption`].
+    /// See [`check_room_has_encryption`].
     pub async fn check_room_has_encryption(&self, room_id: &str) -> ApiResult<bool> {
         self.event_reader
             .check_room_has_encryption(room_id)

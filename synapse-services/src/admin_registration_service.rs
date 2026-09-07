@@ -14,6 +14,7 @@ use synapse_common::*;
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// The `AdminRegistrationService` struct.
 #[derive(Clone)]
 pub struct AdminRegistrationService {
     token_auth: Arc<dyn TokenAuth>,
@@ -27,33 +28,51 @@ pub struct AdminRegistrationService {
     metrics: Arc<MetricsCollector>,
 }
 
+/// The `NonceResponse` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NonceResponse {
+    /// The `nonce` field.
     pub nonce: String,
 }
 
+/// The `AdminRegisterRequest` struct.
 #[derive(Debug, Deserialize)]
 pub struct AdminRegisterRequest {
+    /// The `nonce` field.
     pub nonce: String,
+    /// The `username` field.
     pub username: String,
+    /// The `password` field.
     pub password: String,
+    /// The `admin` field.
     pub admin: Option<bool>,
+    /// The `user_type` field.
     pub user_type: Option<String>,
+    /// The `displayname` field.
     pub displayname: Option<String>,
+    /// The `mac` field.
     pub mac: String,
 }
 
+/// The `AdminRegisterResponse` struct.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AdminRegisterResponse {
+    /// The `access_token` field.
     pub access_token: String,
+    /// The `refresh_token` field.
     pub refresh_token: String,
+    /// The `expires_in` field.
     pub expires_in: i64,
+    /// The `device_id` field.
     pub device_id: String,
+    /// The `user_id` field.
     pub user_id: String,
+    /// The `home_server` field.
     pub home_server: String,
 }
 
 impl AdminRegistrationService {
+    /// See [`new`].
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         token_auth: Arc<dyn TokenAuth>,
@@ -68,6 +87,8 @@ impl AdminRegistrationService {
         Self { token_auth, credential_auth, server_name, config, user_storage, user_service, cache, metrics }
     }
 
+    /// See [`generate_nonce`].
+    /// See [`generate_nonce`].
     #[::tracing::instrument(skip(self))]
     pub async fn generate_nonce(&self) -> ApiResult<NonceResponse> {
         let start = std::time::Instant::now();
@@ -95,6 +116,8 @@ impl AdminRegistrationService {
         Ok(NonceResponse { nonce })
     }
 
+    /// See [`register_admin_user`].
+    /// See [`register_admin_user`].
     #[::tracing::instrument(skip(self))]
     pub async fn register_admin_user(&self, request: AdminRegisterRequest) -> ApiResult<AdminRegisterResponse> {
         if !self.config.enabled {

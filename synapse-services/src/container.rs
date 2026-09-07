@@ -20,25 +20,39 @@ use crate::wiring;
 /// Bundled shared infrastructure passed to every sub-assembler.
 /// Eliminates repeated `pool, cache, config, task_queue, metrics` params.
 pub struct SharedInfra {
+    /// The `pool` field.
     pub pool: Arc<sqlx::PgPool>,
+    /// The `cache` field.
     pub cache: Arc<CacheManager>,
+    /// The `config` field.
     pub config: Config,
+    /// The `task_queue` field.
     pub task_queue: Option<Arc<RedisTaskQueue>>,
+    /// The `metrics` field.
     pub metrics: Arc<MetricsCollector>,
 }
 
+/// The `ServiceContainer` struct.
 #[derive(Clone)]
 pub struct ServiceContainer {
     // Domain assemblies
+    /// The `e2ee` field.
     pub e2ee: wiring::E2eeServices,
+    /// The `rooms` field.
     pub rooms: wiring::RoomSyncServices,
+    /// The `federation` field.
     pub federation: wiring::FederationServices,
+    /// The `admin` field.
     pub admin: wiring::AdminServices,
 
     // Cross-cutting service groups
+    /// The `core` field.
     pub core: wiring::CoreServices,
+    /// The `account` field.
     pub account: wiring::AccountServices,
+    /// The `sso` field.
     pub sso: wiring::SsoServices,
+    /// The `extensions` field.
     pub extensions: wiring::ExtensionServices,
 
     /// Cancels all background service loops on graceful shutdown.
@@ -114,6 +128,7 @@ impl ServiceContainer {
         self.account.user_storage.pool().clone()
     }
 
+    /// See [`new`].
     pub async fn new(
         pool: &Arc<sqlx::PgPool>,
         cache: Arc<CacheManager>,
@@ -511,10 +526,14 @@ impl ServiceContainer {
     // Accessors
     // -------------------------------------------------------------------------
 
+    /// See [`voip_service`].
+    /// See [`voip_service`].
     pub fn voip_service(&self) -> &Arc<crate::rtc::RtcInfraService> {
         &self.extensions.rtc_domain_service.infra
     }
 
+    /// See [`call_service`].
+    /// See [`call_service`].
     #[cfg(feature = "voip-tracking")]
     pub fn call_service(&self) -> &Arc<crate::rtc::CallOrchestrationService> {
         &self.extensions.rtc_domain_service.call
@@ -524,6 +543,8 @@ impl ServiceContainer {
     // Test constructors
     // -------------------------------------------------------------------------
 
+    /// See [`new_test`].
+    /// See [`new_test`].
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn new_test() -> Self {
         let _ = synapse_common::argon2_config::Argon2Config::initialize_global_owasp(
@@ -548,6 +569,8 @@ impl ServiceContainer {
         Self::new_test_with_pool(pool).await
     }
 
+    /// See [`new_test_with_pool`].
+    /// See [`new_test_with_pool`].
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn new_test_with_pool(pool: Arc<sqlx::PgPool>) -> Self {
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -555,6 +578,8 @@ impl ServiceContainer {
         Self::new(&pool, cache, config, None).await
     }
 
+    /// See [`new_test_with_pool_and_cache`].
+    /// See [`new_test_with_pool_and_cache`].
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn new_test_with_pool_and_cache(pool: Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Self {
         let config = crate::test_config::build_test_config();

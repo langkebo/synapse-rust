@@ -13,6 +13,8 @@ use synapse_common::{generate_event_id, generate_room_id, ApiError, ApiResult};
 use synapse_storage::CreateEventParams;
 
 impl LifecycleService {
+    /// See [`create_room`].
+    /// See [`create_room`].
     pub async fn create_room(&self, user_id: &str, config: CreateRoomConfig) -> ApiResult<serde_json::Value> {
         if let Some(alias) = &config.room_alias_name {
             if let Err(e) = self.validator.validate_username(alias) {
@@ -446,6 +448,8 @@ impl LifecycleService {
         generate_room_id(&self.server_name)
     }
 
+    /// See [`determine_join_rule`].
+    /// See [`determine_join_rule`].
     pub(crate) fn determine_join_rule(preset: Option<&str>) -> &'static str {
         match preset {
             Some("public_chat") => "public",
@@ -453,14 +457,20 @@ impl LifecycleService {
         }
     }
 
+    /// See [`is_public_visibility`].
+    /// See [`is_public_visibility`].
     pub(crate) fn is_public_visibility(visibility: Option<&str>) -> bool {
         visibility.unwrap_or("private") == "public"
     }
 
+    /// See [`format_room_alias`].
+    /// See [`format_room_alias`].
     pub(crate) fn format_room_alias(&self, room_alias_name: Option<&str>) -> Option<String> {
         room_alias_name.map(|a| format!("#{}:{}", a, self.server_name))
     }
 
+    /// See [`build_room_response`].
+    /// See [`build_room_response`].
     pub(crate) fn build_room_response(room_id: &str, room_alias: Option<&str>) -> serde_json::Value {
         json!({
             "room_id": room_id,

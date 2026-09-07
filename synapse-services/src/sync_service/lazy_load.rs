@@ -5,6 +5,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 
 impl SyncService {
+    /// See [`get_known_lazy_loaded_members`].
     pub(crate) async fn get_known_lazy_loaded_members(
         &self,
         user_id: &str,
@@ -33,6 +34,7 @@ impl SyncService {
         known_members
     }
 
+    /// See [`persist_lazy_loaded_members`].
     pub(crate) async fn persist_lazy_loaded_members(
         &self,
         user_id: &str,
@@ -49,6 +51,8 @@ impl SyncService {
         }
     }
 
+    /// See [`apply_lazy_load_members`].
+    /// See [`apply_lazy_load_members`].
     pub(crate) async fn apply_lazy_load_members(&self, request: LazyLoadMembersRequest<'_>) -> Vec<Value> {
         let LazyLoadMembersRequest {
             state_events,
@@ -97,6 +101,7 @@ impl SyncService {
         filtered_events
     }
 
+    /// See [`apply_lazy_load_members_with_cache`].
     pub(crate) fn apply_lazy_load_members_with_cache(
         state_events: Vec<Value>,
         timeline_events: &[RoomEvent],

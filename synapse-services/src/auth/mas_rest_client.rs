@@ -22,12 +22,20 @@ pub enum MasError {
     /// `admin_token` is configured. Fail-closed: refuse to send an
     /// unauthenticated request rather than risk a silent 401/403.
     #[error("MAS admin REST client is not configured: admin_token is missing")]
+    /// The `NotConfigured` variant.
     NotConfigured,
     /// The MAS admin API returned a non-2xx status other than 404.
     #[error("MAS admin API request failed with status {status}: {body}")]
-    HttpStatus { status: u16, body: String },
+    /// The `HttpStatus` variant.
+    HttpStatus {
+        /// The `status` field.
+        status: u16,
+        /// The `body` field.
+        body: String,
+    },
     /// The underlying HTTP transport failed (DNS, connection, timeout).
     #[error("MAS admin API transport error: {0}")]
+    /// The `Transport` variant.
     Transport(#[from] reqwest::Error),
 }
 

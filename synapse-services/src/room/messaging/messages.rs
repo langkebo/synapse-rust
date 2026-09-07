@@ -9,6 +9,7 @@ use synapse_storage::CreateEventParams;
 use super::service::MessagingService;
 
 impl MessagingService {
+    /// See [`send_message`].
     #[::tracing::instrument(skip(self, content))]
     pub async fn send_message(
         &self,
@@ -338,6 +339,7 @@ impl MessagingService {
         Ok(result)
     }
 
+    /// See [`get_room_messages`].
     pub async fn get_room_messages(
         &self,
         room_id: &str,
@@ -411,6 +413,7 @@ impl MessagingService {
         }))
     }
 
+    /// See [`get_ephemeral_events_for_client`].
     pub async fn get_ephemeral_events_for_client(
         &self,
         room_id: &str,
@@ -439,6 +442,7 @@ impl MessagingService {
             .collect())
     }
 
+    /// See [`set_typing_ephemeral_event`].
     pub async fn set_typing_ephemeral_event(
         &self,
         room_id: &str,
@@ -456,6 +460,8 @@ impl MessagingService {
             .map_err(|e| ApiError::internal_with_context("Failed to store typing ephemeral event", &e))
     }
 
+    /// See [`clear_typing_ephemeral_event`].
+    /// See [`clear_typing_ephemeral_event`].
     pub async fn clear_typing_ephemeral_event(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         self.event_writer
             .delete_ephemeral_event(room_id, "m.typing", user_id)

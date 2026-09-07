@@ -8,13 +8,19 @@ use synapse_storage::call_session::{CallSession, CallSessionStoreApi, CreateCall
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CallState {
+    /// The `RingING` variant.
     RingING,
+    /// The `Connected` variant.
     Connected,
+    /// The `Held` variant.
     Held,
+    /// The `Ended` variant.
     Ended,
 }
 
 impl CallState {
+    /// See [`as_str`].
+    /// See [`as_str`].
     pub fn as_str(&self) -> &str {
         match self {
             CallState::RingING => "ringing",
@@ -28,10 +34,15 @@ impl CallState {
 /// 呼叫邀请事件内容
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallInviteEvent {
+    /// The `call_id` field.
     pub call_id: String,
+    /// The `version` field.
     pub version: i32,
+    /// The `offer` field.
     pub offer: Option<CallOffer>,
+    /// The `invitee` field.
     pub invitee: Option<serde_json::Value>,
+    /// The `lifetime` field.
     pub lifetime: Option<i64>,
 }
 
@@ -39,35 +50,47 @@ pub struct CallInviteEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallOffer {
     #[serde(rename = "type")]
+    /// The `offer_type` field.
     pub offer_type: String,
+    /// The `sdp` field.
     pub sdp: String,
 }
 
 /// 呼叫候选人事件内容
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallCandidatesEvent {
+    /// The `call_id` field.
     pub call_id: String,
+    /// The `version` field.
     pub version: i32,
+    /// The `candidates` field.
     pub candidates: Vec<IceCandidate>,
 }
 
 /// ICE 候选人
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IceCandidate {
+    /// The `candidate` field.
     pub candidate: String,
     #[serde(rename = "sdpMid")]
+    /// The `sdp_mid` field.
     pub sdp_mid: Option<String>,
     #[serde(rename = "sdpMLineIndex")]
+    /// The `sdp_mline_index` field.
     pub sdp_mline_index: Option<i32>,
     #[serde(rename = "type")]
+    /// The `candidate_type` field.
     pub candidate_type: Option<String>,
 }
 
 /// 呼叫应答事件内容
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallAnswerEvent {
+    /// The `call_id` field.
     pub call_id: String,
+    /// The `version` field.
     pub version: i32,
+    /// The `answer` field.
     pub answer: CallAnswer,
 }
 
@@ -75,22 +98,29 @@ pub struct CallAnswerEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallAnswer {
     #[serde(rename = "type")]
+    /// The `answer_type` field.
     pub answer_type: String,
+    /// The `sdp` field.
     pub sdp: String,
 }
 
 /// 呼叫挂断事件内容
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallHangupEvent {
+    /// The `call_id` field.
     pub call_id: String,
+    /// The `version` field.
     pub version: i32,
 }
 
+/// The `CallOrchestrationService` struct.
 pub struct CallOrchestrationService {
     storage: Arc<dyn CallSessionStoreApi>,
 }
 
 impl CallOrchestrationService {
+    /// See [`new`].
+    /// See [`new`].
     pub fn new(storage: Arc<dyn CallSessionStoreApi>) -> Self {
         Self { storage }
     }
