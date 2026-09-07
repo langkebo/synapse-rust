@@ -4,9 +4,28 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** pending — 部分字段仍缺 `#[serde(default)]`
+**Status:** done — implemented by commit `20101dcf` (2026-09-07)
 
 **审计条目：** #8（🟢 Low）— 原报告结论已修正
+
+## 修复（2026-09-07 13:00 GMT+8）
+
+**变更（`synapse-common/src/config/database.rs`）**：
+- `port`: `#[serde(default = "default_database_port")]` → 5432
+- `pool_size`: `#[serde(default)]` → 0（语义：废弃字段）
+- `max_size`: `#[serde(default = "default_database_max_size")]` → 50（对齐 Synapse）
+- `min_idle`: `#[serde(default)]` → None（Option 默认值）
+- `connection_timeout`: `#[serde(default = "default_database_connection_timeout_secs")]` → 60s
+
+**新增单测**（`synapse-common/src/config/database.rs` 内 `tests` 模块）：
+- `database_config_serde_defaults_apply_when_fields_missing`：YAML 缺字段时 9 个字段取正确默认值
+- `database_config_default_and_serde_defaults_match`：Default impl 与 serde 反序列化一致性（防漂移）
+
+**验证**：
+- `cargo test -p synapse-common --lib --features test-utils config::database` → **6 passed, 0 failed**
+- `cargo build --workspace --all-features` → 0 errors
+- `cargo doc -p synapse-common --no-deps` → 0 missing documentation
+- `cargo clippy -p synapse-common --all-targets --features test-utils -- -D warnings` → 5 pre-existing errors（位于 `server.rs:47/62/77/91` + `rate_limit_config.rs:100` doc list 缩进，与本任务无关）
 
 ## 现状（2026-09-07）
 
