@@ -79,6 +79,41 @@ impl MessagingService {
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to get receipts", &e))
     }
+
+    /// Processes an inbound `m.receipt` EDU received from a federated peer.
+    ///
+    /// Unlike [`send_receipt`], this does **not** re-broadcast the receipt
+    /// over federation (which would cause duplicate delivery). It stores the
+    /// receipt and injects an ephemeral `m.receipt` event so local clients
+    /// are notified.
+    pub async fn process_federation_receipt(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        receipt_type: &str,
+        event_id: &str,
+        body: &serde_json::Value,
+    ) -> ApiResult<()> {
+        self.room_storage
+            .add_receipt(user_id, user_id, room_id, event_id, receipt_type, body)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to store federated receipt", &e))?;
+
+        let now_ts = current_timestamp_millis();
+        let receipt_content = json!({
+            event_id: {
+                receipt_type: {
+                    user_id: json!({ "ts": now_ts })
+                }
+            }
+        });
+        self.event_writer
+            .add_ephemeral_event(room_id, user_id, "m.receipt", &receipt_content, now_ts)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to store ephemeral receipt", &e))?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

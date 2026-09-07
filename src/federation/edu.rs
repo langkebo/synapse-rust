@@ -326,6 +326,95 @@ async fn handle_direct_to_device_edu(
 // EduDispatcher — routes inbound EDUs to the correct handler
 // ---------------------------------------------------------------------------
 
+/// Handles an inbound `m.receipt` EDU from a federated peer.
+///
+/// Matrix spec: `content` is a map of room_id → receipt_type → user_id →
+/// `{ event_ids: [string], data: { ts: int } }`. We iterate and call
+/// `MessagingService::process_federation_receipt` for each receipt entry.
+async fn handle_receipt_edu(
+    ctx: &FederationContext,
+    origin: &str,
+    edu: &Value,
+    _remaining: usize,
+) -> EduProcessResult {
+    let content = match edu.get("content").and_then(|c| c.as_object()) {
+        Some(c) => c,
+        None => {
+            ::tracing::debug!("Dropping m.receipt EDU from {} without content", origin);
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    let mut result = EduProcessResult::default();
+    let messaging = ctx.room_service.messaging();
+
+    for (room_id, room_receipts) in content {
+        let Some(receipt_map) = room_receipts.as_object() else {
+            result.dropped += 1;
+            continue;
+        };
+
+        for (receipt_type, user_receipts) in receipt_map {
+            let Some(users) = user_receipts.as_object() else {
+                result.dropped += 1;
+                continue;
+            };
+
+            for (user_id, user_receipt) in users {
+                if !user_matches_origin(user_id, origin) {
+                    result.dropped += 1;
+                    continue;
+                }
+
+                let event_ids = match user_receipt.get("event_ids").and_then(|v| v.as_array()) {
+                    Some(arr) => arr,
+                    None => {
+                        result.dropped += 1;
+                        continue;
+                    }
+                };
+
+                let body = user_receipt.clone();
+                for event_id_value in event_ids {
+                    let Some(event_id) = event_id_value.as_str() else {
+                        result.dropped += 1;
+                        continue;
+                    };
+
+                    match messaging
+                        .process_federation_receipt(room_id, user_id, receipt_type, event_id, &body)
+                        .await
+                    {
+                        Ok(()) => result.processed += 1,
+                        Err(e) => {
+                            ::tracing::warn!(
+                                "Failed to persist federated receipt for {} in {} from {}: {}",
+                                user_id,
+                                room_id,
+                                origin,
+                                e
+                            );
+                            result.errored += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if result.processed > 0 {
+        increment_counter_by(ctx, "federation_inbound_receipt_processed_total", result.processed as u64);
+    }
+    if result.dropped > 0 {
+        increment_counter_by(ctx, "federation_inbound_receipt_dropped_total", result.dropped as u64);
+    }
+    if result.errored > 0 {
+        increment_counter_by(ctx, "federation_inbound_receipt_error_total", result.errored as u64);
+    }
+
+    result
+}
+
 /// The `EduDispatcher` struct.
 pub struct EduDispatcher;
 
@@ -345,6 +434,7 @@ impl EduDispatcher {
             EduType::Typing => handle_typing_edu(ctx, origin, edu, remaining).await,
             EduType::DeviceListUpdate => handle_device_list_update_edu(ctx, origin, edu, remaining).await,
             EduType::DirectToDevice => handle_direct_to_device_edu(ctx, origin, edu, remaining).await,
+            EduType::Receipt => handle_receipt_edu(ctx, origin, edu, remaining).await,
         };
 
         Some(result)

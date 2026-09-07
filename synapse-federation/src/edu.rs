@@ -24,6 +24,8 @@ pub enum EduType {
     DeviceListUpdate,
     /// `m.direct_to_device` — to-device messages relayed via federation.
     DirectToDevice,
+    /// `m.receipt` — read receipts propagated between federated servers.
+    Receipt,
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +52,7 @@ impl FromStr for EduType {
             "m.presence" => Ok(Self::Presence),
             "m.device_list_update" => Ok(Self::DeviceListUpdate),
             "m.direct_to_device" => Ok(Self::DirectToDevice),
+            "m.receipt" => Ok(Self::Receipt),
             other => Err(UnknownEduType(other.to_string())),
         }
     }

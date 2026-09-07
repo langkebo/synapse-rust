@@ -356,13 +356,16 @@ impl SyncService {
             })
             .collect();
 
-        let joined_room_ids: HashSet<String> = self
-            .member_storage
-            .get_joined_rooms(user_id)
-            .await
-            .map_err(map_internal!("Failed to load joined rooms"))?
-            .into_iter()
-            .collect();
+        let joined_room_ids: HashSet<String> = if events.iter().any(|e| e["type"] == "m.direct") {
+            self.member_storage
+                .get_joined_rooms(user_id)
+                .await
+                .map_err(map_internal!("Failed to load joined rooms"))?
+                .into_iter()
+                .collect()
+        } else {
+            HashSet::new()
+        };
         if let Some(direct) = events.iter_mut().find(|e| e["type"] == "m.direct") {
             if let Some(map) = direct.get_mut("content").and_then(|c| c.as_object_mut()) {
                 map.retain(|_, value| {
