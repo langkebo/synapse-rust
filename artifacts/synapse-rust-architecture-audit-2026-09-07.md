@@ -66,6 +66,13 @@
 
 - **关注点**：`power_levels` ban 限制（v9）、knock/invite 权限、restricted join rules（MSC3083）在 `auth/power_levels.rs` 与 `state_resolution.rs` 的执行深度
 - **建议**：补充联邦 e2e 合规测试覆盖
+- **已完成**：
+  - `membership_transition.rs` 补充 3 组 `KnockRestricted` 单测（authorized/unauthorized/fail-closed）
+  - `actions.rs:628-655` 补充 3 组服务层 restricted join 集成测试：
+    - `restricted_join_without_invite_fails_closed` — fail-closed 行为验证
+    - `restricted_join_with_invite_succeeds` — 显式邀请绕过 fail-closed
+    - `public_join_without_invite_succeeds` — 基线 public join 行为
+  - 单测 40/40、服务测试 1720/1720 ✅
 
 ---
 

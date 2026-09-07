@@ -351,6 +351,24 @@ mod tests {
     }
 
     #[test]
+    fn join_knock_restricted_authorized_is_legal() {
+        let c = TransitionCtx { join_rule: JoinRule::KnockRestricted, restricted_join_authorized: true, ..ctx() };
+        assert_eq!(is_legal(None, Membership::Join, &c), Ok(()));
+    }
+
+    #[test]
+    fn join_knock_restricted_unauthorized_is_rejected() {
+        let c = TransitionCtx { join_rule: JoinRule::KnockRestricted, restricted_join_authorized: false, ..ctx() };
+        assert_eq!(is_legal(None, Membership::Join, &c), Err(TransitionError::NotInvited));
+    }
+
+    #[test]
+    fn join_knock_restricted_without_invite_is_rejected() {
+        let c = TransitionCtx { join_rule: JoinRule::KnockRestricted, ..ctx() };
+        assert_eq!(is_legal(None, Membership::Join, &c), Err(TransitionError::NotInvited));
+    }
+
+    #[test]
     fn join_on_behalf_of_another_is_illegal() {
         let c = TransitionCtx { actor_is_target: false, ..ctx() };
         assert_eq!(is_legal(None, Membership::Join, &c), Err(TransitionError::InvalidTransition));
