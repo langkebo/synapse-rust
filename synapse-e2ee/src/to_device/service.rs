@@ -1,4 +1,4 @@
-use super::storage::{ToDeviceMessage, ToDeviceStorage};
+use super::storage::{ToDeviceMessage, ToDeviceStorage, ToDeviceStorageApi};
 use serde_json::Value;
 use std::sync::Arc;
 use synapse_common::map_database;
@@ -10,15 +10,20 @@ const TRANSACTION_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1000;
 #[derive(Clone)]
 /// The `ToDeviceService` type.
 pub struct ToDeviceService {
-    storage: ToDeviceStorage,
+    storage: Arc<dyn ToDeviceStorageApi>,
     user_storage: Option<Arc<dyn UserStore>>,
 }
 
 /// (see code)
 impl ToDeviceService {
     /// See [`new`].
-    pub fn new(storage: ToDeviceStorage) -> Self {
+    pub fn new(storage: Arc<dyn ToDeviceStorageApi>) -> Self {
         Self { storage, user_storage: None }
+    }
+
+    /// See [`new_from_pool`].
+    pub fn new_from_pool(pool: &Arc<sqlx::PgPool>) -> Self {
+        Self::new(Arc::new(ToDeviceStorage::new(pool)))
     }
 
     /// See [`with_user_storage`].
@@ -118,6 +123,10 @@ impl ToDeviceService {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use super::ToDeviceService;
+    use crate::test_mocks::InMemoryToDeviceStorage;
     use serde_json::json;
 
     #[test]
@@ -213,5 +222,95 @@ mod tests {
         assert_eq!(msg.event_type, "m.room_key");
         assert_eq!(msg.message_id, Some("txn_001"));
         assert!(msg.content.is_object());
+    }
+
+    // ── TRANSACTION_MAX_AGE_MS constant ──────────────────────────
+
+    #[test]
+    fn test_transaction_max_age_is_24_hours() {
+        // 24h = 86_400_000ms
+        assert_eq!(super::TRANSACTION_MAX_AGE_MS, 24 * 60 * 60 * 1000);
+    }
+
+    #[test]
+    fn test_to_device_message_with_no_message_id() {
+        // When message_id is None, dedup is skipped — the message flows
+        // through directly without recording a transaction.
+        use super::super::storage::ToDeviceMessage;
+        use serde_json::json;
+
+        let msg = ToDeviceMessage {
+            sender_user_id: "@alice:example.com",
+            sender_device_id: "DEVICE_A",
+            recipient_user_id: "@bob:example.com",
+            recipient_device_id: "DEVICE_B",
+            event_type: "m.room_key",
+            message_id: None,
+            content: json!({"algorithm": "m.megolm.v1.aes-sha2"}),
+        };
+
+        assert!(msg.message_id.is_none());
+    }
+
+    #[test]
+    fn test_to_device_message_with_empty_content() {
+        use super::super::storage::ToDeviceMessage;
+        use serde_json::json;
+
+        let msg = ToDeviceMessage {
+            sender_user_id: "@alice:example.com",
+            sender_device_id: "DEVICE_A",
+            recipient_user_id: "@bob:example.com",
+            recipient_device_id: "DEVICE_B",
+            event_type: "m.forwarded_room_key",
+            message_id: None,
+            content: json!({}),
+        };
+
+        assert!(msg.content.is_object());
+        assert!(msg.content.as_object().unwrap().is_empty());
+    }
+
+    // ── send_messages service logic tests (InMemory mock) ────────────────────────
+
+    #[tokio::test]
+    async fn test_send_messages_skip_duplicate_transaction() {
+        use crate::test_mocks::InMemoryToDeviceStorage;
+
+        let storage = Arc::new(InMemoryToDeviceStorage::new());
+        let svc = ToDeviceService::new(storage.clone());
+
+        let messages = json!({
+            "@bob:example.com": {"DEVICE_B": {"type": "m.room_key"}}
+        });
+
+        // First call: should succeed (first time).
+        svc.send_messages("@alice:example.com", "DEV_A", "m.room_key", Some("txn_001"), &messages)
+            .await.unwrap();
+        assert_eq!(storage.transaction_count().await, 1);
+
+        // Second call with same txn_id: should be a dedup hit — no error, no message added.
+        // InMemoryToDeviceStorage doesn't track devices, so add_messages_batch would
+        // insert even non-existent recipients. The dedup itself is what we test here.
+        svc.send_messages("@alice:example.com", "DEV_A", "m.room_key", Some("txn_001"), &messages)
+            .await.unwrap();
+        assert_eq!(storage.transaction_count().await, 1, "duplicate txn should not be recorded");
+    }
+
+    #[tokio::test]
+    async fn test_send_messages_no_message_id_skips_dedup() {
+        use crate::test_mocks::InMemoryToDeviceStorage;
+
+        let storage = Arc::new(InMemoryToDeviceStorage::new());
+        let svc = ToDeviceService::new(storage.clone());
+
+        let messages = json!({
+            "@bob:example.com": {"DEVICE_B": {"type": "m.room_key"}}
+        });
+
+        // No message_id → no transaction recorded, no dedup.
+        svc.send_messages("@alice:example.com", "DEV_A", "m.room_key", None, &messages)
+            .await.unwrap();
+        assert_eq!(storage.transaction_count().await, 0, "no txn recorded when message_id is None");
     }
 }

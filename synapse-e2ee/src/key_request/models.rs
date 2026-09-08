@@ -349,4 +349,82 @@ mod tests {
         let rt: KeyRequestAction = serde_json::from_str(&json).unwrap();
         assert_eq!(rt, action);
     }
+
+    // ── KeyRequestInfo ──────────────────────────────────────────
+
+    #[test]
+    fn key_request_info_serde_roundtrip() {
+        let info = KeyRequestInfo {
+            request_id: "req-uuid-001".to_string(),
+            user_id: "@alice:example.org".to_string(),
+            device_id: "DEVICE1".to_string(),
+            room_id: "!room:example.org".to_string(),
+            session_id: "session1".to_string(),
+            algorithm: "m.megolm.v1.aes-sha2".to_string(),
+            action: "request".to_string(),
+            created_ts: 1_700_000_000_000,
+            is_fulfilled: false,
+            fulfilled_by_device: None,
+            fulfilled_ts: None,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let rt: KeyRequestInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.request_id, info.request_id);
+        assert_eq!(rt.is_fulfilled, false);
+        assert_eq!(rt.fulfilled_by_device, None);
+    }
+
+    #[test]
+    fn key_request_info_fulfilled_roundtrip() {
+        let info = KeyRequestInfo {
+            request_id: "req-uuid-002".to_string(),
+            user_id: "@bob:example.org".to_string(),
+            device_id: "DEVICE2".to_string(),
+            room_id: "!room:example.org".to_string(),
+            session_id: "session2".to_string(),
+            algorithm: "m.megolm.v1.aes-sha2".to_string(),
+            action: "request".to_string(),
+            created_ts: 1_700_000_001_000,
+            is_fulfilled: true,
+            fulfilled_by_device: Some("DEVICE3".to_string()),
+            fulfilled_ts: Some(1_700_000_002_000),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let rt: KeyRequestInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.is_fulfilled, true);
+        assert_eq!(rt.fulfilled_by_device, Some("DEVICE3".to_string()));
+        assert_eq!(rt.fulfilled_ts, Some(1_700_000_002_000));
+    }
+
+    // ── KeyShareResponse ────────────────────────────────────────
+
+    #[test]
+    fn key_share_response_no_forwarding_key() {
+        let resp = KeyShareResponse {
+            room_id: "!room:example.org".to_string(),
+            session_id: "session1".to_string(),
+            session_key: "encrypted_key_data".to_string(),
+            sender_key: "curve25519_sender_key".to_string(),
+            algorithm: "m.megolm.v1.aes-sha2".to_string(),
+            forwarding_curve25519_key: None,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let rt: KeyShareResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.forwarding_curve25519_key, None);
+    }
+
+    #[test]
+    fn key_share_response_with_forwarding_key() {
+        let resp = KeyShareResponse {
+            room_id: "!room:example.org".to_string(),
+            session_id: "session1".to_string(),
+            session_key: "encrypted_key_data".to_string(),
+            sender_key: "curve25519_sender_key".to_string(),
+            algorithm: "m.megolm.v1.aes-sha2".to_string(),
+            forwarding_curve25519_key: Some("forwarded_curve_key".to_string()),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let rt: KeyShareResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.forwarding_curve25519_key, Some("forwarded_curve_key".to_string()));
+    }
 }

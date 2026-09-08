@@ -277,4 +277,76 @@ mod tests {
         assert!(request_matches_status(&sample_request("request", true), KeyRequestStatusFilter::Fulfilled,));
         assert!(!request_matches_status(&sample_request("cancellation", true), KeyRequestStatusFilter::Fulfilled,));
     }
+
+    // ── KeyRequestStatusFilter::from_query ──────────────────────
+
+    #[test]
+    fn status_filter_from_query_pending() {
+        assert_eq!(KeyRequestStatusFilter::from_query(Some("pending")).unwrap(), KeyRequestStatusFilter::Pending);
+    }
+
+    #[test]
+    fn status_filter_from_query_fulfilled() {
+        assert_eq!(KeyRequestStatusFilter::from_query(Some("fulfilled")).unwrap(), KeyRequestStatusFilter::Fulfilled);
+    }
+
+    #[test]
+    fn status_filter_from_query_cancelled_variants() {
+        assert_eq!(KeyRequestStatusFilter::from_query(Some("cancelled")).unwrap(), KeyRequestStatusFilter::Cancelled);
+        assert_eq!(KeyRequestStatusFilter::from_query(Some("canceled")).unwrap(), KeyRequestStatusFilter::Cancelled);
+        assert_eq!(KeyRequestStatusFilter::from_query(Some("cancellation")).unwrap(), KeyRequestStatusFilter::Cancelled);
+    }
+
+    #[test]
+    fn status_filter_from_query_all() {
+        assert_eq!(KeyRequestStatusFilter::from_query(Some("all")).unwrap(), KeyRequestStatusFilter::All);
+    }
+
+    #[test]
+    fn status_filter_from_query_none_defaults_to_all() {
+        assert_eq!(KeyRequestStatusFilter::from_query(None).unwrap(), KeyRequestStatusFilter::All);
+    }
+
+    #[test]
+    fn status_filter_from_query_empty_string_rejects() {
+        // Some("") does NOT default to "all" — the empty string hits the catch-all error arm.
+        let result = KeyRequestStatusFilter::from_query(Some(""));
+        assert!(result.is_err(), "empty string is not a valid status");
+    }
+
+    #[test]
+    fn status_filter_from_query_unknown_rejects() {
+        let result = KeyRequestStatusFilter::from_query(Some("invalid_status"));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("Unsupported room key request status"));
+    }
+
+    #[test]
+    fn status_filter_from_query_case_sensitive() {
+        // Status matching is case-sensitive: "Pending" ≠ "pending"
+        let result = KeyRequestStatusFilter::from_query(Some("Pending"));
+        assert!(result.is_err(), "case-sensitive matching should reject 'Pending'");
+    }
+
+    // ── KeyRequestInfo construction ─────────────────────────────
+
+    #[test]
+    fn key_request_info_all_fields() {
+        let info = KeyRequestInfo {
+            request_id: "req-test".to_string(),
+            user_id: "@alice:example.org".to_string(),
+            device_id: "DEVICE1".to_string(),
+            room_id: "!room:test.org".to_string(),
+            session_id: "session1".to_string(),
+            algorithm: "m.megolm.v1.aes-sha2".to_string(),
+            action: "request".to_string(),
+            created_ts: 1_700_000_000_000,
+            is_fulfilled: false,
+            fulfilled_by_device: None,
+            fulfilled_ts: None,
+        };
+        assert_eq!(info.request_id, "req-test");
+        assert_eq!(info.is_fulfilled, false);
+        assert_eq!(info.fulfilled_by_device, None);
+    }
 }

@@ -295,4 +295,154 @@ mod tests {
         assert_eq!(rt_no_passphrase.passphrase, None);
         assert_eq!(rt_no_passphrase.rooms, None);
     }
+
+    // ── SecureBackupAuthData edge cases ─────────────────────────
+
+    #[test]
+    fn auth_data_empty_optional_fields() {
+        let auth = SecureBackupAuthData {
+            salt: String::new(),
+            iterations: 0,
+            backup_id: String::new(),
+            public_key: None,
+        };
+
+        // Should serialize/deserialize without panic
+        let json = serde_json::to_string(&auth).unwrap();
+        let rt: SecureBackupAuthData = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.salt, "");
+        assert_eq!(rt.iterations, 0);
+        assert_eq!(rt.public_key, None);
+    }
+
+    #[test]
+    fn auth_data_with_public_key() {
+        let auth = SecureBackupAuthData {
+            salt: "realsalt".to_string(),
+            iterations: 600000,
+            backup_id: "b-uuid".to_string(),
+            public_key: Some("curve25519:pubkey123".to_string()),
+        };
+
+        let json = serde_json::to_string(&auth).unwrap();
+        let rt: SecureBackupAuthData = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.public_key, Some("curve25519:pubkey123".to_string()));
+    }
+
+    // ── SessionKeyData edge cases ───────────────────────────────
+
+    #[test]
+    fn session_key_empty_keys_and_rooms() {
+        let data = SessionKeyData {
+            room_id: String::new(),
+            session_id: String::new(),
+            first_message_index: 0,
+            forwarded_count: 0,
+            is_verified: false,
+            session_key: String::new(),
+        };
+        let json = serde_json::to_string(&data).unwrap();
+        let rt: SessionKeyData = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.is_verified, false);
+    }
+
+    #[test]
+    fn session_key_data_verified_false() {
+        let data = SessionKeyData {
+            room_id: "!a:test.org".to_string(),
+            session_id: "sid-1".to_string(),
+            first_message_index: 5,
+            forwarded_count: 3,
+            is_verified: false,
+            session_key: "encrypted_key_data".to_string(),
+        };
+        assert!(!data.is_verified);
+        assert_eq!(data.forwarded_count, 3);
+        assert_eq!(data.first_message_index, 5);
+    }
+
+    // ── RestoreResponse ─────────────────────────────────────────
+
+    #[test]
+    fn restore_response_empty_sessions() {
+        let resp = RestoreResponse { total_keys: 0, sessions: vec![] };
+        assert_eq!(resp.total_keys, 0);
+        assert!(resp.sessions.is_empty());
+    }
+
+    #[test]
+    fn restore_response_with_sessions() {
+        let resp = RestoreResponse {
+            total_keys: 2,
+            sessions: vec![
+                EncryptedSessionKey {
+                    room_id: "!a:test.org".to_string(),
+                    session_id: "s1".to_string(),
+                    session_key: "enc1".to_string(),
+                },
+                EncryptedSessionKey {
+                    room_id: "!b:test.org".to_string(),
+                    session_id: "s2".to_string(),
+                    session_key: "enc2".to_string(),
+                },
+            ],
+        };
+        assert_eq!(resp.sessions.len(), 2);
+        assert_eq!(resp.sessions[0].room_id, "!a:test.org");
+        assert_eq!(resp.sessions[1].session_id, "s2");
+    }
+
+    // ── SecureBackupResponse ────────────────────────────────────
+
+    #[test]
+    fn secure_backup_response_roundtrip() {
+        let auth_data = SecureBackupAuthData {
+            salt: "salt".to_string(),
+            iterations: 100000,
+            backup_id: "b-uuid".to_string(),
+            public_key: Some("key".to_string()),
+        };
+        let resp = SecureBackupResponse {
+            backup_id: "b-uuid".to_string(),
+            version: "v1".to_string(),
+            algorithm: "m.megolm_backup.v1.curve25519-aes-sha2".to_string(),
+            auth_data,
+            key_count: 5,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let rt: SecureBackupResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.backup_id, "b-uuid");
+        assert_eq!(rt.version, "v1");
+        assert_eq!(rt.key_count, 5);
+    }
+
+    // ── BackupVersion ───────────────────────────────────────────
+
+    #[test]
+    fn backup_version_etag_none() {
+        let version = BackupVersion {
+            backup_id: "b1".to_string(),
+            version: "v1".to_string(),
+            algorithm: "algo".to_string(),
+            auth_data: serde_json::json!({}),
+            etag: None,
+            key_count: 10,
+            created_ts: 1_000_000,
+        };
+        assert!(version.etag.is_none());
+    }
+
+    #[test]
+    fn backup_version_etag_some() {
+        let version = BackupVersion {
+            backup_id: "b1".to_string(),
+            version: "v1".to_string(),
+            algorithm: "algo".to_string(),
+            auth_data: serde_json::json!({}),
+            etag: Some("abc123".to_string()),
+            key_count: 10,
+            created_ts: 1_000_000,
+        };
+        assert_eq!(version.etag, Some("abc123".to_string()));
+    }
 }

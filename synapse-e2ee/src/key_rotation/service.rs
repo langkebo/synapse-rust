@@ -932,4 +932,58 @@ mod tests {
         let continue_pos = body.find("continue;").expect("dedup branch should skip with continue");
         assert!(continue_pos > dedup_pos && continue_pos < share_pos, "continue should sit between dedup and share");
     }
+
+    // -----------------------------------------------------------
+    // KeyRotationConfig edge cases (non-async)
+    // -----------------------------------------------------------
+
+    #[test]
+    fn test_key_rotation_custom_config_values() {
+        let mut cfg = KeyRotationConfig::default();
+        cfg.olm_rotation_days = 30;
+        cfg.megolm_rotation_messages = 500;
+        cfg.max_session_age_days = 180;
+        cfg.enable_auto_rotation = false;
+
+        assert_eq!(cfg.olm_rotation_days, 30);
+        assert_eq!(cfg.megolm_rotation_messages, 500);
+        assert_eq!(cfg.max_session_age_days, 180);
+        assert!(!cfg.enable_auto_rotation);
+    }
+
+    #[test]
+    fn test_key_rotation_config_from_values() {
+        let cfg = KeyRotationConfig {
+            olm_rotation_days: 14,
+            megolm_rotation_messages: 200,
+            max_session_age_days: 60,
+            enable_auto_rotation: true,
+        };
+
+        assert_eq!(cfg.olm_rotation_days, 14);
+        assert_eq!(cfg.megolm_rotation_messages, 200);
+        assert_eq!(cfg.max_session_age_days, 60);
+        assert!(cfg.enable_auto_rotation);
+    }
+
+    // -----------------------------------------------------------
+    // should_rotate edge cases (async)
+    // -----------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_should_rotate_false_when_message_index_at_limit() {
+        // message_index == megolm_rotation_messages means rotate.
+        // message_index < megolm_rotation_messages means do not rotate.
+        let svc = build_service(KeyRotationConfig::default());
+        let session = make_session(99, Utc::now(), None);
+        assert!(!svc.should_rotate(&session).await.unwrap(), "message_index at boundary (99 < 100) should not rotate");
+    }
+
+    #[tokio::test]
+    async fn test_should_rotate_false_when_not_expired() {
+        let svc = build_service(KeyRotationConfig::default());
+        // Session with 1 day age (under 7-day default) and not expired.
+        let session = make_session(0, Utc::now() - Duration::days(1), Some(Utc::now() + Duration::days(30)));
+        assert!(!svc.should_rotate(&session).await.unwrap(), "recent session should not rotate");
+    }
 }

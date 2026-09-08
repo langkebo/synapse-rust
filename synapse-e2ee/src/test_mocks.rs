@@ -2,12 +2,14 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use serde_json::Value;
 use synapse_common::current_timestamp_millis;
 use tokio::sync::RwLock;
 
 use crate::device_keys::models::DeviceKey;
 use crate::device_keys::storage::DeviceKeyStoreApi;
 use crate::key_rotation::KeyRotationStorageApi;
+use crate::to_device::storage::{ToDeviceMessage, ToDeviceStorageApi};
 use std::collections::HashSet;
 use synapse_common::ApiError;
 
@@ -460,5 +462,102 @@ impl DeviceKeyStoreApi for InMemoryDeviceKeyStore {
         );
         self.signatures.write().await.insert(key, signature.to_string());
         Ok(())
+    }
+}
+
+// =============================================================================
+// InMemoryToDeviceStorage — mock for ToDeviceStorageApi
+// =============================================================================
+
+/// In-memory test double for [`ToDeviceStorageApi`].
+///
+/// Mirrors the semantics of [`crate::to_device::ToDeviceStorage`] without
+/// touching PostgreSQL. Suitable for unit tests covering
+/// `ToDeviceService::send_messages` dedup and batch dispatch logic.
+#[derive(Clone, Default)]
+// 一次性 mock 的多字段元组集合，拆 type 定义无收益（见项目 Clippy 沉淀）
+#[allow(clippy::type_complexity)]
+pub struct InMemoryToDeviceStorage {
+    /// `(sender_user_id, sender_device_id, message_id)` → `true` (seen)
+    transactions: Arc<RwLock<HashSet<(String, String, String)>>>,
+    /// All messages in order, keyed by a monotonically increasing stream_id
+    messages: Arc<RwLock<Vec<(i64, ToDeviceMessage<'static>)>>>,
+    next_stream_id: Arc<RwLock<i64>>,
+}
+
+impl InMemoryToDeviceStorage {
+    /// See [`new`].
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns all stored messages (for test assertions).
+    pub async fn messages(&self) -> Vec<(i64, Value)> {
+        self.messages.read().await.iter().map(|(sid, msg)| (*sid, msg.content.clone())).collect()
+    }
+
+    /// Count of stored messages.
+    pub async fn message_count(&self) -> usize {
+        self.messages.read().await.len()
+    }
+
+    /// Count of recorded transactions (dedup entries).
+    pub async fn transaction_count(&self) -> usize {
+        self.transactions.read().await.len()
+    }
+
+    /// Returns the number of unique (recipient_user_id, recipient_device_id) pairs
+    /// that exist in the store — i.e. recipients that would have received messages
+    /// if `add_messages_batch` were called with all of them.
+    pub async fn device_count(&self) -> usize {
+        self.messages.read().await.iter().map(|(_, m)| (&m.recipient_user_id, m.recipient_device_id)).collect::<HashSet<_>>().len()
+    }
+}
+
+#[async_trait::async_trait]
+impl ToDeviceStorageApi for InMemoryToDeviceStorage {
+    async fn record_transaction(
+        &self,
+        sender_user_id: &str,
+        sender_device_id: &str,
+        message_id: &str,
+    ) -> Result<bool, ApiError> {
+        let key = (sender_user_id.to_string(), sender_device_id.to_string(), message_id.to_string());
+        Ok(self.transactions.write().await.insert(key))
+    }
+
+    async fn cleanup_old_transactions(&self, _max_age_ms: i64) -> Result<u64, ApiError> {
+        // In-memory store does not age out — nothing to clean.
+        Ok(0)
+    }
+
+    async fn add_messages_batch(&self, messages: &[ToDeviceMessage<'_>]) -> Result<usize, ApiError> {
+        if messages.is_empty() {
+            return Ok(0);
+        }
+        let mut stream = self.next_stream_id.write().await;
+        let mut msgs = self.messages.write().await;
+        for msg in messages {
+            let sid = *stream;
+            *stream += 1;
+            msgs.push((sid, ToDeviceMessage {
+                sender_user_id: Box::leak(msg.sender_user_id.to_string().into_boxed_str()),
+                sender_device_id: Box::leak(msg.sender_device_id.to_string().into_boxed_str()),
+                recipient_user_id: Box::leak(msg.recipient_user_id.to_string().into_boxed_str()),
+                recipient_device_id: Box::leak(msg.recipient_device_id.to_string().into_boxed_str()),
+                event_type: Box::leak(msg.event_type.to_string().into_boxed_str()),
+                message_id: msg.message_id.map(|s| &*Box::leak(s.to_string().into_boxed_str())),
+                content: msg.content.clone(),
+            }));
+        }
+        Ok(messages.len())
+    }
+
+    async fn get_and_delete_messages(&self, user_id: &str, device_id: &str) -> Result<Vec<Value>, ApiError> {
+        let mut msgs = self.messages.write().await;
+        let before = msgs.len();
+        msgs.retain(|(_, m)| m.recipient_user_id != user_id || m.recipient_device_id != device_id);
+        let deleted = before - msgs.len();
+        Ok(vec![Value::Null; deleted])
     }
 }

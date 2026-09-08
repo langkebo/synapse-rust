@@ -6,6 +6,48 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::map_database;
 use synapse_common::ApiError;
 
+// ── ToDeviceStorageApi trait (for testability / InMemory mock) ────────────────
+
+/// Trait abstraction over [`ToDeviceStorage`] for testability.
+///
+/// Excludes `new` (constructor) — mock implementations are constructed directly.
+/// Methods are split into two categories:
+/// - **Core write/read** — needed by [`super::service::ToDeviceService`](crate::to_device::service::ToDeviceService)
+///   for `send_messages` and `get_messages_for_sync`.
+/// - **Batch helpers** — used by `ToDeviceStorage`'s own batch implementation
+///   (`device_exists_batch`). Not required for `InMemoryToDeviceStorage`.
+#[async_trait::async_trait]
+pub trait ToDeviceStorageApi: Send + Sync {
+    /// Record a sender-side transaction for idempotency (dedup).
+    /// Returns `true` if this was the first call (i.e., a new transaction was
+    /// inserted), or `false` if a duplicate was detected.
+    async fn record_transaction(
+        &self,
+        sender_user_id: &str,
+        sender_device_id: &str,
+        message_id: &str,
+    ) -> Result<bool, ApiError>;
+
+    /// Best-effort cleanup of old transaction records.
+    /// Warnings inside [`super::service::ToDeviceService::send_messages`] absorb errors.
+    async fn cleanup_old_transactions(&self, max_age_ms: i64) -> Result<u64, ApiError>;
+
+    /// Batch insert to-device messages, skipping recipients whose devices do not
+    /// exist. Returns the number of messages actually inserted.
+    async fn add_messages_batch(&self, messages: &[ToDeviceMessage<'_>]) -> Result<usize, ApiError>;
+
+    /// Retrieve and atomically delete all messages for a (user, device) pair,
+    /// ordered by stream_id. Used by `get_messages_for_sync`.
+    async fn get_and_delete_messages(&self, user_id: &str, device_id: &str) -> Result<Vec<Value>, ApiError>;
+}
+
+impl std::fmt::Debug for dyn ToDeviceStorageApi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ToDeviceStorageApi")
+    }
+}
+
+
 #[derive(Debug, Clone)]
 /// The `ToDeviceMessage` type.
 pub struct ToDeviceMessage<'a> {
@@ -507,5 +549,31 @@ impl ToDeviceStorage {
         .map_err(map_database!("delete_messages_up_to"))?;
 
         Ok(())
+    }
+}
+
+// ── Trait impl for ToDeviceStorage (delegates to inherent methods) ─────────────
+
+#[async_trait::async_trait]
+impl ToDeviceStorageApi for ToDeviceStorage {
+    async fn record_transaction(
+        &self,
+        sender_user_id: &str,
+        sender_device_id: &str,
+        message_id: &str,
+    ) -> Result<bool, ApiError> {
+        ToDeviceStorage::record_transaction(self, sender_user_id, sender_device_id, message_id).await
+    }
+
+    async fn cleanup_old_transactions(&self, max_age_ms: i64) -> Result<u64, ApiError> {
+        ToDeviceStorage::cleanup_old_transactions(self, max_age_ms).await
+    }
+
+    async fn add_messages_batch(&self, messages: &[ToDeviceMessage<'_>]) -> Result<usize, ApiError> {
+        ToDeviceStorage::add_messages_batch(self, messages).await
+    }
+
+    async fn get_and_delete_messages(&self, user_id: &str, device_id: &str) -> Result<Vec<Value>, ApiError> {
+        ToDeviceStorage::get_and_delete_messages(self, user_id, device_id).await
     }
 }
