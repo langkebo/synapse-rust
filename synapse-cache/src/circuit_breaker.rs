@@ -175,7 +175,7 @@ impl std::fmt::Debug for CircuitBreaker {
 }
 
 impl CircuitBreaker {
-/// Creates a new circuit breaker in the `Closed` (passing) state with the given config.
+    /// Creates a new circuit breaker in the `Closed` (passing) state with the given config.
     pub fn new(config: CircuitBreakerConfig) -> Self {
         Self {
             state: RwLock::new(CircuitState::Closed),
@@ -247,7 +247,7 @@ impl CircuitBreaker {
         });
     }
 
-/// Returns `true` if the breaker would allow a call through in its current state.
+    /// Returns `true` if the breaker would allow a call through in its current state.
     pub fn is_call_allowed(&self) -> bool {
         if !self.config.enabled {
             return true;
@@ -299,7 +299,7 @@ impl CircuitBreaker {
         }
     }
 
-/// Records a successful downstream call. Moves the breaker toward `Closed` if it is `HalfOpen`.
+    /// Records a successful downstream call. Moves the breaker toward `Closed` if it is `HalfOpen`.
     pub fn record_success(&self) {
         self.successful_requests.fetch_add(1, Ordering::Relaxed);
 
