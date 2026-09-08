@@ -68,6 +68,7 @@ mod device_storage_tests_migrated;
 mod directory_storage_tests;
 mod event_report_rate_limit_tests;
 mod event_storage_tests_migrated;
+mod event_txn_soft_fail_tests_migrated;
 mod feature_flags_storage_tests_migrated;
 mod federation_blacklist_storage_tests_migrated;
 mod filter_storage_tests_migrated;
@@ -82,7 +83,6 @@ mod presence_storage_tests_migrated;
 mod receipt_storage_tests_migrated;
 mod refresh_token_storage_tests_migrated;
 mod retention_storage_tests_migrated;
-mod event_txn_soft_fail_tests_migrated;
 mod room_alias_storage_tests_migrated;
 mod room_summary_storage_tests_migrated;
 mod room_tag_storage_tests_migrated;
@@ -116,9 +116,9 @@ mod uia_service_tests_migrated;
 // Schema contract tests migrated from tests/unit/
 mod db_schema_smoke_tests_migrated;
 mod e2ee_audit_service_tests;
-mod space_children_service_tests;
 mod schema_contract_p0_tests_migrated;
 mod schema_contract_room_summary_queue_driver_tests_migrated;
+mod space_children_service_tests;
 
 mod nullable_decode_tests;
 

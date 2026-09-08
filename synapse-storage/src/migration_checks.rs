@@ -35,23 +35,22 @@ pub async fn check_migration_completeness(pool: &Pool<Postgres>) -> Result<(i64,
     // may not exist on a fresh DB. Treat that case as "no sqlx records"
     // rather than as an error so the health check stays a warning, not a
     // fail-to-start.
-    let applied: Vec<i64> = match sqlx::query_scalar::<_, i64>(
-        "SELECT version FROM _sqlx_migrations ORDER BY version ASC",
-    )
-    .fetch_all(pool)
-    .await
-    {
-        Ok(v) => v,
-        Err(sqlx::Error::Database(db_err)) if db_err.code().as_deref() == Some("42P01") => {
-            // 42P01 = undefined_table: _sqlx_migrations does not exist.
-            // This is the expected state when migrations are managed
-            // externally (e.g. docker/db_migrate.sh). Skip the sqlx side
-            // of the check entirely.
-            debug!("_sqlx_migrations table not present; sqlx migration completeness check is a no-op");
-            return Ok((0, Vec::new()));
-        }
-        Err(e) => return Err(e),
-    };
+    let applied: Vec<i64> =
+        match sqlx::query_scalar::<_, i64>("SELECT version FROM _sqlx_migrations ORDER BY version ASC")
+            .fetch_all(pool)
+            .await
+        {
+            Ok(v) => v,
+            Err(sqlx::Error::Database(db_err)) if db_err.code().as_deref() == Some("42P01") => {
+                // 42P01 = undefined_table: _sqlx_migrations does not exist.
+                // This is the expected state when migrations are managed
+                // externally (e.g. docker/db_migrate.sh). Skip the sqlx side
+                // of the check entirely.
+                debug!("_sqlx_migrations table not present; sqlx migration completeness check is a no-op");
+                return Ok((0, Vec::new()));
+            }
+            Err(e) => return Err(e),
+        };
 
     debug!(applied_count = applied.len(), "queried _sqlx_migrations");
 

@@ -47,7 +47,6 @@ impl std::fmt::Debug for dyn ToDeviceStorageApi {
     }
 }
 
-
 #[derive(Debug, Clone)]
 /// The `ToDeviceMessage` type.
 pub struct ToDeviceMessage<'a> {

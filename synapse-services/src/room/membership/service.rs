@@ -413,6 +413,103 @@ impl MembershipService {
 
         Ok(())
     }
+
+    /// MSC4502: Paginated room members for client endpoints.
+    ///
+    /// Returns a page of members with a `next_batch` cursor for
+    /// continued pagination. `not_membership` excludes specified
+    /// membership types (e.g., "leave").
+    ///
+    /// The `next_batch` value is the `user_id` of the last member in
+    /// the current page; pass it as `from` in the next request.
+    pub async fn get_room_members_paginated(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        membership: Option<&str>,
+        not_membership: Option<&str>,
+        limit: i64,
+        from: Option<&str>,
+        dir: Option<&str>,
+    ) -> ApiResult<serde_json::Value> {
+        if !self
+            .room_storage
+            .room_exists(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to check room existence", &e))?
+        {
+            return Err(ApiError::not_found("Room not found".to_string()));
+        }
+
+        if !self
+            .member_storage
+            .is_member(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to check membership", &e))?
+        {
+            return Err(ApiError::forbidden("You are not a member of this room".to_string()));
+        }
+
+        let membership_str = membership.unwrap_or("join");
+        // Fetch limit+1 to detect if there are more pages
+        let members = self
+            .member_storage
+            .get_room_members_paginated_with_profiles(room_id, membership_str, not_membership, limit + 1, from, dir)
+            .await
+            .map_err(|e| ApiError::database_with_context("Failed to get paginated members", &e))?;
+
+        let has_more = members.len() as i64 > limit;
+        // Truncate to requested limit
+        let members: Vec<_> = members.into_iter().take(limit as usize).collect();
+
+        let (chunk, next_batch) = if members.is_empty() {
+            (Vec::new(), None)
+        } else {
+            let chunk: Vec<serde_json::Value> = members
+                .iter()
+                .map(|(m, dn, av)| {
+                    let mut content = serde_json::Map::new();
+                    content.insert("membership".to_string(), json!(m.membership));
+                    let effective_displayname = m.display_name.as_deref().or(dn.as_deref());
+                    if let Some(dn) = effective_displayname {
+                        content.insert("displayname".to_string(), json!(dn));
+                    }
+                    let effective_avatar_url = m.avatar_url.as_deref().or(av.as_deref());
+                    if let Some(au) = effective_avatar_url {
+                        content.insert("avatar_url".to_string(), json!(au));
+                    }
+                    if let Some(reason) = &m.reason {
+                        content.insert("reason".to_string(), json!(reason));
+                    }
+                    json!({
+                        "type": "m.room.member",
+                        "state_key": m.user_id,
+                        "content": content,
+                        "event_id": m.event_id,
+                        "origin_server_ts": m.joined_ts.unwrap_or(m.updated_ts.unwrap_or(0)),
+                        "room_id": m.room_id,
+                        "sender": m.sender.as_deref().unwrap_or(&m.user_id),
+                    })
+                })
+                .collect();
+
+            // next_batch = user_id of last member for forward, first for backward
+            let next = if dir.map(|d| d == "b").unwrap_or(false) {
+                chunk.first().and_then(|c| c.get("state_key").and_then(|v| v.as_str()).map(String::from))
+            } else {
+                chunk.last().and_then(|c| c.get("state_key").and_then(|v| v.as_str()).map(String::from))
+            };
+            (chunk, next)
+        };
+
+        let mut result = json!({ "chunk": chunk });
+        if has_more {
+            if let Some(nb) = next_batch {
+                result["next_batch"] = json!(nb);
+            }
+        }
+        Ok(result)
+    }
 }
 
 #[cfg(test)]

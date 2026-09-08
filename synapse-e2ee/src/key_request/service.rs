@@ -294,7 +294,10 @@ mod tests {
     fn status_filter_from_query_cancelled_variants() {
         assert_eq!(KeyRequestStatusFilter::from_query(Some("cancelled")).unwrap(), KeyRequestStatusFilter::Cancelled);
         assert_eq!(KeyRequestStatusFilter::from_query(Some("canceled")).unwrap(), KeyRequestStatusFilter::Cancelled);
-        assert_eq!(KeyRequestStatusFilter::from_query(Some("cancellation")).unwrap(), KeyRequestStatusFilter::Cancelled);
+        assert_eq!(
+            KeyRequestStatusFilter::from_query(Some("cancellation")).unwrap(),
+            KeyRequestStatusFilter::Cancelled
+        );
     }
 
     #[test]

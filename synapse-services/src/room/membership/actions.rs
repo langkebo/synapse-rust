@@ -523,10 +523,7 @@ mod tests {
     /// Build a service for *join* tests: creates a room with the given
     /// join_rule, seeds the `m.room.join_rules` state event, and optionally
     /// pre-seeds `@bob` with a membership state (e.g. "invite").
-    async fn build_join_service(
-        join_rule: &str,
-        seed_bob_membership: Option<&str>,
-    ) -> MembershipService {
+    async fn build_join_service(join_rule: &str, seed_bob_membership: Option<&str>) -> MembershipService {
         let member_store = InMemoryMemberStore::new();
         if let Some(mem) = seed_bob_membership {
             member_store.add_member(ROOM_ID, USER_ID, mem, None).await.unwrap();
@@ -535,10 +532,7 @@ mod tests {
         let event_store = Arc::new(InMemoryEventStore::new());
         let room_store = InMemoryRoomStore::new();
         // Seed a room with the specified join_rule.
-        room_store
-            .create_room(ROOM_ID, "@alice:localhost", join_rule, "10", false)
-            .await
-            .unwrap();
+        room_store.create_room(ROOM_ID, "@alice:localhost", join_rule, "10", false).await.unwrap();
         // Seed the m.room.join_rules state event so resolve_join_rule picks it up.
         event_store
             .create_event(synapse_storage::CreateEventParams {

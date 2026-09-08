@@ -437,13 +437,9 @@ impl KeyRotationManager {
         }
 
         let scheduler_interval_ms = manager.get_interval_ms().await;
-        tracing::info!(
-            "Auto-rotation scheduler interval: {}ms",
-            scheduler_interval_ms
-        );
+        tracing::info!("Auto-rotation scheduler interval: {}ms", scheduler_interval_ms);
 
-        let mut interval =
-            interval(TokioDuration::from_millis(scheduler_interval_ms as u64));
+        let mut interval = interval(TokioDuration::from_millis(scheduler_interval_ms as u64));
 
         tokio::spawn(async move {
             loop {

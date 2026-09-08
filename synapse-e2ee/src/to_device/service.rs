@@ -285,15 +285,13 @@ mod tests {
         });
 
         // First call: should succeed (first time).
-        svc.send_messages("@alice:example.com", "DEV_A", "m.room_key", Some("txn_001"), &messages)
-            .await.unwrap();
+        svc.send_messages("@alice:example.com", "DEV_A", "m.room_key", Some("txn_001"), &messages).await.unwrap();
         assert_eq!(storage.transaction_count().await, 1);
 
         // Second call with same txn_id: should be a dedup hit — no error, no message added.
         // InMemoryToDeviceStorage doesn't track devices, so add_messages_batch would
         // insert even non-existent recipients. The dedup itself is what we test here.
-        svc.send_messages("@alice:example.com", "DEV_A", "m.room_key", Some("txn_001"), &messages)
-            .await.unwrap();
+        svc.send_messages("@alice:example.com", "DEV_A", "m.room_key", Some("txn_001"), &messages).await.unwrap();
         assert_eq!(storage.transaction_count().await, 1, "duplicate txn should not be recorded");
     }
 
@@ -309,8 +307,7 @@ mod tests {
         });
 
         // No message_id → no transaction recorded, no dedup.
-        svc.send_messages("@alice:example.com", "DEV_A", "m.room_key", None, &messages)
-            .await.unwrap();
+        svc.send_messages("@alice:example.com", "DEV_A", "m.room_key", None, &messages).await.unwrap();
         assert_eq!(storage.transaction_count().await, 0, "no txn recorded when message_id is None");
     }
 }

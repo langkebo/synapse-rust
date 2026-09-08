@@ -1752,6 +1752,5 @@ impl FriendRoomProvider for FriendRoomService {
     }
 }
 
-
 #[cfg(test)]
 mod tests;

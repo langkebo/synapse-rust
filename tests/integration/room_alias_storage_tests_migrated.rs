@@ -91,28 +91,17 @@ async fn test_set_then_get_normalizes_server_case() {
         .get_room_by_alias(&format!("#B7SetGet_{suffix}:EXAMPLE.COM"))
         .await
         .expect("get_room_by_alias should succeed for the uppercased server_name");
-    assert_eq!(
-        lookup_upper,
-        Some(room_id.clone()),
-        "B-7: an all-uppercase lookup must resolve to the same room"
-    );
+    assert_eq!(lookup_upper, Some(room_id.clone()), "B-7: an all-uppercase lookup must resolve to the same room");
 
     // Direct DB inspection: the row's `room_alias` and `server_name` columns
     // must be stored in canonical (lowercased server_name) form.
-    let row: (String, String) =
-        sqlx::query_as("SELECT room_alias, server_name FROM room_aliases WHERE room_id = $1")
-            .bind(&room_id)
-            .fetch_one(pool.as_ref())
-            .await
-            .expect("room_aliases row must exist after set_room_alias");
-    assert_eq!(
-        row.0, canonical,
-        "B-7: persisted room_alias must have the server_name lowercased"
-    );
-    assert_eq!(
-        row.1, "example.com",
-        "B-7: persisted server_name column must be lowercased"
-    );
+    let row: (String, String) = sqlx::query_as("SELECT room_alias, server_name FROM room_aliases WHERE room_id = $1")
+        .bind(&room_id)
+        .fetch_one(pool.as_ref())
+        .await
+        .expect("room_aliases row must exist after set_room_alias");
+    assert_eq!(row.0, canonical, "B-7: persisted room_alias must have the server_name lowercased");
+    assert_eq!(row.1, "example.com", "B-7: persisted server_name column must be lowercased");
 }
 
 /// B-7: looking up a never-inserted alias (with arbitrary case) must return
@@ -126,15 +115,10 @@ async fn test_get_nonexistent_uppercased_server() {
     let suffix = unique_id();
     let absent_alias = format!("#B7Absent_{suffix}:NoSuchHost.Example");
 
-    let result = storage
-        .get_room_by_alias(&absent_alias)
-        .await
-        .expect("get_room_by_alias should not fail on absent alias");
+    let result =
+        storage.get_room_by_alias(&absent_alias).await.expect("get_room_by_alias should not fail on absent alias");
 
-    assert!(
-        result.is_none(),
-        "B-7: looking up an alias that was never inserted must return None, got {result:?}"
-    );
+    assert!(result.is_none(), "B-7: looking up an alias that was never inserted must return None, got {result:?}");
 
     // Re-query in a different case to make sure the normalizer didn't
     // accidentally synthesize a row.
@@ -161,10 +145,7 @@ async fn test_remove_normalizes_server_case() {
     let canonical = format!("#B7Remove_{suffix}:example.com");
 
     insert_room(&pool, &room_id).await;
-    storage
-        .set_room_alias(&room_id, &canonical, "@creator:localhost")
-        .await
-        .expect("set_room_alias should succeed");
+    storage.set_room_alias(&room_id, &canonical, "@creator:localhost").await.expect("set_room_alias should succeed");
 
     // Sanity: the alias resolves before removal.
     assert_eq!(
@@ -180,22 +161,18 @@ async fn test_remove_normalizes_server_case() {
         .expect("remove_room_alias_by_name should succeed");
 
     // The row must be gone for all case variants.
-    let after = storage
-        .get_room_by_alias(&canonical)
-        .await
-        .expect("get_room_by_alias should succeed after removal");
+    let after = storage.get_room_by_alias(&canonical).await.expect("get_room_by_alias should succeed after removal");
     assert!(
         after.is_none(),
         "B-7: alias must be removed even when the removal request used a different server_name case"
     );
 
     // Direct DB inspection: the row is fully gone (not just lowercased).
-    let row_count: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM room_aliases WHERE room_id = $1")
-            .bind(&room_id)
-            .fetch_one(pool.as_ref())
-            .await
-            .expect("count query should succeed");
+    let row_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM room_aliases WHERE room_id = $1")
+        .bind(&room_id)
+        .fetch_one(pool.as_ref())
+        .await
+        .expect("count query should succeed");
     assert_eq!(row_count.0, 0, "B-7: no rows must remain for the room after normalized removal");
 }
 
@@ -263,30 +240,20 @@ async fn test_legacy_uppercase_data_normalized_after_migration() {
     .expect("migration UPDATE should succeed");
 
     // The row must now be in canonical form.
-    let after: (String, String) =
-        sqlx::query_as("SELECT room_alias, server_name FROM room_aliases WHERE room_id = $1")
-            .bind(&room_id)
-            .fetch_one(pool.as_ref())
-            .await
-            .expect("row must still exist after migration");
+    let after: (String, String) = sqlx::query_as("SELECT room_alias, server_name FROM room_aliases WHERE room_id = $1")
+        .bind(&room_id)
+        .fetch_one(pool.as_ref())
+        .await
+        .expect("row must still exist after migration");
     assert_eq!(
         after.0, canonical_alias,
         "B-7 migration: legacy room_alias must be rewritten with the server_name lowercased"
     );
-    assert_eq!(
-        after.1, "example.com",
-        "B-7 migration: legacy server_name column must be lowercased"
-    );
+    assert_eq!(after.1, "example.com", "B-7 migration: legacy server_name column must be lowercased");
 
     // The new code path can now resolve the rewritten row via any case.
     let storage = RoomStorage::new(&pool);
-    let lookup = storage
-        .get_room_by_alias(&canonical_alias)
-        .await
-        .expect("get_room_by_alias should succeed post-migration");
-    assert_eq!(
-        lookup,
-        Some(room_id.clone()),
-        "B-7 migration: post-migration lookup must resolve to the room"
-    );
+    let lookup =
+        storage.get_room_by_alias(&canonical_alias).await.expect("get_room_by_alias should succeed post-migration");
+    assert_eq!(lookup, Some(room_id.clone()), "B-7 migration: post-migration lookup must resolve to the room");
 }

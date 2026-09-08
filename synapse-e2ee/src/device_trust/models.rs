@@ -16,7 +16,7 @@ pub enum DeviceTrustLevel {
     /// The `Blocked` variant.
     Unverified, // New device - requires verification
     /// The `Blocked` variant.
-    Blocked,  // Blocked - cannot decrypt any messages
+    Blocked, // Blocked - cannot decrypt any messages
 }
 
 /// (see code)
@@ -137,7 +137,7 @@ pub enum VerificationMethod {
     Sas, // Short Authentication String
     /// The `Qr` variant.
     /// The `Emoji` variant.
-    Qr,    // QR Code
+    Qr, // QR Code
     /// The `Emoji` variant.
     Emoji, // Emoji verification (alias for SAS)
 }
@@ -183,7 +183,7 @@ pub enum VerificationRequestStatus {
     /// The `Expired` variant.
     Rejected, // Verification rejected
     /// The `Expired` variant.
-    Expired,  // Verification timeout
+    Expired, // Verification timeout
 }
 
 /// (see code)

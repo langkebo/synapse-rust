@@ -51,10 +51,7 @@ fn setup_test_database(_pool: &Arc<sqlx::PgPool>) {
 }
 
 fn create_event_storage(pool: &Arc<sqlx::PgPool>) -> EventStorage {
-    EventStorage {
-        pool: pool.clone(),
-        server_name: "localhost".to_string(),
-    }
+    EventStorage { pool: pool.clone(), server_name: "localhost".to_string() }
 }
 
 /// Insert a placeholder room so that the room-level FK is satisfied for
@@ -114,10 +111,7 @@ async fn test_mark_event_soft_failed_preserves_row() {
     assert!(!before.0, "B-8: freshly inserted event must have soft_failed = FALSE");
 
     // Apply the B-8 transformation.
-    storage
-        .mark_event_soft_failed(&event_id)
-        .await
-        .expect("mark_event_soft_failed should succeed");
+    storage.mark_event_soft_failed(&event_id).await.expect("mark_event_soft_failed should succeed");
 
     // The row must still exist (no physical delete).
     let row_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM events WHERE event_id = $1")
@@ -257,26 +251,24 @@ async fn test_concurrent_txn_race_second_event_soft_failed_not_deleted() {
 
     // B-8 invariant 2: only the winner is visible to consumer read paths
     // that filter `WHERE soft_failed = FALSE`.
-    let visible_count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM events WHERE room_id = $1 AND soft_failed = FALSE",
-    )
-    .bind(&room_id)
-    .fetch_one(pool.as_ref())
-    .await
-    .expect("filtered count query should succeed");
+    let visible_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM events WHERE room_id = $1 AND soft_failed = FALSE")
+            .bind(&room_id)
+            .fetch_one(pool.as_ref())
+            .await
+            .expect("filtered count query should succeed");
     assert_eq!(
         visible_count.0, 1,
         "B-8: exactly one event must be visible after the soft-fail — the loser is hidden by the filter"
     );
 
     // B-8 invariant 3: the visible event is the winner.
-    let visible: (String, bool) = sqlx::query_as(
-        "SELECT event_id, soft_failed FROM events WHERE room_id = $1 AND soft_failed = FALSE",
-    )
-    .bind(&room_id)
-    .fetch_one(pool.as_ref())
-    .await
-    .expect("visible event should exist");
+    let visible: (String, bool) =
+        sqlx::query_as("SELECT event_id, soft_failed FROM events WHERE room_id = $1 AND soft_failed = FALSE")
+            .bind(&room_id)
+            .fetch_one(pool.as_ref())
+            .await
+            .expect("visible event should exist");
     assert_eq!(visible.0, winner_event_id, "B-8: the visible event must be the winner");
     assert!(!visible.1, "B-8: the visible event must have soft_failed = FALSE");
 

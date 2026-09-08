@@ -439,13 +439,13 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use std::sync::Arc;
+    use synapse_storage::event::{EventReader, EventWriter};
     use synapse_storage::test_mocks::{
         InMemoryEventStore, InMemoryMemberStore, InMemoryRoomStore, InMemoryRoomSummaryStore,
     };
     use synapse_storage::MemberStoreApi;
     use synapse_storage::RoomStoreApi;
     use synapse_storage::UserStore;
-    use synapse_storage::event::{EventReader, EventWriter};
 
     use crate::room::membership::service::{MembershipService, MembershipServiceConfig};
     use crate::room::summary::RoomSummaryService;
@@ -455,7 +455,8 @@ mod tests {
         let room_store = Arc::new(InMemoryRoomStore::new());
         let member_store = Arc::new(InMemoryMemberStore::new());
         let event_store = Arc::new(InMemoryEventStore::new());
-        let summary_store = Arc::new(InMemoryRoomSummaryStore::new()) as Arc<dyn synapse_storage::room_summary::RoomSummaryStoreApi>;
+        let summary_store =
+            Arc::new(InMemoryRoomSummaryStore::new()) as Arc<dyn synapse_storage::room_summary::RoomSummaryStoreApi>;
         let user_store = Arc::new(synapse_storage::test_mocks::FakeUserStore::new());
         let user_store_dyn: Arc<dyn UserStore> = user_store.clone();
         let room_summary = Arc::new(RoomSummaryService::new(
@@ -497,25 +498,14 @@ mod tests {
         let mem_store = svc.member_storage.clone();
 
         // Seed the room.
-        room_store
-            .create_room(room_id, "@creator:test.localhost", "knock", "1", false)
-            .await
-            .expect("create_room");
+        room_store.create_room(room_id, "@creator:test.localhost", "knock", "1", false).await.expect("create_room");
 
         // User is NOT a member yet — knock transitions from (none) to knock.
-        svc.knock_room(room_id, user_id, Some("need access"))
-            .await
-            .expect("knock_room should succeed");
+        svc.knock_room(room_id, user_id, Some("need access")).await.expect("knock_room should succeed");
 
         // Verify the member state.
-        let member = mem_store
-            .get_room_member(room_id, user_id)
-            .await
-            .expect("get_room_member");
-        assert!(
-            member.as_ref().is_some_and(|m| m.membership == "knock"),
-            "member should be in knock state"
-        );
+        let member = mem_store.get_room_member(room_id, user_id).await.expect("get_room_member");
+        assert!(member.as_ref().is_some_and(|m| m.membership == "knock"), "member should be in knock state");
     }
 
     #[tokio::test]
@@ -526,15 +516,9 @@ mod tests {
         let user_id = "@bob:test.localhost";
 
         let room_store = svc.room_storage.clone();
-        room_store
-            .create_room(room_id, "@creator:test.localhost", "invite", "1", false)
-            .await
-            .expect("create_room");
+        room_store.create_room(room_id, "@creator:test.localhost", "invite", "1", false).await.expect("create_room");
 
-        let err = svc
-            .knock_room(room_id, user_id, None)
-            .await
-            .expect_err("knock on invite-only room should fail");
+        let err = svc.knock_room(room_id, user_id, None).await.expect_err("knock on invite-only room should fail");
         assert!(
             err.to_string().to_lowercase().contains("transition")
                 || err.to_string().to_lowercase().contains("not allowed"),
@@ -550,11 +534,7 @@ mod tests {
             .knock_room("!nonexistent:test.localhost", "@alice:test.localhost", None)
             .await
             .expect_err("knock nonexistent room should fail");
-        assert!(
-            err.to_string().to_lowercase().contains("not found"),
-            "expected not_found error, got: {}",
-            err
-        );
+        assert!(err.to_string().to_lowercase().contains("not found"), "expected not_found error, got: {}", err);
     }
 
     #[tokio::test]
@@ -568,38 +548,18 @@ mod tests {
         let room_store = svc.room_storage.clone();
         let mem_store = svc.member_storage.clone();
 
-        room_store
-            .create_room(room_id, moderator, "invite", "1", false)
-            .await
-            .expect("create_room");
-        mem_store
-            .add_member(room_id, moderator, "join", None, None, None, None)
-            .await
-            .expect("mod join");
-        mem_store
-            .add_member(room_id, target, "join", None, None, None, None)
-            .await
-            .expect("target join");
+        room_store.create_room(room_id, moderator, "invite", "1", false).await.expect("create_room");
+        mem_store.add_member(room_id, moderator, "join", None, None, None, None).await.expect("mod join");
+        mem_store.add_member(room_id, target, "join", None, None, None, None).await.expect("target join");
 
         // Seed the target user so ban_user's user_exists check passes.
         let username = target.trim_start_matches('@').split(':').next().unwrap_or(target).to_string();
-        user_store
-            .create_user(target, &username, None, false)
-            .await
-            .expect("create_user");
+        user_store.create_user(target, &username, None, false).await.expect("create_user");
 
-        svc.ban_user(room_id, target, moderator, Some("repeated spam"))
-            .await
-            .expect("ban_user should succeed");
+        svc.ban_user(room_id, target, moderator, Some("repeated spam")).await.expect("ban_user should succeed");
 
-        let member = mem_store
-            .get_room_member(room_id, target)
-            .await
-            .expect("get_room_member");
-        assert!(
-            member.as_ref().is_some_and(|m| m.membership == "ban"),
-            "target should be banned, got: {member:?}"
-        );
+        let member = mem_store.get_room_member(room_id, target).await.expect("get_room_member");
+        assert!(member.as_ref().is_some_and(|m| m.membership == "ban"), "target should be banned, got: {member:?}");
     }
 
     #[tokio::test]
@@ -610,10 +570,7 @@ mod tests {
         let moderator = "@mod:test.localhost";
 
         let room_store = svc.room_storage.clone();
-        room_store
-            .create_room(room_id, moderator, "invite", "1", false)
-            .await
-            .expect("create_room");
+        room_store.create_room(room_id, moderator, "invite", "1", false).await.expect("create_room");
 
         let err = svc
             .ban_user(room_id, "@ghost:test.localhost", moderator, None)
@@ -638,25 +595,13 @@ mod tests {
         let room_store = svc.room_storage.clone();
         let mem_store = svc.member_storage.clone();
 
-        room_store
-            .create_room(room_id, unbanner, "invite", "1", false)
-            .await
-            .expect("create_room");
-        mem_store
-            .add_member(room_id, unbanner, "join", None, None, None, None)
-            .await
-            .expect("admin join");
-        mem_store
-            .add_member(room_id, target, "ban", None, None, None, None)
-            .await
-            .expect("ban target");
+        room_store.create_room(room_id, unbanner, "invite", "1", false).await.expect("create_room");
+        mem_store.add_member(room_id, unbanner, "join", None, None, None, None).await.expect("admin join");
+        mem_store.add_member(room_id, target, "ban", None, None, None, None).await.expect("ban target");
 
         svc.unban_user(room_id, target, unbanner).await.expect("unban_user should succeed");
 
-        let member = mem_store
-            .get_room_member(room_id, target)
-            .await
-            .expect("get_room_member");
+        let member = mem_store.get_room_member(room_id, target).await.expect("get_room_member");
         // After unban, membership row is deleted (not present).
         assert!(
             member.as_ref().is_some_and(|m| m.membership == "leave"),
@@ -676,34 +621,19 @@ mod tests {
         let mem_store = svc.member_storage.clone();
         let user_store = svc.user_storage.clone();
 
-        room_store
-            .create_room(room_id, admin, "invite", "1", false)
-            .await
-            .expect("create_room");
-        mem_store
-            .add_member(room_id, admin, "join", None, None, None, None)
-            .await
-            .expect("admin join");
-        mem_store
-            .add_member(room_id, target, "ban", None, None, None, None)
-            .await
-            .expect("ban");
+        room_store.create_room(room_id, admin, "invite", "1", false).await.expect("create_room");
+        mem_store.add_member(room_id, admin, "join", None, None, None, None).await.expect("admin join");
+        mem_store.add_member(room_id, target, "ban", None, None, None, None).await.expect("ban");
         // Seed the user so invite_user's user_exists check passes.
         let username = target.trim_start_matches('@').split(':').next().unwrap_or(target).to_string();
-        user_store
-            .create_user(target, &username, None, false)
-            .await
-            .expect("create_user");
+        user_store.create_user(target, &username, None, false).await.expect("create_user");
 
         svc.unban_user(room_id, target, admin).await.expect("unban");
 
         // After unban, invite should succeed (FakeRoomAuth allows it).
         svc.invite_user(room_id, admin, target).await.expect("invite after unban");
 
-        let member = mem_store
-            .get_room_member(room_id, target)
-            .await
-            .expect("get_room_member");
+        let member = mem_store.get_room_member(room_id, target).await.expect("get_room_member");
         assert!(
             member.as_ref().is_some_and(|m| m.membership == "invite"),
             "should be invited after unban, got: {member:?}"
@@ -721,34 +651,17 @@ mod tests {
         let room_store = svc.room_storage.clone();
         let mem_store = svc.member_storage.clone();
 
-        room_store
-            .create_room(room_id, actor, "invite", "1", false)
-            .await
-            .expect("create_room");
-        mem_store
-            .add_member(room_id, actor, "join", None, None, None, None)
-            .await
-            .expect("mod join");
-        mem_store
-            .add_member(room_id, target, "join", None, None, None, None)
-            .await
-            .expect("target join");
+        room_store.create_room(room_id, actor, "invite", "1", false).await.expect("create_room");
+        mem_store.add_member(room_id, actor, "join", None, None, None, None).await.expect("mod join");
+        mem_store.add_member(room_id, target, "join", None, None, None, None).await.expect("target join");
 
         // Seed the target user so kick_user's user_exists check passes.
         let username = target.trim_start_matches('@').split(':').next().unwrap_or(target).to_string();
-        user_store
-            .create_user(target, &username, None, false)
-            .await
-            .expect("create_user");
+        user_store.create_user(target, &username, None, false).await.expect("create_user");
 
-        svc.kick_user(room_id, target, actor, Some("behaving badly"))
-            .await
-            .expect("kick_user should succeed");
+        svc.kick_user(room_id, target, actor, Some("behaving badly")).await.expect("kick_user should succeed");
 
-        let member = mem_store
-            .get_room_member(room_id, target)
-            .await
-            .expect("get_room_member");
+        let member = mem_store.get_room_member(room_id, target).await.expect("get_room_member");
         assert!(
             member.as_ref().is_some_and(|m| m.membership == "leave"),
             "kicked user should have leave membership (mock converts join→leave), got: {member:?}"
@@ -767,29 +680,15 @@ mod tests {
         let mem_store = svc.member_storage.clone();
         let user_store = svc.user_storage.clone();
 
-        room_store
-            .create_room(room_id, inviter, "invite", "1", false)
-            .await
-            .expect("create_room");
-        mem_store
-            .add_member(room_id, inviter, "join", None, None, None, None)
-            .await
-            .expect("inviter join");
+        room_store.create_room(room_id, inviter, "invite", "1", false).await.expect("create_room");
+        mem_store.add_member(room_id, inviter, "join", None, None, None, None).await.expect("inviter join");
         // Seed the user so invite_user's user_exists check passes.
         let username = invitee.trim_start_matches('@').split(':').next().unwrap_or(invitee).to_string();
-        user_store
-            .create_user(invitee, &username, None, false)
-            .await
-            .expect("create_user");
+        user_store.create_user(invitee, &username, None, false).await.expect("create_user");
 
-        svc.invite_user(room_id, inviter, invitee)
-            .await
-            .expect("invite_user should succeed");
+        svc.invite_user(room_id, inviter, invitee).await.expect("invite_user should succeed");
 
-        let member = mem_store
-            .get_room_member(room_id, invitee)
-            .await
-            .expect("get_room_member");
+        let member = mem_store.get_room_member(room_id, invitee).await.expect("get_room_member");
         assert!(
             member.as_ref().is_some_and(|m| m.membership == "invite"),
             "invitee should be in invite state, got: {member:?}"

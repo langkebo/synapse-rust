@@ -364,10 +364,7 @@ impl AdminUserService {
             while let Some((room_id, result)) = stream.next().await {
                 match result {
                     Ok(()) => removed.push(room_id),
-                    Err(e) => failures.push(AdminEvictionFailure {
-                        room_id: room_id.clone(),
-                        error: e.to_string(),
-                    }),
+                    Err(e) => failures.push(AdminEvictionFailure { room_id: room_id.clone(), error: e.to_string() }),
                 }
             }
 
@@ -901,12 +898,11 @@ mod cursor_tests {
     #[tokio::test]
     async fn test_admin_user_service_builder_tunes_concurrency() {
         // Construct a minimal service — we only test the builder plumbing.
-        use synapse_storage::test_mocks::{InMemoryMemberStore, InMemoryRoomStore, FakeUserStore};
         use synapse_storage::device::DeviceListStoreApi;
+        use synapse_storage::test_mocks::{FakeUserStore, InMemoryMemberStore, InMemoryRoomStore};
 
         let user_store = Arc::new(FakeUserStore::default());
-        let member_store: Arc<dyn synapse_storage::membership::MemberStoreApi> =
-            Arc::new(InMemoryMemberStore::new());
+        let member_store: Arc<dyn synapse_storage::membership::MemberStoreApi> = Arc::new(InMemoryMemberStore::new());
         let room_store: Arc<dyn synapse_storage::RoomStoreApi> = Arc::new(InMemoryRoomStore::new());
         let device_store: Arc<dyn DeviceListStoreApi> =
             Arc::new(synapse_storage::test_mocks::InMemoryDeviceListStore::new());
@@ -929,8 +925,8 @@ mod cursor_tests {
 
     #[tokio::test]
     async fn test_admin_user_service_builder_coerces_zero_concurrency_to_one() {
-        use synapse_storage::test_mocks::{InMemoryMemberStore, InMemoryRoomStore, FakeUserStore};
         use synapse_storage::device::DeviceListStoreApi;
+        use synapse_storage::test_mocks::{FakeUserStore, InMemoryMemberStore, InMemoryRoomStore};
 
         let user_store = Arc::new(FakeUserStore::default());
         let device_store: Arc<dyn DeviceListStoreApi> =

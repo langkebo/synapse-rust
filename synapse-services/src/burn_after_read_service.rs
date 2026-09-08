@@ -357,11 +357,7 @@ impl BurnAfterReadService {
                         to_dead_letter.push(row.id);
                     }
                 }
-                if let Err(e2) = self
-                    .storage
-                    .increment_retry_count(&successfully_processed_ids, &mark_err_str)
-                    .await
-                {
+                if let Err(e2) = self.storage.increment_retry_count(&successfully_processed_ids, &mark_err_str).await {
                     ::tracing::error!(
                         error = %e2,
                         count = successfully_processed_ids.len(),
@@ -416,9 +412,7 @@ impl BurnAfterReadService {
                         &successfully_processed_ids
                             .iter()
                             .filter(|id| {
-                                expired_rows
-                                    .iter()
-                                    .any(|r| r.id == **id && r.retry_count + 1 >= BURN_MAX_RETRY)
+                                expired_rows.iter().any(|r| r.id == **id && r.retry_count + 1 >= BURN_MAX_RETRY)
                             })
                             .copied()
                             .collect::<Vec<_>>(),

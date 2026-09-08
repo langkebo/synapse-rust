@@ -51,71 +51,71 @@ pub(crate) async fn process_inbound_edus(
 
     super::super::increment_gauge(ctx, "federation_inbound_edu_in_flight");
 
-    let result = async {
-        let (_global_permit, wait_ms) = super::super::acquire_with_timeout(
-            ctx.federation_inbound_edu_semaphore.clone(),
-            ctx.config.federation.inbound_edu_acquire_timeout_ms,
-        )
-        .await?;
-        super::super::observe_histogram(ctx, "federation_inbound_edu_wait_ms", wait_ms as f64);
+    let result =
+        async {
+            let (_global_permit, wait_ms) = super::super::acquire_with_timeout(
+                ctx.federation_inbound_edu_semaphore.clone(),
+                ctx.config.federation.inbound_edu_acquire_timeout_ms,
+            )
+            .await?;
+            super::super::observe_histogram(ctx, "federation_inbound_edu_wait_ms", wait_ms as f64);
 
-        let _origin_permit = super::acquire_origin_edu_permit(ctx, origin).await?.0;
+            let _origin_permit = super::acquire_origin_edu_permit(ctx, origin).await?.0;
 
-        let backoff_ms = super::get_presence_backoff_remaining_ms(ctx, origin).await;
-        if backoff_ms.is_some() {
-            super::super::increment_counter(ctx, "federation_inbound_presence_backoff_total");
-            ::tracing::debug!(
-                "Skipping presence EDU processing for origin {} due to backoff {backoff_ms:?}ms",
-                origin,
-            );
-        }
-
-        for edu in edus.iter().take(inbound_edus_max_per_txn) {
-            stats.edus_processed += 1;
-            let edu_type_str = edu.get("edu_type").and_then(|v| v.as_str()).unwrap_or("");
-
-            if edu_type_str == "m.presence" && !process_inbound_presence_edus {
-                continue;
-            }
-            if edu_type_str == "m.presence"
-                && super::get_presence_backoff_remaining_ms(ctx, origin).await.is_some()
-            {
-                continue;
+            let backoff_ms = super::get_presence_backoff_remaining_ms(ctx, origin).await;
+            if backoff_ms.is_some() {
+                super::super::increment_counter(ctx, "federation_inbound_presence_backoff_total");
+                ::tracing::debug!(
+                    "Skipping presence EDU processing for origin {} due to backoff {backoff_ms:?}ms",
+                    origin,
+                );
             }
 
-            let remaining = if edu_type_str == "m.presence" {
-                inbound_presence_updates_max_per_txn.saturating_sub(total_processed)
-            } else {
-                inbound_edus_max_per_txn
-            };
+            for edu in edus.iter().take(inbound_edus_max_per_txn) {
+                stats.edus_processed += 1;
+                let edu_type_str = edu.get("edu_type").and_then(|v| v.as_str()).unwrap_or("");
 
-            if remaining == 0 {
-                continue;
-            }
+                if edu_type_str == "m.presence" && !process_inbound_presence_edus {
+                    continue;
+                }
+                if edu_type_str == "m.presence" && super::get_presence_backoff_remaining_ms(ctx, origin).await.is_some()
+                {
+                    continue;
+                }
 
-            match EduDispatcher::dispatch(ctx, origin, edu, remaining).await {
-                Some(result) => {
-                    total_processed += result.processed;
-                    total_dropped += result.dropped;
-                    total_errored += result.errored;
-                    if result.errored > 0 {
-                        break;
+                let remaining = if edu_type_str == "m.presence" {
+                    inbound_presence_updates_max_per_txn.saturating_sub(total_processed)
+                } else {
+                    inbound_edus_max_per_txn
+                };
+
+                if remaining == 0 {
+                    continue;
+                }
+
+                match EduDispatcher::dispatch(ctx, origin, edu, remaining).await {
+                    Some(result) => {
+                        total_processed += result.processed;
+                        total_dropped += result.dropped;
+                        total_errored += result.errored;
+                        if result.errored > 0 {
+                            break;
+                        }
+                    }
+                    None => {
+                        ::tracing::trace!(
+                            request_id = %request_id,
+                            txn_id = %txn_id,
+                            origin = %origin,
+                            edu_type = edu_type_str,
+                            "Skipping unknown EDU type"
+                        );
                     }
                 }
-                None => {
-                    ::tracing::trace!(
-                        request_id = %request_id,
-                        txn_id = %txn_id,
-                        origin = %origin,
-                        edu_type = edu_type_str,
-                        "Skipping unknown EDU type"
-                    );
-                }
             }
+            Ok::<(), ApiError>(())
         }
-        Ok::<(), ApiError>(())
-    }
-    .await;
+        .await;
 
     stats.total_processed = total_processed;
     stats.total_dropped = total_dropped;

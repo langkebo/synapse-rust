@@ -270,19 +270,15 @@ async fn get_space_children_paginated_walks_pages_without_overlap() {
     assert_eq!(page1.len(), 2, "page 1 must be size 2");
 
     let last = page1.last().expect("non-empty");
-    let page2 = svc
-        .get_space_children_paginated(&space_id, 2, Some(last.added_ts), Some(last.id))
-        .await
-        .expect("page2");
+    let page2 =
+        svc.get_space_children_paginated(&space_id, 2, Some(last.added_ts), Some(last.id)).await.expect("page2");
     assert_eq!(page2.len(), 2, "page 2 must be size 2");
     for c in &page2 {
         assert!(!page1.iter().any(|p| p.id == c.id), "pages must not overlap");
     }
 
     let last2 = page2.last().expect("non-empty");
-    let page3 = svc
-        .get_space_children_paginated(&space_id, 2, Some(last2.added_ts), Some(last2.id))
-        .await
-        .expect("page3");
+    let page3 =
+        svc.get_space_children_paginated(&space_id, 2, Some(last2.added_ts), Some(last2.id)).await.expect("page3");
     assert_eq!(page3.len(), 1, "page 3 should have the last remaining child");
 }

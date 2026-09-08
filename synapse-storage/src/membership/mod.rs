@@ -716,6 +716,119 @@ impl RoomMemberStorage {
             .collect())
     }
 
+    /// MSC4502: Paginated room members with profiles (display_name, avatar_url).
+    ///
+    /// Extends `get_room_members_paginated` to include user profiles and
+    /// optionally filter out a membership type (`not_membership`).
+    ///
+    /// Pagination uses lexicographic `user_id` ordering, supporting both
+    /// forward (`dir=f`) and backward (`dir=b`) directions via SQL `>`.
+    /// The returned `user_id` of the last result becomes the `from` cursor.
+    ///
+    /// Performance: Uses `idx_room_memberships_room_user` for O(log n) cursor.
+    pub async fn get_room_members_paginated_with_profiles(
+        &self,
+        room_id: &str,
+        membership_type: &str,
+        not_membership: Option<&str>,
+        limit: i64,
+        from_user_id: Option<&str>,
+        dir: Option<&str>,
+    ) -> Result<Vec<(RoomMember, Option<String>, Option<String>)>, sqlx::Error> {
+        let is_backward = dir.map(|d| d == "b").unwrap_or(false);
+        let limit = limit.min(1000);
+
+        // Build the base SELECT with user profile join
+        let base = "SELECT rm.room_id, rm.user_id, rm.sender, rm.membership, rm.event_id, rm.event_type,
+                   rm.display_name, rm.avatar_url, rm.is_banned, rm.invite_token, rm.updated_ts,
+                   rm.joined_ts, rm.left_ts, rm.reason, rm.banned_by, rm.ban_reason, rm.banned_ts, rm.join_reason,
+                   u.displayname as user_displayname, u.avatar_url as user_avatar_url
+            FROM room_memberships rm
+            LEFT JOIN users u ON rm.user_id = u.user_id";
+
+        // Cursor operator: > for forward, < for backward
+        let cursor_op = if is_backward { "<" } else { ">" };
+
+        if let Some(nm) = not_membership {
+            // With not_membership filter
+            if let Some(from) = from_user_id {
+                sqlx::query(&format!(
+                    "{} WHERE rm.room_id = $1 AND rm.membership = $2 AND rm.membership != $3 AND rm.user_id {} $4 ORDER BY rm.user_id {} LIMIT $5",
+                    base, cursor_op, if is_backward { "DESC" } else { "ASC" }
+                ))
+                .bind(room_id)
+                .bind(membership_type)
+                .bind(nm)
+                .bind(from)
+                .bind(limit)
+                .fetch_all(&*self.pool)
+                .await
+            } else {
+                sqlx::query(&format!(
+                    "{} WHERE rm.room_id = $1 AND rm.membership = $2 AND rm.membership != $3 ORDER BY rm.user_id {} LIMIT $4",
+                    base, if is_backward { "DESC" } else { "ASC" }
+                ))
+                .bind(room_id)
+                .bind(membership_type)
+                .bind(nm)
+                .bind(limit)
+                .fetch_all(&*self.pool)
+                .await
+            }
+        } else if let Some(from) = from_user_id {
+            sqlx::query(&format!(
+                "{} WHERE rm.room_id = $1 AND rm.membership = $2 AND rm.user_id {} $3 ORDER BY rm.user_id {} LIMIT $4",
+                base, cursor_op, if is_backward { "DESC" } else { "ASC" }
+            ))
+            .bind(room_id)
+            .bind(membership_type)
+            .bind(from)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        } else {
+            sqlx::query(&format!(
+                "{} WHERE rm.room_id = $1 AND rm.membership = $2 ORDER BY rm.user_id {} LIMIT $3",
+                base, if is_backward { "DESC" } else { "ASC" }
+            ))
+            .bind(room_id)
+            .bind(membership_type)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        }
+        .map(|rows| {
+            rows.iter()
+                .map(|row| {
+                    use sqlx::Row;
+                    let member = RoomMember {
+                        room_id: row.get("room_id"),
+                        user_id: row.get("user_id"),
+                        sender: row.get("sender"),
+                        membership: row.get("membership"),
+                        event_id: row.get("event_id"),
+                        event_type: row.get("event_type"),
+                        display_name: row.get("display_name"),
+                        avatar_url: row.get("avatar_url"),
+                        is_banned: row.get("is_banned"),
+                        invite_token: row.get("invite_token"),
+                        updated_ts: row.get("updated_ts"),
+                        joined_ts: row.get("joined_ts"),
+                        left_ts: row.get("left_ts"),
+                        reason: row.get("reason"),
+                        banned_by: row.get("banned_by"),
+                        ban_reason: row.get("ban_reason"),
+                        banned_ts: row.get("banned_ts"),
+                        join_reason: row.get("join_reason"),
+                    };
+                    let user_displayname: Option<String> = row.get("user_displayname");
+                    let user_avatar_url: Option<String> = row.get("user_avatar_url");
+                    (member, user_displayname, user_avatar_url)
+                })
+                .collect()
+        })
+    }
+
     /// See [`get_members_batch`].
     pub async fn get_members_batch(
         &self,

@@ -286,22 +286,22 @@ pub fn ssrf_blacklist() -> Vec<String> {
         "169.254.0.0/16".to_string(), // cloud metadata
         "172.16.0.0/12".to_string(),
         "192.0.0.0/24".to_string(),
-        "192.0.2.0/24".to_string(), // TEST-NET-1
+        "192.0.2.0/24".to_string(),    // TEST-NET-1
         "192.52.193.0/24".to_string(), // AMT
-        "192.88.99.0/24".to_string(), // 6to4 anycast
+        "192.88.99.0/24".to_string(),  // 6to4 anycast
         "192.168.0.0/16".to_string(),
         "198.18.0.0/15".to_string(),
-        "198.51.100.0/24".to_string(), // TEST-NET-2
-        "203.0.113.0/24".to_string(), // TEST-NET-3
-        "224.0.0.0/4".to_string(), // multicast
-        "240.0.0.0/4".to_string(), // reserved
+        "198.51.100.0/24".to_string(),    // TEST-NET-2
+        "203.0.113.0/24".to_string(),     // TEST-NET-3
+        "224.0.0.0/4".to_string(),        // multicast
+        "240.0.0.0/4".to_string(),        // reserved
         "255.255.255.255/32".to_string(), // broadcast
         // IPv6 private / link-local / loopback
         "::1/128".to_string(),
         "::/128".to_string(),
-        "fc00::/7".to_string(), // ULA
+        "fc00::/7".to_string(),  // ULA
         "fe80::/10".to_string(), // link-local
-        "ff00::/8".to_string(), // multicast
+        "ff00::/8".to_string(),  // multicast
     ]
 }
 

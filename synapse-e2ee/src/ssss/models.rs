@@ -347,7 +347,11 @@ mod tests {
         let json = serde_json::to_string(&curve25519).unwrap();
         assert!(json.contains("org.matrix.msc2697.v1.curve25519-aes-sha2"));
 
-        let aes = SecretStorageKeyCreationKey::AesHmacSha2(AesHmacSha2Key { key: "ak".to_string(), iv: "iv".to_string(), mac: "mac".to_string() });
+        let aes = SecretStorageKeyCreationKey::AesHmacSha2(AesHmacSha2Key {
+            key: "ak".to_string(),
+            iv: "iv".to_string(),
+            mac: "mac".to_string(),
+        });
         let json_aes = serde_json::to_string(&aes).unwrap();
         assert!(json_aes.contains("aes-hmac-sha2"));
 
@@ -379,77 +383,72 @@ mod tests {
         assert_eq!(v.get("m.cross-signing.user-signing").and_then(|x| x.as_bool()), Some(false));
     }
 
-#[test]
-fn stored_secret_roundtrip() {
-    let secret = StoredSecret {
-        secret_name: "m.cross_signing.master".to_string(),
-        encrypted_secret: "enc_data".to_string(),
-        key_id: "key1".to_string(),
-    };
-    let json = serde_json::to_string(&secret).unwrap();
-    let rt: StoredSecret = serde_json::from_str(&json).unwrap();
-    assert_eq!(rt.secret_name, "m.cross_signing.master");
-    assert_eq!(rt.encrypted_secret, "enc_data");
-    assert_eq!(rt.key_id, "key1");
-}
+    #[test]
+    fn stored_secret_roundtrip() {
+        let secret = StoredSecret {
+            secret_name: "m.cross_signing.master".to_string(),
+            encrypted_secret: "enc_data".to_string(),
+            key_id: "key1".to_string(),
+        };
+        let json = serde_json::to_string(&secret).unwrap();
+        let rt: StoredSecret = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.secret_name, "m.cross_signing.master");
+        assert_eq!(rt.encrypted_secret, "enc_data");
+        assert_eq!(rt.key_id, "key1");
+    }
 
-#[test]
-fn secret_storage_get_request_optional_keys() {
-    let req_with_keys = SecretStorageGetRequest {
-        secrets: vec!["m.cross_signing.master".to_string()],
-        keys: Some(vec!["key1".to_string()]),
-    };
-    let json = serde_json::to_string(&req_with_keys).unwrap();
-    let rt: SecretStorageGetRequest = serde_json::from_str(&json).unwrap();
-    assert_eq!(rt.keys, Some(vec!["key1".to_string()]));
-    
-    let req_without_keys = SecretStorageGetRequest {
-        secrets: vec!["m.cross_signing.master".to_string()],
-        keys: None,
-    };
-    let json2 = serde_json::to_string(&req_without_keys).unwrap();
-    let rt2: SecretStorageGetRequest = serde_json::from_str(&json2).unwrap();
-    assert!(rt2.keys.is_none());
-}
+    #[test]
+    fn secret_storage_get_request_optional_keys() {
+        let req_with_keys = SecretStorageGetRequest {
+            secrets: vec!["m.cross_signing.master".to_string()],
+            keys: Some(vec!["key1".to_string()]),
+        };
+        let json = serde_json::to_string(&req_with_keys).unwrap();
+        let rt: SecretStorageGetRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.keys, Some(vec!["key1".to_string()]));
 
-#[test]
-fn secret_storage_get_response_with_none_value() {
-    use std::collections::HashMap;
-    let mut secrets = HashMap::new();
-    secrets.insert("secret1".to_string(), Some(SecretResult {
-        encrypted: "enc1".to_string(),
-        key: "key1".to_string(),
-    }));
-    secrets.insert("missing".to_string(), None);
-    
-    let resp = SecretStorageGetResponse { secrets };
-    let json = serde_json::to_string(&resp).unwrap();
-    let rt: SecretStorageGetResponse = serde_json::from_str(&json).unwrap();
-    assert!(rt.secrets.contains_key("missing"));
-    assert!(rt.secrets.get("missing").unwrap().is_none());
-    assert!(rt.secrets.get("secret1").unwrap().is_some());
-}
+        let req_without_keys =
+            SecretStorageGetRequest { secrets: vec!["m.cross_signing.master".to_string()], keys: None };
+        let json2 = serde_json::to_string(&req_without_keys).unwrap();
+        let rt2: SecretStorageGetRequest = serde_json::from_str(&json2).unwrap();
+        assert!(rt2.keys.is_none());
+    }
 
-#[test]
-fn secret_storage_key_info_serialization() {
-    let info = SecretStorageKeyInfo {
-        key_id: "key1".to_string(),
-        algorithm: "m.secret_storage.v1.aes-hmac-sha2".to_string(),
-        auth_data: SecretStorageKeyAuthData {
-            key: "k".to_string(),
-            iv: "iv".to_string(),
-            mac: "mac".to_string(),
-            signatures: serde_json::json!({}),
-        },
-        tracks: Some(SecretStorageKeyTracks {
-            self_signing: Some(true),
-            user_signing: None,
-        }),
-    };
-    let json = serde_json::to_string(&info).unwrap();
-    let rt: SecretStorageKeyInfo = serde_json::from_str(&json).unwrap();
-    assert_eq!(rt.key_id, "key1");
-    assert!(rt.tracks.is_some());
-    assert_eq!(rt.tracks.unwrap().self_signing, Some(true));
-}
+    #[test]
+    fn secret_storage_get_response_with_none_value() {
+        use std::collections::HashMap;
+        let mut secrets = HashMap::new();
+        secrets.insert(
+            "secret1".to_string(),
+            Some(SecretResult { encrypted: "enc1".to_string(), key: "key1".to_string() }),
+        );
+        secrets.insert("missing".to_string(), None);
+
+        let resp = SecretStorageGetResponse { secrets };
+        let json = serde_json::to_string(&resp).unwrap();
+        let rt: SecretStorageGetResponse = serde_json::from_str(&json).unwrap();
+        assert!(rt.secrets.contains_key("missing"));
+        assert!(rt.secrets.get("missing").unwrap().is_none());
+        assert!(rt.secrets.get("secret1").unwrap().is_some());
+    }
+
+    #[test]
+    fn secret_storage_key_info_serialization() {
+        let info = SecretStorageKeyInfo {
+            key_id: "key1".to_string(),
+            algorithm: "m.secret_storage.v1.aes-hmac-sha2".to_string(),
+            auth_data: SecretStorageKeyAuthData {
+                key: "k".to_string(),
+                iv: "iv".to_string(),
+                mac: "mac".to_string(),
+                signatures: serde_json::json!({}),
+            },
+            tracks: Some(SecretStorageKeyTracks { self_signing: Some(true), user_signing: None }),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let rt: SecretStorageKeyInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(rt.key_id, "key1");
+        assert!(rt.tracks.is_some());
+        assert_eq!(rt.tracks.unwrap().self_signing, Some(true));
+    }
 }

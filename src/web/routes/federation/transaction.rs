@@ -13,8 +13,8 @@ use synapse_common::current_timestamp_millis;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 mod edus;
-use crate::web::routes::federation::transaction::edus::process_inbound_edus as process_edus;
 use crate::web::routes::federation::transaction::edus::log_edu_summary;
+use crate::web::routes::federation::transaction::edus::process_inbound_edus as process_edus;
 
 /// See [`send_transaction`].
 pub(super) async fn send_transaction(
@@ -84,14 +84,7 @@ pub(super) async fn send_transaction(
         )
         .await
         .unwrap_or_default();
-        log_edu_summary(
-            &request_id,
-            &txn_id,
-            origin,
-            pdus.len(),
-            edus.len(),
-            &stats,
-        );
+        log_edu_summary(&request_id, &txn_id, origin, pdus.len(), edus.len(), &stats);
     }
     let mut results = Vec::new();
 

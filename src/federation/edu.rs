@@ -332,12 +332,7 @@ async fn handle_direct_to_device_edu(
 /// Matrix spec: `content` is a map of room_id → receipt_type → user_id →
 /// `{ event_ids: [string], data: { ts: int } }`. We iterate and call
 /// `MessagingService::process_federation_receipt` for each receipt entry.
-async fn handle_receipt_edu(
-    ctx: &FederationContext,
-    origin: &str,
-    edu: &Value,
-    _remaining: usize,
-) -> EduProcessResult {
+async fn handle_receipt_edu(ctx: &FederationContext, origin: &str, edu: &Value, _remaining: usize) -> EduProcessResult {
     let content = match edu.get("content").and_then(|c| c.as_object()) {
         Some(c) => c,
         None => {
@@ -382,10 +377,7 @@ async fn handle_receipt_edu(
                         continue;
                     };
 
-                    match messaging
-                        .process_federation_receipt(room_id, user_id, receipt_type, event_id, &body)
-                        .await
-                    {
+                    match messaging.process_federation_receipt(room_id, user_id, receipt_type, event_id, &body).await {
                         Ok(()) => result.processed += 1,
                         Err(e) => {
                             ::tracing::warn!(
@@ -469,11 +461,7 @@ async fn handle_signing_key_update_edu(
 
             // Validate key type
             if !matches!(key_type.as_str(), "master_key" | "self_signing_key" | "user_signing_key") {
-                ::tracing::warn!(
-                    "Unknown signing key type '{}' in m.signing_key_update from {}",
-                    key_type,
-                    origin
-                );
+                ::tracing::warn!("Unknown signing key type '{}' in m.signing_key_update from {}", key_type, origin);
                 result.dropped += 1;
                 continue;
             }
@@ -499,12 +487,7 @@ async fn handle_signing_key_update_edu(
                     result.processed += 1;
                 }
                 Err(e) => {
-                    ::tracing::warn!(
-                        "Failed to store m.signing_key_update for {} ({}): {}",
-                        user_id,
-                        key_type,
-                        e
-                    );
+                    ::tracing::warn!("Failed to store m.signing_key_update for {} ({}): {}", user_id, key_type, e);
                     result.errored += 1;
                 }
             }

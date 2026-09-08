@@ -4,7 +4,8 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::account_data::AccountDataStoreApi;
-use synapse_storage::push::PushStoreApi;#[derive(Debug, Clone)]
+use synapse_storage::push::PushStoreApi;
+#[derive(Debug, Clone)]
 /// The `UpsertPusherRequest` struct.
 pub struct UpsertPusherRequest {
     /// The `user_id` field.
@@ -409,13 +410,9 @@ mod tests {
         let svc = build_service();
         // 3 upserts on the same (user, device, pushkey) — must all succeed.
         for i in 0..3 {
-            svc.upsert_pusher(pusher_req(
-                "@bob:example.com",
-                "tok_bob",
-                &format!("https://push.example.com/v{i}"),
-            ))
-            .await
-            .expect("repeat upsert should succeed (idempotent)");
+            svc.upsert_pusher(pusher_req("@bob:example.com", "tok_bob", &format!("https://push.example.com/v{i}")))
+                .await
+                .expect("repeat upsert should succeed (idempotent)");
         }
     }
 
@@ -443,9 +440,7 @@ mod tests {
     #[tokio::test]
     async fn test_delete_pusher_after_upsert() {
         let svc = build_service();
-        svc.upsert_pusher(pusher_req("@carol:example.com", "tok_carol", "https://push.example.com/v1"))
-            .await
-            .unwrap();
+        svc.upsert_pusher(pusher_req("@carol:example.com", "tok_carol", "https://push.example.com/v1")).await.unwrap();
         svc.delete_pusher("@carol:example.com", "DEVICE", "tok_carol").await.unwrap();
     }
 
@@ -460,9 +455,7 @@ mod tests {
     #[tokio::test]
     async fn test_upsert_push_rule_overwrites_via_on_conflict() {
         let svc = build_service();
-        svc.upsert_push_rule(rule_req("@eve:example.com", ".m.rule.eve", json!([{"kind": "notify"}])))
-            .await
-            .unwrap();
+        svc.upsert_push_rule(rule_req("@eve:example.com", ".m.rule.eve", json!([{"kind": "notify"}]))).await.unwrap();
         // Overwrite with disabled notification — must not error.
         svc.upsert_push_rule(rule_req("@eve:example.com", ".m.rule.eve", json!([{"kind": "dont_notify"}])))
             .await
@@ -475,29 +468,21 @@ mod tests {
         svc.upsert_push_rule(rule_req("@frank:example.com", ".m.rule.frank", json!([{"kind": "notify"}])))
             .await
             .unwrap();
-        let existed = svc
-            .delete_push_rule("@frank:example.com", "global", "room", ".m.rule.frank")
-            .await
-            .unwrap();
+        let existed = svc.delete_push_rule("@frank:example.com", "global", "room", ".m.rule.frank").await.unwrap();
         assert!(existed, "deleting existing rule must return true");
     }
 
     #[tokio::test]
     async fn test_delete_push_rule_returns_false_for_missing() {
         let svc = build_service();
-        let existed = svc
-            .delete_push_rule("@ghost:example.com", "global", "room", ".m.rule.absent")
-            .await
-            .unwrap();
+        let existed = svc.delete_push_rule("@ghost:example.com", "global", "room", ".m.rule.absent").await.unwrap();
         assert!(!existed, "deleting missing rule must return false");
     }
 
     #[tokio::test]
     async fn test_set_push_rule_actions_on_existing_rule() {
         let svc = build_service();
-        svc.upsert_push_rule(rule_req("@gina:example.com", ".m.rule.gina", json!([{"kind": "notify"}])))
-            .await
-            .unwrap();
+        svc.upsert_push_rule(rule_req("@gina:example.com", ".m.rule.gina", json!([{"kind": "notify"}]))).await.unwrap();
         svc.set_push_rule_actions(
             "@gina:example.com",
             "global",
@@ -528,51 +513,31 @@ mod tests {
     #[tokio::test]
     async fn test_get_push_rule_enabled_returns_none_when_missing() {
         let svc = build_service();
-        let result = svc
-            .get_push_rule_enabled("@ivy:example.com", "global", "room", "never_existed")
-            .await
-            .unwrap();
+        let result = svc.get_push_rule_enabled("@ivy:example.com", "global", "room", "never_existed").await.unwrap();
         assert!(result.is_none());
     }
 
     #[tokio::test]
     async fn test_push_rule_enabled_default_true_after_upsert() {
         let svc = build_service();
-        svc.upsert_push_rule(rule_req("@jack:example.com", ".m.rule.jack", json!([{"kind": "notify"}])))
-            .await
-            .unwrap();
-        let enabled = svc
-            .get_push_rule_enabled("@jack:example.com", "global", "room", ".m.rule.jack")
-            .await
-            .unwrap();
+        svc.upsert_push_rule(rule_req("@jack:example.com", ".m.rule.jack", json!([{"kind": "notify"}]))).await.unwrap();
+        let enabled = svc.get_push_rule_enabled("@jack:example.com", "global", "room", ".m.rule.jack").await.unwrap();
         assert_eq!(enabled, Some(true), "freshly upserted rule must default to enabled");
     }
 
     #[tokio::test]
     async fn test_set_push_rule_enabled_round_trip() {
         let svc = build_service();
-        svc.upsert_push_rule(rule_req("@kate:example.com", ".m.rule.kate", json!([{"kind": "notify"}])))
-            .await
-            .unwrap();
+        svc.upsert_push_rule(rule_req("@kate:example.com", ".m.rule.kate", json!([{"kind": "notify"}]))).await.unwrap();
 
         // Disable
-        svc.set_push_rule_enabled("@kate:example.com", "global", "room", ".m.rule.kate", false)
-            .await
-            .unwrap();
-        let enabled = svc
-            .get_push_rule_enabled("@kate:example.com", "global", "room", ".m.rule.kate")
-            .await
-            .unwrap();
+        svc.set_push_rule_enabled("@kate:example.com", "global", "room", ".m.rule.kate", false).await.unwrap();
+        let enabled = svc.get_push_rule_enabled("@kate:example.com", "global", "room", ".m.rule.kate").await.unwrap();
         assert_eq!(enabled, Some(false));
 
         // Re-enable
-        svc.set_push_rule_enabled("@kate:example.com", "global", "room", ".m.rule.kate", true)
-            .await
-            .unwrap();
-        let enabled = svc
-            .get_push_rule_enabled("@kate:example.com", "global", "room", ".m.rule.kate")
-            .await
-            .unwrap();
+        svc.set_push_rule_enabled("@kate:example.com", "global", "room", ".m.rule.kate", true).await.unwrap();
+        let enabled = svc.get_push_rule_enabled("@kate:example.com", "global", "room", ".m.rule.kate").await.unwrap();
         assert_eq!(enabled, Some(true));
     }
 

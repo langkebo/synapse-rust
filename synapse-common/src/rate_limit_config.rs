@@ -589,4 +589,3 @@ mod tests {
         assert_eq!(id, "login_endpoint");
     }
 }
-

@@ -300,12 +300,8 @@ mod tests {
 
     #[test]
     fn auth_data_empty_optional_fields() {
-        let auth = SecureBackupAuthData {
-            salt: String::new(),
-            iterations: 0,
-            backup_id: String::new(),
-            public_key: None,
-        };
+        let auth =
+            SecureBackupAuthData { salt: String::new(), iterations: 0, backup_id: String::new(), public_key: None };
 
         // Should serialize/deserialize without panic
         let json = serde_json::to_string(&auth).unwrap();

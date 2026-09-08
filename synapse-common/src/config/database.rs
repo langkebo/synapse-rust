@@ -324,8 +324,7 @@ username: synapse
 password: secret
 name: synapse
 ";
-        let cfg: DatabaseConfig =
-            serde_yaml::from_str(yaml_str).expect("serde should accept missing optional fields");
+        let cfg: DatabaseConfig = serde_yaml::from_str(yaml_str).expect("serde should accept missing optional fields");
         assert_eq!(cfg.port, 5432, "port 应默认 5432");
         assert_eq!(cfg.max_size, 50, "max_size 应默认 50（对齐 Synapse）");
         assert_eq!(cfg.connection_timeout, 60, "connection_timeout 应默认 60s");
@@ -333,11 +332,7 @@ name: synapse
         assert_eq!(cfg.idle_timeout_secs, 600, "idle_timeout_secs 应默认 600s");
         assert_eq!(cfg.statement_timeout_secs, 30, "statement_timeout_secs 应默认 30s");
         assert_eq!(cfg.lock_timeout_secs, 10, "lock_timeout_secs 应默认 10s");
-        assert_eq!(
-            cfg.idle_in_transaction_timeout_secs,
-            60,
-            "idle_in_transaction 应默认 60s"
-        );
+        assert_eq!(cfg.idle_in_transaction_timeout_secs, 60, "idle_in_transaction 应默认 60s");
         assert_eq!(cfg.min_idle_floor, 5, "min_idle_floor 应默认 5");
     }
 
@@ -362,10 +357,7 @@ name: any
         assert_eq!(from_default.idle_timeout_secs, from_serde.idle_timeout_secs);
         assert_eq!(from_default.statement_timeout_secs, from_serde.statement_timeout_secs);
         assert_eq!(from_default.lock_timeout_secs, from_serde.lock_timeout_secs);
-        assert_eq!(
-            from_default.idle_in_transaction_timeout_secs,
-            from_serde.idle_in_transaction_timeout_secs
-        );
+        assert_eq!(from_default.idle_in_transaction_timeout_secs, from_serde.idle_in_transaction_timeout_secs);
         assert_eq!(from_default.min_idle_floor, from_serde.min_idle_floor);
     }
 }

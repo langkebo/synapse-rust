@@ -143,6 +143,17 @@ pub trait MemberStoreApi: Send + Sync {
         from_user_id: Option<&str>,
     ) -> Result<Vec<RoomMember>, sqlx::Error>;
 
+    /// MSC4502: See [`get_room_members_paginated_with_profiles`].
+    async fn get_room_members_paginated_with_profiles(
+        &self,
+        room_id: &str,
+        membership_type: &str,
+        not_membership: Option<&str>,
+        limit: i64,
+        from_user_id: Option<&str>,
+        dir: Option<&str>,
+    ) -> Result<Vec<(RoomMember, Option<String>, Option<String>)>, sqlx::Error>;
+
     /// See [`get_room_member_count`].
     async fn get_room_member_count(&self, room_id: &str) -> Result<i64, sqlx::Error>;
 
@@ -322,6 +333,26 @@ impl MemberStoreApi for super::RoomMemberStorage {
         from_user_id: Option<&str>,
     ) -> Result<Vec<RoomMember>, sqlx::Error> {
         self.get_room_members_paginated(room_id, membership_type, limit, from_user_id).await
+    }
+
+    async fn get_room_members_paginated_with_profiles(
+        &self,
+        room_id: &str,
+        membership_type: &str,
+        not_membership: Option<&str>,
+        limit: i64,
+        from_user_id: Option<&str>,
+        dir: Option<&str>,
+    ) -> Result<Vec<(RoomMember, Option<String>, Option<String>)>, sqlx::Error> {
+        self.get_room_members_paginated_with_profiles(
+            room_id,
+            membership_type,
+            not_membership,
+            limit,
+            from_user_id,
+            dir,
+        )
+        .await
     }
 
     async fn get_room_member_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {

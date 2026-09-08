@@ -1,8 +1,8 @@
 //! Pre-positioned Mock adapter for the e2ee layer.
 
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use serde_json::Value;
 use synapse_common::current_timestamp_millis;
 use tokio::sync::RwLock;
 
@@ -510,7 +510,13 @@ impl InMemoryToDeviceStorage {
     /// that exist in the store — i.e. recipients that would have received messages
     /// if `add_messages_batch` were called with all of them.
     pub async fn device_count(&self) -> usize {
-        self.messages.read().await.iter().map(|(_, m)| (&m.recipient_user_id, m.recipient_device_id)).collect::<HashSet<_>>().len()
+        self.messages
+            .read()
+            .await
+            .iter()
+            .map(|(_, m)| (&m.recipient_user_id, m.recipient_device_id))
+            .collect::<HashSet<_>>()
+            .len()
     }
 }
 
@@ -540,15 +546,18 @@ impl ToDeviceStorageApi for InMemoryToDeviceStorage {
         for msg in messages {
             let sid = *stream;
             *stream += 1;
-            msgs.push((sid, ToDeviceMessage {
-                sender_user_id: Box::leak(msg.sender_user_id.to_string().into_boxed_str()),
-                sender_device_id: Box::leak(msg.sender_device_id.to_string().into_boxed_str()),
-                recipient_user_id: Box::leak(msg.recipient_user_id.to_string().into_boxed_str()),
-                recipient_device_id: Box::leak(msg.recipient_device_id.to_string().into_boxed_str()),
-                event_type: Box::leak(msg.event_type.to_string().into_boxed_str()),
-                message_id: msg.message_id.map(|s| &*Box::leak(s.to_string().into_boxed_str())),
-                content: msg.content.clone(),
-            }));
+            msgs.push((
+                sid,
+                ToDeviceMessage {
+                    sender_user_id: Box::leak(msg.sender_user_id.to_string().into_boxed_str()),
+                    sender_device_id: Box::leak(msg.sender_device_id.to_string().into_boxed_str()),
+                    recipient_user_id: Box::leak(msg.recipient_user_id.to_string().into_boxed_str()),
+                    recipient_device_id: Box::leak(msg.recipient_device_id.to_string().into_boxed_str()),
+                    event_type: Box::leak(msg.event_type.to_string().into_boxed_str()),
+                    message_id: msg.message_id.map(|s| &*Box::leak(s.to_string().into_boxed_str())),
+                    content: msg.content.clone(),
+                },
+            ));
         }
         Ok(messages.len())
     }

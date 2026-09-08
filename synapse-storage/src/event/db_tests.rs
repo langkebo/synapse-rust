@@ -397,7 +397,10 @@ async fn test_redact_event_content() {
     };
     storage.create_event(redaction_params, None).await.unwrap();
 
-    storage.redact_event_content(&event_id, Some(&redaction_event_id)).await.expect("redact_event_content should succeed");
+    storage
+        .redact_event_content(&event_id, Some(&redaction_event_id))
+        .await
+        .expect("redact_event_content should succeed");
 
     let _ = storage.delete_room_events(&room_id).await;
 }

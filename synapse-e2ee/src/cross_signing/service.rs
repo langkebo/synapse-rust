@@ -57,10 +57,7 @@ impl CrossSigningService {
     ///
     /// Stores the key and records a device-list change so downstream services
     /// are notified that this user's cross-signing keys have changed.
-    pub async fn upsert_federation_cross_signing_key(
-        &self,
-        key: &CrossSigningKey,
-    ) -> Result<(), ApiError> {
+    pub async fn upsert_federation_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {
         self.storage.upsert_cross_signing_key(key).await?;
         self.record_cross_signing_change(&key.user_id).await;
         Ok(())

@@ -1121,9 +1121,7 @@ async fn test_get_friend_list_all_shards_batch_returns_5_room_index() {
         // 28 shards: state_key 0..28 → lexicographic sort.
         // Per ticket spec ("28 shard fan-out"): 28 distinct state_keys.
         // We use letters A..Z (26) + two extra (aa, bb) to reach 28.
-        let mut shard_keys: Vec<String> = (b'A'..=b'Z')
-            .map(|b| (b as char).to_string())
-            .collect();
+        let mut shard_keys: Vec<String> = (b'A'..=b'Z').map(|b| (b as char).to_string()).collect();
         shard_keys.push("aa".to_string());
         shard_keys.push("bb".to_string());
         assert_eq!(shard_keys.len(), 28);
@@ -1149,10 +1147,7 @@ async fn test_get_friend_list_all_shards_batch_returns_5_room_index() {
     }
 
     // Batch read 5 rooms × 28 shards = 140 events in one SQL.
-    let index = storage
-        .get_friend_list_all_shards_batch(&room_ids)
-        .await
-        .expect("batch must succeed");
+    let index = storage.get_friend_list_all_shards_batch(&room_ids).await.expect("batch must succeed");
 
     // All 5 room_ids must be in the index.
     assert_eq!(index.len(), 5, "expected 5 room keys, got {:?}", index.keys().collect::<Vec<_>>());
@@ -1171,10 +1166,7 @@ async fn test_get_friend_list_all_shards_batch_returns_5_room_index() {
 
     // Empty input → empty HashMap (PG ANY($1) empty-array guard).
     let empty_in: Vec<String> = Vec::new();
-    let empty_out = storage
-        .get_friend_list_all_shards_batch(&empty_in)
-        .await
-        .expect("empty batch must succeed");
+    let empty_out = storage.get_friend_list_all_shards_batch(&empty_in).await.expect("empty batch must succeed");
     assert!(empty_out.is_empty(), "empty input must yield empty HashMap");
 }
 
@@ -1202,10 +1194,7 @@ async fn test_get_friend_list_all_shards_batch_dedupes_per_shard() {
     insert_event(&pool, &format!("$dedup_a2_{suffix}"), &rid, &user_id, "m.friends.list", Some("A"), &v2).await;
     insert_event(&pool, &format!("$dedup_a3_{suffix}"), &rid, &user_id, "m.friends.list", Some("A"), &v3).await;
 
-    let index = storage
-        .get_friend_list_all_shards_batch(std::slice::from_ref(&rid))
-        .await
-        .expect("batch dedup");
+    let index = storage.get_friend_list_all_shards_batch(std::slice::from_ref(&rid)).await.expect("batch dedup");
 
     let shards = index.get(&rid).expect("room present");
     assert_eq!(shards.len(), 1, "DISTINCT ON must collapse 3 inserts into 1 row");

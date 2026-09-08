@@ -23,7 +23,7 @@ pub struct AdminRegistrationService {
     server_name: String,
     config: AdminRegistrationConfig,
     user_storage: Arc<dyn UserStore>,
-    user_service: Arc<UserService>,  // Reserved; constructor parity
+    user_service: Arc<UserService>, // Reserved; constructor parity
     cache: Arc<CacheManager>,
     metrics: Arc<MetricsCollector>,
 }

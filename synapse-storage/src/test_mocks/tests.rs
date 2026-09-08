@@ -715,7 +715,14 @@ impl crate::burn_after_read::BurnAfterReadStoreApi for InMemoryBurnAfterReadStor
     }
 
     async fn get_expired_burns(&self, now_ms: i64) -> Result<Vec<crate::burn_after_read::BurnPendingRow>, sqlx::Error> {
-        Ok(self.pending.read().await.iter().filter(|p| p.delete_ts <= now_ms && !p.is_processed && !p.is_dead_letter).cloned().collect())
+        Ok(self
+            .pending
+            .read()
+            .await
+            .iter()
+            .filter(|p| p.delete_ts <= now_ms && !p.is_processed && !p.is_dead_letter)
+            .cloned()
+            .collect())
     }
 
     async fn mark_burn_processed(&self, id: i64) -> Result<(), sqlx::Error> {

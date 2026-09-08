@@ -343,6 +343,56 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
         Ok(filtered)
     }
 
+    async fn get_room_members_paginated_with_profiles(
+        &self,
+        room_id: &str,
+        membership_type: &str,
+        not_membership: Option<&str>,
+        limit: i64,
+        from_user_id: Option<&str>,
+        dir: Option<&str>,
+    ) -> Result<Vec<(crate::membership::RoomMember, Option<String>, Option<String>)>, sqlx::Error> {
+        let members = self.members.read().await;
+        let is_backward = dir.map(|d| d == "b").unwrap_or(false);
+        let limit = limit.min(1000).max(1);
+
+        let mut filtered: Vec<crate::membership::RoomMember> =
+            members
+                .values()
+                .filter(|m| m.room_id == room_id && m.membership == membership_type)
+                .filter(|m| not_membership.map_or(true, |nm| nm.split(',').all(|n| m.membership != n.trim())))
+                .filter(|m| {
+                    from_user_id.is_none_or(|from| {
+                        if is_backward {
+                            m.user_id.as_str() < from
+                        } else {
+                            m.user_id.as_str() > from
+                        }
+                    })
+                })
+                .cloned()
+                .collect();
+
+        if is_backward {
+            filtered.sort_by(|a, b| b.user_id.cmp(&a.user_id));
+        } else {
+            filtered.sort_by(|a, b| a.user_id.cmp(&b.user_id));
+        }
+        filtered.truncate(limit as usize);
+
+        // Mock user profile data (in real impl, these come from JOIN)
+        let result: Vec<(crate::membership::RoomMember, Option<String>, Option<String>)> = filtered
+            .into_iter()
+            .map(|m| {
+                let displayname = m.display_name.clone();
+                let avatar = m.avatar_url.clone();
+                (m, displayname, avatar)
+            })
+            .collect();
+
+        Ok(result)
+    }
+
     async fn get_room_member_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
         let members = self.members.read().await;
         Ok(members.values().filter(|m| m.room_id == room_id && m.membership == "join").count() as i64)

@@ -171,11 +171,8 @@ impl DeviceSyncManager {
 
         tracing::debug!(%host, ips = ?ips.len(), "Fetching remote devices with SSRF-pinned client");
 
-        let response = pinned
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| ApiError::internal_with_context("HTTP request failed", &e))?;
+        let response =
+            pinned.get(url).send().await.map_err(|e| ApiError::internal_with_context("HTTP request failed", &e))?;
 
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(vec![]);

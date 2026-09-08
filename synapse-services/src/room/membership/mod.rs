@@ -1143,4 +1143,104 @@ mod coverage_tests {
         let room = ctx.room_store.get_room(ROOM).await.unwrap().unwrap();
         assert_eq!(room.member_count, 0);
     }
+
+    // =========================================================================
+    // MSC4502: Paginated room members with not_membership filter
+    // =========================================================================
+
+    #[tokio::test]
+    async fn get_room_members_paginated_returns_join_members_with_next_batch() {
+        let ctx = build_service().await;
+        // Seed room + 3 members
+        ctx.room_store.create_room(ROOM, "@creator:localhost", "public", "1", true).await.unwrap();
+        ctx.member_store.add_member(ROOM, "@a:localhost", "join", None).await.unwrap();
+        ctx.member_store.add_member(ROOM, "@b:localhost", "join", None).await.unwrap();
+        ctx.member_store.add_member(ROOM, "@c:localhost", "join", None).await.unwrap();
+
+        // Request all 3 with a large limit
+        let result = ctx
+            .svc
+            .get_room_members_paginated(ROOM, "@a:localhost", Some("join"), None, 100, None, None)
+            .await
+            .unwrap();
+
+        let chunk = result.get("chunk").and_then(|c| c.as_array()).unwrap();
+        assert_eq!(chunk.len(), 3, "all 3 join members should be returned");
+        assert!(result.get("next_batch").is_none(), "no next_batch when all results returned");
+    }
+
+    #[tokio::test]
+    async fn get_room_members_paginated_not_membership_filters_excluded() {
+        let ctx = build_service().await;
+        ctx.room_store.create_room(ROOM, "@creator:localhost", "public", "1", true).await.unwrap();
+        ctx.member_store.add_member(ROOM, "@a:localhost", "join", None).await.unwrap();
+        ctx.member_store.add_member(ROOM, "@b:localhost", "leave", None).await.unwrap();
+        ctx.member_store.add_member(ROOM, "@c:localhost", "join", None).await.unwrap();
+
+        // Request join members excluding leave
+        let result = ctx
+            .svc
+            .get_room_members_paginated(ROOM, "@a:localhost", Some("join"), Some("leave"), 100, None, None)
+            .await
+            .unwrap();
+
+        let chunk = result.get("chunk").and_then(|c| c.as_array()).unwrap();
+        assert_eq!(chunk.len(), 2, "only join members should be returned");
+        let memberships: Vec<&str> = chunk
+            .iter()
+            .filter_map(|e| e.get("content").and_then(|c| c.get("membership")).and_then(|m| m.as_str()))
+            .collect();
+        assert!(!memberships.contains(&"leave"), "leave members must be excluded");
+    }
+
+    #[tokio::test]
+    async fn get_room_members_paginated_emits_next_batch_when_more_pages() {
+        let ctx = build_service().await;
+        ctx.room_store.create_room(ROOM, "@creator:localhost", "public", "1", true).await.unwrap();
+        // Seed members with user_ids that sort: a, b, c, d
+        for uid in ["@a:localhost", "@b:localhost", "@c:localhost", "@d:localhost"] {
+            ctx.member_store.add_member(ROOM, uid, "join", None).await.unwrap();
+        }
+
+        // Request page 1: limit=2, no cursor
+        let page1 =
+            ctx.svc.get_room_members_paginated(ROOM, "@a:localhost", Some("join"), None, 2, None, None).await.unwrap();
+        let chunk1 = page1.get("chunk").and_then(|c| c.as_array()).unwrap();
+        assert_eq!(chunk1.len(), 2);
+        let nb = page1.get("next_batch").and_then(|v| v.as_str()).expect("next_batch must be present");
+        // next_batch should be the user_id of the last member in page 1
+        let last_key = chunk1.last().unwrap().get("state_key").and_then(|v| v.as_str()).unwrap();
+        assert_eq!(nb, last_key, "next_batch must be last member's user_id");
+
+        // Request page 2 using next_batch as cursor
+        let page2 = ctx
+            .svc
+            .get_room_members_paginated(ROOM, "@a:localhost", Some("join"), None, 2, Some(nb), Some("f"))
+            .await
+            .unwrap();
+        let chunk2 = page2.get("chunk").and_then(|c| c.as_array()).unwrap();
+        assert_eq!(chunk2.len(), 2, "page 2 should have 2 members");
+        assert!(page2.get("next_batch").is_none(), "no next_batch on last page");
+    }
+
+    #[tokio::test]
+    async fn get_room_members_paginated_backward_dir_returns_reverse_order() {
+        let ctx = build_service().await;
+        ctx.room_store.create_room(ROOM, "@creator:localhost", "public", "1", true).await.unwrap();
+        for uid in ["@a:localhost", "@b:localhost", "@c:localhost"] {
+            ctx.member_store.add_member(ROOM, uid, "join", None).await.unwrap();
+        }
+
+        // Backward page from cursor = "@c:localhost"
+        let result = ctx
+            .svc
+            .get_room_members_paginated(ROOM, "@a:localhost", Some("join"), None, 10, Some("@c:localhost"), Some("b"))
+            .await
+            .unwrap();
+        let chunk = result.get("chunk").and_then(|c| c.as_array()).unwrap();
+        assert_eq!(chunk.len(), 2, "should return members before @c");
+        // Should be in reverse order: @b, @a
+        let keys: Vec<&str> = chunk.iter().filter_map(|e| e.get("state_key").and_then(|v| v.as_str())).collect();
+        assert_eq!(keys, vec!["@b:localhost", "@a:localhost"], "backward page should reverse order");
+    }
 }

@@ -511,11 +511,8 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
         .iter()
         .any(|space| { space["room_id"] == room_id && space["name"] == "Lifecycle Space Updated" }));
 
-    let public_spaces_request = Request::builder()
-        .method("GET")
-        .uri("/_matrix/client/v1/spaces/public?limit=20")
-        .body(Body::empty())
-        .unwrap();
+    let public_spaces_request =
+        Request::builder().method("GET").uri("/_matrix/client/v1/spaces/public?limit=20").body(Body::empty()).unwrap();
     let public_spaces_response =
         ServiceExt::<Request<Body>>::oneshot(app.clone(), public_spaces_request).await.unwrap();
     assert_eq!(public_spaces_response.status(), StatusCode::OK);

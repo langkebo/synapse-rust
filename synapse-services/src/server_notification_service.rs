@@ -350,8 +350,8 @@ mod tests {
         notifications: Mutex<std::collections::HashMap<i64, ServerNotification>>,
         templates: Mutex<std::collections::HashMap<String, NotificationTemplate>>,
         pending_scheduled: Mutex<Vec<ScheduledNotification>>,
-    #[allow(clippy::type_complexity)]
-    delivery_logs: Mutex<Vec<(i64, Option<String>, String, String, Option<String>)>>,
+        #[allow(clippy::type_complexity)]
+        delivery_logs: Mutex<Vec<(i64, Option<String>, String, String, Option<String>)>>,
     }
 
     impl MockServerNotificationStore {
@@ -384,10 +384,8 @@ mod tests {
     fn build_service() -> (Arc<MockServerNotificationStore>, ServerNotificationService) {
         let user_service = Arc::new(UserService::new(shared_fake_user_store() as Arc<dyn UserStore>));
         let store = Arc::new(MockServerNotificationStore::new());
-        let service = ServerNotificationService::new(
-            store.clone() as Arc<dyn ServerNotificationStoreApi>,
-            user_service,
-        );
+        let service =
+            ServerNotificationService::new(store.clone() as Arc<dyn ServerNotificationStoreApi>, user_service);
         (store, service)
     }
 
@@ -436,11 +434,8 @@ mod tests {
             _from: Option<ServerNotificationCursor>,
         ) -> Result<(Vec<ServerNotification>, Option<String>), ApiError> {
             let map = self.notifications.lock().await;
-            let mut out: Vec<ServerNotification> = map
-                .values()
-                .filter(|n| audience.is_none_or(|a| n.target_audience == a))
-                .cloned()
-                .collect();
+            let mut out: Vec<ServerNotification> =
+                map.values().filter(|n| audience.is_none_or(|a| n.target_audience == a)).cloned().collect();
             out.sort_by_key(|n| (n.created_ts, n.id));
             out.truncate(limit as usize);
             Ok((out, None))
@@ -475,10 +470,7 @@ mod tests {
             }
         }
 
-        async fn get_user_notifications(
-            &self,
-            _user_id: &str,
-        ) -> Result<Vec<NotificationWithStatus>, ApiError> {
+        async fn get_user_notifications(&self, _user_id: &str) -> Result<Vec<NotificationWithStatus>, ApiError> {
             Ok(Vec::new())
         }
 
@@ -510,10 +502,7 @@ mod tests {
             Ok(0)
         }
 
-        async fn create_template(
-            &self,
-            request: CreateTemplateRequest,
-        ) -> Result<NotificationTemplate, ApiError> {
+        async fn create_template(&self, request: CreateTemplateRequest) -> Result<NotificationTemplate, ApiError> {
             let mut map = self.templates.lock().await;
             let id = (map.len() as i64) + 1;
             let t = NotificationTemplate {
@@ -667,10 +656,7 @@ mod tests {
     #[tokio::test]
     async fn ensure_target_users_exist_fails_for_missing_user() {
         let (_store, service) = build_service();
-        let err = service
-            .ensure_target_users_exist(&["@ghost:example.com".to_string()])
-            .await
-            .unwrap_err();
+        let err = service.ensure_target_users_exist(&["@ghost:example.com".to_string()]).await.unwrap_err();
         assert!(err.to_string().to_lowercase().contains("not found"), "expected not_found, got: {err}");
     }
 
@@ -679,10 +665,7 @@ mod tests {
         let (_store, service) = build_service();
         // First user exists, second is missing — should fail fast on second.
         let err = service
-            .ensure_target_users_exist(&[
-                "@alice:example.com".to_string(),
-                "@ghost:example.com".to_string(),
-            ])
+            .ensure_target_users_exist(&["@alice:example.com".to_string(), "@ghost:example.com".to_string()])
             .await
             .unwrap_err();
         assert!(err.to_string().to_lowercase().contains("not found"));
@@ -926,10 +909,7 @@ mod tests {
         let mut vars = std::collections::HashMap::new();
         vars.insert("name".to_string(), "Alice".to_string());
         vars.insert("code".to_string(), "12345".to_string());
-        let n = service
-            .create_from_template("welcome", vars, Some("all".to_string()), None)
-            .await
-            .unwrap();
+        let n = service.create_from_template("welcome", vars, Some("all".to_string()), None).await.unwrap();
         assert_eq!(n.title, "Hello Alice");
         assert_eq!(n.content, "Welcome Alice, your code is 12345");
     }

@@ -267,6 +267,9 @@ pub(crate) async fn invite_user_by_room(
 }
 
 /// See [`get_room_members`].
+///
+/// MSC4502: Supports `at` (cursor), `dir` (f|b), `limit` (max 1000),
+/// `membership`, `not_membership` filters for efficient pagination.
 pub(crate) async fn get_room_members(
     State(ctx): State<RoomContext>,
     headers: HeaderMap,
@@ -297,6 +300,10 @@ pub(crate) async fn get_room_members(
         ));
     }
 
+    // MSC4502 pagination params
+    let at = params.get("at").map(|s| s.as_str());
+    let dir = params.get("dir").map(|s| s.as_str());
+    let limit: i64 = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(100).min(1000);
     let membership_filter = params.get("membership").map(|s| s.as_str());
     let not_membership_filter = params.get("not_membership").map(|s| s.as_str());
 
@@ -306,47 +313,28 @@ pub(crate) async fn get_room_members(
     if let Some(nmf) = not_membership_filter {
         validate_membership(nmf)?;
     }
-
-    let members = ctx.room_service.membership().get_room_members(&room_id, &auth_user.user_id).await?;
-
-    let filtered = if membership_filter.is_some() || not_membership_filter.is_some() {
-        if let Some(chunk) = members.get("chunk").and_then(|c| c.as_array()) {
-            let filtered_events: Vec<Value> = chunk
-                .iter()
-                .filter(|event| {
-                    let event_membership =
-                        event.get("content").and_then(|c| c.get("membership")).and_then(|m| m.as_str()).unwrap_or("");
-
-                    if let Some(mf) = membership_filter {
-                        event_membership == mf
-                    } else {
-                        true
-                    }
-                })
-                .filter(|event| {
-                    let event_membership =
-                        event.get("content").and_then(|c| c.get("membership")).and_then(|m| m.as_str()).unwrap_or("");
-
-                    if let Some(nmf) = not_membership_filter {
-                        event_membership != nmf
-                    } else {
-                        true
-                    }
-                })
-                .cloned()
-                .collect();
-
-            let mut result = members.clone();
-            result["chunk"] = Value::Array(filtered_events);
-            result
-        } else {
-            members
+    if let Some(d) = dir {
+        if d != "f" && d != "b" {
+            return Err(ApiError::bad_request("dir must be 'f' or 'b'".to_string()));
         }
-    } else {
-        members
-    };
+    }
 
-    Ok(Json(filtered))
+    // MSC4502: Use paginated method for O(log n) performance
+    let members = ctx
+        .room_service
+        .membership()
+        .get_room_members_paginated(
+            &room_id,
+            &auth_user.user_id,
+            membership_filter,
+            not_membership_filter,
+            limit,
+            at,
+            dir,
+        )
+        .await?;
+
+    Ok(Json(members))
 }
 
 /// See [`get_room_members_recent`].
