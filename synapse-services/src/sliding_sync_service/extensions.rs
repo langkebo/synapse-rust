@@ -288,7 +288,7 @@ impl SlidingSyncService {
         // B-4204: On initial sync (no since_pos), the client already has the
         // full profile state, so we return None.
         let since_ts: i64 = match since_pos {
-            Some(pos_str) => {
+            Some(_pos_str) => {
                 // Decode the sliding sync position token to get the timestamp
                 // of the last sync. We use `created_ts` which represents when
                 // the sync token was created.

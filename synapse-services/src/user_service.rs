@@ -59,15 +59,6 @@ impl UserService {
         *self.event_notifier.write().unwrap() = event_notifier;
     }
 
-    /// Helper to get member_storage read lock (used in notify_profile_update)
-    async fn with_member_storage<F, R>(&self, f: F) -> Option<R>
-    where
-        F: FnOnce(&Arc<dyn MemberStoreApi>) -> R + Send,
-    {
-        let guard = self.member_storage.read().unwrap();
-        guard.as_ref().map(|ms| f(ms))
-    }
-
     /// Helper to get event_notifier read lock (used in notify_profile_update)
     fn with_event_notifier<F, R>(&self, f: F) -> R
     where
