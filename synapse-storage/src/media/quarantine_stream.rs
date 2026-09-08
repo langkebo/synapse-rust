@@ -46,6 +46,11 @@ pub trait QuarantinedMediaChangeStoreApi: Send + Sync {
         quarantine_status: &str,
     ) -> Result<bool, ApiError>;
 
+    /// Check if media is currently quarantined.
+    /// Returns `Ok(true)` if `quarantine_status` is `"quarantined"`, `Ok(false)`
+    /// otherwise (including when the media row is missing).
+    async fn get_media_quarantine_status(&self, media_id: &str, server_name: &str) -> Result<bool, ApiError>;
+
     /// See [`get_current_stream_id`].
     async fn get_current_stream_id(&self) -> Result<i64, ApiError>;
 }
@@ -169,6 +174,26 @@ impl QuarantinedMediaChangeStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Check whether the media row's `quarantine_status` column equals
+    /// `"quarantined"`. Returns `Ok(false)` when the media row does not exist
+    /// (download path will surface its own 404).
+    pub async fn get_media_quarantine_status(&self, media_id: &str, server_name: &str) -> Result<bool, ApiError> {
+        let status: Option<Option<String>> = sqlx::query_scalar(
+            r#"
+            SELECT quarantine_status
+            FROM media_metadata
+            WHERE media_id = $1 AND server_name = $2
+            "#,
+        )
+        .bind(media_id)
+        .bind(server_name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_context("Failed to query media quarantine status", &e))?;
+
+        Ok(matches!(status, Some(Some(ref s)) if s == "quarantined"))
+    }
+
     /// Get the current maximum stream_id (used for position tracking).
     pub async fn get_current_stream_id(&self) -> Result<i64, ApiError> {
         let stream_id: Option<i64> = sqlx::query_scalar(r"SELECT MAX(stream_id) FROM quarantined_media_changes")
@@ -217,6 +242,10 @@ impl QuarantinedMediaChangeStoreApi for QuarantinedMediaChangeStorage {
         quarantine_status: &str,
     ) -> Result<bool, ApiError> {
         self.set_media_quarantine_status(media_id, server_name, quarantine_status).await
+    }
+
+    async fn get_media_quarantine_status(&self, media_id: &str, server_name: &str) -> Result<bool, ApiError> {
+        self.get_media_quarantine_status(media_id, server_name).await
     }
 
     async fn get_current_stream_id(&self) -> Result<i64, ApiError> {

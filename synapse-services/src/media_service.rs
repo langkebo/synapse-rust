@@ -140,6 +140,11 @@ impl MediaService {
         self.link_signer = Some(signer);
     }
 
+    /// Get the local server name that this service is configured for.
+    pub fn server_name(&self) -> &str {
+        &self.server_name
+    }
+
     /// Sign a media download URL for the given server_name/media_id pair.
     /// Returns a query string like `signature=...&expires=...`.
     pub fn sign_media_download_url(&self, server_name: &str, media_id: &str) -> Option<String> {

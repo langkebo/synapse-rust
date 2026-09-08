@@ -300,7 +300,7 @@ pub(crate) async fn download_media(
     auth_user: OptionalAuthenticatedUser,
     Path((server_name, media_id)): Path<(ServerName, MediaId)>,
 ) -> Result<Response, ApiError> {
-    let _ = auth_user;
+    ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await?;
     let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, None).await?;
     Ok((status, headers, body).into_response())
 }
@@ -311,7 +311,7 @@ pub(crate) async fn download_media_with_filename(
     auth_user: OptionalAuthenticatedUser,
     Path((server_name, media_id, filename)): Path<(ServerName, MediaId, String)>,
 ) -> Result<Response, ApiError> {
-    let _ = auth_user;
+    ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await?;
     let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
     Ok((status, headers, body).into_response())
 }
@@ -332,6 +332,9 @@ pub(crate) async fn download_media_signed(
     if !ctx.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires) {
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
     }
+
+    // Check quarantine status — signed URLs prove ownership, not admin privilege
+    ctx.media_domain_service.ensure_media_not_quarantined(false, &server_name, &media_id).await?;
 
     let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, None).await?;
     Ok((status, headers, body).into_response())
@@ -354,6 +357,9 @@ pub(crate) async fn download_media_signed_with_filename(
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
     }
 
+    // Check quarantine status — signed URLs prove ownership, not admin privilege
+    ctx.media_domain_service.ensure_media_not_quarantined(false, &server_name, &media_id).await?;
+
     let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
     Ok((status, headers, body).into_response())
 }
@@ -361,9 +367,10 @@ pub(crate) async fn download_media_signed_with_filename(
 /// See [`download_media_authenticated`].
 pub(crate) async fn download_media_authenticated(
     State(ctx): State<MediaContext>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path((server_name, media_id)): Path<(ServerName, MediaId)>,
 ) -> Result<Response, ApiError> {
+    ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await?;
     let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, None).await?;
     Ok((status, headers, body).into_response())
 }
@@ -371,9 +378,10 @@ pub(crate) async fn download_media_authenticated(
 /// See [`download_media_authenticated_with_filename`].
 pub(crate) async fn download_media_authenticated_with_filename(
     State(ctx): State<MediaContext>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path((server_name, media_id, filename)): Path<(ServerName, MediaId, String)>,
 ) -> Result<Response, ApiError> {
+    ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await?;
     let (status, headers, body) = download_media_stream_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
     Ok((status, headers, body).into_response())
 }
@@ -381,8 +389,15 @@ pub(crate) async fn download_media_authenticated_with_filename(
 /// See [`download_media_v1`].
 pub(crate) async fn download_media_v1(
     State(ctx): State<MediaContext>,
+    auth_user: OptionalAuthenticatedUser,
     Path((server_name, media_id)): Path<(ServerName, MediaId)>,
 ) -> Response {
+    if let Err(error) =
+        ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await
+    {
+        let (status, headers, body) = media_error_response(&error);
+        return (status, headers, body).into_response();
+    }
     match download_media_stream_common(&ctx, &server_name, &media_id, None).await {
         Ok((status, headers, body)) => (status, headers, body).into_response(),
         Err(error) => {
@@ -395,8 +410,15 @@ pub(crate) async fn download_media_v1(
 /// See [`download_media_v1_with_filename`].
 pub(crate) async fn download_media_v1_with_filename(
     State(ctx): State<MediaContext>,
+    auth_user: OptionalAuthenticatedUser,
     Path((server_name, media_id, filename)): Path<(ServerName, MediaId, String)>,
 ) -> Response {
+    if let Err(error) =
+        ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await
+    {
+        let (status, headers, body) = media_error_response(&error);
+        return (status, headers, body).into_response();
+    }
     match download_media_stream_common(&ctx, &server_name, &media_id, Some(&filename)).await {
         Ok((status, headers, body)) => (status, headers, body).into_response(),
         Err(error) => {
@@ -417,7 +439,7 @@ pub(crate) async fn get_thumbnail(
     Path((server_name, media_id)): Path<(ServerName, MediaId)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let _ = auth_user;
+    ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await?;
     let response = thumbnail_response_common(&ctx, &server_name, &media_id, &params).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))
@@ -426,10 +448,11 @@ pub(crate) async fn get_thumbnail(
 /// See [`get_thumbnail_authenticated`].
 pub(crate) async fn get_thumbnail_authenticated(
     State(ctx): State<MediaContext>,
-    _auth_user: AuthenticatedUser,
+    auth_user: AuthenticatedUser,
     Path((server_name, media_id)): Path<(ServerName, MediaId)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
+    ctx.media_domain_service.ensure_media_not_quarantined(auth_user.is_admin, &server_name, &media_id).await?;
     let response = thumbnail_response_common(&ctx, &server_name, &media_id, &params).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))

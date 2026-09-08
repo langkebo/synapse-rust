@@ -205,6 +205,45 @@ impl MediaDomainService {
         storage.get_quarantined_media_changes(since_stream_id, limit).await
     }
 
+    /// Check if local media is quarantined. Non-admin downloads of quarantined
+    /// media return 403 Forbidden. This is a security measure to prevent
+    /// malicious content from being served to regular users.
+    ///
+    /// - For remote media (server_name != local): returns Ok(()), no check.
+    /// - For local media by admin: returns Ok(()), admin can access quarantined.
+    /// - For local media by non-admin + quarantined: returns 403 Forbidden.
+    pub async fn ensure_media_not_quarantined(
+        &self,
+        is_admin: bool,
+        server_name: &str,
+        media_id: &str,
+    ) -> Result<(), ApiError> {
+        // Only check local media; remote media has separate quarantine handling
+        if server_name != self.media_service.server_name() {
+            return Ok(());
+        }
+
+        // Admins can always access quarantined media (for forensic purposes)
+        if is_admin {
+            return Ok(());
+        }
+
+        let storage = self
+            .quarantine_change_storage
+            .as_ref()
+            .ok_or_else(|| ApiError::internal("Quarantine stream storage not configured"))?;
+
+        let is_quarantined = storage.get_media_quarantine_status(media_id, server_name).await?;
+        if is_quarantined {
+            return Err(ApiError::forbidden(format!(
+                "Media {}/{} is quarantined and cannot be accessed by non-admin users",
+                server_name, media_id
+            )));
+        }
+
+        Ok(())
+    }
+
     async fn ensure_upload_allowed(&self, user_id: &str, file_size: i64) -> Result<(), ApiError> {
         let quota_check = self.media_quota_service.check_upload_quota(user_id, file_size).await?;
 
@@ -1145,5 +1184,92 @@ mod tests {
         let headers = build_media_response_headers("IMAGE/PNG; charset=binary".to_string(), 5, Some("photo.png"));
 
         assert_eq!(headers.content_disposition, "inline; filename=\"photo.png\"; filename*=UTF-8''photo.png");
+    }
+
+    // =========================================================================
+    // T06: Media Isolation Security Tests — quarantine enforcement
+    // =========================================================================
+
+    /// Test that ensure_media_not_quarantined rejects non-admin access to quarantined media.
+    /// This verifies the fix for T06 security vulnerability where download routes
+    /// bypassed quarantine checks.
+    async fn setup_test_media_domain_with_quarantine(
+        username: &str,
+    ) -> (MediaDomainService, synapse_storage::user::User, tempfile::TempDir) {
+        let pool = prepare_media_test_pool().await.expect("failed to prepare media test pool");
+        let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+        let media_path = temp_dir.path().to_str().expect("temp dir path should be valid utf-8");
+
+        let user_storage =
+            UserStorage::new(&pool, Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default())));
+        let user = user_storage
+            .create_user(&format!("@{username}:test.server"), username, Some("password"), false)
+            .await
+            .expect("Failed to create test user");
+
+        let media_service = MediaService::with_pool(media_path, None, "test.server", Some(pool.clone()));
+        let media_quota_storage = Arc::new(MediaQuotaStorage::new(&pool));
+        let media_quota_service = Arc::new(MediaQuotaService::new(media_quota_storage));
+        let chunked_upload_service =
+            Arc::new(chunked_upload::ChunkedUploadService::new(pool.clone(), 100 * 1024 * 1024));
+
+        // Create quarantine storage for testing
+        let quarantine_storage = Arc::new(synapse_storage::media::QuarantinedMediaChangeStorage::new(&pool));
+
+        let media_domain_service =
+            MediaDomainService::new(media_service.clone(), media_quota_service, chunked_upload_service)
+                .with_quarantine_stream(quarantine_storage, None /* cache_invalidation */);
+
+        (media_domain_service, user, temp_dir)
+    }
+
+    #[tokio::test]
+    async fn test_ensure_media_not_quarantined_rejects_non_admin() {
+        let (media_domain_service, user, _temp_dir) =
+            setup_test_media_domain_with_quarantine("quarantine_tester").await;
+
+        // Upload some media
+        let response = media_domain_service
+            .upload_media(&user.user_id, b"quarantined content", "text/plain", Some("secret.txt"))
+            .await
+            .expect("failed to upload media");
+
+        let media_id = response
+            .get("content_uri")
+            .and_then(|v| v.as_str())
+            .and_then(|content_uri| content_uri.rsplit('/').next())
+            .expect("upload response should contain media_id")
+            .to_string();
+
+        // Initially, media should not be quarantined
+        let result = media_domain_service.ensure_media_not_quarantined(false, "test.server", &media_id).await;
+        assert!(result.is_ok(), "non-admin should access non-quarantined media");
+
+        // Quarantine the media
+        media_domain_service
+            .quarantine_media("test.server", &media_id, &user.user_id)
+            .await
+            .expect("failed to quarantine media");
+
+        // Non-admin should be rejected
+        let error = media_domain_service
+            .ensure_media_not_quarantined(false, "test.server", &media_id)
+            .await
+            .expect_err("non-admin should be blocked from quarantined media");
+
+        assert_eq!(error.http_status(), axum::http::StatusCode::FORBIDDEN);
+        assert!(
+            error.message().contains("quarantined") || error.message().contains("forbidden"),
+            "error message should mention quarantine status: {}",
+            error.message()
+        );
+
+        // Admin should still be able to access quarantined media
+        let admin_result = media_domain_service.ensure_media_not_quarantined(true, "test.server", &media_id).await;
+        assert!(admin_result.is_ok(), "admin should be able to access quarantined media for forensic purposes");
+
+        // Remote media should bypass quarantine check
+        let remote_result = media_domain_service.ensure_media_not_quarantined(false, "remote.server", "some-id").await;
+        assert!(remote_result.is_ok(), "remote media should skip quarantine check");
     }
 }

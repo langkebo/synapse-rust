@@ -81,6 +81,11 @@ impl QuarantinedMediaChangeStoreApi for InMemoryQuarantineMediaChangeStore {
         Ok(*self.next_stream_id.read().await)
     }
 
+    async fn get_media_quarantine_status(&self, _media_id: &str, _server_name: &str) -> Result<bool, ApiError> {
+        // In-memory mock has no media_metadata; report as not quarantined.
+        Ok(false)
+    }
+
     async fn get_changes_by_media(
         &self,
         media_id: &str,
