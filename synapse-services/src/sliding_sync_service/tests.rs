@@ -5,8 +5,7 @@ use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::sliding_sync::{SlidingSyncFilters, SlidingSyncListData, SlidingSyncRoom, SlidingSyncStorage};
-use synapse_storage::test_mocks::InMemoryEventStore;
-use synapse_storage::test_mocks::InMemorySlidingSyncStore;
+use synapse_storage::test_mocks::{InMemoryEventStore, InMemorySlidingSyncStore, FakeUserStore};
 use synapse_storage::PresenceStorage;
 
 #[tokio::test]
@@ -86,6 +85,7 @@ fn create_test_service() -> SlidingSyncService {
         sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy("postgres://localhost/test").unwrap(),
     );
     let event_storage = Arc::new(EventStorage::new(&pool, "localhost".to_string()));
+    let user_storage = Arc::new(FakeUserStore::new());
     SlidingSyncService {
         storage: Arc::new(SlidingSyncStorage::new(pool.clone())),
         cache: Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
@@ -100,6 +100,7 @@ fn create_test_service() -> SlidingSyncService {
         member_storage: Arc::new(RoomMemberStorage::new(&pool, "localhost")),
         device_storage: Arc::new(DeviceStorage::new(&pool)),
         to_device_storage: ToDeviceStorage::new(&pool),
+        user_storage,
         connection_tracker: Arc::new(
             moka::sync::Cache::builder()
                 .max_capacity(MAX_TRACKED_CONNECTIONS)
@@ -545,6 +546,7 @@ fn create_cached_test_service(event_store: Arc<InMemoryEventStore>) -> SlidingSy
     let pool = Arc::new(
         sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy("postgres://localhost/test").unwrap(),
     );
+    let user_storage = Arc::new(FakeUserStore::new());
     SlidingSyncService {
         storage: Arc::new(SlidingSyncStorage::new(pool.clone())),
         cache: Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
@@ -559,6 +561,7 @@ fn create_cached_test_service(event_store: Arc<InMemoryEventStore>) -> SlidingSy
         member_storage: Arc::new(RoomMemberStorage::new(&pool, "localhost")),
         device_storage: Arc::new(DeviceStorage::new(&pool)),
         to_device_storage: ToDeviceStorage::new(&pool),
+        user_storage,
         connection_tracker: Arc::new(
             moka::sync::Cache::builder()
                 .max_capacity(MAX_TRACKED_CONNECTIONS)
@@ -756,6 +759,7 @@ fn create_mocked_test_service(
         sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy("postgres://localhost/test").unwrap(),
     );
     let event_store = Arc::new(InMemoryEventStore::new());
+    let user_storage = Arc::new(FakeUserStore::new());
     SlidingSyncService {
         storage: sync_store as Arc<dyn SlidingSyncStoreApi>,
         cache: Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
@@ -770,6 +774,7 @@ fn create_mocked_test_service(
         member_storage: member_store as Arc<dyn synapse_storage::membership::MemberStoreApi>,
         device_storage: Arc::new(DeviceStorage::new(&pool)),
         to_device_storage: ToDeviceStorage::new(&pool),
+        user_storage,
         connection_tracker: Arc::new(
             moka::sync::Cache::builder()
                 .max_capacity(MAX_TRACKED_CONNECTIONS)

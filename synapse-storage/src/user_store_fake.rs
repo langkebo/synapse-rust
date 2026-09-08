@@ -364,6 +364,14 @@ impl UserStore for FakeUserStore {
         Ok(HashMap::new())
     }
 
+    async fn get_user_profiles_updated_since(
+        &self,
+        _user_ids: &[String],
+        _since_ts: i64,
+    ) -> Result<HashMap<String, UserProfile>, sqlx::Error> {
+        Ok(HashMap::new())
+    }
+
     async fn get_users_batch(&self, _user_ids: &[String]) -> Result<Vec<User>, sqlx::Error> {
         Ok(vec![])
     }

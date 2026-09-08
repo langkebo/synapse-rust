@@ -251,10 +251,102 @@ impl SlidingSyncService {
             }
         }
 
+        // B-4204: profile_updates extension - notifies other shared room members
+        // of profile changes (displayname/avatar_url) for local users.
+        let profile_updates_enabled = is_extension_enabled(request_extensions, "profile_updates");
+
+        if profile_updates_enabled {
+            let profile_updates = self.build_profile_updates_extension(user_id, device_id, conn_id, since_pos).await?;
+            if let Some(pu) = profile_updates {
+                response_extensions.insert("profile_updates".to_string(), pu);
+            }
+        }
+
         if response_extensions.is_empty() {
             Ok(None)
         } else {
             Ok(Some(serde_json::Value::Object(response_extensions)))
+        }
+    }
+
+    /// MSC4262: Build the `profile_updates` extension payload.
+    ///
+    /// Returns a map of `user_id → { displayname, avatar_url, updated_ts }`
+    /// for users whose profile was updated since the last sync.
+    ///
+    /// The extension is enabled when the client requests it in the
+    /// `extensions.profile_updates` field (either `true` or an object with
+    /// `enabled: true`). When disabled, the extension is omitted from the
+    /// response.
+    async fn build_profile_updates_extension(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        conn_id: Option<&str>,
+        since_pos: Option<&str>,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        // B-4204: On initial sync (no since_pos), the client already has the
+        // full profile state, so we return None.
+        let since_ts: i64 = match since_pos {
+            Some(pos_str) => {
+                // Decode the sliding sync position token to get the timestamp
+                // of the last sync. We use `created_ts` which represents when
+                // the sync token was created.
+                self.storage
+                    .get_token(user_id, "default", conn_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|token| token.created_ts)
+                    .unwrap_or(0)
+            }
+            None => return Ok(None),
+        };
+
+        // Get the set of users sharing a room with this user.
+        // Profile updates are only relevant for local users in shared rooms.
+        let shared_users = self.member_storage.get_shared_room_users(user_id).await?;
+
+        // Get profiles for shared users that have been updated since the last sync.
+        let updated_profiles = self
+            .user_storage
+            .get_user_profiles_updated_since(&shared_users, since_ts)
+            .await?;
+
+        // B-4204: Filter to only local users (users starting with @) and
+        // exclude the requesting user themselves.
+        let local_profiles: std::collections::HashMap<String, synapse_storage::user::UserProfile> =
+            updated_profiles.into_iter().filter(|(uid, _)| uid.starts_with('@') && uid != user_id).collect();
+
+        if local_profiles.is_empty() {
+            return Ok(None);
+        }
+
+        // Build the response: { users: { user_id: { displayname, avatar_url, updated_ts }, ... } }
+        let mut users_map = serde_json::Map::new();
+        for (uid, profile) in local_profiles {
+            users_map.insert(
+                uid,
+                serde_json::json!({
+                    "displayname": profile.displayname,
+                    "avatar_url": profile.avatar_url,
+                    "updated_ts": profile.updated_ts,
+                }),
+            );
+        }
+
+        let payload = serde_json::json!({ "users": users_map });
+
+        // Apply dedup cache (same pattern as presence/account_data).
+        let cache_key = Self::profile_updates_cache_key(user_id, device_id, conn_id);
+        let payload_str = serde_json::to_string(&payload).unwrap_or_default();
+        let changed = self.cache.get_raw_shared(&cache_key).await.is_none_or(|prev| prev != payload_str);
+
+        if changed {
+            self.cache.set_raw(&cache_key, &payload_str, EXTENSION_DEDUP_CACHE_TTL_SECS).await;
+            Ok(Some(payload))
+        } else {
+            Ok(None)
         }
     }
 
@@ -411,6 +503,16 @@ impl SlidingSyncService {
         match conn_id {
             Some(conn_id) => format!("sliding_sync:e2ee:shared_users:{user_id}:{device_id}:{conn_id}"),
             None => format!("sliding_sync:e2ee:shared_users:{user_id}:{device_id}:"),
+        }
+    }
+
+    /// B-4204: Cache key for profile_updates extension dedup.
+    /// 去重：为防止每次 sync 回显已下发的 profile payload
+    /// 导致 is_idle 失效、客户端忙循环。
+    pub(crate) fn profile_updates_cache_key(user_id: &str, device_id: &str, conn_id: Option<&str>) -> String {
+        match conn_id {
+            Some(conn_id) => format!("sliding_sync:profile_updates:{user_id}:{device_id}:{conn_id}"),
+            None => format!("sliding_sync:profile_updates:{user_id}:{device_id}:"),
         }
     }
 

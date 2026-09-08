@@ -80,6 +80,9 @@ struct StoragePhase {
     credential_auth: Arc<dyn CredentialAuth>,
     room_auth: Arc<dyn RoomAuth>,
     user_storage: Arc<dyn UserStore>,
+    user_service: Arc<UserService>,
+    /// MSC4204: Member storage for profile update notification.
+    member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
     device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
     threepid_storage: Arc<dyn ThreepidStoreApi>,
     presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
@@ -87,7 +90,6 @@ struct StoragePhase {
     qr_login_storage: Arc<dyn QrLoginStoreApi>,
     invite_blocklist_storage: Arc<dyn InviteBlocklistStoreApi>,
     sticky_event_storage: Arc<dyn StickyEventStoreApi>,
-    user_service: Arc<UserService>,
 }
 
 /// Phase 3 output: domain assemblies + media service.
@@ -199,6 +201,15 @@ impl ServiceContainer {
         let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
         let user_service = Arc::new(UserService::new(user_storage.clone()));
 
+        // MSC4204: Create member_storage early so it can be injected into user_service.
+        // This enables profile updates to notify shared room users via sliding sync.
+        let server_name_for_storage = config.server.get_server_name().to_string();
+        let member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi> =
+            Arc::new(RoomMemberStorage::new(pool, &server_name_for_storage));
+
+        // Inject member_storage into user_service for profile update notifications
+        user_service.set_member_storage(member_storage.clone());
+
         // ARCH-01: Create the 3 critical writable storages once and inject them
         // into AuthService. Previously new_with_lifetime() created these
         // internally via Arc::new(...Storage::new(pool)), producing duplicate
@@ -262,6 +273,8 @@ impl ServiceContainer {
             credential_auth,
             room_auth,
             user_storage,
+            user_service,
+            member_storage,
             device_storage,
             threepid_storage,
             presence_storage,
@@ -269,7 +282,6 @@ impl ServiceContainer {
             qr_login_storage,
             invite_blocklist_storage,
             sticky_event_storage,
-            user_service,
         }
     }
 
@@ -310,10 +322,9 @@ impl ServiceContainer {
         // Federation — builds key_rotation_manager + federation_client; no rooms dependency
         let federation = wiring::FederationServices::new(pool, cache, config, &infra.infra.task_queue).await;
 
-        // member_storage — extracted here (needed by both rooms and event_broadcaster)
+        // Reuse member_storage created in build_storage_layer (for MSC4204 profile notifications)
+        let member_storage = storage.member_storage.clone();
         let server_name_for_storage = config.server.get_server_name().to_string();
-        let member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi> =
-            Arc::new(RoomMemberStorage::new(pool, &server_name_for_storage));
 
         // EventBroadcaster — needs federation.federation_client + member_storage
         let event_broadcaster = {
@@ -372,7 +383,12 @@ impl ServiceContainer {
         // `with_idle_timeout_secs` 从 config 读入，此处不需要再配置化。
         event_notifier.start_idle_slot_evictor(std::time::Duration::from_secs(300), infra.shutdown_token.clone());
 
+        // MSC4204: Inject the real event_notifier into UserService so that
+        // profile_update notifications can use Redis cross-instance fan-out.
+        storage.user_service.set_event_notifier(event_notifier.clone());
+
         // Rooms — receives member_storage + the 4 injected services directly
+        // B-4204: user_storage is needed for profile_updates extension
         let rooms = wiring::RoomSyncServices::new(
             &infra.infra,
             &storage.room_auth,
@@ -380,6 +396,7 @@ impl ServiceContainer {
             &storage.presence_storage,
             &e2ee.to_device_storage,
             member_storage.clone(),
+            storage.user_storage.clone(),
             event_broadcaster.clone(),
             admin.modules.app_service_manager.clone(),
             Arc::new(federation.key_rotation_manager.clone()),

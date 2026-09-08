@@ -81,6 +81,7 @@ impl User {
 }
 
 /// The `UserProfile` struct.
+/// B-4204: Added `updated_ts` field to support sliding sync profile_updates extension.
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct UserProfile {
     /// The `user_id` field.
@@ -93,6 +94,8 @@ pub struct UserProfile {
     pub avatar_url: Option<String>,
     /// The `created_ts` field.
     pub created_ts: i64,
+    /// The `updated_ts` field - tracks last profile change for profile_updates EDU.
+    pub updated_ts: Option<i64>,
 }
 
 /// The `UserSearchResult` struct.
@@ -372,6 +375,16 @@ pub trait UserStore: Send + Sync {
 
     /// See [`get_user_profiles_map`].
     async fn get_user_profiles_map(&self, user_ids: &[String]) -> Result<HashMap<String, UserProfile>, sqlx::Error>;
+
+    /// B-4204: Get user profiles that have been updated since the given timestamp.
+    /// Returns a map from user_id to UserProfile for users whose `updated_ts > since_ts`.
+    /// This is used by the sliding sync profile_updates extension to notify other users
+    /// in shared rooms of profile changes.
+    async fn get_user_profiles_updated_since(
+        &self,
+        user_ids: &[String],
+        since_ts: i64,
+    ) -> Result<HashMap<String, UserProfile>, sqlx::Error>;
 
     /// See [`get_users_batch`].
     async fn get_users_batch(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error>;
@@ -846,10 +859,13 @@ impl UserStorage {
     }
 
     /// See [`update_displayname`].
+    /// B-4204: Updates `updated_ts` to enable profile_update EDU push via sliding sync.
     pub async fn update_displayname(&self, user_id: &str, displayname: Option<&str>) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Updating user displayname");
-        sqlx::query(r"UPDATE users SET displayname = $1 WHERE user_id = $2")
+        let now = synapse_common::current_timestamp_millis();
+        sqlx::query(r"UPDATE users SET displayname = $1, updated_ts = $2 WHERE user_id = $3")
             .bind(displayname)
+            .bind(now)
             .bind(user_id)
             .execute(&*self.pool)
             .await?;
@@ -865,9 +881,12 @@ impl UserStorage {
     }
 
     /// See [`update_avatar_url`].
+    /// B-4204: Updates `updated_ts` to enable profile_update EDU push via sliding sync.
     pub async fn update_avatar_url(&self, user_id: &str, avatar_url: Option<&str>) -> Result<(), sqlx::Error> {
-        sqlx::query(r"UPDATE users SET avatar_url = $1 WHERE user_id = $2")
+        let now = synapse_common::current_timestamp_millis();
+        sqlx::query(r"UPDATE users SET avatar_url = $1, updated_ts = $2 WHERE user_id = $3")
             .bind(avatar_url)
+            .bind(now)
             .bind(user_id)
             .execute(&*self.pool)
             .await?;
@@ -1088,7 +1107,7 @@ impl UserStorage {
 
         let result = sqlx::query_as::<_, UserProfile>(
             r"
-            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, created_ts
+            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, created_ts, updated_ts
             FROM users
             WHERE user_id = $1 AND COALESCE(is_deactivated, FALSE) = FALSE
             ",
@@ -1130,7 +1149,7 @@ impl UserStorage {
 
         let fetched = sqlx::query_as::<_, UserProfile>(
             r"
-            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, created_ts
+            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, created_ts, updated_ts
             FROM users
             WHERE user_id = ANY($1) AND COALESCE(is_deactivated, FALSE) = FALSE
             ",
@@ -1161,6 +1180,33 @@ impl UserStorage {
         }
 
         let profiles = self.get_user_profiles_batch(user_ids).await?;
+
+        Ok(profiles.into_iter().map(|p| (p.user_id.clone(), p)).collect())
+    }
+
+    /// B-4204: Get user profiles that have been updated since the given timestamp.
+    pub async fn get_user_profiles_updated_since(
+        &self,
+        user_ids: &[String],
+        since_ts: i64,
+    ) -> Result<std::collections::HashMap<String, UserProfile>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let profiles = sqlx::query_as::<_, UserProfile>(
+            r"
+            SELECT user_id, username, COALESCE(displayname, username) as displayname, avatar_url, created_ts, updated_ts
+            FROM users
+            WHERE user_id = ANY($1)
+              AND COALESCE(is_deactivated, FALSE) = FALSE
+              AND updated_ts > $2
+            ",
+        )
+        .bind(user_ids)
+        .bind(since_ts)
+        .fetch_all(&*self.pool)
+        .await?;
 
         Ok(profiles.into_iter().map(|p| (p.user_id.clone(), p)).collect())
     }
@@ -1848,6 +1894,14 @@ impl UserStore for UserStorage {
 
     async fn get_user_profiles_map(&self, user_ids: &[String]) -> Result<HashMap<String, UserProfile>, sqlx::Error> {
         self.get_user_profiles_map(user_ids).await
+    }
+
+    async fn get_user_profiles_updated_since(
+        &self,
+        user_ids: &[String],
+        since_ts: i64,
+    ) -> Result<HashMap<String, UserProfile>, sqlx::Error> {
+        self.get_user_profiles_updated_since(user_ids, since_ts).await
     }
 
     async fn get_users_batch(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error> {

@@ -1,4 +1,3 @@
-
 use crate::friend_room_service::models::{FriendListCursor, FriendListEntry, FriendListRequest};
 use crate::friend_room_service::sharding::{shard_for_user_id, shard_to_state_key};
 use crate::friend_room_service::FriendRoomService;

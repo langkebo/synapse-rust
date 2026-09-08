@@ -65,6 +65,9 @@ pub struct SlidingSyncService {
     member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
     device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
     to_device_storage: ToDeviceStorage,
+    /// B-4204: User storage for profile_updates extension.
+    /// Used to fetch profile updates for shared room members.
+    user_storage: Arc<dyn synapse_storage::user::UserStore>,
     /// MSC4354: Sticky event storage. When present, sticky events for each
     /// room are injected into the sliding sync room response as
     /// `sticky_events`. `None` disables the integration (e.g. in tests
@@ -128,6 +131,7 @@ impl SlidingSyncService {
         member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
         device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
         to_device_storage: ToDeviceStorage,
+        user_storage: Arc<dyn synapse_storage::user::UserStore>,
         metrics: Arc<MetricsCollector>,
         performance: PerformanceConfig,
         sticky_event_storage: Option<Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>>,
@@ -150,6 +154,7 @@ impl SlidingSyncService {
             member_storage,
             device_storage,
             to_device_storage,
+            user_storage,
             sticky_event_storage,
             connection_tracker: Arc::new(connection_tracker),
             txn_id_cache: Arc::new(txn_id_cache),
@@ -814,6 +819,14 @@ impl SlidingSyncService {
             }
         }
 
+        // profile_updates：`users` 对象非空才算新数据。
+        // 已在 build_extensions_response 中做缓存去重，相同 payload 不会插入。
+        if let Some(users) = obj.get("profile_updates").and_then(|p| p.get("users")).and_then(|u| u.as_object()) {
+            if !users.is_empty() {
+                return true;
+            }
+        }
+
         false
     }
 
@@ -951,17 +964,18 @@ impl SlidingSyncService {
 
         // ── 精确 key 类：extensions 去重缓存，一个连接固定一条 ──
         //
-        // 旧实现：for key { delete(key) } —— 4 次串行 RTT。
-        // 新实现：futures::future::join_all 并发发出 4 个 delete，
+        // 旧实现：for key { delete(key) } —— 5 次串行 RTT。
+        // 新实现：futures::future::join_all 并发发出 5 个 delete，
         //         延迟重叠，总耗时 ≈ max(各 RTT) 而非 sum(各 RTT)。
         let exact_keys = [
             Self::presence_cache_key(user_id, device_id, conn_id),
             Self::account_data_cache_key(user_id, device_id, conn_id),
             Self::receipts_cache_key(user_id, device_id, conn_id),
             Self::e2ee_shared_users_cache_key(user_id, device_id, conn_id),
+            Self::profile_updates_cache_key(user_id, device_id, conn_id),
         ];
 
-        // 4 个精确 key 并发删除（各自 L1 + Redis + 广播，独立不变）。
+        // 5 个精确 key 并发删除（各自 L1 + Redis + 广播，独立不变）。
         // 提前 borrow cache 以让闭包不捕获整个 &self——可满足 Send + 'static。
         let cache: &CacheManager = &self.cache;
         let deletes: Vec<_> = exact_keys.into_iter().map(|key| async move { cache.delete(&key).await }).collect();

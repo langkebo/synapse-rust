@@ -130,3 +130,51 @@ E-05: 3（numeric/non-numeric/i64::MAX parse）
 E-06: 4（valid/invalid/missing/wrong-length decode）
 E-07: 2（source-level invariant 检查）
 
+---
+
+# MSC4262: Sliding Sync Profile Updates 实施
+
+**任务**: T02 — 实现 Sliding Sync Profile Updates 扩展，当本地用户更新 displayname/avatar_url 时，向共享房间的其他本地用户推送 `profile_update` 通知
+**日期**: 2026-09-08
+**状态**: ✅ 核心逻辑实现完成
+
+## 做了什么
+
+完成 profile_updates sliding-sync 扩展的端到端实现：
+
+1. **StorageService 层**:
+   - `UserStore` trait 新增 `get_user_profiles_updated_since()` 方法签名
+   - `UserStorage` реализации包含 SQL 查询：按 `updated_ts > since_ts` 筛选变更的用户
+   - `FakeUserStore` 提供测试占位实现
+
+2. **UserService 层**:
+   - 新增 `member_storage`、`event_reader` 字段（RwLock Option 包装，支持 test-utils/生产环境差异）
+   - `set_event_notifier()` 注入 Redis 跨实例 event_notifier
+   - `notify_profile_update()` 异步方法：查询共享房间成员，调用 `event_notifier.notify_user()` 唤醒连接
+
+3. **SlidingSyncService 层**:
+   - `build_profile_updates_extension()` 完整实现：
+     - 从 `since_pos` 解码时间戳
+     - 查询共享房间用户
+     - 按 `updated_ts > since_ts` 过滤变更用户
+     - 构建 `{ users: { user_id: { displayname, avatar_url, updated_ts } } }` 响应
+     - Redis dedup 缓存去重
+   - `has_new_extension_data()` 新增 profile_updates 检测
+   - `invalidate_connection_cache()` 追加 profile_updates_cache_key
+
+4. **容器注入 (Container.rs)**:
+   - Phase 2: 创建 `member_storage` 并注入 `user_service`
+   - `build_domains`: 注入 `event_notifier` 给 `user_service`
+   - `RoomsSyncServices::new()`: 传递 `user_storage` 参数
+
+## 设计决策
+
+- **缓存模式**: 严格遵循 presence/account_data/receipts 的去重模式
+- **用户过滤**: 仅推送给本地用户（user_id 以 `@` 开头），排除查询用户本人
+- **脏数据回退**: `FakeUserStore` 返回空 HashMap，通过条件编译控制
+
+## 编译状态
+
+- `cargo check` ✅ 通过
+- 警告: 2 条 (pos_str 未使用, with_member_storage 未使用) - 后续可清理
+
