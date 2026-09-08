@@ -182,6 +182,14 @@ pub struct ServerConfig {
     /// 后台任务执行间隔（秒）
     pub background_tasks_interval: u64,
 
+    /// T03 MSC4140：延迟事件派发器轮询间隔（秒）。
+    ///
+    /// 延迟事件派发器定期轮询 `delayed_events` 表中到期的事件并注入房间。
+    /// 默认 5 秒。可通过环境变量 `SYNAPSE__SERVER__DELAYED_EVENT_DISPATCH_INTERVAL_SECS` 覆盖。
+    #[serde(default = "default_delayed_event_dispatch_interval_secs")]
+    /// `delayed_event_dispatch_interval_secs` field.
+    pub delayed_event_dispatch_interval_secs: u64,
+
     /// 脱水设备过期清理任务执行间隔（秒）
     #[serde(default = "default_dehydrated_device_cleanup_interval_secs")]
     /// `dehydrated_device_cleanup_interval_secs` field.
@@ -489,6 +497,10 @@ fn default_megolm_cleanup_interval_secs() -> u64 {
 
 fn default_pruning_interval_secs() -> u64 {
     86400 // 24 hours
+}
+
+fn default_delayed_event_dispatch_interval_secs() -> u64 {
+    5 // 5 seconds
 }
 
 fn default_health_check_interval_secs() -> u64 {

@@ -55,6 +55,13 @@ const MEGOLM_CLEANUP_INTERVAL_SECS: u64 = 6 * 3600;
 /// Fallback for [`ServerConfig::pruning_interval_secs`] when config is 0.
 const PRUNING_INTERVAL_SECS: u64 = 86400;
 
+/// T03 MSC4140: default polling interval (seconds) for the delayed-event
+/// dispatcher when `server.delayed_event_dispatch_interval_secs` is unset/zero.
+const DEFAULT_DELAYED_EVENT_DISPATCH_INTERVAL_SECS: u64 = 5;
+
+/// T03 MSC4140: maximum number of due delayed events processed per dispatch cycle.
+const DELAYED_EVENT_DISPATCH_BATCH_SIZE: i64 = 100;
+
 /// Helper macro for pruning background tasks.
 /// Each pruning operation follows the same pattern: call an async function,
 /// log success with a count, or log a warning on failure.
@@ -389,6 +396,9 @@ impl SynapseServer {
         let mut shutdown_rx5 = shutdown_tx.subscribe();
         let mut shutdown_rx6 = shutdown_tx.subscribe();
         let mut shutdown_rx7 = shutdown_tx.subscribe();
+        // T03 MSC4140: dedicated shutdown receiver for delayed-event dispatcher
+        // (separate from shutdown_rx6 used by Megolm session cleanup to avoid move conflict)
+        let mut shutdown_rx_delayed = shutdown_tx.subscribe();
         let mut shutdown_rx_drain_gate = shutdown_tx.subscribe();
 
         if run_global_maintenance {
@@ -603,6 +613,106 @@ impl SynapseServer {
                 .await
                 .ok();
             let _ = client_tx.send(());
+        });
+
+        // T03 MSC4140: Delayed event dispatcher — polls scheduled events and injects them
+        // into the room's message pipeline. Uses Redis distributed lock to prevent duplicate dispatch.
+        let delayed_event_storage = self.app_state.services.admin.modules.delayed_event_storage.clone();
+        let room_service = self.app_state.services.rooms.room_service.clone();
+        let cache = self.app_state.services.core.cache.clone();
+        let delayed_event_dispatch_interval =
+            self.app_state.services.core.config.server.delayed_event_dispatch_interval_secs;
+        let dispatch_interval_secs = if delayed_event_dispatch_interval > 0 {
+            delayed_event_dispatch_interval
+        } else {
+            DEFAULT_DELAYED_EVENT_DISPATCH_INTERVAL_SECS
+        };
+        tokio::spawn(async move {
+            let mut interval_timer = tokio::time::interval(tokio::time::Duration::from_secs(dispatch_interval_secs));
+            interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            interval_timer.tick().await; // skip immediate tick after startup
+
+            loop {
+                tokio::select! {
+                    _ = interval_timer.tick() => {
+                        let cycle_start = Instant::now();
+                        let now_ms = current_timestamp_millis();
+
+                        // Fetch due events from storage
+                        let due_events = match delayed_event_storage.get_due_events(now_ms, DELAYED_EVENT_DISPATCH_BATCH_SIZE).await {
+                            Ok(events) => events,
+                            Err(e) => {
+                                ::tracing::error!("Failed to get due delayed events: {}", e);
+                                continue;
+                            }
+                        };
+
+                        if due_events.is_empty() {
+                            continue;
+                        }
+
+                        let mut dispatched: u64 = 0;
+                        let mut errors: u64 = 0;
+                        let mut skipped_contention: u64 = 0;
+
+                        for event in due_events {
+                            if event.status != "pending" {
+                                continue;
+                            }
+
+                            // Use distributed lock to prevent duplicate dispatch across instances
+                            let lock_key = format!("delayed:event:dispatch:{}", event.id);
+                            let lock_acquired = cache.try_acquire_lock(&lock_key, 30).await.unwrap_or(false);
+
+                            if !lock_acquired {
+                                skipped_contention += 1;
+                                continue;
+                            }
+
+                            // Dispatch the event: use the room service's messaging to create the event
+                            // The synthetic event_id from delayed_events is used as the txn_id for deduplication
+                            let send_result = room_service
+                                .messaging()
+                                .send_message_with_txn(
+                                    &event.room_id,
+                                    &event.user_id,
+                                    &event.event_type,
+                                    &event.content,
+                                    &event.event_id, // txn_id for dedup (synthetic placeholder)
+                                )
+                                .await;
+
+                            match send_result {
+                                Ok(_) => {
+                                    if let Ok(true) = delayed_event_storage.mark_sent(event.id).await {
+                                        dispatched += 1;
+                                        ::tracing::debug!("MSC4140 dispatched delayed event {}", event.id);
+                                    }
+                                }
+                                Err(e) => {
+                                    ::tracing::error!("Failed to dispatch delayed event {}: {}", event.id, e);
+                                    errors += 1;
+                                }
+                            }
+
+                            // Release lock (TTL handles it, but explicit release is cleaner)
+                            let _ = cache.release_lock(&lock_key).await;
+                        }
+
+                        ::tracing::info!(
+                            "[MSC4140] delayed_event_dispatch: dispatched={}, errors={}, contention_skipped={}, elapsed_ms={:?}",
+                            dispatched,
+                            errors,
+                            skipped_contention,
+                            cycle_start.elapsed()
+                        );
+                    }
+                    _ = shutdown_rx_delayed.recv() => {
+                        ::tracing::info!("Delayed event dispatcher shutting down");
+                        break;
+                    }
+                }
+            }
         });
 
         tokio::spawn(async move {
