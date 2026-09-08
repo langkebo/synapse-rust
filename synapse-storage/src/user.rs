@@ -2090,6 +2090,7 @@ mod tests {
             displayname: Some("Dave".to_string()),
             avatar_url: Some("mxc://example.com/dave".to_string()),
             created_ts: 1700000000000,
+            updated_ts: None,
         };
 
         let json = serde_json::to_string(&profile).unwrap();

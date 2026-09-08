@@ -26,6 +26,7 @@ pub struct UserService {
     event_notifier: RwLock<EventNotifier>,
 }
 
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 impl UserService {
     /// See [`new`].
     pub fn new(user_storage: Arc<dyn UserStore>) -> Self {

@@ -422,6 +422,7 @@ impl MembershipService {
     ///
     /// The `next_batch` value is the `user_id` of the last member in
     /// the current page; pass it as `from` in the next request.
+    #[allow(clippy::too_many_arguments)]
     pub async fn get_room_members_paginated(
         &self,
         room_id: &str,

@@ -5,7 +5,7 @@ use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::sliding_sync::{SlidingSyncFilters, SlidingSyncListData, SlidingSyncRoom, SlidingSyncStorage};
-use synapse_storage::test_mocks::{InMemoryEventStore, InMemorySlidingSyncStore, FakeUserStore};
+use synapse_storage::test_mocks::{FakeUserStore, InMemoryEventStore, InMemorySlidingSyncStore};
 use synapse_storage::PresenceStorage;
 
 #[tokio::test]

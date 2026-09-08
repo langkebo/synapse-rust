@@ -308,10 +308,7 @@ impl SlidingSyncService {
         let shared_users = self.member_storage.get_shared_room_users(user_id).await?;
 
         // Get profiles for shared users that have been updated since the last sync.
-        let updated_profiles = self
-            .user_storage
-            .get_user_profiles_updated_since(&shared_users, since_ts)
-            .await?;
+        let updated_profiles = self.user_storage.get_user_profiles_updated_since(&shared_users, since_ts).await?;
 
         // B-4204: Filter to only local users (users starting with @) and
         // exclude the requesting user themselves.
