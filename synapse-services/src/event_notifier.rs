@@ -344,9 +344,7 @@ impl EventNotifier {
                         debug!("EventNotifier subscription ended normally, reconnecting...");
                     }
                     Err(e) => {
-                        warn!(
-                            "EventNotifier subscription error: {e}, reconnecting in {reconnect_backoff_ms}ms..."
-                        );
+                        warn!("EventNotifier subscription error: {e}, reconnecting in {reconnect_backoff_ms}ms...");
                         // Race the backoff sleep against shutdown so a SIGTERM
                         // arriving mid-retry exits immediately. The backoff is
                         // configured via [`EventNotifier::with_reconnect_backoff_ms`].
@@ -380,7 +378,9 @@ impl EventNotifier {
 
         pubsub.subscribe(channel).await.map_err(|e| format!("Failed to subscribe to channel: {e}"))?;
 
-        debug!("EventNotifier subscribed to channel: {}", channel);
+        // A-8: subscriber 成功后升级为 info，运维可在 default RUST_LOG=info 下确认
+        // 跨实例 fan-out 已建立；无此日志 = Redis sub 挂了 → 长轮询退化为纯本地。
+        info!("EventNotifier subscribed to channel: {}", channel);
 
         let mut message_stream = pubsub.on_message();
 
@@ -559,9 +559,10 @@ mod tests {
         let slots = notifier.slots_for("@waiter:example.com", std::slice::from_ref(&room_id));
         let room_slot = slots[1].clone();
         let waiter_notifier = notifier.clone();
-        let handle = tokio::spawn(async move {
-            tokio::time::timeout(waiter_notifier.idle_timeout(), room_slot.notified()).await
-        });
+        let handle =
+            tokio::spawn(
+                async move { tokio::time::timeout(waiter_notifier.idle_timeout(), room_slot.notified()).await },
+            );
 
         // Give the waiter time to register
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
@@ -579,9 +580,10 @@ mod tests {
         let slots = notifier.slots_for(&user_id, &[]);
         let user_slot = slots[0].clone();
         let waiter_notifier = notifier.clone();
-        let handle = tokio::spawn(async move {
-            tokio::time::timeout(waiter_notifier.idle_timeout(), user_slot.notified()).await
-        });
+        let handle =
+            tokio::spawn(
+                async move { tokio::time::timeout(waiter_notifier.idle_timeout(), user_slot.notified()).await },
+            );
 
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 

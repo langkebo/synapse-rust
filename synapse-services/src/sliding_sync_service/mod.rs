@@ -821,6 +821,12 @@ impl SlidingSyncService {
     /// timeline_limit 调整）。客户端每次 sync 都发完整的 room_subscriptions，配置一旦
     /// 变化应立即反映，而非被 is_idle 判定为空闲后超时丢弃 rooms_response（否则新订阅
     /// 的房间要等到下一个事件才出现在响应里）。用本地缓存存上一轮快照做对比。
+    ///
+    /// S-8: 读与写走统一缓存层。`set_raw` 异步写入 L1 + L2(Redis)，
+    /// `get_raw_shared` 异步读 L1 回源 Redis 并回填 L1，二者对称。
+    /// 此前用同步 `get_raw`（只读 L1）会在进程重启 / 本地驱逐 / 跨实例路由后
+    /// 返回 None，误判 subscriptions_changed=true，反而令 room_subscriptions
+    /// 被误包含在 rooms_response 中升级 is_idle —— 忙循环复发开关。
     async fn room_subscriptions_changed(
         &self,
         user_id: &str,
@@ -830,7 +836,7 @@ impl SlidingSyncService {
     ) -> bool {
         let key = Self::subscription_snapshot_key(user_id, device_id, conn_id);
         let current = request.room_subscriptions.as_ref().map(|s| s.to_string()).unwrap_or_default();
-        let changed = self.cache.get_raw(&key).as_deref() != Some(current.as_str());
+        let changed = self.cache.get_raw_shared(&key).await.as_deref() != Some(current.as_str());
         self.cache.set_raw(&key, &current, 3600).await;
         changed
     }

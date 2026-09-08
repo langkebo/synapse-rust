@@ -1773,6 +1773,30 @@ impl CacheManager {
     }
 
     /// Token-bucket rate limiter backed by Redis.
+    ///
+    /// # Architecture
+    ///
+    /// Dual-tier design — two tiers of state for cross-instance sharing:
+    /// 1. **L1: local memory** (moka). Process-local only. Cheap, O(1).
+    /// 2. **L2: Redis** (Lua script). Shared across all server instances +
+    ///    survives restarts. Used for IP-level, `/sync` and sliding-sync
+    ///    token buckets.
+    ///
+    /// Dispatch:
+    /// - `redis` present → hit Redis directly (no L1 cache for rate-limit
+    ///   state). Redis Lua does HINCRBY + TTL atomically.
+    /// - `redis` absent → fall back to L1 local moka bucket. Only correct
+    ///   in single-instance deployments; multi-worker would see each
+    ///   instance with its own independent bucket.
+    ///
+    /// Why two tiers? The rate-limit key encodes either an IP, a user+device
+    /// pair, or a user+device+kind triple — all of which must be shared
+    /// across worker processes so that burst limits are enforced at the
+    /// deployment level, not per-instance.
+    ///
+    /// `fail_open` / `fail_closed` decision is made upstream in the
+    /// middleware layer; this function only returns a `Result` with the
+    /// Redis error when the Lua script could not be run.
     pub async fn rate_limit_token_bucket_take(
         &self,
         key: &str,

@@ -354,15 +354,22 @@ impl ServiceContainer {
                     ::tracing::warn!(
                         "Failed to create Redis pool for EventNotifier: {e}. Falling back to local-only notifications."
                     );
-                    crate::event_notifier::EventNotifier::new().with_idle_timeout_secs(config.server.event_notifier_idle_timeout_secs)
+                    crate::event_notifier::EventNotifier::new()
+                        .with_idle_timeout_secs(config.server.event_notifier_idle_timeout_secs)
                 }
             }
         } else {
-            crate::event_notifier::EventNotifier::new().with_idle_timeout_secs(config.server.event_notifier_idle_timeout_secs)
+            crate::event_notifier::EventNotifier::new()
+                .with_idle_timeout_secs(config.server.event_notifier_idle_timeout_secs)
         };
 
         // A-7: reclaim notifier slots whose waiters have gone away, so the
         // room/user maps don't grow monotonically over the process lifetime.
+        //
+        // 300 s = 5 min sweep cadence：evictor 只做 `Arc::strong_count > 1`
+        // 的 retain（不碰正在长轮询的 waiter），远小于 idle_timeout_secs（默认
+        // 5 s）的量级——所以不干扰任何通知时延； idle 阈值本身已由
+        // `with_idle_timeout_secs` 从 config 读入，此处不需要再配置化。
         event_notifier.start_idle_slot_evictor(std::time::Duration::from_secs(300), infra.shutdown_token.clone());
 
         // Rooms — receives member_storage + the 4 injected services directly

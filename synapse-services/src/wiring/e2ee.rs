@@ -95,7 +95,9 @@ impl E2eeServices {
         let secure_backup_service = synapse_e2ee::secure_backup::SecureBackupService::new(pool);
 
         let to_device_storage = synapse_e2ee::to_device::ToDeviceStorage::new(pool);
-        let to_device_service = ToDeviceService::new(to_device_storage.clone()).with_user_storage(user_storage.clone());
+        let to_device_service = ToDeviceService::new(std::sync::Arc::new(to_device_storage.clone())
+            as std::sync::Arc<dyn synapse_e2ee::to_device::ToDeviceStorageApi>)
+        .with_user_storage(user_storage.clone());
 
         let verification_storage = synapse_e2ee::verification::VerificationStorage::new(pool);
         let verification_service = VerificationService::new(std::sync::Arc::new(verification_storage));

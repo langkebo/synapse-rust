@@ -9,6 +9,19 @@ use serde_json::Value;
 use synapse_common::rate_limit_config::RateLimitConfigFile;
 use synapse_services::sync_service::{SyncServiceRequest, SyncToken};
 
+/// S26 / B-2: 429 与长轮询互为掩护 —— 限流触发必须独立计数。
+/// v2 /sync 用该计数器作告警，与 sliding_sync 的 `sliding_sync_rate_limited_total` 分离。
+/// 若滑稽：v2 sync 429 > 0 → 长轮询失效；若正常：v2 sync 429 ≈ 0。
+const SYNC_RATE_LIMITED_COUNTER: &str = "sync_rate_limited_total";
+
+/// 记录一次 v2 /sync 限流拒绝（429）。
+fn record_rate_limited(metrics: &synapse_common::metrics::MetricsCollector) {
+    let counter = metrics
+        .get_counter(SYNC_RATE_LIMITED_COUNTER)
+        .unwrap_or_else(|| metrics.register_counter(SYNC_RATE_LIMITED_COUNTER.to_string()));
+    counter.inc();
+}
+
 struct SyncParams {
     ctx: SyncContext,
     user_id: String,
@@ -131,6 +144,7 @@ pub(crate) async fn sync(
         };
         if !decision.allowed {
             let retry_after_ms = decision.retry_after_seconds.saturating_mul(1000);
+            record_rate_limited(&ctx.metrics);
             return Err(ApiError::rate_limited_with_retry(retry_after_ms));
         }
     }
@@ -215,5 +229,23 @@ fn parse_bool_query_param(params: &Value, key: &str) -> Option<bool> {
             _ => None,
         },
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // S26 / B-2: 429 计数器独立于慢请求计数器。
+    // 若 sync_rate_limited_total > 0，说明 v2 /sync 触发限流，
+    // 这在长轮询失效（A-3）时是重要告警信号。
+
+    #[test]
+    fn test_record_rate_limited_increments_dedicated_counter() {
+        let metrics = synapse_common::metrics::MetricsCollector::new();
+        record_rate_limited(&metrics);
+        record_rate_limited(&metrics);
+        let counter = metrics.get_counter(SYNC_RATE_LIMITED_COUNTER).expect("rate-limited counter must be registered");
+        assert_eq!(counter.get(), 2, "每次 429 拒绝都必须独立计数");
     }
 }
