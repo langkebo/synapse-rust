@@ -88,6 +88,10 @@ impl PresenceStoreApi for InMemoryPresenceStore {
         Ok(self.subscriptions.read().await.iter().filter(|(s, _)| s == subscriber_id).map(|(_, t)| t.clone()).collect())
     }
 
+    async fn get_subscribers(&self, target_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        Ok(self.subscriptions.read().await.iter().filter(|(_, t)| t == target_id).map(|(s, _)| s.clone()).collect())
+    }
+
     async fn get_presence_batch_with_meta(
         &self,
         user_ids: &[String],

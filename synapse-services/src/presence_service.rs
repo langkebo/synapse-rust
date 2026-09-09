@@ -1,6 +1,9 @@
 use crate::common::error::{ApiError, ApiResult};
+use serde_json::json;
+use std::collections::HashSet;
 use std::sync::Arc;
 
+use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_storage::presence::PresenceStoreApi;
 
 /// Presence status tuple: (presence_state, status_msg, last_active_ts)
@@ -34,21 +37,58 @@ impl Default for PresenceTuning {
     }
 }
 
+use std::sync::RwLock;
+
+/// Extract unique remote server names from presence subscriber IDs,
+/// filtering out the local server.
+fn extract_remote_servers(subscribers: &[String], local_server: &str) -> HashSet<String> {
+    let mut remote: HashSet<String> = HashSet::new();
+    for subscriber_id in subscribers {
+        if let Some((_, server)) = subscriber_id.rsplit_once(':') {
+            if !server.is_empty() && server != local_server {
+                remote.insert(server.to_string());
+            }
+        }
+    }
+    remote
+}
+
 /// The `PresenceService` struct.
 pub struct PresenceService {
     storage: Arc<dyn PresenceStoreApi>,
     tuning: PresenceTuning,
+    /// Federation event broadcaster for outbound presence EDU federation.
+    /// Wrapped in RwLock for late binding after federation services are built.
+    federation: RwLock<FederationOutbound>,
+}
+
+/// Internal struct for federation outbound configuration.
+#[derive(Default)]
+struct FederationOutbound {
+    event_broadcaster: Option<Arc<EventBroadcaster>>,
+    server_name: String,
 }
 
 impl PresenceService {
     /// See [`new`].
     pub fn new(storage: Arc<dyn PresenceStoreApi>) -> Self {
-        Self { storage, tuning: PresenceTuning::default() }
+        Self { storage, tuning: PresenceTuning::default(), federation: RwLock::new(FederationOutbound::default()) }
     }
 
     /// Construct with explicit presence tuning parameters (sourced from config).
     pub fn with_tuning(storage: Arc<dyn PresenceStoreApi>, tuning: PresenceTuning) -> Self {
-        Self { storage, tuning }
+        Self { storage, tuning, federation: RwLock::new(FederationOutbound::default()) }
+    }
+
+    /// Attach the event broadcaster for federation outbound presence broadcast.
+    /// This must be called after EventBroadcaster is constructed in DomainPhase.
+    pub fn set_event_broadcaster(&self, event_broadcaster: Arc<EventBroadcaster>, server_name: String) {
+        let mut federation = match self.federation.write() {
+            Ok(f) => f,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        federation.event_broadcaster = Some(event_broadcaster);
+        federation.server_name = server_name;
     }
 
     /// Returns true if `room_id` is in `exclude_rooms_from_presence` and must
@@ -88,17 +128,105 @@ impl PresenceService {
         self.storage
             .set_presence(user_id, presence, status_msg)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to set presence", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to set presence", &e))?;
+
+        // T04: Broadcast presence update to remote servers via federation
+        self.broadcast_presence_to_subscribers(user_id).await;
+
+        Ok(())
     }
 
     /// C-3: Batch set presence for multiple users in a single SQL statement.
     /// Each entry is `(user_id, presence, status_msg)`.
     #[tracing::instrument(skip(self, entries))]
     pub async fn set_presence_batch(&self, entries: &[(String, String, Option<String>)]) -> ApiResult<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+
         self.storage
             .set_presence_batch(entries)
             .await
-            .map_err(|e| ApiError::internal_with_context("Failed to batch set presence", &e))
+            .map_err(|e| ApiError::internal_with_context("Failed to batch set presence", &e))?;
+
+        // T04: Broadcast presence updates to remote servers via federation
+        for (user_id, _, _) in entries {
+            self.broadcast_presence_to_subscribers(user_id).await;
+        }
+
+        Ok(())
+    }
+
+    /// Broadcast presence update for a user to all remote servers that have
+    /// subscribers on this server tracking that user.
+    /// T04: Uses `broadcast_edu` to send `m.presence` EDU to each remote server.
+    #[tracing::instrument(skip(self, user_id))]
+    async fn broadcast_presence_to_subscribers(&self, user_id: &str) {
+        // Gather federation config under lock
+        let (broadcaster, server_name) = {
+            let federation = match self.federation.read() {
+                Ok(f) => f,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            match federation.event_broadcaster.as_ref() {
+                Some(b) => (b.clone(), federation.server_name.clone()),
+                None => return, // Federation not configured
+            }
+        };
+
+        // Get all subscribers for this user from the storage layer
+        let subscribers = match self.storage.get_subscribers(user_id).await {
+            Ok(subs) => subs,
+            Err(e) => {
+                tracing::warn!(user_id = %user_id, error = %e, "Failed to get presence subscribers for federation broadcast");
+                return;
+            }
+        };
+
+        if subscribers.is_empty() {
+            return;
+        }
+
+        // Extract unique remote server names from subscriber IDs
+        let remote_servers = extract_remote_servers(&subscribers, &server_name);
+
+        if remote_servers.is_empty() {
+            return;
+        }
+
+        // Get current presence for the user
+        let current_presence = self.storage.get_presence_with_meta(user_id).await.ok().flatten();
+
+        let (presence_state, status_msg, last_active_ts) =
+            current_presence.unwrap_or_else(|| ("offline".to_string(), None, None));
+
+        // Build presence EDU following Matrix spec:
+        // { "type": "m.presence", "content": { "push": [ ... ] } }
+        let push_entry = json!({
+            "user_id": user_id,
+            "presence": presence_state,
+            "status_msg": status_msg,
+            "last_active_ts": last_active_ts,
+        });
+
+        let presence_edu = json!({
+            "type": "m.presence",
+            "content": {
+                "push": [push_entry]
+            }
+        });
+
+        // Broadcast EDU to each remote server via federation
+        for destination in remote_servers {
+            if let Err(e) = broadcaster.broadcast_edu(&destination, &presence_edu, &server_name).await {
+                tracing::warn!(
+                    destination = %destination,
+                    user_id = %user_id,
+                    error = %e,
+                    "Failed to broadcast presence EDU to federation peer"
+                );
+            }
+        }
     }
 
     /// See [`add_subscription`].
@@ -428,5 +556,59 @@ mod tests {
             vec!["@alice:example.com".to_string(), "@bob:example.com".to_string(), "@carol:example.com".to_string()];
         let batch = svc.get_presence_batch_with_meta(&user_ids).await.unwrap();
         assert_eq!(batch.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn extract_remote_servers_filters_local_and_dedups() {
+        // 混合订阅者：本地、远程两个、远程一个重复
+        let subscribers = vec![
+            "@local1:example.com".to_string(),
+            "@local2:example.com".to_string(),
+            "@remote1:matrix.org".to_string(),
+            "@remote2:matrix.org".to_string(),
+            "@remote3:matrix.org".to_string(), // 同一 server 重复出现
+            "@other:envs.net".to_string(),
+        ];
+
+        let servers = super::extract_remote_servers(&subscribers, "example.com");
+
+        // 应排除 example.com，dedup 后剩 matrix.org 和 envs.net
+        assert_eq!(servers.len(), 2);
+        assert!(servers.contains("matrix.org"));
+        assert!(servers.contains("envs.net"));
+    }
+
+    #[tokio::test]
+    async fn extract_remote_servers_returns_empty_when_all_local() {
+        let subscribers = vec![
+            "@local1:example.com".to_string(),
+            "@local2:example.com".to_string(),
+        ];
+
+        let servers = super::extract_remote_servers(&subscribers, "example.com");
+        assert!(servers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn extract_remote_servers_skips_malformed_user_ids_without_panic() {
+        // 不含冒号的异常条目必须被静默跳过（不 panic、不污染结果）
+        let subscribers = vec![
+            "no-colon-here".to_string(),
+            "@valid:remote.server".to_string(),
+            "".to_string(),
+            "@:empty-local".to_string(), // local_part 为空但仍能 split
+        ];
+
+        let servers = super::extract_remote_servers(&subscribers, "example.com");
+        // "no-colon-here" 与 "" 没有 server，":" 后是空 local 但 split 仍能切出 "",
+        // 我们只关心本地 example.com 被排除 + 远程 remote.server 出现
+        assert!(servers.contains("remote.server"));
+        assert!(!servers.contains("example.com"));
+    }
+
+    #[tokio::test]
+    async fn extract_remote_servers_handles_empty_input() {
+        let servers = super::extract_remote_servers(&[], "example.com");
+        assert!(servers.is_empty());
     }
 }

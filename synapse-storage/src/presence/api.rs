@@ -39,6 +39,9 @@ pub trait PresenceStoreApi: Send + Sync {
     /// See [`get_subscriptions`].
     async fn get_subscriptions(&self, subscriber_id: &str) -> Result<Vec<String>, sqlx::Error>;
 
+    /// See [`get_subscribers`].
+    async fn get_subscribers(&self, target_id: &str) -> Result<Vec<String>, sqlx::Error>;
+
     /// See [`get_presence_batch_with_meta`].
     async fn get_presence_batch_with_meta(
         &self,
@@ -96,6 +99,10 @@ impl PresenceStoreApi for super::PresenceStorage {
 
     async fn get_subscriptions(&self, subscriber_id: &str) -> Result<Vec<String>, sqlx::Error> {
         self.get_subscriptions(subscriber_id).await
+    }
+
+    async fn get_subscribers(&self, target_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        self.get_subscribers(target_id).await
     }
 
     async fn get_presence_batch_with_meta(

@@ -101,6 +101,8 @@ struct DomainPhase {
     sso: wiring::SsoServices,
     core: wiring::CoreServices,
     media_domain_service: Arc<crate::media::MediaDomainService>,
+    /// T04: Event broadcaster for federation outbound EDU broadcast.
+    event_broadcaster: Arc<synapse_federation::event_broadcaster::EventBroadcaster>,
 }
 
 // =============================================================================
@@ -420,7 +422,7 @@ impl ServiceContainer {
             &storage.user_storage,
             storage.user_service.clone(),
             &infra.server_metrics,
-            event_broadcaster,
+            event_broadcaster.clone(),
             event_notifier,
         )
         .await;
@@ -443,7 +445,7 @@ impl ServiceContainer {
             svc.with_quarantine_stream(quarantine_storage, cache_invalidation)
         });
 
-        DomainPhase { e2ee, rooms, admin, federation, sso, core, media_domain_service }
+        DomainPhase { e2ee, rooms, admin, federation, sso, core, media_domain_service, event_broadcaster }
     }
 
     // -------------------------------------------------------------------------
@@ -451,7 +453,13 @@ impl ServiceContainer {
     // -------------------------------------------------------------------------
 
     async fn build_container(infra: &InfraPhase, storage: &StoragePhase, domains: DomainPhase) -> Self {
-        let DomainPhase { e2ee, rooms, admin, federation, sso, core, media_domain_service } = domains;
+        let DomainPhase { e2ee, rooms, admin, federation, sso, core, media_domain_service, event_broadcaster } =
+            domains;
+
+        // T04: Wire federation event broadcaster into presence_service for outbound presence EDU broadcast
+        storage
+            .presence_service
+            .set_event_broadcaster(event_broadcaster.clone(), infra.infra.config.server.get_server_name().to_string());
 
         // Extensions — needs most domains + storage
         let extensions = wiring::ExtensionServices::new(wiring::ExtensionServicesDeps {
