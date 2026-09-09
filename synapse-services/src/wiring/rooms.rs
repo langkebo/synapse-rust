@@ -154,6 +154,9 @@ impl RoomSyncServices {
                 // so that v2 /sync long-polling is woken by the same producers
                 // (NotifyingEventWriter) that already call notify_room/notify_user.
                 event_notifier: Some(event_notifier.clone()),
+                // MSC4354: inject sticky_event_storage so that v2 /sync responses
+                // include a `sticky_events` array per-room.
+                sticky_event_storage: Some(sticky_event_storage.clone()),
             }));
 
         let typing_service = Arc::new(crate::typing_service::TypingService::new(infra.cache.clone()));

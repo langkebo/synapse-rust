@@ -1904,6 +1904,7 @@ fn sync_service_for_notifier_test(
         performance: perf,
         cache,
         event_notifier,
+        sticky_event_storage: None,
     })
 }
 

@@ -860,6 +860,7 @@ mod tests {
             performance: synapse_common::config::PerformanceConfig::default(),
             cache,
             event_notifier: None,
+            sticky_event_storage: None,
         })
     }
 
@@ -1076,6 +1077,7 @@ mod tests {
             performance: synapse_common::config::PerformanceConfig::default(),
             cache,
             event_notifier: None,
+            sticky_event_storage: None,
         })
     }
 
@@ -1156,6 +1158,7 @@ mod tests {
             performance: synapse_common::config::PerformanceConfig::default(),
             cache,
             event_notifier: None,
+            sticky_event_storage: None,
         })
     }
 

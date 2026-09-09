@@ -163,6 +163,10 @@ pub struct SyncServiceDeps {
     /// `wait_for_incremental_update` parks on `Notify` slots instead of
     /// polling the database every 250ms.
     pub event_notifier: Option<crate::event_notifier::EventNotifier>,
+    /// MSC4354: sticky events injection. When `Some`, each room in the sync
+    /// response includes a `sticky_events` array with the user's sticky
+    /// event metadata for that room.
+    pub sticky_event_storage: Option<Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>>,
 }
 
 /// The `SyncServiceRequest` struct.

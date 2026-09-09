@@ -587,7 +587,7 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
             .collect();
         rooms.sort();
         if let Some(after) = after_room_id {
-            rooms = rooms.into_iter().filter(|r| r.as_str() > after).collect();
+            rooms.retain(|r| r.as_str() > after);
         }
         let has_more = rooms.len() as i64 > limit;
         let result: Vec<String> = if has_more {

@@ -51,6 +51,8 @@ pub struct SyncService {
     pub(crate) cache: Arc<synapse_cache::CacheManager>,
     /// S6: event-driven wake-up for v2 /sync long-polling.
     pub(crate) event_notifier: Option<crate::event_notifier::EventNotifier>,
+    /// MSC4354: sticky events injection for v2 /sync.
+    pub(crate) sticky_event_storage: Option<Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>>,
 }
 
 /// Maximum number of (user, device, room) entries kept in the in-memory
@@ -88,6 +90,7 @@ impl SyncService {
             performance: deps.performance,
             cache: deps.cache,
             event_notifier: deps.event_notifier,
+            sticky_event_storage: deps.sticky_event_storage,
         }
     }
 
@@ -124,6 +127,10 @@ impl SyncService {
             performance,
             cache,
             event_notifier,
+            // The concrete `new()` constructor is only used by integration
+            // tests that do not exercise MSC4354 sticky events; production
+            // wiring builds via `from_deps` with a real sticky storage.
+            sticky_event_storage: None,
         })
     }
 

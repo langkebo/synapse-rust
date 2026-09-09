@@ -110,6 +110,14 @@ impl SyncService {
             self.get_to_device_events(user_id, device_id, since_token),
             self.get_device_lists(user_id, since_token),
         )?;
+
+        // MSC4354: Pre-fetch all room IDs where this user has sticky events.
+        // This is a cheap DISTINCT query; if it fails we fail-open (empty set).
+        let sticky_rooms: HashSet<String> = self
+            .get_sticky_event_rooms(user_id)
+            .await
+            .into_iter()
+            .collect();
         let presence_events = Self::apply_sync_filter_to_values(
             presence_events,
             response_filter.and_then(|filter| filter.presence.as_ref()),
@@ -163,7 +171,7 @@ impl SyncService {
             );
             let account_data_events = Self::apply_event_fields_to_values(account_data_events, event_fields);
             let (highlight_count, notification_count) = unread_counts_by_room.get(room_id).copied().unwrap_or((0, 0));
-            let room_sync = Self::build_room_sync_value(BuildRoomSyncValueRequest {
+            let mut room_sync = Self::build_room_sync_value(BuildRoomSyncValueRequest {
                 events,
                 state_list: state_events,
                 ephemeral_events,
@@ -173,6 +181,30 @@ impl SyncService {
                 event_fields,
                 event_format,
             });
+
+            // MSC4354: inject sticky_events for v2 /sync response.
+            // Only fetch for rooms that have sticky events configured, avoiding
+            // a query on every room of a wide initial sync (the sticky_rooms
+            // set was pre-fetched in the try_join above).
+            if let Some(storage) = self.sticky_event_storage.as_ref() {
+                if sticky_rooms.iter().any(|r| r == room_id) {
+                    if let Ok(events) = storage.get_all_is_sticky_events(room_id, user_id).await {
+                        if !events.is_empty() {
+                            if let Some(obj) = room_sync.as_object_mut() {
+                                let sticky_json: Vec<serde_json::Value> =
+                                    events.iter().map(|e| {
+                                        json!({
+                                            "event_type": e.event_type,
+                                            "event_id": e.event_id,
+                                            "is_sticky": e.is_sticky,
+                                        })
+                                    }).collect();
+                                obj.insert("sticky_events".to_string(), json!(sticky_json));
+                            }
+                        }
+                    }
+                }
+            }
 
             if room_sync.is_object() && !room_sync.as_object().is_some_and(|o| o.is_empty()) {
                 match room_sections.get(room_id).copied().unwrap_or(SyncRoomSection::Join) {
@@ -560,6 +592,30 @@ impl SyncService {
             "event_id": event.event_id,
             "origin_server_ts": event.origin_server_ts
         })
+    }
+
+    /// MSC4354 helper: pre-fetch all room IDs where the given user has
+    /// at least one sticky event configured.
+    ///
+    /// Returns `Vec<String>` of room IDs with sticky events for `user_id`.
+    /// The query is fail-open: if `sticky_event_storage` is `None` or
+    /// returns an error, an empty vector is returned so /sync succeeds
+    /// without sticky data rather than failing the whole request.
+    async fn get_sticky_event_rooms(&self, user_id: &str) -> Vec<String> {
+        match &self.sticky_event_storage {
+            Some(storage) => match storage.get_rooms_with_is_sticky_events(user_id).await {
+                Ok(rooms) => rooms,
+                Err(e) => {
+                    ::tracing::warn!(
+                        user_id = %user_id,
+                        error = %e,
+                        "Failed to fetch sticky event rooms; returning empty set (fail-open)"
+                    );
+                    Vec::new()
+                }
+            },
+            None => Vec::new(),
+        }
     }
 }
 
