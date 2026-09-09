@@ -561,6 +561,43 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
         }
         Ok(servers.into_iter().collect())
     }
+
+    async fn get_mutual_rooms_between(
+        &self,
+        user_id: &str,
+        other_user_id: &str,
+        limit: i64,
+        after_room_id: Option<&str>,
+    ) -> Result<(Vec<String>, Option<String>), sqlx::Error> {
+        let members = self.members.read().await;
+        let user_a_rooms: std::collections::HashSet<String> = members
+            .iter()
+            .filter(|((_, uid), m)| uid == user_id && m.membership == "join")
+            .map(|((rid, _), _)| rid.clone())
+            .collect();
+        let user_b_rooms: std::collections::HashSet<String> = members
+            .iter()
+            .filter(|((_, uid), m)| uid == other_user_id && m.membership == "join")
+            .map(|((rid, _), _)| rid.clone())
+            .collect();
+        // Intersection
+        let mut rooms: Vec<String> = user_a_rooms
+            .intersection(&user_b_rooms)
+            .cloned()
+            .collect();
+        rooms.sort();
+        if let Some(after) = after_room_id {
+            rooms = rooms.into_iter().filter(|r| r.as_str() > after).collect();
+        }
+        let has_more = rooms.len() as i64 > limit;
+        let result: Vec<String> = if has_more {
+            rooms.into_iter().take(limit as usize).collect()
+        } else {
+            rooms
+        };
+        let next_batch_token = if has_more { result.last().cloned() } else { None };
+        Ok((result, next_batch_token))
+    }
 }
 
 #[cfg(test)]
@@ -581,6 +618,79 @@ mod tests {
         assert_eq!(members.get("@alice:test").unwrap().membership, "leave");
         assert_eq!(members.get("@bob:test").unwrap().membership, "join");
         assert!(!members.contains_key("@missing:test"));
+    }
+
+    // ── MSC2666: get_mutual_rooms_between ─────────────────────────────
+
+    #[tokio::test]
+    async fn mutual_rooms_returns_only_common_joined_rooms() {
+        let store = InMemoryMemberStore::new();
+        // alice joined r1, r2, r3; bob joined r2, r3, r4.
+        for room in ["!r1:t", "!r2:t", "!r3:t"] {
+            store.add_member(room, "@alice:t", "join", None).await.unwrap();
+        }
+        for room in ["!r2:t", "!r3:t", "!r4:t"] {
+            store.add_member(room, "@bob:t", "join", None).await.unwrap();
+        }
+
+        let (rooms, token) = store.get_mutual_rooms_between("@alice:t", "@bob:t", 100, None).await.unwrap();
+        assert_eq!(rooms, vec!["!r2:t".to_string(), "!r3:t".to_string()]);
+        assert!(token.is_none(), "no pagination token when not truncated");
+    }
+
+    #[tokio::test]
+    async fn mutual_rooms_excludes_non_join_membership() {
+        let store = InMemoryMemberStore::new();
+        store.add_member("!r1:t", "@alice:t", "join", None).await.unwrap();
+        // bob invited but not joined r1
+        store.add_member("!r1:t", "@bob:t", "invite", None).await.unwrap();
+        store.add_member("!r2:t", "@alice:t", "join", None).await.unwrap();
+        store.add_member("!r2:t", "@bob:t", "join", None).await.unwrap();
+
+        let (rooms, _) = store.get_mutual_rooms_between("@alice:t", "@bob:t", 100, None).await.unwrap();
+        assert_eq!(rooms, vec!["!r2:t".to_string()], "invite-only room must be excluded");
+    }
+
+    #[tokio::test]
+    async fn mutual_rooms_empty_when_no_common() {
+        let store = InMemoryMemberStore::new();
+        store.add_member("!r1:t", "@alice:t", "join", None).await.unwrap();
+        store.add_member("!r2:t", "@bob:t", "join", None).await.unwrap();
+
+        let (rooms, token) = store.get_mutual_rooms_between("@alice:t", "@bob:t", 100, None).await.unwrap();
+        assert!(rooms.is_empty());
+        assert!(token.is_none());
+    }
+
+    #[tokio::test]
+    async fn mutual_rooms_pagination_truncates_and_emits_token() {
+        let store = InMemoryMemberStore::new();
+        for room in ["!r1:t", "!r2:t", "!r3:t", "!r4:t"] {
+            store.add_member(room, "@alice:t", "join", None).await.unwrap();
+            store.add_member(room, "@bob:t", "join", None).await.unwrap();
+        }
+
+        // limit=2 → returns first two + token pointing to last returned
+        let (page1, token1) = store.get_mutual_rooms_between("@alice:t", "@bob:t", 2, None).await.unwrap();
+        assert_eq!(page1, vec!["!r1:t".to_string(), "!r2:t".to_string()]);
+        assert_eq!(token1.as_deref(), Some("!r2:t"), "token is the last room of the page");
+
+        // second page: after !r2:t
+        let (page2, token2) =
+            store.get_mutual_rooms_between("@alice:t", "@bob:t", 2, token1.as_deref()).await.unwrap();
+        assert_eq!(page2, vec!["!r3:t".to_string(), "!r4:t".to_string()]);
+        assert!(token2.is_none(), "last page has no further token");
+    }
+
+    #[tokio::test]
+    async fn mutual_rooms_after_filter_is_strictly_greater() {
+        let store = InMemoryMemberStore::new();
+        for room in ["!r1:t", "!r2:t", "!r3:t"] {
+            store.add_member(room, "@alice:t", "join", None).await.unwrap();
+            store.add_member(room, "@bob:t", "join", None).await.unwrap();
+        }
+        let (rooms, _) = store.get_mutual_rooms_between("@alice:t", "@bob:t", 100, Some("!r1:t")).await.unwrap();
+        assert_eq!(rooms, vec!["!r2:t".to_string(), "!r3:t".to_string()], "after cursor must exclude !r1:t itself");
     }
 }
 

@@ -414,7 +414,46 @@ impl MembershipService {
         Ok(())
     }
 
-    /// MSC4502: Paginated room members for client endpoints.
+    // ── MSC2666: Mutual Rooms (Get rooms in common with another user) ─────
+
+    /// Returns a paginated list of rooms where both the authenticated user
+    /// and `other_user_id` have `join` membership.
+    ///
+    /// Per MSC2666, querying mutual rooms with yourself returns M_FORBIDDEN.
+    ///
+    /// # Response
+    /// - `joined`: Array of room IDs both users are joined to
+    /// - `next_batch_token`: pagination token (room_id of last room) for `after` param
+    #[allow(clippy::too_many_arguments)]
+    pub async fn get_mutual_rooms_between(
+        &self,
+        user_id: &str,
+        other_user_id: &str,
+        limit: i64,
+        after: Option<&str>,
+    ) -> ApiResult<serde_json::Value> {
+        if user_id == other_user_id {
+            return Err(ApiError::forbidden("You cannot query mutual rooms with yourself".to_string()));
+        }
+
+        let (rooms, next_batch_token) = self
+            .member_storage
+            .get_mutual_rooms_between(user_id, other_user_id, limit, after)
+            .await
+            .map_err(|e| ApiError::database_with_context("Failed to get mutual rooms", &e))?;
+
+        let mut result = json!({
+            "joined": rooms,
+        });
+
+        if let Some(token) = next_batch_token {
+            result["next_batch_token"] = json!(token);
+        }
+
+        Ok(result)
+    }
+
+    // ── MSC4502: Paginated room members for client endpoints.
     ///
     /// Returns a page of members with a `next_batch` cursor for
     /// continued pagination. `not_membership` excludes specified
@@ -672,5 +711,128 @@ mod tests {
         let r =
             svc.authorize_inbound_member_transition(ROOM, "@ghost:remote", "@ghost:remote", Membership::Leave).await;
         assert!(r.is_ok(), "leave should be accepted idempotently: {r:?}");
+    }
+
+    // ── MSC2666: Mutual Rooms (get_mutual_rooms_between) ─────────
+
+    /// Build a [`MembershipService`] seeding members across arbitrary rooms.
+    /// Each entry is `(room_id, user_id, membership)`; rooms are created on
+    /// first reference.
+    async fn mutual_service(members: &[(&str, &str, &str)]) -> MembershipService {
+        let member_store = InMemoryMemberStore::new();
+        let room_store = InMemoryRoomStore::new();
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for (room, user, membership) in members {
+            if seen.insert(*room) {
+                room_store.create_room(room, "@creator:localhost", "public", "10", true).await.unwrap();
+            }
+            member_store.add_member(room, user, membership, None).await.unwrap();
+        }
+
+        let event_store = StdArc::new(InMemoryEventStore::new());
+        let event_reader: StdArc<dyn EventReader> = event_store.clone();
+        let event_writer: StdArc<dyn EventWriter> = event_store.clone();
+        let member_storage: StdArc<dyn MemberStoreApi> = StdArc::new(member_store);
+        let room_storage: StdArc<dyn RoomStoreApi> = StdArc::new(room_store);
+        let user_storage: StdArc<dyn UserStore> = StdArc::new(FakeUserStore::new());
+        let user_service = StdArc::new(UserService::new(user_storage.clone()));
+        let room_summary_service = StdArc::new(RoomSummaryService::new(
+            StdArc::new(InMemoryRoomSummaryStore::new()),
+            event_reader.clone(),
+            Some(member_storage.clone()),
+        ));
+
+        MembershipService::new(MembershipServiceConfig {
+            member_storage,
+            room_storage,
+            event_reader,
+            event_writer,
+            user_storage,
+            user_service,
+            room_auth: StdArc::new(FakeRoomAuth::new()),
+            server_name: "localhost".to_string(),
+            federation_client: None,
+            key_rotation_manager: None,
+            event_broadcaster: None,
+            room_summary_service,
+            cache: StdArc::new(CacheManager::new(&CacheConfig::default())),
+            key_rotation_storage: None,
+            app_service_manager: None,
+            db_pool: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn mutual_rooms_returns_common_joined_rooms() {
+        let svc = mutual_service(&[
+            ("!a:localhost", "@alice:localhost", "join"),
+            ("!a:localhost", "@bob:localhost", "join"),
+            ("!b:localhost", "@alice:localhost", "join"),
+            ("!b:localhost", "@bob:localhost", "join"),
+            ("!c:localhost", "@alice:localhost", "join"),
+            // bob not in !c → not mutual
+        ])
+        .await;
+        let result = svc.get_mutual_rooms_between("@alice:localhost", "@bob:localhost", 100, None).await.unwrap();
+        let joined: Vec<&str> =
+            result["joined"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        assert_eq!(joined, vec!["!a:localhost", "!b:localhost"], "only !a and !b are mutual, sorted");
+        assert!(result.get("next_batch_token").is_none(), "no token when under limit");
+    }
+
+    #[tokio::test]
+    async fn mutual_rooms_self_query_returns_forbidden() {
+        let svc = mutual_service(&[("!a:localhost", "@alice:localhost", "join")]).await;
+        let r = svc.get_mutual_rooms_between("@alice:localhost", "@alice:localhost", 100, None).await;
+        assert!(r.is_err());
+        assert_eq!(r.unwrap_err().code(), &synapse_common::MatrixErrorCode::Forbidden);
+    }
+
+    #[tokio::test]
+    async fn mutual_rooms_empty_when_no_common() {
+        let svc = mutual_service(&[
+            ("!a:localhost", "@alice:localhost", "join"),
+            ("!b:localhost", "@bob:localhost", "join"),
+        ])
+        .await;
+        let result = svc.get_mutual_rooms_between("@alice:localhost", "@bob:localhost", 100, None).await.unwrap();
+        assert!(result["joined"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn mutual_rooms_excludes_non_join_membership() {
+        // bob is only invited to !a (not joined) → !a not mutual
+        let svc = mutual_service(&[
+            ("!a:localhost", "@alice:localhost", "join"),
+            ("!a:localhost", "@bob:localhost", "invite"),
+        ])
+        .await;
+        let result = svc.get_mutual_rooms_between("@alice:localhost", "@bob:localhost", 100, None).await.unwrap();
+        assert!(result["joined"].as_array().unwrap().is_empty(), "invite-only room must be excluded");
+    }
+
+    #[tokio::test]
+    async fn mutual_rooms_pagination_emits_next_batch_token() {
+        let svc = mutual_service(&[
+            ("!a:localhost", "@alice:localhost", "join"),
+            ("!a:localhost", "@bob:localhost", "join"),
+            ("!b:localhost", "@alice:localhost", "join"),
+            ("!b:localhost", "@bob:localhost", "join"),
+            ("!c:localhost", "@alice:localhost", "join"),
+            ("!c:localhost", "@bob:localhost", "join"),
+        ])
+        .await;
+        // limit=2 → first page + token
+        let page1 = svc.get_mutual_rooms_between("@alice:localhost", "@bob:localhost", 2, None).await.unwrap();
+        assert_eq!(page1["joined"].as_array().unwrap().len(), 2);
+        let token = page1["next_batch_token"].as_str().unwrap().to_string();
+        assert_eq!(token, "!b:localhost", "token is last room of first page");
+
+        // second page using token
+        let page2 = svc.get_mutual_rooms_between("@alice:localhost", "@bob:localhost", 2, Some(&token)).await.unwrap();
+        let joined2: Vec<&str> =
+            page2["joined"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        assert_eq!(joined2, vec!["!c:localhost"]);
+        assert!(page2.get("next_batch_token").is_none(), "last page has no token");
     }
 }

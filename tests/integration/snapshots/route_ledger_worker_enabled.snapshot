@@ -1,5 +1,5 @@
 # route-ledger snapshot: worker-enabled
-count: 1358
+count: 1360
 
 DELETE /_matrix/admin/v1/external_services/{as_id} [external_service]
 DELETE /_matrix/client/r0/devices/{device_id} [device]
@@ -253,6 +253,7 @@ GET /_matrix/client/unstable/org.matrix.msc4108/rendezvous/{session_id} [msc4108
 GET /_matrix/client/unstable/org.matrix.msc4143/rtc/transports [assembly::create_router]
 GET /_matrix/client/unstable/org.matrix.msc4155/rooms/{room_id}/threads [thread]
 GET /_matrix/client/unstable/org.matrix.msc4156/threads/subscribed [thread]
+GET /_matrix/client/unstable/uk.half-shot.msc2666/user/mutual_rooms [room]
 GET /_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id} [assembly::create_router]
 GET /_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name} [assembly::create_router]
 GET /_matrix/client/v1/account/3pid [assembly::account_compat]
@@ -345,6 +346,7 @@ GET /_matrix/client/v1/threads [thread]
 GET /_matrix/client/v1/threads/subscribed [thread]
 GET /_matrix/client/v1/threads/unread [thread]
 GET /_matrix/client/v1/user/burn/stats [burn_after_read]
+GET /_matrix/client/v1/user/mutual_rooms [room]
 GET /_matrix/client/v1/user/{user_id}/appservice [app_service]
 GET /_matrix/client/v1/voice/config [voice]
 GET /_matrix/client/v1/voice/room/{room_id}/stats [voice]

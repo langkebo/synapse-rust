@@ -1020,6 +1020,49 @@ impl RoomMemberStorage {
         .await?;
         Ok(rows.into_iter().filter(|s| s != local_server_name).collect())
     }
+
+    // ── MSC2666: Mutual Rooms (Get rooms in common with another user) ───
+
+    /// Returns rooms where both users have `join` membership.
+    /// Uses keyset pagination for O(n) intersection of sorted room lists.
+    /// 
+    /// Returns `(rooms, next_batch_token)` where `next_batch_token` is the
+    /// last room_id in the batch (for pagination via `after_room_id`).
+    /// If `after_room_id` is None, starts from the beginning.
+    pub async fn get_mutual_rooms_between(
+        &self,
+        user_id: &str,
+        other_user_id: &str,
+        limit: i64,
+        after_room_id: Option<&str>,
+    ) -> Result<(Vec<String>, Option<String>), sqlx::Error> {
+        // Self-join to find rooms where BOTH users are members with 'join' status
+        let rows: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT a.room_id
+              FROM room_memberships AS a
+              JOIN room_memberships AS b ON a.room_id = b.room_id
+             WHERE a.user_id = $1
+               AND a.membership = 'join'
+               AND b.user_id = $2
+               AND b.membership = 'join'
+               AND ($3 IS NULL OR a.room_id > $3)
+          ORDER BY a.room_id
+             LIMIT $4
+            "#,
+        )
+        .bind(user_id)
+        .bind(other_user_id)
+        .bind(after_room_id)
+        .bind(limit + 1) // fetch one extra to detect has_more
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let has_more = rows.len() as i64 > limit;
+        let rooms: Vec<String> = if has_more { rows.into_iter().take(limit as usize).collect() } else { rows };
+        let next_batch_token = if has_more { rooms.last().cloned() } else { None };
+        Ok((rooms, next_batch_token))
+    }
 }
 
 #[cfg(test)]

@@ -218,6 +218,17 @@ pub trait MemberStoreApi: Send + Sync {
         room_id: &str,
         local_server_name: &str,
     ) -> Result<Vec<String>, sqlx::Error>;
+
+    // ── MSC2666: Mutual Rooms ──────────────────────────────────────
+
+    /// See [`get_mutual_rooms_between`].
+    async fn get_mutual_rooms_between(
+        &self,
+        user_id: &str,
+        other_user_id: &str,
+        limit: i64,
+        after_room_id: Option<&str>,
+    ) -> Result<(Vec<String>, Option<String>), sqlx::Error>;
 }
 
 // ── Delegation impl for the Postgres RoomMemberStorage ──────────────
@@ -426,5 +437,16 @@ impl MemberStoreApi for super::RoomMemberStorage {
         local_server_name: &str,
     ) -> Result<Vec<String>, sqlx::Error> {
         self.get_joined_servers_in_room(room_id, local_server_name).await
+    }
+
+    async fn get_mutual_rooms_between(
+        &self,
+        user_id: &str,
+        other_user_id: &str,
+        limit: i64,
+        after_room_id: Option<&str>,
+    ) -> Result<(Vec<String>, Option<String>), sqlx::Error> {
+        self.get_mutual_rooms_between(user_id, other_user_id, limit, after_room_id)
+            .await
     }
 }

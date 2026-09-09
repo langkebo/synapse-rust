@@ -269,6 +269,39 @@ pub fn get_openid_token_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
 
+/// `GET /_matrix/client/v1/user/mutual_rooms` — Get rooms in common with another user (MSC2666).
+///
+/// Returns a list of rooms where both the authenticated user and the `user_id` query
+/// parameter user have `join` membership. Supports pagination via `from` parameter.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v1/user/mutual_rooms",
+    tag = "Client-Server",
+    params(
+        ("user_id" = String, Query, description = "MXID of the user to find mutual rooms with"),
+        ("from" = Option<String>, Query, description = "Pagination token for next batch"),
+        ("limit" = Option<i64>, Query, description = "Maximum number of rooms to return (default 100, max 1000)")
+    ),
+    responses(
+        (status = 200, description = "Mutual rooms list",
+            body = schemas::ApiAdminGenericJson,
+            example = json!({
+                "joined": ["!room1:example.com", "!room2:example.com"],
+                "next_batch_token": "next_page_token"
+            })
+        ),
+        (status = 403, description = "Access denied or querying mutual rooms with yourself")
+    ),
+    security(
+        ("BearerAuth" = [])
+    )
+)]
+/// See [`get_mutual_rooms_doc`].
+pub fn get_mutual_rooms_doc() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
 /// `GET /_matrix/client/v3/user/{user_id}/tags` — List all tags grouped by room for the authenticated user.
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(

@@ -1,6 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::extractors::{RoomId, UserId};
-use crate::web::routes::{validate_room_id, AuthenticatedUser};
+use crate::web::routes::{validate_room_id, validate_user_id, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
 
@@ -106,4 +106,61 @@ pub(crate) async fn get_user_rooms(
     Ok(Json(json!({
         "joined_rooms": rooms
     })))
+}
+
+/// MSC2666: Get rooms in common (mutual rooms) with another user.
+///
+/// Per the spec, `user_id` is a query parameter containing the MXID of the
+/// target user whose mutual rooms are being queried against the authenticated
+/// user from the access token.
+/// Querying mutual rooms with yourself returns M_FORBIDDEN.
+///
+/// Response:
+/// ```json
+/// {
+///   "joined": ["!room1:server", ...],
+///   "next_batch_token": "optional_pagination_token"
+/// }
+/// ```
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn get_mutual_rooms(
+    State(ctx): State<RoomContext>,
+    auth_user: AuthenticatedUser,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<Value>, ApiError> {
+    let other_user_id = params
+        .get("user_id")
+        .map(|v| v.as_str())
+        .ok_or_else(|| ApiError::bad_request("Missing user_id query parameter".to_string()))?;
+
+    validate_user_id(other_user_id)?;
+
+    let user_id = &auth_user.user_id;
+    let other = other_user_id;
+
+    // Prevent self-query per spec
+    if user_id == other {
+        return Err(ApiError::forbidden("You cannot query mutual rooms with yourself".to_string()));
+    }
+
+    // Limit handling with default
+    let limit: i64 = params
+        .get("limit")
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(100)
+        .min(1000);
+
+    // Pagination: supports both `from` and `batch_token` query param names
+    let after = params
+        .get("from")
+        .or_else(|| params.get("batch_token"))
+        .map(|s| s.as_str());
+
+    let result = ctx
+        .room_service
+        .membership()
+        .get_mutual_rooms_between(user_id, other, limit, after)
+        .await?;
+
+    Ok(Json(result))
 }
