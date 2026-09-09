@@ -61,6 +61,9 @@ impl RoomSyncServices {
         sticky_event_storage: Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>,
         user_service: Arc<UserService>,
         event_notifier: crate::event_notifier::EventNotifier,
+        // MSC4284: policy server service, injected into room service so that
+        // create/join/invite consult the policy server on the business path.
+        policy_service: Option<Arc<crate::policy_service::PolicyService>>,
     ) -> Self {
         let server_name_for_storage = infra.config.server.get_server_name().to_string();
         let room_storage: Arc<dyn synapse_storage::room::RoomStoreApi> = Arc::new(RoomStorage::new(&infra.pool));
@@ -125,6 +128,7 @@ impl RoomSyncServices {
                     as Arc<dyn synapse_e2ee::key_rotation::KeyRotationStorageApi>,
             ),
             db_pool: Some(infra.pool.as_ref().clone()),
+            policy_service: policy_service.clone(),
         }));
 
         let sync_room_account_data_storage: Arc<dyn RoomAccountDataStoreApi> =

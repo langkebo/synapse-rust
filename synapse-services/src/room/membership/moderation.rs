@@ -60,6 +60,12 @@ impl MembershipService {
             TransitionCtx::state_only(JoinRule::Invite, /* actor_is_target */ false, target_is_banned, false);
         is_legal(from, Membership::Invite, &ctx)?;
 
+        // MSC4284: consult the policy server before persisting the invite.
+        // Placed after the state-machine gate so we don't issue an HTTP request
+        // for invites that are already rejected locally. No-op when no policy
+        // service is configured.
+        self.check_invite_policy(room_id, inviter_id, invitee_id).await?;
+
         let member = self
             .member_storage
             .add_member(room_id, invitee_id, "invite", None, None, Some(inviter_id), None)
@@ -483,6 +489,7 @@ mod tests {
             key_rotation_storage: None,
             app_service_manager: None,
             db_pool: None,
+            policy_service: None,
         };
         (MembershipService::new(config), user_store)
     }

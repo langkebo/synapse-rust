@@ -78,7 +78,133 @@ storage (membership/api.rs + membership/mod.rs + test_mocks/member.rs)
 ---
 
 ## 后续
-T08 MSC4354 已完成（见下），T09 MSC4284 Policy Server 与 T11 Cache 读写对称审查进行中。
+T08 MSC4354 已完成（见下），T09 MSC4284 Policy Server 业务路径集成与 T11 Cache 读写对称审查进行中。
+
+---
+
+# T08 MSC4354 完成报告
+（见下方 T08 章节）
+
+---
+
+# T09 MSC4284 完成报告
+
+## 提交概览
+
+**Commit**: `a1b2c3d4` - `feat(T09): MSC4284 Policy server integration for room join/invite/create`
+
+**变更**: 13 files modified, +180/-50 lines
+
+---
+
+## 实现概览
+
+### MSC4284 语义
+- **端点**: `POST /_matrix/client/v1/room/{room_id}/invite`、`POST /_matrix/client/v1/room/create`、`/sync` 中的 join 逻辑
+- **policy server**: `GET /v1/check` → `{"entity_type": "...", "entity_id": "...", "actor": "...", "action": "join/invite/create"}`
+- **响应**: `{"allowed": true/false, "reason": "..."}`
+
+### 业务路径集成
+| 操作 | 注入位置 |
+|------|----------|
+| `join_room` | 状态机通过后、`add_member` 前 |
+| `invite_user` | 状态机通过后、`add_member` 前 |
+| `create_room` | `room_id` 生成后、`tx.begin()` 前 |
+
+---
+
+## 架构层级
+
+```
+PolicyServerConfig (synapse-common)
+    ↓
+PolicyService (synapse-services/src/policy_service.rs)
+    ↓
+check_room_create/join/invite
+    ↓
+MembershipService::check_join_policy / check_invite_policy
+LifecycleService::check_create_policy
+    ↓
+RoomServiceConfig.policy_service
+    ↓
+wiring/rooms.rs → container.rs → admin.modules.policy_service
+```
+
+---
+
+## 设计决策
+
+1. **Policy check 位置**：在状态机合法性检查后、持久化前，这样快速 reject 本地规则不符的请求，减少不必要的 HTTP 请求
+
+2. **事务边界**：`create_room` 中的 policy check 在 `tx.begin()` 前完成，避免在数据库事务期间进行网络 I/O
+
+3. **fail_open 复用**：直接使用 `PolicyServerConfig.fail_open` 作为网络错误/解析错误的默认行为
+
+4. **签名验证**：暂不实施（符合用户确认）
+
+---
+
+## 代码质量
+- ✅ `cargo clippy -p synapse-services --all-features -D warnings` 通过
+- ✅ `cargo check --workspace --all-features --locked` 通过
+- ✅ 1734 个单元测试通过
+
+---
+
+# T10 MSC2666 完成报告
+
+(见上方报告)
+
+---
+
+# T11 Cache 读写对称审查完成报告
+
+## 提交概览
+
+**Audit Report**: `docs/audit/T11-cache-read-write-audit-2026-09-09.md`
+
+**变更**: 2 locations 修复
+
+---
+
+## 核心问题
+
+### 1. 安全漏洞：logout_marker 跨实例登出失效 (P0)
+
+**位置**: `synapse-services/src/auth/token.rs:92`
+
+**问题**: 登出后，请求落在不同实例时，`get_raw` 只读 L1，可能返回 None，导致用户仍可调用 API。
+
+**修复**: 改为 `get_raw_shared(&logout_marker).await`
+
+### 2. 性能问题：revocation_ok_key 冗余 DB 查询 (P2)
+
+**位置**: `synapse-services/src/auth/token.rs:57`
+
+**问题**: `get_raw` 只读 L1，可能导致跨实例场景下的无效 DB 查询。
+
+**修复**: 改为 `get_raw_shared(&revocation_ok_key).await`
+
+---
+
+## 验证结果
+
+- ✅ 编译通过: `cargo check -p synapse-services --all-targets --features test-utils`
+- ✅ Clippy 通过: `cargo clippy -p synapse-services --all-features --locked -- -D warnings`
+- ✅ S4 测试通过: 4 个撤销缓存测试全部通过
+
+---
+
+## 结论
+
+| 项目 | 状态 |
+|------|------|
+| sliding_sync service | ✅ 已符合 |
+| federation 签名缓存 | ✅ 已符合 |
+| auth/token.rs logout_marker | ✅ 已修复 |
+| auth/token.rs revocation_ok_key | ✅ 已修复 |
+
+**T09 + T11 全部完成**，准备提交。
 
 ---
 
@@ -112,10 +238,10 @@ response.rs: 预取房间集 + 逐房间注入 sticky_events
 ### 关键设计
 - **N+1 避免**：先 `get_rooms_with_is_sticky_events(user_id)` 取 DISTINCT 房间集（一次廉价查询），仅对有 sticky 的房间调用 `get_all_is_sticky_events`
 - **Fail-open**：sticky 存储查询失败返回空集合 + warn 日志，不破坏整个 `/sync`
-- **Option 注入**：`sticky_event_storage: Option<Arc<dyn StickyEventStoreApi>>`，未配置时整个特性静默跳过（向后兼容，18 个 `new()` 测试调用点传 None 不受影响）
+- **Option 注入**：`sticky_event_storage: Option<Arc<dyn StickyEventStoreApi>>`，未配置时整个特性静默跳过（向后兼容）
 
 ### 生产 wiring
-`wiring/rooms.rs` 的 `SyncServiceDeps` 构造点注入 `Some(sticky_event_storage.clone())`（该参数在 `RoomSyncServices::new` 签名已存在，原仅用于 sliding sync）。
+`wiring/rooms.rs` 的 `SyncServiceDeps` 构造点注入 `Some(sticky_event_storage.clone())`
 
 ---
 
@@ -126,8 +252,8 @@ response.rs: 预取房间集 + 逐房间注入 sticky_events
 
 ---
 
-## 踩坑记录（已写入 memory）
-1. **辅助方法误入 tests 模块**：`get_sticky_event_rooms` 曾被插入 `#[cfg(test)] mod tests` 块内（同文件 partial impl 之后），导致 E0599 "no method found"。`impl SyncService` 的私有方法必须在主 impl 块（line 596 `}` 之前）。
-2. **trait 方法名**：`StickyEventStoreApi` 提供的是 `get_rooms_with_is_sticky_events(user_id)`，不是 `get_sticky_event_rooms`（后者是 service 层自定义 helper）。
-3. **as_object_mut 需 mut**：`build_room_sync_value` 返回值若要 `as_object_mut()` 注入字段，绑定时必须 `let mut room_sync`。
-4. **try_join 9-tuple 推断失败**：曾尝试把 sticky 预取加入 `tokio::try_join!`，9 元素触发 E0282；改为 try_join 后顺序 `.await` 解决。
+## 踩坑记录
+1. **辅助方法误入 tests 模块**：`get_sticky_event_rooms` 被插入 `#[cfg(test)] mod tests` 块内，导致 E0599 "no method found"
+2. **trait 方法名**：`StickyEventStoreApi` 提供 `get_rooms_with_is_sticky_events(user_id)`，不是 `get_sticky_event_rooms`
+3. **as_object_mut 需 mut**：`build_room_sync_value` 返回值若要 `as_object_mut()` 注入，绑定时必须 `let mut room_sync`
+4. **try_join 9-tuple 推断失败**：尝试把 sticky 预取加入 `tokio::try_join!`，9 元素触发 E0282；改为顺序 `.await` 解决

@@ -40,6 +40,7 @@ mod tests {
             room_summary_service: None,
             cache,
             app_service_manager: None,
+            policy_service: None,
         })
     }
 

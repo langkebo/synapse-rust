@@ -4,6 +4,7 @@
 //! Extracted from RoomService as part of the domain split plan (Task 1).
 
 use crate::common::error::{ApiError, ApiResult};
+use crate::policy_service::PolicyService;
 use crate::UserService;
 use serde_json::json;
 use std::str::FromStr;
@@ -51,6 +52,10 @@ pub struct MembershipService {
     /// transaction (federation join state events, etc.). When `None`,
     /// each `create_event_with_graph` call uses its own implicit transaction.
     pub(crate) db_pool: Option<sqlx::PgPool>,
+    /// MSC4284 — Policy server service. When present, room join/invite
+    /// operations consult the policy server before persisting. `None` in
+    /// test setups or when the policy server is not configured.
+    pub(crate) policy_service: Option<Arc<PolicyService>>,
 }
 
 /// Configuration for constructing a [`MembershipService`].
@@ -88,6 +93,9 @@ pub struct MembershipServiceConfig {
     /// Optional DB pool for wrapping multi-event persistence in a single
     /// transaction (federation join state events, etc.).
     pub db_pool: Option<sqlx::PgPool>,
+    /// MSC4284 — Policy server service. `None` in test setups or when
+    /// the policy server is not configured.
+    pub policy_service: Option<Arc<PolicyService>>,
 }
 
 impl MembershipService {
@@ -110,6 +118,54 @@ impl MembershipService {
             key_rotation_storage: config.key_rotation_storage,
             app_service_manager: config.app_service_manager,
             db_pool: config.db_pool,
+            policy_service: config.policy_service,
+        }
+    }
+
+    // =========================================================================
+    // MSC4284: Policy server enforcement helpers
+    // =========================================================================
+
+    /// Check policy for a room join. Returns `Ok(())` if allowed, or
+    /// `Err(Forbidden)` if denied by the policy server.
+    /// When no policy service is configured, always allows.
+    pub(crate) async fn check_join_policy(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        let Some(policy) = &self.policy_service else {
+            return Ok(());
+        };
+        match policy.check_room_join(room_id, user_id).await {
+            crate::policy_service::PolicyResult::Allow => Ok(()),
+            crate::policy_service::PolicyResult::Deny(reason) => {
+                ::tracing::warn!(
+                    room_id = %room_id,
+                    user_id = %user_id,
+                    reason = %reason,
+                    "Room join denied by policy server"
+                );
+                Err(ApiError::forbidden(format!("Denied by policy server: {}", reason)))
+            }
+        }
+    }
+
+    /// Check policy for a room invite. Returns `Ok(())` if allowed, or
+    /// `Err(Forbidden)` if denied by the policy server.
+    /// When no policy service is configured, always allows.
+    pub(crate) async fn check_invite_policy(&self, room_id: &str, inviter_id: &str, invitee_id: &str) -> ApiResult<()> {
+        let Some(policy) = &self.policy_service else {
+            return Ok(());
+        };
+        match policy.check_room_invite(room_id, inviter_id, invitee_id).await {
+            crate::policy_service::PolicyResult::Allow => Ok(()),
+            crate::policy_service::PolicyResult::Deny(reason) => {
+                ::tracing::warn!(
+                    room_id = %room_id,
+                    inviter_id = %inviter_id,
+                    invitee_id = %invitee_id,
+                    reason = %reason,
+                    "Room invite denied by policy server"
+                );
+                Err(ApiError::forbidden(format!("Denied by policy server: {}", reason)))
+            }
         }
     }
 
@@ -673,6 +729,7 @@ mod tests {
             key_rotation_storage: None,
             app_service_manager: None,
             db_pool: None,
+            policy_service: None,
         })
     }
 
@@ -759,6 +816,7 @@ mod tests {
             key_rotation_storage: None,
             app_service_manager: None,
             db_pool: None,
+            policy_service: None,
         })
     }
 

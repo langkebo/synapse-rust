@@ -82,6 +82,12 @@ impl MembershipService {
         let ctx = TransitionCtx::state_only(join_rule, /* actor_is_target */ true, target_is_banned, false);
         is_legal(from, Membership::Join, &ctx)?;
 
+        // MSC4284: consult the policy server before persisting the join.
+        // Placed after the state-machine gate so we don't issue an HTTP request
+        // for joins that are already rejected locally. No-op when no policy
+        // service is configured.
+        self.check_join_policy(room_id, user_id).await?;
+
         self.member_storage
             .add_member(room_id, user_id, "join", None, None, None, None)
             .await
@@ -475,6 +481,7 @@ mod tests {
             key_rotation_storage: Some(spy),
             app_service_manager: None,
             db_pool: None,
+            policy_service: None,
         })
     }
 
@@ -610,6 +617,7 @@ mod tests {
             key_rotation_storage: None,
             app_service_manager: None,
             db_pool: None,
+            policy_service: None,
         })
     }
 

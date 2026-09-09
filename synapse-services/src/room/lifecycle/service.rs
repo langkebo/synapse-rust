@@ -3,6 +3,8 @@
 //!
 //! Extracted from RoomService as part of the domain split plan (Task 4).
 
+use crate::common::error::{ApiError, ApiResult};
+use crate::policy_service::PolicyService;
 use crate::UserService;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
@@ -31,6 +33,10 @@ pub struct LifecycleService {
     /// events (create, upgrade) are enqueued for matching application
     /// services after the transaction commits.
     pub(crate) app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
+    /// MSC4284 — Policy server service. When present, room creation
+    /// consults the policy server before persisting. `None` in
+    /// test setups or when the policy server is not configured.
+    pub(crate) policy_service: Option<Arc<PolicyService>>,
 }
 
 /// Configuration for constructing a [`LifecycleService`].
@@ -57,6 +63,9 @@ pub struct LifecycleServiceConfig {
     pub cache: Arc<CacheManager>,
     /// The `app_service_manager` field.
     pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
+    /// MSC4284 — Policy server service. `None` in test setups or when
+    /// the policy server is not configured.
+    pub policy_service: Option<Arc<PolicyService>>,
 }
 
 impl LifecycleService {
@@ -74,6 +83,28 @@ impl LifecycleService {
             room_summary_service: config.room_summary_service,
             cache: config.cache,
             app_service_manager: config.app_service_manager,
+            policy_service: config.policy_service,
+        }
+    }
+
+    /// MSC4284: Check policy for room creation.
+    /// Returns `Ok(())` if allowed, or `Err(Forbidden)` if denied by the
+    /// policy server. No-op when no policy service is configured.
+    pub(crate) async fn check_create_policy(&self, room_id: &str, creator: &str) -> ApiResult<()> {
+        let Some(policy) = &self.policy_service else {
+            return Ok(());
+        };
+        match policy.check_room_create(room_id, creator).await {
+            crate::policy_service::PolicyResult::Allow => Ok(()),
+            crate::policy_service::PolicyResult::Deny(reason) => {
+                ::tracing::warn!(
+                    room_id = %room_id,
+                    creator = %creator,
+                    reason = %reason,
+                    "Room creation denied by policy server"
+                );
+                Err(ApiError::forbidden(format!("Denied by policy server: {}", reason)))
+            }
         }
     }
 }

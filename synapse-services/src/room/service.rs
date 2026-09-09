@@ -1,5 +1,6 @@
 use crate::auth::RoomAuth;
 use crate::common::error::{ApiError, ApiResult};
+use crate::policy_service::PolicyService;
 use crate::*;
 use futures::stream;
 use futures::StreamExt;
@@ -118,6 +119,9 @@ pub struct RoomServiceConfig {
     /// Optional DB pool for wrapping multi-event persistence (federation join)
     /// in a single transaction instead of N+1 implicit transactions.
     pub db_pool: Option<sqlx::PgPool>,
+    /// MSC4284 — Policy server service for room/user/content moderation.
+    /// `None` in test setups or when the policy server is not configured.
+    pub policy_service: Option<Arc<PolicyService>>,
 }
 
 /// The `RoomService` struct.
@@ -185,6 +189,7 @@ impl RoomService {
             key_rotation_storage: config.key_rotation_storage.clone(),
             app_service_manager: config.app_service_manager.clone(),
             db_pool: config.db_pool.clone(),
+            policy_service: config.policy_service.clone(),
         };
         let membership = MembershipService::new(membership_cfg);
 
@@ -232,6 +237,9 @@ impl RoomService {
             room_summary_service: Some(config.room_summary_service.clone()),
             cache: config.cache.clone(),
             app_service_manager: config.app_service_manager.clone(),
+            // MSC4284: room creation policy enforcement lives in the
+            // lifecycle sub-service; join/invite live in membership.
+            policy_service: config.policy_service.clone(),
         };
         let lifecycle = LifecycleService::new(lifecycle_cfg);
 

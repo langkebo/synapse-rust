@@ -367,6 +367,7 @@ fn create_room_service(
         cache,
         key_rotation_storage: None,
         db_pool: None,
+        policy_service: None,
     })
 }
 

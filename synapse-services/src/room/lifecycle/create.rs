@@ -42,6 +42,11 @@ impl LifecycleService {
             ))
         })?;
 
+        // MSC4284: consult the policy server before beginning the transaction.
+        // Placed before tx.begin() so we don't hold a DB transaction open during
+        // the policy check HTTP request. No-op when no policy service is configured.
+        self.check_create_policy(&room_id, user_id).await?;
+
         let mut tx = self
             .room_storage
             .pool()

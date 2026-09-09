@@ -455,6 +455,7 @@ mod coverage_tests {
             key_rotation_storage: None,
             app_service_manager: None,
             db_pool: None,
+            policy_service: None,
         });
 
         TestService { svc, member_store, room_store, summary_store }

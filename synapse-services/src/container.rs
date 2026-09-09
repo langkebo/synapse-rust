@@ -406,6 +406,8 @@ impl ServiceContainer {
             storage.sticky_event_storage.clone(),
             storage.user_service.clone(),
             event_notifier.clone(),
+            // MSC4284: inject policy service for room create/join/invite enforcement.
+            Some(admin.modules.policy_service.clone()),
         )
         .await;
 

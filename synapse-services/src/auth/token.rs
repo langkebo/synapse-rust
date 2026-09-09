@@ -54,7 +54,11 @@ impl AuthService {
         // 主动删除对应标记保证即时生效，TTL 作为异常路径的兜底上限。
         // 注意：拒绝结果（已撤销/已拉黑）不缓存，避免负缓存放大。
         let revocation_ok_key = Self::revocation_ok_key(token);
-        if self.cache.get_raw(&revocation_ok_key).is_none() {
+        // T11: use get_raw_shared for cross-instance consistency.
+        // set_raw (line 78) writes both L1 and Redis, but get_raw (before fix)
+        // only reads L1. In multi-instance scenarios, this could cause unnecessary
+        // DB queries when another instance has the cache hit.
+        if self.cache.get_raw_shared(&revocation_ok_key).await.is_none() {
             if self
                 .token_storage
                 .is_in_blacklist(token)
@@ -89,7 +93,11 @@ impl AuthService {
         }
 
         let logout_marker = format!("user:logout_all:{}", claims.sub);
-        if let Some(marker_val) = self.cache.get_raw(&logout_marker) {
+        // T11: use get_raw_shared for cross-instance consistency.
+        // set_raw (session.rs) writes both L1 and Redis, but get_raw (sync) only
+        // reads L1. If the request hits a different instance, the logout marker
+        // would be missed - a security issue (logout bypass).
+        if let Some(marker_val) = self.cache.get_raw_shared(&logout_marker).await {
             if let Ok(logout_ts) = marker_val.parse::<i64>() {
                 if claims.iat < logout_ts {
                     ::tracing::debug!(target: "token_validation", "User has been logged out from all devices (token issued before logout)");
