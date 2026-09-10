@@ -66,6 +66,21 @@ impl FromStr for EduType {
     }
 }
 
+impl std::fmt::Display for EduType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            EduType::Typing => "m.typing",
+            EduType::Presence => "m.presence",
+            EduType::DeviceListUpdate => "m.device_list_update",
+            EduType::DirectToDevice => "m.direct_to_device",
+            EduType::Receipt => "m.receipt",
+            EduType::SigningKeyUpdate => "m.signing_key_update",
+            EduType::ProfileUpdate => "m.profile_update",
+        };
+        write!(f, "{s}")
+    }
+}
+
 // ---------------------------------------------------------------------------
 // EduProcessResult
 // ---------------------------------------------------------------------------
@@ -220,5 +235,39 @@ mod tests {
     #[test]
     fn test_user_matches_origin_empty_origin() {
         assert!(!user_matches_origin("@alice:example.com", ""));
+    }
+
+    // --- Display / FromStr round-trip (template §1: 三张表必须同步) ---
+
+    #[test]
+    fn test_edu_type_display_matches_from_str() {
+        let all = [
+            EduType::Typing,
+            EduType::Presence,
+            EduType::DeviceListUpdate,
+            EduType::DirectToDevice,
+            EduType::Receipt,
+            EduType::SigningKeyUpdate,
+            EduType::ProfileUpdate,
+        ];
+        for variant in all {
+            // Display 产出的字符串必须能被 FromStr 解析回同一变体，
+            // 保证 `EduType` / `FromStr` / `Display` 三处映射始终一致。
+            let s = variant.to_string();
+            let parsed = EduType::from_str(&s)
+                .unwrap_or_else(|e| panic!("FromStr rejected Display output {s:?} for {variant:?}: {e}"));
+            assert_eq!(parsed, variant, "round-trip mismatch for {variant:?} -> {s:?}");
+        }
+    }
+
+    #[test]
+    fn test_edu_type_display_strings() {
+        assert_eq!(EduType::Typing.to_string(), "m.typing");
+        assert_eq!(EduType::Presence.to_string(), "m.presence");
+        assert_eq!(EduType::DeviceListUpdate.to_string(), "m.device_list_update");
+        assert_eq!(EduType::DirectToDevice.to_string(), "m.direct_to_device");
+        assert_eq!(EduType::Receipt.to_string(), "m.receipt");
+        assert_eq!(EduType::SigningKeyUpdate.to_string(), "m.signing_key_update");
+        assert_eq!(EduType::ProfileUpdate.to_string(), "m.profile_update");
     }
 }
