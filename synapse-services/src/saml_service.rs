@@ -12,6 +12,8 @@ use synapse_common::xml_parser::{parse_saml_metadata, parse_saml_response};
 use synapse_storage::saml::*;
 use tracing::info;
 
+use crate::error::ServiceError;
+
 macro_rules! cached_regex {
     ($name:ident, $pattern:expr) => {
         fn $name() -> &'static Regex {
@@ -668,42 +670,48 @@ impl SamlService {
         // Only skip if metadata/certificate is unavailable (cannot verify without it).
         match self.verify_saml_signature(response) {
             Ok(()) => {}
-            Err(e) if e.contains("No IdP metadata") || e.contains("No IdP certificate") => {
-                tracing::debug!(
-                    error = %e,
-                    issuer = %issuer,
-                    "SAML signature verification unavailable — skipping"
-                );
-            }
             Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    issuer = %issuer,
-                    want_response_signed = self.config.want_response_signed,
-                    want_assertions_signed = self.config.want_assertions_signed,
-                    has_expected_in_response_to = expected_in_response_to.is_some(),
-                    "SAML signature verification failed"
-                );
-                return Err(ApiError::unauthorized(format!("SAML signature verification failed: {}", e)));
+                let msg = e.to_string();
+                if msg.contains("No IdP metadata") || msg.contains("No IdP certificate") {
+                    tracing::debug!(
+                        error = %e,
+                        issuer = %issuer,
+                        "SAML signature verification unavailable — skipping"
+                    );
+                } else {
+                    tracing::warn!(
+                        error = %e,
+                        issuer = %issuer,
+                        want_response_signed = self.config.want_response_signed,
+                        want_assertions_signed = self.config.want_assertions_signed,
+                        has_expected_in_response_to = expected_in_response_to.is_some(),
+                        "SAML signature verification failed"
+                    );
+                    return Err(ApiError::unauthorized(format!("SAML signature verification failed: {}", msg)));
+                }
             }
         }
 
         Ok(())
     }
 
-    fn verify_saml_signature(&self, xml: &str) -> Result<(), String> {
+    fn verify_saml_signature(&self, xml: &str) -> Result<(), ServiceError> {
         let metadata = match self.cached_metadata.clone() {
             Some(m) => m,
-            None => return Err("No IdP metadata available for signature verification".to_string()),
+            None => {
+                return Err(ServiceError::SamlError { message: "No IdP metadata available for signature verification".into() })
+            }
         };
 
         if metadata.certificate.is_empty() {
-            return Err("No IdP certificate available for signature verification".to_string());
+            return Err(ServiceError::SamlError { message: "No IdP certificate available for signature verification".into() });
         }
 
         let cert_der = match general_purpose::STANDARD.decode(&metadata.certificate) {
             Ok(bytes) => bytes,
-            Err(e) => return Err(format!("Invalid IdP certificate encoding: {}", e)),
+            Err(e) => {
+                return Err(ServiceError::SamlError { message: format!("Invalid IdP certificate encoding: {}", e) });
+            }
         };
 
         let has_response_sig = xml.contains("<ds:Signature") || xml.contains("<Signature");
@@ -712,9 +720,7 @@ impl SamlService {
         // OPT-022: At least one of response or assertion must be signed, regardless of
         // want_response_signed / want_assertions_signed flags.
         if !has_response_sig && !has_assertion_sig {
-            return Err(
-                "Neither SAML response nor assertion is signed — at least one signature level is required".to_string()
-            );
+            return Err(ServiceError::SamlError { message: "Neither SAML response nor assertion is signed — at least one signature level is required".into() });
         }
 
         let signature_value = Self::extract_signature_value(xml);
@@ -723,33 +729,37 @@ impl SamlService {
 
         let (Some(sig_value), Some(signed_info_xml), Some(digest)) = (signature_value, signed_info, digest_value)
         else {
-            return Err("Could not extract signature components from SAML response".to_string());
+            return Err(ServiceError::SamlError { message: "Could not extract signature components from SAML response".into() });
         };
 
         let sig_bytes = match general_purpose::STANDARD.decode(&sig_value) {
             Ok(bytes) => bytes,
-            Err(e) => return Err(format!("Invalid signature base64: {}", e)),
+            Err(e) => {
+                return Err(ServiceError::SamlError { message: format!("Invalid signature base64: {}", e) });
+            }
         };
 
         let digest_bytes = match general_purpose::STANDARD.decode(&digest) {
             Ok(bytes) => bytes,
-            Err(e) => return Err(format!("Invalid digest base64: {}", e)),
+            Err(e) => {
+                return Err(ServiceError::SamlError { message: format!("Invalid digest base64: {}", e) });
+            }
         };
 
         // P0-01: XSW 防护 — 提取 Reference URI 并验证它指向的元素.
         // DigestValue 是被引用元素 (如 Assertion) 的摘要, 而非 SignedInfo 自身的摘要.
         // 旧实现错误地摘要 SignedInfo, 导致攻击者可包装签名断言并注入恶意断言.
         let reference_uri = Self::extract_reference_uri(&signed_info_xml)
-            .ok_or_else(|| "SAML signature missing Reference URI — cannot verify signed element".to_string())?;
+            .ok_or_else(|| ServiceError::SamlError { message: "SAML signature missing Reference URI — cannot verify signed element".into() })?;
 
         // 获取被引用的元素 (URI 格式为 "#<ID>", 去掉 # 前缀获取元素 ID).
         let referenced_id = reference_uri.strip_prefix('#').unwrap_or(&reference_uri);
         let referenced_element = Self::extract_element_by_id(xml, referenced_id)
-            .ok_or_else(|| {
-                format!(
+            .ok_or_else(|| ServiceError::SamlError {
+                message: format!(
                     "SAML XSW protection: Reference URI '{}' does not point to any element in the response — possible signature wrapping attack",
                     reference_uri
-                )
+                ),
             })?;
 
         // 验证被引用元素的摘要匹配 DigestValue.
@@ -762,7 +772,7 @@ impl SamlService {
         };
 
         if !synapse_common::crypto::secure_compare_bytes(&digest_bytes, &computed_element_digest) {
-            return Err("SAML XSW protection: digest of referenced element does not match DigestValue — response may be tampered with".to_string());
+            return Err(ServiceError::SamlError { message: "SAML XSW protection: digest of referenced element does not match DigestValue — response may be tampered with".into() });
         }
 
         // 验证 RSA 签名覆盖 SignedInfo (包含 DigestValue, 防止篡改).
@@ -830,35 +840,42 @@ impl SamlService {
             .join("\n")
     }
 
-    fn verify_rsa_signature(cert_der: &[u8], signature: &[u8], signed_data: &[u8]) -> Result<(), String> {
+    fn verify_rsa_signature(cert_der: &[u8], signature: &[u8], signed_data: &[u8]) -> Result<(), ServiceError> {
         use x509_cert::der::{Decode, Encode};
 
         let cert_der_bytes = if cert_der.starts_with(b"-----BEGIN") {
-            let pem_str = std::str::from_utf8(cert_der).map_err(|e| format!("Invalid UTF-8: {}", e))?;
+            let pem_str = std::str::from_utf8(cert_der)
+                .map_err(|e| ServiceError::SamlError { message: format!("Invalid UTF-8: {}", e) })?;
             let b64_content = pem_str.lines().filter(|line| !line.starts_with("-----")).collect::<Vec<_>>().join("");
-            base64::engine::general_purpose::STANDARD
-                .decode(&b64_content)
-                .map_err(|e| format!("Failed to decode PEM base64: {}", e))?
+            base64::engine::general_purpose::STANDARD.decode(&b64_content).map_err(|e| {
+                ServiceError::SamlError { message: format!("Failed to decode PEM base64: {}", e) }
+            })?
         } else {
             cert_der.to_vec()
         };
 
         let cert = match x509_cert::Certificate::from_der(&cert_der_bytes) {
             Ok(c) => c,
-            Err(e) => return Err(format!("Failed to parse X.509 certificate: {}", e)),
+            Err(e) => {
+                return Err(ServiceError::SamlError {
+                    message: format!("Failed to parse X.509 certificate: {}", e),
+                })
+            }
         };
 
         let spki_der = match cert.tbs_certificate.subject_public_key_info.to_der() {
             Ok(der) => der,
-            Err(e) => return Err(format!("Failed to encode SPKI: {}", e)),
+            Err(e) => {
+                return Err(ServiceError::SamlError { message: format!("Failed to encode SPKI: {}", e) })
+            }
         };
 
         let public_key =
             ring::signature::UnparsedPublicKey::new(&ring::signature::RSA_PKCS1_2048_8192_SHA256, &spki_der);
 
-        public_key
-            .verify(signed_data, signature)
-            .map_err(|e| format!("RSA-SHA256 signature verification failed: {:?}", e))
+        public_key.verify(signed_data, signature).map_err(|e| ServiceError::SamlError {
+            message: format!("RSA-SHA256 signature verification failed: {:?}", e),
+        })
     }
 
     fn build_authn_request(&self, request_id: &str, sp_entity_id: &str, acs_url: &str) -> String {
@@ -951,14 +968,14 @@ impl SamlService {
         Ok(url.to_string())
     }
 
-    fn sign_redirect_url(&self, url: &url::Url, private_key_pem: &str) -> Result<String, String> {
+    fn sign_redirect_url(&self, url: &url::Url, private_key_pem: &str) -> Result<String, ServiceError> {
         let query = url.query().unwrap_or("");
         let sig_alg = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256";
 
         let private_key = pem_to_rsa_private_key(private_key_pem)?;
 
         let signing_key = ring::signature::RsaKeyPair::from_der(&private_key)
-            .map_err(|e| format!("Invalid RSA private key: {}", e))?;
+            .map_err(|e| ServiceError::SamlError { message: format!("Invalid RSA private key: {}", e) })?;
 
         let mut signature = vec![0u8; signing_key.public().modulus_len()];
         signing_key
@@ -968,7 +985,9 @@ impl SamlService {
                 query.as_bytes(),
                 &mut signature,
             )
-            .map_err(|e| format!("Failed to sign SAML request: {}", e))?;
+            .map_err(|e| ServiceError::SamlError {
+                message: format!("Failed to sign SAML request: {}", e),
+            })?;
 
         let sig_b64 = general_purpose::STANDARD.encode(&signature);
 
@@ -1238,12 +1257,14 @@ impl SamlIdpManager {
     }
 }
 
-fn pem_to_rsa_private_key(pem: &str) -> Result<Vec<u8>, String> {
+fn pem_to_rsa_private_key(pem: &str) -> Result<Vec<u8>, ServiceError> {
     let der = pem.lines().filter(|line| !line.starts_with("-----")).fold(String::new(), |mut acc, line| {
         acc.push_str(line.trim());
         acc
     });
-    general_purpose::STANDARD.decode(&der).map_err(|e| format!("Failed to decode PEM base64: {}", e))
+    general_purpose::STANDARD.decode(&der).map_err(|e| ServiceError::SamlError {
+        message: format!("Failed to decode PEM base64: {}", e),
+    })
 }
 
 #[cfg(test)]

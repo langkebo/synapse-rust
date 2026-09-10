@@ -32,6 +32,9 @@ pub mod shutdown;
 /// The `wiring` module.
 pub mod wiring;
 
+/// The `error` module — unified service-layer error types.
+pub mod error;
+
 /// The `capability_governance` module.
 pub mod capability_governance;
 

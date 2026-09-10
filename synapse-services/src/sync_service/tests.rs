@@ -842,12 +842,70 @@ fn test_filter_sync_rooms_respects_room_lists() {
         timeline: None,
         ephemeral: None,
         account_data: None,
+        not_membership: None,
     };
 
     let filtered = SyncService::filter_sync_rooms(memberships, Some(&room_filter));
 
     assert_eq!(filtered.len(), 1);
     assert_eq!(filtered[0].room_id, "!keep:localhost");
+    assert_eq!(filtered[0].membership, "join");
+}
+
+#[test]
+fn test_filter_sync_rooms_respects_not_membership() {
+    // MSC4502: Test that not_membership filter excludes rooms by membership state
+    let memberships = vec![
+        UserRoomMembership { room_id: "!joined:localhost".to_string(), membership: "join".to_string() },
+        UserRoomMembership { room_id: "!invited:localhost".to_string(), membership: "invite".to_string() },
+        UserRoomMembership { room_id: "!left:localhost".to_string(), membership: "leave".to_string() },
+        UserRoomMembership { room_id: "!banned:localhost".to_string(), membership: "ban".to_string() },
+    ];
+    
+    // Test excluding 'invite' membership
+    let room_filter = RoomFilter {
+        rooms: None,
+        not_rooms: None,
+        include_leave: None,
+        state: None,
+        timeline: None,
+        ephemeral: None,
+        account_data: None,
+        not_membership: Some(vec!["invite".to_string()]),
+    };
+
+    let filtered = SyncService::filter_sync_rooms(memberships.clone(), Some(&room_filter));
+
+    assert_eq!(filtered.len(), 3);
+    assert_eq!(filtered[0].membership, "join");
+    assert_eq!(filtered[1].membership, "leave");
+    assert_eq!(filtered[2].membership, "ban");
+}
+
+#[test]
+fn test_filter_sync_rooms_not_membership_multiple_values() {
+    // MSC4502: Test that not_membership filter can exclude multiple membership states
+    let memberships = vec![
+        UserRoomMembership { room_id: "!joined:localhost".to_string(), membership: "join".to_string() },
+        UserRoomMembership { room_id: "!invited:localhost".to_string(), membership: "invite".to_string() },
+        UserRoomMembership { room_id: "!knocked:localhost".to_string(), membership: "knock".to_string() },
+    ];
+    
+    // Test excluding both 'invite' and 'knock' membership
+    let room_filter = RoomFilter {
+        rooms: None,
+        not_rooms: None,
+        include_leave: None,
+        state: None,
+        timeline: None,
+        ephemeral: None,
+        account_data: None,
+        not_membership: Some(vec!["invite".to_string(), "knock".to_string()]),
+    };
+
+    let filtered = SyncService::filter_sync_rooms(memberships, Some(&room_filter));
+
+    assert_eq!(filtered.len(), 1);
     assert_eq!(filtered[0].membership, "join");
 }
 
@@ -2208,4 +2266,106 @@ async fn incremental_room_sync_returns_state_delta_not_empty() {
         "MSC3967: expected 'New Room Name', got {name}",
         name = delta["content"]["name"]
     );
+}
+
+// ===========================================================================
+// get_events (api.rs:12) — basic endpoint
+// W2-2 coverage: 无房间用户获取事件
+// ===========================================================================
+
+/// `get_events` 的边界测试：用户未加入任何房间 → 返回空 chunk。
+///
+/// 关键断言：
+/// 1. 返回 JSON 包含 start/end/chunk 三个字段
+/// 2. chunk 为数组（即使为空）
+/// 3. end token 使用 "t" 前缀的时间戳
+///
+/// 由于 `member_storage.get_joined_rooms` 返回空 vec → `get_room_events_batch_since(&[], ...)`
+/// 返回空 HashMap → chunk 为 Vec::new()。 这是 API 幂等性的关键路径。
+#[tokio::test]
+async fn test_get_events_empty_rooms_returns_valid_response() {
+    let event_store = Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
+    let service = sync_service_for_notifier_test(event_store, None, 100);
+
+    // User @alice:example.com 未加入任何房间（member_store 为空）。
+    let result =
+        service.get_events("@alice:example.com", "s0", 5000).await.expect("get_events with no rooms should not fail");
+
+    // 必须返回有效的 JSON 响应结构
+    assert!(result.is_object(), "response must be a JSON object");
+    assert!(result.get("start").is_some(), "response must contain 'start'");
+    assert!(result.get("end").is_some(), "response must contain 'end'");
+    assert!(result.get("chunk").is_some(), "response must contain 'chunk'");
+
+    // chunk 必须是空数组
+    let chunk = result.get("chunk").and_then(|c| c.as_array());
+    assert!(chunk.is_some(), "chunk must be a JSON array");
+    assert!(chunk.unwrap().is_empty(), "chunk must be empty for user with no joined rooms");
+
+    // end token 必须是 "t" 前缀的时间戳（与 /messages 一致）
+    let end = result.get("end").and_then(|e| e.as_str());
+    assert!(end.is_some(), "end must be a string");
+    let end_str = end.unwrap();
+    assert!(end_str.starts_with('t'), "end token must start with 't' prefix");
+}
+
+/// `get_events` 的 from token 格式错误处理。
+#[tokio::test]
+async fn test_get_events_invalid_from_token_returns_bad_input() {
+    let event_store = Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
+    let service = sync_service_for_notifier_test(event_store, None, 100);
+
+    // 非数字 token 必须返回 400 Bad Request
+    let err = service.get_events("@alice:example.com", "invalid_token", 5000).await.unwrap_err();
+
+    use synapse_common::ApiErrorKind;
+    assert_eq!(err.kind, ApiErrorKind::BadRequest, "invalid from token must return BadRequest");
+}
+
+/// `get_events`：用户加入房间但房间无事件 → 空 chunk。
+#[tokio::test]
+async fn test_get_events_joined_room_no_events_returns_valid_response() {
+    use synapse_storage::test_mocks::InMemoryMemberStore;
+
+    // 创建自定义的 member_store，先添加成员
+    let member_store = Arc::new(InMemoryMemberStore::new());
+    member_store.add_member("!room:test", "@alice:example.com", "join", None).await.expect("add member must succeed");
+
+    // 创建 event_store
+    let event_store = Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
+
+    // 用自定义 member_store 构建 service
+    let cache = Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default()));
+    let perf = synapse_common::config::PerformanceConfig { sync_poll_interval_ms: 100, ..Default::default() };
+
+    let pool = Arc::new(
+        sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://synapse:synapse@localhost/synapse")
+            .expect("lazy pool"),
+    );
+
+    let service = SyncService::from_deps(SyncServiceDeps {
+        presence_storage: Arc::new(synapse_storage::test_mocks::InMemoryPresenceStore::new()),
+        member_storage: member_store.clone(),
+        event_reader: event_store.clone() as Arc<dyn synapse_storage::event::EventReader>,
+        room_account_data_storage: Arc::new(synapse_storage::room_account_data::RoomAccountDataStorage::new(&pool)),
+        account_data_storage: Arc::new(synapse_storage::test_mocks::InMemoryAccountDataStore::new()),
+        filter_storage: Arc::new(synapse_storage::filter::FilterStorage::new(&pool)),
+        device_storage: Arc::new(synapse_storage::test_mocks::InMemoryDeviceListStore::new()),
+        device_key_storage: Arc::new(synapse_e2ee::device_keys::DeviceKeyStorage::new(&pool))
+            as Arc<dyn synapse_e2ee::device_keys::DeviceKeyStoreApi>,
+        key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage::new(pool.clone()),
+        to_device_storage: synapse_e2ee::to_device::ToDeviceStorage::new(&pool),
+        metrics: Arc::new(synapse_common::MetricsCollector::new()),
+        performance: perf,
+        cache,
+        event_notifier: None,
+        sticky_event_storage: None,
+    });
+
+    let result = service.get_events("@alice:example.com", "s0", 5000).await.expect("get_events should succeed");
+
+    // 加入房间但无事件 → 仍然返回有效响应，chunk 为空
+    let chunk = result.get("chunk").and_then(|c| c.as_array()).expect("chunk must be array");
+    assert!(chunk.is_empty(), "chunk must be empty when room has no events");
 }

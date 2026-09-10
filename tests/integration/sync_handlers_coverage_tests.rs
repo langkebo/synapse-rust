@@ -75,6 +75,8 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
     let device_storage = Arc::new(DeviceStorage::new(pool));
     let to_device_storage = ToDeviceStorage::new(pool);
     let metrics = Arc::new(MetricsCollector::new());
+    let user_storage: Arc<dyn synapse_storage::user::UserStore> =
+        Arc::new(synapse_storage::user::UserStorage::new(pool, cache.clone()));
 
     SlidingSyncService::new(
         storage,
@@ -86,6 +88,7 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
         member_storage,
         device_storage,
         to_device_storage,
+        user_storage,
         metrics,
         PerformanceConfig::default(),
         None,

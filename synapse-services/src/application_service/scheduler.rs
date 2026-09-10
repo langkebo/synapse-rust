@@ -23,6 +23,7 @@ use tokio::time::MissedTickBehavior;
 use tracing::{debug, info, warn};
 
 use crate::application_service::ApplicationServiceManager;
+use crate::error::ServiceError;
 
 /// Maximum events per transaction (Synapse default: 100).
 const MAX_EVENTS_PER_TRANSACTION: usize = 100;
@@ -452,17 +453,21 @@ impl ApplicationServiceScheduler {
     }
 
     /// See [`run_once`].
-    pub async fn run_once(&self) -> Result<(), String> {
+    pub async fn run_once(&self) -> Result<(), ServiceError> {
         self.tick().await
     }
 
     // ── Tick logic ──────────────────────────────────────────────────────
 
-    async fn tick(&self) -> Result<(), String> {
+    async fn tick(&self) -> Result<(), ServiceError> {
         let active_services =
-            self.manager.get_all_active().await.map_err(|e| format!("Failed to list active AS: {e}"))?;
+            self.manager.get_all_active().await.map_err(|e| ServiceError::ApplicationServiceListFailed {
+                message: e.to_string(),
+            })?;
         let statistics =
-            self.manager.get_statistics().await.map_err(|e| format!("Failed to get appservice statistics: {e}"))?;
+            self.manager.get_statistics().await.map_err(|e| ServiceError::ApplicationServiceStatsFailed {
+                message: e.to_string(),
+            })?;
         let dispatch_order = self.plan_dispatch_order(&active_services, &statistics).await;
 
         if dispatch_order.is_empty() {
@@ -635,7 +640,7 @@ impl ApplicationServiceScheduler {
         observed_candidates
     }
 
-    async fn observe_candidate(&self, candidate: DispatchCandidate) -> Result<DispatchCandidate, String> {
+    async fn observe_candidate(&self, candidate: DispatchCandidate) -> Result<DispatchCandidate, ServiceError> {
         if candidate.has_statistics {
             return Ok(candidate);
         }
@@ -644,10 +649,16 @@ impl ApplicationServiceScheduler {
             .manager
             .count_pending_events(&candidate.as_id)
             .await
-            .map_err(|e| format!("Failed to count pending appservice events for '{}': {e}", candidate.as_id))?;
+            .map_err(|e| ServiceError::ApplicationServiceEventCountFailed {
+                as_id: candidate.as_id.clone(),
+                message: e.to_string(),
+            })?;
         let pending_transaction_count =
             self.manager.count_pending_transactions(&candidate.as_id).await.map_err(|e| {
-                format!("Failed to count pending appservice transactions for '{}': {e}", candidate.as_id)
+                ServiceError::ApplicationServiceTransactionCountFailed {
+                    as_id: candidate.as_id.clone(),
+                    message: e.to_string(),
+                }
             })?;
 
         Ok(DispatchCandidate {

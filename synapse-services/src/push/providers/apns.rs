@@ -1,4 +1,5 @@
 use super::{NotificationPayload, PushGatewayType, PushProvider, PushResult};
+use crate::error::ServiceError;
 use async_trait::async_trait;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::Client;
@@ -115,14 +116,26 @@ impl ApnsProvider {
         }
     }
 
-    fn generate_jwt(&self) -> Result<String, String> {
-        let key_id = self.config.key_id.clone().ok_or_else(|| "APNS key_id not configured".to_string())?;
-        let team_id = self.config.team_id.clone().ok_or_else(|| "APNS team_id not configured".to_string())?;
+    fn generate_jwt(&self) -> Result<String, ServiceError> {
+        let key_id = self.config.key_id.clone().ok_or_else(|| ServiceError::PushProviderError {
+            provider: "apns".into(),
+            message: "APNS key_id not configured".into(),
+        })?;
+        let team_id = self.config.team_id.clone().ok_or_else(|| ServiceError::PushProviderError {
+            provider: "apns".into(),
+            message: "APNS team_id not configured".into(),
+        })?;
         let private_key =
-            self.config.private_key.as_deref().ok_or_else(|| "APNS private_key not configured".to_string())?;
+            self.config.private_key.as_deref().ok_or_else(|| ServiceError::PushProviderError {
+                provider: "apns".into(),
+                message: "APNS private_key not configured".into(),
+            })?;
 
         if !private_key.contains("BEGIN") {
-            return Err("APNS JWT credentials not configured".to_string());
+            return Err(ServiceError::PushProviderError {
+                provider: "apns".into(),
+                message: "APNS JWT credentials not configured".into(),
+            });
         }
 
         let now = chrono::Utc::now().timestamp();
@@ -132,12 +145,18 @@ impl ApnsProvider {
         header.kid = Some(key_id);
 
         let encoding_key = EncodingKey::from_ec_pem(private_key.as_bytes())
-            .map_err(|e| format!("Invalid APNS EC private key: {e}"))?;
+            .map_err(|e| ServiceError::PushProviderError {
+                provider: "apns".into(),
+                message: format!("Invalid APNS EC private key: {e}"),
+            })?;
 
-        encode(&header, &claims, &encoding_key).map_err(|e| format!("Failed to sign APNS JWT: {e}"))
+        encode(&header, &claims, &encoding_key).map_err(|e| ServiceError::PushProviderError {
+            provider: "apns".into(),
+            message: format!("Failed to sign APNS JWT: {e}"),
+        })
     }
 
-    async fn send_request(&self, token: &str, payload: &ApnsPayload) -> Result<(), String> {
+    async fn send_request(&self, token: &str, payload: &ApnsPayload) -> Result<(), ServiceError> {
         let url = format!("{}/3/device/{}", self.config.endpoint, token);
 
         let jwt = self.generate_jwt()?;
@@ -153,7 +172,10 @@ impl ApnsProvider {
             .json(payload)
             .send()
             .await
-            .map_err(|e| format!("HTTP request failed: {e}"))?;
+            .map_err(|e| ServiceError::PushProviderError {
+                provider: "apns".into(),
+                message: format!("HTTP request failed: {e}"),
+            })?;
 
         let status = response.status();
 
@@ -161,14 +183,20 @@ impl ApnsProvider {
             return Ok(());
         }
 
-        let body = response.text().await.map_err(|e| format!("Failed to read response: {e}"))?;
+        let body = response.text().await.map_err(|e| ServiceError::PushProviderError {
+            provider: "apns".into(),
+            message: format!("Failed to read response: {e}"),
+        })?;
 
         let error_info: serde_json::Value =
             serde_json::from_str(&body).unwrap_or_else(|_| serde_json::json!({"reason": body}));
 
         let reason = error_info.get("reason").and_then(|r| r.as_str()).unwrap_or("Unknown error");
 
-        Err(format!("APNS error: {status} - {reason}"))
+        Err(ServiceError::PushProviderError {
+            provider: "apns".into(),
+            message: format!("APNS error: {status} - {reason}"),
+        })
     }
 }
 
@@ -206,16 +234,17 @@ impl PushProvider for ApnsProvider {
                 PushResult::success()
             }
             Err(e) => {
-                let should_retry = e.contains("InternalServerError")
-                    || e.contains("ServiceUnavailable")
-                    || e.contains("TooManyRequests");
+                let msg = e.to_string();
+                let should_retry = msg.contains("InternalServerError")
+                    || msg.contains("ServiceUnavailable")
+                    || msg.contains("TooManyRequests");
 
                 error!(%e, title_present = !payload.title.is_empty(), room_id = payload.room_id, event_id = payload.event_id, "APNS push error");
 
                 if should_retry {
-                    PushResult::retryable_failure(&e)
+                    PushResult::retryable_failure(&msg)
                 } else {
-                    PushResult::failure(&e)
+                    PushResult::failure(&msg)
                 }
             }
         }

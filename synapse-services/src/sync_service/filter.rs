@@ -92,6 +92,7 @@ impl SyncService {
             timeline: Self::sync_filter_from_json(room.and_then(|value| value.get("timeline"))),
             ephemeral: Self::sync_filter_from_json(room.and_then(|value| value.get("ephemeral"))),
             account_data: Self::sync_filter_from_json(room.and_then(|value| value.get("account_data"))),
+            not_membership: Self::json_string_array(room.and_then(|value| value.get("not_membership"))),
         }
     }
 

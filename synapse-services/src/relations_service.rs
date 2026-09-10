@@ -275,6 +275,7 @@ impl RelationsService {
             "Getting relations"
         );
 
+        let has_from = from.is_some();
         let params = RelationQueryParams {
             room_id: room_id.to_string(),
             relates_to_event_id: relates_to_event_id.to_string(),
@@ -296,6 +297,17 @@ impl RelationsService {
             .await
             .map_err(|e| ApiError::internal_with_context("Failed to count relations", &e))?;
 
+        // 键集分页游标：格式 `<origin_server_ts>:<event_id>`，行值比较始终匹配 ORDER BY。
+        // - next_batch：当返回满 limit 时（可能还有更多）返回末条游标。
+        // - prev_batch：当 from 已指定（非首页）且有数据时返回首条游标。
+        let limit_val = limit.unwrap_or(50).min(100);
+        let next_batch = relations.last().filter(|_| relations.len() as i32 >= limit_val).map(|r| {
+            synapse_storage::relations::encode_keyset_cursor(r.origin_server_ts, &r.event_id)
+        });
+        let prev_batch = relations.first().filter(|_| has_from).map(|r| {
+            synapse_storage::relations::encode_keyset_cursor(r.origin_server_ts, &r.event_id)
+        });
+
         let chunk: Vec<Value> = relations
             .into_iter()
             .map(|r| {
@@ -309,7 +321,7 @@ impl RelationsService {
             })
             .collect();
 
-        Ok(RelationsResponse { chunk, next_batch: None, prev_batch: None, total: Some(total) })
+        Ok(RelationsResponse { chunk, next_batch, prev_batch, total: Some(total) })
     }
 
     /// See [`get_aggregations`].

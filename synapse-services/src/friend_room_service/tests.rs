@@ -426,6 +426,7 @@ fn build_friend_entries_falls_back_to_profile() {
             avatar_url: Some("mxc://ex.com/avatar".to_string()),
             username: "bob99".to_string(),
             created_ts: 0,
+            updated_ts: None,
         },
     );
     let presence_map = HashMap::new();

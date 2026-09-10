@@ -403,6 +403,7 @@ impl SyncService {
     ) -> Vec<UserRoomMembership> {
         let allowed_rooms = room_filter.and_then(|filter| filter.rooms.as_ref());
         let disallowed_rooms = room_filter.and_then(|filter| filter.not_rooms.as_ref());
+        let not_memberships = room_filter.and_then(|filter| filter.not_membership.as_ref());
 
         memberships
             .into_iter()
@@ -415,6 +416,13 @@ impl SyncService {
 
                 if let Some(not_rooms) = disallowed_rooms {
                     if not_rooms.iter().any(|room| room == &membership.room_id) {
+                        return false;
+                    }
+                }
+
+                // MSC4502: Filter by not_membership
+                if let Some(not_mems) = not_memberships {
+                    if not_mems.iter().any(|m| m == &membership.membership) {
                         return false;
                     }
                 }

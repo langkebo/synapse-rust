@@ -281,8 +281,39 @@ impl UserStore for FakeUserStore {
         Ok(())
     }
 
-    async fn set_deactivation_status(&self, _user_id: &str, _is_deactivated: bool) -> Result<bool, sqlx::Error> {
-        Ok(true)
+    /// MSC4262 mock: upsert profile into the in-memory store, mirroring Postgres UPDATE-only semantics.
+    /// Returns `true` if the user existed and was updated, `false` otherwise.
+    async fn apply_profile_update_from_federation(
+        &self,
+        user_id: &str,
+        displayname: Option<&str>,
+        avatar_url: Option<&str>,
+    ) -> Result<bool, sqlx::Error> {
+        let mut users = self.users.write().await;
+        if let Some(user) = users.get_mut(user_id) {
+            if let Some(name) = displayname {
+                user.displayname = Some(name.to_string());
+            }
+            if let Some(url) = avatar_url {
+                user.avatar_url = Some(url.to_string());
+            }
+            Ok(true)
+        } else {
+            // Unknown remote user — no placeholder, consistent with Postgres UPDATE-only.
+            Ok(false)
+        }
+    }
+
+    async fn set_deactivation_status(&self, user_id: &str, is_deactivated: bool) -> Result<bool, sqlx::Error> {
+        // Mirror real Postgres semantics: update the in-memory flag and report
+        // whether a row was affected. Keeps deactivate_user() tests honest.
+        let mut users = self.users.write().await;
+        if let Some(user) = users.get_mut(user_id) {
+            user.is_deactivated = is_deactivated;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     async fn set_deactivation_status_batch(
@@ -308,7 +339,11 @@ impl UserStore for FakeUserStore {
         }
     }
 
-    async fn delete_user(&self, _user_id: &str) -> Result<(), sqlx::Error> {
+    async fn delete_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        // Mirror real Postgres semantics: remove the row so callers that rely
+        // on a subsequent get_user_by_id returning None (e.g. validate_token's
+        // user-not-found path) can be exercised in unit tests.
+        self.users.write().await.remove(user_id);
         Ok(())
     }
 

@@ -446,7 +446,6 @@ impl MemberStoreApi for super::RoomMemberStorage {
         limit: i64,
         after_room_id: Option<&str>,
     ) -> Result<(Vec<String>, Option<String>), sqlx::Error> {
-        self.get_mutual_rooms_between(user_id, other_user_id, limit, after_room_id)
-            .await
+        self.get_mutual_rooms_between(user_id, other_user_id, limit, after_room_id).await
     }
 }

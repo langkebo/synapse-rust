@@ -1,4 +1,5 @@
 use super::{NotificationPayload, PushGatewayType, PushProvider, PushResult};
+use crate::error::ServiceError;
 use async_trait::async_trait;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::Client;
@@ -108,13 +109,19 @@ impl WebPushProvider {
         EncryptedPayload { content, server_public_key, salt: salt.to_vec() }
     }
 
-    fn generate_vapid_jwt(&self, endpoint: &str) -> Result<String, String> {
-        let url = url::Url::parse(endpoint).map_err(|e| format!("Invalid endpoint URL: {e}"))?;
+    fn generate_vapid_jwt(&self, endpoint: &str) -> Result<String, ServiceError> {
+        let url = url::Url::parse(endpoint).map_err(|e| ServiceError::PushProviderError {
+            provider: "webpush".into(),
+            message: format!("Invalid endpoint URL: {e}"),
+        })?;
 
         let origin = format!("{}://{}", url.scheme(), url.host_str().unwrap_or("localhost"));
 
         if !self.config.vapid_private_key.contains("BEGIN") {
-            return Err("WebPush VAPID private key must be PEM encoded".to_string());
+            return Err(ServiceError::PushProviderError {
+                provider: "webpush".into(),
+                message: "WebPush VAPID private key must be PEM encoded".into(),
+            });
         }
 
         let now = chrono::Utc::now().timestamp();
@@ -126,16 +133,22 @@ impl WebPushProvider {
         header.typ = Some("JWT".to_string());
 
         let encoding_key = EncodingKey::from_ec_pem(self.config.vapid_private_key.as_bytes())
-            .map_err(|e| format!("Invalid WebPush VAPID private key: {e}"))?;
+            .map_err(|e| ServiceError::PushProviderError {
+                provider: "webpush".into(),
+                message: format!("Invalid WebPush VAPID private key: {e}"),
+            })?;
 
-        encode(&header, &claims, &encoding_key).map_err(|e| format!("Failed to sign VAPID JWT: {e}"))
+        encode(&header, &claims, &encoding_key).map_err(|e| ServiceError::PushProviderError {
+            provider: "webpush".into(),
+            message: format!("Failed to sign VAPID JWT: {e}"),
+        })
     }
 
     async fn send_to_endpoint(
         &self,
         subscription: &WebPushSubscription,
         encrypted: &EncryptedPayload,
-    ) -> Result<(), String> {
+    ) -> Result<(), ServiceError> {
         let jwt = self.generate_vapid_jwt(&subscription.endpoint)?;
 
         let content_encoding = "aes128gcm";
@@ -157,7 +170,10 @@ impl WebPushProvider {
             .body(body)
             .send()
             .await
-            .map_err(|e| format!("HTTP request failed: {e}"))?;
+            .map_err(|e| ServiceError::PushProviderError {
+                provider: "webpush".into(),
+                message: format!("HTTP request failed: {e}"),
+            })?;
 
         let status = response.status();
 
@@ -165,14 +181,23 @@ impl WebPushProvider {
             return Ok(());
         }
 
-        let body = response.text().await.map_err(|e| format!("Failed to read response: {e}"))?;
+        let body = response.text().await.map_err(|e| ServiceError::PushProviderError {
+            provider: "webpush".into(),
+            message: format!("Failed to read response: {e}"),
+        })?;
 
-        Err(format!("WebPush error: {status} - {body}"))
+        Err(ServiceError::PushProviderError {
+            provider: "webpush".into(),
+            message: format!("WebPush error: {status} - {body}"),
+        })
     }
 
     /// See [`parse_subscription`].
-    pub fn parse_subscription(&self, data: &str) -> Result<WebPushSubscription, String> {
-        serde_json::from_str(data).map_err(|e| format!("Invalid subscription: {e}"))
+    pub fn parse_subscription(&self, data: &str) -> Result<WebPushSubscription, ServiceError> {
+        serde_json::from_str(data).map_err(|e| ServiceError::PushProviderError {
+            provider: "webpush".into(),
+            message: format!("Invalid subscription: {e}"),
+        })
     }
 }
 
@@ -191,6 +216,7 @@ impl PushProvider for WebPushProvider {
         let subscription = match self.parse_subscription(token) {
             Ok(s) => s,
             Err(e) => {
+                let msg = e.to_string();
                 error!(
                     %e,
                     title_present = !payload.title.is_empty(),
@@ -198,7 +224,7 @@ impl PushProvider for WebPushProvider {
                     event_id = payload.event_id,
                     "Invalid WebPush subscription"
                 );
-                return PushResult::failure(&e);
+                return PushResult::failure(&msg);
             }
         };
 
@@ -234,14 +260,15 @@ impl PushProvider for WebPushProvider {
                 PushResult::success()
             }
             Err(e) => {
-                let should_retry = e.contains("429") || e.contains("503") || e.contains("500");
+                let msg = e.to_string();
+                let should_retry = msg.contains("429") || msg.contains("503") || msg.contains("500");
 
                 error!(%e, title_present = !payload.title.is_empty(), room_id = payload.room_id, event_id = payload.event_id, "WebPush error");
 
                 if should_retry {
-                    PushResult::retryable_failure(&e)
+                    PushResult::retryable_failure(&msg)
                 } else {
-                    PushResult::failure(&e)
+                    PushResult::failure(&msg)
                 }
             }
         }

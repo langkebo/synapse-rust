@@ -1,0 +1,97 @@
+name: Manual DB Integration Tests
+
+# 手动触发：连接真实 PostgreSQL（CI service 容器，跑完整 v11 baseline +
+# extensions 后作为「真实库」），运行 synapse-storage 的 db_tests。
+# 用途：在 PR 外单独验证 storage/ 迁移与表结构与 db_tests 是否对齐，
+#       尤其排查 db_tests "relation does not exist" 类 schema 缺失问题。
+on:
+  workflow_dispatch:
+    inputs:
+      test_filter:
+        description: "cargo test 名称过滤器（留空跑全部 storage db_tests），如 user / relations / thread"
+        required: false
+        default: ""
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  # storage 的 db_tests 直连 TEST_DATABASE_URL 的 public schema（不走隔离 schema），
+  # 所以测试前必须先按 v11 baseline + extensions 把 public 迁移到最新。
+  DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+  TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+
+jobs:
+  db-integration:
+    name: synapse-storage db_tests (real Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: synapse
+          POSTGRES_PASSWORD: synapse
+          POSTGRES_DB: synapse
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.93.0
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-dbtest-${{ hashFiles('**/Cargo.lock') }}
+
+      # 真实库的 public schema 必须已迁移（255 表），否则 db_tests 报
+      # `relation "<table>" does not exist`。这里按顺序跑 migrations/*.sql，
+      # 跳过 .undo.sql（与 scripts/init_test_public_schema.sh 行为一致）。
+      - name: Apply forward-only migrations to public schema
+        run: |
+          export PGPASSWORD=synapse
+          psql -h localhost -p 5432 -U synapse -d synapse <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS public;
+          GRANT ALL ON SCHEMA public TO synapse;
+          SQL
+          for f in $(ls migrations/*.sql | grep -v '\.undo\.sql$' | sort); do
+            echo "==> $f"
+            psql -h localhost -p 5432 -U synapse -d synapse -v ON_ERROR_STOP=0 -q -f "$f" || echo "  (non-fatal) $f"
+          done
+
+      - name: Verify schema readiness
+        run: |
+          export PGPASSWORD=synapse
+          psql -h localhost -p 5432 -U synapse -d synapse -tAc \
+            "SELECT 'public tables: ' || count(*) FROM information_schema.tables WHERE table_schema='public';"
+          # 关键表必须存在，否则直接 fail fast，避免 db_tests 出现海量误报
+          psql -h localhost -p 5432 -U synapse -d synapse -tAc \
+            "SELECT to_regclass('public.users') IS NOT NULL \
+             AND to_regclass('public.dehydrated_devices') IS NOT NULL \
+             AND to_regclass('public.application_service_users') IS NOT NULL;" \
+            | grep -q 't' || { echo "核心表缺失，schema 未就绪"; exit 1; }
+
+      # db_tests 直连共享 public schema，并发跑会互相踩数据 → 单线程。
+      - name: Run storage db_tests
+        env:
+          RUST_TEST_THREADS: 1
+        run: |
+          FILTER="${{ github.event.inputs.test_filter }}"
+          if [ -n "$FILTER" ]; then
+            cargo test -p synapse-storage --lib --features test-utils -- "$FILTER" --test-threads=1
+          else
+            cargo test -p synapse-storage --lib --features test-utils -- --test-threads=1
+          fi

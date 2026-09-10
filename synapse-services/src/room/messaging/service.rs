@@ -135,7 +135,20 @@ impl MessagingService {
         };
 
         // 1. Fetch prev_events (forward extremities of the room).
-        let prev_events = self.event_reader.get_latest_event_ids_in_room(&event.room_id, 10).await.unwrap_or_default();
+        // SECURITY: fail-closed on DB error to prevent malformed federation PDUs.
+        // Returning empty prev_events would produce invalid room hashes; better to log and skip broadcast.
+        let prev_events = match self.event_reader.get_latest_event_ids_in_room(&event.room_id, 10).await {
+            Ok(events) => events,
+            Err(e) => {
+                ::tracing::warn!(
+                    error = %e,
+                    room_id = %event.room_id,
+                    event_id = %event.event_id,
+                    "Failed to fetch prev_events for federation signing; skipping broadcast"
+                );
+                return Ok(());
+            }
+        };
 
         // Exclude the event itself.
         let prev_events: Vec<String> = prev_events.into_iter().filter(|id| id != &event.event_id).collect();

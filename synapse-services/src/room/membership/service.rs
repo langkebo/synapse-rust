@@ -405,7 +405,20 @@ impl MembershipService {
         };
 
         // 1. Fetch prev_events (forward extremities of the room).
-        let prev_events = self.event_reader.get_latest_event_ids_in_room(&event.room_id, 10).await.unwrap_or_default();
+        // BEST-EFFORT: If we cannot fetch prev_events, we log and proceed with empty.
+        // This preserves the "fail-open" design for federation broadcasting, but
+        // warns operators that the PDU may be missing proper prev_events.
+        let prev_events = match self.event_reader.get_latest_event_ids_in_room(&event.room_id, 10).await {
+            Ok(events) => events,
+            Err(e) => {
+                ::tracing::warn!(
+                    event_id = %event.event_id,
+                    error = %e,
+                    "Failed to fetch prev_events for federation broadcast; PDU may be incomplete"
+                );
+                Vec::new()
+            }
+        };
 
         // Exclude the event itself.
         let prev_events: Vec<String> = prev_events.into_iter().filter(|id| id != &event.event_id).collect();
@@ -832,8 +845,7 @@ mod tests {
         ])
         .await;
         let result = svc.get_mutual_rooms_between("@alice:localhost", "@bob:localhost", 100, None).await.unwrap();
-        let joined: Vec<&str> =
-            result["joined"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        let joined: Vec<&str> = result["joined"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
         assert_eq!(joined, vec!["!a:localhost", "!b:localhost"], "only !a and !b are mutual, sorted");
         assert!(result.get("next_batch_token").is_none(), "no token when under limit");
     }
@@ -848,11 +860,9 @@ mod tests {
 
     #[tokio::test]
     async fn mutual_rooms_empty_when_no_common() {
-        let svc = mutual_service(&[
-            ("!a:localhost", "@alice:localhost", "join"),
-            ("!b:localhost", "@bob:localhost", "join"),
-        ])
-        .await;
+        let svc =
+            mutual_service(&[("!a:localhost", "@alice:localhost", "join"), ("!b:localhost", "@bob:localhost", "join")])
+                .await;
         let result = svc.get_mutual_rooms_between("@alice:localhost", "@bob:localhost", 100, None).await.unwrap();
         assert!(result["joined"].as_array().unwrap().is_empty());
     }
@@ -888,8 +898,7 @@ mod tests {
 
         // second page using token
         let page2 = svc.get_mutual_rooms_between("@alice:localhost", "@bob:localhost", 2, Some(&token)).await.unwrap();
-        let joined2: Vec<&str> =
-            page2["joined"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        let joined2: Vec<&str> = page2["joined"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
         assert_eq!(joined2, vec!["!c:localhost"]);
         assert!(page2.get("next_batch_token").is_none(), "last page has no token");
     }

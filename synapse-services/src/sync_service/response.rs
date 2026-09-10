@@ -113,11 +113,7 @@ impl SyncService {
 
         // MSC4354: Pre-fetch all room IDs where this user has sticky events.
         // This is a cheap DISTINCT query; if it fails we fail-open (empty set).
-        let sticky_rooms: HashSet<String> = self
-            .get_sticky_event_rooms(user_id)
-            .await
-            .into_iter()
-            .collect();
+        let sticky_rooms: HashSet<String> = self.get_sticky_event_rooms(user_id).await.into_iter().collect();
         let presence_events = Self::apply_sync_filter_to_values(
             presence_events,
             response_filter.and_then(|filter| filter.presence.as_ref()),
@@ -191,14 +187,16 @@ impl SyncService {
                     if let Ok(events) = storage.get_all_is_sticky_events(room_id, user_id).await {
                         if !events.is_empty() {
                             if let Some(obj) = room_sync.as_object_mut() {
-                                let sticky_json: Vec<serde_json::Value> =
-                                    events.iter().map(|e| {
+                                let sticky_json: Vec<serde_json::Value> = events
+                                    .iter()
+                                    .map(|e| {
                                         json!({
                                             "event_type": e.event_type,
                                             "event_id": e.event_id,
                                             "is_sticky": e.is_sticky,
                                         })
-                                    }).collect();
+                                    })
+                                    .collect();
                                 obj.insert("sticky_events".to_string(), json!(sticky_json));
                             }
                         }

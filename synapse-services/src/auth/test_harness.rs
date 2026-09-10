@@ -20,6 +20,8 @@ pub(crate) struct TestAuthHarness {
     pub user_store: FakeUserStore,
     /// The `token_store` field.
     pub token_store: InMemoryAccessTokenStore,
+    /// The `refresh_store` field.
+    pub refresh_store: InMemoryRefreshTokenStore,
     /// The `member_store` field.
     pub member_store: InMemoryMemberStore,
     /// The `event_store` field.
@@ -42,6 +44,7 @@ pub(crate) fn build_test_auth_service() -> TestAuthHarness {
     let user_service = Arc::new(crate::UserService::new(user_storage.clone()));
 
     let token_store = InMemoryAccessTokenStore::new();
+    let refresh_store = InMemoryRefreshTokenStore::new();
     let member_store = InMemoryMemberStore::new();
     let event_store = InMemoryEventStore::new();
 
@@ -50,7 +53,7 @@ pub(crate) fn build_test_auth_service() -> TestAuthHarness {
         user_service,
         device_storage: Arc::new(InMemoryDeviceListStore::new()),
         token_storage: Arc::new(token_store.clone()),
-        refresh_token_storage: Arc::new(InMemoryRefreshTokenStore::new()),
+        refresh_token_storage: Arc::new(refresh_store.clone()),
         room_storage: RoomStorage::new(&pool),
         member_storage: Arc::new(member_store.clone()),
         event_reader: Arc::new(event_store.clone()),
@@ -71,5 +74,5 @@ pub(crate) fn build_test_auth_service() -> TestAuthHarness {
         audit_storage: None,
     };
 
-    TestAuthHarness { service, user_store, token_store, member_store, event_store, cache }
+    TestAuthHarness { service, user_store, token_store, refresh_store, member_store, event_store, cache }
 }

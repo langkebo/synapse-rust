@@ -146,7 +146,15 @@ impl RefreshTokenService {
             }
         };
 
-        let rotations = self.storage.get_rotations(&family_id).await.unwrap_or_default();
+        // SECURITY (S-9 / A+ W1): token-replay detection must fail-closed. The previous
+        // `unwrap_or_default()` turned a transient DB error into an empty rotation list,
+        // silently skipping the reuse check below and letting a replayed token pass.
+        // Propagate as 500 instead so the refresh is refused rather than trusted.
+        let rotations = self
+            .storage
+            .get_rotations(&family_id)
+            .await
+            .map_err(|e| ApiError::internal_with_context("Failed to read token rotations for replay check", &e))?;
         if let Some(last_rotation) = rotations.first() {
             if last_rotation.new_token_hash != old_token_hash {
                 warn!(

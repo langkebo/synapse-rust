@@ -1,0 +1,86 @@
+name: DB Integration Tests (manual trigger)
+
+on:
+  workflow_dispatch:
+
+# ── 必填 Secrets ──────────────────────────────────────────
+# 在 repo Settings → Secrets and variables → Actions 中配置：
+#   DB_HOST        — PostgreSQL 可达地址（CI 中通常为 127.0.0.1 或 localhost）
+#   DB_PORT        — PostgreSQL 端口（容器中通常为 5432）
+#   DB_USER        — PostgreSQL 用户名
+#   DB_PASSWORD    — PostgreSQL 密码
+#   DB_NAME        — 测试数据库名（通常是 synapse_test）
+#   DB_INIT_SCHEMA — 是否在 test 前先初始化 public schema（true/false）
+#                    本地 docker compose 启动后需为 true（schema 需要 migrations）
+
+jobs:
+  db-tests:
+    name: synapse-storage db_tests (manual DB)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ${{ secrets.DB_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.DB_NAME }}
+        ports:
+          - ${{ secrets.DB_PORT }}:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.93.0
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Init public schema (if enabled)
+        if: ${{ secrets.DB_INIT_SCHEMA == 'true' }}
+        run: |
+          export PGPASSWORD="${{ secrets.DB_PASSWORD }}"
+          cd scripts
+          bash init_test_public_schema.sh
+
+      - name: Run db_tests
+        env:
+          TEST_DATABASE_URL: postgres://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${{ secrets.DB_NAME }}
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+        run: |
+          RUST_TEST_THREADS=2 \
+            cargo test -p synapse-storage \
+              --lib --features test-utils \
+              -- --test-threads=2
+
+# ── 本地快速使用 ─────────────────────────────────────────
+# 前置：在项目根 .env 中写入（不提交）：
+#   DB_HOST=127.0.0.1
+#   DB_PORT=5432
+#   DB_USER=synapse
+#   DB_PASSWORD=...
+#   DB_NAME=synapse_test
+#   DB_INIT_SCHEMA=true
+#
+# 前置：容器已启动且数据库可连。
+# 运行：
+#   bash scripts/init_test_public_schema.sh
+#   TEST_DATABASE_URL="postgres://synapse:<pw>@<host>:<port>/synapse_test" \
+#     cargo test -p synapse-storage --lib --features test-utils -- --test-threads=2
+#
+# 如果要跑特定 domain 的 db_tests（如 thread）：
+#   cargo test -p synapse-storage --lib --features test-utils -- thread --test-threads=2

@@ -198,7 +198,7 @@ impl IsolatedTestPool {
     /// Create a new isolated test pool with a unique schema.
     pub async fn new() -> Result<Self, sqlx::Error> {
         let db_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse_test".to_string());
 
         // Admin pool to create/drop schema.  We must NOT share a connection
         // between concurrent IsolatedTestPool::new() callers, because each
@@ -314,7 +314,7 @@ impl Drop for IsolatedTestPool {
     fn drop(&mut self) {
         let schema = self.schema.clone();
         let db_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse_test".to_string());
 
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");

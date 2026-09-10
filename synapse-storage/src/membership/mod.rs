@@ -1025,7 +1025,7 @@ impl RoomMemberStorage {
 
     /// Returns rooms where both users have `join` membership.
     /// Uses keyset pagination for O(n) intersection of sorted room lists.
-    /// 
+    ///
     /// Returns `(rooms, next_batch_token)` where `next_batch_token` is the
     /// last room_id in the batch (for pagination via `after_room_id`).
     /// If `after_room_id` is None, starts from the beginning.

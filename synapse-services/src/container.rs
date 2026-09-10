@@ -463,6 +463,13 @@ impl ServiceContainer {
             .presence_service
             .set_event_broadcaster(event_broadcaster.clone(), infra.infra.config.server.get_server_name().to_string());
 
+        // MSC4262: Wire federation event broadcaster into user_service for outbound
+        // profile_update EDU broadcast on local profile changes.
+        storage.user_service.set_federation_broadcaster(
+            event_broadcaster.clone(),
+            infra.infra.config.server.get_server_name().to_string()
+        );
+
         // Extensions — needs most domains + storage
         let extensions = wiring::ExtensionServices::new(wiring::ExtensionServicesDeps {
             infra: &infra.infra,

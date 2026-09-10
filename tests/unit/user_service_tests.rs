@@ -284,6 +284,17 @@ impl UserStore for MockUserStore {
         Ok(())
     }
 
+    /// Mock for MSC4262: apply_profile_update_from_federation
+    async fn apply_profile_update_from_federation(
+        &self,
+        _user_id: &str,
+        _displayname: Option<&str>,
+        _avatar_url: Option<&str>,
+    ) -> Result<bool, sqlx::Error> {
+        self.fail_all_check()?;
+        Ok(true)
+    }
+
     async fn set_deactivation_status(&self, _user_id: &str, _is_deactivated: bool) -> Result<bool, sqlx::Error> {
         self.fail_all_check()?;
         Ok(true)
@@ -385,6 +396,7 @@ impl UserStore for MockUserStore {
                     displayname: u.displayname.clone(),
                     avatar_url: u.avatar_url.clone(),
                     created_ts: u.created_ts,
+                    updated_ts: u.updated_ts,
                 });
             }
         }
@@ -392,6 +404,15 @@ impl UserStore for MockUserStore {
     }
 
     async fn get_user_profiles_map(&self, _user_ids: &[String]) -> Result<HashMap<String, UserProfile>, sqlx::Error> {
+        self.fail_all_check()?;
+        Ok(HashMap::new())
+    }
+
+    async fn get_user_profiles_updated_since(
+        &self,
+        _user_ids: &[String],
+        _since_ts: i64,
+    ) -> Result<HashMap<String, UserProfile>, sqlx::Error> {
         self.fail_all_check()?;
         Ok(HashMap::new())
     }

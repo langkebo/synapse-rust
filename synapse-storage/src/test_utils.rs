@@ -57,8 +57,14 @@ fn candidate_database_urls() -> Vec<String> {
         }
     }
 
+    // Fallback candidates, ordered by the project's documented local-dev
+    // convention. `scripts/init_test_public_schema.sh` assumes the test
+    // Postgres is reachable at `localhost:15432` (the Docker host-forwarded
+    // port), so that is tried FIRST. `localhost:5432` is a legacy fallback
+    // and is only probed if 15432 is unavailable.
     for fallback in [
-        "postgresql://synapse:synapse@localhost:5432/synapse",
+        "postgresql://synapse:synapse@localhost:15432/synapse_test",
+        "postgresql://synapse:synapse@localhost:15432/synapse",
         "postgresql://synapse:synapse@localhost:5432/synapse_test",
         "postgresql://synapse:secret@localhost:5432/synapse_test",
     ] {

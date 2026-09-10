@@ -6,6 +6,7 @@ pub mod models;
 pub mod sharding;
 use self::models::{
     ensure_room_in_direct_map, get_room_direct_users, merge_direct_links, remove_room_from_direct_map, sort_letter_for,
+    FriendListSortCacheV6,
 };
 use self::sharding::{shard_for_user_id, shard_to_state_key};
 pub use models::{
@@ -29,8 +30,16 @@ use synapse_storage::{CreateEventParams, UserStore};
 
 const FRIEND_LIST_CACHE_TTL_SECS: u64 = 300;
 const FRIEND_ROOM_ID_CACHE_TTL_SECS: u64 = 3600;
+/// W5 热路径调优：shard 快照缓存 5s，避免 get_friends_page 必读 DB。
+/// 写路径主动 delete 确保 strong consistency（写后读最新）。
+const FRIEND_LIST_SNAPSHOT_TTL_SECS: u64 = 5;
 
-/// W5 sharding helper：把 fan-out 读取到的所有 shard content 合并成单一 Value。
+// W6 优化：sort cache 使用 v6 key-value 结构
+// - key: friends:list:v6:sort:{user_id}:{room_id}:{sort_by}
+// - value: FriendListSortCacheV6（内嵌 fingerprint，写入自然失效旧 value）
+// 这样 Redis key 不随写入次数膨胀。
+
+// W5 sharding helper：把 fan-out 读取到的所有 shard content 合并成单一 Value。
 ///
 /// 输入：fan-out 顺序的 `(state_key, content)` 列表（按 state_key 字典序）。
 /// 输出：聚合后的 `{ "friends": [...], "version": N }`，其中：
@@ -1117,14 +1126,43 @@ impl FriendRoomService {
     /// See [`get_friends_page`].
     pub async fn get_friends_page(&self, user_id: &str, request: FriendListRequest) -> ApiResult<FriendListPage> {
         let room_id = self.create_friend_list_room(user_id).await?;
+
+        // W5 热路径调优：shard 快照缓存（5s TTL），避免每次 get_friends_page 必读 DB。
+        // 写路径 send_state_event(m.friends.list) 主动 delete，确保 strong consistency。
+        let shard_cache_key = format!("friends:list:v5:snapshot:{}", room_id);
+        let shards: Vec<(String, Value)> = match self.cache.get::<Vec<(String, Value)>>(&shard_cache_key).await {
+            Ok(Some(cached)) => cached,
+            Ok(None) => {
+                let loaded = self
+                    .friend_storage
+                    .get_friend_list_all_shards(&room_id)
+                    .await
+                    .map_err(|e| ApiError::database_with_context("Database error", &e))?;
+                if let Err(e) = self.cache.set(&shard_cache_key, loaded.clone(), FRIEND_LIST_SNAPSHOT_TTL_SECS).await {
+                    ::tracing::warn!(
+                        room_id = %room_id,
+                        error = %e,
+                        "Failed to cache friend list shard snapshot"
+                    );
+                }
+                loaded
+            }
+            Err(e) => {
+                ::tracing::warn!(
+                    room_id = %room_id,
+                    error = %e,
+                    "Friend shard snapshot read failed, falling back to DB"
+                );
+                self.friend_storage
+                    .get_friend_list_all_shards(&room_id)
+                    .await
+                    .map_err(|e2| ApiError::database_with_context("Database error", &e2))?
+            }
+        };
+
         // W5 sharding：fan-out 读所有 shard，fan-in 合并成单一 content。
         // merge_friend_list_shards 返回的 version = max(各 shard version)，
         // 任何 shard 写一次都会让这个聚合 version +1，触发 sort_cache 失效。
-        let shards = self
-            .friend_storage
-            .get_friend_list_all_shards(&room_id)
-            .await
-            .map_err(|e| ApiError::database_with_context("Database error", &e))?;
         let content = merge_friend_list_shards(&shards);
 
         let version = content.get("version").and_then(|v| v.as_i64()).unwrap_or(1);
@@ -1135,13 +1173,18 @@ impl FriendRoomService {
             }
         }
 
-        // W3+W5: 两层缓存 — 排序列表（per sort_by）+ 分页（per request）
+        // W3+W6: 两层缓存 — 排序列表（per sort_by）+ 分页（per request）
         // 1) 排序缓存：不同 limit 共享同一排序结果，命中率提升 ~3x
         // 2) 分页在排序结果上即时应用，O(1) 取数
-        // 缓存 key v5：相对 v4 增加了 shard fingerprint 防御 shard 数变更
-        // 触发的缓存不一致（v4 → v5 升级期间老缓存自动失效，无需手动清理）
-        // 用每个 shard 自己的 version（而非合并后的全局 max），否则非 max shard 更新时
-        // 全局 max 不变 → 指纹不变 → 排序缓存不失效（见 W5 review Blocker 1）。
+        //
+        // W6 优化：v6 key-value 结构
+        // - key: friends:list:v6:sort:{user_id}:{room_id}:{sort_by}（不含 version/fingerprint）
+        // - value: FriendListSortCacheV6（内嵌 fingerprint，写入自然失效旧 value）
+        // - 这解决 v5 中每个 shard 写入产生一条 Redis key（每次修改都增长键数）的问题
+        // - 读取：get value → 比 fingerprint → 命中则用，未命中则 recompute
+        // - 写入：set value（覆盖旧），写入自然失效旧 value
+        //
+        // 用每个 shard 自己的 version 构造 fingerprint：任一 shard 变动 → fingerprint 改变 → 缓存失效（见 W5 review Blocker 1）
         let shard_fingerprint = shards
             .iter()
             .map(|(k, shard_content)| {
@@ -1150,17 +1193,23 @@ impl FriendRoomService {
             })
             .collect::<Vec<_>>()
             .join("|");
+
+        // v6: 固定 key，不含 fingerprint，fingerprint 在 value 内校验
         let sort_cache_key = format!(
-            "friends:list:v5:sort:{}:{}:{}:{}:{}",
-            user_id, room_id, version, request.sort_by, shard_fingerprint
+            "friends:list:v6:sort:{}:{}:{}",
+            user_id, room_id, request.sort_by
         );
         let mut sort_cache_hit = false;
-        let sort_cache: FriendListSortCache = match self.cache.get::<FriendListSortCache>(&sort_cache_key).await {
-            Ok(Some(cached)) => {
+
+        // 读取 v6 cache
+        let sort_cache: FriendListSortCache = match self.cache.get::<FriendListSortCacheV6>(&sort_cache_key).await {
+            Ok(Some(cached)) if cached.fingerprint == shard_fingerprint => {
+                // v6 hit: fingerprint 匹配，复用排序结果
                 sort_cache_hit = true;
-                cached
+                cached.to_v5() // convert to v5 for downstream compatibility
             }
             _ => {
+                // v6 miss: fingerprint 不匹配或不存在 → 重新计算
                 let raw_friends =
                     content.get("friends").and_then(|friends| friends.as_array()).cloned().unwrap_or_default();
                 let friend_ids: Vec<String> = raw_friends
@@ -1181,15 +1230,16 @@ impl FriendRoomService {
                 let mut items = Self::build_friend_entries(raw_friends, &profiles, &presence_map);
                 Self::sort_friend_entries(&mut items, &request.sort_by);
 
-                let sort_cache = FriendListSortCache {
+                let v5_cache = FriendListSortCache {
                     version,
                     sort_by: request.sort_by.clone(),
                     total: items.len(),
-                    items,
+                    items: items.clone(),
                     generated_ts: current_timestamp_millis(),
                 };
+                let v6_cache = FriendListSortCacheV6::from_v5(shard_fingerprint, v5_cache);
 
-                if let Err(e) = self.cache.set(&sort_cache_key, sort_cache.clone(), FRIEND_LIST_CACHE_TTL_SECS).await {
+                if let Err(e) = self.cache.set(&sort_cache_key, v6_cache, FRIEND_LIST_CACHE_TTL_SECS).await {
                     ::tracing::warn!(
                         user_id = %user_id,
                         cache_key = %sort_cache_key,
@@ -1198,7 +1248,14 @@ impl FriendRoomService {
                     );
                 }
 
-                sort_cache
+                // Return v5 form (with items already populated)
+                FriendListSortCache {
+                    version,
+                    sort_by: request.sort_by.clone(),
+                    total: items.len(),
+                    items,
+                    generated_ts: current_timestamp_millis(),
+                }
             }
         };
 
@@ -1294,7 +1351,7 @@ impl FriendRoomService {
             }
         };
 
-        for link in links {
+        for link in &links {
             // W5 sharding：find_friend_lists_by_dm_room_id 内部 SQL 写死 state_key=''，
             // 老 v4 时代会直接返回 friend list content；W5 后 owner 的 friend 散在 28 个
             // shard 里，因此 service 端必须重新 fan-out 读 all_shards 拿全量。
@@ -1349,6 +1406,13 @@ impl FriendRoomService {
             }
         }
 
+        // W6：在消耗 links 前收集受影响 friend list room 的 snapshot key，
+        // 写入完成后批量失效（strong consistency：DM 状态变更后读必须见最新）。
+        let snapshot_keys: Vec<String> = links
+            .iter()
+            .map(|link| format!("friends:list:v5:snapshot:{}", link.friend_room_id))
+            .collect();
+
         // Phase 2: concurrent state writes
         let room_service = Arc::clone(&self.room_service);
         let server_name = self.server_name.clone();
@@ -1377,6 +1441,15 @@ impl FriendRoomService {
         let write_count = write_futures.len();
 
         try_join_all(write_futures).await?;
+
+        // W6：写入后失效所有受影响的 snapshot cache（snapshot_keys 在消耗
+        // links 前已收集）。sync_dm_room_membership_change 更新了 shard content，
+        // get_friends_page 读取的 m.friends.list 快照必须立刻失效以保证 strong consistency。
+        if !snapshot_keys.is_empty() {
+            // CacheManager::delete_batch 内部已处理 Redis 错误并广播跨实例失效，
+            // 返回 () 而非 Result，故此处无需 match。
+            self.cache.delete_batch(&snapshot_keys).await;
+        }
 
         Ok(write_count)
     }
@@ -1475,7 +1548,16 @@ impl FriendRoomService {
             state_key,
             content,
         )
-        .await
+        .await?;
+
+        // W5：m.friends.list 写入后失效 shard 快照缓存，确保 strong consistency。
+        // CacheManager::delete 内部已处理 Redis 错误并广播跨实例失效。
+        if event_type == "m.friends.list" {
+            let shard_cache_key = format!("friends:list:v5:snapshot:{}", room_id);
+            self.cache.delete(&shard_cache_key).await;
+        }
+
+        Ok(())
     }
 
     async fn update_friend_list(

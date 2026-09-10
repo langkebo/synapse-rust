@@ -580,10 +580,7 @@ mod tests {
 
     #[tokio::test]
     async fn extract_remote_servers_returns_empty_when_all_local() {
-        let subscribers = vec![
-            "@local1:example.com".to_string(),
-            "@local2:example.com".to_string(),
-        ];
+        let subscribers = vec!["@local1:example.com".to_string(), "@local2:example.com".to_string()];
 
         let servers = super::extract_remote_servers(&subscribers, "example.com");
         assert!(servers.is_empty());

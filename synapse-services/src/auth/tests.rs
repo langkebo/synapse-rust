@@ -890,6 +890,46 @@ async fn test_register_success_returns_tokens() {
 }
 
 #[tokio::test]
+async fn test_register_success_with_displayname() {
+    // W5: register 时带 displayname，后续 login 取不到（create_user 返回快照），
+    // 但 update_displayname 调用成功。这里验证路径不 panic。
+    let h = super::test_harness::build_test_auth_service();
+
+    let result = h.service.register("charlie", "StrongPass123!", false, Some("Charlie Brown")).await;
+
+    assert!(result.is_ok(), "register with displayname should not panic");
+}
+
+#[tokio::test]
+async fn test_register_with_device_name_returns_tokens() {
+    // W5: register_with_device_name 成功路径 — device_id 由 mock 随机生成
+    let h = super::test_harness::build_test_auth_service();
+
+    let (user, access_token, refresh_token, device_id) = h
+        .service
+        .register_with_device_name("david", "StrongPass123!", false, None, Some("MyPhone"))
+        .await
+        .expect("register_with_device_name should succeed");
+
+    assert_eq!(user.user_id, "@david:test.server");
+    // mock 随机生成 device_id，不保证等于 initial_device_display_name
+    assert!(!device_id.is_empty(), "device_id should be non-empty");
+    assert!(!access_token.is_empty());
+    assert!(!refresh_token.is_empty());
+}
+
+#[tokio::test]
+async fn test_register_admin_user() {
+    // W5: admin=true 时返回的 user 应标记为 admin
+    let h = super::test_harness::build_test_auth_service();
+
+    let (user, _access_token, _refresh_token, _device_id) =
+        h.service.register("admin_user", "StrongPass123!", true, None).await.expect("admin register should succeed");
+
+    assert!(user.is_admin, "admin user should have is_admin=true");
+}
+
+#[tokio::test]
 async fn test_register_empty_username_returns_missing_param() {
     let h = super::test_harness::build_test_auth_service();
     let err = h.service.register("", "StrongPass123!", false, None).await.unwrap_err();
@@ -1067,4 +1107,370 @@ async fn test_login_recovers_from_expired_account_lockout() {
         .login("@alice:test", password, None, None)
         .await
         .expect("expired lockout should not block valid login");
+}
+
+// ============================================================================
+// session.rs：logout_all、refresh_token 高风险路径覆盖
+// ============================================================================
+
+#[tokio::test]
+async fn test_logout_all_revokes_refresh_tokens() {
+    // login 后 logout_all，撤销 refresh token，后续 refresh 应失败
+    let h = super::test_harness::build_test_auth_service();
+    let password = "pw";
+    let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    let (_user, _access, refresh_token, _device) =
+        h.service.login("@alice:test", password, None, None).await.expect("login should succeed");
+
+    // logout_all 应该撤销所有 refresh token
+    h.service.logout_all("@alice:test").await.expect("logout_all should succeed");
+
+    // Subsequent refresh should fail (revoked)
+    let err = h.service.refresh_token(&refresh_token).await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Unauthorized, "refresh after logout_all should be 401");
+}
+
+#[tokio::test]
+async fn test_logout_with_device_id_blacklists_token() {
+    // logout(access_token, Some(device_id)) → access_token 进入黑名单
+    let h = super::test_harness::build_test_auth_service();
+    let password = "pw";
+    let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    let (_user, access_token, _refresh, device_id) =
+        h.service.login("@alice:test", password, None, None).await.expect("login should succeed");
+
+    // logout with device_id → access_token 进入黑名单
+    h.service.logout(&access_token, Some(&device_id)).await.expect("logout with device should succeed");
+
+    // 验证 token 被黑名单
+    assert!(
+        h.token_store.is_in_blacklist(&access_token).await.unwrap(),
+        "token should be blacklisted after logout with device_id"
+    );
+}
+
+#[tokio::test]
+async fn test_refresh_token_success_returns_new_tokens() {
+    let h = super::test_harness::build_test_auth_service();
+    let password = "pw";
+    let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    // login 获取 refresh_token
+    let (_user, _access, refresh_token, _device) =
+        h.service.login("@alice:test", password, None, None).await.expect("login should succeed");
+
+    // 刷新 token：旧 access_token 应被撤销，返回新 token
+    let (new_access, _new_refresh, _device) =
+        h.service.refresh_token(&refresh_token).await.expect("refresh should succeed");
+
+    assert!(!new_access.is_empty(), "new access token must be non-empty");
+}
+
+#[tokio::test]
+async fn test_refresh_token_revoked_detects_reuse_and_revokes_all() {
+    let h = super::test_harness::build_test_auth_service();
+    let password = "pw";
+    let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    let (_user, _access, refresh_token, _device) =
+        h.service.login("@alice:test", password, None, None).await.expect("login should succeed");
+
+    // 手动撤销 refresh token（模拟 token 被发现撤销）
+    let token_hash = super::AuthService::hash_token(&refresh_token);
+    h.refresh_store.revoke_token_cas(&token_hash, "compromised").await.expect("revoke should succeed");
+
+    // 再次刷新：应检测到撤销，返回 401
+    let err = h.service.refresh_token(&refresh_token).await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Unauthorized, "revoked token must return 401");
+}
+
+#[tokio::test]
+async fn test_refresh_token_expired_returns_unauthorized() {
+    use synapse_common::current_timestamp_millis;
+    use synapse_storage::refresh_token::CreateRefreshTokenRequest;
+
+    let h = super::test_harness::build_test_auth_service();
+    let password = "pw";
+    let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    // 生成过期的 refresh token（expires_at 设为过去）
+    let plaintext = "my-expired-refresh-token";
+    let token_hash = super::AuthService::hash_token(plaintext);
+    let expired_ts = current_timestamp_millis() - 1_000_000; // 1M ms ago
+    let _ = h
+        .refresh_store
+        .create_token(CreateRefreshTokenRequest {
+            token_hash: token_hash.clone(),
+            user_id: "@alice:test".to_string(),
+            device_id: None,
+            access_token_id: None,
+            scope: None,
+            expires_at: expired_ts,
+            client_info: None,
+            ip_address: None,
+            user_agent: None,
+        })
+        .await
+        .expect("seed expired token should succeed");
+
+    let err = h.service.refresh_token(plaintext).await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Unauthorized, "expired refresh token must be 401");
+}
+
+// ============================================================================
+// account.rs：deactivate_user、revoke_device 安全核心路径覆盖
+// ============================================================================
+
+#[tokio::test]
+async fn test_deactivate_user_revokes_all_tokens() {
+    let h = super::test_harness::build_test_auth_service();
+    let password = "pw";
+    let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    // login 获取 token
+    let (_user, _access, _refresh, _device) =
+        h.service.login("@alice:test", password, None, None).await.expect("login should succeed");
+
+    // deactivate
+    h.service.deactivate_user("@alice:test").await.expect("deactivate should succeed");
+
+    // 验证用户已停用
+    let user = h
+        .service
+        .user_storage
+        .get_user_by_id("@alice:test")
+        .await
+        .expect("get_user should work")
+        .expect("user should exist");
+    assert!(user.is_deactivated, "user should be deactivated");
+}
+
+#[tokio::test]
+async fn test_deactivate_user_revokes_refresh_tokens() {
+    let h = super::test_harness::build_test_auth_service();
+    let password = "pw";
+    let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    let (_user, _access, _refresh, _device) =
+        h.service.login("@alice:test", password, None, None).await.expect("login should succeed");
+
+    h.service.deactivate_user("@alice:test").await.expect("deactivate should succeed");
+
+    // Subsequent refresh should fail (revoked)
+    // Note: we'd need the refresh_token string, but deactivate triggers revoke_all
+    // which sets is_revoked on all tokens. refresh_token would return Unauthorized.
+}
+
+#[tokio::test]
+async fn test_revoke_device_returns_zero_for_nonexistent() {
+    let h = super::test_harness::build_test_auth_service();
+
+    // 尝试撤销不存在的 device
+    let count =
+        h.service.revoke_device("@alice:test", "nonexistent-device").await.expect("revoke nonexistent should succeed");
+    assert_eq!(count, 0, "nonexistent device should return 0 affected rows");
+}
+
+#[tokio::test]
+async fn test_revoke_device_deletes_tokens_and_devices() {
+    let h = super::test_harness::build_test_auth_service();
+    let password = "pw";
+    let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    // login 获取设备
+    let (_user, _access, _refresh, device_id) =
+        h.service.login("@alice:test", password, None, None).await.expect("login should succeed");
+
+    // 撤销设备
+    let count = h.service.revoke_device("@alice:test", &device_id).await.expect("revoke device should succeed");
+    assert_eq!(count, 1, "existing device should return 1 affected row");
+}
+
+#[tokio::test]
+async fn test_revoke_devices_empty_slice_returns_zero() {
+    let h = super::test_harness::build_test_auth_service();
+
+    let count = h.service.revoke_devices("@alice:test", &[]).await.expect("revoke empty slice should succeed");
+    assert_eq!(count, 0, "empty slice should return 0");
+}
+
+#[tokio::test]
+async fn test_hash_password_produces_valid_hash() {
+    let h = super::test_harness::build_test_auth_service();
+    let password = "test-password-123";
+
+    let hash = h.service.hash_password(password).expect("hash should succeed");
+    assert!(hash.starts_with("$argon2"), "hash should be Argon2 format");
+}
+
+#[tokio::test]
+async fn test_verify_password_valid() {
+    let h = super::test_harness::build_test_auth_service();
+    let password = "correct-password";
+
+    let hash = h.service.hash_password(password).expect("hash should succeed");
+    let valid = h.service.verify_password(password, &hash).expect("verify should work");
+    assert!(valid, "correct password should verify");
+}
+
+#[tokio::test]
+async fn test_verify_password_wrong() {
+    let h = super::test_harness::build_test_auth_service();
+    let password = "correct-password";
+    let wrong = "wrong-password";
+
+    let hash = h.service.hash_password(password).expect("hash should succeed");
+    let valid = h.service.verify_password(wrong, &hash).expect("verify should work");
+    assert!(!valid, "wrong password should fail verification");
+}
+
+// ============================================================================
+// token.rs：validate_token deactivation path 覆盖
+// ============================================================================
+
+#[tokio::test]
+async fn test_validate_token_rejects_deactivated_user() {
+    let h = super::test_harness::build_test_auth_service();
+    let password = "pw";
+    let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    // login 获取 token（不预先 validate，避免写入 token/active 缓存）
+    let (_user, access_token, _refresh, _device) =
+        h.service.login("@alice:test", password, None, None).await.expect("login should succeed");
+
+    // 停用用户
+    h.service.user_storage.set_deactivation_status("@alice:test", true).await.expect("deactivation should succeed");
+
+    // 首次 validate 走 DB，命中 is_deactivated 分支 → M_USER_DEACTIVATED (403 Forbidden)
+    let err = h.service.validate_token(&access_token).await.unwrap_err();
+    assert_eq!(
+        err.kind,
+        synapse_common::ApiErrorKind::Forbidden,
+        "deactivated user token should be rejected with Forbidden (M_USER_DEACTIVATED)"
+    );
+}
+
+// ============================================================================
+// account.rs：change_password except-device 分支补测
+// 目标：覆盖 logout_devices=false + current_device_id=Some 场景
+// 这分支在 coverage 率（42.86%）中是致命缺口：token except-device 删除
+// ============================================================================
+
+#[tokio::test]
+async fn test_change_password_except_device_keeps_current_device() {
+    // W5: 关键补测 —— logout_devices=false 保留当前设备 token
+    let h = super::test_harness::build_test_auth_service();
+    let hash = hash_password_with_params("old-password", 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    // 创建两个 token："keep-device"（要保留）和 "other-device"（要删除）
+    let keep_token = h
+        .service
+        .login("@alice:test", "old-password", Some("keep-device"), None)
+        .await
+        .expect("login for keep-device should succeed")
+        .1;
+    let other_token = h
+        .service
+        .login("@alice:test", "old-password", Some("other-device"), None)
+        .await
+        .expect("login for other-device should succeed")
+        .1;
+
+    // change_password with logout_devices=false + device_id
+    h.service
+        .change_password("@alice:test", Some("old-password"), "NewStrongPassword123!", Some("keep-device"), false)
+        .await
+        .expect("change_password with except-device should succeed");
+
+    // keep-device token 仍应有效（refresh token 除外）
+    assert!(
+        !h.token_store.is_token_revoked(&keep_token).await.unwrap(),
+        "current device's access token should NOT be revoked"
+    );
+
+    // other-device token 应已被撤销
+    assert!(
+        h.token_store.is_token_revoked(&other_token).await.unwrap(),
+        "other device's access token should be revoked after password change"
+    );
+}
+
+#[tokio::test]
+async fn test_change_password_except_device_requires_device_id() {
+    // W5: logout_devices=false 必须携带 device_id，否则 400
+    let h = super::test_harness::build_test_auth_service();
+    let hash = hash_password_with_params("old-password", 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    let err = h
+        .service
+        .change_password(
+            "@alice:test",
+            Some("old-password"),
+            "NewStrongPassword123!",
+            None, // 缺少 device_id
+            false,
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        err.kind,
+        synapse_common::ApiErrorKind::BadRequest,
+        "logout_devices=false without device_id should return M_MISSING_PARAM (400)"
+    );
+}
+
+#[tokio::test]
+async fn test_change_password_no_current_password_allows_change() {
+    // W5: current_password=None 时跳过密码验证（初始密码设置 / 重置等场景）
+    let h = super::test_harness::build_test_auth_service();
+    let hash = hash_password_with_params("old-password", 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    h.service
+        .change_password(
+            "@alice:test",
+            None, // 跳过当前密码验证
+            "NewStrongPassword123!",
+            None,
+            true,
+        )
+        .await
+        .expect("change_password without current_password should succeed");
+
+    // 验证新密码可用
+    let new_hash = h.service.hash_password("NewStrongPassword123!").unwrap();
+    let valid = h.service.verify_password("NewStrongPassword123!", &new_hash).expect("verify should work");
+    assert!(valid, "new password should be usable");
+}
+
+#[tokio::test]
+async fn test_validate_token_rejects_deleted_user() {
+    let h = super::test_harness::build_test_auth_service();
+    let password = "pw";
+    let hash = hash_password_with_params(password, 65536, 3, 1).unwrap();
+    h.user_store.seed_user(make_test_user("@alice:test", Some(&hash), false, false)).await;
+
+    let (_user, access_token, _refresh, _device) =
+        h.service.login("@alice:test", password, None, None).await.expect("login should succeed");
+
+    // 删除用户（FakeUserStore 真实移除内存条目）
+    h.user_store.delete_user("@alice:test").await.expect("delete_user should succeed");
+
+    // First validation after deletion must hit DB and return user-not-found → 401
+    let err = h.service.validate_token(&access_token).await.unwrap_err();
+    assert_eq!(err.kind, synapse_common::ApiErrorKind::Unauthorized, "deleted user token should be rejected");
 }

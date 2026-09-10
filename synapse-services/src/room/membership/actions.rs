@@ -229,10 +229,37 @@ impl MembershipService {
     ///
     /// No-op for unencrypted rooms or when key rotation storage is not
     /// configured.
+    ///
+    /// SECURITY: If `get_state_events_by_type` fails, we conservatively
+    /// proceed with key rotation to avoid leaving encrypted room keys
+    /// in an undefined state. A failure to fetch encryption state should
+    /// not silently skip the security-critical rotation path — we attempt
+    /// key rotation regardless and log the warning.
     pub async fn trigger_key_rotation_on_leave(&self, room_id: &str, user_id: &str) {
         if let Some(key_rotation_storage) = &self.key_rotation_storage {
-            let encryption_state =
-                self.get_state_events_by_type(room_id, "m.room.encryption").await.unwrap_or_default();
+            // SECURITY: On error, still attempt key rotation (might be encrypted).
+            // A failed check should not skip key rotation for encrypted rooms.
+            let encryption_state = match self.get_state_events_by_type(room_id, "m.room.encryption").await {
+                Ok(events) => events,
+                Err(e) => {
+                    ::tracing::warn!(
+                        room_id = %room_id,
+                        user_id = %user_id,
+                        error = %e,
+                        "Failed to fetch encryption state for key rotation on leave"
+                    );
+                    // Proceed with key rotation attempt anyway (conservative)
+                    if let Err(e) = key_rotation_storage.mark_key_rotation_needed(room_id, user_id).await {
+                        ::tracing::warn!(
+                            room_id = %room_id,
+                            user_id = %user_id,
+                            error = %e,
+                            "Failed to mark key rotation needed after leave of encrypted room"
+                        );
+                    }
+                    return;
+                }
+            };
             if !encryption_state.is_empty() {
                 if let Err(e) = key_rotation_storage.mark_key_rotation_needed(room_id, user_id).await {
                     ::tracing::warn!(

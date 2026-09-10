@@ -132,9 +132,13 @@ pub struct FriendListPage {
 /// W3: 缓存排序后的完整好友列表（不应用 limit/offset），
 /// 使不同 limit 请求共享同一缓存条目，提升缓存命中率 ~3x。
 ///
-/// 缓存键由调用方在调用 `cache.set/get` 时构造，包含
-/// `user_id` + `room_id` + `version` + `sort_by`；`room_id` 已在
-/// 缓存键中故 struct 不再重复保存。
+/// W6 优化：v6 版 key-value 结构
+/// - key: `friends:list:v6:sort:{user_id}:{room_id}:{sort_by}`（不含 version/fingerprint，单键固定）
+/// - value: JSON 序列化的 [`FriendListSortCacheV6`]，内嵌 `fingerprint` 做时效校验
+/// - 读取：get value → compare fingerprint → 命中则用，未命中则 re-calc + set（覆盖旧）
+/// - 写入：set value（旧 key 自动覆盖），消除 Redis key 膨胀问题
+///
+/// 为维持 `version` 字段的语义仍保留，便于后续版本回溯。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendListSortCache {
     /// The `version` field.
@@ -147,6 +151,56 @@ pub struct FriendListSortCache {
     pub total: usize,
     /// The `generated_ts` field.
     pub generated_ts: i64,
+}
+
+/// W6: v6 版本的 sort cache value 结构。
+///
+/// 此结构专为 v6 key-value 设计：
+/// - key 固定：`friends:list:v6:sort:{user_id}:{room_id}:{sort_by}`
+/// - value 包含 `fingerprint` 作为时效信号，写入后自然失效旧 value
+///
+/// 这样写用户的好友列表，新增/删除 friend 触发 version +1 + fingerprint 更新，
+/// 旧的 value 在下次读到时因 fingerprint 不匹配自动重算，无需 Redis key 膨胀。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FriendListSortCacheV6 {
+    /// 写入时的 shard fingerprint 串联。读回时与当前计算的 fingerprint 比较，
+    /// 不匹配则认为缓存过期，重新计算。
+    pub fingerprint: String,
+    /// 合并后的全局 version（任一 shard 变动都 +1）
+    pub version: i64,
+    /// 排序方式：alphabet / recent / activity
+    pub sort_by: String,
+    /// 排序后的完整好友条目列表
+    pub items: Vec<FriendListEntry>,
+    /// 总人数
+    pub total: usize,
+    /// 生成时间戳
+    pub generated_ts: i64,
+}
+
+impl FriendListSortCacheV6 {
+    /// Build from v5 cache + fingerprint
+    pub fn from_v5(fingerprint: String, v5: FriendListSortCache) -> Self {
+        Self {
+            fingerprint,
+            version: v5.version,
+            sort_by: v5.sort_by,
+            items: v5.items,
+            total: v5.total,
+            generated_ts: v5.generated_ts,
+        }
+    }
+
+    /// Convert to v5 cache
+    pub fn to_v5(self) -> FriendListSortCache {
+        FriendListSortCache {
+            version: self.version,
+            sort_by: self.sort_by,
+            items: self.items,
+            total: self.total,
+            generated_ts: self.generated_ts,
+        }
+    }
 }
 
 /// The `DmPartnerInfo` struct.

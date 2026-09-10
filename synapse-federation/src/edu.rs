@@ -28,6 +28,10 @@ pub enum EduType {
     Receipt,
     /// `m.signing_key_update` — cross-signing key updates propagated between federated servers.
     SigningKeyUpdate,
+    /// MSC4262: `m.profile_update` — profile (displayname/avatar_url) changes
+    /// propagated between federated servers so remote servers can invalidate
+    /// their cached profile data for the user.
+    ProfileUpdate,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +60,7 @@ impl FromStr for EduType {
             "m.direct_to_device" => Ok(Self::DirectToDevice),
             "m.receipt" => Ok(Self::Receipt),
             "m.signing_key_update" => Ok(Self::SigningKeyUpdate),
+            "m.profile_update" => Ok(Self::ProfileUpdate),
             other => Err(UnknownEduType(other.to_string())),
         }
     }
@@ -110,6 +115,7 @@ mod tests {
         assert_eq!("m.direct_to_device".parse::<EduType>().unwrap(), EduType::DirectToDevice);
         assert_eq!("m.receipt".parse::<EduType>().unwrap(), EduType::Receipt);
         assert_eq!("m.signing_key_update".parse::<EduType>().unwrap(), EduType::SigningKeyUpdate);
+        assert_eq!("m.profile_update".parse::<EduType>().unwrap(), EduType::ProfileUpdate);
     }
 
     #[test]

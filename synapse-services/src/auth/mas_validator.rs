@@ -103,11 +103,7 @@ impl MasTokenValidator for OidcMasTokenValidator {
         }
 
         // Verify the JWT signature against the OIDC provider's JWKS.
-        let claims = self
-            .oidc_service
-            .verify_access_token(token)
-            .await
-            .map_err(|e| ApiError::unauthorized(format!("MAS token signature verification failed: {e}")))?;
+        let claims = self.oidc_service.verify_access_token(token).await?;
 
         // Extract the OIDC subject claim.
         let sub = claims

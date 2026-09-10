@@ -528,8 +528,106 @@ impl EduDispatcher {
             EduType::DirectToDevice => handle_direct_to_device_edu(ctx, origin, edu, remaining).await,
             EduType::Receipt => handle_receipt_edu(ctx, origin, edu, remaining).await,
             EduType::SigningKeyUpdate => handle_signing_key_update_edu(ctx, origin, edu, remaining).await,
+            // MSC4262: Profile Update EDU - signals remote servers to invalidate cached profile data
+            EduType::ProfileUpdate => handle_profile_update_edu(ctx, origin, edu, remaining).await,
         };
 
         Some(result)
+    }
+}
+
+/// Handle `m.profile_update` EDU (MSC4262).
+/// This EDU signals to remote servers that a user has updated their profile
+/// (displayname or avatar_url). This server refreshes the new value in the local
+/// `users` table (update-only) and bumps the device-list stream so that local
+/// clients sharing rooms with the user will learn of the new profile.
+async fn handle_profile_update_edu(
+    ctx: &FederationContext,
+    origin: &str,
+    edu: &Value,
+    _remaining: usize,
+) -> EduProcessResult {
+    let content = match edu.get("content") {
+        Some(c) => c,
+        None => {
+            increment_counter(ctx, "federation_inbound_profile_update_dropped_total");
+            return EduProcessResult::default();
+        }
+    };
+
+    let user_id = match content.get("user_id").and_then(|v| v.as_str()) {
+        Some(id) => id,
+        None => {
+            increment_counter(ctx, "federation_inbound_profile_update_dropped_total");
+            return EduProcessResult::default();
+        }
+    };
+
+    // Validate user belongs to origin
+    if !user_matches_origin(user_id, origin) {
+        increment_counter(ctx, "federation_inbound_profile_update_dropped_total");
+        return EduProcessResult::default();
+    }
+
+    let displayname = content.get("displayname").and_then(|v| v.as_str());
+    let avatar_url = content.get("avatar_url").and_then(|v| v.as_str());
+
+    // MSC4262: Persist the received profile into the local `users` table.
+    // Returns `true` when a known local/remote user row was refreshed; `false`
+    // when we have never seen this user locally (nothing to cache, no row to
+    // update — we deliberately do not materialize unknown remote accounts).
+    let updated = match ctx
+        .user_service
+        .apply_profile_update_from_federation(user_id, displayname, avatar_url)
+        .await
+    {
+        Ok(updated) => updated,
+        Err(e) => {
+            ::tracing::warn!(error = %e, user_id = %user_id, origin = %origin, "Failed to persist m.profile_update EDU");
+            increment_counter(ctx, "federation_inbound_profile_update_error_total");
+            return EduProcessResult { errored: 1, ..Default::default() };
+        }
+    };
+
+    if !updated {
+        // Unknown remote user: still drop any stale negative cache entry so a
+        // later profile read re-queries the origin server, then count as processed.
+        let _ = ctx.cache.delete(&format!("user:profile:{user_id}")).await;
+        ::tracing::debug!(
+            user_id = %user_id,
+            origin = %origin,
+            "m.profile_update EDU for unknown local user — invalidated profile cache"
+        );
+        increment_counter(ctx, "federation_inbound_profile_update_processed_total");
+        return EduProcessResult { processed: 1, ..Default::default() };
+    }
+
+    ::tracing::info!(
+        user_id = %user_id,
+        origin = %origin,
+        displayname = displayname.unwrap_or(""),
+        avatar_url = avatar_url.unwrap_or(""),
+        "Persisted m.profile_update EDU from federation"
+    );
+
+    // Bump the device-list change stream with a user-level profile change so
+    // local clients sharing a room with `user_id` will be told the profile
+    // changed (device_id is None for user-level profile updates).
+    let stream_id = current_timestamp_millis();
+    if let Err(e) = ctx
+        .device_storage
+        .insert_device_list_change(user_id, None, "profile", stream_id)
+        .await
+    {
+        // Non-fatal: the profile is already persisted; stream bump is best-effort.
+        ::tracing::warn!(error = %e, user_id = %user_id, "Failed to record profile change for device-list stream");
+    }
+
+    increment_counter(ctx, "federation_inbound_profile_update_processed_total");
+
+    EduProcessResult {
+        processed: 1,
+        dropped: 0,
+        errored: 0,
     }
 }

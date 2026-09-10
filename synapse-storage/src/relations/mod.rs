@@ -78,6 +78,26 @@ pub struct AggregationResult {
     pub sender: Option<String>,
 }
 
+/// Parse a keyset pagination cursor of the form `<origin_server_ts>:<event_id>`.
+///
+/// Matrix event IDs always start with `$`, so the leading segment before the
+/// first `:` can only be the timestamp when it parses as `i64`. Returns `None`
+/// for legacy cursors (a bare `event_id`) so callers can fall back to a
+/// single-column comparison.
+fn parse_keyset_cursor(from: &str) -> Option<(i64, String)> {
+    let (ts_str, eid) = from.split_once(':')?;
+    let ts = ts_str.parse::<i64>().ok()?;
+    Some((ts, eid.to_string()))
+}
+
+/// Encode a keyset cursor from a relation row's ordering columns.
+///
+/// Used by the service layer to build `next_batch` / `prev_batch` tokens that
+/// `get_relations` can later parse via `parse_keyset_cursor`.
+pub fn encode_keyset_cursor(origin_server_ts: i64, event_id: &str) -> String {
+    format!("{origin_server_ts}:{event_id}")
+}
+
 // ── Trait ───────────────────────────────────────────────────────────────
 
 /// The `RelationsStoreApi` trait.
@@ -251,102 +271,52 @@ impl RelationsStorage {
     }
 
     /// See [`get_relations`].
+    ///
+    /// 键集（keyset）分页：游标为 `<origin_server_ts>:<event_id>`，用行值比较
+    /// `(origin_server_ts, event_id) {<|>} (ts, eid)`，与 ORDER BY 完全一致，
+    /// 命中 `idx_event_relations_room_rel_ts_evt`，消除 Sort。
+    /// 兼容旧游标（纯 `event_id`，无 ts 前缀）时回退到单列比较。
     pub async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<EventRelation>, sqlx::Error> {
         let limit = params.limit.unwrap_or(50).min(100);
-        let direction = params.direction.as_deref().unwrap_or("f");
+        let backward = params.direction.as_deref() == Some("b");
 
-        let query = match direction {
-            "b" => {
-                let from = params.from.unwrap_or_default();
-                if let Some(ref rel_type) = params.relation_type {
-                    sqlx::query_as::<_, EventRelation>(
-                        r"
-                        SELECT id, room_id, event_id, relates_to_event_id, relation_type,
-                               sender, origin_server_ts, content, is_redacted, created_ts
-                        FROM event_relations
-                        WHERE room_id = $1 AND relates_to_event_id = $2
-                          AND relation_type = $3
-                          AND ($4::text = '' OR event_id < $4)
-                          AND is_redacted = FALSE
-                        ORDER BY origin_server_ts DESC, event_id DESC
-                        LIMIT $5
-                        ",
-                    )
-                    .bind(&params.room_id)
-                    .bind(&params.relates_to_event_id)
-                    .bind(rel_type)
-                    .bind(&from)
-                    .bind(limit)
-                    .fetch_all(&*self.pool)
-                    .await
-                } else {
-                    sqlx::query_as::<_, EventRelation>(
-                        r"
-                        SELECT id, room_id, event_id, relates_to_event_id, relation_type,
-                               sender, origin_server_ts, content, is_redacted, created_ts
-                        FROM event_relations
-                        WHERE room_id = $1 AND relates_to_event_id = $2
-                          AND ($3::text = '' OR event_id < $3)
-                          AND is_redacted = FALSE
-                        ORDER BY origin_server_ts DESC, event_id DESC
-                        LIMIT $4
-                        ",
-                    )
-                    .bind(&params.room_id)
-                    .bind(&params.relates_to_event_id)
-                    .bind(&from)
-                    .bind(limit)
-                    .fetch_all(&*self.pool)
-                    .await
+        let mut qb = sqlx::QueryBuilder::<Postgres>::new(
+            "SELECT id, room_id, event_id, relates_to_event_id, relation_type, \
+             sender, origin_server_ts, content, is_redacted, created_ts \
+             FROM event_relations WHERE room_id = ",
+        );
+        qb.push_bind(&params.room_id);
+        qb.push(" AND relates_to_event_id = ").push_bind(&params.relates_to_event_id);
+        if let Some(ref rel_type) = params.relation_type {
+            qb.push(" AND relation_type = ").push_bind(rel_type.clone());
+        }
+        qb.push(" AND is_redacted = FALSE");
+
+        let from = params.from.unwrap_or_default();
+        if !from.is_empty() {
+            match parse_keyset_cursor(&from) {
+                Some((ts, eid)) => {
+                    qb.push(if backward {
+                        " AND (origin_server_ts, event_id) < ("
+                    } else {
+                        " AND (origin_server_ts, event_id) > ("
+                    })
+                    .push_bind(ts)
+                    .push(", ")
+                    .push_bind(eid)
+                    .push(")");
+                }
+                // 旧格式游标（纯 event_id）：退化为单列比较，保持向后兼容。
+                None => {
+                    qb.push(if backward { " AND event_id < " } else { " AND event_id > " }).push_bind(from.clone());
                 }
             }
-            _ => {
-                let from = params.from.unwrap_or_default();
-                if let Some(ref rel_type) = params.relation_type {
-                    sqlx::query_as::<_, EventRelation>(
-                        r"
-                        SELECT id, room_id, event_id, relates_to_event_id, relation_type,
-                               sender, origin_server_ts, content, is_redacted, created_ts
-                        FROM event_relations
-                        WHERE room_id = $1 AND relates_to_event_id = $2
-                          AND relation_type = $3
-                          AND ($4::text = '' OR event_id > $4)
-                          AND is_redacted = FALSE
-                        ORDER BY origin_server_ts ASC, event_id ASC
-                        LIMIT $5
-                        ",
-                    )
-                    .bind(&params.room_id)
-                    .bind(&params.relates_to_event_id)
-                    .bind(rel_type)
-                    .bind(&from)
-                    .bind(limit)
-                    .fetch_all(&*self.pool)
-                    .await
-                } else {
-                    sqlx::query_as::<_, EventRelation>(
-                        r"
-                        SELECT id, room_id, event_id, relates_to_event_id, relation_type,
-                               sender, origin_server_ts, content, is_redacted, created_ts
-                        FROM event_relations
-                        WHERE room_id = $1 AND relates_to_event_id = $2
-                          AND ($3::text = '' OR event_id > $3)
-                          AND is_redacted = FALSE
-                        ORDER BY origin_server_ts ASC, event_id ASC
-                        LIMIT $4
-                        ",
-                    )
-                    .bind(&params.room_id)
-                    .bind(&params.relates_to_event_id)
-                    .bind(&from)
-                    .bind(limit)
-                    .fetch_all(&*self.pool)
-                    .await
-                }
-            }
-        };
+        }
 
-        query
+        qb.push(if backward { " ORDER BY origin_server_ts DESC, event_id DESC LIMIT " } else { " ORDER BY origin_server_ts ASC, event_id ASC LIMIT " })
+            .push_bind(limit);
+
+        qb.build_query_as::<EventRelation>().fetch_all(&*self.pool).await
     }
 
     /// See [`get_annotations`].
@@ -1053,8 +1023,10 @@ mod db_tests {
 
         assert_eq!(page1.len(), 2);
 
-        // Get second page using cursor (event_id from the last item of page1)
-        let cursor = page1.last().unwrap().event_id.clone();
+        // Get second page using keyset cursor (ts:event_id format)。
+        // 行值比较 (origin_server_ts, event_id) > (ts, eid) 才能正确匹配 ORDER BY。
+        let last = page1.last().unwrap();
+        let cursor = encode_keyset_cursor(last.origin_server_ts, &last.event_id);
         let page2 = storage
             .get_relations(RelationQueryParams {
                 room_id: format!("!room_{suffix}:example.com"),

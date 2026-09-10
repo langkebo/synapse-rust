@@ -3578,6 +3578,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_event_relations_unique ON event_relations(
 CREATE INDEX IF NOT EXISTS idx_event_relations_room_event ON event_relations(room_id, relates_to_event_id, relation_type);
 CREATE INDEX IF NOT EXISTS idx_event_relations_sender ON event_relations(sender, relation_type);
 CREATE INDEX IF NOT EXISTS idx_event_relations_origin_ts ON event_relations(room_id, origin_server_ts DESC);
+-- Relations pagination index: supports keyset (ts, event_id) cursor, eliminates Sort node for large event batches
+CREATE INDEX IF NOT EXISTS idx_event_relations_room_rel_ts_evt
+    ON event_relations (room_id, relates_to_event_id, origin_server_ts DESC, event_id DESC);
 
 -- Room summaries
 CREATE INDEX IF NOT EXISTS idx_room_summaries_last_event_ts ON room_summaries(last_event_ts DESC);

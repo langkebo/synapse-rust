@@ -36,7 +36,7 @@ struct PolicyRequest {
 }
 
 /// Response body from the policy server.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct PolicyResponse {
     /// Whether the operation is allowed.
     allowed: bool,
@@ -147,6 +147,7 @@ impl PolicyService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wiremock::matchers::{header, method};
 
     #[test]
     fn test_policy_result_allow_serialization() {
@@ -209,5 +210,138 @@ mod tests {
             PolicyResult::Allow
         );
         assert_eq!(service.check_content_send("!room:test.com", "@user:test.com").await, PolicyResult::Allow);
+    }
+
+    // ── HTTP endpoint integration tests (require network) ───────────────────
+
+    #[tokio::test]
+    async fn test_policy_service_allow_response() {
+        let server = wiremock::MockServer::start().await;
+        let config = PolicyServerConfig {
+            enabled: true,
+            endpoint: Some(server.uri()),
+            api_key: None,
+            timeout_secs: 5,
+            fail_open: false,
+        };
+        let service = PolicyService::new(config);
+
+        wiremock::Mock::given(method("POST"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(PolicyResponse { allowed: true, reason: None }),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let result = service.check_policy("room", "!r:ex.com", "@user:ex.com", "join").await;
+        assert!(matches!(result, PolicyResult::Allow));
+    }
+
+    #[tokio::test]
+    async fn test_policy_service_deny_response() {
+        let server = wiremock::MockServer::start().await;
+        let config = PolicyServerConfig {
+            enabled: true,
+            endpoint: Some(server.uri()),
+            api_key: None,
+            timeout_secs: 5,
+            fail_open: false,
+        };
+        let service = PolicyService::new(config);
+
+        wiremock::Mock::given(method("POST"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(PolicyResponse {
+                    allowed: false,
+                    reason: Some("spam policy violation".to_string()),
+                }),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let result = service.check_policy("user", "@victim:ex.com", "@attacker:ex.com", "invite").await;
+        assert!(matches!(result, PolicyResult::Deny(msg) if msg.contains("spam")));
+    }
+
+    #[tokio::test]
+    async fn test_policy_service_api_key_header() {
+        let server = wiremock::MockServer::start().await;
+        let config = PolicyServerConfig {
+            enabled: true,
+            endpoint: Some(server.uri()),
+            api_key: Some("secret-key-123".to_string()),
+            timeout_secs: 5,
+            fail_open: false,
+        };
+        let service = PolicyService::new(config);
+
+        wiremock::Mock::given(method("POST"))
+            .and(header("Authorization", "Bearer secret-key-123"))
+            .respond_with(
+                wiremock::ResponseTemplate::new(200).set_body_json(PolicyResponse { allowed: true, reason: None }),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let result = service.check_policy("content", "!room:ex.com", "@user:ex.com", "send").await;
+        assert!(matches!(result, PolicyResult::Allow));
+    }
+
+    #[tokio::test]
+    async fn test_policy_service_server_unreachable_fail_open() {
+        let config = PolicyServerConfig {
+            enabled: true,
+            endpoint: Some("http://localhost:99999/invalid".to_string()), // won't route
+            api_key: None,
+            timeout_secs: 1, // short timeout for fast fail
+            fail_open: true,
+        };
+        let service = PolicyService::new(config);
+
+        let result = service.check_policy("room", "!r:ex.com", "@user:ex.com", "join").await;
+        // With fail_open=true, server unreachable → Allow
+        assert!(matches!(result, PolicyResult::Allow));
+    }
+
+    #[tokio::test]
+    async fn test_policy_service_server_unreachable_fail_closed() {
+        let config = PolicyServerConfig {
+            enabled: true,
+            endpoint: Some("http://localhost:99999/invalid".to_string()),
+            api_key: None,
+            timeout_secs: 1,
+            fail_open: false,
+        };
+        let service = PolicyService::new(config);
+
+        let result = service.check_policy("room", "!r:ex.com", "@user:ex.com", "join").await;
+        // With fail_open=false, server unreachable → Deny
+        assert!(matches!(result, PolicyResult::Deny(_)));
+    }
+
+    #[tokio::test]
+    async fn test_policy_service_response_parse_error_fail_open() {
+        let server = wiremock::MockServer::start().await;
+        let config = PolicyServerConfig {
+            enabled: true,
+            endpoint: Some(server.uri()),
+            api_key: None,
+            timeout_secs: 5,
+            fail_open: true,
+        };
+        let service = PolicyService::new(config);
+
+        wiremock::Mock::given(method("POST"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_string("not json".to_string()))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Parse error + fail_open=true → Allow
+        let result = service.check_policy("room", "!r:ex.com", "@user:ex.com", "join").await;
+        assert!(matches!(result, PolicyResult::Allow));
     }
 }

@@ -306,6 +306,9 @@ pub struct RoomFilter {
     pub ephemeral: Option<SyncFilter>,
     /// The `account_data` field.
     pub account_data: Option<SyncFilter>,
+    /// MSC4502: The `not_membership` field.
+    /// Rooms with these membership states are excluded from the response.
+    pub not_membership: Option<Vec<String>>,
 }
 
 /// The `SyncResponseFilter` struct.
@@ -331,6 +334,7 @@ impl Default for RoomFilter {
             timeline: Some(SyncFilter { limit: Some(50), ..Default::default() }),
             ephemeral: Some(SyncFilter::default()),
             account_data: Some(SyncFilter::default()),
+            not_membership: None,
         }
     }
 }

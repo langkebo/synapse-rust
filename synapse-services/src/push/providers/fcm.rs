@@ -1,4 +1,5 @@
 use super::{NotificationPayload, PushGatewayType, PushProvider, PushResult};
+use crate::error::ServiceError;
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -121,7 +122,7 @@ impl FcmProvider {
         }
     }
 
-    async fn send_request(&self, message: &FcmMessage) -> Result<FcmResponse, String> {
+    async fn send_request(&self, message: &FcmMessage) -> Result<FcmResponse, ServiceError> {
         let response = self
             .client
             .post(&self.config.endpoint)
@@ -130,10 +131,16 @@ impl FcmProvider {
             .json(message)
             .send()
             .await
-            .map_err(|e| format!("HTTP request failed: {e}"))?;
+            .map_err(|e| ServiceError::PushProviderError {
+                provider: "fcm".into(),
+                message: format!("HTTP request failed: {e}"),
+            })?;
 
         let status = response.status();
-        let body = response.text().await.map_err(|e| format!("Failed to read response: {e}"))?;
+        let body = response.text().await.map_err(|e| ServiceError::PushProviderError {
+            provider: "fcm".into(),
+            message: format!("Failed to read response: {e}"),
+        })?;
 
         if !status.is_success() {
             error!(
@@ -142,10 +149,16 @@ impl FcmProvider {
                 response_body_len = body.len(),
                 "FCM request failed"
             );
-            return Err(format!("FCM returned status {status}: {body}"));
+            return Err(ServiceError::PushProviderError {
+                provider: "fcm".into(),
+                message: format!("FCM returned status {status}: {body}"),
+            });
         }
 
-        serde_json::from_str(&body).map_err(|e| format!("Failed to parse FCM response: {e} - Body: {body}"))
+        serde_json::from_str(&body).map_err(|e| ServiceError::PushProviderError {
+            provider: "fcm".into(),
+            message: format!("Failed to parse FCM response: {e} - Body: {body}"),
+        })
     }
 }
 
@@ -196,8 +209,9 @@ impl PushProvider for FcmProvider {
                 PushResult::success_with_response(&format!("multicast_id:{:?}", response.multicast_id))
             }
             Err(e) => {
+                let msg = e.to_string();
                 error!(%e, title_present = !payload.title.is_empty(), room_id = payload.room_id, event_id = payload.event_id, "FCM push error");
-                PushResult::retryable_failure(&e)
+                PushResult::retryable_failure(&msg)
             }
         }
     }

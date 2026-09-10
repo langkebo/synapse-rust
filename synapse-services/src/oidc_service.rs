@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use synapse_common::config::OidcConfig;
 use synapse_common::error::ApiError;
+use crate::error::ServiceError;
 use tokio::sync::RwLock;
 use tracing::debug;
 
@@ -192,13 +193,13 @@ impl OidcService {
     ///
     /// Returns the decoded JWT claims as a `serde_json::Value` so the caller
     /// can extract `sub`, `device_id`, and other MAS-specific claims.
-    pub async fn verify_access_token(&self, token: &str) -> Result<serde_json::Value, String> {
+    pub async fn verify_access_token(&self, token: &str) -> Result<serde_json::Value, ServiceError> {
         let header_bytes = URL_SAFE_NO_PAD
             .decode(token.split('.').next().unwrap_or(""))
-            .map_err(|e| format!("Invalid access token header base64: {e}"))?;
+            .map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid access token header base64: {e}") })?;
 
         let header: serde_json::Value =
-            serde_json::from_slice(&header_bytes).map_err(|e| format!("Invalid access token header JSON: {e}"))?;
+            serde_json::from_slice(&header_bytes).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid access token header JSON: {e}") })?;
 
         let kid = header.get("kid").and_then(|v| v.as_str());
         let alg_str = header.get("alg").and_then(|v| v.as_str()).unwrap_or("RS256");
@@ -210,7 +211,7 @@ impl OidcService {
             "ES256" => Algorithm::ES256,
             "ES384" => Algorithm::ES384,
             "EdDSA" => Algorithm::EdDSA,
-            _ => return Err(format!("Unsupported access token algorithm: {alg_str}")),
+            _ => return Err(ServiceError::OidcVerificationFailed { message: format!("Unsupported access token algorithm: {alg_str}") }),
         };
 
         let jwks = self.fetch_jwks().await?;
@@ -224,32 +225,32 @@ impl OidcService {
                 issuer = %self.config.issuer,
                 "No matching JWKS key found for MAS access token kid; rejecting"
             );
-            "access token signature key (kid) not found in JWKS".to_string()
+            ServiceError::OidcVerificationFailed { message: "access token signature key (kid) not found in JWKS".to_string() }
         })?;
 
         let decoding_key = if key.kty == "RSA" {
             match (&key.n, &key.e) {
                 (Some(n), Some(e)) => {
-                    DecodingKey::from_rsa_components(n, e).map_err(|e| format!("Invalid RSA key: {e}"))?
+                    DecodingKey::from_rsa_components(n, e).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid RSA key: {e}") })?
                 }
-                _ => return Err("RSA key missing n/e components".to_string()),
+                _ => return Err(ServiceError::OidcVerificationFailed { message: "RSA key missing n/e components".to_string() }),
             }
         } else if key.kty == "EC" {
             match (&key.crv, &key.x, &key.y) {
                 (Some(_), Some(x), Some(y)) => {
-                    DecodingKey::from_ec_components(x, y).map_err(|e| format!("Invalid EC key: {e}"))?
+                    DecodingKey::from_ec_components(x, y).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid EC key: {e}") })?
                 }
-                _ => return Err("EC key missing crv/x/y components".to_string()),
+                _ => return Err(ServiceError::OidcVerificationFailed { message: "EC key missing crv/x/y components".to_string() }),
             }
         } else if key.kty == "OKP" {
             match (&key.crv, &key.x) {
                 (Some(_), Some(x)) => {
-                    DecodingKey::from_ed_components(x).map_err(|e| format!("Invalid EdDSA key: {e}"))?
+                    DecodingKey::from_ed_components(x).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid EdDSA key: {e}") })?
                 }
-                _ => return Err("OKP key missing crv/x components".to_string()),
+                _ => return Err(ServiceError::OidcVerificationFailed { message: "OKP key missing crv/x components".to_string() }),
             }
         } else {
-            return Err(format!("Unsupported key type: {}", key.kty));
+            return Err(ServiceError::OidcVerificationFailed { message: format!("Unsupported key type: {}", key.kty) });
         };
 
         // Validate issuer and expiry, but NOT audience (MAS access tokens
@@ -261,7 +262,7 @@ impl OidcService {
         validation.validate_aud = false;
 
         let token_data = decode::<serde_json::Value>(token, &decoding_key, &validation)
-            .map_err(|e| format!("MAS access token JWT signature verification failed: {e}"))?;
+            .map_err(|e| ServiceError::OidcVerificationFailed { message: format!("MAS access token JWT signature verification failed: {e}") })?;
 
         debug!("MAS access token JWT signature verified successfully (kid={:?})", kid);
 
@@ -447,7 +448,7 @@ impl OidcService {
         Ok(token_response)
     }
 
-    async fn fetch_jwks(&self) -> Result<OidcJwks, String> {
+    async fn fetch_jwks(&self) -> Result<OidcJwks, ServiceError> {
         {
             let read = self.jwks.read().await;
             if let Some(ref jwks) = *read {
@@ -461,20 +462,26 @@ impl OidcService {
             let read = self.discovery.read().await;
             match read.as_ref() {
                 Some(discovery) => discovery.jwks_uri.clone(),
-                None => return Err("No JWKS URI available: configure jwks_uri or run discovery first".to_string()),
+                None => {
+                    return Err(ServiceError::OidcVerificationFailed {
+                        message: "No JWKS URI available: configure jwks_uri or run discovery first".to_string(),
+                    })
+                }
             }
         };
 
         debug!(jwks_uri_configured = !jwks_uri.is_empty(), "Fetching OIDC JWKS");
 
         let response =
-            self.http_client.get(&jwks_uri).send().await.map_err(|e| format!("Failed to fetch JWKS: {e}"))?;
+            self.http_client.get(&jwks_uri).send().await.map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Failed to fetch JWKS: {e}") })?;
 
         if !response.status().is_success() {
-            return Err(format!("JWKS request failed: {}", response.status()));
+            return Err(ServiceError::OidcVerificationFailed {
+                message: format!("JWKS request failed: {}", response.status()),
+            });
         }
 
-        let jwks: OidcJwks = response.json().await.map_err(|e| format!("Failed to parse JWKS: {e}"))?;
+        let jwks: OidcJwks = response.json().await.map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Failed to parse JWKS: {e}") })?;
 
         {
             let mut write = self.jwks.write().await;
@@ -483,13 +490,13 @@ impl OidcService {
         Ok(jwks)
     }
 
-    async fn validate_id_token(&self, id_token: &str, nonce: Option<&str>) -> Result<(), String> {
+    async fn validate_id_token(&self, id_token: &str, nonce: Option<&str>) -> Result<(), ServiceError> {
         let header_bytes = URL_SAFE_NO_PAD
             .decode(id_token.split('.').next().unwrap_or(""))
-            .map_err(|e| format!("Invalid ID token header base64: {e}"))?;
+            .map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid ID token header base64: {e}") })?;
 
         let header: serde_json::Value =
-            serde_json::from_slice(&header_bytes).map_err(|e| format!("Invalid ID token header JSON: {e}"))?;
+            serde_json::from_slice(&header_bytes).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid ID token header JSON: {e}") })?;
 
         let kid = header.get("kid").and_then(|v| v.as_str());
         let alg_str = header.get("alg").and_then(|v| v.as_str()).unwrap_or("RS256");
@@ -511,12 +518,14 @@ impl OidcService {
             // only valid for private-use JWTs exchanged in non-standard
             // client-side contexts.
             "HS256" | "HS384" | "HS512" => {
-                return Err(format!(
-                    "Symmetric algorithm '{}' is not permitted for id_token validation (rejected to prevent public-key-confusion attack)",
-                    alg_str
-                ));
+                return Err(ServiceError::OidcVerificationFailed {
+                    message: format!(
+                        "Symmetric algorithm '{}' is not permitted for id_token validation (rejected to prevent public-key-confusion attack)",
+                        alg_str
+                    ),
+                });
             }
-            _ => return Err(format!("Unsupported ID token algorithm: {alg_str}")),
+            _ => return Err(ServiceError::OidcVerificationFailed { message: format!("Unsupported ID token algorithm: {alg_str}") }),
         };
 
         match self.fetch_jwks().await {
@@ -533,26 +542,26 @@ impl OidcService {
                     let decoding_key = if key.kty == "RSA" {
                         match (&key.n, &key.e) {
                             (Some(n), Some(e)) => {
-                                DecodingKey::from_rsa_components(n, e).map_err(|e| format!("Invalid RSA key: {e}"))?
+                                DecodingKey::from_rsa_components(n, e).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid RSA key: {e}") })?
                             }
-                            _ => return Err("RSA key missing n/e components".to_string()),
+                            _ => return Err(ServiceError::OidcVerificationFailed { message: "RSA key missing n/e components".to_string() }),
                         }
                     } else if key.kty == "EC" {
                         match (&key.crv, &key.x, &key.y) {
                             (Some(_), Some(x), Some(y)) => {
-                                DecodingKey::from_ec_components(x, y).map_err(|e| format!("Invalid EC key: {e}"))?
+                                DecodingKey::from_ec_components(x, y).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid EC key: {e}") })?
                             }
-                            _ => return Err("EC key missing crv/x/y components".to_string()),
+                            _ => return Err(ServiceError::OidcVerificationFailed { message: "EC key missing crv/x/y components".to_string() }),
                         }
                     } else if key.kty == "OKP" {
                         match (&key.crv, &key.x) {
                             (Some(_), Some(x)) => {
-                                DecodingKey::from_ed_components(x).map_err(|e| format!("Invalid EdDSA key: {e}"))?
+                                DecodingKey::from_ed_components(x).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid EdDSA key: {e}") })?
                             }
-                            _ => return Err("OKP key missing crv/x components".to_string()),
+                            _ => return Err(ServiceError::OidcVerificationFailed { message: "OKP key missing crv/x components".to_string() }),
                         }
                     } else {
-                        return Err(format!("Unsupported key type: {}", key.kty));
+                        return Err(ServiceError::OidcVerificationFailed { message: format!("Unsupported key type: {}", key.kty) });
                     };
 
                     let mut validation = Validation::new(algorithm);
@@ -562,7 +571,7 @@ impl OidcService {
                     validation.validate_nbf = false;
 
                     let token_data = decode::<serde_json::Value>(id_token, &decoding_key, &validation)
-                        .map_err(|e| format!("JWT signature verification failed: {e}"))?;
+                        .map_err(|e| ServiceError::OidcVerificationFailed { message: format!("JWT signature verification failed: {e}") })?;
 
                     debug!("OIDC ID token JWT signature verified successfully (kid={:?})", kid);
 
@@ -570,10 +579,12 @@ impl OidcService {
                     if let Some(expected_nonce) = nonce {
                         let token_nonce = token_data.claims.get("nonce").and_then(|v| v.as_str());
                         if token_nonce != Some(expected_nonce) {
-                            return Err(format!(
-                                "ID token nonce mismatch: expected '{}', got '{:?}'",
-                                expected_nonce, token_nonce
-                            ));
+                            return Err(ServiceError::OidcVerificationFailed {
+                                message: format!(
+                                    "ID token nonce mismatch: expected '{}', got '{:?}'",
+                                    expected_nonce, token_nonce
+                                ),
+                            });
                         }
                         debug!("OIDC ID token nonce validated successfully");
                     }
@@ -584,7 +595,9 @@ impl OidcService {
                         client_id = %self.config.client_id,
                         "No matching JWKS key found for id_token kid; rejecting (no claim-only fallback)"
                     );
-                    return Err("id_token signature key (kid) not found in JWKS".to_string());
+                    return Err(ServiceError::OidcVerificationFailed {
+                        message: "id_token signature key (kid) not found in JWKS".to_string(),
+                    });
                 }
             }
             Err(e) => {
@@ -594,7 +607,9 @@ impl OidcService {
                     client_id = %self.config.client_id,
                     "Failed to fetch JWKS; rejecting id_token (no claim-only fallback)"
                 );
-                return Err(format!("JWKS unavailable, cannot verify id_token signature: {e}"));
+                return Err(ServiceError::OidcVerificationFailed {
+                    message: format!("JWKS unavailable, cannot verify id_token signature: {e}"),
+                });
             }
         }
 
@@ -608,26 +623,34 @@ impl OidcService {
     /// authentication bypass. Retained (not deleted) because it is security-relevant and may
     /// be reused for contexts where the signature has already been verified separately.
     #[allow(dead_code)]
-    fn validate_id_token_claims(&self, id_token: &str) -> Result<(), String> {
+    fn validate_id_token_claims(&self, id_token: &str) -> Result<(), ServiceError> {
+        let oidc_err = |message: String| ServiceError::OidcVerificationFailed { message };
+
         let parts: Vec<&str> = id_token.split('.').collect();
         if parts.len() != 3 {
-            return Err("Invalid ID token format: expected 3 parts".to_string());
+            return Err(oidc_err("Invalid ID token format: expected 3 parts".to_string()));
         }
 
-        let payload_bytes =
-            URL_SAFE_NO_PAD.decode(parts[1]).map_err(|e| format!("Invalid ID token payload base64: {e}"))?;
+        let payload_bytes = URL_SAFE_NO_PAD
+            .decode(parts[1])
+            .map_err(|e| oidc_err(format!("Invalid ID token payload base64: {e}")))?;
 
         let payload: serde_json::Value =
-            serde_json::from_slice(&payload_bytes).map_err(|e| format!("Invalid ID token payload JSON: {e}"))?;
+            serde_json::from_slice(&payload_bytes).map_err(|e| oidc_err(format!("Invalid ID token payload JSON: {e}")))?;
 
-        let token_issuer =
-            payload.get("iss").and_then(|v| v.as_str()).ok_or_else(|| "Missing 'iss' claim in ID token".to_string())?;
+        let token_issuer = payload
+            .get("iss")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| oidc_err("Missing 'iss' claim in ID token".to_string()))?;
 
         if token_issuer != self.config.issuer {
-            return Err(format!("ID token issuer mismatch: expected {}, got {}", self.config.issuer, token_issuer));
+            return Err(oidc_err(format!(
+                "ID token issuer mismatch: expected {}, got {}",
+                self.config.issuer, token_issuer
+            )));
         }
 
-        let audiences = payload.get("aud").ok_or_else(|| "Missing 'aud' claim in ID token".to_string())?;
+        let audiences = payload.get("aud").ok_or_else(|| oidc_err("Missing 'aud' claim in ID token".to_string()))?;
 
         let audience_matches = if let Some(aud_str) = audiences.as_str() {
             aud_str == self.config.client_id
@@ -638,23 +661,23 @@ impl OidcService {
         };
 
         if !audience_matches {
-            return Err(format!("ID token audience mismatch: expected {}", self.config.client_id));
+            return Err(oidc_err(format!("ID token audience mismatch: expected {}", self.config.client_id)));
         }
 
         let now = chrono::Utc::now().timestamp();
         let expires_at = payload.get("exp").and_then(|v| v.as_i64()).unwrap_or(0);
 
         if expires_at < now {
-            return Err(format!("ID token expired: exp={expires_at} now={now}"));
+            return Err(oidc_err(format!("ID token expired: exp={expires_at} now={now}")));
         }
 
         let azp = payload.get("azp").and_then(|v| v.as_str());
         if let Some(azp_val) = azp {
             if azp_val != self.config.client_id {
-                return Err(format!(
+                return Err(oidc_err(format!(
                     "ID token authorized party mismatch: expected {}, got {}",
                     self.config.client_id, azp_val
-                ));
+                )));
             }
         }
 
@@ -914,9 +937,10 @@ mod tests {
 
         let result = service.validate_id_token(&forged, None).await;
         let err = result.expect_err("HS256 id_token must be rejected outright");
+        let err_str = err.to_string();
         assert!(
-            err.contains("Symmetric algorithm") && err.contains("not permitted"),
-            "rejection error must explicitly mention symmetric algorithm + public-key confusion, got: {err}"
+            err_str.contains("Symmetric algorithm") && err_str.contains("not permitted"),
+            "rejection error must explicitly mention symmetric algorithm + public-key confusion, got: {err_str}"
         );
     }
 
@@ -1056,6 +1080,7 @@ mod tests {
         let result = service.validate_id_token(&id_token, Some("wrong-nonce")).await;
         assert!(result.is_err(), "wrong nonce should be rejected");
         let err = result.unwrap_err();
-        assert!(err.contains("nonce mismatch"), "error should mention nonce mismatch, got: {}", err);
+        let err_str = err.to_string();
+        assert!(err_str.contains("nonce mismatch"), "error should mention nonce mismatch, got: {err_str}");
     }
 }

@@ -581,20 +581,13 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
             .map(|((rid, _), _)| rid.clone())
             .collect();
         // Intersection
-        let mut rooms: Vec<String> = user_a_rooms
-            .intersection(&user_b_rooms)
-            .cloned()
-            .collect();
+        let mut rooms: Vec<String> = user_a_rooms.intersection(&user_b_rooms).cloned().collect();
         rooms.sort();
         if let Some(after) = after_room_id {
             rooms.retain(|r| r.as_str() > after);
         }
         let has_more = rooms.len() as i64 > limit;
-        let result: Vec<String> = if has_more {
-            rooms.into_iter().take(limit as usize).collect()
-        } else {
-            rooms
-        };
+        let result: Vec<String> = if has_more { rooms.into_iter().take(limit as usize).collect() } else { rooms };
         let next_batch_token = if has_more { result.last().cloned() } else { None };
         Ok((result, next_batch_token))
     }
@@ -676,8 +669,7 @@ mod tests {
         assert_eq!(token1.as_deref(), Some("!r2:t"), "token is the last room of the page");
 
         // second page: after !r2:t
-        let (page2, token2) =
-            store.get_mutual_rooms_between("@alice:t", "@bob:t", 2, token1.as_deref()).await.unwrap();
+        let (page2, token2) = store.get_mutual_rooms_between("@alice:t", "@bob:t", 2, token1.as_deref()).await.unwrap();
         assert_eq!(page2, vec!["!r3:t".to_string(), "!r4:t".to_string()]);
         assert!(token2.is_none(), "last page has no further token");
     }

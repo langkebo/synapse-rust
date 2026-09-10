@@ -170,6 +170,17 @@ incremental = false
 [profile.bench]
 inherits = "release"
 debug = true
+# 低内存配置：thin-lto + 多 codegen-units 防止 VM OOM
+# release 编译（cargo build --release）依然保持高压制
+lto = "thin"
+codegen-units = 16
+
+# release-perf：8GB+ CI 环境推荐使用的 profile
+# 保留 release 的优化水平：opt-level=3 + full lto
+[profile.release-perf]
+inherits = "release"
+lto = true
+codegen-units = 1
 
 [[bin]]
 name = "bench_harness"

@@ -6,6 +6,8 @@ use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
 use synapse_storage::ThreepidStoreApi;
 
+use crate::error::ServiceError;
+
 /// The `UiaSession` struct.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UiaSession {
@@ -480,7 +482,7 @@ impl UiaService {
     }
 
     /// See [`cleanup_expired_sessions`].
-    pub fn cleanup_expired_sessions(&self) -> Result<(), String> {
+    pub fn cleanup_expired_sessions(&self) -> Result<(), ServiceError> {
         Ok(())
     }
 

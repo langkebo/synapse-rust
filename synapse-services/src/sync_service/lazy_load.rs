@@ -24,7 +24,21 @@ impl SyncService {
 
         let known_members = match device_id {
             Some(device_id) => {
-                self.device_storage.get_lazy_loaded_members(user_id, device_id, room_id).await.unwrap_or_default()
+                // A+ S-10: DB failure here degrades to "no known members", which makes the
+                // next /sync re-send the full member list (correct but heavy). Surface it via
+                // warn instead of swallowing silently.
+                match self.device_storage.get_lazy_loaded_members(user_id, device_id, room_id).await {
+                    Ok(members) => members,
+                    Err(e) => {
+                        ::tracing::warn!(
+                            error = %e,
+                            user_id = %user_id,
+                            room_id = %room_id,
+                            "Failed to read lazy-loaded members; falling back to full state send"
+                        );
+                        HashSet::new()
+                    }
+                }
             }
             None => HashSet::new(),
         };
