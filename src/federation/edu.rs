@@ -133,6 +133,59 @@ fn validate_direct_to_device_content<'a>(edu: &'a Value, origin: &str) -> Option
     Some((sender, event_type, messages))
 }
 
+/// Flattened to-device batch: `(recipient_user_id, recipient_device_id, content)`.
+type ToDeviceMessage<'a> = (&'a String, &'a String, &'a Value);
+
+/// Pure recipient-limit check: returns `true` when `count` has exceeded the
+/// federation to-device recipient cap. Extracted so the cap is unit-testable.
+fn exceeds_to_device_recipient_limit(count: usize) -> bool {
+    count > MAX_FEDERATION_TO_DEVICE_RECIPIENTS
+}
+
+/// Pure message-size check: returns `true` when the serialized JSON length of
+/// `content` exceeds `MAX_FEDERATION_TO_DEVICE_MSG_BYTES`.
+fn exceeds_to_device_msg_size(content: &Value) -> bool {
+    serde_json::to_string(content).map(|s| s.len()).unwrap_or(0) > MAX_FEDERATION_TO_DEVICE_MSG_BYTES
+}
+
+/// Flatten the `messages` map (user → device → content) into an ordered list
+/// of batches. Pure — no `FederationContext`, no async, no DB.
+///
+/// Returns `(batches, dropped)`:
+/// - `batches`: entries within the recipient cap and size limit, each ready
+///   for one `send_messages` call.
+/// - `dropped`: number of entries skipped (recipient cap exceeded, message
+///   too large, or `messages` not a JSON object). The cap counts *seen*
+///   entries, matching the previous handler behaviour exactly.
+fn collect_to_device_messages(messages: &Value) -> (Vec<ToDeviceMessage<'_>>, usize) {
+    let mut batches = Vec::new();
+    let mut dropped = 0usize;
+    let Some(msg_map) = messages.as_object() else {
+        // Malformed `messages` (not an object): drop the whole EDU rather
+        // than silently processing nothing with a zero result.
+        return (batches, 1);
+    };
+    let mut recipient_count = 0usize;
+    for (recipient_user_id, device_map) in msg_map {
+        let Some(devices) = device_map.as_object() else {
+            continue;
+        };
+        for (recipient_device_id, content) in devices {
+            recipient_count += 1;
+            if exceeds_to_device_recipient_limit(recipient_count) {
+                dropped += 1;
+                continue;
+            }
+            if exceeds_to_device_msg_size(content) {
+                dropped += 1;
+                continue;
+            }
+            batches.push((recipient_user_id, recipient_device_id, content));
+        }
+    }
+    (batches, dropped)
+}
+
 // --- receipt ---
 
 /// Extract the receipt content map from a `m.receipt` EDU.
@@ -312,64 +365,33 @@ async fn handle_direct_to_device_edu(
         return EduProcessResult { dropped: 1, ..Default::default() };
     };
 
-    let mut result = EduProcessResult::default();
-    let mut recipient_count: usize = 0;
+    let (batches, dropped_from_limit) = collect_to_device_messages(messages);
+    let mut result = EduProcessResult { dropped: dropped_from_limit, ..Default::default() };
 
-    if let Some(msg_map) = messages.as_object() {
-        for (recipient_user_id, device_map) in msg_map {
-            if let Some(devices) = device_map.as_object() {
-                for (recipient_device_id, content) in devices {
-                    recipient_count += 1;
-                    if recipient_count > MAX_FEDERATION_TO_DEVICE_RECIPIENTS {
-                        ::tracing::warn!(
-                            origin = origin,
-                            sender = sender,
-                            limit = MAX_FEDERATION_TO_DEVICE_RECIPIENTS,
-                            "m.direct_to_device EDU exceeded recipient limit, truncating"
-                        );
-                        result.dropped += 1;
-                        continue;
-                    }
-
-                    let msg_size = serde_json::to_string(content).map(|s| s.len()).unwrap_or(0);
-                    if msg_size > MAX_FEDERATION_TO_DEVICE_MSG_BYTES {
-                        ::tracing::warn!(
-                            origin = origin,
-                            sender = sender,
-                            size = msg_size,
-                            limit = MAX_FEDERATION_TO_DEVICE_MSG_BYTES,
-                            "m.direct_to_device EDU message exceeds size limit, dropping"
-                        );
-                        result.dropped += 1;
-                        continue;
-                    }
-
-                    match ctx
-                        .to_device_service
-                        .send_messages(
-                            sender,
-                            "",
-                            event_type,
-                            None,
-                            &serde_json::json!({
-                                recipient_user_id: { recipient_device_id: content }
-                            }),
-                        )
-                        .await
-                    {
-                        Ok(()) => result.processed += 1,
-                        Err(e) => {
-                            ::tracing::warn!(
-                                "Failed to persist m.direct_to_device EDU for {}:{} from {}: {}",
-                                recipient_user_id,
-                                recipient_device_id,
-                                origin,
-                                e
-                            );
-                            result.errored += 1;
-                        }
-                    }
-                }
+    for (recipient_user_id, recipient_device_id, content) in batches {
+        match ctx
+            .to_device_service
+            .send_messages(
+                sender,
+                "",
+                event_type,
+                None,
+                &serde_json::json!({
+                    recipient_user_id: { recipient_device_id: content }
+                }),
+            )
+            .await
+        {
+            Ok(()) => result.processed += 1,
+            Err(e) => {
+                ::tracing::warn!(
+                    "Failed to persist m.direct_to_device EDU for {}:{} from {}: {}",
+                    recipient_user_id,
+                    recipient_device_id,
+                    origin,
+                    e
+                );
+                result.errored += 1;
             }
         }
     }
@@ -958,6 +980,73 @@ mod tests {
         assert!(validate_device_list_update_content(&edu, "example.com").is_none());
     }
 
+    #[test]
+    fn test_validate_device_list_update_content_localpart_only_rejected() {
+        // A bare localpart (no `:domain`) must not pass the origin gate.
+        let edu = json!({ "content": { "user_id": "alice", "device_id": "DEV" } });
+        assert!(validate_device_list_update_content(&edu, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_device_list_update_content_missing_device_id_allowed() {
+        // `device_id` is optional: a user-level device-list change (e.g. all
+        // devices deleted) legitimately omits it.
+        let edu = json!({ "content": { "user_id": "@alice:example.com", "stream_id": 7 } });
+        let (user_id, device_id, stream_id, change_type) =
+            validate_device_list_update_content(&edu, "example.com").expect("valid entry");
+        assert_eq!(user_id, "@alice:example.com");
+        assert_eq!(device_id, None);
+        assert_eq!(stream_id, 7);
+        assert_eq!(change_type, "updated");
+    }
+
+    #[test]
+    fn test_validate_device_list_update_content_missing_stream_id_defaults_to_now() {
+        let before = current_timestamp_millis();
+        let edu = json!({ "content": { "user_id": "@alice:example.com", "device_id": "DEV" } });
+        let (_, _, stream_id, _) = validate_device_list_update_content(&edu, "example.com").expect("valid entry");
+        let after = current_timestamp_millis();
+        assert!(stream_id >= before && stream_id <= after, "stream_id should fall back to current ms timestamp");
+    }
+
+    #[test]
+    fn test_validate_device_list_update_content_non_integer_stream_id_defaults() {
+        // Spec says stream_id is an integer; a non-numeric value must not
+        // poison the persisted change with 0 — it falls back to wall clock.
+        let edu = json!({ "content": { "user_id": "@alice:example.com", "stream_id": "not-a-number" } });
+        let (_, _, stream_id, _) = validate_device_list_update_content(&edu, "example.com").expect("valid entry");
+        assert!(stream_id > 1_700_000_000_000, "expected ms-epoch fallback, got {stream_id}");
+    }
+
+    #[test]
+    fn test_validate_device_list_update_content_non_bool_deleted_treated_as_updated() {
+        // `deleted` must be a real boolean to flip the change type; a string
+        // or number is spec-invalid and must not silently delete devices.
+        let edu = json!({ "content": { "user_id": "@alice:example.com", "deleted": "true" } });
+        let (_, _, _, change_type) = validate_device_list_update_content(&edu, "example.com").expect("valid entry");
+        assert_eq!(change_type, "updated");
+    }
+
+    #[test]
+    fn test_validate_device_list_update_content_deleted_false_is_updated() {
+        let edu = json!({ "content": { "user_id": "@alice:example.com", "deleted": false } });
+        let (_, _, _, change_type) = validate_device_list_update_content(&edu, "example.com").expect("valid entry");
+        assert_eq!(change_type, "updated");
+    }
+
+    #[test]
+    fn test_validate_device_list_update_content_malformed_content_type() {
+        // content is not an object → whole EDU dropped.
+        let edu = json!({ "content": "string" });
+        assert!(validate_device_list_update_content(&edu, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_device_list_update_content_user_id_not_string() {
+        let edu = json!({ "content": { "user_id": 42 } });
+        assert!(validate_device_list_update_content(&edu, "example.com").is_none());
+    }
+
     // --- direct_to_device: validate_direct_to_device_content ---
 
     #[test]
@@ -1000,6 +1089,136 @@ mod tests {
     fn test_validate_direct_to_device_content_missing_messages() {
         let edu = json!({ "sender": "@alice:example.com", "type": "m.room_key", "content": {} });
         assert!(validate_direct_to_device_content(&edu, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_direct_to_device_content_sender_localpart_only_rejected() {
+        // sender without `:domain` must not pass the origin gate.
+        let edu = json!({ "sender": "alice", "type": "m.room_key", "content": { "messages": {} } });
+        assert!(validate_direct_to_device_content(&edu, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_direct_to_device_content_missing_type() {
+        // No `type` field at all → empty-string default → dropped.
+        let edu = json!({ "sender": "@alice:example.com", "content": { "messages": {} } });
+        assert!(validate_direct_to_device_content(&edu, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_direct_to_device_content_type_not_string() {
+        let edu = json!({ "sender": "@alice:example.com", "type": 123, "content": { "messages": {} } });
+        assert!(validate_direct_to_device_content(&edu, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_direct_to_device_content_missing_content() {
+        let edu = json!({ "sender": "@alice:example.com", "type": "m.room_key" });
+        assert!(validate_direct_to_device_content(&edu, "example.com").is_none());
+    }
+
+    // --- direct_to_device: collect_to_device_messages (flattening + limits) ---
+
+    #[test]
+    fn test_collect_to_device_messages_flattens_and_preserves_order() {
+        let messages = json!({
+            "@bob:example.com": { "DEV1": { "ciphertext": "a" }, "DEV2": { "ciphertext": "b" } },
+            "@carol:example.com": { "DEV3": { "ciphertext": "c" } }
+        });
+        let (batches, dropped) = collect_to_device_messages(&messages);
+        assert_eq!(dropped, 0);
+        assert_eq!(batches.len(), 3);
+        assert_eq!(batches[0].0, "@bob:example.com");
+        assert_eq!(batches[0].1, "DEV1");
+        assert_eq!(batches[1].1, "DEV2");
+        assert_eq!(batches[2].0, "@carol:example.com");
+    }
+
+    #[test]
+    fn test_collect_to_device_messages_empty_map() {
+        let messages = json!({});
+        let (batches, dropped) = collect_to_device_messages(&messages);
+        assert!(batches.is_empty());
+        assert_eq!(dropped, 0);
+    }
+
+    #[test]
+    fn test_collect_to_device_messages_not_object_drops_whole_edu() {
+        // Previously this fell through the `if let Some(msg_map)` and produced
+        // a silent all-zero result; now it must count as dropped.
+        let messages = json!("not-an-object");
+        let (batches, dropped) = collect_to_device_messages(&messages);
+        assert!(batches.is_empty());
+        assert_eq!(dropped, 1);
+    }
+
+    #[test]
+    fn test_collect_to_device_messages_device_map_not_object_skipped() {
+        let messages = json!({
+            "@bob:example.com": "malformed",
+            "@carol:example.com": { "DEV": { "ok": true } }
+        });
+        let (batches, dropped) = collect_to_device_messages(&messages);
+        assert_eq!(dropped, 0, "non-object device map is skipped, not counted");
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].0, "@carol:example.com");
+    }
+
+    #[test]
+    fn test_collect_to_device_messages_recipient_cap_exceeded() {
+        // Build 5000 valid + 3 over-cap entries; the over-cap ones must be
+        // dropped and the first 5000 kept.
+        let mut devices = serde_json::Map::new();
+        for i in 0..5003 {
+            devices.insert(format!("DEV{i}"), json!({ "idx": i }));
+        }
+        let messages = json!({ "@bob:example.com": devices });
+        let (batches, dropped) = collect_to_device_messages(&messages);
+        assert_eq!(batches.len(), MAX_FEDERATION_TO_DEVICE_RECIPIENTS);
+        assert_eq!(dropped, 3);
+    }
+
+    #[test]
+    fn test_collect_to_device_messages_recipient_cap_exactly_at_limit_kept() {
+        let mut devices = serde_json::Map::new();
+        for i in 0..MAX_FEDERATION_TO_DEVICE_RECIPIENTS {
+            devices.insert(format!("DEV{i}"), json!({ "idx": i }));
+        }
+        let messages = json!({ "@bob:example.com": devices });
+        let (batches, dropped) = collect_to_device_messages(&messages);
+        assert_eq!(batches.len(), MAX_FEDERATION_TO_DEVICE_RECIPIENTS);
+        assert_eq!(dropped, 0, "exactly at the limit must not drop");
+    }
+
+    #[test]
+    fn test_collect_to_device_messages_oversized_content_dropped() {
+        // 64KB limit: build content larger than the cap.
+        let big = "x".repeat(MAX_FEDERATION_TO_DEVICE_MSG_BYTES + 1);
+        let messages = json!({
+            "@bob:example.com": {
+                "DEV_BIG": { "payload": big },
+                "DEV_OK": { "payload": "small" }
+            }
+        });
+        let (batches, dropped) = collect_to_device_messages(&messages);
+        assert_eq!(dropped, 1);
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].1, "DEV_OK");
+    }
+
+    #[test]
+    fn test_exceeds_to_device_recipient_limit_boundary() {
+        assert!(!exceeds_to_device_recipient_limit(0));
+        assert!(!exceeds_to_device_recipient_limit(MAX_FEDERATION_TO_DEVICE_RECIPIENTS));
+        assert!(exceeds_to_device_recipient_limit(MAX_FEDERATION_TO_DEVICE_RECIPIENTS + 1));
+    }
+
+    #[test]
+    fn test_exceeds_to_device_msg_size_boundary() {
+        let small = json!({ "a": 1 });
+        assert!(!exceeds_to_device_msg_size(&small));
+        let big = json!({ "payload": "x".repeat(MAX_FEDERATION_TO_DEVICE_MSG_BYTES + 1) });
+        assert!(exceeds_to_device_msg_size(&big));
     }
 
     // --- receipt: parse_receipt_content ---
