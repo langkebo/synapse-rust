@@ -545,6 +545,40 @@ impl EduDispatcher {
     }
 }
 
+/// Parsed `m.profile_update` content: `(user_id, displayname, avatar_url)`.
+///
+/// P1: named so `clippy::type_complexity` stays satisfied for both the parser
+/// and its validating wrapper without sprinkling `#[allow]` around.
+type ProfileUpdateFields<'a> = (&'a str, Option<&'a str>, Option<&'a str>);
+
+/// Parse profile update EDU content into its constituent fields.
+/// Returns `Ok((user_id, displayname, avatar_url))` if the content is valid,
+/// or `None` if required fields are missing or malformed.
+///
+/// This pure function is testable without `FederationContext` for unit testing.
+fn parse_profile_update_content(content: &Value) -> Option<ProfileUpdateFields<'_>> {
+    let user_id = content.get("user_id").and_then(|v| v.as_str())?;
+    let displayname = content.get("displayname").and_then(|v| v.as_str());
+    let avatar_url = content.get("avatar_url").and_then(|v| v.as_str());
+    Some((user_id, displayname, avatar_url))
+}
+
+/// Validate profile update EDU content and origin. Returns `Some((user_id, displayname, avatar_url))`
+/// if valid, `None` if the content is malformed or origin doesn't match user’s domain.
+///
+/// P1: the return type borrows from `edu`, so the elided-lifetime form
+/// (`-> Option<(&str, Option<&str>, Option<&str>)>`) is not accepted by rustdoc.
+/// Plain `cargo build`/`clippy` never checked it because the returned lifetimes
+/// were unconstrained; `cargo test --doc --workspace` surfaced it as E0106.
+fn validate_profile_update_content<'a>(edu: &'a Value, origin: &str) -> Option<ProfileUpdateFields<'a>> {
+    let content = edu.get("content")?;
+    let (user_id, displayname, avatar_url) = parse_profile_update_content(content)?;
+    if !user_matches_origin(user_id, origin) {
+        return None;
+    }
+    Some((user_id, displayname, avatar_url))
+}
+
 /// Handle `m.profile_update` EDU (MSC4262).
 /// This EDU signals to remote servers that a user has updated their profile
 /// (displayname or avatar_url). This server refreshes the new value in the local
@@ -556,30 +590,13 @@ async fn handle_profile_update_edu(
     edu: &Value,
     _remaining: usize,
 ) -> EduProcessResult {
-    let content = match edu.get("content") {
-        Some(c) => c,
+    let (user_id, displayname, avatar_url) = match validate_profile_update_content(edu, origin) {
+        Some(v) => v,
         None => {
             increment_counter(ctx, "federation_inbound_profile_update_dropped_total");
             return EduProcessResult { dropped: 1, ..Default::default() };
         }
     };
-
-    let user_id = match content.get("user_id").and_then(|v| v.as_str()) {
-        Some(id) => id,
-        None => {
-            increment_counter(ctx, "federation_inbound_profile_update_dropped_total");
-            return EduProcessResult { dropped: 1, ..Default::default() };
-        }
-    };
-
-    // Validate user belongs to origin
-    if !user_matches_origin(user_id, origin) {
-        increment_counter(ctx, "federation_inbound_profile_update_dropped_total");
-        return EduProcessResult { dropped: 1, ..Default::default() };
-    }
-
-    let displayname = content.get("displayname").and_then(|v| v.as_str());
-    let avatar_url = content.get("avatar_url").and_then(|v| v.as_str());
 
     // MSC4262: Persist the received profile into the local `users` table.
     // Returns `true` when a known local/remote user row was refreshed; `false`
@@ -627,4 +644,126 @@ async fn handle_profile_update_edu(
     increment_counter(ctx, "federation_inbound_profile_update_processed_total");
 
     EduProcessResult { processed: 1, dropped: 0, errored: 0 }
+}
+
+// ---------------------------------------------------------------------------
+// Tests for the EDU validation helpers
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // --- parse_profile_update_content ---
+
+    #[test]
+    fn test_parse_profile_update_content_all_fields() {
+        let content = json!({
+            "user_id": "@alice:example.com",
+            "displayname": "Alice",
+            "avatar_url": "mxc://example.com/abc"
+        });
+        let (user_id, displayname, avatar_url) =
+            parse_profile_update_content(&content).expect("should parse valid content");
+        assert_eq!(user_id, "@alice:example.com");
+        assert_eq!(displayname, Some("Alice"));
+        assert_eq!(avatar_url, Some("mxc://example.com/abc"));
+    }
+
+    #[test]
+    fn test_parse_profile_update_content_user_id_only() {
+        let content = json!({
+            "user_id": "@bob:matrix.org",
+        });
+        let (user_id, displayname, avatar_url) =
+            parse_profile_update_content(&content).expect("should parse with user_id only");
+        assert_eq!(user_id, "@bob:matrix.org");
+        assert_eq!(displayname, None);
+        assert_eq!(avatar_url, None);
+    }
+
+    #[test]
+    fn test_parse_profile_update_content_missing_user_id() {
+        let content = json!({
+            "displayname": "Alice",
+            "avatar_url": "mxc://example.com/abc"
+        });
+        assert!(parse_profile_update_content(&content).is_none());
+    }
+
+    #[test]
+    fn test_parse_profile_update_content_empty_content() {
+        let content = json!({});
+        assert!(parse_profile_update_content(&content).is_none());
+    }
+
+    // --- validate_profile_update_content ---
+
+    #[test]
+    fn test_validate_profile_update_content_valid_with_matching_origin() {
+        let edu = json!({
+            "content": {
+                "user_id": "@alice:example.com",
+                "displayname": "Alice",
+            }
+        });
+        let (user_id, displayname, avatar_url) =
+            validate_profile_update_content(&edu, "example.com").expect("valid content with matching origin");
+        assert_eq!(user_id, "@alice:example.com");
+        assert_eq!(displayname, Some("Alice"));
+        assert_eq!(avatar_url, None);
+    }
+
+    #[test]
+    fn test_validate_profile_update_content_origin_mismatch_rejected() {
+        let edu = json!({
+            "content": {
+                "user_id": "@alice:example.com",
+                "displayname": "Alice",
+            }
+        });
+        // Origin mismatch: user_id domain ≠ origin server — reject to prevent
+        // an EDU sender claiming a user that doesn't belong to their server.
+        assert!(validate_profile_update_content(&edu, "evil.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_profile_update_content_origin_mismatch_localpart() {
+        // Localpart-only user IDs (no colon) are always rejected by
+        // `user_matches_origin`, which prevents bypassing the origin check.
+        let edu = json!({
+            "content": {
+                "user_id": "alice",
+            }
+        });
+        assert!(validate_profile_update_content(&edu, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_profile_update_content_missing_content() {
+        let edu = json!({
+            "edu_type": "m.profile_update",
+            // no "content" field
+        });
+        assert!(validate_profile_update_content(&edu, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_profile_update_content_missing_user_id() {
+        let edu = json!({
+            "content": {
+                "displayname": "Alice",
+            }
+        });
+        assert!(validate_profile_update_content(&edu, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_profile_update_content_empty_content_object() {
+        let edu = json!({
+            "content": {}
+        });
+        assert!(validate_profile_update_content(&edu, "example.com").is_none());
+    }
 }
