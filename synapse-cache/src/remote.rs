@@ -1,9 +1,9 @@
 use crate::circuit_breaker::CircuitBreaker;
-use crate::manager::RateLimitDecision;
 use crate::error::{
     CacheError, CacheErrorWrapper, CircuitBreakerOpen, CommandTimeout, ConnectionTimeout, DegradationMetrics,
     OperationFailed, PoolExhaustion, DEFAULT_REDIS_TIMEOUT_MS,
 };
+use crate::manager::RateLimitDecision;
 use deadpool_redis::{Config, Pool, PoolConfig, Runtime};
 use std::collections::HashMap;
 use std::sync::Arc;

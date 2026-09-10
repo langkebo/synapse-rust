@@ -19,14 +19,24 @@ impl IdentityService {
     /// See [`new`].
     pub fn new(storage: IdentityStorage, trusted_servers: Vec<String>) -> Self {
         // F-1: 复用共享 HTTP client（带超时与连接池），不再裸用 Client::new()
-        Self { storage, http_client: synapse_common::http_client::default_client(), trusted_servers, test_base_url: None }
+        Self {
+            storage,
+            http_client: synapse_common::http_client::default_client(),
+            trusted_servers,
+            test_base_url: None,
+        }
     }
 
     #[cfg(feature = "test-utils")]
     /// See [`new`]. 供 test-utils feature 下的单元测试使用。
     /// 传入 base_url 以绕过 SSRF 校验，mock wiremock server 的 URL。
     pub fn with_test_base_url(storage: IdentityStorage, trusted_servers: Vec<String>, base_url: String) -> Self {
-        Self { storage, http_client: synapse_common::http_client::default_client(), trusted_servers, test_base_url: Some(base_url) }
+        Self {
+            storage,
+            http_client: synapse_common::http_client::default_client(),
+            trusted_servers,
+            test_base_url: Some(base_url),
+        }
     }
 
     /// W5 test-utils 接缝：构建 identity server URL。
@@ -679,9 +689,7 @@ mod tests {
             .await;
 
         let svc = make_service_with_mock(mock_server.uri());
-        svc.unbind_three_pid("127.0.0.1", "token", "user@example.com", "email")
-            .await
-            .unwrap();
+        svc.unbind_three_pid("127.0.0.1", "token", "user@example.com", "email").await.unwrap();
     }
 
     #[cfg(feature = "test-utils")]
@@ -699,9 +707,7 @@ mod tests {
 
         let svc = make_service_with_mock(mock_server.uri());
         // 404 → 容错（idempotent unbind），不报错。
-        svc.unbind_three_pid("127.0.0.1", "token", "user@example.com", "email")
-            .await
-            .unwrap();
+        svc.unbind_three_pid("127.0.0.1", "token", "user@example.com", "email").await.unwrap();
     }
 
     #[cfg(feature = "test-utils")]
@@ -731,18 +737,23 @@ mod tests {
         let mock_server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/_matrix/identity/v1/invite"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                    "user_id": "@invitee:example.com",
-                    "signed": { "signatures": {} }
-                })),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "user_id": "@invitee:example.com",
+                "signed": { "signatures": {} }
+            })))
             .mount(&mock_server)
             .await;
 
         let svc = make_service_with_mock(mock_server.uri());
         let resp = svc
-            .invite_3pid("!room:example.com", "@inviter:example.com", "email", "invitee@example.com", "127.0.0.1", "token")
+            .invite_3pid(
+                "!room:example.com",
+                "@inviter:example.com",
+                "email",
+                "invitee@example.com",
+                "127.0.0.1",
+                "token",
+            )
             .await
             .unwrap();
         assert_eq!(resp.user_id.as_deref(), Some("@invitee:example.com"));
@@ -765,7 +776,14 @@ mod tests {
         let svc = make_service_with_mock(mock_server.uri());
         // 404 → 返回空 InvitationResponse（address 无对应用户的场景）。
         let resp = svc
-            .invite_3pid("!room:example.com", "@inviter:example.com", "email", "invitee@example.com", "127.0.0.1", "token")
+            .invite_3pid(
+                "!room:example.com",
+                "@inviter:example.com",
+                "email",
+                "invitee@example.com",
+                "127.0.0.1",
+                "token",
+            )
             .await
             .unwrap();
         assert_eq!(resp.user_id, None);
@@ -787,7 +805,14 @@ mod tests {
 
         let svc = make_service_with_mock(mock_server.uri());
         let err = svc
-            .invite_3pid("!room:example.com", "@inviter:example.com", "email", "invitee@example.com", "127.0.0.1", "token")
+            .invite_3pid(
+                "!room:example.com",
+                "@inviter:example.com",
+                "email",
+                "invitee@example.com",
+                "127.0.0.1",
+                "token",
+            )
             .await
             .unwrap_err();
         assert!(err.message.contains("Identity server returned error"), "msg: {}", err.message);
@@ -808,10 +833,7 @@ mod tests {
 
         let svc = make_service_with_mock(mock_server.uri());
         // 响应缺 address → 在写库前返回错误（不触发 DB 写入）。
-        let err = svc
-            .bind_three_pid("127.0.0.1", "token", "sid", "secret", "@user:example.com")
-            .await
-            .unwrap_err();
+        let err = svc.bind_three_pid("127.0.0.1", "token", "sid", "secret", "@user:example.com").await.unwrap_err();
         assert!(err.message.contains("did not contain a valid address"), "msg: {}", err.message);
     }
 
@@ -829,10 +851,7 @@ mod tests {
             .await;
 
         let svc = make_service_with_mock(mock_server.uri());
-        let err = svc
-            .bind_three_pid("127.0.0.1", "token", "sid", "secret", "@user:example.com")
-            .await
-            .unwrap_err();
+        let err = svc.bind_three_pid("127.0.0.1", "token", "sid", "secret", "@user:example.com").await.unwrap_err();
         assert!(err.message.contains("Identity server returned error"), "msg: {}", err.message);
     }
 }

@@ -125,11 +125,10 @@ impl ApnsProvider {
             provider: "apns".into(),
             message: "APNS team_id not configured".into(),
         })?;
-        let private_key =
-            self.config.private_key.as_deref().ok_or_else(|| ServiceError::PushProviderError {
-                provider: "apns".into(),
-                message: "APNS private_key not configured".into(),
-            })?;
+        let private_key = self.config.private_key.as_deref().ok_or_else(|| ServiceError::PushProviderError {
+            provider: "apns".into(),
+            message: "APNS private_key not configured".into(),
+        })?;
 
         if !private_key.contains("BEGIN") {
             return Err(ServiceError::PushProviderError {
@@ -144,8 +143,8 @@ impl ApnsProvider {
         let mut header = Header::new(Algorithm::ES256);
         header.kid = Some(key_id);
 
-        let encoding_key = EncodingKey::from_ec_pem(private_key.as_bytes())
-            .map_err(|e| ServiceError::PushProviderError {
+        let encoding_key =
+            EncodingKey::from_ec_pem(private_key.as_bytes()).map_err(|e| ServiceError::PushProviderError {
                 provider: "apns".into(),
                 message: format!("Invalid APNS EC private key: {e}"),
             })?;

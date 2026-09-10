@@ -7,8 +7,8 @@ use std::sync::Arc;
 use synapse_common::current_timestamp_millis;
 
 use super::models::{
-    CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadReadReceipt,
-    ThreadRelation, ThreadReply, ThreadRoot, ThreadStatistics, ThreadSubscription, ThreadSummary,
+    CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadReadReceipt, ThreadRelation, ThreadReply,
+    ThreadRoot, ThreadStatistics, ThreadSubscription, ThreadSummary,
 };
 /// The `ThreadStorage` struct.
 #[derive(Clone)]

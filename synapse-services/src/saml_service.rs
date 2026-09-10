@@ -699,12 +699,16 @@ impl SamlService {
         let metadata = match self.cached_metadata.clone() {
             Some(m) => m,
             None => {
-                return Err(ServiceError::SamlError { message: "No IdP metadata available for signature verification".into() })
+                return Err(ServiceError::SamlError {
+                    message: "No IdP metadata available for signature verification".into(),
+                })
             }
         };
 
         if metadata.certificate.is_empty() {
-            return Err(ServiceError::SamlError { message: "No IdP certificate available for signature verification".into() });
+            return Err(ServiceError::SamlError {
+                message: "No IdP certificate available for signature verification".into(),
+            });
         }
 
         let cert_der = match general_purpose::STANDARD.decode(&metadata.certificate) {
@@ -720,7 +724,10 @@ impl SamlService {
         // OPT-022: At least one of response or assertion must be signed, regardless of
         // want_response_signed / want_assertions_signed flags.
         if !has_response_sig && !has_assertion_sig {
-            return Err(ServiceError::SamlError { message: "Neither SAML response nor assertion is signed — at least one signature level is required".into() });
+            return Err(ServiceError::SamlError {
+                message: "Neither SAML response nor assertion is signed — at least one signature level is required"
+                    .into(),
+            });
         }
 
         let signature_value = Self::extract_signature_value(xml);
@@ -729,7 +736,9 @@ impl SamlService {
 
         let (Some(sig_value), Some(signed_info_xml), Some(digest)) = (signature_value, signed_info, digest_value)
         else {
-            return Err(ServiceError::SamlError { message: "Could not extract signature components from SAML response".into() });
+            return Err(ServiceError::SamlError {
+                message: "Could not extract signature components from SAML response".into(),
+            });
         };
 
         let sig_bytes = match general_purpose::STANDARD.decode(&sig_value) {
@@ -749,8 +758,9 @@ impl SamlService {
         // P0-01: XSW 防护 — 提取 Reference URI 并验证它指向的元素.
         // DigestValue 是被引用元素 (如 Assertion) 的摘要, 而非 SignedInfo 自身的摘要.
         // 旧实现错误地摘要 SignedInfo, 导致攻击者可包装签名断言并注入恶意断言.
-        let reference_uri = Self::extract_reference_uri(&signed_info_xml)
-            .ok_or_else(|| ServiceError::SamlError { message: "SAML signature missing Reference URI — cannot verify signed element".into() })?;
+        let reference_uri = Self::extract_reference_uri(&signed_info_xml).ok_or_else(|| ServiceError::SamlError {
+            message: "SAML signature missing Reference URI — cannot verify signed element".into(),
+        })?;
 
         // 获取被引用的元素 (URI 格式为 "#<ID>", 去掉 # 前缀获取元素 ID).
         let referenced_id = reference_uri.strip_prefix('#').unwrap_or(&reference_uri);
@@ -847,9 +857,9 @@ impl SamlService {
             let pem_str = std::str::from_utf8(cert_der)
                 .map_err(|e| ServiceError::SamlError { message: format!("Invalid UTF-8: {}", e) })?;
             let b64_content = pem_str.lines().filter(|line| !line.starts_with("-----")).collect::<Vec<_>>().join("");
-            base64::engine::general_purpose::STANDARD.decode(&b64_content).map_err(|e| {
-                ServiceError::SamlError { message: format!("Failed to decode PEM base64: {}", e) }
-            })?
+            base64::engine::general_purpose::STANDARD
+                .decode(&b64_content)
+                .map_err(|e| ServiceError::SamlError { message: format!("Failed to decode PEM base64: {}", e) })?
         } else {
             cert_der.to_vec()
         };
@@ -857,17 +867,13 @@ impl SamlService {
         let cert = match x509_cert::Certificate::from_der(&cert_der_bytes) {
             Ok(c) => c,
             Err(e) => {
-                return Err(ServiceError::SamlError {
-                    message: format!("Failed to parse X.509 certificate: {}", e),
-                })
+                return Err(ServiceError::SamlError { message: format!("Failed to parse X.509 certificate: {}", e) })
             }
         };
 
         let spki_der = match cert.tbs_certificate.subject_public_key_info.to_der() {
             Ok(der) => der,
-            Err(e) => {
-                return Err(ServiceError::SamlError { message: format!("Failed to encode SPKI: {}", e) })
-            }
+            Err(e) => return Err(ServiceError::SamlError { message: format!("Failed to encode SPKI: {}", e) }),
         };
 
         let public_key =
@@ -985,9 +991,7 @@ impl SamlService {
                 query.as_bytes(),
                 &mut signature,
             )
-            .map_err(|e| ServiceError::SamlError {
-                message: format!("Failed to sign SAML request: {}", e),
-            })?;
+            .map_err(|e| ServiceError::SamlError { message: format!("Failed to sign SAML request: {}", e) })?;
 
         let sig_b64 = general_purpose::STANDARD.encode(&signature);
 
@@ -1262,9 +1266,9 @@ fn pem_to_rsa_private_key(pem: &str) -> Result<Vec<u8>, ServiceError> {
         acc.push_str(line.trim());
         acc
     });
-    general_purpose::STANDARD.decode(&der).map_err(|e| ServiceError::SamlError {
-        message: format!("Failed to decode PEM base64: {}", e),
-    })
+    general_purpose::STANDARD
+        .decode(&der)
+        .map_err(|e| ServiceError::SamlError { message: format!("Failed to decode PEM base64: {}", e) })
 }
 
 #[cfg(test)]

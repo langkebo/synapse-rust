@@ -124,10 +124,8 @@ async fn test_get_user_count_increases_after_create() {
     let user_id = format!("@ct_{uuid}:example.com");
     let _ = storage.delete_user(&user_id).await;
 
-    let _created = storage
-        .create_user(&user_id, &format!("ct_{uuid}"), None, false)
-        .await
-        .expect("create_user should succeed");
+    let _created =
+        storage.create_user(&user_id, &format!("ct_{uuid}"), None, false).await.expect("create_user should succeed");
 
     let user = storage
         .get_user_by_id(&user_id)
@@ -336,8 +334,7 @@ async fn test_get_users_batch() {
     storage.create_user(&uid1, "batchuser1", None, false).await.unwrap();
     storage.create_user(&uid2, "batchuser2", None, false).await.unwrap();
 
-    let users =
-        storage.get_users_batch(&[uid1.clone(), uid2.clone()]).await.expect("get_users_batch should succeed");
+    let users = storage.get_users_batch(&[uid1.clone(), uid2.clone()]).await.expect("get_users_batch should succeed");
     assert_eq!(users.len(), 2);
     let ids: Vec<&str> = users.iter().map(|u| u.user_id.as_str()).collect();
     assert!(ids.contains(&uid1.as_str()));
@@ -446,10 +443,8 @@ async fn test_get_user_by_identifier_username_path() {
     storage.create_user(&user_id, &username, None, false).await.unwrap();
 
     // Identifier has no ':' → should resolve via get_user_by_username.
-    let found = storage
-        .get_user_by_identifier(&username)
-        .await
-        .expect("get_user_by_identifier username path should succeed");
+    let found =
+        storage.get_user_by_identifier(&username).await.expect("get_user_by_identifier username path should succeed");
     assert!(found.is_some());
     assert_eq!(found.unwrap().username, username);
 
@@ -463,8 +458,7 @@ async fn test_get_users_paginated_no_cursor() {
     let (_iso, pool) = test_pool().await;
     let cache = test_cache();
     let storage = UserStorage::new(&pool, cache);
-    let users =
-        storage.get_users_paginated(5, None, None).await.expect("get_users_paginated no cursor should succeed");
+    let users = storage.get_users_paginated(5, None, None).await.expect("get_users_paginated no cursor should succeed");
     assert!(users.len() <= 5);
 }
 
@@ -498,10 +492,8 @@ async fn test_list_users_with_name_filter() {
     let _ = storage.delete_user(&user_id).await;
     storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-    let users = storage
-        .list_users(50, None, None, Some(&username))
-        .await
-        .expect("list_users with name filter should succeed");
+    let users =
+        storage.list_users(50, None, None, Some(&username)).await.expect("list_users with name filter should succeed");
     assert!(users.iter().any(|u| u.user_id == user_id));
 
     let _ = storage.delete_user(&user_id).await;

@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use crate::event_notifier::EventNotifier;
+use synapse_common::current_timestamp_millis;
 use synapse_common::ApiError;
+use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_storage::event::EventReader;
 use synapse_storage::membership::MemberStoreApi;
 use synapse_storage::user::{User, UserDirectorySearchResult, UserSearchResult, UserStore};
-use synapse_federation::event_broadcaster::EventBroadcaster;
-use synapse_common::current_timestamp_millis;
 use tracing::instrument;
 
 /// Convenience layer over `UserStore` that maps `sqlx::Error` → `ApiError`
@@ -204,7 +204,7 @@ impl UserService {
             .map_err(Self::db_error)
     }
 
-        /// See [`update_profile`].
+    /// See [`update_profile`].
     /// MSC4204: After updating the profile, notify all shared room users via
     /// sliding sync so they can receive `profile_updates` in their next sync.
     /// MSC4262: Additionally broadcast an `m.profile_update` EDU to remote

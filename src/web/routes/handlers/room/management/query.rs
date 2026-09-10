@@ -144,23 +144,12 @@ pub(crate) async fn get_mutual_rooms(
     }
 
     // Limit handling with default
-    let limit: i64 = params
-        .get("limit")
-        .and_then(|v| v.parse::<i64>().ok())
-        .unwrap_or(100)
-        .min(1000);
+    let limit: i64 = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(100).min(1000);
 
     // Pagination: supports both `from` and `batch_token` query param names
-    let after = params
-        .get("from")
-        .or_else(|| params.get("batch_token"))
-        .map(|s| s.as_str());
+    let after = params.get("from").or_else(|| params.get("batch_token")).map(|s| s.as_str());
 
-    let result = ctx
-        .room_service
-        .membership()
-        .get_mutual_rooms_between(user_id, other, limit, after)
-        .await?;
+    let result = ctx.room_service.membership().get_mutual_rooms_between(user_id, other, limit, after).await?;
 
     Ok(Json(result))
 }

@@ -861,7 +861,7 @@ fn test_filter_sync_rooms_respects_not_membership() {
         UserRoomMembership { room_id: "!left:localhost".to_string(), membership: "leave".to_string() },
         UserRoomMembership { room_id: "!banned:localhost".to_string(), membership: "ban".to_string() },
     ];
-    
+
     // Test excluding 'invite' membership
     let room_filter = RoomFilter {
         rooms: None,
@@ -890,7 +890,7 @@ fn test_filter_sync_rooms_not_membership_multiple_values() {
         UserRoomMembership { room_id: "!invited:localhost".to_string(), membership: "invite".to_string() },
         UserRoomMembership { room_id: "!knocked:localhost".to_string(), membership: "knock".to_string() },
     ];
-    
+
     // Test excluding both 'invite' and 'knock' membership
     let room_filter = RoomFilter {
         rooms: None,

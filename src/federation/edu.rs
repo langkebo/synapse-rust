@@ -40,8 +40,9 @@ async fn set_presence_backoff(ctx: &FederationContext, origin: &str) {
 
 async fn handle_presence_edu(ctx: &FederationContext, origin: &str, edu: &Value, remaining: usize) -> EduProcessResult {
     let Some(push) = edu.get("content").and_then(|c| c.get("push")).and_then(|v| v.as_array()) else {
+        ::tracing::debug!("Dropping m.presence EDU from {} without push content", origin);
         increment_counter(ctx, "federation_inbound_presence_dropped_total");
-        return EduProcessResult::default();
+        return EduProcessResult { dropped: 1, ..Default::default() };
     };
 
     let mut result = EduProcessResult::default();
@@ -104,7 +105,7 @@ async fn handle_typing_edu(ctx: &FederationContext, origin: &str, edu: &Value, _
     let room_id = match edu.get("room_id").and_then(|v| v.as_str()) {
         Some(r) => r,
         None => {
-            ::tracing::debug!("Dropping m.typing EDU from {} without room_id", origin);
+            increment_counter(ctx, "federation_inbound_typing_dropped_total");
             return EduProcessResult { dropped: 1, ..Default::default() };
         }
     };
@@ -135,7 +136,7 @@ async fn handle_typing_edu(ctx: &FederationContext, origin: &str, edu: &Value, _
         .unwrap_or_default();
 
     if user_ids.is_empty() {
-        ::tracing::debug!("No valid user_ids in m.typing EDU from {} for room {}", origin, room_id);
+        increment_counter(ctx, "federation_inbound_typing_dropped_total");
         return EduProcessResult { dropped: 1, ..Default::default() };
     }
 
@@ -153,6 +154,9 @@ async fn handle_typing_edu(ctx: &FederationContext, origin: &str, edu: &Value, _
     if result.processed > 0 {
         increment_counter_by(ctx, "federation_inbound_typing_processed_total", result.processed as u64);
     }
+    if result.errored > 0 {
+        increment_counter_by(ctx, "federation_inbound_typing_error_total", result.errored as u64);
+    }
 
     result
 }
@@ -167,6 +171,7 @@ async fn handle_device_list_update_edu(
         Some(c) => c,
         None => {
             ::tracing::debug!("Dropping m.device_list_update EDU from {} without content", origin);
+            increment_counter(ctx, "federation_inbound_device_list_update_dropped_total");
             return EduProcessResult { dropped: 1, ..Default::default() };
         }
     };
@@ -175,12 +180,14 @@ async fn handle_device_list_update_edu(
         Some(uid) => uid,
         None => {
             ::tracing::debug!("Dropping m.device_list_update EDU from {} without user_id", origin);
+            increment_counter(ctx, "federation_inbound_device_list_update_dropped_total");
             return EduProcessResult { dropped: 1, ..Default::default() };
         }
     };
 
     if !user_matches_origin(user_id, origin) {
         ::tracing::debug!("Dropping m.device_list_update EDU: user_id {} does not match origin {}", user_id, origin);
+        increment_counter(ctx, "federation_inbound_device_list_update_dropped_total");
         return EduProcessResult { dropped: 1, ..Default::default() };
     }
 
@@ -225,18 +232,21 @@ async fn handle_direct_to_device_edu(
         Some(s) => s,
         None => {
             ::tracing::debug!("Dropping m.direct_to_device EDU from {} without sender", origin);
+            increment_counter(ctx, "federation_inbound_direct_to_device_dropped_total");
             return EduProcessResult { dropped: 1, ..Default::default() };
         }
     };
 
     if !user_matches_origin(sender, origin) {
         ::tracing::debug!("Dropping m.direct_to_device EDU: sender {} does not match origin {}", sender, origin);
+        increment_counter(ctx, "federation_inbound_direct_to_device_dropped_total");
         return EduProcessResult { dropped: 1, ..Default::default() };
     }
 
     let event_type = edu.get("type").and_then(|v| v.as_str()).unwrap_or("");
     if event_type.is_empty() {
         ::tracing::debug!("Dropping m.direct_to_device EDU from {} without type", origin);
+        increment_counter(ctx, "federation_inbound_direct_to_device_dropped_total");
         return EduProcessResult { dropped: 1, ..Default::default() };
     }
 
@@ -244,6 +254,7 @@ async fn handle_direct_to_device_edu(
         Some(m) => m,
         None => {
             ::tracing::debug!("Dropping m.direct_to_device EDU from {} without content.messages", origin);
+            increment_counter(ctx, "federation_inbound_direct_to_device_dropped_total");
             return EduProcessResult { dropped: 1, ..Default::default() };
         }
     };
@@ -323,10 +334,6 @@ async fn handle_direct_to_device_edu(
     result
 }
 
-// ---------------------------------------------------------------------------
-// EduDispatcher — routes inbound EDUs to the correct handler
-// ---------------------------------------------------------------------------
-
 /// Handles an inbound `m.receipt` EDU from a federated peer.
 ///
 /// Matrix spec: `content` is a map of room_id → receipt_type → user_id →
@@ -337,6 +344,7 @@ async fn handle_receipt_edu(ctx: &FederationContext, origin: &str, edu: &Value, 
         Some(c) => c,
         None => {
             ::tracing::debug!("Dropping m.receipt EDU from {} without content", origin);
+            increment_counter(ctx, "federation_inbound_receipt_dropped_total");
             return EduProcessResult { dropped: 1, ..Default::default() };
         }
     };
@@ -423,6 +431,7 @@ async fn handle_signing_key_update_edu(
         Some(c) => c,
         None => {
             ::tracing::debug!("Dropping m.signing_key_update EDU from {} without content", origin);
+            increment_counter(ctx, "federation_inbound_signing_key_dropped_total");
             return EduProcessResult { dropped: 1, ..Default::default() };
         }
     };
@@ -551,7 +560,7 @@ async fn handle_profile_update_edu(
         Some(c) => c,
         None => {
             increment_counter(ctx, "federation_inbound_profile_update_dropped_total");
-            return EduProcessResult::default();
+            return EduProcessResult { dropped: 1, ..Default::default() };
         }
     };
 
@@ -559,14 +568,14 @@ async fn handle_profile_update_edu(
         Some(id) => id,
         None => {
             increment_counter(ctx, "federation_inbound_profile_update_dropped_total");
-            return EduProcessResult::default();
+            return EduProcessResult { dropped: 1, ..Default::default() };
         }
     };
 
     // Validate user belongs to origin
     if !user_matches_origin(user_id, origin) {
         increment_counter(ctx, "federation_inbound_profile_update_dropped_total");
-        return EduProcessResult::default();
+        return EduProcessResult { dropped: 1, ..Default::default() };
     }
 
     let displayname = content.get("displayname").and_then(|v| v.as_str());
@@ -576,11 +585,7 @@ async fn handle_profile_update_edu(
     // Returns `true` when a known local/remote user row was refreshed; `false`
     // when we have never seen this user locally (nothing to cache, no row to
     // update — we deliberately do not materialize unknown remote accounts).
-    let updated = match ctx
-        .user_service
-        .apply_profile_update_from_federation(user_id, displayname, avatar_url)
-        .await
-    {
+    let updated = match ctx.user_service.apply_profile_update_from_federation(user_id, displayname, avatar_url).await {
         Ok(updated) => updated,
         Err(e) => {
             ::tracing::warn!(error = %e, user_id = %user_id, origin = %origin, "Failed to persist m.profile_update EDU");
@@ -614,20 +619,12 @@ async fn handle_profile_update_edu(
     // local clients sharing a room with `user_id` will be told the profile
     // changed (device_id is None for user-level profile updates).
     let stream_id = current_timestamp_millis();
-    if let Err(e) = ctx
-        .device_storage
-        .insert_device_list_change(user_id, None, "profile", stream_id)
-        .await
-    {
+    if let Err(e) = ctx.device_storage.insert_device_list_change(user_id, None, "profile", stream_id).await {
         // Non-fatal: the profile is already persisted; stream bump is best-effort.
         ::tracing::warn!(error = %e, user_id = %user_id, "Failed to record profile change for device-list stream");
     }
 
     increment_counter(ctx, "federation_inbound_profile_update_processed_total");
 
-    EduProcessResult {
-        processed: 1,
-        dropped: 0,
-        errored: 0,
-    }
+    EduProcessResult { processed: 1, dropped: 0, errored: 0 }
 }

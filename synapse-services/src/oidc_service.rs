@@ -15,6 +15,7 @@
 //!
 //! 两者不应同时启用。启动时会检测冲突并发出警告。
 
+use crate::error::ServiceError;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
@@ -23,7 +24,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use synapse_common::config::OidcConfig;
 use synapse_common::error::ApiError;
-use crate::error::ServiceError;
 use tokio::sync::RwLock;
 use tracing::debug;
 
@@ -194,12 +194,13 @@ impl OidcService {
     /// Returns the decoded JWT claims as a `serde_json::Value` so the caller
     /// can extract `sub`, `device_id`, and other MAS-specific claims.
     pub async fn verify_access_token(&self, token: &str) -> Result<serde_json::Value, ServiceError> {
-        let header_bytes = URL_SAFE_NO_PAD
-            .decode(token.split('.').next().unwrap_or(""))
-            .map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid access token header base64: {e}") })?;
+        let header_bytes = URL_SAFE_NO_PAD.decode(token.split('.').next().unwrap_or("")).map_err(|e| {
+            ServiceError::OidcVerificationFailed { message: format!("Invalid access token header base64: {e}") }
+        })?;
 
-        let header: serde_json::Value =
-            serde_json::from_slice(&header_bytes).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid access token header JSON: {e}") })?;
+        let header: serde_json::Value = serde_json::from_slice(&header_bytes).map_err(|e| {
+            ServiceError::OidcVerificationFailed { message: format!("Invalid access token header JSON: {e}") }
+        })?;
 
         let kid = header.get("kid").and_then(|v| v.as_str());
         let alg_str = header.get("alg").and_then(|v| v.as_str()).unwrap_or("RS256");
@@ -211,7 +212,11 @@ impl OidcService {
             "ES256" => Algorithm::ES256,
             "ES384" => Algorithm::ES384,
             "EdDSA" => Algorithm::EdDSA,
-            _ => return Err(ServiceError::OidcVerificationFailed { message: format!("Unsupported access token algorithm: {alg_str}") }),
+            _ => {
+                return Err(ServiceError::OidcVerificationFailed {
+                    message: format!("Unsupported access token algorithm: {alg_str}"),
+                })
+            }
         };
 
         let jwks = self.fetch_jwks().await?;
@@ -225,29 +230,40 @@ impl OidcService {
                 issuer = %self.config.issuer,
                 "No matching JWKS key found for MAS access token kid; rejecting"
             );
-            ServiceError::OidcVerificationFailed { message: "access token signature key (kid) not found in JWKS".to_string() }
+            ServiceError::OidcVerificationFailed {
+                message: "access token signature key (kid) not found in JWKS".to_string(),
+            }
         })?;
 
         let decoding_key = if key.kty == "RSA" {
             match (&key.n, &key.e) {
-                (Some(n), Some(e)) => {
-                    DecodingKey::from_rsa_components(n, e).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid RSA key: {e}") })?
+                (Some(n), Some(e)) => DecodingKey::from_rsa_components(n, e)
+                    .map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid RSA key: {e}") })?,
+                _ => {
+                    return Err(ServiceError::OidcVerificationFailed {
+                        message: "RSA key missing n/e components".to_string(),
+                    })
                 }
-                _ => return Err(ServiceError::OidcVerificationFailed { message: "RSA key missing n/e components".to_string() }),
             }
         } else if key.kty == "EC" {
             match (&key.crv, &key.x, &key.y) {
-                (Some(_), Some(x), Some(y)) => {
-                    DecodingKey::from_ec_components(x, y).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid EC key: {e}") })?
+                (Some(_), Some(x), Some(y)) => DecodingKey::from_ec_components(x, y)
+                    .map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid EC key: {e}") })?,
+                _ => {
+                    return Err(ServiceError::OidcVerificationFailed {
+                        message: "EC key missing crv/x/y components".to_string(),
+                    })
                 }
-                _ => return Err(ServiceError::OidcVerificationFailed { message: "EC key missing crv/x/y components".to_string() }),
             }
         } else if key.kty == "OKP" {
             match (&key.crv, &key.x) {
-                (Some(_), Some(x)) => {
-                    DecodingKey::from_ed_components(x).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid EdDSA key: {e}") })?
+                (Some(_), Some(x)) => DecodingKey::from_ed_components(x)
+                    .map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid EdDSA key: {e}") })?,
+                _ => {
+                    return Err(ServiceError::OidcVerificationFailed {
+                        message: "OKP key missing crv/x components".to_string(),
+                    })
                 }
-                _ => return Err(ServiceError::OidcVerificationFailed { message: "OKP key missing crv/x components".to_string() }),
             }
         } else {
             return Err(ServiceError::OidcVerificationFailed { message: format!("Unsupported key type: {}", key.kty) });
@@ -261,8 +277,11 @@ impl OidcService {
         validation.validate_nbf = false;
         validation.validate_aud = false;
 
-        let token_data = decode::<serde_json::Value>(token, &decoding_key, &validation)
-            .map_err(|e| ServiceError::OidcVerificationFailed { message: format!("MAS access token JWT signature verification failed: {e}") })?;
+        let token_data = decode::<serde_json::Value>(token, &decoding_key, &validation).map_err(|e| {
+            ServiceError::OidcVerificationFailed {
+                message: format!("MAS access token JWT signature verification failed: {e}"),
+            }
+        })?;
 
         debug!("MAS access token JWT signature verified successfully (kid={:?})", kid);
 
@@ -472,8 +491,12 @@ impl OidcService {
 
         debug!(jwks_uri_configured = !jwks_uri.is_empty(), "Fetching OIDC JWKS");
 
-        let response =
-            self.http_client.get(&jwks_uri).send().await.map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Failed to fetch JWKS: {e}") })?;
+        let response = self
+            .http_client
+            .get(&jwks_uri)
+            .send()
+            .await
+            .map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Failed to fetch JWKS: {e}") })?;
 
         if !response.status().is_success() {
             return Err(ServiceError::OidcVerificationFailed {
@@ -481,7 +504,10 @@ impl OidcService {
             });
         }
 
-        let jwks: OidcJwks = response.json().await.map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Failed to parse JWKS: {e}") })?;
+        let jwks: OidcJwks = response
+            .json()
+            .await
+            .map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Failed to parse JWKS: {e}") })?;
 
         {
             let mut write = self.jwks.write().await;
@@ -491,12 +517,13 @@ impl OidcService {
     }
 
     async fn validate_id_token(&self, id_token: &str, nonce: Option<&str>) -> Result<(), ServiceError> {
-        let header_bytes = URL_SAFE_NO_PAD
-            .decode(id_token.split('.').next().unwrap_or(""))
-            .map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid ID token header base64: {e}") })?;
+        let header_bytes = URL_SAFE_NO_PAD.decode(id_token.split('.').next().unwrap_or("")).map_err(|e| {
+            ServiceError::OidcVerificationFailed { message: format!("Invalid ID token header base64: {e}") }
+        })?;
 
-        let header: serde_json::Value =
-            serde_json::from_slice(&header_bytes).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid ID token header JSON: {e}") })?;
+        let header: serde_json::Value = serde_json::from_slice(&header_bytes).map_err(|e| {
+            ServiceError::OidcVerificationFailed { message: format!("Invalid ID token header JSON: {e}") }
+        })?;
 
         let kid = header.get("kid").and_then(|v| v.as_str());
         let alg_str = header.get("alg").and_then(|v| v.as_str()).unwrap_or("RS256");
@@ -525,7 +552,11 @@ impl OidcService {
                     ),
                 });
             }
-            _ => return Err(ServiceError::OidcVerificationFailed { message: format!("Unsupported ID token algorithm: {alg_str}") }),
+            _ => {
+                return Err(ServiceError::OidcVerificationFailed {
+                    message: format!("Unsupported ID token algorithm: {alg_str}"),
+                })
+            }
         };
 
         match self.fetch_jwks().await {
@@ -541,27 +572,41 @@ impl OidcService {
                 if let Some(key) = matching_key {
                     let decoding_key = if key.kty == "RSA" {
                         match (&key.n, &key.e) {
-                            (Some(n), Some(e)) => {
-                                DecodingKey::from_rsa_components(n, e).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid RSA key: {e}") })?
+                            (Some(n), Some(e)) => DecodingKey::from_rsa_components(n, e).map_err(|e| {
+                                ServiceError::OidcVerificationFailed { message: format!("Invalid RSA key: {e}") }
+                            })?,
+                            _ => {
+                                return Err(ServiceError::OidcVerificationFailed {
+                                    message: "RSA key missing n/e components".to_string(),
+                                })
                             }
-                            _ => return Err(ServiceError::OidcVerificationFailed { message: "RSA key missing n/e components".to_string() }),
                         }
                     } else if key.kty == "EC" {
                         match (&key.crv, &key.x, &key.y) {
-                            (Some(_), Some(x), Some(y)) => {
-                                DecodingKey::from_ec_components(x, y).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid EC key: {e}") })?
+                            (Some(_), Some(x), Some(y)) => DecodingKey::from_ec_components(x, y).map_err(|e| {
+                                ServiceError::OidcVerificationFailed { message: format!("Invalid EC key: {e}") }
+                            })?,
+                            _ => {
+                                return Err(ServiceError::OidcVerificationFailed {
+                                    message: "EC key missing crv/x/y components".to_string(),
+                                })
                             }
-                            _ => return Err(ServiceError::OidcVerificationFailed { message: "EC key missing crv/x/y components".to_string() }),
                         }
                     } else if key.kty == "OKP" {
                         match (&key.crv, &key.x) {
-                            (Some(_), Some(x)) => {
-                                DecodingKey::from_ed_components(x).map_err(|e| ServiceError::OidcVerificationFailed { message: format!("Invalid EdDSA key: {e}") })?
+                            (Some(_), Some(x)) => DecodingKey::from_ed_components(x).map_err(|e| {
+                                ServiceError::OidcVerificationFailed { message: format!("Invalid EdDSA key: {e}") }
+                            })?,
+                            _ => {
+                                return Err(ServiceError::OidcVerificationFailed {
+                                    message: "OKP key missing crv/x components".to_string(),
+                                })
                             }
-                            _ => return Err(ServiceError::OidcVerificationFailed { message: "OKP key missing crv/x components".to_string() }),
                         }
                     } else {
-                        return Err(ServiceError::OidcVerificationFailed { message: format!("Unsupported key type: {}", key.kty) });
+                        return Err(ServiceError::OidcVerificationFailed {
+                            message: format!("Unsupported key type: {}", key.kty),
+                        });
                     };
 
                     let mut validation = Validation::new(algorithm);
@@ -570,8 +615,12 @@ impl OidcService {
                     validation.validate_exp = true;
                     validation.validate_nbf = false;
 
-                    let token_data = decode::<serde_json::Value>(id_token, &decoding_key, &validation)
-                        .map_err(|e| ServiceError::OidcVerificationFailed { message: format!("JWT signature verification failed: {e}") })?;
+                    let token_data =
+                        decode::<serde_json::Value>(id_token, &decoding_key, &validation).map_err(|e| {
+                            ServiceError::OidcVerificationFailed {
+                                message: format!("JWT signature verification failed: {e}"),
+                            }
+                        })?;
 
                     debug!("OIDC ID token JWT signature verified successfully (kid={:?})", kid);
 
@@ -631,12 +680,11 @@ impl OidcService {
             return Err(oidc_err("Invalid ID token format: expected 3 parts".to_string()));
         }
 
-        let payload_bytes = URL_SAFE_NO_PAD
-            .decode(parts[1])
-            .map_err(|e| oidc_err(format!("Invalid ID token payload base64: {e}")))?;
+        let payload_bytes =
+            URL_SAFE_NO_PAD.decode(parts[1]).map_err(|e| oidc_err(format!("Invalid ID token payload base64: {e}")))?;
 
-        let payload: serde_json::Value =
-            serde_json::from_slice(&payload_bytes).map_err(|e| oidc_err(format!("Invalid ID token payload JSON: {e}")))?;
+        let payload: serde_json::Value = serde_json::from_slice(&payload_bytes)
+            .map_err(|e| oidc_err(format!("Invalid ID token payload JSON: {e}")))?;
 
         let token_issuer = payload
             .get("iss")

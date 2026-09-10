@@ -1,4 +1,3 @@
-
 use thiserror::Error;
 
 /// Default timeout for Redis connections, in milliseconds.

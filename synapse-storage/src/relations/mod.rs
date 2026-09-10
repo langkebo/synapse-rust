@@ -313,8 +313,12 @@ impl RelationsStorage {
             }
         }
 
-        qb.push(if backward { " ORDER BY origin_server_ts DESC, event_id DESC LIMIT " } else { " ORDER BY origin_server_ts ASC, event_id ASC LIMIT " })
-            .push_bind(limit);
+        qb.push(if backward {
+            " ORDER BY origin_server_ts DESC, event_id DESC LIMIT "
+        } else {
+            " ORDER BY origin_server_ts ASC, event_id ASC LIMIT "
+        })
+        .push_bind(limit);
 
         qb.build_query_as::<EventRelation>().fetch_all(&*self.pool).await
     }

@@ -467,7 +467,7 @@ impl ServiceContainer {
         // profile_update EDU broadcast on local profile changes.
         storage.user_service.set_federation_broadcaster(
             event_broadcaster.clone(),
-            infra.infra.config.server.get_server_name().to_string()
+            infra.infra.config.server.get_server_name().to_string(),
         );
 
         // Extensions — needs most domains + storage

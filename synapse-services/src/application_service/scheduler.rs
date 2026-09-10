@@ -460,14 +460,16 @@ impl ApplicationServiceScheduler {
     // ── Tick logic ──────────────────────────────────────────────────────
 
     async fn tick(&self) -> Result<(), ServiceError> {
-        let active_services =
-            self.manager.get_all_active().await.map_err(|e| ServiceError::ApplicationServiceListFailed {
-                message: e.to_string(),
-            })?;
-        let statistics =
-            self.manager.get_statistics().await.map_err(|e| ServiceError::ApplicationServiceStatsFailed {
-                message: e.to_string(),
-            })?;
+        let active_services = self
+            .manager
+            .get_all_active()
+            .await
+            .map_err(|e| ServiceError::ApplicationServiceListFailed { message: e.to_string() })?;
+        let statistics = self
+            .manager
+            .get_statistics()
+            .await
+            .map_err(|e| ServiceError::ApplicationServiceStatsFailed { message: e.to_string() })?;
         let dispatch_order = self.plan_dispatch_order(&active_services, &statistics).await;
 
         if dispatch_order.is_empty() {
@@ -645,14 +647,9 @@ impl ApplicationServiceScheduler {
             return Ok(candidate);
         }
 
-        let pending_event_count = self
-            .manager
-            .count_pending_events(&candidate.as_id)
-            .await
-            .map_err(|e| ServiceError::ApplicationServiceEventCountFailed {
-                as_id: candidate.as_id.clone(),
-                message: e.to_string(),
-            })?;
+        let pending_event_count = self.manager.count_pending_events(&candidate.as_id).await.map_err(|e| {
+            ServiceError::ApplicationServiceEventCountFailed { as_id: candidate.as_id.clone(), message: e.to_string() }
+        })?;
         let pending_transaction_count =
             self.manager.count_pending_transactions(&candidate.as_id).await.map_err(|e| {
                 ServiceError::ApplicationServiceTransactionCountFailed {

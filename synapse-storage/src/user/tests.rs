@@ -206,13 +206,8 @@ fn test_locked_user_serde() {
 
 #[test]
 fn test_user_stats_summary_serde() {
-    let stats = UserStatsSummary {
-        total_users: 100,
-        active_users: 50,
-        admin_users: 5,
-        deactivated_users: 10,
-        guest_users: 20,
-    };
+    let stats =
+        UserStatsSummary { total_users: 100, active_users: 50, admin_users: 5, deactivated_users: 10, guest_users: 20 };
 
     let json = serde_json::to_string(&stats).unwrap();
     let deserialized: UserStatsSummary = serde_json::from_str(&json).unwrap();

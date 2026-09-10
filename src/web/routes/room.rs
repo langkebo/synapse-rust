@@ -2,10 +2,10 @@ use crate::common::ApiError;
 use crate::web::routes::context::RoomContext;
 use crate::web::routes::extractors::auth::AuthenticatedUser;
 use crate::web::routes::extractors::RoomId;
+use crate::web::routes::handlers::room::management::query::get_mutual_rooms;
 use crate::web::routes::handlers::room::{
     create_private_room, get_room_device, get_room_permissions, get_room_reduced_events, get_room_resolve,
 };
-use crate::web::routes::handlers::room::management::query::get_mutual_rooms;
 use crate::web::routes::{
     ban_user, claim_room_keys, convert_room_event, create_room, ensure_room_member_ctx, forget_room, forward_room_keys,
     get_event_keys, get_joined_members, get_membership_events, get_messages, get_power_levels, get_receipts,
@@ -82,8 +82,7 @@ fn create_room_r0_router() -> Router<AppState> {
 }
 
 fn create_room_v1_router() -> Router<AppState> {
-    create_room_power_levels_compat_router()
-        .route("/user/mutual_rooms", get(get_mutual_rooms))
+    create_room_power_levels_compat_router().route("/user/mutual_rooms", get(get_mutual_rooms))
 }
 
 fn create_room_v3_router() -> Router<AppState> {

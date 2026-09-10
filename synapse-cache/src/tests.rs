@@ -180,10 +180,8 @@ async fn c3_set_batch_serialized_writes_all_keys_to_local_cache() {
 #[allow(missing_docs)]
 async fn c3_set_batch_typed_writes_and_reads_back() {
     let manager = CacheManager::new(&CacheConfig::default());
-    let entries: Vec<(String, String, u64)> = vec![
-        ("c3:typed:a".to_string(), "alpha".to_string(), 60),
-        ("c3:typed:b".to_string(), "beta".to_string(), 60),
-    ];
+    let entries: Vec<(String, String, u64)> =
+        vec![("c3:typed:a".to_string(), "alpha".to_string(), 60), ("c3:typed:b".to_string(), "beta".to_string(), 60)];
     manager.set_batch(&entries).await.expect("set_batch");
 
     let keys = vec!["c3:typed:a".to_string(), "c3:typed:b".to_string()];
@@ -304,8 +302,7 @@ async fn redis_backed_manager(tag: &str) -> Option<(CacheManager, deadpool_redis
     let probe = tokio::time::timeout(std::time::Duration::from_millis(800), pool.get()).await.ok()?.ok()?;
     drop(probe);
     let manager = CacheManager::with_redis_pool(pool.clone(), &CacheConfig::default());
-    let nanos =
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     let key = format!("s7_get_raw_shared:{tag}:{}:{nanos}", std::process::id());
     Some((manager, pool, key))
 }

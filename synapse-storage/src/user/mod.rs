@@ -16,6 +16,6 @@ mod models;
 mod storage;
 
 pub use models::*;
-pub use storage::{UserStore, UserStorage};
 #[cfg(test)]
 pub(crate) use storage::escape_like_pattern;
+pub use storage::{UserStorage, UserStore};

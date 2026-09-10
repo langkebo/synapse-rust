@@ -132,11 +132,12 @@ impl WebPushProvider {
         let mut header = Header::new(Algorithm::ES256);
         header.typ = Some("JWT".to_string());
 
-        let encoding_key = EncodingKey::from_ec_pem(self.config.vapid_private_key.as_bytes())
-            .map_err(|e| ServiceError::PushProviderError {
+        let encoding_key = EncodingKey::from_ec_pem(self.config.vapid_private_key.as_bytes()).map_err(|e| {
+            ServiceError::PushProviderError {
                 provider: "webpush".into(),
                 message: format!("Invalid WebPush VAPID private key: {e}"),
-            })?;
+            }
+        })?;
 
         encode(&header, &claims, &encoding_key).map_err(|e| ServiceError::PushProviderError {
             provider: "webpush".into(),

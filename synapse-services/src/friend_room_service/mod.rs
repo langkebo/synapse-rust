@@ -1195,10 +1195,7 @@ impl FriendRoomService {
             .join("|");
 
         // v6: 固定 key，不含 fingerprint，fingerprint 在 value 内校验
-        let sort_cache_key = format!(
-            "friends:list:v6:sort:{}:{}:{}",
-            user_id, room_id, request.sort_by
-        );
+        let sort_cache_key = format!("friends:list:v6:sort:{}:{}:{}", user_id, room_id, request.sort_by);
         let mut sort_cache_hit = false;
 
         // 读取 v6 cache
@@ -1408,10 +1405,8 @@ impl FriendRoomService {
 
         // W6：在消耗 links 前收集受影响 friend list room 的 snapshot key，
         // 写入完成后批量失效（strong consistency：DM 状态变更后读必须见最新）。
-        let snapshot_keys: Vec<String> = links
-            .iter()
-            .map(|link| format!("friends:list:v5:snapshot:{}", link.friend_room_id))
-            .collect();
+        let snapshot_keys: Vec<String> =
+            links.iter().map(|link| format!("friends:list:v5:snapshot:{}", link.friend_room_id)).collect();
 
         // Phase 2: concurrent state writes
         let room_service = Arc::clone(&self.room_service);

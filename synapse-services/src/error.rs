@@ -234,9 +234,7 @@ impl ServiceError {
             }
 
             // SAML -> 500
-            ServiceError::SamlError { message } => {
-                ApiError::internal(format!("SAML error: {message}"))
-            }
+            ServiceError::SamlError { message } => ApiError::internal(format!("SAML error: {message}")),
 
             // Membership -> 400/403/404
             ServiceError::EncryptedRoom { room_id: _, reason } => {

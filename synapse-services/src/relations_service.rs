@@ -301,12 +301,14 @@ impl RelationsService {
         // - next_batch：当返回满 limit 时（可能还有更多）返回末条游标。
         // - prev_batch：当 from 已指定（非首页）且有数据时返回首条游标。
         let limit_val = limit.unwrap_or(50).min(100);
-        let next_batch = relations.last().filter(|_| relations.len() as i32 >= limit_val).map(|r| {
-            synapse_storage::relations::encode_keyset_cursor(r.origin_server_ts, &r.event_id)
-        });
-        let prev_batch = relations.first().filter(|_| has_from).map(|r| {
-            synapse_storage::relations::encode_keyset_cursor(r.origin_server_ts, &r.event_id)
-        });
+        let next_batch = relations
+            .last()
+            .filter(|_| relations.len() as i32 >= limit_val)
+            .map(|r| synapse_storage::relations::encode_keyset_cursor(r.origin_server_ts, &r.event_id));
+        let prev_batch = relations
+            .first()
+            .filter(|_| has_from)
+            .map(|r| synapse_storage::relations::encode_keyset_cursor(r.origin_server_ts, &r.event_id));
 
         let chunk: Vec<Value> = relations
             .into_iter()

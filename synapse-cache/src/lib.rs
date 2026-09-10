@@ -44,10 +44,10 @@ pub mod strategy;
 pub mod error;
 /// In-process local cache implementations.
 pub mod local;
-/// Redis-backed cache implementations.
-pub mod remote;
 /// Cache manager and rate limiting.
 pub mod manager;
+/// Redis-backed cache implementations.
+pub mod remote;
 
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerMetrics, CircuitState};
 pub use error::{CacheConfig, CacheError, DegradationMetrics};
