@@ -70,7 +70,21 @@
 - `test_edu_type_display_matches_from_str`（round-trip，**强制** enum↔FromStr↔Display 三表同步，防止新增 EDU 时漏改任一映射）
 - `test_edu_type_display_strings`（逐变体 Display 常量校验）
 
-**未补**的"完整 handler 集成测试"（`handle_presence_edu` 等 7 个函数）说明：handler 签名要求 `&FederationContext`（含 30+ `Arc` 字段、真实存储 trait 对象），构造成本高、且各 handler 依赖不同 mock 注入；其"落库/计数"语义已在 `user_service_tests.rs`（profile Mock）、`synapse-services` 服务测试、`synapse-storage` db_tests 中分散覆盖。统一 handler 集成测试属独立工程项，建议随 W6 测试基建一并推进（见下）。
+### ✅ 已完成：profile_update drop-path 校验逻辑单测（commit `c6bcd4f4`）
+
+`handle_profile_update_edu` 的 3 条 drop 路径（缺 content / 缺 user_id / origin 伪造）此前只能靠集成测试覆盖。本轮把校验逻辑提取为**纯函数**，无需构造 37 字段的 `FederationContext` 即可单测：
+
+- `parse_profile_update_content(content) -> Option<(&str, Option<&str>, Option<&str>)>`：content → `(user_id, displayname, avatar_url)`
+- `validate_profile_update_content(edu, origin) -> Option<...>`：在 parse 之上叠加 origin-vs-user_id 域名校验（防伪造）
+- handler 的 drop 分支改为委托该 validator，逻辑单一来源
+
+配套 10 个单元测试（`src/federation/edu.rs` `mod tests`）：
+- `test_parse_profile_update_content_*`（4 个：全字段 / 仅 user_id / 缺 user_id / 空 content）
+- `test_validate_profile_update_content_*`（6 个：origin 匹配 / origin 不匹配拒绝 / 无冒号 localpart 拒绝 / 缺 content / 缺 user_id / 空 content 对象）
+
+**运行**：`cargo test -p synapse-rust --lib --features test-utils federation::edu` → 10 passed。
+
+**未补**的"完整异步 handler 集成测试"（presence/typing/device_list/direct_to_device/receipt/signing_key 落库 + 计数）说明：handler 主体仍是 `async fn(... &FederationContext ...)`，构造成本高、且各 handler 依赖不同 mock 注入；其"落库/计数"语义已在 `user_service_tests.rs`（profile Mock）、`synapse-services` 服务测试、`synapse-storage` db_tests、`tests/integration/transaction_tests.rs`（联邦事务全链路）中分散覆盖。profile 已率先提取纯校验并补齐单测，其余 6 个 handler 可按同一「提取纯校验 → 单测」模式增量推进（见下）。
 
 ---
 
@@ -126,5 +140,16 @@ cargo test -p synapse-federation --lib --features test-utils       # 180 passed
 - `src/federation/edu.rs`：7 个 handler 计数器与 `EduProcessResult` 字段一致性对齐
 - `docs/audit/federation-edu-template-alignment-2026-09-10.md`：完整审计报告
 
-**剩余建议**：
-- 若计划新增 EDU（如 MSC4155/4156 thread subscription、MSC4284 device_key_update），请跟随本审计报告的 5 触点清单完成完整实现链路。
+**提交**：`c6bcd4f4` test(federation): extract profile_update EDU validation into pure functions + 10 unit tests
+**文件变更**：
+- `synapse-federation/src/edu.rs`：`Display` 实现 + round-trip测试（已在 HEAD 之前提交）
+- `src/federation/edu.rs`：计数器不一致性修复 + `validate_profile_update_content` 纯函数抽提
+- `docs/audit/federation-edu-template-alignment-2026-09-10.md`：完整审计报告
+
+**后续计划**：
+- ✅ **已完成（`src/federation/edu.rs` + `docs/templates/federation-edu-persist-template.md`）**：按「提取纯校验 → 单测」模式推进剩余 6 个 handler。
+  - 新增纯校验函数：`validate_presence_update` / `extract_typing_room_id` / `filter_typing_user_ids` / `validate_device_list_update_content` / `validate_direct_to_device_content` / `parse_receipt_content` / `validate_signing_key_type` / `parse_signing_key_content`；
+  - **重要设计决策**：未用 `#[allow(dead_code)]` 的"孤儿校验函数"——那会形成与 handler 脱节的第二事实来源。改为 **handler 在每个 drop 门委托纯函数**，单测运行即真正跑在 handler 上（单一来源）；
+  - 单测从 10 个（profile 独有）扩充至 **39 个**，每条 drop 路径都有对应测试（缺 content/缺 key/origin 伪造/localpart-only/类型错误/空数组等）。
+  - 配套更新：模板新增 §3.1（`apply_xxx_from_federation` 的 `Result<bool>` 契约必须在 **trait 声明处** 写死文档，因为 Fake/实现者只看签名）+ §8（把「提取纯校验 → 单测」沉淀为模板规范，避免下一个 handler 又写成不可测）；模板 §2 触点 4 行补充 trait 文档要求；§4 handler 骨架里 `EduProcessResult::default()` 修正为 `{ dropped: 1, ..Default::default() }`，与 f8463093 的修复同步。
+- 剩余可继续的方向：将 7 个 EDU 计数器名收敛为编译期常量（当前手写有拼写风险）。

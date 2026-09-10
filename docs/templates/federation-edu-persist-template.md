@@ -31,7 +31,7 @@ Service 层写操作
 | 1 | `synapse-federation/src/edu.rs` | `EduType` 新增变体 + `FromStr` 分支 + Display | `ProfileUpdate` / `"m.profile_update"` |
 | 2 | `synapse-services/src/<域>_service.rs` | 写操作里调用 `broadcast_xxx_edu()`（best-effort，不 `?`） | `update_profile()` → `broadcast_profile_update_edu()` |
 | 3 | `src/federation/edu.rs` | `dispatch` 表新增 `EduType::Xxx => handle_xxx_edu`；实现 handler | `EduType::ProfileUpdate => handle_profile_update_edu` |
-| 4 | `synapse-storage/src/<域>/storage.rs` | `apply_xxx_from_federation() -> Result<bool>` + trait + Fake + 单测 mock | `user/storage.rs:763` |
+| 4 | `synapse-storage/src/<域>/storage.rs` | `apply_xxx_from_federation() -> Result<bool>`：**trait 声明 + Fake impl + 单测 mock** 三处同步。**trait 方法必须带文档注释说明 `bool` 语义**（见 §3.1）——实现者与 Fake 只看 trait 签名，语义不写在 trait 上就会漂移 | trait 声明 `user/storage.rs:148-157` / 具体实现 `:763` / Fake `user_store_fake.rs:286` |
 | 5 | `synapse-services/src/container.rs` | 注入 `federation_broadcaster` / `server_name`（若新服务未接） | `set_federation_broadcaster()` |
 
 ---
@@ -81,6 +81,27 @@ pub async fn apply_<state>_from_federation(
 
 > 注意 Cache 读写对称铁律：这里用 `cache.set`（异步写 L1+L2）。跨实例读必须 `get_raw_shared().await`，不能用同步 `get_raw`。
 
+### 3.1 `apply_xxx_from_federation` 的 `bool` 返回值契约（trait 侧必须写明）
+
+`Result<bool, _>` 的 `bool` 是**接收端 handler 的分支依据**，且它同时存在于三层，语义一旦漂移会导致「未知实体 → 仍递增 stream」或「已知实体 → 只失效缓存」两类错误。因此 **trait 声明处写死契约**，不要只写在具体 impl 上（实现者/后续 Fake 只看 trait）：
+
+```rust
+/// 接收远端 <状态> 变更并刷新本地 <表>（UPDATE-only，绝不 INSERT 占位行）。
+///
+/// # 返回值
+/// - `Ok(true)`：命中已存在的行并已更新（调用方应递增 device-list/stream）
+/// - `Ok(false)`：本地从未见过该实体（调用方应仅失效缓存，不得递增 stream）
+/// - `Err(e)`：DB 错误（handler 计 errored 并触发 backoff）
+async fn apply_<state>_from_federation(
+    &self,
+    <key>: &str,
+    <field_a>: Option<&str>,
+    <field_b>: Option<&str>,
+) -> Result<bool, sqlx::Error>;
+```
+
+MSC4262 落地参考：trait 文档见 `synapse-storage/src/user/storage.rs:148-157`，三处签名（trait `:152` / 具体 `:763` / Fake `user_store_fake.rs:286`）语义一致。
+
 ---
 
 ## 四、EDU handler 骨架（接收端）
@@ -90,17 +111,17 @@ async fn handle_<state>_edu(ctx: &FederationContext, origin: &str, edu: &Value, 
     let content = match edu.get("content") {
         Some(c) => c,
         None => { increment_counter(ctx, "federation_inbound_<state>_dropped_total");
-                  return EduProcessResult::default(); }
+                  return EduProcessResult { dropped: 1, ..Default::default() }; }
     };
     let <key> = match content.get("<key>").and_then(|v| v.as_str()) {
         Some(k) => k,
         None => { increment_counter(ctx, "federation_inbound_<state>_dropped_total");
-                  return EduProcessResult::default(); }
+                  return EduProcessResult { dropped: 1, ..Default::default() }; }
     };
     // 安全：校验 user/entity 属于声明的 origin，否则丢弃（防伪造）
     if !user_matches_origin(<key>, origin) {
         increment_counter(ctx, "federation_inbound_<state>_dropped_total");
-        return EduProcessResult::default();
+        return EduProcessResult { dropped: 1, ..Default::default() };
     }
 
     let updated = match ctx.<service>.apply_<state>_from_federation(<key>, field_a, field_b).await {
@@ -194,3 +215,14 @@ cargo test  -p synapse-services -p synapse-federation --lib --features test-util
 TEST_DATABASE_URL="postgres://synapse:<pw>@<host>:<port>/synapse_test" \
   cargo test -p synapse-storage --lib --features test-utils -- <域>::db_tests
 ```
+
+---
+
+## 八、drop 路径的「纯校验函数」抽提模式（防御性单测）
+
+`FederationContext` 有 30+ 字段，直接给 handler 写单测成本高。约定：**每个 handler 的结构校验/防伪逻辑都抽成同模块内的纯函数**（`fn(&Value, &str) -> Option<...>`，无 `async`、无 `ctx`、无 DB），handler 的每条 drop 分支都委托它——这样：
+
+1. 单测只测纯函数，无需构造 `FederationContext`；
+2. handler 与纯函数共享同一份校验逻辑，**不会出现「测试绿、线上 drop 逻辑漂移」**（这也是为什么不用 `#[allow(dead_code)]` 的独立校验函数——它会变成第二事实来源）。
+
+参考实现：`src/federation/edu.rs` 的 `validate_presence_update` / `extract_typing_room_id` / `filter_typing_user_ids` / `validate_device_list_update_content` / `validate_direct_to_device_content` / `parse_receipt_content` / `validate_signing_key_type` / `parse_signing_key_content` / `validate_profile_update_content`，配套单测见同文件 `#[cfg(test)] mod tests`（覆盖每条 drop 路径：缺字段 / origin 伪造 / localpart-only / 类型错误）。

@@ -35,33 +35,146 @@ async fn set_presence_backoff(ctx: &FederationContext, origin: &str) {
 }
 
 // ---------------------------------------------------------------------------
+// Pure validation helpers
+// ---------------------------------------------------------------------------
+//
+// Each helper is a `fn(...)` on `&Value` / `&str` — no `FederationContext`,
+// no `async`, no DB calls.  Handlers delegate to these at every drop gate
+// so unit tests exercise the same code that runs at runtime (single source
+// of truth).
+// ---------------------------------------------------------------------------
+
+// --- presence ---
+
+/// Validated presence update entry: `(user_id, presence_str, status_msg)`.
+type PresenceUpdateFields<'a> = (&'a str, &'a str, Option<&'a str>);
+
+/// Extract the `push` array from a `m.presence` EDU.
+/// Returns `None` if the EDU lacks `content.push` (whole EDU should be dropped).
+fn parse_presence_push(edu: &Value) -> Option<&Vec<Value>> {
+    edu.get("content").and_then(|c| c.get("push")).and_then(|v| v.as_array())
+}
+
+/// Validate a single presence update entry against `origin`. Returns
+/// `Some((user_id, presence_str, status_msg))` when the entry has a valid
+/// `user_id` belonging to `origin`; `None` means the entry should be dropped.
+/// Defaults: missing `presence` → `"online"`, missing `status_msg` → `None`.
+fn validate_presence_update<'u>(update: &'u Value, origin: &str) -> Option<PresenceUpdateFields<'u>> {
+    let user_id = update.get("user_id").and_then(|v| v.as_str())?;
+    if !user_matches_origin(user_id, origin) {
+        return None;
+    }
+    let presence_str = update.get("presence").and_then(|v| v.as_str()).unwrap_or("online");
+    let status_msg = update.get("status_msg").and_then(|v| v.as_str());
+    Some((user_id, presence_str, status_msg))
+}
+
+// --- typing ---
+
+/// Extract `room_id` from a `m.typing` EDU.
+/// Returns `None` if missing (whole EDU should be dropped).
+fn extract_typing_room_id(edu: &Value) -> Option<&str> {
+    edu.get("room_id").and_then(|v| v.as_str())
+}
+
+/// Filter `m.typing` `user_ids` by origin. Returns the list of user_ids
+/// that match `origin`. The caller should drop the EDU if the list is empty.
+fn filter_typing_user_ids(edu: &Value, origin: &str) -> Vec<String> {
+    edu.get("content")
+        .and_then(|c| c.get("user_ids"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .filter(|uid| user_matches_origin(uid, origin))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+// --- device_list_update ---
+
+/// Parsed device-list-update fields: `(user_id, device_id, stream_id, change_type)`.
+type DeviceListUpdateFields<'a> = (&'a str, Option<&'a str>, i64, &'a str);
+
+/// Validate a `m.device_list_update` EDU. Returns `Some(...)` if structurally
+/// valid and origin matches. `None` means the EDU should be dropped.
+fn validate_device_list_update_content<'a>(edu: &'a Value, origin: &str) -> Option<DeviceListUpdateFields<'a>> {
+    let content = edu.get("content")?;
+    let user_id = content.get("user_id").and_then(|v| v.as_str())?;
+    if !user_matches_origin(user_id, origin) {
+        return None;
+    }
+    let device_id = content.get("device_id").and_then(|v| v.as_str());
+    let stream_id = content.get("stream_id").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
+    let change_type =
+        if content.get("deleted").and_then(|v| v.as_bool()).unwrap_or(false) { "deleted" } else { "updated" };
+    Some((user_id, device_id, stream_id, change_type))
+}
+
+// --- direct_to_device ---
+
+/// Parsed direct-to-device fields: `(sender, event_type, messages)`.
+type DirectToDeviceFields<'a> = (&'a str, &'a str, &'a Value);
+
+/// Validate a `m.direct_to_device` EDU. Returns `Some((sender, event_type,
+/// messages))` if structurally valid and origin matches. `None` means the
+/// EDU should be dropped.
+fn validate_direct_to_device_content<'a>(edu: &'a Value, origin: &str) -> Option<DirectToDeviceFields<'a>> {
+    let sender = edu.get("sender").and_then(|v| v.as_str())?;
+    if !user_matches_origin(sender, origin) {
+        return None;
+    }
+    let event_type = edu.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    if event_type.is_empty() {
+        return None;
+    }
+    let messages = edu.get("content").and_then(|c| c.get("messages"))?;
+    Some((sender, event_type, messages))
+}
+
+// --- receipt ---
+
+/// Extract the receipt content map from a `m.receipt` EDU.
+/// Returns `None` if content is missing or not an object (whole EDU dropped).
+fn parse_receipt_content(edu: &Value) -> Option<&serde_json::Map<String, Value>> {
+    edu.get("content").and_then(|c| c.as_object())
+}
+
+// --- signing_key_update ---
+
+/// Validate a signing key type. Returns `true` for valid key types, `false`
+/// otherwise.
+fn validate_signing_key_type(key_type: &str) -> bool {
+    matches!(key_type, "master_key" | "self_signing_key" | "user_signing_key")
+}
+
+/// Extract the content map from a `m.signing_key_update` EDU.
+/// Returns `None` if content is missing or not an object (whole EDU dropped).
+fn parse_signing_key_content(edu: &Value) -> Option<&serde_json::Map<String, Value>> {
+    edu.get("content").and_then(|c| c.as_object())
+}
+
+// ---------------------------------------------------------------------------
 // Per-type processing functions
 // ---------------------------------------------------------------------------
 
 async fn handle_presence_edu(ctx: &FederationContext, origin: &str, edu: &Value, remaining: usize) -> EduProcessResult {
-    let Some(push) = edu.get("content").and_then(|c| c.get("push")).and_then(|v| v.as_array()) else {
+    let Some(push) = parse_presence_push(edu) else {
         ::tracing::debug!("Dropping m.presence EDU from {} without push content", origin);
         increment_counter(ctx, "federation_inbound_presence_dropped_total");
         return EduProcessResult { dropped: 1, ..Default::default() };
     };
 
     let mut result = EduProcessResult::default();
-
     for update in push.iter().take(remaining) {
-        let Some(user_id) = update.get("user_id").and_then(|v| v.as_str()) else {
+        let Some((user_id, presence_str, status_msg)) = validate_presence_update(update, origin) else {
             result.dropped += 1;
             continue;
         };
 
-        if !user_matches_origin(user_id, origin) {
-            result.dropped += 1;
-            continue;
-        }
-
-        let presence_str = update.get("presence").and_then(|v| v.as_str()).unwrap_or("online");
         let presence =
             crate::common::PresenceState::from_str_opt(presence_str).unwrap_or(crate::common::PresenceState::Online);
-        let status_msg = update.get("status_msg").and_then(|v| v.as_str());
 
         let exists = match ctx.user_service.user_exists(user_id).await {
             Ok(exists) => exists,
@@ -102,12 +215,9 @@ async fn handle_presence_edu(ctx: &FederationContext, origin: &str, edu: &Value,
 }
 
 async fn handle_typing_edu(ctx: &FederationContext, origin: &str, edu: &Value, _remaining: usize) -> EduProcessResult {
-    let room_id = match edu.get("room_id").and_then(|v| v.as_str()) {
-        Some(r) => r,
-        None => {
-            increment_counter(ctx, "federation_inbound_typing_dropped_total");
-            return EduProcessResult { dropped: 1, ..Default::default() };
-        }
+    let Some(room_id) = extract_typing_room_id(edu) else {
+        increment_counter(ctx, "federation_inbound_typing_dropped_total");
+        return EduProcessResult { dropped: 1, ..Default::default() };
     };
 
     // MSC4163: enforce m.room.server_acl on room-scoped EDUs (typing).
@@ -123,17 +233,7 @@ async fn handle_typing_edu(ctx: &FederationContext, origin: &str, edu: &Value, _
         return EduProcessResult { dropped: 1, ..Default::default() };
     }
 
-    let user_ids = edu
-        .get("content")
-        .and_then(|c| c.get("user_ids"))
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .filter(|uid| user_matches_origin(uid, origin))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let user_ids = filter_typing_user_ids(edu, origin);
 
     if user_ids.is_empty() {
         increment_counter(ctx, "federation_inbound_typing_dropped_total");
@@ -167,36 +267,14 @@ async fn handle_device_list_update_edu(
     edu: &Value,
     _remaining: usize,
 ) -> EduProcessResult {
-    let content = match edu.get("content") {
-        Some(c) => c,
-        None => {
-            ::tracing::debug!("Dropping m.device_list_update EDU from {} without content", origin);
-            increment_counter(ctx, "federation_inbound_device_list_update_dropped_total");
-            return EduProcessResult { dropped: 1, ..Default::default() };
-        }
-    };
-
-    let user_id = match content.get("user_id").and_then(|v| v.as_str()) {
-        Some(uid) => uid,
-        None => {
-            ::tracing::debug!("Dropping m.device_list_update EDU from {} without user_id", origin);
-            increment_counter(ctx, "federation_inbound_device_list_update_dropped_total");
-            return EduProcessResult { dropped: 1, ..Default::default() };
-        }
-    };
-
-    if !user_matches_origin(user_id, origin) {
-        ::tracing::debug!("Dropping m.device_list_update EDU: user_id {} does not match origin {}", user_id, origin);
+    let Some((user_id, device_id, stream_id, change_type)) = validate_device_list_update_content(edu, origin) else {
+        ::tracing::debug!(
+            "Dropping m.device_list_update EDU from {} (missing/malformed content or origin mismatch)",
+            origin
+        );
         increment_counter(ctx, "federation_inbound_device_list_update_dropped_total");
         return EduProcessResult { dropped: 1, ..Default::default() };
-    }
-
-    let device_id = content.get("device_id").and_then(|v| v.as_str());
-
-    let stream_id = content.get("stream_id").and_then(|v| v.as_i64()).unwrap_or_else(current_timestamp_millis);
-
-    let change_type =
-        if content.get("deleted").and_then(|v| v.as_bool()).unwrap_or(false) { "deleted" } else { "updated" };
+    };
 
     let result = ctx.device_storage.insert_device_list_change(user_id, device_id, change_type, stream_id).await;
 
@@ -228,35 +306,10 @@ async fn handle_direct_to_device_edu(
     edu: &Value,
     _remaining: usize,
 ) -> EduProcessResult {
-    let sender = match edu.get("sender").and_then(|v| v.as_str()) {
-        Some(s) => s,
-        None => {
-            ::tracing::debug!("Dropping m.direct_to_device EDU from {} without sender", origin);
-            increment_counter(ctx, "federation_inbound_direct_to_device_dropped_total");
-            return EduProcessResult { dropped: 1, ..Default::default() };
-        }
-    };
-
-    if !user_matches_origin(sender, origin) {
-        ::tracing::debug!("Dropping m.direct_to_device EDU: sender {} does not match origin {}", sender, origin);
+    let Some((sender, event_type, messages)) = validate_direct_to_device_content(edu, origin) else {
+        ::tracing::debug!("Dropping m.direct_to_device EDU from {} (missing/malformed sender/type/content.messages or origin mismatch)", origin);
         increment_counter(ctx, "federation_inbound_direct_to_device_dropped_total");
         return EduProcessResult { dropped: 1, ..Default::default() };
-    }
-
-    let event_type = edu.get("type").and_then(|v| v.as_str()).unwrap_or("");
-    if event_type.is_empty() {
-        ::tracing::debug!("Dropping m.direct_to_device EDU from {} without type", origin);
-        increment_counter(ctx, "federation_inbound_direct_to_device_dropped_total");
-        return EduProcessResult { dropped: 1, ..Default::default() };
-    }
-
-    let messages = match edu.get("content").and_then(|c| c.get("messages")) {
-        Some(m) => m,
-        None => {
-            ::tracing::debug!("Dropping m.direct_to_device EDU from {} without content.messages", origin);
-            increment_counter(ctx, "federation_inbound_direct_to_device_dropped_total");
-            return EduProcessResult { dropped: 1, ..Default::default() };
-        }
     };
 
     let mut result = EduProcessResult::default();
@@ -340,13 +393,10 @@ async fn handle_direct_to_device_edu(
 /// `{ event_ids: [string], data: { ts: int } }`. We iterate and call
 /// `MessagingService::process_federation_receipt` for each receipt entry.
 async fn handle_receipt_edu(ctx: &FederationContext, origin: &str, edu: &Value, _remaining: usize) -> EduProcessResult {
-    let content = match edu.get("content").and_then(|c| c.as_object()) {
-        Some(c) => c,
-        None => {
-            ::tracing::debug!("Dropping m.receipt EDU from {} without content", origin);
-            increment_counter(ctx, "federation_inbound_receipt_dropped_total");
-            return EduProcessResult { dropped: 1, ..Default::default() };
-        }
+    let Some(content) = parse_receipt_content(edu) else {
+        ::tracing::debug!("Dropping m.receipt EDU from {} without content object", origin);
+        increment_counter(ctx, "federation_inbound_receipt_dropped_total");
+        return EduProcessResult { dropped: 1, ..Default::default() };
     };
 
     let mut result = EduProcessResult::default();
@@ -427,13 +477,10 @@ async fn handle_signing_key_update_edu(
     edu: &Value,
     _remaining: usize,
 ) -> EduProcessResult {
-    let content = match edu.get("content").and_then(|c| c.as_object()) {
-        Some(c) => c,
-        None => {
-            ::tracing::debug!("Dropping m.signing_key_update EDU from {} without content", origin);
-            increment_counter(ctx, "federation_inbound_signing_key_dropped_total");
-            return EduProcessResult { dropped: 1, ..Default::default() };
-        }
+    let Some(content) = parse_signing_key_content(edu) else {
+        ::tracing::debug!("Dropping m.signing_key_update EDU from {} without content object", origin);
+        increment_counter(ctx, "federation_inbound_signing_key_dropped_total");
+        return EduProcessResult { dropped: 1, ..Default::default() };
     };
 
     let mut result = EduProcessResult::default();
@@ -468,8 +515,7 @@ async fn handle_signing_key_update_edu(
                 }
             };
 
-            // Validate key type
-            if !matches!(key_type.as_str(), "master_key" | "self_signing_key" | "user_signing_key") {
+            if !validate_signing_key_type(key_type.as_str()) {
                 ::tracing::warn!("Unknown signing key type '{}' in m.signing_key_update from {}", key_type, origin);
                 result.dropped += 1;
                 continue;
@@ -765,5 +811,242 @@ mod tests {
             "content": {}
         });
         assert!(validate_profile_update_content(&edu, "example.com").is_none());
+    }
+
+    // --- presence: parse_presence_push + validate_presence_update ---
+
+    #[test]
+    fn test_parse_presence_push_present() {
+        let edu = json!({
+            "content": { "push": [{ "user_id": "@alice:example.com" }] }
+        });
+        let push = parse_presence_push(&edu).expect("should extract push array");
+        assert_eq!(push.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_presence_push_missing() {
+        let edu = json!({ "content": {} });
+        assert!(parse_presence_push(&edu).is_none());
+        let edu = json!({});
+        assert!(parse_presence_push(&edu).is_none());
+    }
+
+    #[test]
+    fn test_validate_presence_update_valid_with_defaults() {
+        let update = json!({ "user_id": "@alice:example.com" });
+        let (user_id, presence_str, status_msg) =
+            validate_presence_update(&update, "example.com").expect("valid entry");
+        assert_eq!(user_id, "@alice:example.com");
+        assert_eq!(presence_str, "online"); // default
+        assert_eq!(status_msg, None);
+    }
+
+    #[test]
+    fn test_validate_presence_update_explicit_fields() {
+        let update = json!({
+            "user_id": "@alice:example.com",
+            "presence": "unavailable",
+            "status_msg": "away"
+        });
+        let (user_id, presence_str, status_msg) =
+            validate_presence_update(&update, "example.com").expect("valid entry");
+        assert_eq!(user_id, "@alice:example.com");
+        assert_eq!(presence_str, "unavailable");
+        assert_eq!(status_msg, Some("away"));
+    }
+
+    #[test]
+    fn test_validate_presence_update_origin_mismatch_rejected() {
+        let update = json!({ "user_id": "@alice:example.com" });
+        assert!(validate_presence_update(&update, "evil.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_presence_update_missing_user_id() {
+        let update = json!({ "presence": "online" });
+        assert!(validate_presence_update(&update, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_presence_update_localpart_only_user_id_rejected() {
+        let update = json!({ "user_id": "alice" });
+        assert!(validate_presence_update(&update, "example.com").is_none());
+    }
+
+    // --- typing: extract_typing_room_id + filter_typing_user_ids ---
+
+    #[test]
+    fn test_extract_typing_room_id_present() {
+        let edu = json!({ "room_id": "!room:example.com" });
+        assert_eq!(extract_typing_room_id(&edu), Some("!room:example.com"));
+    }
+
+    #[test]
+    fn test_extract_typing_room_id_missing() {
+        let edu = json!({});
+        assert!(extract_typing_room_id(&edu).is_none());
+    }
+
+    #[test]
+    fn test_filter_typing_user_ids_filters_by_origin() {
+        let edu = json!({
+            "content": {
+                "user_ids": ["@alice:example.com", "@bob:other.com", "@carol:example.com"]
+            }
+        });
+        let ids = filter_typing_user_ids(&edu, "example.com");
+        assert_eq!(ids, vec!["@alice:example.com".to_string(), "@carol:example.com".to_string()]);
+    }
+
+    #[test]
+    fn test_filter_typing_user_ids_missing_content() {
+        let edu = json!({});
+        assert!(filter_typing_user_ids(&edu, "example.com").is_empty());
+    }
+
+    #[test]
+    fn test_filter_typing_user_ids_invalid_entries_filtered() {
+        let edu = json!({
+            "content": {
+                "user_ids": [123, "@alice:example.com", null]
+            }
+        });
+        let ids = filter_typing_user_ids(&edu, "example.com");
+        assert_eq!(ids, vec!["@alice:example.com".to_string()]);
+    }
+
+    // --- device_list_update: validate_device_list_update_content ---
+
+    #[test]
+    fn test_validate_device_list_update_content_valid_updated() {
+        let edu = json!({
+            "content": { "user_id": "@alice:example.com", "device_id": "DEV", "stream_id": 42 }
+        });
+        let (user_id, device_id, stream_id, change_type) =
+            validate_device_list_update_content(&edu, "example.com").expect("valid entry");
+        assert_eq!(user_id, "@alice:example.com");
+        assert_eq!(device_id, Some("DEV"));
+        assert_eq!(stream_id, 42);
+        assert_eq!(change_type, "updated");
+    }
+
+    #[test]
+    fn test_validate_device_list_update_content_deleted_flag() {
+        let edu = json!({
+            "content": { "user_id": "@alice:example.com", "deleted": true }
+        });
+        let (_, _, _, change_type) = validate_device_list_update_content(&edu, "example.com").expect("valid entry");
+        assert_eq!(change_type, "deleted");
+    }
+
+    #[test]
+    fn test_validate_device_list_update_content_origin_mismatch() {
+        let edu = json!({ "content": { "user_id": "@alice:example.com" } });
+        assert!(validate_device_list_update_content(&edu, "evil.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_device_list_update_content_missing_content() {
+        let edu = json!({});
+        assert!(validate_device_list_update_content(&edu, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_device_list_update_content_missing_user_id() {
+        let edu = json!({ "content": { "device_id": "DEV" } });
+        assert!(validate_device_list_update_content(&edu, "example.com").is_none());
+    }
+
+    // --- direct_to_device: validate_direct_to_device_content ---
+
+    #[test]
+    fn test_validate_direct_to_device_content_valid() {
+        let edu = json!({
+            "sender": "@alice:example.com",
+            "type": "m.room_key",
+            "content": { "messages": { "@bob:example.com": { "DEV": {} } } }
+        });
+        let (sender, event_type, messages) = validate_direct_to_device_content(&edu, "example.com").expect("valid EDU");
+        assert_eq!(sender, "@alice:example.com");
+        assert_eq!(event_type, "m.room_key");
+        assert!(messages.as_object().is_some());
+        assert!(messages.get("@bob:example.com").and_then(|v| v.get("DEV")).is_some());
+    }
+
+    #[test]
+    fn test_validate_direct_to_device_content_origin_mismatch() {
+        let edu = json!({
+            "sender": "@alice:example.com",
+            "type": "m.room_key",
+            "content": { "messages": {} }
+        });
+        assert!(validate_direct_to_device_content(&edu, "evil.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_direct_to_device_content_missing_sender() {
+        let edu = json!({ "type": "m.room_key", "content": { "messages": {} } });
+        assert!(validate_direct_to_device_content(&edu, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_direct_to_device_content_empty_type() {
+        let edu = json!({ "sender": "@alice:example.com", "type": "", "content": { "messages": {} } });
+        assert!(validate_direct_to_device_content(&edu, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_direct_to_device_content_missing_messages() {
+        let edu = json!({ "sender": "@alice:example.com", "type": "m.room_key", "content": {} });
+        assert!(validate_direct_to_device_content(&edu, "example.com").is_none());
+    }
+
+    // --- receipt: parse_receipt_content ---
+
+    #[test]
+    fn test_parse_receipt_content_present() {
+        let edu = json!({ "content": { "!room:example.com": {} } });
+        assert!(parse_receipt_content(&edu).is_some());
+    }
+
+    #[test]
+    fn test_parse_receipt_content_missing() {
+        let edu = json!({});
+        assert!(parse_receipt_content(&edu).is_none());
+    }
+
+    #[test]
+    fn test_parse_receipt_content_not_object() {
+        let edu = json!({ "content": [] });
+        assert!(parse_receipt_content(&edu).is_none());
+    }
+
+    // --- signing_key_update: validate_signing_key_type + parse_signing_key_content ---
+
+    #[test]
+    fn test_validate_signing_key_type_valid() {
+        assert!(validate_signing_key_type("master_key"));
+        assert!(validate_signing_key_type("self_signing_key"));
+        assert!(validate_signing_key_type("user_signing_key"));
+    }
+
+    #[test]
+    fn test_validate_signing_key_type_invalid() {
+        assert!(!validate_signing_key_type("unknown_key"));
+        assert!(!validate_signing_key_type(""));
+        assert!(!validate_signing_key_type("master"));
+    }
+
+    #[test]
+    fn test_parse_signing_key_content_present() {
+        let edu = json!({ "content": { "@alice:example.com": {} } });
+        assert!(parse_signing_key_content(&edu).is_some());
+    }
+
+    #[test]
+    fn test_parse_signing_key_content_missing() {
+        let edu = json!({});
+        assert!(parse_signing_key_content(&edu).is_none());
     }
 }
